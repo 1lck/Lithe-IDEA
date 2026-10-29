@@ -286,6 +286,7 @@ package final class RunFeatureModel: ObservableObject {
     package var moduleSessions: [RunSession] { service.moduleSessions }
     package var portConflicts: [RunPortConflict] { service.portConflicts }
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }
+    package var requiresConfigurationGeneration: Bool { service.requiresConfigurationGeneration }
     package var configurationDiagnostics: [RunConfigurationDiagnostic] { service.configurationDiagnostics }
     package var generationState: RunConfigurationGenerationState { service.generationState }
     package var javaDiscoveryStatus: JavaDiscoveryStatus { service.javaDiscoveryStatus }

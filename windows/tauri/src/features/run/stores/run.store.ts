@@ -288,7 +288,7 @@ function mergeJavaPath(
 
 type RunProjectSnapshot =
   | { status: "missing"; diagnostics: RunDiagnostic[] }
-  | ({ status: "ready" } & ResolvedRunProject);
+  | ({ status: "ready"; requiresGeneration: boolean } & ResolvedRunProject);
 
 type ReadyRunState = Pick<
   RunState,
@@ -381,6 +381,7 @@ async function readRunProjectSnapshot(
   return {
     status: "ready",
     ...resolved,
+    requiresGeneration: inspection.requiresGeneration === true,
     diagnostics: [...inspectionDiagnostics, ...resolved.diagnostics],
   };
 }
@@ -610,6 +611,10 @@ export const createRunStore = (
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
+          if (snapshot.requiresGeneration) {
+            await get().actions.generate(root, undefined, { automatic: true });
+            return;
+          }
           const ownsSnapshot = () =>
             revision === projectLoadRevision &&
             get().root === root &&
@@ -1390,7 +1395,7 @@ export const createRunStore = (
           },
           reload: async () => {
             let snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);
-            if (snapshot.status === "missing") {
+            if (snapshot.status === "missing" || snapshot.requiresGeneration) {
               // Saving does not need the detected layer, but showing the result does.
               await get().actions.generate(root, undefined, { automatic: true });
               snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);

@@ -32,6 +32,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     @Published package private(set) var moduleSessions: [RunSession] = []
     @Published package private(set) var portConflicts: [RunPortConflict] = []
     @Published package private(set) var configurationStatus: ProjectRunConfigurationStatus = .missing
+    @Published package private(set) var requiresConfigurationGeneration = false
     @Published package private(set) var configurationDiagnostics: [RunConfigurationDiagnostic] = []
     @Published package private(set) var generationState: RunConfigurationGenerationState = .idle
     @Published package private(set) var javaDiscoveryStatus: JavaDiscoveryStatus = .idle
@@ -521,6 +522,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         mavenProfiles = self.mavenProject?.profiles ?? []
         self.projectFiles = files
         configurationStatus = inspection.status
+        requiresConfigurationGeneration = inspection.requiresGeneration
         configurationDiagnostics = inspection.diagnostics
         recoveryAction = inspection.recoveryAction
         recoveryPath = inspection.recoveryPath
@@ -698,6 +700,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                         ?? resolution.defaultConfigurationID
                 )
                 configurationStatus = .ready
+                requiresConfigurationGeneration = false
                 defaultConfigurationID = resolution.defaultConfigurationID
                 recoveryAction = .none
                 recoveryPath = nil
@@ -1274,6 +1277,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         moduleSessions = []
         portConflicts = []
         configurationStatus = .missing
+        requiresConfigurationGeneration = false
         configurationDiagnostics = []
         generationState = .idle
         recoveryAction = .regenerate

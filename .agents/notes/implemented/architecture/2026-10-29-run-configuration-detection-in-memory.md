@@ -46,7 +46,9 @@ JDT（Java 语言服务）冷启动要几十秒。宿主在 `runConfig.generate`
 
 ### 打开项目时自动识别
 
-`inspect` 在本进程还没识别过这个工作区时返回 `missing`。宿主收到 `missing` 就直接识别，
+`inspect` 在本进程还没识别过这个工作区时返回 `requiresGeneration: true`。
+保存过构建任务的工作区即使没有检测层也可以返回 `ready`，因此两端不能只检查 `missing`：
+否则重启后只剩用户任务，Spring Boot 等自动入口不会恢复。宿主收到该标记或 `missing` 就直接识别，
 不再停在“请生成”的空状态：
 
 - Windows：`run.store.ts` 的 `loadProject` 调用 `generate(root, undefined, { automatic: true })`。

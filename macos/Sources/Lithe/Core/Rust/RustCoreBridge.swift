@@ -751,6 +751,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     struct RunConfigurationInspectPayload: Codable, Sendable {
         let status: String
+        let requiresGeneration: Bool?
         let generated: RunConfigurationPayload?
         let toolchainRequirements: ToolchainRequirementsPayload?
         let diagnostics: [[String: String]]?

@@ -166,7 +166,8 @@ extension AppModel {
         guard isCurrentWorkspace(identity) else { return }
         // Detected entries live in Core's memory, not in the workspace, so a
         // project this process has not identified yet is identified now.
-        if snapshotID != nil, execution.runFeature.configurationStatus == .missing {
+        if snapshotID != nil,
+           execution.runFeature.configurationStatus == .missing || execution.runFeature.requiresConfigurationGeneration {
             await generateFromJavaEntrypoints(execution.runFeature, for: identity, automatic: true)
             guard isCurrentWorkspace(identity) else { return }
         }

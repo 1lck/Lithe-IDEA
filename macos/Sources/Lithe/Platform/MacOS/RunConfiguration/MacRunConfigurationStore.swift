@@ -62,7 +62,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                         mavenExecutablePath: toolchain.maven?.executablePath ?? "",
                         mavenJavaHomePath: toolchain.maven?.javaHomePath ?? ""
                     )
-                }
+                },
+                requiresGeneration: payload.requiresGeneration ?? (payload.status == "missing")
             )
         case .failure(let error):
             return ProjectRunConfigurationInspection(

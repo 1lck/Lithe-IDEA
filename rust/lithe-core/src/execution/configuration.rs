@@ -580,6 +580,9 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     }
     Ok(json!({
         "status": if generated.is_some() || has_saved_build_run(&local) { "ready" } else { "missing" },
+        // Saved provider tasks remain runnable before detection, but must not
+        // suppress discovery of the other entries after a process restart.
+        "requiresGeneration": generated.is_none(),
         "generated": generated,
         "toolchainRequirements": requirements,
         "localToolchains": local_toolchains,

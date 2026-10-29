@@ -3154,8 +3154,10 @@ application cache root where generation records its result under
 older versions wrote. It returns the generated configuration and toolchain
 requirement documents and keeps them in memory as the workspace's detected
 layer for `inspect`, `resolve`, and `selectJava`; nothing is written into the
-workspace, and hosts identify a workspace again when `inspect` reports
-`status: "missing"`. Maven root
+workspace. `inspect` returns `requiresGeneration: true` while this process has
+no detected layer. Hosts identify the workspace when this flag is true or the
+status is `missing`; a saved provider task can make `status` be `ready` before
+detection, and must not suppress discovery of the remaining entries. Maven root
 discovery checks `pom.xml` along each supplied path's ancestor chain, so a
 reactor nested below the opened workspace does not depend on the platform
 including build descriptors in `paths`. Maven ownership is resolved per Java

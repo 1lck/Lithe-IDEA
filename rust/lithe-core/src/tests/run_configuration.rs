@@ -7,6 +7,82 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
+fn saved_provider_tasks_do_not_suppress_detection_after_restart() {
+    let root = temporary_root("saved-task-detection");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            crate::execution::generated_layer::forget(&self.0);
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><modelVersion>4.0.0</modelVersion>
+        <groupId>example</groupId><artifactId>demo</artifactId><version>1</version>
+        <build><plugins><plugin><groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
+    )
+    .unwrap();
+    let call = |command: &str, mut payload: Value| -> Value {
+        payload["root"] = serde_json::json!(root);
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"restart-detection","command":command,"payload":payload})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    let saved = call(
+        "runConfig.createUserConfiguration",
+        serde_json::json!({
+            "scope":"local", "type":"buildProvider", "name":"Saved task",
+            "build":{"pluginID":"dev.example.maven","buildSystemID":"maven","root":".",
+                "run":"application","projectID":"demo","targetID":"run"}
+        }),
+    );
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        saved["document"].as_str().unwrap(),
+    )
+    .unwrap();
+    // A new process retains saved tasks but must still request detection. A
+    // later load in the same process must not repeatedly regenerate the layer.
+    for _ in 0..2 {
+        let inspected = call(
+            "runConfig.inspect",
+            serde_json::json!({"checkFingerprint":false}),
+        );
+        assert_eq!(inspected["status"], "ready");
+        assert_eq!(inspected["requiresGeneration"], true);
+        call(
+            "runConfig.generate",
+            serde_json::json!({"paths":["pom.xml"]}),
+        );
+        let inspected = call(
+            "runConfig.inspect",
+            serde_json::json!({"checkFingerprint":false}),
+        );
+        assert_eq!(inspected["requiresGeneration"], false);
+        let resolved = call(
+            "runConfig.resolve",
+            serde_json::json!({"toolchainCandidates":[]}),
+        );
+        let entries = resolved["configurations"].as_array().unwrap();
+        assert!(entries
+            .iter()
+            .any(|entry| entry["provider"] == "spring-boot.maven"));
+        assert!(entries
+            .iter()
+            .any(|entry| entry["provider"] == "build.provider"));
+        crate::execution::generated_layer::forget(&root);
+    }
+}
+
+#[test]
 fn project_environment_saves_before_generation_and_preserves_service_overrides() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/run-configuration/project-environment.json"
@@ -4501,6 +4577,10 @@ fn build_provider_configurations_persist_before_generation_and_reuse_identity() 
     assert_eq!(
         inspected["data"]["status"], fixture["expected"]["inspectionStatus"],
         "{inspected}"
+    );
+    assert_eq!(
+        inspected["data"]["requiresGeneration"],
+        fixture["expected"]["requiresGeneration"]
     );
     let resolved = call(
         "runConfig.resolve",

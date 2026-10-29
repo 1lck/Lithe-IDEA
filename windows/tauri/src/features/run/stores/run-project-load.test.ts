@@ -106,15 +106,22 @@ test.each([
   }
 });
 
-test("a project this process has not identified is identified on load without a count notice", async () => {
-  const inspectRunConfiguration = mock(async () => ({ status: "missing" }));
+test.each(["missing", "ready"])("a project requiring detection is identified even with saved tasks: %s", async (status) => {
+  let requiresGeneration = true;
+  const inspectRunConfiguration = mock(async () => ({
+    status: requiresGeneration ? status : "ready",
+    requiresGeneration,
+  }));
   const resolveConfigurations = mock(async () => project(""));
   const listJavaSources = mock(async () => [] as string[]);
-  const generateRunConfiguration = mock(async () => ({
-    generated: {},
-    toolchainRequirements: {},
-    entryCount: 1,
-  }));
+  const generateRunConfiguration = mock(async () => {
+    requiresGeneration = false;
+    return {
+      generated: {},
+      toolchainRequirements: {},
+      entryCount: 1,
+    };
+  });
   const store = createRunStore("workspace-A", {
     inspectRunConfiguration,
     resolveConfigurations,
@@ -124,11 +131,13 @@ test("a project this process has not identified is identified on load without a 
   await store.getState().actions.loadProject("D:/fixture/project");
   expect(inspectRunConfiguration).toHaveBeenCalledTimes(1);
   expect(generateRunConfiguration).toHaveBeenCalledTimes(1);
-  expect(resolveConfigurations).toHaveBeenCalledTimes(1);
+  expect(resolveConfigurations).toHaveBeenCalledTimes(status === "ready" ? 2 : 1);
   expect(store.getState().status).toBe("ready");
   expect(store.getState().recoveryAction).toBe("none");
   expect(store.getState().generationNotice).toBeNull();
   expect(store.getState().isLoading).toBe(false);
+  await store.getState().actions.loadProject("D:/fixture/project");
+  expect(generateRunConfiguration).toHaveBeenCalledTimes(1);
 });
 
 test.each(["success", "failure", "superseded"])("identification waits for native fingerprint work: %s", async (outcome) => {

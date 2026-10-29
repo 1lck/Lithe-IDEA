@@ -21,6 +21,7 @@ struct RunConfigurationIntegrationTests {
             run: "application", projectID: "p", targetID: "t", userArguments: ["a b", "--x=one two"])
         let id = try store.saveBuildProviderConfiguration(reference, name: "Main", at: root)
         #expect(store.inspect(at: root).status == .ready)
+        #expect(store.inspect(at: root).requiresGeneration)
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
         let resolved = try store.resolve(at: root, toolchainCandidates: [])
         #expect(resolved.configurations.first?.configuration.buildProvider == reference)
@@ -34,6 +35,20 @@ struct RunConfigurationIntegrationTests {
         #expect(entry["args"] == nil)
         let ignore = try String(contentsOf: root.appendingPathComponent(".lithe/.gitignore"), encoding: .utf8)
         #expect(ignore.contains("run/local.json"))
+        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
+        #expect(!store.inspect(at: root).requiresGeneration)
+    }
+
+    @Test
+    func readySavedTasksStillRequestDetectionUntilGenerationSucceeds() async {
+        let fixture = makeFixture(status: .ready)
+        fixture.operations.requiresGeneration = true
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil, snapshotID: UUID())
+        #expect(fixture.service.configurationStatus == .ready)
+        #expect(fixture.service.requiresConfigurationGeneration)
+        await fixture.service.generateRunConfigurations(automatic: true)
+        #expect(fixture.operations.generateCalls == 1)
+        #expect(!fixture.service.requiresConfigurationGeneration)
     }
 
     @Test
@@ -4255,6 +4270,7 @@ private struct RunServiceFixture {
 }
 
 private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    var requiresGeneration = false
     var inspectionRecoveryAction: RunConfigurationRecoveryAction = .none
     var inspectionToolchain: ProjectToolchainSelection?
     private(set) var generateCalls = 0
@@ -4298,7 +4314,8 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
             status: status,
             diagnostics: [],
             recoveryAction: inspectionRecoveryAction,
-            projectToolchain: inspectionToolchain
+            projectToolchain: inspectionToolchain,
+            requiresGeneration: requiresGeneration
         )
     }
     func generate(

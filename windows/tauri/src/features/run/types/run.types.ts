@@ -152,6 +152,8 @@ export interface JavaLaunchTarget {
 
 export interface CoreInspectResult {
   status: string;
+  /** Saved tasks can be ready before this process has detected other entries. */
+  requiresGeneration?: boolean;
   toolchain?: CoreGlobalToolchain | null;
   diagnostics?: Array<Record<string, string>>;
   localToolchains?: CoreLocalToolchains | null;
