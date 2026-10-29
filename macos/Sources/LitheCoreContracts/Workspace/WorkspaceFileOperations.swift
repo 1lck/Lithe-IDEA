@@ -104,6 +104,39 @@ package enum DocumentChangeReadResult: Sendable {
     case changed(DocumentReadDetails)
 }
 
+/// A one-save choice, never a persistent preference or permission to overwrite conflicts.
+package enum DocumentHardLinkSaveMode: Sendable {
+    case replaceCurrentPath
+    case updateLinkedFile
+}
+
+/// Opaque native object identity binds consent to the file that was inspected.
+package struct DocumentHardLinkAuthorization: Sendable {
+    package let targetIdentity: String
+    package let mode: DocumentHardLinkSaveMode
+
+    package init(targetIdentity: String, mode: DocumentHardLinkSaveMode) {
+        self.targetIdentity = targetIdentity
+        self.mode = mode
+    }
+}
+
+package struct DocumentHardLinkConfirmationRequired: Error, Sendable {
+    package let targetIdentity: String
+
+    package init(targetIdentity: String) { self.targetIdentity = targetIdentity }
+}
+
+package enum DocumentFileAccessError: Error, Sendable {
+    case directory
+    case symbolicLink
+    case notRegularFile
+    case hardLinkChanged
+    case hardLinkMutationUnsupported
+    /// In-place writes cannot be rolled back atomically; the editor draft must survive failure.
+    case inPlaceWriteFailed
+}
+
 package protocol WorkspaceFileOperations: Sendable {
     var supportsDocumentEncoding: Bool { get }
     func fileExists(at url: URL) -> Bool
@@ -141,6 +174,11 @@ package protocol WorkspaceFileOperations: Sendable {
         encoding: DocumentEncoding,
         expectedIdentity: String?
     ) async throws -> EncodedDocumentWriteResult
+    func writeDocumentTextAsync(
+        _ text: String, to url: URL, expectedContent: String?,
+        encoding: DocumentEncoding, expectedIdentity: String?,
+        hardLinkAuthorization: DocumentHardLinkAuthorization
+    ) async throws -> EncodedDocumentWriteResult
 }
 
 /// Native persistence result. Conflict preserves both the disk and editor versions.
@@ -163,6 +201,14 @@ package protocol DocumentFileObservation: Sendable { func cancel() }
 private struct EmptyDocumentFileObservation: DocumentFileObservation { func cancel() {} }
 
 package extension WorkspaceFileOperations {
+    /// Adapters without explicit hard-link support fail closed, never ignore consent semantics.
+    func writeDocumentTextAsync(
+        _ text: String, to url: URL, expectedContent: String?,
+        encoding: DocumentEncoding, expectedIdentity: String?,
+        hardLinkAuthorization: DocumentHardLinkAuthorization
+    ) async throws -> EncodedDocumentWriteResult {
+        throw CocoaError(.featureUnsupported)
+    }
     var supportsDocumentEncoding: Bool { false }
     /// Unsupported adapters must never fall back to unguarded removal.
     func trashDocument(at url: URL, expectedIdentity: String) throws -> DocumentTrashResult {
