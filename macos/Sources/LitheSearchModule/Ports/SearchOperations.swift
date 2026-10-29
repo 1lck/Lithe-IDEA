@@ -41,6 +41,17 @@ public protocol SearchOperations: Sendable {
         onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
     ) async -> SearchEverywhereResults?
 
+    func searchEverywherePage(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: SearchVisibilityRules,
+        includeGeneratedFileNames: Bool,
+        kinds: Set<SearchResultKind>,
+        cursor: String?,
+        onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
+    ) async throws -> SearchEverywhereResults
+
     func previewReplacement(
         at rootURL: URL,
         query: String,
@@ -73,6 +84,21 @@ public extension SearchOperations {
                     includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds))
             }
         }
+    }
+
+    func searchEverywherePage(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: SearchVisibilityRules,
+        includeGeneratedFileNames: Bool,
+        kinds: Set<SearchResultKind>,
+        cursor: String?,
+        onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
+    ) async throws -> SearchEverywhereResults {
+        guard cursor == nil else { return .init() }
+        return await searchEverywhere(at: rootURL, query: query, options: options, visibilityRules: visibilityRules,
+            includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds, onResults: onResults) ?? SearchEverywhereResults()
     }
 
     func warmSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) {}

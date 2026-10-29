@@ -136,6 +136,63 @@ struct SearchModuleTests {
         #expect(feature.searchEverywhereResults.fileMatches.first?.preview == (reset ? nil : "first"))
     }
 
+    @Test(arguments: ["normal", "failure", "duplicate", "repeat"])
+    func continuationPagesAppendRetryAndStopWithoutATotalCap(mode: String) async throws {
+        let operations = PagedSearchOperations(mode: mode)
+        let feature = SearchFeatureModel(operations: operations)
+        defer { feature.reset() }
+        await runSearch(feature, query: "name")
+        #expect(feature.searchEverywhereResults.totalCount == 50)
+        #expect(feature.searchEverywhereResults.nextCursor == "50")
+        await feature.loadNextSearchPage()
+        if mode == "failure" {
+            #expect(feature.searchEverywhereFailed)
+            #expect(feature.searchEverywhereResults.totalCount == 50)
+            #expect(feature.searchEverywhereResults.nextCursor == "50")
+            await feature.loadNextSearchPage()
+            #expect(await operations.calls == 2, "Automatic loading pauses after an error")
+            await feature.loadNextSearchPage(retry: true)
+            #expect(!feature.searchEverywhereFailed)
+        }
+        if mode == "duplicate" || mode == "repeat" {
+            #expect(feature.searchEverywhereResults.nextCursor == nil)
+            #expect(feature.searchEverywhereResults.totalCount == (mode == "duplicate" ? 50 : 100))
+            await feature.loadNextSearchPage()
+            #expect(await operations.calls == 2)
+            return
+        }
+        for _ in 0..<4 { await feature.loadNextSearchPage() }
+        let results = feature.searchEverywhereResults
+        #expect(results.totalCount == 257)
+        #expect(Set(results.allMatches.map(\.id)).count == 257)
+        #expect(results.nextCursor == nil)
+        #expect(results.fileMatches.map(\.preview) == (0..<257).map(String.init))
+        #expect(results.fileMatches.allSatisfy { feature.searchEverywherePageByID[$0.id] == Int($0.preview)! / 50 })
+        let calls = await operations.calls
+        await feature.loadNextSearchPage()
+        #expect(await operations.calls == calls)
+    }
+
+    @Test
+    func pendingContinuationIsNotDuplicatedAndCannotAppendToANewerQuery() async throws {
+        let operations = PagedSearchOperations(mode: "blocking")
+        let feature = SearchFeatureModel(operations: operations)
+        defer { operations.pageFinish.signal(); feature.reset() }
+        await runSearch(feature, query: "first")
+        let page = Task { await feature.loadNextSearchPage() }
+        defer { page.cancel() }
+        try #require(await operations.pageStarted.waitUntilSignaled(timeout: .seconds(2)))
+        await feature.loadNextSearchPage()
+        #expect(await operations.calls == 2)
+        await runSearch(feature, query: "second")
+        operations.pageFinish.signal()
+        await page.value
+        #expect(feature.searchEverywhereResults.totalCount == 50)
+        #expect(feature.searchEverywhereResults.nextCursor == "50")
+        #expect(!feature.isSearchingEverywhere)
+        #expect(!feature.searchEverywhereFailed)
+    }
+
     private func runSearch(_ feature: SearchFeatureModel, query: String) async {
         await feature.searchEverywhere(at: URL(fileURLWithPath: "/test-workspace"), query: query,
             options: .default, visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []),
@@ -301,4 +358,41 @@ private final class StreamingSearchOperations: SearchOperations, @unchecked Send
     func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+private actor PagedSearchOperations: SearchOperations {
+    let pageStarted = AsyncTestSignal()
+    let pageFinish = DispatchSemaphore(value: 0)
+    let mode: String
+    var calls = 0
+    init(mode: String) { self.mode = mode }
+    nonisolated func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
+    nonisolated func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>) -> SearchEverywhereResults? { .init() }
+    func searchEverywherePage(at rootURL: URL, query: String, options: ProjectSearchOptions,
+        visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>,
+        cursor: String?, onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
+    ) async throws -> SearchEverywhereResults {
+        calls += 1
+        if mode == "failure" && calls == 2 { throw NSError(domain: "search-test", code: 1) }
+        if mode == "blocking" && cursor != nil {
+            pageStarted.signal()
+            let gate = pageFinish
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    #expect(gate.wait(timeout: .now() + 2) == .success)
+                    continuation.resume()
+                }
+            }
+        }
+        let start = mode == "duplicate" ? 0 : Int(cursor ?? "0")!
+        let end = min(start + 50, 257)
+        let matches = (start..<end).map { FileSearchResult(url: rootURL.appendingPathComponent("name\($0)"),
+            line: nil, preview: String($0), kind: .file) }
+        // A continuation's provisional snapshot must never replace already loaded rows.
+        onResults(.init(fileMatches: [FileSearchResult(url: rootURL.appendingPathComponent("provisional"), line: nil, preview: "provisional", kind: .file)]))
+        return .init(fileMatches: matches, nextCursor: end == 257 ? nil : (mode == "repeat" && cursor != nil ? cursor : String(mode == "duplicate" ? calls * 50 : end)))
+    }
+    nonisolated func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
+    nonisolated func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    nonisolated func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
 }

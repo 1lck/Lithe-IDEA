@@ -2038,6 +2038,19 @@ existing caps: Actions-only stays local, Text-only requests contents, Files and
 Agent completion request names, and Classes/Symbols share the symbol index.
 Search module activation does not eagerly build a content index.
 
+Optional `pageSize` (1–200 per source), `cursor`, and `resultKinds`
+(`file`, `type`, `symbol`, `content`) enable bounded keyset pages. The response
+adds nullable `nextCursor`; absent/null means exhausted. macOS uses 50 per source
+and loads another page near the scroll edge, with no 200-result total ceiling.
+The opaque cursor binds the workspace/remote identity, query, options, source caps,
+visibility rules and page size; clients must resend the same request options.
+Each source retains at most pageSize + 1 ranked candidates, using the extra item
+to detect exhaustion. No all-matches array or retained search session is created.
+Name/symbol continuation scans the existing index to select the next ranked page;
+text pages follow path/line order and stop after the lookahead match. Pages observe
+the live index: edits inserting a match before the cursor require a fresh query.
+Requests without pageSize retain the legacy capped response and schema.
+
 Observed `workspace.searchEverywhere` calls may emit
 `{ "type": "searchResults", "operationId": "…", "results": { "matches": […] } }`
 on the existing request event channel. Each event replaces the previous snapshot;
@@ -2058,8 +2071,13 @@ macOS consumes replaceable snapshots with a newest-only buffer, checks query
 generation and cancellation for every update, and keeps selection by result ID
 when ranking changes. Closing/resetting or replacing a query cancels its Core
 operation; late callbacks cannot overwrite the next query or its loading state.
-The input debounce remains 180 ms. Windows continues to consume the complete
-response; this change does not claim incremental Windows presentation.
+First-page snapshots remain replaceable; completed continuation pages append with
+ID deduplication. macOS keeps each loaded page's order, including actions after the
+first names page, so later pages do not insert above the visible viewport. Repeated
+cursors or pages with no new IDs stop loading. Failure preserves rows/cursor and
+pauses automatic loading until Retry. The input debounce remains 180 ms. Windows
+continues to consume the legacy final response; this change does not claim
+incremental or automatically paged Windows presentation.
 Basename matches rank above relative-path fallback matches, even when the query
 contains no slash (for example `src` matches `src/Foo.swift`). Path-only matches
 have `matchingDegree: -1` and no basename ranges; literal basename hits use degree
@@ -2095,8 +2113,8 @@ file/path globs still apply. It does not enable generated-file content or symbol
 indexing and does not change `workspace.search`, tree, watcher, or replacement
 visibility. Names share index invalidation and reported file updates; changes
 inside unwatched generated directories require workspace/index refresh. No index
-files or resources are written to disk. macOS requests 200 matches per bucket
-and 800 total; these are bounded candidate limits, not a claim of unbounded IDEA paging.
+files or resources are written to disk. macOS Search Everywhere requests pages of
+50 matches per source; legacy synchronous consumers retain their requested caps.
 Java type and method results still use the existing syntax index and include a
 one-based line, `symbolName`, and source line in `preview`; language-provider
 workspace-symbol integration and external-library search are not implied.

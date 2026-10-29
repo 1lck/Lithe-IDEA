@@ -2,6 +2,7 @@
 
 use super::file_name_order::FileNameKey;
 use super::search_index::{self, UpdateOutcome, WorkspaceSearchIndex};
+use super::search_paging::SearchPage;
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{
     DirectoryListing, DirectoryListingResponse, FileReadResponse, FileWriteResponse,
@@ -83,7 +84,7 @@ pub struct DirectoryListingRequest {
     pub hidden_file_patterns: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Bounded file, content, and symbol search options.
 pub struct SearchRequest {
@@ -311,7 +312,7 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     let index = index
         .read()
         .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
-    search_with_index(&root, &request, &query, &index)
+    search_with_index(&root, &request, &query, &index, None)
 }
 
 fn search_with_index(
@@ -319,6 +320,7 @@ fn search_with_index(
     request: &SearchRequest,
     query: &str,
     index: &WorkspaceSearchIndex,
+    page: Option<&SearchPage>,
 ) -> Result<SearchResponse, CoreError> {
     let matcher = Matcher::new(
         query,
@@ -361,7 +363,11 @@ fn search_with_index(
     }
 
     let mut content_matches = 0;
-    for id in index.candidate_ids(query, request.regular_expression) {
+    let mut candidates = index.candidate_ids(query, request.regular_expression);
+    if page.is_some() {
+        candidates.sort_by_key(|id| index.file(*id).map(|file| file.path.as_str()));
+    }
+    for id in candidates {
         crate::protocol::cancellation::check()?;
         if matches.len() >= limit || content_matches >= content_limit {
             break;
@@ -370,7 +376,7 @@ fn search_with_index(
             continue;
         };
         let path = &indexed_file.path;
-        if !file_mask_allows(&masks, path) {
+        if page.is_some_and(|page| !page.accepts_path(path)) || !file_mask_allows(&masks, path) {
             continue;
         }
         let file = root.join(path);
@@ -380,7 +386,7 @@ fn search_with_index(
         for (index, line) in text.split('\n').enumerate() {
             crate::protocol::cancellation::check()?;
             if matcher.matches(line) {
-                matches.push(SearchMatch {
+                let result = SearchMatch {
                     kind: "content".to_string(),
                     path: path.clone(),
                     line: Some(index + 1),
@@ -389,7 +395,11 @@ fn search_with_index(
                     name_match_ranges: Vec::new(),
                     matching_degree: None,
                     is_ignored: None,
-                });
+                };
+                if page.is_some_and(|page| !page.accepts(&result)) {
+                    continue;
+                }
+                matches.push(result);
                 content_matches += 1;
                 if matches.len() >= limit || content_matches >= content_limit {
                     break;
@@ -403,6 +413,14 @@ fn search_with_index(
 
 /// Combines file, content, and Java-symbol results for Search Everywhere.
 pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreError> {
+    search_everywhere_with_page(request, None)
+}
+
+/// Searches one bounded page when a continuation state is supplied.
+pub(crate) fn search_everywhere_with_page(
+    request: SearchRequest,
+    mut page: Option<&mut SearchPage>,
+) -> Result<SearchResponse, CoreError> {
     let root = existing_root(&request.root)?;
     let query = request.query.trim().to_string();
     if query.is_empty() {
@@ -422,9 +440,24 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
     )?;
     let masks = parse_file_mask(&request.file_mask);
     let limit = request.max_results.max(1).min(10_000);
-    let file_limit = request.max_file_results.unwrap_or(limit).min(limit);
-    let symbol_limit = request.max_symbol_results.unwrap_or(limit).min(limit);
-    let content_limit = request.max_content_results.unwrap_or(limit).min(limit);
+    let file_limit = if page.as_ref().is_some_and(|page| page.exhausted("file")) {
+        0
+    } else {
+        request.max_file_results.unwrap_or(limit).min(limit)
+    };
+    let symbol_limit = if page
+        .as_ref()
+        .is_some_and(|page| page.exhausted("type") && page.exhausted("symbol"))
+    {
+        0
+    } else {
+        request.max_symbol_results.unwrap_or(limit).min(limit)
+    };
+    let content_limit = if page.as_ref().is_some_and(|page| page.exhausted("content")) {
+        0
+    } else {
+        request.max_content_results.unwrap_or(limit).min(limit)
+    };
     let mut files = Vec::new();
     let mut types = Vec::new();
     let mut symbols = Vec::new();
@@ -474,7 +507,11 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
             } else {
                 continue;
             }
-            files.push(result);
+            if let Some(page) = page.as_ref() {
+                page.push(&mut files, result, file_limit);
+            } else {
+                files.push(result);
+            }
             emit_search_results(
                 [
                     (&mut files, file_limit),
@@ -528,9 +565,17 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
                 let mut result = search_index::make_symbol_match(symbol, file.path.clone());
                 if match_everywhere_name(&request, &matcher, &symbol.name, &mut result) {
                     if result.kind == "type" {
-                        types.push(result);
+                        if let Some(page) = page.as_ref() {
+                            page.push(&mut types, result, symbol_limit);
+                        } else {
+                            types.push(result);
+                        }
                     } else {
-                        symbols.push(result);
+                        if let Some(page) = page.as_ref() {
+                            page.push(&mut symbols, result, symbol_limit);
+                        } else {
+                            symbols.push(result);
+                        }
                     }
                     emit_search_results(
                         [
@@ -547,13 +592,6 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
             }
         }
     }
-    for (bucket, cap) in [
-        (&mut files, file_limit),
-        (&mut types, symbol_limit),
-        (&mut symbols, symbol_limit),
-    ] {
-        rank_search_bucket(bucket, cap);
-    }
     emit_search_results(
         [
             (&mut files, file_limit),
@@ -565,9 +603,26 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
         std::time::Instant::now(),
         true,
     );
+    if let Some(page) = page.as_mut() {
+        page.finish("file", &mut files, file_limit);
+        page.finish("type", &mut types, symbol_limit);
+        page.finish("symbol", &mut symbols, symbol_limit);
+    } else {
+        for (bucket, cap) in [
+            (&mut files, file_limit),
+            (&mut types, symbol_limit),
+            (&mut symbols, symbol_limit),
+        ] {
+            rank_search_bucket(bucket, cap);
+        }
+    }
     let mut content_request = request.clone();
     content_request.max_file_results = Some(0);
-    let content = if content_limit > 0 {
+    if page.is_some() {
+        content_request.max_results = content_limit + 1;
+        content_request.max_content_results = Some(content_limit + 1);
+    }
+    let mut content = if content_limit > 0 {
         search_with_index(
             &root,
             &content_request,
@@ -575,11 +630,15 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
             index
                 .as_ref()
                 .expect("content source requires content index"),
+            page.as_deref(),
         )?
         .matches
     } else {
         Vec::new()
     };
+    if let Some(page) = page.as_mut() {
+        page.finish("content", &mut content, content_limit);
+    }
     let mut matches = files;
     matches.extend(types);
     matches.extend(symbols);
@@ -596,13 +655,17 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
     Ok(SearchResponse { matches })
 }
 
+/// Stable total ordering shared by bounded collection and cursor continuation.
+pub(crate) fn compare_search_matches(a: &SearchMatch, b: &SearchMatch) -> std::cmp::Ordering {
+    b.matching_degree
+        .cmp(&a.matching_degree)
+        .then_with(|| a.path.cmp(&b.path))
+        .then_with(|| a.line.cmp(&b.line))
+        .then_with(|| a.symbol_name.cmp(&b.symbol_name))
+}
+
 fn rank_search_bucket(bucket: &mut Vec<SearchMatch>, cap: usize) {
-    bucket.sort_by(|a, b| {
-        b.matching_degree
-            .cmp(&a.matching_degree)
-            .then_with(|| a.path.cmp(&b.path))
-            .then_with(|| a.line.cmp(&b.line))
-    });
+    bucket.sort_by(compare_search_matches);
     bucket.truncate(cap);
 }
 
@@ -626,11 +689,11 @@ fn emit_search_results(
     }
     let mut matches = Vec::new();
     for (bucket, cap) in buckets {
-        rank_search_bucket(bucket, cap);
+        rank_search_bucket(bucket, cap + 1);
         matches.extend(
             bucket
                 .iter()
-                .take(limit.saturating_sub(matches.len()))
+                .take(cap.min(limit.saturating_sub(matches.len())))
                 .cloned(),
         );
     }

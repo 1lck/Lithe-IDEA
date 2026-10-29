@@ -147,6 +147,8 @@ private struct SearchEverywhereContent: View {
         get { draftQuery ?? session.everywhereQuery }
         nonmutating set { draftQuery = newValue; session.everywhereQuery = newValue }
     }
+    @State private var pageRequest = 0
+    @State private var retryPage = false
     @State private var selectedItemID: String?
     private var selectedIndex: Int {
         get { visibleItems.firstIndex { $0.id == selectedItemID } ?? 0 }
@@ -192,8 +194,10 @@ private struct SearchEverywhereContent: View {
             let nameMatches = (enabledProviders.contains(.files) ? values.fileMatches : [])
                 + (enabledProviders.contains(.classes) ? values.classMatches : [])
                 + (enabledProviders.contains(.symbols) ? values.symbolMatches : [])
-            return rankedResults(nameMatches)
+            let names = rankedResults(nameMatches)
+            return names.filter { pageNumber($0) == 0 }
                 + (enabledProviders.contains(.actions) ? actionMatches(query).map(SearchItem.action) : [])
+                + names.filter { pageNumber($0) > 0 }
         case .classes:
             return results(in: feature.searchEverywhereResults.classMatches)
         case .files:
@@ -231,9 +235,21 @@ private struct SearchEverywhereContent: View {
             )
         }
         ranked.sort { left, right in
-            left.score == right.score ? left.index < right.index : left.score > right.score
+            let leftPage = feature.searchEverywherePageByID[left.value.id] ?? 0
+            let rightPage = feature.searchEverywherePageByID[right.value.id] ?? 0
+            if leftPage != rightPage { return leftPage < rightPage }
+            return left.score == right.score ? left.index < right.index : left.score > right.score
         }
         return ranked.map { SearchItem.result($0.value) }
+    }
+
+    private func pageNumber(_ item: SearchItem) -> Int {
+        guard case .result(let result) = item else { return 0 }
+        return feature.searchEverywherePageByID[result.id] ?? 0
+    }
+
+    private var searchTaskIdentity: String {
+        "\(queryMode.workspaceSearchTaskID)|\(scope.rawValue)|\(session.everywhereResultKinds.map(\.rawValue).sorted())|\(searchOptions.cacheKey)|\(settings.searchExcludedPathPatterns)|\(settings.searchExclusionsEnabled)"
     }
 
     private var hasQuery: Bool {
@@ -281,7 +297,15 @@ private struct SearchEverywhereContent: View {
         .onChange(of: visibleItems.map(\.id)) { ids in
             if !ids.contains(where: { $0 == selectedItemID }) { selectedItemID = ids.first }
         }
-        .task(id: "\(queryMode.workspaceSearchTaskID)|\(scope.rawValue)|\(session.everywhereResultKinds.map(\.rawValue).sorted())|\(searchOptions.cacheKey)|\(settings.searchExcludedPathPatterns)|\(settings.searchExclusionsEnabled)") {
+        .onChange(of: searchTaskIdentity) { _ in
+            feature.cancelSearchEverywhere()
+            pageRequest = 0
+        }
+        .task(id: pageRequest) {
+            guard pageRequest > 0 else { return }
+            await feature.loadNextSearchPage(retry: retryPage)
+        }
+        .task(id: searchTaskIdentity) {
             if queryMode.commandQuery != nil || session.everywhereResultKinds.isEmpty {
                 feature.clearSearchEverywhere()
                 return
@@ -431,37 +455,26 @@ private struct SearchEverywhereContent: View {
                 retainsSearchFocus: true
             ) { index, item in
                 itemRow(item, index: index, selected: item.id == selectedID)
+                    .background {
+                        // A lazy list may not instantiate its last row until it is visible.
+                        if index == max(0, items.count - Int(LitheScrollLoadTrigger.prefetchDistance / LitheTheme.Tree.rowHeight)) {
+                            LitheScrollLoadTrigger(continuationID: feature.searchEverywhereResults.nextCursor,
+                                isEnabled: !feature.isSearchingEverywhere && !feature.searchEverywhereFailed) {
+                                    retryPage = false
+                                    pageRequest += 1
+                                }
+                        }
+                    }
             }
-            if isTruncated { moreRow }
         }
-    }
-
-    /// 后端按 matchLimit 截断，命中数刚好顶到上限时提示还有更多。
-    private var isTruncated: Bool {
-        guard queryMode.commandQuery == nil else { return false }
-        let values = feature.searchEverywhereResults
-        let buckets: [[FileSearchResult]]
-        switch resultSource {
-        case .combinedWorkspaceNames:
-            buckets = (enabledProviders.contains(.files) ? [values.fileMatches] : [])
-                + (enabledProviders.contains(.classes) ? [values.classMatches] : [])
-                + (enabledProviders.contains(.symbols) ? [values.symbolMatches] : [])
-        case .files: buckets = [values.fileMatches]
-        case .classes: buckets = [values.classMatches]
-        case .symbols: buckets = [values.symbolMatches]
-        case .text: buckets = [values.contentMatches]
-        case .actions, .commands: buckets = []
+        if feature.searchEverywhereFailed {
+            Button("Retry") {
+                retryPage = true
+                pageRequest += 1
+            }
+            .buttonStyle(.plain)
+            .padding(8)
         }
-        return buckets.contains { $0.count >= SearchEverywhereResults.providerLimit }
-    }
-
-    private var moreRow: some View {
-        Text("… more")
-            .font(LitheTheme.uiFont(size: 11))
-            .foregroundStyle(LitheTheme.tertiaryText)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 22)
     }
 
     @ViewBuilder

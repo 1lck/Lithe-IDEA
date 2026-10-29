@@ -167,6 +167,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     struct SearchResponsePayload: Decodable, Sendable {
         let matches: [SearchMatchPayload]
+        var nextCursor: String? = nil
 
         func makeResults(at rootURL: URL) -> [FileSearchResult] {
             matches.map { match in
@@ -189,7 +190,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 fileMatches: results.filter { $0.kind == .file },
                 classMatches: results.filter { $0.kind == .type },
                 symbolMatches: results.filter { $0.kind == .symbol },
-                contentMatches: results.filter { $0.kind == .content }
+                contentMatches: results.filter { $0.kind == .content },
+                nextCursor: nextCursor
             )
         }
     }
@@ -1560,6 +1562,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
         var includeGeneratedFileNames = false
+        var pageSize: Int? = nil
+        var cursor: String? = nil
+        var resultKinds: [String]? = nil
     }
 
     private struct ReplacementPreviewRequest: Encodable {
@@ -2582,6 +2587,24 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             operationID: operationID, onEvent: onEvent
         )
         return try? result.get()
+    }
+
+    func searchEverywherePage(
+        at rootURL: URL, query: String, options: ProjectSearchOptions,
+        hiddenDirectoryNames: [String], hiddenFilePatterns: [String], includeGeneratedFileNames: Bool,
+        kinds: Set<SearchResultKind>, cursor: String?, operationID: String,
+        onEvent: @escaping @Sendable (String) -> Void
+    ) -> Result<SearchResponsePayload, CoreCallError> {
+        let size = SearchEverywhereResults.pageSize
+        return executeResult(command: "workspace.searchEverywhere", payload: SearchRequest(
+            root: rootURL.standardizedFileURL.path, query: query, caseSensitive: options.caseSensitive,
+            wholeWords: options.wholeWords, regularExpression: options.regularExpression,
+            maxResults: size * 4, maxFileResults: kinds.contains(.file) ? size : 0,
+            maxContentResults: kinds.contains(.content) ? size : 0,
+            maxSymbolResults: !kinds.isDisjoint(with: [.type, .symbol]) ? size : 0,
+            fileMask: options.fileMask, hiddenDirectoryNames: hiddenDirectoryNames,
+            hiddenFilePatterns: hiddenFilePatterns, includeGeneratedFileNames: includeGeneratedFileNames,
+            pageSize: size, cursor: cursor, resultKinds: kinds.map(\.rawValue).sorted()), operationID: operationID, onEvent: onEvent)
     }
 
     func previewReplacement(

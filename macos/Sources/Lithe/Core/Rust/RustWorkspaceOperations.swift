@@ -238,29 +238,40 @@ extension RustWorkspaceOperations: SearchOperations {
         kinds: Set<SearchResultKind>,
         onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
     ) async -> SearchEverywhereResults? {
+        try? await searchEverywherePage(at: rootURL, query: query, options: options, visibilityRules: visibilityRules,
+            includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds, cursor: nil, onResults: onResults)
+    }
+
+    func searchEverywherePage(
+        at rootURL: URL, query: String, options: ProjectSearchOptions,
+        visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool,
+        kinds: Set<SearchResultKind>, cursor: String?,
+        onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
+    ) async throws -> SearchEverywhereResults {
         struct Batch: Decodable {
             let type: String
             let results: RustCoreBridge.SearchResponsePayload?
         }
         let operationID = UUID().uuidString
         let cancellation = RustCoreCancellation(core: core, operationID: operationID)
-        return await withTaskCancellationHandler {
-            guard !Task.isCancelled else { return nil }
-            return await withCheckedContinuation { continuation in
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
-                    guard !cancellation.isCancelled else { continuation.resume(returning: nil); return }
-                    let results = searchEverywhere(
+                    guard !cancellation.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                    let results = core.searchEverywherePage(
                         at: rootURL, query: query, options: options,
-                        visibilityRules: FileVisibilityRules(searchRules: visibilityRules),
+                        hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames, hiddenFilePatterns: visibilityRules.hiddenFilePatterns,
                         includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds,
-                        operationID: operationID, onEvent: { raw in
+                        cursor: cursor, operationID: operationID, onEvent: { raw in
                             cancellation.receive(raw)
                             guard !cancellation.isCancelled,
                                   let batch = try? JSONDecoder().decode(Batch.self, from: Data(raw.utf8)),
                                   batch.type == "searchResults", let results = batch.results else { return }
                             onResults(results.makeEverywhereResults(at: rootURL))
                         })
-                    continuation.resume(returning: cancellation.isCancelled ? nil : results)
+                    if cancellation.isCancelled { continuation.resume(throwing: CancellationError()) }
+                    else { continuation.resume(with: results.map { $0.makeEverywhereResults(at: rootURL) }) }
                 }
             }
         } onCancel: { cancellation.cancel() }
