@@ -108,7 +108,10 @@ final class MacBuildOptionsStore: BuildOptionsStoring {
     }
 
     private func read<Value: Decodable>(_ type: Value.Type, key: String) throws -> Value? {
-        guard let data = store.data(forKey: key) else { return nil }
+        guard let data = store.data(forKey: key) else {
+            guard store.object(forKey: key) == nil else { throw BuildOptionsStorageError.invalid }
+            return nil
+        }
         guard data.count <= 2 * 1024 * 1024 else { throw BuildOptionsStorageError.invalid }
         do { return try JSONDecoder().decode(type, from: data) }
         catch { throw BuildOptionsStorageError.invalid }
@@ -196,4 +199,3 @@ enum BuildOptionsStorageError: LocalizedError {
         }
     }
 }
-

@@ -125,6 +125,24 @@ struct ProjectRuntimePersistenceTests {
         #expect(try Data(contentsOf: local) == invalid)
     }
 
+    @Test(arguments: [false, true])
+    func nonDataRuntimePreferenceCannotBecomeAutomaticOrBeRemovedByMigration(migrate: Bool) throws {
+        let root = try workspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let preferences = RuntimeMigrationPreferences()
+        let key = MacProjectRuntimeSettingsStore.preferencesKey(root)
+        preferences.set("retain the malformed preference", forKey: key)
+        let store = MacProjectRuntimeSettingsStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
+        #expect(throws: (any Error).self) { try store.load(at: root, migrateLegacy: migrate) }
+        let service = ProjectRuntimeService(runtimeLocator: ProjectRuntimeSettingsTestLocator(), settingsStore: store)
+        service.openProject(at: root)
+        #expect(service.javaHomeURL() == nil)
+        #expect(service.mavenExecutable(at: root) == nil)
+        #expect(service.settingsError != nil)
+        #expect(preferences.object(forKey: key) as? String == "retain the malformed preference")
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/local.json").path))
+    }
+
     @Test
     func draftCancelSaveReadBackAndExternalEditUseTheSameSource() throws {
         let root = try workspace()

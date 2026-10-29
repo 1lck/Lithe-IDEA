@@ -499,7 +499,7 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
   `RunConfigurationIntegrationTests` 覆盖未生成配置时保存、Git 忽略规则逐条补齐且
   重复保存不改动文件、不支持版本的识别拦截，只有读完当前项目文档后才允许保存
 项目默认值，未生成配置时读取本机默认值，以及服务编辑器保存写入有效默认值；`ProjectRuntimePersistenceTests` 覆盖旧偏好迁移、显式自动优先、损坏文件保留、
-失败保留源、草稿/取消/条件保存/读回与外部编辑冲突；`MavenRuntimeTests` 覆盖
+失败保留源、非 Data 偏好拒绝读取且不迁移、不回退自动选择，草稿/取消/条件保存/读回与外部编辑冲突；`MavenRuntimeTests` 覆盖
 直接刷新当前项目选择及配置读取失败时拒绝启动。完整原生 UI 与 Maven 配置迁移仍待验收。
 
 ### Java 导入停用旧设置回退（2026-10-29）

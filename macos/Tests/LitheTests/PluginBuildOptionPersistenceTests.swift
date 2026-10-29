@@ -90,6 +90,24 @@ struct PluginBuildOptionPersistenceTests {
         #expect(throws: (any Error).self) { try store.options(workspaceURL: workspace, buildSystemID: "cargo") }
     }
 
+    @Test(arguments: ["", ".Instances", ".EmptyMultiSelect"])
+    func nonDataLocalPreferencesBlockDetectionWithoutReplacingTheirSource(suffix: String) async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-invalid-option-type-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let source = try Self.source(workspace: workspace)
+        let backing = OptionPreferenceStore()
+        let key = "BuildSystems.Options.cargo." + MacPluginStateDirectories.workspaceDigest(workspace) + suffix
+        backing.set("retain the malformed preference", forKey: key)
+        let store = MacBuildOptionsStore(store: backing)
+        let service = Self.service(source: source, workspace: workspace, store: store, runner: OptionCommandRecorder())
+        defer { service.stop() }
+        service.reset(workspaceURL: workspace)
+        await #expect(throws: (any Error).self) { try await service.prepareLanguageImport(workspaceURL: workspace) }
+        #expect(service.entries.isEmpty)
+        #expect(!service.issues.isEmpty)
+        #expect(backing.object(forKey: key) as? String == "retain the malformed preference")
+    }
+
     @Test
     func scopeUpgradeMigratesSharedValuesAndEmptyMarkersOnlyAfterReadback() async throws {
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-build-scope-migration-\(UUID().uuidString)")

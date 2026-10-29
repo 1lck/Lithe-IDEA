@@ -17,6 +17,9 @@ struct MacProjectRuntimeSettingsStore: ProjectRuntimeSettingsStoring {
         let root = workspace.standardizedFileURL
         let key = Self.preferencesKey(root)
         let preferenceData = preferences.data(forKey: key)
+        guard preferenceData != nil || preferences.object(forKey: key) == nil else {
+            throw ProjectRuntimeSettingsStoreError.readBack
+        }
         let legacy = try preferenceData.map { try JSONDecoder().decode(ProjectRuntimeSettings.self, from: $0) }
             ?? ProjectRuntimeSettings()
         let before = try localData(root)
