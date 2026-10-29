@@ -2,7 +2,14 @@
 export class ExtensionProcessOwner {
   private readonly processes = new Map<
     string,
-    { extensionId: string; workspaceId: string; ready: Promise<void>; stop: () => Promise<void> }
+    {
+      extensionId: string;
+      workspaceId: string;
+      ready: Promise<void>;
+      stop: () => Promise<void>;
+      cancel?: () => void;
+      retainOnLaunchFailure?: () => boolean;
+    }
   >();
 
   async start(
@@ -11,14 +18,25 @@ export class ExtensionProcessOwner {
     extensionId: string,
     launch: () => Promise<void>,
     stop: () => Promise<void>,
+    cancel?: () => void,
+    retainOnLaunchFailure?: () => boolean,
   ) {
     // Schedule launch after registration, including synchronous launch failures.
     const ready = Promise.resolve().then(launch);
-    this.processes.set(id, { extensionId, workspaceId, ready, stop });
+    this.processes.set(id, {
+      extensionId,
+      workspaceId,
+      ready,
+      stop,
+      cancel,
+      retainOnLaunchFailure,
+    });
     try {
       await ready;
     } catch (error) {
-      this.processes.delete(id);
+      // A rejected native start may already have published a process whose
+      // cleanup failed. Keep its owner until a later stop confirms termination.
+      if (!retainOnLaunchFailure?.()) this.processes.delete(id);
       throw error;
     }
   }
@@ -35,10 +53,12 @@ export class ExtensionProcessOwner {
     );
     await Promise.all(
       owned.map(async ([id, entry]) => {
-        // A launch failure owns no process; successful late starts must still stop.
+        entry.cancel?.();
+        // Ordinary launch failures own nothing. A caller that could not confirm
+        // cleanup must still drain its native process on this or a later retry.
         const started = await entry.ready.then(
           () => true,
-          () => false,
+          () => entry.retainOnLaunchFailure?.() ?? false,
         );
         if (started) await entry.stop();
         this.processes.delete(id);

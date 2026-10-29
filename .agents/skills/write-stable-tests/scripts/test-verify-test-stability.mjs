@@ -111,6 +111,26 @@ const typescriptViolations = scanFile(
 );
 assert.deepEqual(typescriptViolations.map((violation) => violation.rule), ["typescript-real-timer"]);
 
+// Browser fixtures must obey the same timer rules, including owned watchdog exceptions.
+for (const extension of ["ts", "tsx"]) {
+  const browserTimerContent = `setTimeout(observe, 10);
+// test-stability: allow(typescript-real-timer) reason: Browser frames may stop; an owned watchdog bounds observation and is cancelled in cleanup.
+setTimeout(failObservation, 1000);
+`;
+  const browserViolations = scanFile(
+    `windows/tauri/src/example.browser-test.${extension}`,
+    browserTimerContent,
+  );
+  assert.deepEqual(browserViolations.map(({ rule, line }) => ({ rule, line })), [
+    { rule: "typescript-real-timer", line: 1 },
+  ]);
+  assert.deepEqual(scanFile(
+    `windows/tauri/src/example.browser-test.${extension}`,
+    browserTimerContent,
+    new Set([3]),
+  ), []);
+}
+
 const rustViolations = scanFile(
   "rust/lithe-core/src/example.rs",
   `use std::thread;

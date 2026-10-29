@@ -147,7 +147,10 @@ const restorePreviousWorkspace = (
 
   // A failed project that keeps its tab stays active in its error state.
   if (!projectTabs.some((tab) => tab.id === failedWorkspaceId)) {
-    workspaceRuntimeRegistry.activateWorkspace({ id: WELCOME_WORKSPACE_ID, name: "Files" }, "empty");
+    workspaceRuntimeRegistry.activateWorkspace(
+      { id: WELCOME_WORKSPACE_ID, name: "Files" },
+      "empty",
+    );
   }
 };
 
@@ -337,8 +340,7 @@ async function openWorkspaceRuntimeOnce({
       settleReplacedClose(
         replacedTab
           ? await closeWorkspaceRuntimeOnce(previousWorkspaceId, replacedTab.path, {
-              dispose: (path) =>
-                disposeReplaced?.(previousWorkspaceId, path) ?? Promise.resolve(),
+              dispose: (path) => disposeReplaced?.(previousWorkspaceId, path) ?? Promise.resolve(),
             })
           : false,
       );
@@ -487,9 +489,15 @@ async function closeWorkspaceRuntimeOnce(
   const { disableMcp } = await import("@/features/host-api/mcp-connection");
   await disableMcp(workspaceId);
   await extensionProcessOwner.stop(workspaceId);
-  await declarativePluginProcessOwner.stop(workspaceId);
   const { invoke: invokePluginHost } = await import("@/platform/tauri-core");
+  const { closeWorkspaceVcsRoots } = await import("@/features/vcs/vcs-root-service");
+  await closeWorkspaceVcsRoots(workspaceId);
+  await invokePluginHost("declarative_plugins_close_execution_workspace", { workspaceId });
+  await declarativePluginProcessOwner.stop(workspaceId);
   await invokePluginHost("declarative_plugins_close_workspace_pages", { workspaceId });
+  await invokePluginHost("declarative_plugins_build_close_workspace", {
+    workspaceRoot: path,
+  }).catch(() => {});
   await dispose?.(path);
 
   // Defensive: nothing can reactivate a closing project, but never leave the registry

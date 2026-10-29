@@ -1,11 +1,19 @@
 /** Per-window revocation, set synchronously before draining owned processes. */
 const blocked = new Set<string>();
 const revisions = new Map<string, number>();
+const activityListeners = new Set<(pluginId: string) => void>();
 
 export function setPluginActive(pluginId: string, active: boolean): void {
   revisions.set(pluginId, (revisions.get(pluginId) ?? 0) + 1);
   if (active) blocked.delete(pluginId);
   else blocked.add(pluginId);
+  for (const listener of activityListeners) listener(pluginId);
+}
+
+/** Observe the same synchronous revocation used by launch-plan guards. */
+export function subscribePluginActivity(listener: (pluginId: string) => void): () => void {
+  activityListeners.add(listener);
+  return () => activityListeners.delete(listener);
 }
 
 export function assertPluginActive(pluginId: string): void {

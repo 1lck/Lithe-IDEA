@@ -976,6 +976,21 @@ fn execute_prelaunch(
 
 #[tauri::command]
 pub async fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), String> {
+    run_start_process_with_admission(app, args, |start| start()).await
+}
+
+/// Lets a native caller hold its admission epoch through process publication.
+/// Reservation, process tree, output and stop ownership remain in this module.
+pub(crate) async fn run_start_process_with_admission<F>(
+    app: AppHandle,
+    args: StartProcessArgs,
+    admit: F,
+) -> Result<(), String>
+where
+    F: FnOnce(Box<dyn FnOnce() -> Result<(), String> + Send>) -> Result<(), String>
+        + Send
+        + 'static,
+{
     if args.window_label.trim().is_empty() {
         return Err("A run process must be started from an active window.".into());
     }
@@ -1006,7 +1021,9 @@ pub async fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result
             // predecessor that is still alive.
             stop_sessions(vec![previous], RUN_STOP_TIMEOUT)?;
         }
-        start_reserved_process(app, args, reservation)
+        admit(Box::new(move || {
+            start_reserved_process(app, args, reservation)
+        }))
     })
     .await
     .map_err(|error| format!("Run launch preparation failed: {error}"))?
@@ -1917,7 +1934,7 @@ fn resolve_generic_runtime(
         .ok_or_else(|| format!("No executable was found for toolchain {toolchain}."))
 }
 
-fn resolve_command_executable(
+pub(crate) fn resolve_command_executable(
     command: &str,
     runtime_executable_paths: &HashMap<String, String>,
 ) -> Option<PathBuf> {
@@ -2154,7 +2171,7 @@ fn is_batch_file(executable: &str) -> bool {
         })
 }
 
-fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
+pub(crate) fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
     if is_batch_file(executable) {
         return batch_command(executable, arguments);
     }

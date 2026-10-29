@@ -79,6 +79,7 @@ fn main() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(window_state_flags())
+                .with_filter(|label| !plugin_host::web::docking::is_docked_label(label))
                 .build(),
         )
         .plugin(tauri_plugin_fs::init())
@@ -142,10 +143,17 @@ fn main() {
             app.manage(project_windows::ProjectWindows::default());
             app.manage(window_title::WindowTitles::default());
             app.manage(run::RunProcessManager::default());
+            app.manage(plugin_host::run_plans::ExecutionState::default());
             app.manage(debug::DebugAdapterManager::default());
             app.manage(plugin_host::PluginHostState::default());
+            app.manage(plugin_host::project_generators::GeneratorState::default());
+            app.manage(plugin_host::vcs::VcsHostState::default());
+            app.manage(plugin_host::provider::ProviderHostState::default());
+            app.manage(plugin_host::functions::FunctionsState::default());
+            app.manage(plugin_host::build::BuildHostState::default());
             app.manage(plugin_host::web::WebPageHostState::default());
             app.manage(plugin_host::lifecycle::LifecycleState::default());
+            app.manage(plugin_host::marketplace::MarketplaceState::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
             plugin_host::install::cleanup_stale_snapshots(app.handle());
@@ -159,8 +167,26 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                plugin_host::run_plans::window_destroyed(window.app_handle(), window.label());
+                plugin_host::project_generators::window_destroyed(window.app_handle(), window.label());
                 plugin_host::web::forget_window_appearance(window.app_handle(), window.label());
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
+                plugin_host::vcs::window_destroyed(window.app_handle(), window.label());
+                plugin_host::marketplace::window_destroyed(window.app_handle(), window.label());
+                plugin_host::functions::window_destroyed(window);
+                let build_app = window.app_handle().clone();
+                let build_window = window.label().to_owned();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = plugin_host::project_generators::close_window(&build_app, &build_window).await {
+                        eprintln!("Could not release plugin project generation: {}", error.code);
+                    }
+                    if let Err(error) = plugin_host::provider::close_window(&build_app, &build_window).await {
+                        eprintln!("Could not release plugin Provider sessions: {}", error.detail);
+                    }
+                    if let Err(error) = plugin_host::build::close_build_window(build_app, build_window).await {
+                        eprintln!("Could not release plugin build operations: {error}");
+                    }
+                });
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
@@ -299,27 +325,87 @@ fn main() {
                             plugin_host::lifecycle::declarative_plugins_lifecycle_ack,
                             plugin_host::declarative_plugins_rescan,
                             plugin_host::declarative_plugins_state,
+                            plugin_host::details::declarative_plugins_details,
                             plugin_host::web::declarative_plugins_web_open_file_ack,
+                            plugin_host::web::build::declarative_plugins_web_build_handle,
+                            plugin_host::web::build::workflow::declarative_plugins_web_build_action,
                             plugin_host::web::declarative_plugins_web_resolve_file,
                             plugin_host::web::declarative_plugins_web_update_appearance,
                             plugin_host::declarative_plugins_manifest,
                             plugin_host::launch::declarative_plugins_language_launch,
                             plugin_host::launch::declarative_plugins_language_owner,
                             plugin_host::install::declarative_plugins_prepare_disk_install,
+                            plugin_host::marketplace::declarative_marketplace_list,
+                            plugin_host::marketplace::declarative_marketplace_refresh,
+                            plugin_host::marketplace::declarative_marketplace_prepare,
+                            plugin_host::marketplace::declarative_marketplace_confirm,
+                            plugin_host::marketplace::declarative_marketplace_cancel,
                             plugin_host::install::declarative_plugins_confirm_disk_install,
                             plugin_host::install::declarative_plugins_cancel_disk_install,
                             plugin_host::install::declarative_plugins_uninstall,
                             plugin_host::install::declarative_plugins_set_enabled,
                             plugin_host::install::declarative_plugins_rollback,
                             plugin_host::settings::declarative_plugins_resolve_settings,
+                            plugin_host::settings::declarative_plugins_setting_snapshot,
+                            plugin_host::functions::declarative_plugins_function_prepare,
+                            plugin_host::functions::declarative_plugins_function_confirm,
+                            plugin_host::functions::declarative_plugins_function_state,
+                            plugin_host::functions::declarative_plugins_function_cancel,
+                            plugin_host::functions::declarative_plugins_web_function_prepare,
+                            plugin_host::functions::native::declarative_plugins_native_function_open,
+                            plugin_host::functions::native::declarative_plugins_native_function_prepare,
+                            plugin_host::functions::native::declarative_plugins_native_function_close,
                             plugin_host::settings::declarative_plugins_store_setting,
+            plugin_host::settings::declarative_plugins_reload_settings,
+            plugin_host::settings::reload::declarative_plugins_prepare_settings_reload_model,
                             plugin_host::settings::declarative_plugins_workspace_configuration,
+                            plugin_host::marketplace_sources::declarative_marketplace_sources_state,
+                            plugin_host::marketplace_sources::declarative_marketplace_sources_add,
+                            plugin_host::marketplace_sources::declarative_marketplace_sources_set_enabled,
+                            plugin_host::marketplace_sources::declarative_marketplace_sources_remove,
                             plugin_host::run_plans::declarative_plugins_run_plan,
                             plugin_host::run_plans::declarative_plugins_test_plan,
+                            plugin_host::run_plans::declarative_plugins_discover_tests,
+                            plugin_host::run_plans::declarative_plugins_start_execution,
+                            plugin_host::run_plans::declarative_plugins_execution_context,
+                            plugin_host::run_plans::declarative_plugins_close_execution_workspace,
+                            plugin_host::build::declarative_plugins_build_catalog,
+                            plugin_host::project_generators::declarative_plugins_generator_catalog,
+                            plugin_host::project_generators::declarative_plugins_generator_form,
+                            plugin_host::project_generators::declarative_plugins_generator_runtime,
+                            plugin_host::project_generators::declarative_plugins_generator_prepare,
+                            plugin_host::project_generators::declarative_plugins_generator_generate,
+                            plugin_host::project_generators::declarative_plugins_generator_cancel,
+                            plugin_host::vcs::declarative_plugins_vcs_detect,
+                            plugin_host::vcs::declarative_plugins_vcs_owners,
+                            plugin_host::vcs::mappings::declarative_plugins_vcs_save_mapping,
+                            plugin_host::vcs::declarative_plugins_vcs_close,
+                            plugin_host::vcs::status::declarative_plugins_vcs_status,
+                            plugin_host::vcs::query::declarative_plugins_vcs_query,
+                            plugin_host::vcs::actions::declarative_plugins_vcs_write,
+                            plugin_host::vcs::status::declarative_plugins_vcs_cancel_status,
+                            plugin_host::build::declarative_plugins_build_language_import,
+                            plugin_host::build::declarative_plugins_build_refresh,
+                            plugin_host::build::declarative_plugins_build_set_option,
+                            plugin_host::build::declarative_plugins_build_sync_check,
+                            plugin_host::build::declarative_plugins_build_plugins_changed,
+                            plugin_host::build::declarative_plugins_build_close_workspace,
+                            plugin_host::build::declarative_plugins_build_prepare_model,
+                            plugin_host::build::declarative_plugins_build_load_model,
+                            plugin_host::build::declarative_plugins_build_authorize_provider_language,
+                            plugin_host::build::declarative_plugins_build_cancel_operation,
+                            plugin_host::build::declarative_plugins_build_prepare_run,
+                            plugin_host::build::declarative_plugins_build_prepare_dependencies,
+                            plugin_host::build::declarative_plugins_build_load_dependencies,
+                            plugin_host::build::declarative_plugins_build_execute_run,
                             plugin_host::web::declarative_plugins_close_workspace_pages,
                             plugin_host::web::declarative_plugins_web_windows,
+                            plugin_host::native_ui::declarative_plugins_native_windows,
                             plugin_host::web::declarative_plugins_open_web_window,
                             plugin_host::web::declarative_plugins_close_web_window,
+                            plugin_host::web::docking::declarative_plugins_mount_web_window,
+                            plugin_host::web::docking::declarative_plugins_layout_web_window,
+                            plugin_host::web::docking::declarative_plugins_unmount_web_window,
                             extension_store_placeholder::install_extension_from_url,
                             extension_store_placeholder::uninstall_extension_new,
                             extension_store_placeholder::get_extension_path,
@@ -335,6 +421,11 @@ fn main() {
         .expect("error while building Lithe desktop shell");
 
     application.run(|app, event| {
+        if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+            if plugin_host::project_generators::defer_exit(app, *code) {
+                api.prevent_exit();
+            }
+        }
         if matches!(event, tauri::RunEvent::Exit) {
             owned_processes::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {

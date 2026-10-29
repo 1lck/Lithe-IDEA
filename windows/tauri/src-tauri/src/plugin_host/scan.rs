@@ -24,10 +24,16 @@ pub fn build_catalog_from(
 ) -> Result<Vec<ScannedPackage>, String> {
     let mut discovered = store::discover_bundled_in(bundled_root)?;
     discovered.extend(store::discover_installed_in(install_root)?);
-    Ok(discovered.into_iter().map(scan_package).collect())
+    Ok(discovered
+        .into_iter()
+        .map(|package| scan_package(package, Some(bundled_root)))
+        .collect())
 }
 
-fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
+fn scan_package(
+    package: DiscoveredPackage,
+    bundled_root: Option<&std::path::Path>,
+) -> ScannedPackage {
     let fallback_id = package
         .root
         .file_name()
@@ -54,13 +60,48 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
     }
     match validate_manifest(&manifest) {
         Ok(plugin) => {
+            let plugin_id = plugin["id"].as_str().unwrap_or(&fallback_id).to_string();
+            let version = plugin["version"].as_str().unwrap_or("0").to_string();
+            // The trust gate runs after manifest validation so Core's stable
+            // manifest codes stay primary, and before the package is
+            // registered: signature policy, origin, and the approved content
+            // digest must all hold for the bytes on disk right now.
+            let Some(origin) = package.origin else {
+                return quarantined(
+                    package,
+                    plugin_id,
+                    &version,
+                    catalog_rejection(
+                        super::signature::TrustError::ProvenanceMissing.code(),
+                        super::signature::TrustError::ProvenanceMissing.message(),
+                        None,
+                    ),
+                );
+            };
+            if let Err(error) = super::signature::verify_for_origin(
+                &package.root,
+                &plugin_id,
+                &version,
+                &manifest,
+                origin,
+                package.content_digest.as_deref(),
+                bundled_root,
+                &super::signature::trusted_keys(),
+            ) {
+                return quarantined(
+                    package,
+                    plugin_id,
+                    &version,
+                    catalog_rejection(error.code(), error.message(), None),
+                );
+            }
             let entry = CatalogEntry {
-                plugin_id: plugin["id"].as_str().unwrap_or(&fallback_id).to_string(),
+                plugin_id: plugin_id.clone(),
                 display_name: plugin["displayName"]
                     .as_str()
                     .unwrap_or("plugin")
                     .to_string(),
-                version: plugin["version"].as_str().unwrap_or("0").to_string(),
+                version: version.clone(),
                 api_version: plugin["pluginAPIVersion"].as_u64().unwrap_or(0) as u32,
                 source: package.source,
                 enabled: package.enabled,
@@ -85,6 +126,10 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
                 entry,
                 root: package.root,
                 manifest,
+                trust: Some(super::TrustEvidence {
+                    origin,
+                    expected_content_digest: package.content_digest,
+                }),
             }
         }
         Err(rejection) => quarantined(
@@ -119,6 +164,7 @@ fn quarantined(
         },
         root: package.root,
         manifest: Value::Null,
+        trust: None,
     }
 }
 
@@ -242,6 +288,9 @@ pub(crate) fn validate_manifest(manifest: &Value) -> Result<Value, CatalogReject
 
 /// Test entry point for the per-package scan path.
 #[cfg(test)]
-pub(crate) fn scan_package_for_tests(package: super::store::DiscoveredPackage) -> ScannedPackage {
-    scan_package(package)
+pub(crate) fn scan_package_for_tests(
+    package: super::store::DiscoveredPackage,
+    bundled_root: Option<&std::path::Path>,
+) -> ScannedPackage {
+    scan_package(package, bundled_root)
 }

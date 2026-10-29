@@ -10,7 +10,14 @@ import {
   XIcon as X,
   type Icon as AppIcon,
 } from "@/ui/icons";
-import { forwardRef, type ComponentProps, type ReactNode, type RefObject } from "react";
+import {
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  type ComponentProps,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import { Toggle } from "@/ui/toggle";
@@ -46,25 +53,47 @@ interface SearchPopoverProps {
 
 export const SearchField = forwardRef<
   HTMLInputElement,
-  Omit<ComponentProps<typeof Input>, "onChange" | "value" | "leftIcon"> & {
+  Omit<ComponentProps<typeof Input>, "onChange" | "value" | "leftIcon" | "trailingAccessory"> & {
     value: string;
     onChange: (value: string) => void;
     leftIcon?: AppIcon;
   }
 >(function SearchField(
-  { value, onChange, leftIcon = Search, placeholder, ...props },
+  { value, onChange, leftIcon = Search, placeholder, disabled, readOnly, ...props },
   ref,
 ) {
   const { t } = useTranslation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  useImperativeHandle(ref, () => inputRef.current!, []);
 
   return (
     <Input
-      ref={ref}
+      ref={inputRef}
       type="text"
       value={value}
       onChange={(event) => onChange(event.target.value)}
       leftIcon={leftIcon}
       placeholder={placeholder ?? t("search.search")}
+      disabled={disabled}
+      readOnly={readOnly}
+      trailingAccessory={
+        value ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={t("search.clear")}
+            disabled={disabled || readOnly}
+            onClick={() => {
+              if (disabled || readOnly) return;
+              onChange("");
+              inputRef.current?.focus();
+            }}
+          >
+            <X />
+          </Button>
+        ) : undefined
+      }
       {...props}
     />
   );

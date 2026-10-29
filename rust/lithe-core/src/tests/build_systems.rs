@@ -433,6 +433,33 @@ fn detection_applies_nesting_priority_and_rejections() {
     assert_eq!(gradle["markers"], json!(["android/settings.gradle.kts"]));
 }
 
+#[test]
+fn detection_returns_empty_for_non_directory_and_missing_workspace_roots() {
+    let workspace = TemporaryWorkspace::new("build-detect-non-directory");
+    workspace.write(
+        "Cargo.toml",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+    );
+    for root in [
+        workspace.0.join("Cargo.toml"),
+        workspace.0.join("missing"),
+        workspace.0.join("Cargo.toml/missing"),
+    ] {
+        let outcome = build_detect_command(json!({
+            "workspaceRoot": root.to_string_lossy(),
+            "plugins": [{"manifest": fixture("build-static-file.plugin.json")}],
+        }))
+        .expect("the absolute detection request is well formed");
+        assert_eq!(outcome["status"], "ok", "{}: {outcome}", root.display());
+        assert_eq!(
+            outcome["detection"],
+            json!({"instances": [], "rejected": [], "shadowed": []}),
+            "{}",
+            root.display(),
+        );
+    }
+}
+
 /// Maven's model comes from the host integration during detection, with the
 /// reactor's modules as projects and its profiles as option values.
 #[test]

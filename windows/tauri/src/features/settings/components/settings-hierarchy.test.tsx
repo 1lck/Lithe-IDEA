@@ -9,6 +9,9 @@ import { WorkspaceStoreScopeContext } from "@/features/workspace/stores/create-w
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import * as dialog from "@/ui/dialog";
 import * as panels from "./settings-panels";
+import * as pluginPages from "@/features/plugins/use-declarative-settings-pages";
+import * as pluginEditor from "@/features/plugins/declarative-plugin-settings-editor";
+import { registerPluginSettingsPages } from "@/features/plugins/declarative-settings-pages";
 import workflowFixture from "../../../../../../shared/fixtures/diagnostics/logging-ui-v1.json";
 import SettingsDialog from "./settings-dialog";
 import {
@@ -122,6 +125,11 @@ test("settings search excludes fields absent from the current panels", () => {
 });
 
 test("hierarchical navigation preserves drafts through empty search, automatic results and explicit navigation until Close", async () => {
+  const registry = spyOn(pluginPages, "useDeclarativeSettingsPages").mockReturnValue({
+    revision: 0,
+    pages: [],
+    error: null,
+  });
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
   const workspaceId = "settings-hierarchy-test";
@@ -304,9 +312,146 @@ test("hierarchical navigation preserves drafts through empty search, automatic r
       host.remove();
       frame.mockRestore();
       panel.mockRestore();
+      registry.mockRestore();
       workspaceRuntimeRegistry.removeWorkspace(workspaceId);
       if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
       else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
     }
   }
 });
+
+test("plugin language/build pages enter the production sidebar and disappear on revocation", async () => {
+  const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
+  const workspaceId = "settings-plugin-navigation-test";
+  let pages = registerPluginSettingsPages([
+    {
+      pluginId: "example.plugin",
+      displayName: "Fixture Plugin",
+      languageId: "fixture",
+      actions: [
+        {
+          id: "action",
+          title: "Action",
+          function: "fixture.action",
+          page: { languageID: "fixture" },
+          section: "Maintenance",
+        },
+      ],
+      settings: [
+        {
+          id: "language",
+          title: "Language",
+          type: "boolean",
+          default: true,
+          page: { languageID: "fixture" },
+          section: "Server",
+        },
+        {
+          id: "build",
+          title: "Build",
+          type: "boolean",
+          default: true,
+          page: { buildSystemID: "fixture-build" },
+          section: "Tasks",
+        },
+        { id: "detailsOnly", title: "Details only", type: "boolean", default: false },
+      ],
+    },
+  ]);
+  const registry = spyOn(pluginPages, "useDeclarativeSettingsPages").mockImplementation(() => ({
+    revision: 0,
+    pages,
+    error: null,
+  }));
+  const frame = spyOn(dialog, "default").mockImplementation(({ children }) => (
+    <div>{children}</div>
+  ));
+  const panel = spyOn(panels, "SettingsPanel").mockImplementation(({ category }) => (
+    <div data-static-settings={category} />
+  ));
+  const editor = spyOn(pluginEditor, "DeclarativePluginSettingsEditor").mockImplementation(
+    ({ settings, actions }) => (
+      <div
+        data-plugin-probe={settings.map((setting) => setting.id).join(",")}
+        data-actions={actions?.map((action) => action.id).join(",")}
+      />
+    ),
+  );
+  const host = document.createElement("div");
+  let root: Root | undefined;
+  try {
+    environment.IS_REACT_ACT_ENVIRONMENT = true;
+    useUIState.getStore(workspaceId).setState({ settingsInitialTab: "general" });
+    document.body.append(host);
+    root = createRoot(host);
+    const render = () =>
+      act(async () =>
+        root!.render(
+          <WorkspaceStoreScopeContext.Provider value={workspaceId}>
+            <LocaleProvider language="en-US">
+              <SettingsDialog isOpen onClose={() => {}} />
+            </LocaleProvider>
+          </WorkspaceStoreScopeContext.Provider>,
+        ),
+      );
+    await render();
+    expect(
+      host.querySelector(
+        '#settings-group-languages [data-settings-category="plugin-settings:language:fixture"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      host.querySelector(
+        '#settings-group-build [data-settings-category="plugin-settings:build:fixture-build"]',
+      ),
+    ).not.toBeNull();
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-settings-category="plugin-settings:language:fixture"]',
+        )!
+        .click(),
+    );
+    expect(host.querySelector("[data-settings-breadcrumb]")?.textContent).toBe(
+      "Languages & Frameworksfixture",
+    );
+    expect(host.querySelector('[data-plugin-probe="language"]')?.getAttribute("data-actions")).toBe(
+      "action",
+    );
+    expect(host.querySelector('[data-plugin-probe="detailsOnly"]')).toBeNull();
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-settings-category="plugin-settings:build:fixture-build"]',
+        )!
+        .click(),
+    );
+    expect(host.querySelector("[data-settings-breadcrumb]")?.textContent).toBe(
+      "Build, Execution, Deploymentfixture-build",
+    );
+    expect(host.querySelector('[data-plugin-probe="build"]')).not.toBeNull();
+    pages = [];
+    await render();
+    expect(host.querySelector('[data-settings-category^="plugin-settings:"]')).toBeNull();
+    expect(host.querySelector("[data-plugin-probe]")).toBeNull();
+    expect(
+      host
+        .querySelector("[data-settings-content]:not([hidden])")
+        ?.getAttribute("data-settings-content"),
+    ).toBe("declarative-plugins");
+  } finally {
+    try {
+      await act(async () => root?.unmount());
+    } finally {
+      host.remove();
+      registry.mockRestore();
+      frame.mockRestore();
+      panel.mockRestore();
+      editor.mockRestore();
+      workspaceRuntimeRegistry.removeWorkspace(workspaceId);
+      if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
+      else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
+    }
+  }
+}, 3000);

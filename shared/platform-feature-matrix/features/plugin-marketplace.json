@@ -46,15 +46,41 @@
     "evidence": [
       "windows/tauri/src-tauri/src/plugin_host/install.rs",
       "windows/tauri/src-tauri/src/plugin_host/install_tests.rs",
+      "windows/tauri/src-tauri/src/plugin_host/marketplace_sources.rs",
+      "windows/tauri/src-tauri/src/plugin_host/marketplace_sources_tests.rs",
       "windows/tauri/src/features/plugins/declarative-plugin-launch.ts",
       "windows/tauri/src/features/plugins/declarative-plugins-section.tsx",
+      "windows/tauri/src/features/plugins/declarative-marketplace-sources.ts",
+      "windows/tauri/src/features/plugins/declarative-marketplace-sources-section.tsx",
+      "windows/tauri/src/features/plugins/declarative-marketplace-sources.test.ts",
+      "windows/tauri/src/features/plugins/declarative-marketplace-sources.test.tsx",
       "rust/lithe-core/src/plugins/marketplace.rs",
-      "shared/contracts/plugins/v1/fixtures/marketplace"
+      "shared/contracts/plugins/v1/fixtures/marketplace",
+      "windows/tauri/src-tauri/src/plugin_host/marketplace_index.rs",
+      "windows/tauri/src-tauri/src/plugin_host/marketplace_download.rs",
+      "windows/tauri/src-tauri/src/plugin_host/marketplace.rs",
+      "windows/tauri/src-tauri/src/plugin_host/marketplace_coordinator.rs",
+      "windows/tauri/src-tauri/src/plugin_host/marketplace_tests.rs",
+      "windows/tauri/src/features/plugins/declarative-marketplace.ts",
+      "windows/tauri/src/features/plugins/declarative-marketplace.test.ts",
+      "windows/tauri/src/features/plugins/marketplace/marketplace-types.ts",
+      "windows/tauri/src/features/plugins/marketplace/marketplace-service.ts",
+      "windows/tauri/src/features/plugins/marketplace/marketplace-session.ts",
+      "windows/tauri/src/features/plugins/marketplace/marketplace-section.tsx",
+      "windows/tauri/src/features/plugins/marketplace/marketplace-types.test.ts",
+      "windows/tauri/src/features/plugins/marketplace/marketplace-session.test.ts",
+      "windows/tauri/src/features/plugins/marketplace/marketplace-section.test.tsx",
+      "windows/tauri/src/features/plugins/marketplace/marketplace-host-service.ts",
+      "windows/tauri/src/features/plugins/marketplace/marketplace-host-service.test.ts",
+      "scripts/plugins/host-acceptance/marketplace_acceptance.py",
+      "scripts/plugins/host-acceptance/marketplace_fixture.py",
+      "scripts/plugins/host-acceptance/marketplace_acceptance_test.py",
+      "scripts/plugins/test-windows-declarative-plugin-host.ps1"
     ],
     "implementationStatus": "partial",
-    "verificationStatus": "not-applicable"
+    "verificationStatus": "pending"
   },
   "owner": "Extensions",
-  "notes": "macOS 已在隔离实例实际验证社区 ZIP/目录选择与确认、本地来源和摘要、完整程序 JSON 展开、同版本再次确认及取消不改原记录、安装字节、重启扫描与 bundle 哈希不变；磁盘信任及受影响安装流程已运行定向回归，后台审查通过工作线程独占 Store 与文件管理器保持界面可取消，取消后等待读取结束再清理快照。页面关闭与迟到结果清理由状态回归覆盖，完整市场源管理、双语和全部磁盘组合尚未逐项实机验收，因此整体 verificationStatus 保持 pending。最终 Maven/Gradle 新清单还依赖待合入的共享契约和宿主能力，本次 preview 基线的受控包验收不替代最终插件整体验收。Windows 未实现本次声明式磁盘安装链，partial 不表示可以运行 macOS 流程。",
-  "verification": "macOS 打开插件管理，确认有“插件市场 / 已安装”两个标签和齿轮菜单；默认有“Lithe 官方”源（不能删除）和预置的社区源 Lithe Store（默认开启、可停用和删除，删除后重启不会再出现），Lithe Store 中能看到 Lua、Go、PHP 三个社区语言插件并可安装，“Lithe 官方”源当前没有可下载插件（Go/PHP 已迁到 Lithe Store），刷新后索引缓存写在 Caches 而 app bundle 不变。安装、更新或卸载插件后，插件管理顶部出现“插件变更将在重启 Lithe 后生效”横幅和“重启 Lithe”按钮，市场列表与详情里的“重启后生效”也变成该按钮；点击后走正常退出确认，确认后应用退出并自动重新打开（不会多开），取消任一确认则不重启。插件详情显示作者、来源仓库、标签、版本、许可证、发布日期和支持平台；索引带 SVG 或 PNG `icon` 的插件（如 Lithe Store 的 Go、PHP、Lua、Maven、Gradle）在列表、详情和“已安装”里显示自己的图标；图标缺失、非法、超限或仍在加载时显示 IDEA 风格首字母头像（英文取两个字母、中文取一个字，颜色按插件 ID 固定），只有未选择插件的空状态显示默认插件图标；断网导致的失败在网络恢复后再次打开页面或刷新仓库即可恢复，刷新仓库后分支 URL 的新图标会替换旧图标，快速切换插件时详情头部不会出现上一个插件的图标；图标不写 bundle；索引里没有当前架构的包时显示“暂不支持 <平台> 平台”且不可安装，插件 API 版本不满足时显示不支持原因。在“管理插件仓库”中添加一个 GitHub 仓库地址，确认解析到仓库根目录的 lithe-plugin-index.json，可刷新、停用和删除；弹窗按设计稿呈现：仓库列在圆角卡片里，每行是名称（旁边有标签：“Lithe 官方”和预置的 Lithe Store 为“官方”，用户添加的仓库为“社区”）、等宽索引地址和状态行（“已于 刚刚 刷新”随时间变为“5 分钟前”，超过一周显示日期；有被忽略条目时追加“已忽略条目：N”，停用的源标注“已禁用”，刷新失败显示原因），右侧依次是启用开关、“刷新”和红色“移除”；“Lithe 官方”行只能停用，用灰色“默认”代替“移除”；底部左侧“全部刷新”，右侧“完成”。第三方源列出 dev.lithe.* 插件时该条目被忽略。安装社区插件时先校验 SHA-256（不匹配则不解压），超过下载上限的响应在下载中途被中止，解压后过大或文件过多的压缩包（含谎报大小的 ZIP）被拒绝且不留临时文件，再弹出确认框列出权限、要运行的程序和来源仓库，取消则不安装；已安装后改动插件目录内任意文件，重启后该插件拒绝加载；本地磁盘社区首次安装、更新、重装和同版本替换每次都必须明确确认，即使权限和程序未变；市场入口保持首次/缺少审批/出现 newPrograms 时确认的既有规则，无新程序的市场更新可沿用审批。确认框展示 Rust installReview 的全部权限与完整 canonical program 内容，包括参数、参数模板、验证探测、初始化选项、运行时与构建声明，已识别程序展开 Full Program Declaration 阅读完整 JSON，未知程序直接显示完整 JSON；同一插件出现在多个源时由用户选源，更新只走安装时记录的源。官方源只接受 Lithe 签名包。分别在英文和简体中文界面下检查列表、详情、安装确认框和仓库管理窗口，文字（含刷新时间格式）都跟随 Lithe 的语言设置，插件描述在有 localizedDescriptions 翻译时显示对应语言，否则显示默认英文描述；用辅助功能“按下”列表行只会选中，不会触发安装。索引里最新版本在本机不可用时，详情的版本、发布日期和平台显示实际会安装的版本，并单独注明最新版本不可用。磁盘验收：安装声明内置 Python 或其他已安装插件语言的社区包，重启拒绝冲突包后，原拥有者未设置、显式关闭或开启的偏好均保持原值；正常首次确认安装仍自动启用，更新保留选择。分别在市场下载和磁盘导入入口构造显式 ZIP 条目未超限但唯一隐式父目录超限的包，以及累计规范化路径 UTF-8 字节超限的包，确认在启动解压前拒绝并清理；显式目录与共享隐式父目录只计一次，恰好预算的合法包可解压。在隔离的用户配置与注入临时根下，从齿轮菜单分别选择一个合法社区 ZIP 与解包目录；准备后检查只生成本次 lithe-plugin-disk-<UUID> 私有快照，ZIP 的 archiveSHA256 与快照 archive.zip 实测 SHA-256 相同，目录无归档摘要，界面显示本地文件名/内容摘要并明确未认证发布者或仓库。先取消，确认未安装且本次目录删除；再确认安装并重启，核对 installation.json 仅有 disk 来源、内容 digest 与完整 canonical approvedPrograms，没有伪造 marketplace 来源。分别导入程序未变的新版、相同版本原包及相同版本改过脚本的包，每次必须完整展示权限和程序并等待确认；取消不得改变已安装版本。确认框等待时更换原始 ZIP/目录，安装内容应仍等于准备快照；在受控测试中改动已准备快照后提交，应在 install staging 重验失败；安装后增加/删除/改动文件应在 scan 拒绝加载，改动上一版本后 rollback 应失败。正常升级再回滚时，当前/上一版本各自保留 origin、disk/marketplace 来源；同版本替换保留既有上一版本。刷新包含同 ID 的市场源，确认磁盘版本不出现可自动接管的更新/重装入口。以符号链接、Finder alias、特殊文件、多个 plugin.json、超过 64 层的目录、落在源目录内的临时根、中央目录/local header 路径类型冲突或重复条目的 ZIP、超限或损坏 ZIP、非法声明、冒用官方 ID/namespace 的包验证拒绝与清理；官方 publisher 签名、sameTeamAsHost 的 bundle 边界及仅 DEBUG 可用的 localDevelopment 包仍按原策略。导入和待确认期间关闭插件页，确认任务取消、已有快照立即清理、迟到的准备结果只清理而不会安装；成功、取消和失败后检查本次快照和 staging 无残留；在典型工作流前后比较发行 bundle 文件清单/哈希相同，关闭本次应用与子进程。静态及资源验证命令：node scripts/resources/test-reuse-worktree-resources.mjs、./scripts/agent-notes/verify-agent-notes.sh、./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh、./scripts/macos/verify/verify-runtime-bundle-immutability.sh；macOS 产品测试使用 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplace|PluginDiskInstallation|MacPluginDiskPackageImporter|PluginPackageStore|PluginManager'，核对报告包含实际磁盘用例，未运行产品验收前保持 pending。Windows 已实现契约插件的磁盘导入链：ZIP/目录→私有快照（拒绝 reparse point、路径逃逸、超限文件与恶意 ZIP 条目）→plugins.marketplace.installReview 全量审查（权限+完整程序清单，界面明示未认证发布者）→确认时摘要比对拒绝快照调包→staging 复验后激活→卸载/回滚/启停。磁盘导入的取消清理、快照篡改拒绝与 staging 失败清理由 Rust 测试覆盖；多仓库源市场 UI 仍缺失（M3+），实机验收前 verificationStatus 保持 not-applicable。Worker 扩展模型的非语言市场安装命令（install_extension_from_url 等）现注册为显式占位错误，等待独立后端。；市场列表与详情之间的分隔条使用真实页面回归：中英文描述与深浅主题下缩放窗口、拖动后释放，再刷新索引，详情视口始终位于分隔条右侧；正文按视口宽度换行，窄于来源选择器和提示卡所需宽度时可横向滚动至末端，短详情保持顶部对齐。测试使用私有临时偏好域，关闭窗口后清理；仅原生组件证据，整体实机验收仍 pending。"
+  "notes": "Windows 已接通原生市场目录、索引刷新、下载准备、人工确认与取消，以及设置页市场浏览、搜索、按来源显示和安装后刷新。Core 决定平台/API 可用性与归档；原生安装记录决定更新来源，磁盘、内置、未知来源和跨源同 ID 条目不能被接管。所有市场安装与更新均显示真实来源、完整权限和程序声明并要求明确确认；官方徽标只来自固定官方源与签名校验的原生结论。窗口关闭、源变更和页面卸载回收操作，迟到准备与确认不能污染新会话。Windows 产品端到端验收尚待新构建运行，保持 partial/pending。 已准备隔离原生市场验收入口、真实 HTTPS fixture 与完整程序声明/来源固定/取消/重启/更新驱动，并接入启动器可选参数；驱动单元与 DOM 测试不等于真实安装通过。受控交易仍需已有可信 HTTPS 证书及可达主机，官方发布者签名验收需正式 Windows 包；不修改 TLS/签名信任或系统信任库。",
+  "verification": "Windows：逐文件运行 declarative-marketplace、marketplace-types/session/section/host-service 和源管理测试，覆盖来源固定更新、权限扩张、取消先于登记、坏摘要、签名、staging/记录回滚、切源与并行审批竞态；Rust WindowsRust 计时套件覆盖真实 Core 与 M1 事务。运行 typecheck、i18n、资源复用拒绝路由和矩阵门禁。原生复验需在隔离用户目录完成添加源→刷新→搜索→完整审批→拒绝/取消→安装→重启→同源更新→停用/删除，并确认临时文件、所有子进程和发行资源哈希。macOS 按其既有市场/磁盘安装、来源、摘要、审批与资源只读测试执行；没有目标平台实机证据不得提升 verified。"
 }

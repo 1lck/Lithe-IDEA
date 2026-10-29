@@ -1,0 +1,790 @@
+{
+  "schemaVersion": 1,
+  "description": "Explicit classification of every file under shared/contracts/plugins/v1/fixtures. Checked by scripts/plugins/check-plugin-fixture-coverage.mjs (wired into the ci-macos.yml changes job on Linux): the directory enumeration and this list must match exactly. windowsStatus: wired = a product-path Windows test exercises this fixture; validated-only = only manifest validation/gating; indirect-core = Windows consumes it through Core commands without reading the file; unwired = no Windows list or test names it. A non-wired status is a known gap and must keep gapStage/gapDetail until a real test closes it; gapStage is a roadmap stage M0-M10 or 'followup' for capabilities that landed after the roadmap froze. Evidence strings are '<repo path>[:<line>] <test name>'; the checker verifies the file exists, lines are documentation as of base commit 1e78b59b6385fca6a881639b42048bf3bc587f4a synced with preview 83017afa851c83f119f40268bf9eb04b26aefc91 (backend capability).",
+  "fixturesDirectory": "shared/contracts/plugins/v1/fixtures",
+  "fixtures": [
+    {
+      "path": "backend.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:32 BACKEND_FIXTURE",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:615 plugin_backend_is_planned_without_a_workspace_and_names_its_host_services"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "Windows 侧零引用。插件后端（backend:1）与函数协议 v2 是冻结路线图（2026-10-24 版 M0–M10）之后的新能力（preview 8471b998/#1470），macOS 宿主已声明 backend:[1]（PluginTypes.swift:493）；Windows 接入按计划 §6 单列后续阶段，暂无编号。"
+    },
+    {
+      "path": "build-command-output-file.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:128 build_fixtures_validate",
+        "rust/lithe-core/src/tests/build_systems.rs:143 build_plans_match_the_contract_goldens",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (13 cases use this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M4",
+      "gapDetail": "Windows 只做到清单验收与能力门控；输出文件模型解码（${outputFile}、JUnit 路径）没有任何宿主接线测试，属声明式构建接入。"
+    },
+    {
+      "path": "build-command-stdout.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:128 build_fixtures_validate",
+        "rust/lithe-core/src/tests/build_systems.rs:143 build_plans_match_the_contract_goldens",
+        "rust/lithe-core/src/tests/build_systems.rs:1071 resolve_options_describe_explicit_empty_text_values",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (9 cases use this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M4",
+      "gapDetail": "Windows 只有清单验收与能力门控；stdout 模型解码、选项解析与检测优先级无宿主接线测试，属声明式构建接入。"
+    },
+    {
+      "path": "build-debug-preparation.json",
+      "category": "build-plans",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:2162 provider_debug_preparation_validates_native_target_and_same_plugin_adapter"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-execution-protocol.json",
+      "category": "build-plans",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/lsp/interface/build_provider.rs:225 execution_replies_and_progress_match_the_shared_contract"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-host-integration.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:128 build_fixtures_validate",
+        "rust/lithe-core/src/tests/build_systems.rs:143 build_plans_match_the_contract_goldens",
+        "rust/lithe-core/src/tests/build_systems.rs:482 maven_reactor_detects_through_the_host_integration",
+        "rust/lithe-core/src/tests/build_runtime_versions.rs:15 host_runtime_probe_arguments_are_portable_across_platforms",
+        "rust/lithe-core/src/tests/project_generators.rs:92 catalog_lists_generators_with_requirement_providers",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (5 cases use this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M4",
+      "gapDetail": "Windows 只有清单验收与能力门控；hostIntegration 模型来源（Maven reactor 探测、运行时探测参数）无宿主接线测试，属声明式构建接入。"
+    },
+    {
+      "path": "build-model-consumer.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:2276 model_inputs_project_public_facts_and_preserve_configuration_identity",
+        "rust/lithe-core/src/tests/build_systems.rs:2353 model_inputs_reject_invalid_manifests_models_and_snapshot_smuggling"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-model-producer.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:2274 model_inputs_project_public_facts_and_preserve_configuration_identity",
+        "rust/lithe-core/src/tests/build_systems.rs:2351 model_inputs_reject_invalid_manifests_models_and_snapshot_smuggling"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-plans.json",
+      "category": "build-plans",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:143 build_plans_match_the_contract_goldens"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M4",
+      "gapDetail": "Windows 无直接读取；声明式构建接入（M4）时，宿主模型/任务/测试/诊断行为覆盖应以本 golden 对齐。"
+    },
+    {
+      "path": "build-provider-debug-preparation.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:2158 provider_debug_preparation_validates_native_target_and_same_plugin_adapter",
+        "rust/lithe-core/src/tests/build_systems.rs:2221 provider_debug_preparation_rejects_a_program_symlink_outside_the_instance",
+        "rust/lithe-core/src/tests/build_systems.rs:2240 provider_debug_target_bindings_keep_exact_arguments_and_require_bounded_facts"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-provider-execution.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:1824 provider_execution_tasks_are_typed_and_version_gated"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-provider-language-server.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "partial-support",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:128 build_fixtures_validate",
+        "rust/lithe-core/src/tests/build_systems.rs:143 build_plans_match_the_contract_goldens",
+        "rust/lithe-core/src/tests/build_systems.rs:1460 launch_plans_name_exactly_one_process",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:366 level_3_manifests_list_exactly_the_capabilities_they_use",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:445 build_providers_require_their_own_host_capability",
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:219 install_review_fixtures_match_golden_outcomes"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:80 invalid_manifest_fixtures_keep_their_stable_codes (only read indirectly as 4 case bases)"
+      ],
+      "windowsStatus": "unwired",
+      "gapStage": "M5",
+      "gapDetail": "不在 Windows 任何合法/门控清单中，仅作为 invalid-manifests 用例基底被间接读取；连'被能力门控拒绝'这一断言都没有专属覆盖。共享语言服务器 Provider 会话属 M5。"
+    },
+    {
+      "path": "build-provider-run-preparation.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:2050 provider_run_preparation_selects_targets_and_validates_launch_data",
+        "rust/lithe-core/src/tests/build_systems.rs:2145 provider_run_working_directory_rejects_external_symlinks"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-provider-tests.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:1888 provider_tests_preserve_filters_and_report_ownership",
+        "rust/lithe-core/src/tests/build_systems.rs:1944 provider_tests_require_version_three_and_an_owned_process",
+        "rust/lithe-core/src/tests/build_systems.rs:1988 provider_test_discovery_is_bounded_deterministic_and_runnable"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-provider.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "partial-support",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:128 build_fixtures_validate",
+        "rust/lithe-core/src/tests/build_systems.rs:143 build_plans_match_the_contract_goldens",
+        "rust/lithe-core/src/tests/build_systems.rs:1115 provider_processes_are_install_review_programs",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:445 build_providers_require_their_own_host_capability",
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:219 install_review_fixtures_match_golden_outcomes",
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:332 build_provider_versions_require_host_support_before_download"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M5",
+      "gapDetail": "Windows 只断言该清单被能力门控拒绝；自有进程 Provider 的启动、litheBuild 协商、会话回收没有任何宿主测试，属 M5。"
+    },
+    {
+      "path": "build-run-preparation.json",
+      "category": "build-plans",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/lsp/interface/engine.rs:11455 provider_run_preparation_requires_version_four_and_returns_raw_plan",
+        "rust/lithe-core/src/tests/build_systems.rs:2054 provider_run_preparation_selects_targets_and_validates_launch_data",
+        "rust/lithe-core/src/tests/build_systems.rs:2164 provider_debug_preparation_validates_native_target_and_same_plugin_adapter"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-static-file.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:128 build_fixtures_validate",
+        "rust/lithe-core/src/tests/build_systems.rs:143 build_plans_match_the_contract_goldens",
+        "rust/lithe-core/src/tests/build_systems.rs:218 cargo_run_entries_match_the_builtin_detector",
+        "rust/lithe-core/src/tests/build_systems.rs:361 detection_applies_nesting_priority_and_rejections",
+        "rust/lithe-core/src/tests/build_systems.rs:1236 static_models_and_sync_fingerprints_reject_escaping_symlinks",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (33 cases use this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections",
+        "windows/tauri/src-tauri/src/plugin_host/build_tests.rs detect_reads_the_static_model_and_describes_options"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M4",
+      "gapDetail": "真实 Core 与宿主 registry 的静态模型、共享选项、指纹与撤销回归已覆盖此 fixture；生产 buildSystems 能力仍关闭，工具窗口及实际任务/测试执行尚未完整接通，不将内部夹具注入视为可安装产品验收。"
+    },
+    {
+      "path": "build-test-discovery.json",
+      "category": "build-plans",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:1990 provider_test_discovery_is_bounded_deterministic_and_runnable"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-test-protocol.json",
+      "category": "build-plans",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:1890 provider_tests_preserve_filters_and_report_ownership"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增的 Provider 执行、运行/调试/测试准备或模型消费契约；当前 Windows 没有直接读取该 fixture 的产品路径测试，相关 buildSystems/buildProviders 准入仍关闭，完成真实调用链和此 fixture 回归后再标为 wired。"
+    },
+    {
+      "path": "build-tool-path.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/build_systems.rs:1599 explicit_build_tool_path_requires_supported_global_file_setting",
+        "rust/lithe-core/src/tests/build_systems.rs:1666 executable_candidates_order_and_constraints_are_shared_and_deterministic",
+        "rust/lithe-core/src/tests/build_systems.rs:1719 published_build_v2_paths_adapt_to_candidates_and_preserve_invalid_values",
+        "rust/lithe-core/src/tests/build_systems.rs:1755 executable_resolution_is_opt_in_and_custom_runtimes_share_the_same_plan"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "M4",
+      "gapDetail": "Windows 侧零引用：不在合法/门控清单，也没有任何宿主测试读取；executableResolution:1 候选顺序与显式路径语义属 M4 接入。"
+    },
+    {
+      "path": "command-plans.json",
+      "category": "command-plans",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:212 command_plan_fixtures_match_golden_expansions"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M5",
+      "gapDetail": "Windows 经 Core 命令消费展开结果；bundled_php_contract_package_expands_plans 实测了 runPlan/testPlan 展开但用的是 PHP 契约包而非本 golden。发现/测试/launchPlan 作用域的宿主行为测试属 M5。"
+    },
+    {
+      "path": "debug-adapter-language-server.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1314 debug_adapter_inside_the_language_server_has_no_process_of_its_own",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1356 debug_adapter_inside_the_language_server_is_a_reviewed_program",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1377 debug_adapter_inside_the_language_server_rejects_inconsistent_launches"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "Core 已覆盖 tcpLanguageServer 声明、语言服务器启动计划与安装审查，但 Windows host_capabilities 未声明 debugAdapters；此夹具不在合法/能力门控清单，也没有对应 decoder 或宿主会话测试。复用语言服务器执行端点命令、连接调试端口及准确回收的产品链需在冻结路线图后的调试器接入阶段实现并验收；现有通用清单校验与内置 TCP 调试不等于本能力已接线。"
+    },
+    {
+      "path": "debug-adapter-rejections.json",
+      "category": "invalid-edits",
+      "outcome": "rejection",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1172 debug_adapter_rejection_fixtures_report_their_code_and_field"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview #1510 新增 API 4 调试器声明拒绝金样。Windows 尚未接入 debugAdapters 宿主能力或此夹具的拒绝回归；保持已知缺口，不据 Core 单测宣称 Windows 支持。"
+    },
+    {
+      "path": "debug-adapter-remote-attach.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1512 debug_adapter_remote_attach_fixture_validates_and_keeps_its_bindings",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1537 debug_start_arguments_put_a_remote_endpoint_where_each_adapter_reads_it",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1574 debug_start_arguments_map_source_roots_in_the_shape_the_adapter_takes",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1650 debug_start_arguments_refuse_a_remote_target_without_a_usable_endpoint",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1796 debug_adapter_launch_plan_says_which_adapters_attach_to_a_remote_endpoint"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "Core 已覆盖远端 attach 的 endpoint、targetBindings 和多种源码映射形状，Windows host_capabilities 仍未声明 debugAdapters；此夹具不在合法/能力门控清单，也没有读取它的宿主测试。远端目标到插件调试器参数的解码、注册与连接生命周期需在冻结路线图后的调试器接入阶段完成；既有通用 DAP/TCP 连接或非法清单循环不能证明该声明式远端接入已实现。"
+    },
+    {
+      "path": "debug-adapter.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1209 debug_adapter_fixture_is_accepted_with_normalized_requests"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview #1510 新增 API 4/debugAdapters 1 声明。Windows 宿主仍未声明该能力，未接入此夹具的会话与运行链，需另行实现并验收后才能开放。"
+    },
+    {
+      "path": "function-protocol.json",
+      "category": "function-protocol",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/lsp/interface/plugin_function.rs:558 the_offer_matches_the_fixture",
+        "rust/lithe-core/src/lsp/interface/plugin_function.rs:648 outcomes_follow_the_fixture",
+        "rust/lithe-core/src/lsp/interface/plugin_function.rs:703 host_requests_follow_the_fixture (protocol v2)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/functions/runtime.rs",
+        "windows/tauri/src-tauri/src/plugin_host/functions/web.rs",
+        "windows/tauri/src/features/plugins/plugin-web-function.test.ts"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M6",
+      "gapDetail": "R10/R11 设置与网页函数入口已复用 Core 协商、调用、取消和解码；受控 runtime/页面 listener 回归覆盖归属、审批、结果与清理。共享协议向量仍由 Core 消费；真实签名包、动态注册/撤回与进程树的完整 Windows 包验收保持 M6/M10 pending。"
+    },
+    {
+      "path": "hello-lithe.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:65 contract_fixtures_and_official_plugins_validate",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:532 ui_contributions_are_normalized_without_interpreting_text",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:610 ui_icon_declarations_validate_and_preserve_theme_resources",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (12 cases use this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
+        "windows/tauri/src-tauri/src/plugin_host/web.rs:1657 text_window_is_literal_and_hello_fixture_is_registered",
+        "windows/tauri/src/features/plugins/declarative-plugin-ui.test.ts:33 hello ui1 contributes a text window and all three command placements and revokes them"
+      ],
+      "windowsStatus": "wired",
+      "gapStage": null,
+      "gapDetail": null
+    },
+    {
+      "path": "invalid-manifests.json",
+      "category": "invalid-edits",
+      "outcome": "rejection",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:80 invalid_manifest_fixtures_keep_their_stable_codes"
+      ],
+      "windowsStatus": "wired",
+      "gapStage": null,
+      "gapDetail": null
+    },
+    {
+      "path": "language-host-integration.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:65 contract_fixtures_and_official_plugins_validate",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:152 host_integration_capabilities_are_normalized_and_checked_against_the_integration",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:276 runtime_launch_and_initialization_options_are_reviewed_programs",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (13 cases use this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M10",
+      "gapDetail": "Windows 只做清单验收；jdt 集成的启动计划解析、必需包资源校验与真实包接线没有 fixture 级宿主测试（launch.rs 测试使用 language-packaged-server），真实 JDT 包验收随 M10 第一阶段。"
+    },
+    {
+      "path": "language-packaged-server.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:65 contract_fixtures_and_official_plugins_validate",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:81 validation_normalizes_order_and_spelling_without_touching_arguments",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:251 api_level_1_language_server_arguments_stay_literal",
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:219 install_review_fixtures_match_golden_outcomes",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (23 cases use this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:162 scan_accepts_valid_packages_and_quarantines_broken_ones",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:196 store_problems_quarantine_packages_with_valid_manifests",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:258 catalog_build_combines_bundled_and_installed_sources",
+        "windows/tauri/src-tauri/src/plugin_host/install_tests.rs:43 directory_snapshot_copies_contents",
+        "windows/tauri/src-tauri/src/plugin_host/install_tests.rs:118 staging_install_replaces_version_and_rejects_broken_manifests",
+        "windows/tauri/src-tauri/src/plugin_host/install_tests.rs:185 rollback_picks_the_highest_previous_version",
+        "windows/tauri/src-tauri/src/plugin_host/launch.rs:933 resolve_launch_consumes_the_real_core_response_envelope"
+      ],
+      "windowsStatus": "wired",
+      "gapStage": null,
+      "gapDetail": null
+    },
+    {
+      "path": "language-system-command.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:65 contract_fixtures_and_official_plugins_validate",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:106 validation_keeps_the_leading_dot_of_hidden_file_names",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:330 validation_probe_cannot_use_settings",
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:219 install_review_fixtures_match_golden_outcomes",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (1 case uses this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:258 catalog_build_combines_bundled_and_installed_sources"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M10",
+      "gapDetail": "Windows 覆盖清单验收与 bundled catalog 扫描，但 systemCommand 启动（PATH/工具发现解析、LITHE_*_PATH 导出）没有 fixture 级宿主测试；真实 systemCommand 插件（gopls/intelephense）验收随 M10 第一阶段。macOS 侧同样没有直接引用。"
+    },
+    {
+      "path": "marketplace/index-cases.json",
+      "category": "marketplace",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:100 index_fixture_cases_match_expected_availability"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/marketplace_index.rs refresh_matches_the_shared_standard_answer"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M2",
+      "gapDetail": "Windows 网络模块已读取此 fixture，在本地受控 HTTP 与真实 Core 下校验能力门控标准答案及缓存；尚无生产市场 IPC/列表与安装消费者，保留 M2 产品接线缺口。"
+    },
+    {
+      "path": "marketplace/index.json",
+      "category": "marketplace",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:100 index_fixture_cases_match_expected_availability",
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:131 accepted_entries_are_normalized_newest_first",
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:272 ui_api_availability_requires_an_implemented_platform_host",
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:332 build_provider_versions_require_host_support_before_download"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/marketplace_index.rs refresh_matches_the_shared_standard_answer"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M2",
+      "gapDetail": "Windows 网络模块已读取此 fixture，在本地受控 HTTP 与真实 Core 下校验能力门控标准答案及缓存；尚无生产市场 IPC/列表与安装消费者，保留 M2 产品接线缺口。"
+    },
+    {
+      "path": "marketplace/install-reviews.json",
+      "category": "marketplace",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:219 install_review_fixtures_match_golden_outcomes"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M2",
+      "gapDetail": "Windows 磁盘安装链走 installReview 命令但测试用 language-packaged-server 清单而非本 golden 审查矩阵；完整来源/审批记录接入属 M2。"
+    },
+    {
+      "path": "marketplace/invalid-index-entries.json",
+      "category": "marketplace",
+      "outcome": "rejection",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:147 invalid_index_entries_report_their_stable_codes"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M2",
+      "gapDetail": "Windows 无市场索引消费路径（M2）；拒绝码一致性的宿主断言未建立。"
+    },
+    {
+      "path": "marketplace/source-urls.json",
+      "category": "marketplace",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/marketplace_plugins.rs:203 source_url_fixtures_resolve_to_expected_index_urls"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M2",
+      "gapDetail": "Windows 无源解析入口（M2）。"
+    },
+    {
+      "path": "native-controls.plugin.json",
+      "category": "native-ui",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:827 native_public_controls_validate_types_ranges_info_and_buttons"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src/features/plugins/native-ui/native-panel.test.tsx the real native-controls form renders shared controls and IME Enter commits all current fields once"
+      ],
+      "windowsStatus": "wired",
+      "notes": "真实共享 fixture 已经进入 Windows 生产 renderer 的受控组件回归；ui 3 准入、完整函数和真实 Tauri/主题/布局视觉验收仍 pending。"
+    },
+    {
+      "path": "native-form.plugin.json",
+      "category": "native-ui",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:721 native_ui_forms_validate_controls_values_actions_and_budgets",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:785 native_ui_form_grid_validates_columns_spans_and_scope"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src/features/plugins/native-ui/native-panel.test.tsx the real native-form fixture restores a local draft after hide and reset restores its declared value"
+      ],
+      "windowsStatus": "wired",
+      "notes": "真实共享 fixture 已经进入 Windows 生产 renderer 的受控组件回归；ui 3 准入、完整函数和真实 Tauri/主题/布局视觉验收仍 pending。"
+    },
+    {
+      "path": "native-panel.plugin.json",
+      "category": "native-ui",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:666 native_ui_validates_version_ownership_actions_and_budgets",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:785 native_ui_form_grid_validates_columns_spans_and_scope"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src/features/plugins/native-ui/native-panel.test.tsx the real native tree fixture virtualizes long results and keeps keyboard selection on expanded children"
+      ],
+      "windowsStatus": "wired",
+      "notes": "真实共享 fixture 已经进入 Windows 生产 renderer 的受控组件回归；ui 3 准入、完整函数和真实 Tauri/主题/布局视觉验收仍 pending。"
+    },
+    {
+      "path": "node-runtime.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:65 contract_fixtures_and_official_plugins_validate",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:276 runtime_launch_and_initialization_options_are_reviewed_programs",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:351 settings_are_normalized_in_identifier_order",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (24 cases use this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M10",
+      "gapDetail": "Windows 只做清单验收；runtime 启动（packagedRuntime/minimumVersion 探测）与设置解析的 fixture 级宿主测试缺失（PHP 契约包端到端覆盖了 runtime node 计划展开，但不是本清单），真实插件验收随 M10 第一阶段。"
+    },
+    {
+      "path": "project-generator-templates/.gitattributes",
+      "category": "template-assets",
+      "outcome": "success",
+      "coreEvidence": [
+        "shared/contracts/plugins/v1/fixtures/project-generator-templates/.gitattributes:1 * -text preserves template bytes in Git; not a generated project file"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M8",
+      "gapDetail": "Git 模板字节策略（* -text），不属于 files 步骤生成产物；Windows 未单独验证跨检出模板字节稳定性，保留 M8/M10 验收缺口。"
+    },
+    {
+      "path": "project-generator-templates/app/README.md",
+      "category": "template-assets",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match (plan.rs collect_files walks the templates directory)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M8",
+      "gapDetail": "Windows 宿主测试通过 fixture 默认 app 计划调用真实 Core 并生成/检查 README.md、.gitignore；模板逐字节 golden 仍由 Core 拥有。projectGenerators 门控关闭，真实安装包向导及创建后构建闭环待 M8/M10。"
+    },
+    {
+      "path": "project-generator-templates/app/dot-gitignore",
+      "category": "template-assets",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match (plan.rs collect_files walks the templates directory)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M8",
+      "gapDetail": "Windows 宿主测试通过 fixture 默认 app 计划调用真实 Core 并生成/检查 README.md、.gitignore；模板逐字节 golden 仍由 Core 拥有。projectGenerators 门控关闭，真实安装包向导及创建后构建闭环待 M8/M10。"
+    },
+    {
+      "path": "project-generator-templates/main/Main.java",
+      "category": "template-assets",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match (plan.rs collect_files walks the templates directory)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M8",
+      "gapDetail": "Windows R10 新增并执行 maven + sample=true 的真实 Core 计划及事务生成回归，检查 Main.java 路径/内容与 collect 结果；完整正式包向导和创建后构建仍待 M8/M10。"
+    },
+    {
+      "path": "project-generator.plugin.json",
+      "category": "project-generation",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match",
+        "rust/lithe-core/src/tests/project_generators.rs:92 catalog_lists_generators_with_requirement_providers",
+        "rust/lithe-core/src/tests/project_generators.rs:259 rejects_invalid_generator_declarations",
+        "rust/lithe-core/src/tests/project_generators.rs:327 project_generators_need_api_level_3",
+        "rust/lithe-core/src/tests/project_generators.rs:339 generator_commands_require_install_review_again"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/archive.rs",
+        "windows/tauri/src/features/project-generators/generation-session.test.ts"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M8",
+      "gapDetail": "Windows R10 已接入显式启用、市场查询和 segmented 字段，使用真实 fixture 验证默认及 Maven/sample 生成分支、归档和事务清理。能力仍关闭，完整正式插件包/实机向导及创建后构建验收待 M8/M10。"
+    },
+    {
+      "path": "project-plans.json",
+      "category": "project-plans",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M8",
+      "gapDetail": "Windows 宿主回归调用与此 golden 相同的 Core 计划命令并执行默认 app 产物，但未读取/逐 case 比对此 JSON；完整 golden 仍由 Core 测试消费。其余生成分支与真实安装包闭环待 M8/M10。"
+    },
+    {
+      "path": "publisher-bundled.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:24 contract fixture"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "Core 与 macOS 已覆盖打包发布者信任；Windows 现有签名安装测试没有直接消费此专用 fixture，不能据此声称 bundled publisher 的生产闭环已通过。"
+    },
+    {
+      "path": "runtime-versions.json",
+      "category": "runtime-versions",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:312 runtime_version_fixtures_match_golden_outcomes"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M10",
+      "gapDetail": "Windows launch.rs 用 node/java/go 真实输出格式自测版本解析，未读取本 golden；建议接入宿主探测路径时用本 fixture 对齐，真实运行时验收随 M10。"
+    },
+    {
+      "path": "settings-v2.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:901 immediate_settings_must_be_used_by_workspace_configuration",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:911 settings_v2_manifests_validate_and_resolve_by_layer",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:958 settings_v2_rejects_unsafe_setting_use"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections",
+        "windows/tauri/src-tauri/src/plugin_host/settings/snapshot/tests.rs",
+        "windows/tauri/src/features/plugins/declarative-settings-session.test.ts",
+        "windows/tauri/src/features/plugins/declarative-plugin-reload.test.ts",
+        "windows/tauri/src-tauri/src/plugin_host/functions/tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/functions/runtime/tests.rs",
+        "windows/tauri/src/features/plugins/plugin-function-session.test.ts"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M6",
+      "gapDetail": "真实 fixture 用于 scope/value、action/page 及共享语言 Provider 拒绝校验；分层存储、CAS、global reload 及独立 Provider 设置动作另有状态/存储/会话回归。此 fixture 的 action 使用共享语言服务，当前仍明确 unavailable；buildSystems/buildProviders 门控、project reload 和完整包验收待 M6/M10。"
+    },
+    {
+      "path": "signature-vectors.json",
+      "category": "signature-vectors",
+      "outcome": "success",
+      "coreEvidence": [],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/signature.rs shared_fixture_verifies_end_to_end"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M1",
+      "gapDetail": "共享公开向量已被 Rust 签名验证测试消费；Swift 向量测试等待 macOS 执行，签名包的完整安装审批、失败恢复及回滚生产链仍由 M1 修复任务验证。"
+    },
+    {
+      "path": "vcs-provider.plugin.json",
+      "category": "vcs-provider",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/vcs.rs:65 the_provider_fixture_validates_and_is_reviewed_with_its_tool",
+        "rust/lithe-core/src/tests/vcs.rs:94 provider_manifests_state_permissions_activation_and_requirements",
+        "rust/lithe-core/src/tests/vcs.rs:147 a_launch_plan_names_the_vcs_provider_it_starts",
+        "rust/lithe-core/src/tests/vcs.rs:196 root_detection_matches_the_contract_cases"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/vcs_tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/vcs_status_tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/vcs_session_tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/vcs_query_tests.rs",
+        "windows/tauri/src/features/vcs/vcs-history-panel.test.tsx"
+      ],
+      "windowsStatus": "indirect-core",
+      "gapStage": "M9",
+      "gapDetail": "R9-R11 使用真实 fixture 验证根检测、Core 归属/解码及只读 status/history/fileHistory/baseContent 宿主投影；短会话与监听映射、分页、原 owner 取消重试、缺失/重命名/二进制及 junction 路径边界有回归。vcsProviders 门控仍关闭；真实安装 Provider/客户端/进程树闭环与后续写操作待 M9/M10。"
+    },
+    {
+      "path": "web-panel.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:65 contract_fixtures_and_official_plugins_validate",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:563 web_tool_windows_need_ui_2_their_permission_and_a_package_page",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:130 invalid_manifest_fixtures_report_their_stable_codes (8 cases use this base)"
+      ],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities"
+      ],
+      "windowsStatus": "validated-only",
+      "gapStage": "M6",
+      "gapDetail": "Windows 宿主已声明 ui:[1,2] 并具备 Web 工具窗口、build.* 及 R11 functions.* 的机制接线和受控回归；本 fixture 的完整签名包页面/入口、真实 Provider 和进程树仍待 M6/M10 实机验收。"
+    }
+  ]
+}

@@ -14,6 +14,7 @@ export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
   variant?: "default" | "ghost" | "inline";
   leftIcon?: AppIcon;
   rightIcon?: AppIcon;
+  trailingAccessory?: React.ReactNode;
   containerClassName?: string;
 }
 
@@ -107,6 +108,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     className,
     leftIcon: LeftIcon,
     rightIcon: RightIcon,
+    trailingAccessory,
     containerClassName,
     autoComplete = "off",
     autoCorrect = "off",
@@ -133,9 +135,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     md: "right-2.5",
   };
   const hasLeftIcon = Boolean(LeftIcon);
-  const hasRightIcon = Boolean(RightIcon);
+  const hasRightIcon = Boolean(RightIcon) && !trailingAccessory;
 
-  if (!LeftIcon && !RightIcon) {
+  if (!LeftIcon && !RightIcon && !trailingAccessory) {
     return (
       <input
         ref={ref}
@@ -173,11 +175,16 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           controlSurfaceVariants({ variant }),
           controlSizeVariants({ size }),
           inputVariants({ size, variant, hasLeftIcon, hasRightIcon }),
+          trailingAccessory && "pr-8",
           className,
         )}
         {...props}
       />
-      {RightIcon && (
+      {trailingAccessory ? (
+        <span className="-translate-y-1/2 absolute top-1/2 right-1 flex items-center">
+          {trailingAccessory}
+        </span>
+      ) : RightIcon ? (
         <RightIcon
           className={cn(
             "-translate-y-1/2 absolute top-1/2 text-subtle-foreground",
@@ -185,7 +192,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           )}
           size={iconSizes[size]}
         />
-      )}
+      ) : null}
     </div>
   );
 });

@@ -43,6 +43,8 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 没有声明的能力不报错，也不会出现在界面上。例如 Cargo fixture 没有声明依赖树，Build 工具窗口就不显示依赖区。
 
+`build.detect` 对普通文件根或不存在的根保留空实例结果，这属于检测入口的既有兼容边界。共用工作区扫描器后仍在此入口区分根的类型；真实目录的读取、权限或扫描失败继续返回拒绝，不能把所有 I/O 错误当作“未检测到项目”。不要为了修复 Windows 的非目录错误而放宽共用扫描器，也不要让宿主按操作系统错误码猜测空结果。
+
 字段全集只写在 `shared/contracts/plugins/v1/README.md` 的 “API level 3: build systems” 一节和 `plugin-manifest.schema.json` 里，本 Note 不重复。四个 fixture 各示范一种模型来源，按能力命名而不是按真实插件命名：`build-static-file`（读项目文件，内容用 Cargo）、`build-command-stdout`（解码命令输出，内容用 Go）、`build-command-output-file`（解码命令写出的文件，内容用 Gradle）、`build-host-integration`（交给宿主集成，内容用 Maven）。`build-provider`、`build-provider-language-server` 分别示范 Provider 的两种写法。
 
 ### 2. Core 与宿主的分工

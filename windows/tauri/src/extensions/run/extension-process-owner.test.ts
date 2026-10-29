@@ -72,3 +72,36 @@ test("disabling one extension preserves another extension in the same workspace"
   }
   expect(stopped).toEqual(["one", "two"]);
 });
+
+test("a rejected launch with unconfirmed cleanup remains owned across failed stop retries", async () => {
+  const owner = new ExtensionProcessOwner();
+  let mayOwnProcess = true;
+  let stops = 0;
+  await expect(
+    owner.start(
+      "run",
+      "workspace",
+      "sample.plugin",
+      async () => {
+        throw new Error("native cleanup unconfirmed");
+      },
+      async () => {
+        stops++;
+        if (stops === 1) throw new Error("stop unconfirmed");
+        mayOwnProcess = false;
+      },
+      undefined,
+      () => mayOwnProcess,
+    ),
+  ).rejects.toThrow("native cleanup unconfirmed");
+  try {
+    await expect(owner.stop(undefined, "sample.plugin")).rejects.toThrow("stop unconfirmed");
+    expect(stops).toBe(1);
+    await owner.stop(undefined, "sample.plugin");
+    expect(stops).toBe(2);
+    await owner.stop(undefined, "sample.plugin");
+    expect(stops).toBe(2);
+  } finally {
+    await owner.stop();
+  }
+}, 2000);

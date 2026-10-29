@@ -36,6 +36,8 @@ export interface JavaLspRuntime {
 export interface JavaLspGradle {
   /** The workspace root ships `gradle/wrapper/gradle-wrapper.properties`. */
   wrapperPresent: boolean;
+  offline?: boolean;
+  userHome?: string;
 }
 
 export function resolveJavaLspLaunch(workspacePath: string) {
