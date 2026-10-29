@@ -9516,7 +9516,25 @@
     "document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying": "The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying.",
     "document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor": "This file type cannot be opened in this editor",
     "document.fileAccess.updateAllHardLinks": "Update All Hard Links",
-    "document.fileAccess.savePermissionDenied": "Could not save {arg1}: permission denied. Check the file and parent folder permissions. Your edits are still unsaved."
+    "document.fileAccess.savePermissionDenied": "Could not save {arg1}: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.",
+    "git.rollback.title": "Rollback Changes",
+    "git.rollback.confirm": "Rollback",
+    "git.rollback.include": "Include in rollback",
+    "git.rollback.deleteAdded": "Delete local copies of added files",
+    "git.rollback.warning": "Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe.",
+    "git.rollback.stale": "The selected changes changed. Reopen the rollback dialog and review them again.",
+    "git.rollback.success": "Rolled back {arg1}",
+    "vcs.commitFiles.commitFiles": "Commit Files…",
+    "vcs.commitFiles.diffNewTab": "Show Diff in New Tab",
+    "vcs.commitFiles.deleteAction": "Delete…",
+    "vcs.commitFiles.addToVcs": "Add to VCS",
+    "vcs.commitFiles.adding": "Adding to VCS…",
+    "vcs.commitFiles.deleting": "Deleting…",
+    "vcs.commitFiles.deleteTitle": "Delete Files",
+    "vcs.commitFiles.trashWarning": "These files will be moved to the macOS Trash.",
+    "vcs.commitFiles.vcsDeleteWarning": "The version control provider will delete these files and record their removal. They may not be moved to Trash.",
+    "vcs.commitFiles.ownershipChanged": "Some selected files belong to another version control root. Refresh and select them again.",
+    "vcs.commitFiles.stagingChanged": "The staged files changed. Review the checked files before committing."
   },
   "overrides": {
     "windows": {

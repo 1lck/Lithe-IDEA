@@ -2859,6 +2859,171 @@ struct GitModuleTests {
     }
 
     @Test
+    func commitFilesPreparesExactlyTheRequestedIndexAndRejectsMixedChangelists() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let changes = [
+            GitChange(repositoryRoot: root, path: "selected.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M"),
+            GitChange(repositoryRoot: root, path: "excluded.txt", originalPath: nil, indexStatus: "M", workTreeStatus: " ")
+        ]
+        let probe = WorktreeChangesProbe(root: URL(fileURLWithPath: "/unused"), changes: changes)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { probe.snapshot($0) }, repositoryRoots: [root],
+            stageHandler: { probe.mutate($0, action: "stage") }, unstageHandler: { probe.mutate($0, action: "unstage") })))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(feature.saveChangelistName("Selected") == nil)
+        let list = try #require(feature.changelists.lists.last?.id)
+        feature.moveChanges([changes[0]], toChangelist: list)
+        #expect(!feature.canPrepareCommitFiles(changes))
+        #expect(await feature.prepareCommitFiles([changes[0]]))
+        #expect(feature.changelists.activeID == list)
+        #expect(probe.calls.map(\.action) == ["unstage", "stage"])
+        #expect(probe.calls.map { $0.change.path } == ["excluded.txt", "selected.txt"])
+        #expect(feature.gitChanges.filter(\.isStaged).map(\.path) == ["selected.txt"])
+    }
+
+    @Test
+    func commitFilesStopsAtFirstFailureAndDoesNotPretendAStaleSnapshotSucceeded() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let selected = GitChange(repositoryRoot: root, path: "selected.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let excluded = GitChange(repositoryRoot: root, path: "excluded.txt", originalPath: nil, indexStatus: "M", workTreeStatus: " ")
+        let probe = WorktreeChangesProbe(root: URL(fileURLWithPath: "/unused"), changes: [selected, excluded])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { probe.snapshot($0) }, repositoryRoots: [root],
+            stageHandler: { probe.mutate($0, action: "stage") },
+            unstageHandler: { probe.mutate($0, action: "unstage", succeeds: false) })))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(await !feature.prepareCommitFiles([selected]))
+        #expect(probe.calls.map(\.action) == ["unstage"] && !feature.isPreparingCommitFiles)
+
+        let stale = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [selected]),
+            stageResult: GitProcessResult(arguments: ["stage"], output: "", exitCode: 0))))
+        stale.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { stale.reset() }
+        await stale.refreshGit()
+        #expect(await !stale.prepareCommitFiles([selected]))
+        #expect(!stale.isPreparingCommitFiles)
+    }
+
+    @Test(arguments: [false, true])
+    func commitFilesBlocksReentryAndStopsAfterCancellationOrReset(reset: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let changes = ["first.txt", "second.txt"].map {
+            GitChange(repositoryRoot: root, path: $0, originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let gate = TestGitRunGate()
+        let probe = WorktreeChangesProbe(root: URL(fileURLWithPath: "/unused"), changes: changes)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { probe.snapshot($0) }, repositoryRoots: [root], stageHandler: {
+                gate.blockFirstRun()
+                return probe.mutate($0, action: "stage")
+            })))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        var result = true
+        let task = Task { result = await feature.prepareCommitFiles(changes) }
+        defer { gate.releaseFirstRun(); task.cancel(); feature.reset() }
+        try #require(await gate.waitUntilFirstRunStarts())
+        #expect(feature.isPreparingCommitFiles && feature.changelistEditingDisabled && !feature.canRollbackChanges)
+        #expect(await !feature.prepareCommitFiles(changes))
+        #expect(feature.beginSetStaging(changes, staged: false).isEmpty)
+        if reset { feature.reset() } else { task.cancel() }
+        gate.releaseFirstRun()
+        try #require(await waitForGitTaskCompletion(task))
+        #expect(!result && !feature.isPreparingCommitFiles && !gate.didTimeOut)
+        #expect(probe.calls.count == 1)
+    }
+
+    @Test
+    func rollbackConfirmationSurvivesDismissalAndStopsAtFirstFailure() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let changes = ["checked.txt", "blocked.txt", "untouched.txt"].map {
+            GitChange(repositoryRoot: root, path: $0, originalPath: nil, indexStatus: "M", workTreeStatus: "M")
+        }
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: changes),
+            discardAllHandler: { change in
+                GitProcessResult(arguments: ["discardAll", change.path], output: "", exitCode: 0)
+            }, unstageHandler: { change in
+                GitProcessResult(arguments: ["unstage", change.path], output: "Access denied",
+                    exitCode: change.path == "blocked.txt" ? 1 : 0)
+            })))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        feature.requestRollbackChanges(changes, included: changes)
+        let captured = try #require(feature.pendingRollbackSelection)
+        feature.cancelRollbackChanges()
+        #expect(feature.gitConsoleEntries.isEmpty)
+        await feature.confirmRollbackChanges(captured)
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [
+            ["unstage", "checked.txt"], ["discardAll", "checked.txt"], ["unstage", "blocked.txt"]
+        ])
+        #expect(!feature.isRollingBackChanges && feature.canRollbackChanges)
+    }
+
+    @Test(arguments: [false, true])
+    func rollbackBlocksReentryAndRejectsLateWritesAfterReset(reset: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let changes = ["first.txt", "second.txt"].map {
+            GitChange(repositoryRoot: root, path: $0, originalPath: nil, indexStatus: "M", workTreeStatus: "M")
+        }
+        let gate = TestGitRunGate()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: changes),
+            discardAllHandler: { change in
+                GitProcessResult(arguments: ["discardAll", change.path], output: "", exitCode: 0)
+            }, unstageHandler: { change in
+                gate.blockFirstRun()
+                return GitProcessResult(arguments: ["unstage", change.path], output: "", exitCode: 0)
+            })))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        feature.requestRollbackChanges(changes, included: changes)
+        let captured = try #require(feature.pendingRollbackSelection)
+        let task = Task { await feature.confirmRollbackChanges(captured) }
+        defer { gate.releaseFirstRun(); task.cancel(); feature.reset() }
+        try #require(await gate.waitUntilFirstRunStarts())
+        #expect(feature.isRollingBackChanges && !feature.canRollbackChanges && feature.changelistEditingDisabled)
+        #expect(feature.beginSetStaging(changes, staged: true).isEmpty)
+        await feature.confirmRollbackChanges(captured)
+        if reset { feature.reset() } else { task.cancel() }
+        gate.releaseFirstRun()
+        try #require(await waitForGitTaskCompletion(task))
+        #expect(!feature.isRollingBackChanges && !gate.didTimeOut)
+        #expect(!feature.gitConsoleEntries.contains { $0.arguments.first == "discardAll" })
+    }
+
+    @Test
+    func rollbackRejectsOldDialogAfterReplacementOrWorkspaceSwitch() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(repositoryRoot: root, path: "target.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]),
+            discardAllHandler: { target in GitProcessResult(arguments: ["discardAll", target.path], output: "", exitCode: 0) })))
+        var workspace = root
+        feature.configure(workspaceURLProvider: { workspace }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        feature.requestRollbackChanges([change], included: [change])
+        let old = try #require(feature.pendingRollbackSelection)
+        feature.requestRollbackChanges([change], included: [])
+        await feature.confirmRollbackChanges(old)
+        #expect(feature.gitConsoleEntries.isEmpty)
+        feature.requestRollbackChanges([change], included: [change])
+        let switched = try #require(feature.pendingRollbackSelection)
+        workspace = URL(fileURLWithPath: "/another-workspace")
+        await feature.confirmRollbackChanges(switched)
+        #expect(feature.gitConsoleEntries.isEmpty)
+    }
+
+    @Test
     func batchDiscardRetainsEachFallbackResultAndStopsAtTheFirstFailure() async {
         let root = URL(fileURLWithPath: "/workspace")
         let changes = ["first.txt", "blocked.txt", "untouched.txt"].map {

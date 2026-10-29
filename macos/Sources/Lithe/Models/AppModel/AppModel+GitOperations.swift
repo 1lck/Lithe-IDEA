@@ -2,6 +2,35 @@ import Foundation
 import LitheGitModule
 
 extension AppModel {
+    func makeCommitFileDeletion() -> CommitFileDeletionFeatureModel {
+        CommitFileDeletionFeatureModel(
+            files: services.fileOperations,
+            hasUnsavedEdits: { [weak self] url in
+                self?.openDocuments.contains { document in
+                    document.isDirty && (document.url.standardizedFileURL == url.standardizedFileURL
+                        || document.url.standardizedFileURL.path.hasPrefix(url.standardizedFileURL.path + "/"))
+                } == true
+            },
+            closeCleanDocuments: { [weak self] url in
+                guard let self else { return }
+                guard !self.openDocuments.contains(where: { $0.isDirty && ($0.url.standardizedFileURL == url.standardizedFileURL
+                    || $0.url.standardizedFileURL.path.hasPrefix(url.standardizedFileURL.path + "/")) }) else { return }
+                self.documentFeature.closeDocuments(containedIn: url)
+            }, synchronizeEditors: { [weak self] urls in
+                guard let self else { throw CancellationError() }
+                let documents = self.openDocuments.filter { document in urls.contains { url in
+                    document.url.standardizedFileURL == url.standardizedFileURL
+                        || document.url.standardizedFileURL.path.hasPrefix(url.standardizedFileURL.path + "/")
+                } }
+                for document in documents {
+                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                        document.withSynchronizedEditor { continuation.resume(with: $0) }
+                    }
+                    try Task.checkCancellation()
+                }
+            }, notify: { [weak self] in self?.showNotification($0) })
+    }
+
     func showGitDirectoryDiff(for directoryURL: URL) async {
         let requestID = beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: gitRepositoryRoot?.standardizedFileURL,
             source: .directory(directoryURL.standardizedFileURL)))
@@ -70,13 +99,59 @@ extension AppModel {
         gitFeatureIfActive?.clearGitConflictFilter()
     }
 
-    func selectChange(_ change: GitChange) {
+    func selectChange(_ change: GitChange, inNewTab: Bool = false) {
         guard !change.isUntrackedDirectory else { return }
-        let requestID = beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: change.repositoryRoot.standardizedFileURL,
+        let requestID = beginRepositoryDiffRequest(key: inNewTab ? nil : RepositoryDiffTabKey(repositoryRoot: change.repositoryRoot.standardizedFileURL,
             source: .workingFile(change.url.standardizedFileURL)))
         Task { [weak self] in
             await self?.performRepositoryDiffRequest(requestID) { await $0.selectChange(change, session: $1) }
         }
+    }
+
+    func prepareCommitFiles(_ changes: [GitChange], feature: GitFeatureModel, draft: CommitDraftFeatureModel) {
+        let generation = workspaceFeature.workspaceGeneration
+        Task { [weak self] in
+            guard await feature.prepareCommitFiles(changes), let self,
+                  self.workspaceFeature.workspaceGeneration == generation else { return }
+            draft.requestCommitEditor()
+        }
+    }
+
+    func requestDeleteCommitFiles(_ changes: [GitChange], feature: GitFeatureModel) {
+        guard let first = changes.first, feature.canRollbackChanges,
+              changes.allSatisfy({ feature.gitChanges.contains($0) && $0.repositoryRoot == first.repositoryRoot }) else { return }
+        let generation = workspaceFeature.workspaceGeneration
+        let root = first.repositoryRoot.standardizedFileURL
+        let deletion = commitFileDeletion
+        let isCurrent: @MainActor () -> Bool = { [weak self, weak feature] in
+            guard let self, let feature else { return false }
+            return self.workspaceFeature.workspaceGeneration == generation
+                && feature.availableRepositoryRoots.contains(root)
+        }
+        commitFileDeletion.request(changes.map(\.url), root: root,
+            isCurrent: isCurrent,
+            isEligible: { [weak self, weak feature] in
+                guard let self, let feature, feature.canRollbackChanges,
+                      self.vcsProvidersFeature?.isTruncated != true else { return false }
+                let nestedRoots = feature.availableRepositoryRoots
+                    + (self.vcsProvidersFeature?.roots.map(\.url) ?? [])
+                return changes.allSatisfy { change in
+                    feature.gitChanges.contains(change) && !nestedRoots.contains { candidate in
+                        let path = candidate.standardizedFileURL.path
+                        let target = change.url.standardizedFileURL.path
+                        return path == target || path.hasPrefix(target + "/")
+                    }
+                }
+            },
+            delete: { [weak feature, weak deletion] urls in
+                guard let feature, let deletion else { return false }
+                return await feature.deleteCommitFiles(changes) {
+                    await deletion.trash(urls, root: root, isCurrent: isCurrent)
+                }
+            }, refresh: { [weak self, weak feature] in
+                await feature?.refreshGit()
+                await self?.workspaceFeature.refreshCurrent()
+            })
     }
 
     private func workingDiffKey(_ url: URL?) -> RepositoryDiffTabKey? {

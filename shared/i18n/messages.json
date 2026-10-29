@@ -90808,6 +90808,209 @@
           "arg1"
         ]
       }
+    },
+    {
+      "id": "git.rollback.title",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rollback Changes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.confirm",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rollback",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.include",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Include in rollback",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.deleteAdded",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete local copies of added files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.warning",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.stale",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected changes changed. Reopen the rollback dialog and review them again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.success",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Rolled back %@",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "vcs.commitFiles.commitFiles",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Commit Files…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.diffNewTab",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show Diff in New Tab",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.deleteAction",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.addToVcs",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add to VCS",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.adding",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Adding to VCS…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.deleting",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Deleting…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.deleteTitle",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.trashWarning",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "These files will be moved to the macOS Trash.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.vcsDeleteWarning",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The version control provider will delete these files and record their removal. They may not be moved to Trash.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.ownershipChanged",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Some selected files belong to another version control root. Refresh and select them again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.stagingChanged",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The staged files changed. Review the checked files before committing.",
+        "arguments": []
+      }
     }
   ]
 }

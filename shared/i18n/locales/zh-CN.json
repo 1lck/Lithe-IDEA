@@ -9516,7 +9516,25 @@
     "document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying": "未能完整保存共享文件。所有硬链接可能已包含部分修改。编辑器中的内容已保留，请检查文件后再重试。",
     "document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor": "此编辑器不支持打开这种文件类型",
     "document.fileAccess.updateAllHardLinks": "更新所有硬链接",
-    "document.fileAccess.savePermissionDenied": "无法保存 {arg1}：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。"
+    "document.fileAccess.savePermissionDenied": "无法保存 {arg1}：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。",
+    "git.rollback.title": "回滚更改",
+    "git.rollback.confirm": "回滚",
+    "git.rollback.include": "纳入回滚",
+    "git.rollback.deleteAdded": "删除新增文件的本地副本",
+    "git.rollback.warning": "将回滚勾选文件中已暂存和未暂存的更改。Lithe 无法撤销此操作。",
+    "git.rollback.stale": "所选更改已发生变化。请重新打开回滚弹窗并再次检查。",
+    "git.rollback.success": "已回滚 {arg1}",
+    "vcs.commitFiles.commitFiles": "提交文件…",
+    "vcs.commitFiles.diffNewTab": "在新标签页中显示差异",
+    "vcs.commitFiles.deleteAction": "删除…",
+    "vcs.commitFiles.addToVcs": "添加到 VCS",
+    "vcs.commitFiles.adding": "正在添加到 VCS…",
+    "vcs.commitFiles.deleting": "正在删除…",
+    "vcs.commitFiles.deleteTitle": "删除文件",
+    "vcs.commitFiles.trashWarning": "这些文件将移到 macOS 废纸篓。",
+    "vcs.commitFiles.vcsDeleteWarning": "版本控制插件将删除这些文件并记录删除操作，文件可能不会移入废纸篓。",
+    "vcs.commitFiles.ownershipChanged": "部分所选文件属于其他版本控制根目录。请刷新后重新选择。",
+    "vcs.commitFiles.stagingChanged": "已暂存的文件发生了变化。请在提交前检查勾选的文件。"
   },
   "overrides": {
     "macos": {

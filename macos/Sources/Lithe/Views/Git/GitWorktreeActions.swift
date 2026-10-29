@@ -13,4 +13,7 @@ struct GitWorktreeActions {
     var openFile: ((URL, String) -> Void)? = nil
     var commitSession: ((GitWorktree) -> WorktreeCommitSession)? = nil
     var showCommitSettings: () -> Void = {}
+    var showDiffInNewTab: ((GitChange) -> Void)? = nil
+    var prepareCommitFiles: (([GitChange], WorktreeCommitSession) -> Void)? = nil
+    var deleteFiles: (([GitChange], GitFeatureModel) -> Void)? = nil
 }
