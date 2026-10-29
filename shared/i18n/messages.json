@@ -69922,6 +69922,34 @@
       ]
     },
     {
+      "id": "settings.git.showChangelists",
+      "description": "Windows UI: settings.git.showChangelists",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showChangelistsDescription",
+      "description": "Windows UI: settings.git.showChangelistsDescription",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showParentReferences",
+      "description": "Windows UI: settings.git.showParentReferences",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showParentReferencesDescription",
+      "description": "Windows UI: settings.git.showParentReferencesDescription",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "settings.git.unified",
       "description": "Windows UI: settings.git.unified",
       "platforms": [

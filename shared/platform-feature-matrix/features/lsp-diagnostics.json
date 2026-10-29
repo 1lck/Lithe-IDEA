@@ -17,11 +17,12 @@
     "evidence": [
       "windows/tauri/src/features/diagnostics",
       "shared/fixtures/lsp",
-      "rust/lithe-core/src/lsp/interface/engine.rs"
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "windows/tauri/src/features/editor/lsp/lsp-client-diagnostics-batch.test.ts"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Language Tooling",
-  "verification": "制造语法和类型错误，比较诊断等级、消息、行列号和清理行为；通过符号链接路径打开的工作区（macOS 的 /tmp、/var 下的项目）中，Java 类型错误同样出现在编辑器波浪线和问题面板，修正后消失。"
+  "verification": "制造语法和类型错误，比较诊断等级、消息、行列号和清理行为；通过符号链接路径打开的工作区（macOS 的 /tmp、/var 下的项目）中，Java 类型错误同样出现在编辑器波浪线和问题面板，修正后消失。导入大型 Java 工程时，一次推送数百个文件的诊断，编辑器输入和补全不卡顿，问题面板只按最新一批诊断更新一次。"
 }

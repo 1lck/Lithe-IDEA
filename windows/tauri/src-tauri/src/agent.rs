@@ -18,7 +18,7 @@
 use lithe_agent_host::{AgentCommand, AgentEvent, AgentHandle, AgentLaunch};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
@@ -32,16 +32,19 @@ pub const AGENT_EVENT_NAME: &str = "agent_event";
 const CLOSING_WAIT: Duration = Duration::from_secs(15);
 
 /// Opens one Agent connection owned by the calling window.
+///
+/// Opening starts the Agent process, so it runs off the UI thread.
 #[tauri::command]
-pub fn agent_open(
+pub async fn agent_open(
     webview: tauri::Webview,
     request: AgentOpenRequest,
 ) -> Result<AgentConnectionInfo, String> {
+    let window = webview.label().to_string();
     let sink = WindowEventSink {
         app: webview.app_handle().clone(),
-        window: webview.label().to_string(),
+        window: window.clone(),
     };
-    open_connection(webview.label(), request, sink)
+    crate::blocking::run_blocking(move || open_connection(&window, request, sink)).await
 }
 
 /// Queues one shared `AgentCommand` on an open connection owned by the caller.
@@ -120,6 +123,9 @@ struct Connection {
 /// mirroring `debug.rs`.
 struct Registry {
     connections: HashMap<String, Connection>,
+    // Native window labels are unique for this process. Keep tombstones so an
+    // open queued before destruction cannot register after the close drain.
+    closed_windows: HashSet<String>,
     /// Cleared by application exit in the same critical section that drains the
     /// connections: one opened after that drain would never be closed.
     accepting: bool,
@@ -130,6 +136,7 @@ fn registry() -> &'static Mutex<Registry> {
     REGISTRY.get_or_init(|| {
         Mutex::new(Registry {
             connections: HashMap::new(),
+            closed_windows: HashSet::new(),
             accepting: true,
         })
     })
@@ -159,6 +166,9 @@ fn open_in<S: AgentEventSink>(
         return Err(
             "The application is shutting down, so no Agent connection can be opened.".into(),
         );
+    }
+    if registry.closed_windows.contains(window) {
+        return Err("agent.composer.connectionClosed".into());
     }
     let connection_id = request.connection_id.trim().to_string();
     if connection_id.is_empty() {
@@ -342,14 +352,23 @@ pub fn close_window_connections(window: &str) {
         let Ok(mut registry) = registry().lock() else {
             return;
         };
-        take_connections(&mut registry, Some(closing()), |_, connection| {
-            Ok(connection.window == window)
-        })
-        .unwrap_or_default()
+        close_window_in(&mut registry, Some(closing()), window).unwrap_or_default()
     };
     for connection in taken {
         drop(queue_close(move || connection.handle.close()));
     }
+}
+
+/// Invalidate queued opens and drain live connections in one critical section.
+fn close_window_in(
+    registry: &mut Registry,
+    closing: Option<&ClosingState>,
+    window: &str,
+) -> Result<Vec<Connection>, String> {
+    registry.closed_windows.insert(window.to_owned());
+    take_connections(registry, closing, |_, connection| {
+        Ok(connection.window == window)
+    })
 }
 
 /// Takes every connection and stops accepting new ones, in one critical section,
@@ -833,6 +852,7 @@ mod tests {
         let (sink, _receiver) = recording();
         let mut registry = Registry {
             connections: HashMap::new(),
+            closed_windows: HashSet::new(),
             accepting: true,
         };
         open_in(
@@ -863,10 +883,43 @@ mod tests {
     }
 
     #[test]
+    fn a_window_destroyed_before_queued_open_rejects_the_launch() {
+        let mut registry = Registry {
+            connections: HashMap::new(),
+            closed_windows: HashSet::new(),
+            accepting: true,
+        };
+        assert!(close_window_in(&mut registry, None, "closed-window")
+            .unwrap()
+            .is_empty());
+        assert!(close_window_in(&mut registry, None, "closed-window")
+            .unwrap()
+            .is_empty());
+        let (sink, _receiver) = recording();
+        let mut pending = request("queued-open");
+        // Reject before parsing or launching anything, even while the app and
+        // another window remain open. No subprocess is needed for this ordering.
+        pending.launch = Value::Null;
+        let error = open_in(&mut registry, "closed-window", pending, sink).unwrap_err();
+        assert_eq!(error, "agent.composer.connectionClosed");
+        assert!(registry.connections.is_empty());
+        assert!(registry.accepting);
+        let (sink, _receiver) = recording();
+        let mut other = request("other-window");
+        other.launch = Value::Null;
+        let error = open_in(&mut registry, "live-window", other, sink).unwrap_err();
+        assert!(
+            error.starts_with("Invalid Agent launch configuration"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn an_exit_drain_takes_every_connection_and_refuses_new_ones() {
         let (sink, _receiver) = recording();
         let mut registry = Registry {
             connections: HashMap::new(),
+            closed_windows: HashSet::new(),
             accepting: true,
         };
         open_in(

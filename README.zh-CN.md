@@ -258,6 +258,17 @@ open dist/Lithe.app
   经济模式低至 0.5 折！<a href="https://pateway.ai/?ch=68i69k">通过此链接注册可获试用额度</a>，还可参与不定时活动领取免费额度，双向推荐奖励最高达 150 美元。
 </p>
 
+<p align="center">
+  <a href="https://apinebula.ai/ref/8dhC67x0">
+    <img src="./docs/assets/sponsors/apinebula-banner.jpg" width="720" alt="APINEBULA">
+  </a>
+</p>
+<p align="center">
+  感谢 APINEBULA 赞助本项目！<br>
+  APINEBULA 是银河录像局旗下的企业级 AI 聚合平台，通过一个 API 接入 Claude、GPT、Gemini 等主流模型，价格低至 1 折，支持高并发、正式合同、对公打款与开票，适用于 AI 编程、Agent 开发和业务系统集成。<br>
+  <a href="https://apinebula.ai/ref/8dhC67x0">通过此链接注册</a>，首次充值时填写优惠码 <strong>Lithe</strong>，可享九折优惠。
+</p>
+
 <a href="mailto:2188718831@qq.com">想显示在下方？</a>
 
 <table>
@@ -269,6 +280,16 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> 提供主流大模型 API 中转服务，支持统一密钥、智能容灾及 Codex、Claude Code 专属通道。人民币 1:1 充值，无手续费，新用户可享首充折扣和 $1 体验额度。
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://timicc.com">
+        <img src="./docs/assets/sponsors/timicc.png" width="64" alt="TIMI CC">
+      </a>
+    </td>
+    <td>
+      <a href="https://timicc.com"><strong>TIMI CC</strong></a> 是企业级 AI 中继平台，专注于稳定性与优质服务，为 Claude Code、Codex 等主流 AI 编程工具提供快速、稳定、高质量的模型接入服务。
     </td>
   </tr>
   <tr>
@@ -289,6 +310,16 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> 提供统一 API 接入，一个密钥即可调用 Claude、GPT、Gemini 和 DeepSeek 等模型，兼容主流 AI 编程工具。新用户注册可获 $5 体验额度。
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9">
+        <img src="./docs/assets/sponsors/zeus.png" width="64" alt="Zeus 宙斯中转站">
+      </a>
+    </td>
+    <td>
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9"><strong>Zeus 宙斯中转站</strong></a> 提供 GPT、Claude、Grok 及 GPT Image 中转服务，最低 0.08 倍率，支持开票与对公付款。
     </td>
   </tr>
   <tr>
