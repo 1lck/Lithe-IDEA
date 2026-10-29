@@ -153,28 +153,31 @@ pub fn store_project(
 
 /// Tauri command: effective values of one plugin's settings.
 #[tauri::command]
-pub fn declarative_plugins_resolve_settings(
+pub async fn declarative_plugins_resolve_settings(
     app: AppHandle,
     manifest: Value,
     workspace_path: String,
 ) -> Result<Value, String> {
-    let Some(plugin_id) = manifest["id"].as_str().map(str::to_string) else {
-        return Err("manifest has no id".to_string());
-    };
-    let layers = load_layers(&app, &plugin_id, &workspace_path)?;
-    super::scan::core_execute(
-        "plugins.declarative.resolveSettings",
-        serde_json::json!({
-            "manifest": manifest,
-            "settings": layers.global,
-            "projectSettings": layers.project,
-        }),
-    )
+    crate::blocking::run_blocking(move || {
+        let Some(plugin_id) = manifest["id"].as_str().map(str::to_string) else {
+            return Err("manifest has no id".to_string());
+        };
+        let layers = load_layers(&app, &plugin_id, &workspace_path)?;
+        super::scan::core_execute(
+            "plugins.declarative.resolveSettings",
+            serde_json::json!({
+                "manifest": manifest,
+                "settings": layers.global,
+                "projectSettings": layers.project,
+            }),
+        )
+    })
+    .await
 }
 
 /// Tauri command: stores a setting value in the requested layer.
 #[tauri::command]
-pub fn declarative_plugins_store_setting(
+pub async fn declarative_plugins_store_setting(
     app: AppHandle,
     plugin_id: String,
     setting_id: String,
@@ -182,33 +185,37 @@ pub fn declarative_plugins_store_setting(
     workspace_path: String,
     value: Option<Value>,
 ) -> Result<(), String> {
-    match scope.as_str() {
+    crate::blocking::run_blocking(move || match scope.as_str() {
         "global" => store_global(&app, &plugin_id, &setting_id, value),
         "project" => store_project(&workspace_path, &plugin_id, &setting_id, value),
         other => Err(format!("unknown setting scope {other}")),
-    }
+    })
+    .await
 }
 
 /// Tauri command: a running language server's `workspaceConfiguration`
 /// expanded with the current values, for `immediate` effect changes.
 #[tauri::command]
-pub fn declarative_plugins_workspace_configuration(
+pub async fn declarative_plugins_workspace_configuration(
     app: AppHandle,
     manifest: Value,
     language_id: String,
     workspace_path: String,
 ) -> Result<Value, String> {
-    let Some(plugin_id) = manifest["id"].as_str().map(str::to_string) else {
-        return Err("manifest has no id".to_string());
-    };
-    let layers = load_layers(&app, &plugin_id, &workspace_path)?;
-    super::scan::core_execute(
-        "plugins.declarative.workspaceConfiguration",
-        serde_json::json!({
-            "manifest": manifest,
-            "languageID": language_id,
-            "settings": layers.global,
-            "projectSettings": layers.project,
-        }),
-    )
+    crate::blocking::run_blocking(move || {
+        let Some(plugin_id) = manifest["id"].as_str().map(str::to_string) else {
+            return Err("manifest has no id".to_string());
+        };
+        let layers = load_layers(&app, &plugin_id, &workspace_path)?;
+        super::scan::core_execute(
+            "plugins.declarative.workspaceConfiguration",
+            serde_json::json!({
+                "manifest": manifest,
+                "languageID": language_id,
+                "settings": layers.global,
+                "projectSettings": layers.project,
+            }),
+        )
+    })
+    .await
 }

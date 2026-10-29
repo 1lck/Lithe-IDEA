@@ -6,18 +6,23 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Application/Features/MybatisFeatureModel.swift",
-      "macos/Sources/Lithe/Application/Composition/DocumentFeatureComposition.swift"
+      "macos/Sources/Lithe/Application/Composition/DocumentFeatureComposition.swift",
+      "macos/Tests/LitheTests/MybatisFeatureModelTests.swift",
+      "rust/lithe-core/src/tests/mybatis.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/mybatis"
+      "windows/tauri/src/features/mybatis",
+      "windows/tauri/src/features/mybatis/utils/mybatis-index-paths.test.ts",
+      "rust/lithe-core/src/tests/mybatis.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Java / MyBatis",
-  "verification": "使用 Mapper/XML fixture 对比索引、导航、文件变更刷新和失效处理。"
+  "verification": "使用 Mapper/XML fixture 对比索引、导航、文件变更刷新和失效处理。",
+  "notes": "索引只解析 XML 映射文件命名空间对应的 Java 文件（a.b.Outer.Inner 对应 Outer.java），其余 Java 源码不读取；编辑时只有 XML 映射文件或已与映射配对的 Java 文件会触发重建，编辑普通 Java 文件不再重建整份索引。"
 }

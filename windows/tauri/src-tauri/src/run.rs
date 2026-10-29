@@ -21,6 +21,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::blocking::run_blocking;
+
 mod launch_arguments;
 
 const MAVEN_LAUNCHERS: &[&str] = &["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"];
@@ -530,24 +532,35 @@ pub struct PreLaunchOutcome {
 }
 
 #[tauri::command]
-pub fn run_list_java_sources(root: PathBuf) -> Result<Vec<String>, String> {
-    let root = existing_directory(&root)?;
+pub async fn run_list_java_sources(root: PathBuf) -> Result<Vec<String>, String> {
+    run_blocking(move || list_java_sources(&root)).await
+}
+
+fn list_java_sources(root: &Path) -> Result<Vec<String>, String> {
+    let root = existing_directory(root)?;
     lithe_core::execution::list_run_java_sources(&root, MAX_JAVA_SOURCES)
         .map_err(|error| error.message)
 }
 
 #[tauri::command]
-pub fn run_write_generated(args: WriteGeneratedArgs) -> Result<(), String> {
-    write_generated_documents(
-        &args.root,
-        &args.generated,
-        &args.toolchain_requirements,
-        args.default_run_configuration.as_deref(),
-    )
+pub async fn run_write_generated(args: WriteGeneratedArgs) -> Result<(), String> {
+    run_blocking(move || {
+        write_generated_documents(
+            &args.root,
+            &args.generated,
+            &args.toolchain_requirements,
+            args.default_run_configuration.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn run_write_documents(args: WriteDocumentsArgs) -> Result<(), String> {
+pub async fn run_write_documents(args: WriteDocumentsArgs) -> Result<(), String> {
+    run_blocking(move || write_run_documents(args)).await
+}
+
+fn write_run_documents(args: WriteDocumentsArgs) -> Result<(), String> {
     let root = existing_directory(&args.root)?;
     if args.documents.is_empty() || args.documents.len() > 3 {
         return Err("A run configuration save must contain one to three documents.".into());
@@ -570,20 +583,24 @@ pub fn run_write_documents(args: WriteDocumentsArgs) -> Result<(), String> {
     write_document_transaction(&prepared, atomic_write)
 }
 
+/// Probing runs `mvn -version` and `java -version` on every candidate.
 #[tauri::command]
-pub fn run_discover_toolchains(
+pub async fn run_discover_toolchains(
     root: PathBuf,
     java_home_path: Option<String>,
     maven_executable_path: Option<String>,
     runtime_executable_paths: Option<HashMap<String, String>>,
 ) -> Result<DiscoveredToolchains, String> {
-    let project_root = existing_directory(&root).ok();
-    Ok(discover_toolchains_with_overrides(
-        project_root.as_deref(),
-        java_home_path.as_deref(),
-        maven_executable_path.as_deref(),
-        runtime_executable_paths.as_ref(),
-    ))
+    run_blocking(move || {
+        let project_root = existing_directory(&root).ok();
+        Ok(discover_toolchains_with_overrides(
+            project_root.as_deref(),
+            java_home_path.as_deref(),
+            maven_executable_path.as_deref(),
+            runtime_executable_paths.as_ref(),
+        ))
+    })
+    .await
 }
 
 /// Resolves the Maven this workspace would run without launching any process.
@@ -596,9 +613,18 @@ pub fn run_discover_toolchains(
 /// Candidate order matches `resolve_maven_executable`, so project import and
 /// builds agree on one Maven.
 #[tauri::command]
-pub fn maven_resolve_installation(root: PathBuf, override_path: Option<String>) -> Option<String> {
-    let root = existing_directory(&root).ok()?;
-    maven_executable_without_probing(&root, override_path.as_deref())
+pub async fn maven_resolve_installation(
+    root: PathBuf,
+    override_path: Option<String>,
+) -> Option<String> {
+    run_blocking(move || {
+        Ok(existing_directory(&root)
+            .ok()
+            .and_then(|root| maven_executable_without_probing(&root, override_path.as_deref())))
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 fn maven_executable_without_probing(root: &Path, override_path: Option<&str>) -> Option<String> {
@@ -653,7 +679,11 @@ fn is_maven_wrapper(path: &Path) -> bool {
 }
 
 #[tauri::command]
-pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
+pub async fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
+    run_blocking(move || resolve_launch(args)).await
+}
+
+fn resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
     let root = existing_directory(&args.root)?;
     let working_directory = resolve_working_directory(&root, &args.working_directory)?;
     let java_home = resolve_java_home(&root, &args.java_home_path)?;
@@ -3271,7 +3301,7 @@ mod tests {
         fs::create_dir_all(root.join("target/classes")).unwrap();
         fs::write(root.join("src/main/java/App.java"), "class App {}").unwrap();
         fs::write(root.join("target/classes/Skip.java"), "class Skip {}").unwrap();
-        let paths = run_list_java_sources(root.clone()).expect("list");
+        let paths = list_java_sources(&root).expect("list");
         assert_eq!(paths, vec!["src/main/java/App.java"]);
         fs::remove_dir_all(root).ok();
     }
@@ -3373,7 +3403,7 @@ mod tests {
         }
         let maven = root.join("mvn.cmd");
         fs::write(&maven, b"fixture").unwrap();
-        let resolved = run_resolve_launch(ResolveLaunchArgs {
+        let resolved = resolve_launch(ResolveLaunchArgs {
             root: root.clone(),
             executable: LaunchExecutable {
                 toolchain: Some("project-maven".into()),

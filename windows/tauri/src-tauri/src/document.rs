@@ -159,12 +159,17 @@ pub async fn save_document_file(
     .await
     .map_err(DocumentError::worker)?
 }
+/// Canonicalizes every watched parent and re-registers its native watch, so
+/// the work runs off the UI thread. The generation keeps a late, older
+/// snapshot from replacing a newer one.
 #[tauri::command]
-pub fn set_document_watches(
+pub async fn set_document_watches(
     generation: u64,
     documents: Vec<DocumentWatch>,
     window: tauri::WebviewWindow,
     watcher: State<'_, Arc<DocumentWatcher>>,
 ) -> Result<(), String> {
-    watcher.replace(window.label(), generation, documents)
+    let watcher = Arc::clone(&watcher);
+    let owner = window.label().to_owned();
+    crate::blocking::run_blocking(move || watcher.replace(&owner, generation, documents)).await
 }
