@@ -238,6 +238,27 @@ struct MacRuntimeDiscoveryTests {
         }
     }
 
+    @Test
+    func shellEnvironmentCacheOnlyAnswersForTheEnvironmentItWasReadFor() {
+        let cache = MacShellEnvironmentCache()
+        let gui = ["PATH": "/usr/bin:/bin"]
+        #expect(cache.shellEnvironment(for: gui) == nil)
+        #expect(cache.systemJavaHome() == nil)
+        cache.store(["JAVA_HOME": "/managed/jdk"], for: gui)
+        cache.storeSystemJavaHome("/default/jdk")
+        #expect(cache.shellEnvironment(for: gui) == ["JAVA_HOME": "/managed/jdk"])
+        #expect(cache.shellEnvironment(for: ["PATH": "/other"]) == nil)
+        #expect(cache.systemJavaHome() == "/default/jdk")
+    }
+
+    @Test
+    func selectionEnvironmentNeverStartsALoginShellBeforeDiscovery() {
+        // No discovery has read a shell for this environment, so selection
+        // must return it unchanged instead of launching one synchronously.
+        let environment = ["PATH": "/usr/bin:/bin", "LITHE_TEST_MARKER": UUID().uuidString]
+        #expect(MacRuntimeDiscovery.cachedEnrichedEnvironment(environment) == environment)
+    }
+
     private func removeFixture(_ root: URL) {
         do { try FileManager.default.removeItem(at: root) }
         catch { Issue.record("Runtime discovery fixture cleanup failed at \(root.path): \(error)") }

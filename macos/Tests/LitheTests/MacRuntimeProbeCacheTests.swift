@@ -87,6 +87,35 @@ struct MacRuntimeProbeCacheTests {
     }
 
     @Test
+    func mavenProbeRunsWithTheEnvironmentItWasFoundIn() async throws {
+        try await onThrowingWorker {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let javaHome = root.appendingPathComponent("managed-jdk").path
+            let executable = root.appendingPathComponent("maven/bin/mvn")
+            try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // Like a managed Maven that needs the login shell's JAVA_HOME.
+            try Data("#!/bin/sh\n[ \"$JAVA_HOME\" = '\(javaHome)' ] || exit 1\necho 'Apache Maven 3.9.9'\n".utf8).write(to: executable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+            let shellEnvironment = ["JAVA_HOME": javaHome, "PATH": "/usr/bin:/bin"]
+            #expect(MacRuntimeDiscovery.probeMaven(executable, environment: ["PATH": "/usr/bin:/bin"]) == nil)
+            #expect(MacRuntimeDiscovery.probeMaven(executable, environment: shellEnvironment)?.version == "3.9.9")
+        }
+    }
+
+    @Test
+    func probeKeyDistinguishesEnvironmentsThatChangeTheRuntime() {
+        let executable = URL(fileURLWithPath: "/fixture/mvn")
+        let inherited = MacRuntimeProbeCache.key(executable: executable)
+        let first = MacRuntimeProbeCache.key(executable: executable, environment: ["JAVA_HOME": "/one"])
+        let second = MacRuntimeProbeCache.key(executable: executable, environment: ["JAVA_HOME": "/two"])
+        let unrelated = MacRuntimeProbeCache.key(executable: executable, environment: ["JAVA_HOME": "/one", "TERM": "x"])
+        #expect(inherited != first)
+        #expect(first != second)
+        #expect(first == unrelated)
+    }
+
+    @Test
     func mavenWrapperReusesVersionUntilDistributionChanges() async throws {
         try await onThrowingWorker {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

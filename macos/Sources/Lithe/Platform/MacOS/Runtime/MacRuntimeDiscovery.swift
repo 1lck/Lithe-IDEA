@@ -2,6 +2,9 @@ import Foundation
 
 enum MacRuntimeDiscovery {
     private static let probeCache = MacRuntimeProbeCache()
+    /// Filled by background discovery. Selection paths run on the main actor
+    /// and only read it, so they never start a login shell or `java_home`.
+    static let shellEnvironmentCache = MacShellEnvironmentCache()
     private static let loginShellEnvironmentTimeoutMilliseconds = 1_500
     private static let loginShellEnvironmentMarker = "__LITHE_LOGIN_SHELL_ENVIRONMENT__"
     private static let loginShellEnvironmentByteLimit = 256 * 1_024
@@ -16,7 +19,7 @@ enum MacRuntimeDiscovery {
         let enrichedEnvironment = enrichedEnvironment(environment)
         let javaRuntimes = javaRuntimes(enrichedEnvironment: enrichedEnvironment, isCancelled: { false })
         let mavenRuntimes = discoverMavenExecutables(environment: enrichedEnvironment)
-            .compactMap(probeMaven)
+            .compactMap { probeMaven($0, environment: enrichedEnvironment) }
             .sorted { lhs, rhs in
                 lhs.version.localizedStandardCompare(rhs.version) == .orderedDescending
             }
@@ -24,7 +27,7 @@ enum MacRuntimeDiscovery {
     }
 
     static func systemMavenExecutable(environment: [String: String]) -> URL? {
-        discoverMavenExecutables(environment: enrichedEnvironment(environment)).first
+        discoverMavenExecutables(environment: cachedEnrichedEnvironment(environment)).first
     }
 
     static func mavenExecutable(forHomePath path: String) -> URL? {
@@ -63,6 +66,7 @@ enum MacRuntimeDiscovery {
     private static func javaRuntimes(
         enrichedEnvironment: [String: String], isCancelled: () -> Bool
     ) -> [JavaRuntimeCandidate] {
+        shellEnvironmentCache.storeSystemJavaHome(systemLauncherJavaHome())
         let homes = discoverJavaHomes(environment: enrichedEnvironment)
         var runtimes: [JavaRuntimeCandidate] = []
         for home in homes {
@@ -75,7 +79,10 @@ enum MacRuntimeDiscovery {
     }
 
     static func javaHomeOnPath(environment: [String: String]) -> URL? {
-        javaHomeOnPath(in: enrichedEnvironment(environment), systemJavaHome: systemLauncherJavaHome)
+        javaHomeOnPath(
+            in: cachedEnrichedEnvironment(environment),
+            systemJavaHome: { shellEnvironmentCache.systemJavaHome() }
+        )
     }
 
     static func javaHomeOnPath(
@@ -239,7 +246,9 @@ enum MacRuntimeDiscovery {
         return JavaRuntimeCandidate(homePath: home.path, version: version, vendor: vendor)
     }
 
-    static func probeMaven(_ executable: URL) -> MavenRuntimeCandidate? {
+    /// `environment` is the one Maven was found with; a launcher that relies
+    /// on the login shell's JAVA_HOME or PATH fails without it.
+    static func probeMaven(_ executable: URL, environment: [String: String]? = nil) -> MavenRuntimeCandidate? {
         let resolvedExecutable = executable.resolvingSymlinksInPath()
         let distribution = resolvedExecutable.deletingLastPathComponent().deletingLastPathComponent()
         let homeURL = resolvedExecutable.lastPathComponent == "mvnd"
@@ -248,7 +257,7 @@ enum MacRuntimeDiscovery {
         let libraries = directoryNames(at: library.path).filter { $0.hasPrefix("maven-core-") }.sorted()
         let wrapper = resolvedExecutable.deletingLastPathComponent().appendingPathComponent(".mvn/wrapper")
         let output = cachedCommandOutput(
-            executable: executable, arguments: ["-version"],
+            executable: executable, arguments: ["-version"], environment: environment,
             dependencies: [library] + libraries.map { library.appendingPathComponent($0) }
                 + [wrapper.appendingPathComponent("maven-wrapper.properties"), wrapper.appendingPathComponent("maven-wrapper.jar")],
             accepts: { mavenVersion(in: $0) != nil }
@@ -294,8 +303,20 @@ enum MacRuntimeDiscovery {
             .first { $0.hasPrefix("/") }
     }
 
+    /// Starts a login shell; call only from background discovery.
     private static func enrichedEnvironment(_ environment: [String: String]) -> [String: String] {
-        mergeEnvironment(environment, shellEnvironment: loginShellEnvironment(environment))
+        let shellEnvironment = loginShellEnvironment(environment)
+        shellEnvironmentCache.store(shellEnvironment, for: environment)
+        return mergeEnvironment(environment, shellEnvironment: shellEnvironment)
+    }
+
+    /// The last background discovery's login shell environment merged into
+    /// `environment`, or `environment` alone before discovery has run.
+    static func cachedEnrichedEnvironment(_ environment: [String: String]) -> [String: String] {
+        guard let shellEnvironment = shellEnvironmentCache.shellEnvironment(for: environment) else {
+            return environment
+        }
+        return mergeEnvironment(environment, shellEnvironment: shellEnvironment)
     }
 
     static func mergeEnvironment(
@@ -386,11 +407,16 @@ enum MacRuntimeDiscovery {
     }
 
     private static func cachedCommandOutput(
-        executable: URL, arguments: [String], dependencies: [URL], accepts: (String) -> Bool
+        executable: URL, arguments: [String], environment: [String: String]? = nil,
+        dependencies: [URL], accepts: (String) -> Bool
     ) -> String {
-        probeCache.value(for: MacRuntimeProbeCache.key(executable: executable, dependencies: dependencies)) {
+        let key = MacRuntimeProbeCache.key(
+            executable: executable, dependencies: dependencies, environment: environment
+        )
+        return probeCache.value(for: key) {
             let result = MacProcessRunner().run(ProcessRequest(
-                executablePath: executable.path, arguments: arguments, timeoutMilliseconds: 5_000
+                executablePath: executable.path, arguments: arguments,
+                environment: environment, timeoutMilliseconds: 5_000
             ))
             return result.succeeded && accepts(result.output) ? result.output : nil
         } ?? ""

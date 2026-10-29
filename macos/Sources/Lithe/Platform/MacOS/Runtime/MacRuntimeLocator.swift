@@ -63,6 +63,8 @@ struct MacRuntimeLocator: RuntimeLocator {
     }
 
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? {
-        MacRuntimeDiscovery.probeMaven(executableURL)
+        MacRuntimeDiscovery.probeMaven(
+            executableURL, environment: MacRuntimeDiscovery.cachedEnrichedEnvironment(environment())
+        )
     }
 }

@@ -65,16 +65,63 @@ final class MacRuntimeProbeCache: @unchecked Sendable {
         return result
     }
 
+    /// Variables that change which JDK or Maven distribution a probe runs.
+    static let environmentIdentityKeys = [
+        "JAVA_HOME", "PATH", "MAVEN_HOME", "M2_HOME", "MAVEN_OPTS", "MAVEN_ARGS", "JDK_JAVA_OPTIONS"
+    ]
+
     /// Resolve aliases before fingerprinting. No state is written beside a tool
     /// or into the installed bundle; identities are read-only filesystem metadata.
-    static func key(executable: URL, dependencies: [URL] = []) -> Key {
+    static func key(executable: URL, dependencies: [URL] = [], environment: [String: String]? = nil) -> Key {
         let canonical = executable.resolvingSymlinksInPath().standardizedFileURL
         let identity = ([canonical] + dependencies).map { url in
             let resolved = url.resolvingSymlinksInPath().standardizedFileURL
             let attributes = try? FileManager.default.attributesOfItem(atPath: resolved.path)
             let fields: [FileAttributeKey] = [.systemNumber, .systemFileNumber, .size, .modificationDate]
             return resolved.path + fields.map { String(describing: attributes?[$0]) }.joined(separator: "|")
-        }.joined(separator: "\n")
+        }.joined(separator: "\n") + environmentIdentity(environment)
         return Key(executablePath: canonical.path, identity: identity)
+    }
+
+    private static func environmentIdentity(_ environment: [String: String]?) -> String {
+        guard let environment else { return "" }
+        return "\nenv:" + environmentIdentityKeys.map { key in
+            key + "=" + (environment[key].map { "\"" + $0 + "\"" } ?? "-")
+        }.joined(separator: "\u{0}")
+    }
+}
+
+/// Holds the login shell environment and `/usr/bin/java`'s default JDK that
+/// background discovery read, keyed by the process environment it read them
+/// for, so synchronous selection can reuse them without starting processes.
+final class MacShellEnvironmentCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var source: [String: String]?
+    private var shell: [String: String]?
+    private var javaHome: String?
+
+    func store(_ shellEnvironment: [String: String], for environment: [String: String]) {
+        lock.lock()
+        defer { lock.unlock() }
+        source = environment
+        shell = shellEnvironment
+    }
+
+    func shellEnvironment(for environment: [String: String]) -> [String: String]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return source == environment ? shell : nil
+    }
+
+    func storeSystemJavaHome(_ path: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        javaHome = path
+    }
+
+    func systemJavaHome() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return javaHome
     }
 }
