@@ -134,6 +134,8 @@ interface MenuItemsListProps {
   focusIndex?: number;
   density?: DropdownDensity;
   showIcons?: boolean;
+  /** Keyboard-opened submenu row (list index) with its highlighted enabled child index. */
+  activeSubmenu?: { listIndex: number; childFocusIndex: number } | null;
 }
 
 const MENU_SUBMENU_ESTIMATED_WIDTH = 240;
@@ -146,6 +148,10 @@ interface MenuSubmenuItemProps {
   density: DropdownDensity;
   showIcons: boolean;
   focused: boolean;
+  /** Shared-dropdown keyboard navigation opens the submenu without a pointer event. */
+  keyboardOpen?: boolean;
+  /** Enabled-child index highlighted by keyboard navigation inside the submenu. */
+  keyboardChildFocusIndex?: number;
   onItemSelect?: () => void;
   registerRef?: (element: HTMLButtonElement | null) => void;
 }
@@ -156,6 +162,8 @@ function MenuSubmenuItem({
   density,
   showIcons,
   focused,
+  keyboardOpen,
+  keyboardChildFocusIndex,
   onItemSelect,
   registerRef,
 }: MenuSubmenuItemProps) {
@@ -189,6 +197,19 @@ function MenuSubmenuItem({
 
   const closeSubmenu = useCallback(() => setIsOpen(false), []);
 
+  // Keyboard-driven open mirrors pointer interaction; the ref guard keeps hover-opened
+  // submenus alive when callers rebuild their item arrays between renders.
+  const keyboardOwned = useRef(false);
+  useEffect(() => {
+    if (keyboardOpen && !keyboardOwned.current) {
+      keyboardOwned.current = true;
+      openSubmenu();
+    } else if (!keyboardOpen && keyboardOwned.current) {
+      keyboardOwned.current = false;
+      closeSubmenu();
+    }
+  }, [keyboardOpen, openSubmenu, closeSubmenu]);
+
   return (
     <>
       <button
@@ -199,7 +220,7 @@ function MenuSubmenuItem({
         type="button"
         role="menuitem"
         aria-haspopup="menu"
-        aria-expanded={isOpen}
+        aria-expanded={isOpen || keyboardOpen}
         disabled={item.disabled}
         onMouseEnter={() => {
           if (!item.disabled) openSubmenu();
@@ -248,6 +269,10 @@ function MenuSubmenuItem({
         <div role="menu">
           <MenuItemsList
             items={item.children ?? []}
+            focusIndex={
+              translateKeyboardFocus(item.children ?? [], keyboardChildFocusIndex ?? -1)
+                .localFocusIndex
+            }
             density={density}
             showIcons={showIcons}
             onItemSelect={() => {
@@ -269,6 +294,7 @@ export function MenuItemsList({
   focusIndex = -1,
   density = "default",
   showIcons = true,
+  activeSubmenu,
 }: MenuItemsListProps) {
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -300,6 +326,10 @@ export function MenuItemsList({
               density={density}
               showIcons={showIcons}
               focused={isFocused}
+              keyboardOpen={activeSubmenu?.listIndex === index}
+              keyboardChildFocusIndex={
+                activeSubmenu?.listIndex === index ? activeSubmenu.childFocusIndex : undefined
+              }
               onItemSelect={onItemSelect}
               registerRef={(element) => {
                 if (!item.disabled) {
@@ -486,6 +516,11 @@ function getMenuLayoutSize(menu: HTMLElement) {
   return { width: menu.offsetWidth, height: menu.offsetHeight };
 }
 
+// Keyboard indices count enabled non-separator rows; reusable for submenu children too.
+function enabledMenuItems(items: MenuItem[]) {
+  return items.filter((item) => !item.separator && !item.disabled);
+}
+
 export function Dropdown(props: DropdownProps) {
   const { t } = useTranslation();
   const {
@@ -511,6 +546,10 @@ export function Dropdown(props: DropdownProps) {
   const lastMenuSizeRef = useRef<{ width: number; height: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [focusIndex, setFocusIndex] = useState(-1);
+  // Enabled-item index whose submenu is keyboard-open, plus the highlighted enabled child
+  // inside it. null/-1 mean keyboard navigation stays on the parent rows.
+  const [openSubmenuIndex, setOpenSubmenuIndex] = useState<number | null>(null);
+  const [submenuFocusIndex, setSubmenuFocusIndex] = useState(-1);
   const [resolvedSide, setResolvedSide] = useState<AnchorSide>("bottom");
   const [isPositioned, setIsPositioned] = useState(false);
 
@@ -717,7 +756,9 @@ export function Dropdown(props: DropdownProps) {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        onClose();
+        // Escape dismisses the keyboard-open submenu first, like IDEA's JMenu.
+        if (openSubmenuIndex != null) setOpenSubmenuIndex(null);
+        else onClose();
       }
     };
 
@@ -737,12 +778,14 @@ export function Dropdown(props: DropdownProps) {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape, true);
     };
-  }, [isOpen, onClose, positionMenu, anchorRef]);
+  }, [isOpen, onClose, positionMenu, anchorRef, openSubmenuIndex]);
 
   useEffect(() => {
     if (isOpen) {
       setSearchQuery("");
       setFocusIndex(-1);
+      setOpenSubmenuIndex(null);
+      setSubmenuFocusIndex(-1);
       if (searchable) {
         requestAnimationFrame(() => searchRef.current?.focus());
       }
@@ -768,8 +811,61 @@ export function Dropdown(props: DropdownProps) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      const items = getFilteredItems().filter((item) => !item.separator && !item.disabled);
+      const items = enabledMenuItems(getFilteredItems());
       if (items.length === 0) return;
+
+      // While a submenu is keyboard-open, navigation targets its rows; ArrowLeft returns
+      // to the parent row instead of leaving the menu, like IDEA's JMenu.
+      if (openSubmenuIndex != null) {
+        const submenuItems = enabledMenuItems(items[openSubmenuIndex]?.children ?? []);
+        if (submenuItems.length === 0) {
+          setOpenSubmenuIndex(null);
+          return;
+        }
+        switch (e.key) {
+          case "ArrowDown": {
+            e.preventDefault();
+            setSubmenuFocusIndex((prev) => (prev + 1) % submenuItems.length);
+            return;
+          }
+          case "ArrowUp": {
+            e.preventDefault();
+            setSubmenuFocusIndex((prev) => (prev <= 0 ? submenuItems.length - 1 : prev - 1));
+            return;
+          }
+          case "Home": {
+            e.preventDefault();
+            setSubmenuFocusIndex(0);
+            return;
+          }
+          case "End": {
+            e.preventDefault();
+            setSubmenuFocusIndex(submenuItems.length - 1);
+            return;
+          }
+          case "ArrowLeft": {
+            e.preventDefault();
+            setOpenSubmenuIndex(null);
+            return;
+          }
+          case "ArrowRight": {
+            // Nested submenus stay pointer-driven; keep focus inside this submenu.
+            e.preventDefault();
+            return;
+          }
+          case "Enter": {
+            e.preventDefault();
+            const child = submenuItems[submenuFocusIndex];
+            if (child && !child.children?.length) {
+              child.onClick();
+              if (closeOnSelect) onClose();
+              else setOpenSubmenuIndex(null);
+            }
+            return;
+          }
+        }
+        return;
+      }
 
       switch (e.key) {
         case "ArrowDown": {
@@ -792,19 +888,35 @@ export function Dropdown(props: DropdownProps) {
           setFocusIndex(items.length - 1);
           break;
         }
+        case "ArrowRight": {
+          const item = focusIndex >= 0 && focusIndex < items.length ? items[focusIndex] : null;
+          if (item && enabledMenuItems(item.children ?? []).length > 0) {
+            e.preventDefault();
+            setOpenSubmenuIndex(focusIndex);
+            setSubmenuFocusIndex(0);
+          }
+          break;
+        }
         case "Enter": {
           e.preventDefault();
           if (focusIndex >= 0 && focusIndex < items.length) {
-            items[focusIndex].onClick();
-            if (closeOnSelect) {
-              onClose();
+            const item = items[focusIndex];
+            if (enabledMenuItems(item.children ?? []).length > 0) {
+              // A submenu row opens its submenu instead of running its no-op click handler.
+              setOpenSubmenuIndex(focusIndex);
+              setSubmenuFocusIndex(0);
+            } else {
+              item.onClick();
+              if (closeOnSelect) {
+                onClose();
+              }
             }
           }
           break;
         }
       }
     },
-    [closeOnSelect, getFilteredItems, focusIndex, onClose],
+    [closeOnSelect, getFilteredItems, focusIndex, onClose, openSubmenuIndex, submenuFocusIndex],
   );
 
   if (typeof document === "undefined") return null;
@@ -820,15 +932,27 @@ export function Dropdown(props: DropdownProps) {
 
   const filteredItems = hasItems ? getFilteredItems() : [];
   const itemFocusIndex = translateKeyboardFocus(filteredItems, focusIndex).localFocusIndex;
+  const itemSubmenuListIndex = translateKeyboardFocus(
+    filteredItems,
+    openSubmenuIndex ?? -1,
+  ).localFocusIndex;
+  const itemsActiveSubmenu =
+    itemSubmenuListIndex >= 0
+      ? { listIndex: itemSubmenuListIndex, childFocusIndex: submenuFocusIndex }
+      : null;
   const filteredSections = hasSections ? getFilteredSections() : [];
   let enabledBefore = 0;
-  const sectionFocusIndices = filteredSections.map((section) => {
+  const sectionKeyboard = filteredSections.map((section) => {
     const { localFocusIndex, enabledCount } = translateKeyboardFocus(
       section.items,
       focusIndex - enabledBefore,
     );
+    const submenuListIndex = translateKeyboardFocus(
+      section.items,
+      (openSubmenuIndex ?? -1) - enabledBefore,
+    ).localFocusIndex;
     enabledBefore += enabledCount;
-    return localFocusIndex;
+    return { focusIndex: localFocusIndex, submenuListIndex };
   });
 
   return (
@@ -865,6 +989,7 @@ export function Dropdown(props: DropdownProps) {
               onChange={(e) => {
                 setSearchQuery(e.target.value);
                 setFocusIndex(-1);
+                setOpenSubmenuIndex(null);
               }}
               leftIcon={Search}
               variant="ghost"
@@ -877,6 +1002,7 @@ export function Dropdown(props: DropdownProps) {
           <MenuItemsList
             items={filteredItems}
             focusIndex={itemFocusIndex}
+            activeSubmenu={itemsActiveSubmenu}
             onItemSelect={closeOnSelect ? onClose : undefined}
             density={density}
             showIcons={showIcons}
@@ -891,7 +1017,15 @@ export function Dropdown(props: DropdownProps) {
               )}
               <MenuItemsList
                 items={section.items}
-                focusIndex={sectionFocusIndices[sectionIdx]}
+                focusIndex={sectionKeyboard[sectionIdx].focusIndex}
+                activeSubmenu={
+                  sectionKeyboard[sectionIdx].submenuListIndex >= 0
+                    ? {
+                        listIndex: sectionKeyboard[sectionIdx].submenuListIndex,
+                        childFocusIndex: submenuFocusIndex,
+                      }
+                    : null
+                }
                 onItemSelect={closeOnSelect ? onClose : undefined}
                 density={density}
                 showIcons={showIcons}
