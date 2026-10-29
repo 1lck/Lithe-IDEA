@@ -104,6 +104,9 @@ struct NetworkSettingsView: View {
             Button("Save", action: save)
                 .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(!isDirty)
+            Button("Reset", action: resetDrafts)
+                .buttonStyle(LitheActionButtonStyle())
+                .disabled(!isDirty)
             if let saveMessage {
                 Text(saveMessage)
                     .font(LitheTheme.smallFont)
@@ -187,6 +190,17 @@ struct NetworkSettingsView: View {
         } else {
             saveMessage = nil
         }
+    }
+
+    /// Discards unsaved draft edits and returns every field to the currently
+    /// saved, effective values. The password field never syncs from the
+    /// Keychain, so resetting clears it too; a stale check result goes with
+    /// the values it was measured against.
+    private func resetDrafts() {
+        syncDrafts()
+        password = ""
+        saveMessage = nil
+        checkOutcome = nil
     }
 
     private func runCheck() {
