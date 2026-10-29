@@ -143,8 +143,8 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
   let updating = false;
   let failed = false;
-  let definitionNavigationLanguages = new Set<string>();
-  const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, DisposableStore>();
+  let definitionNavigationPolicy: Record<string, boolean> = {};
+  const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, { mode: boolean | undefined; lifetime: DisposableStore }>();
   let activation: Promise<unknown> = Promise.resolve();
   let textmate: Awaited<ReturnType<typeof installJavaTextMate>>;
   const semanticChanges = new Emitter<void>();
@@ -617,11 +617,17 @@ export function mountWorkbench(host: WorkbenchHost) {
     view.onDidDispose(() => node.removeEventListener("paste", paste, true));
   }
   function syncDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
-    const enabled = definitionNavigationLanguages.has(view.getModel()?.getLanguageId() ?? "");
-    if (enabled && !definitionNavigation.has(view)) definitionNavigation.set(view, attachDefinitionNavigation(view));
-    if (!enabled) { definitionNavigation.get(view)?.dispose(); definitionNavigation.delete(view); }
+    const language = view.getModel()?.getLanguageId();
+    const mode = language ? definitionNavigationPolicy[language] : false;
+    const existing = definitionNavigation.get(view);
+    if (existing && existing.mode !== mode) {
+      existing.lifetime.dispose(); definitionNavigation.delete(view);
+    }
+    if (mode !== false && !definitionNavigation.has(view)) {
+      definitionNavigation.set(view, { mode, lifetime: attachDefinitionNavigation(view, mode === true) });
+    }
   }
-  function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
+  function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor, managed: boolean) {
     const lifetime = new DisposableStore();
     const isCodePosition = (position: monaco.IPosition | null) => {
       const tokens = (view.getModel() as any)?.tokenization;
@@ -643,6 +649,18 @@ export function mountWorkbench(host: WorkbenchHost) {
     };
     lifetime.add(view.addAction({ id: "lithe.goToDefinition", label: "Go to Definition", keybindings: [monaco.KeyCode.F12],
       contextMenuGroupId: "navigation", contextMenuOrder: 1, run: () => navigate(view.getPosition()) }));
+    if (!managed) {
+      // Preserve existing navigation for providers without an opt-in declaration,
+      // including XML attribute/configuration links. Do not add hover queries.
+      lifetime.add(view.onMouseDown(event => {
+        const gesture = event.event;
+        if (!(isMacintosh ? gesture.metaKey : gesture.ctrlKey) || !gesture.leftButton || gesture.altKey || gesture.shiftKey ||
+            event.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !event.target.position) return;
+        gesture.preventDefault(); gesture.stopPropagation();
+        void navigate(event.target.position);
+      }));
+      return lifetime;
+    }
     // Reuse Monaco's modifier/drag/key lifecycle, but keep file ownership,
     // virtual sources and navigation history in the native host. Monaco's full
     // definition contribution requires loading target files into its model store.
@@ -860,7 +878,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     syncDefinitionNavigation(view);
     view.onDidChangeModel(() => syncDefinitionNavigation(view));
     view.onDidChangeModelLanguage(() => syncDefinitionNavigation(view));
-    view.onDidDispose(() => { definitionNavigation.get(view)?.dispose(); definitionNavigation.delete(view); });
+    view.onDidDispose(() => { definitionNavigation.get(view)?.lifetime.dispose(); definitionNavigation.delete(view); });
     attachRunInteractions(view);
     debugRunContexts.set(view, view.createContextKey("litheCanRunToCursor", false));
     function request(type: "toggleBreakpoint" | "editBreakpoint" | "runToCursor", line: number, column = 1) {
@@ -1175,8 +1193,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       } finally { updating = false; }
     },
     configure(payload: any) {
-      if (Array.isArray(payload.definitionNavigationLanguages)) {
-        definitionNavigationLanguages = new Set(payload.definitionNavigationLanguages);
+      if (payload.definitionNavigationPolicy && typeof payload.definitionNavigationPolicy === "object") {
+        definitionNavigationPolicy = payload.definitionNavigationPolicy;
         for (const view of allEditors()) syncDefinitionNavigation(view);
       }
       const theme = payload.theme as WorkbenchThemeInput | undefined;

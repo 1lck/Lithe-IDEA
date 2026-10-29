@@ -2445,9 +2445,13 @@ modifier-click, and definition commands immediately; it is not server configurat
 and cannot be substituted into server launch arguments. Java Support declares the
 setting with a default of `false`.
 
-Hosts register editor navigation only for enabled, usable plugin contributions with
-the setting enabled, and remove gesture listeners, actions, decorations and pending
-hints on opt-out or plugin disablement. Existing editor tabs/splits stay open.
+Hosts apply this opt-in lifecycle only to languages declaring the effect. Languages
+without the declaration retain their existing navigation; they need no duplicated
+plugin-side navigation implementation. For declared languages, hosts register the
+managed interaction only for enabled, usable contributions with the setting enabled,
+and remove gesture listeners, actions, decorations and pending hints on opt-out or
+plugin disablement. Global setting changes reach every existing project window; new
+windows read the stored value. Existing editor tabs/splits stay open.
 Late replies cannot restore a disposed contribution. Shared language services and
 independent completion, diagnostics, usages and hierarchy features remain available.
 Existing in-flight server requests retain their bounded completion/timeout lifecycle;

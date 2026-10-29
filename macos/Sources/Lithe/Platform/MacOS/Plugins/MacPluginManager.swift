@@ -7,7 +7,12 @@ import LitheModuleAPI
 @MainActor
 final class MacPluginManager: PluginManaging {
     private let mutations = PassthroughSubject<Void, Never>()
-    var changes: AnyPublisher<Void, Never> { mutations.eraseToAnyPublisher() }
+    private static let settingsChanged = Notification.Name("LitheGlobalPluginSettingsDidChange")
+    private let notificationCenter: NotificationCenter
+    var changes: AnyPublisher<Void, Never> {
+        mutations.merge(with: notificationCenter.publisher(for: Self.settingsChanged).map { _ in () })
+            .eraseToAnyPublisher()
+    }
     private let packageStore: MacPluginPackageStore
     private let moduleRuntime: ModuleRuntime
     private let configurationStore: MacModuleConfigurationStore
@@ -65,8 +70,10 @@ final class MacPluginManager: PluginManaging {
         reviewPrograms: @escaping (_ manifest: Data, _ id: PluginID, _ version: PluginVersion) throws -> [PluginProgram] = { _, _, _ in [] },
         expandWorkspaceConfiguration: @escaping WorkspaceConfigurationExpansion = { _, _, _, _ in nil },
         lookUpDebugExecutable: @escaping DebugExecutableLookupHandler = { _, _, _, _ in nil },
-        livePlugins: MacLivePluginRegistry? = nil
+        livePlugins: MacLivePluginRegistry? = nil,
+        notificationCenter: NotificationCenter = .default
     ) {
+        self.notificationCenter = notificationCenter
         self.livePlugins = livePlugins
         self.reviewPrograms = reviewPrograms
         self.lookUpDebugExecutable = lookUpDebugExecutable
@@ -586,7 +593,6 @@ final class MacPluginManager: PluginManaging {
         for pluginID: PluginID,
         layer: PluginSettingLayer
     ) throws {
-        defer { mutations.send() }
         guard let declaration = installedPlugins[pluginID]?.descriptor.settings.first(where: { $0.id == settingID })
         else { throw PluginManagerError.unknownSetting(pluginID, settingID) }
         if let value, !declaration.accepts(value) {
@@ -604,6 +610,13 @@ final class MacPluginManager: PluginManaging {
             // A project override is kept even when it equals the default: it
             // pins the value for the team regardless of their global choice.
             try settings.setProjectValue(value, forSetting: settingID, plugin: pluginID.rawValue, projectRoot: root)
+        }
+        // All project managers read the same global preferences. Publish after
+        // storage changes so peers withdraw gestures before the next input event.
+        if layer == .global {
+            notificationCenter.post(name: Self.settingsChanged, object: nil)
+        } else {
+            mutations.send()
         }
     }
 }

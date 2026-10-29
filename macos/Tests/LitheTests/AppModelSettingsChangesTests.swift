@@ -11,11 +11,11 @@ struct AppModelSettingsChangesTests {
     func withdrawingPluginNavigationClosesResultsAndInvalidatesPendingOperation() {
         let probe = SettingsChangesProbe()
         defer { probe.cancel() }
-        probe.model.definitionNavigationLanguages = ["fixture"]
+        probe.model.definitionNavigationPolicy = ["fixture": true]
         let operation = probe.model.languageNavigationCoordinator.begin(providerID: "fixture", kind: .definitions)
         probe.model.isImplementationChooserVisible = true
         probe.model.refreshPluginEditorNavigation()
-        #expect(probe.model.definitionNavigationLanguages.isEmpty)
+        #expect(probe.model.definitionNavigationPolicy.isEmpty)
         #expect(!probe.model.isImplementationChooserVisible)
         #expect(!probe.model.languageNavigationCoordinator.owns(operation))
     }

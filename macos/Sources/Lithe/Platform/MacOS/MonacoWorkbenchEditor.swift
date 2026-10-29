@@ -86,7 +86,7 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
     let fontFamily: String
     let wrap: Bool
     let minimap: Bool
-    let definitionNavigationLanguages: [String]
+    let definitionNavigationPolicy: [String: Bool]
     let theme: MonacoWorkbenchThemeConfiguration
 
     var bridgePayload: [String: Any] {
@@ -95,7 +95,7 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
             "fontFamily": fontFamily,
             "wrap": wrap,
             "minimap": minimap,
-            "definitionNavigationLanguages": definitionNavigationLanguages,
+            "definitionNavigationPolicy": definitionNavigationPolicy,
             "dark": theme.dark,
             "theme": theme.bridgePayload
         ]
@@ -915,7 +915,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             fontFamily: MacEditorFontCatalog.editorFontStack(fontFamily),
             wrap: wrap,
             minimap: minimap,
-            definitionNavigationLanguages: model.definitionNavigationLanguages.sorted(),
+            definitionNavigationPolicy: model.definitionNavigationPolicy,
             theme: theme
         )
         if lastConfiguration != configuration {

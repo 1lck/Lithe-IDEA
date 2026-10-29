@@ -154,14 +154,17 @@ extension AppModel {
 extension AppModel {
     /// Plugin declarations own opt-in; the editor only implements the generic gesture.
     func refreshPluginEditorNavigation() {
-        let enabled = PluginSettingsRegistry.definitionNavigationLanguages(in: pluginSnapshots)
-        guard enabled != definitionNavigationLanguages else { return }
-        if !definitionNavigationLanguages.subtracting(enabled).isEmpty { closeLanguageNavigationResults() }
-        definitionNavigationLanguages = enabled
+        let enabled = PluginSettingsRegistry.definitionNavigationPolicy(in: pluginSnapshots)
+        guard enabled != definitionNavigationPolicy else { return }
+        if definitionNavigationPolicy.contains(where: { $0.value && enabled[$0.key] != true })
+            || enabled.contains(where: { !$0.value && definitionNavigationPolicy[$0.key] != false }) {
+            closeLanguageNavigationResults()
+        }
+        definitionNavigationPolicy = enabled
     }
 
     func isDefinitionNavigationEnabled(for url: URL) -> Bool {
-        guard let provider = languageProviderCatalog.provider(for: url) else { return false }
-        return definitionNavigationLanguages.contains(provider.languageIdentifier(for: url))
+        guard let provider = languageProviderCatalog.provider(for: url) else { return true }
+        return definitionNavigationPolicy[provider.languageIdentifier(for: url)] ?? true
     }
 }

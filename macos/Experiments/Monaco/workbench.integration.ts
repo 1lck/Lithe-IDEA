@@ -41,7 +41,7 @@ async function verify() {
   await ready;
   const initialEditor = monacoEditor.getEditors()[0];
   assert(!initialEditor.getAction("lithe.goToDefinition"), "definition navigation was registered while default-off");
-  window.lithe.configure({ definitionNavigationLanguages: ["java"], dark: true, fontFamily: "monospace", fontSize: 13, wrap: false });
+  window.lithe.configure({ definitionNavigationPolicy: { java: true }, dark: true, fontFamily: "monospace", fontSize: 13, wrap: false });
   const cases: { name: string; durationMs: number }[] = [];
   async function check(name: string, operation: () => Promise<void>) {
     await send({ type: "progress", name });
@@ -1940,7 +1940,7 @@ async function verify() {
     await send({ type: "open", id, text });
     await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
     const input = editor as any, root = editor.getDomNode()!, model = editor.getModel()!;
-    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationLanguages: enabled ? ["java"] : [],
+    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationPolicy: { java: enabled },
       dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
     const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9),
       range: new Range(1, 9, 1, 10), detail: {} };
@@ -1977,12 +1977,80 @@ async function verify() {
       configure(true); await window.lithe.retain([]);
     }
   });
+  await check("Java opt-out preserves legacy XML configuration and other language navigation", async () => {
+    window.lithe.configure({ definitionNavigationPolicy: { java: false } });
+    try {
+      for (const filename of ["Mapper.xml", "application.properties", "application.yaml", "module.py"]) {
+        const id = "legacy-" + filename, text = filename.endsWith("xml") ? '<select id="findOrder" />' : "findOrder";
+        await send({ type: "open", id, text });
+        await window.lithe.activate({ id, text, revision: 0, filename, readonly: false });
+        const input = editor as any, column = filename.endsWith("xml") ? 14 : 3;
+        const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, column),
+          range: new Range(1, column, 1, column + 1), detail: {} };
+        const before = await send({ type: "definitionRequests" });
+        input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 }, target });
+        input._onMouseDown.fire({ event: { metaKey: true, leftButton: true, detail: 1,
+          preventDefault() {}, stopPropagation() {} }, target });
+        const action = editor.getAction("lithe.goToDefinition");
+        assert(action, "Java opt-out removed another provider's definition action: " + filename);
+        await action!.run();
+        const after = await send({ type: "definitionRequests" });
+        assert(after.requests.length === before.requests.length + 2, "click/F12 stopped reaching the host: " + filename);
+        assert(after.hoverRequests === before.hoverRequests, "legacy provider acquired unsolicited hover queries");
+      }
+    } finally {
+      window.lithe.configure({ definitionNavigationPolicy: { java: true } });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("repeated navigation toggles release editor and window listeners without retaining models", async () => {
+    const id = "navigation-resource-cycle", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationPolicy: { java: enabled } });
+    const input = editor as any;
+    const listenerCounts = () => Object.fromEntries(Object.entries(input)
+      .filter(([key, value]: [string, any]) => key.startsWith("_on") && typeof value?._size === "number")
+      .map(([key, value]: [string, any]) => [key, value._size]));
+    const originalAdd = window.addEventListener, originalRemove = window.removeEventListener;
+    const blurListeners = new Set<EventListenerOrEventListenerObject>();
+    const models = monacoEditor.getModels().length, editors = monacoEditor.getEditors().length;
+    configure(false);
+    const baseline = listenerCounts();
+    assert(Object.keys(baseline).length > 5, "listener instrumentation did not observe Monaco emitters");
+    window.addEventListener = function (type: any, listener: any, options: any) {
+      if (type === "blur") blurListeners.add(listener);
+      originalAdd.call(this, type, listener, options);
+    };
+    window.removeEventListener = function (type: any, listener: any, options: any) {
+      if (type === "blur") blurListeners.delete(listener);
+      originalRemove.call(this, type, listener, options);
+    };
+    try {
+      for (let index = 0; index < 100; index++) {
+        configure(true);
+        assert(blurListeners.size === 1, "enabled navigation duplicated its window listener");
+        configure(false);
+        assert(blurListeners.size === 0, "disabled navigation retained its window listener");
+        assert(JSON.stringify(listenerCounts()) === JSON.stringify(baseline), "editor listeners accumulated after opt-out");
+        assert(!editor.getAction("lithe.goToDefinition"), "disabled navigation retained a command");
+      }
+      assert(monacoEditor.getModels().length === models && monacoEditor.getEditors().length === editors,
+        "toggling navigation changed model/editor ownership");
+      assert(!editor.getModel()!.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"),
+        "disabled navigation retained decorations");
+    } finally {
+      configure(false);
+      window.addEventListener = originalAdd; window.removeEventListener = originalRemove;
+      configure(true); await window.lithe.retain([]);
+    }
+  });
   await check("navigation opt-out applies to existing and newly attached split editors", async () => {
     const id = "definition-toggle-split", text = "class Probe {}";
     const container = document.createElement("div");
     container.style.cssText = "position:absolute;left:50%;top:0;width:50%;height:100%";
     document.body.append(container);
-    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationLanguages: enabled ? ["java"] : [],
+    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationPolicy: { java: enabled },
       dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
     try {
       await send({ type: "open", id, text });
@@ -1997,7 +2065,7 @@ async function verify() {
       configure(true);
       assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "re-enable missed a split");
       monacoEditor.setModelLanguage(editor.getModel()!, "plaintext");
-      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "navigation leaked into a language not contributed by the plugin");
+      assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "legacy language navigation was blocked by the plugin policy");
       monacoEditor.setModelLanguage(editor.getModel()!, "java");
       assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "restoring the plugin language did not restore navigation");
     } finally {

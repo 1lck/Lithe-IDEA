@@ -61,18 +61,19 @@ struct ContributedSettingsPage: Identifiable, Equatable, Sendable {
 }
 
 enum PluginSettingsRegistry {
-    /// Only usable plugin declarations can activate editor contributions.
-    static func definitionNavigationLanguages(in snapshots: [PluginManagementSnapshot]) -> Set<String> {
-        return Set(snapshots.filter {
-            $0.isEnabled && !$0.isQuarantined && !$0.isSuppressedBySafeMode && !$0.requiresRestart
-                && $0.installationStatus == .installed
-        }.flatMap { snapshot in
-            snapshot.settings.compactMap { setting -> String? in
-                guard setting.declaration.effect == .editorNavigation, setting.value == .bool(true),
-                      case .language(let language) = setting.declaration.page else { return nil }
-                return language
+    /// An absent entry preserves existing navigation. Only explicit plugin
+    /// declarations opt a language into the managed navigation lifecycle.
+    static func definitionNavigationPolicy(in snapshots: [PluginManagementSnapshot]) -> [String: Bool] {
+        var policy: [String: Bool] = [:]
+        for snapshot in snapshots {
+            let usable = snapshot.isEnabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
+                && !snapshot.requiresRestart && snapshot.installationStatus == .installed
+            for setting in snapshot.settings where setting.declaration.effect == .editorNavigation {
+                guard case .language(let language) = setting.declaration.page else { continue }
+                policy[language] = policy[language] == true || (usable && setting.value == .bool(true))
             }
-        })
+        }
+        return policy
     }
 
     /// The pages enabled plugins register, ordered by group and title. A
