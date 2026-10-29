@@ -12,6 +12,13 @@ import LitheRustCore
 struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     var gitPreferences: GitExecutionPreferences? = nil
     var gitExecutionJournal: GitExecutionJournal? = nil
+    var remoteWorkspaces: RemoteWorkspaceRegistry? = nil
+
+    struct RemoteWorkspace: Encodable, Equatable {
+        let sessionId: String
+        let localRoot: String
+        let remoteRoot: String
+    }
 
     private struct Request<Payload: Encodable>: Encodable {
         let id: String
@@ -20,6 +27,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let command: String
         let payload: Payload
         var gitExecution: GitExecutionOptions? = nil
+        var remoteWorkspace: RemoteWorkspace? = nil
     }
 
     private struct Envelope<Data: Decodable>: Decodable {
@@ -2696,6 +2704,20 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         ))
     }
 
+    /// Snapshot selection performs no filesystem access, including for a remote project.
+    func selectJavaRuntime(
+        requirements: ToolingJSONValue, candidates: [AutomaticJavaCandidate], fallbackID: String?
+    ) -> Result<AutomaticJavaSelection, CoreCallError> {
+        struct Payload: Encodable {
+            let requirements: ToolingJSONValue
+            let candidates: [AutomaticJavaCandidate]
+            let fallbackId: String?
+        }
+        return executeResult(command: "runConfig.selectJava", payload: Payload(
+            requirements: requirements, candidates: candidates, fallbackId: fallbackID
+        ))
+    }
+
     func inspectRunConfiguration(
         at rootURL: URL,
         checkFingerprint: Bool? = nil,
@@ -4079,12 +4101,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         command: String,
         payload: Payload,
         operationID: String? = nil,
+        timeoutMilliseconds: Int? = nil,
         onEvent: (@Sendable (String) -> Void)? = nil
     ) -> Result<Data, CoreCallError> {
         let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(
             command: command,
             payload: payload,
             operationID: operationID,
+            timeoutMilliseconds: timeoutMilliseconds,
             onEvent: onEvent
         )
         return outcome.flatMap { envelope in
@@ -4114,6 +4138,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         command: String,
         payload: Payload,
         operationID: String? = nil,
+        timeoutMilliseconds: Int? = nil,
         onEvent: (@Sendable (String) -> Void)? = nil
     ) -> Result<Envelope<Data>, CoreCallError> {
         guard isAvailable else {
@@ -4132,14 +4157,23 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         var gitOptions = gitPreferences?.snapshot ?? GitExecutionOptions()
         gitOptions.interactive = execution != nil
         gitOptions.source = execution?.source ?? GitExecutionSource.current
+        let remoteWorkspace: RemoteWorkspace?
+        do {
+            remoteWorkspace = try self.remoteWorkspace(for: command, payload: payload)
+        } catch let failure as CoreCallError {
+            return .failure(failure)
+        } catch {
+            return .failure(CoreCallError(code: "invalid_request", message: "Invalid workspace request", details: nil))
+        }
         guard let requestData = try? JSONEncoder().encode(
             Request(
                 id: requestID,
                 operationId: requestID,
-                timeoutMilliseconds: nil,
+                timeoutMilliseconds: timeoutMilliseconds,
                 command: command,
                 payload: payload,
-                gitExecution: (observesGit || command == "workspace.searchEverywhere") ? gitOptions : nil
+                gitExecution: (observesGit || command == "workspace.searchEverywhere") ? gitOptions : nil,
+                remoteWorkspace: remoteWorkspace
             )
         ),
         let request = String(data: requestData, encoding: .utf8),

@@ -287,14 +287,13 @@ Stop 在准备期间可用，新 Run 先撤销旧任务，迟到返回不能清�
 ## 验证
 
 2026-10-29 协议 9 增量的本机验证：350 项 macOS 原生计时、1368 项 Core 及其集成
-逐项计时均通过；完整 `scripts/verify-rust-core.sh` 包含 Swift bridge 与 Git/AskPass
+逐项计时均通过；完整 `scripts/rust-core/verify-rust-core.sh` 包含 Swift bridge 与 Git/AskPass
 检查通过。当前源码快照的 SDK 端到端 6 项通过，Node 65 项、Java 47 项和 TypeScript
 调用方检查通过。Maven 3.9.16／JDK 26 的受控后端和真实 Core reactor 各 15 项通过，
 最慢真实场景为跨模块精确测试约 4.16 秒；生产 macOS Provider 场景约 4.26 秒。
 协议 9 的[固定提交 Java 8 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40824700153)
 使用宿主 `7f2dfdafc`、SDK `0d00334` 和 Maven 插件 `7a03fae`，当前及 3.6.3 Maven
-均通过；SDK 的 Node 20／Java 8 检查也通过。后续资源准备增量仍需独立验证，完整
-UI/JDT 和 Windows 实机尚未完成。
+均通过；SDK 的 Node 20／Java 8 检查也通过。后续资源准备增量的本机原生回归 307 项（Swift 汇总含参数组为 309）通过，真实 Maven 的受控后端和 Core reactor 各 16 项通过；资源过滤约 14.5 秒（冷资源插件解析），原生取消 gate 为毫秒级。合并 preview `35b84dad4` 后再通过 344 项计时与 Core/host 检查；完整 UI/JDT 和 Windows 实机尚未完成。
 
 共享 fixture 覆盖版本准入、类型化请求/回复、路径与大小限制，以及本地 Run 选择器。Core 回归使用独立计时进程验证旧协议拒绝新方法、进度映射、取消、注入时间的超时和晚到结果；保存回归验证不生成空模型、重复保存保留 ID、其他命名空间的元数据和工具链不丢失、缺省参数归一化、非法进程字段明确拒绝。
 
@@ -312,12 +311,12 @@ Agent 入口回归从真实本地 Run 配置读取选择器，用可控 Provider
 可复验的检查入口：
 
 ```bash
-./scripts/verify-agent-notes.sh
-./scripts/verify-shared-contracts.sh
-./scripts/verify-runtime-bundle-immutability.sh
-./scripts/verify-service-boundaries.sh
-./scripts/verify-windows-boundaries.sh
-./scripts/verify-rust-core-comments.sh
+./scripts/agent-notes/verify-agent-notes.sh
+./scripts/architecture/verify-shared-contracts.sh
+./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/architecture/verify-service-boundaries.sh
+./scripts/windows/verify/verify-windows-boundaries.sh
+./scripts/rust-core/verify-rust-core-comments.sh
 ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --jobs 6 --filter 'BuildSystemServiceTests|ExecutionModuleTests|MacBuildProviderSessionsTests|RustBuildSystemOperationsTests|BuildToolProviderResolutionTests|PluginWebBridgeTests|BuildSystemToolWindowTests|RunConfigurationIntegrationTests|RunWorkflowCoordinatorTests|IdeCapabilitiesTests'
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'BuildSystemServiceTests|RustBuildSystemOperationsTests|MacBuildProviderSessionsTests|LitheDebugModuleTests|PluginDebugAdapterTests|PluginLiveActivationTests|RunConfigurationIntegrationTests|RunWorkflowCoordinatorTests'

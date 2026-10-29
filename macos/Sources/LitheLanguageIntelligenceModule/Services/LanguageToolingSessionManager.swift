@@ -1713,7 +1713,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             detail: descriptor.languageServerLaunch?.executableNames.joined(separator: ", ")
         )
 
-        guard let created = runtime.makeLanguageServerSession() else {
+        guard let created = runtime.makeLanguageServerSession(rootURL: rootURL) else {
             let message = runtime.unavailableToolingMessage ?? descriptor.displayName
             let state = LanguageServerSessionState.failed(LanguageServerSessionFailure(
                 code: "tool_not_found",

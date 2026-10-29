@@ -74,9 +74,13 @@ final class ProjectRuntimeService: ObservableObject {
     private var runtimeSessionID = UUID()
 
     private let javaSelector: any JavaRuntimeSelecting
-    private let runtimeLocator: any RuntimeLocator
+    private let localRuntimeLocator: any RuntimeLocator
+    private var runtimeLocator: any RuntimeLocator
     private let settingsStore: any ProjectRuntimeSettingsStoring
-    private let toolDiscovery: any RuntimeToolDiscovery
+    private let localToolDiscovery: any RuntimeToolDiscovery
+    private var toolDiscovery: any RuntimeToolDiscovery
+    private let workspaceRuntime: ((URL) -> (any RuntimeLocator, any RuntimeToolDiscovery)?)?
+    private var usesWorkspaceRuntime = false
     private var discoveryTask: Task<Void, Never>?
     private var activeDiscoveryID: UUID?
     private var javaLanguageServerRuntimePreparation: JavaLanguageServerRuntimePreparation = .unprepared
@@ -89,12 +93,16 @@ final class ProjectRuntimeService: ObservableObject {
         runtimeLocator: any RuntimeLocator,
         settingsStore: any ProjectRuntimeSettingsStoring,
         toolDiscovery: (any RuntimeToolDiscovery)? = nil,
-        javaSelector: any JavaRuntimeSelecting = RustCoreBridge()
+        javaSelector: any JavaRuntimeSelecting = RustCoreBridge(),
+        workspaceRuntime: ((URL) -> (any RuntimeLocator, any RuntimeToolDiscovery)?)? = nil
     ) {
         self.javaSelector = javaSelector
         self.runtimeLocator = runtimeLocator
+        self.localRuntimeLocator = runtimeLocator
         self.settingsStore = settingsStore
         self.toolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
+        self.localToolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
+        self.workspaceRuntime = workspaceRuntime
     }
 
     deinit {
@@ -107,6 +115,10 @@ final class ProjectRuntimeService: ObservableObject {
         activeDiscoveryID = nil
         let normalizedURL = url.standardizedFileURL
         projectURL = normalizedURL
+        let selected = workspaceRuntime?(normalizedURL)
+        usesWorkspaceRuntime = selected != nil
+        runtimeLocator = selected?.0 ?? localRuntimeLocator
+        toolDiscovery = selected?.1 ?? localToolDiscovery
         javaRuntimes = []
         mavenRuntimes = []
         discoveredProjectURL = nil
@@ -125,6 +137,9 @@ final class ProjectRuntimeService: ObservableObject {
         discoveryTask = nil
         activeDiscoveryID = nil
         projectURL = nil
+        runtimeLocator = localRuntimeLocator
+        toolDiscovery = localToolDiscovery
+        usesWorkspaceRuntime = false
         javaRuntimes = []
         mavenRuntimes = []
         discoveredProjectURL = nil
@@ -153,9 +168,10 @@ final class ProjectRuntimeService: ObservableObject {
     /// JDKs for the New Project window, which can open without a project.
     /// Leaves the open project's discovery state untouched.
     func discoverJavaRuntimesForNewProject() async -> [JavaRuntimeCandidate] {
-        if hasDiscoveredRuntimes { return javaRuntimes }
-        let runtimeLocator = runtimeLocator
-        return await Task.detached(priority: .userInitiated) { runtimeLocator.discoverJavaRuntimes() }.value
+        let runtimeLocator = localRuntimeLocator
+        return await Self.backgroundProbe { cancelled in
+            runtimeLocator.discoverJavaRuntimes(isCancelled: cancelled)
+        }
     }
 
     func refreshAvailableRuntimes() async {
@@ -179,10 +195,9 @@ final class ProjectRuntimeService: ObservableObject {
             }
         }
         let runtimeLocator = runtimeLocator
-        let result = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                continuation.resume(returning: runtimeLocator.discover())
-            }
+        runtimeLocator.configureProbePaths([settings.javaHomePath, settings.mavenJavaHomePath, settings.mavenExecutableOverride])
+        let result = await Self.backgroundProbe { cancelled in
+            runtimeLocator.discover(isCancelled: cancelled)
         }
         guard !Task.isCancelled,
               projectURL == targetProjectURL,
@@ -190,6 +205,11 @@ final class ProjectRuntimeService: ObservableObject {
         javaRuntimes = result.javaRuntimes
         mavenRuntimes = result.mavenRuntimes
         discoveredProjectURL = targetProjectURL
+        if let message = runtimeLocator.discoveryFailure, let projectURL {
+            javaEnvironmentReport = JavaEnvironmentReport(status: .probeFailed(message: message),
+                projectURL: projectURL, javaHomePath: nil, javaExecutablePath: nil)
+            return
+        }
         refreshJavaEnvironmentReport(using: result.javaRuntimes)
         isDiscovering = false
     }
@@ -236,7 +256,7 @@ final class ProjectRuntimeService: ObservableObject {
             // fast path. Unknown versions never satisfy a real minimum, so only
             // an unconstrained result may bypass discovery here.
             let candidate = AutomaticJavaCandidate(id: environmentHome.path, version: "", priority: 0)
-            switch javaSelector.selectJavaRuntime(at: projectURL, candidates: [candidate], fallbackID: candidate.id) {
+            switch selectJavaRuntime(candidates: [candidate], fallbackID: candidate.id) {
             case .failure(let error): return .unavailable(error.message)
             case .success(let selection) where selection.warning == nil:
                 return .found(environmentHome, .javaHomeEnvironment)
@@ -258,7 +278,7 @@ final class ProjectRuntimeService: ObservableObject {
             candidates.append(AutomaticJavaCandidate(id: home.path, version: "", priority: 0))
         }
         let fallback = environmentHome?.path ?? candidates.first?.id
-        switch javaSelector.selectJavaRuntime(at: projectURL, candidates: candidates, fallbackID: fallback) {
+        switch selectJavaRuntime(candidates: candidates, fallbackID: fallback) {
         case .failure(let error): return .unavailable(error.message)
         case .success(let selection):
             guard let id = selection.id else { return .notFound }
@@ -267,6 +287,13 @@ final class ProjectRuntimeService: ObservableObject {
             if let warning = selection.warning { return .warning(url, source, warning) }
             return .found(url, source)
         }
+    }
+
+    private func selectJavaRuntime(
+        candidates: [AutomaticJavaCandidate], fallbackID: String?
+    ) -> Result<AutomaticJavaSelection, RustCoreBridge.CoreCallError> {
+        runtimeLocator.selectJavaRuntime(candidates: candidates, fallbackID: fallbackID)
+            ?? javaSelector.selectJavaRuntime(at: projectURL, candidates: candidates, fallbackID: fallbackID)
     }
 
     func javaExecutableURL(overridePath: String? = nil) -> URL? {
@@ -519,9 +546,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func executableURL(at path: String) -> URL? {
-        let normalized = (path as NSString)
-            .expandingTildeInPath
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = normalizedOverridePath(path)
         guard !normalized.isEmpty else { return nil }
         let url = URL(fileURLWithPath: normalized).standardizedFileURL
         return runtimeLocator.isExecutable(at: url) ? url : nil
@@ -537,9 +562,7 @@ final class ProjectRuntimeService: ObservableObject {
         guard reloadSettings() else { return .unavailable(settingsError ?? "") }
         let configured = (overridePath ?? settings.mavenExecutableOverride).trimmingCharacters(in: .whitespacesAndNewlines)
         if !configured.isEmpty {
-            let resolved = configured.hasPrefix("/")
-                ? URL(fileURLWithPath: configured)
-                : rootURL.appendingPathComponent(configured)
+            let resolved = URL(fileURLWithPath: runtimeLocator.normalizedPath(configured, relativeTo: rootURL))
             let standardized = resolved.standardizedFileURL
             if runtimeLocator.isExecutable(at: standardized) {
                 return .found(standardized, .configured)
@@ -691,6 +714,12 @@ final class ProjectRuntimeService: ObservableObject {
             self.settingsSnapshot = saved
             settings = saved.settings
             if settingsError != nil { settingsError = nil }
+            runtimeLocator.configureProbePaths([settings.javaHomePath, settings.mavenJavaHomePath, settings.mavenExecutableOverride])
+            if usesWorkspaceRuntime {
+                discoveredProjectURL = nil
+                discoveryTask?.cancel()
+                discoveryTask = Task { [weak self] in await self?.performRuntimeRefresh() }
+            }
             if !javaRuntimes.isEmpty { refreshJavaEnvironmentReport(using: javaRuntimes) }
             return true
         } catch {
@@ -731,14 +760,11 @@ final class ProjectRuntimeService: ObservableObject {
     private func normalizedOverridePath(_ path: String) -> String {
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPath.isEmpty else { return "" }
-        let normalized = normalizedPath(trimmedPath)
-        guard !(normalized as NSString).isAbsolutePath,
-              let projectURL else { return normalized }
-        return projectURL.appendingPathComponent(normalized).standardizedFileURL.path
+        return runtimeLocator.normalizedPath(trimmedPath, relativeTo: projectURL)
     }
 
     private func normalizedPath(_ path: String) -> String {
-        ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+        runtimeLocator.normalizedPath(path, relativeTo: nil)
     }
 
 }

@@ -103,12 +103,12 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 ## 验证
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib marketplace_plugins`：索引校验、平台与 API 判断、命名空间、源地址解析、安装审查的标准答案。
-- `./scripts/verify-shared-contracts.sh`：市场 fixture 与错误码登记。
+- `./scripts/architecture/verify-shared-contracts.sh`：市场 fixture 与错误码登记。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplaceLayoutTests|PluginDetailLayoutTests|PluginSettingsLayoutTests'`：市场用内存索引驱动真实页面，覆盖中英文描述、深浅主题、窗口宽高变化、原生分隔条拖动、释放后刷新不移位，以及窄视口横向滚动到正文末端；单独保留“已安装”详情和路径控件回归。可用 `LITHE_MARKETPLACE_LAYOUT_CAPTURES` 导出市场原生视图截图；测试拥有并清理自己的偏好域和窗口。
-- `node --test scripts/official-plugin-releases.test.mjs`：只为版本变化的插件生成标签，内容变化未升版本时失败；已发布未登记的版本会被重新登记。
-- `node scripts/test-reuse-worktree-resources.mjs`：磁盘快照、安装 staging、版本和审批记录不出现在可复用列表，显式选择时在访问工作树或复制前拒绝。
+- `node --test scripts/plugins/official-plugin-releases.test.mjs`：只为版本变化的插件生成标签，内容变化未升版本时失败；已发布未登记的版本会被重新登记。
+- `node scripts/resources/test-reuse-worktree-resources.mjs`：磁盘快照、安装 staging、版本和审批记录不出现在可复用列表，显式选择时在访问工作树或复制前拒绝。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplace|PluginDiskInstallation|MacPluginDiskPackageImporter|MacPluginPackageDownloader|PluginManagementPresentation|PluginManager|PluginPackageStore'`：校验和先于解压、下载和展开上限、磁盘快照隔离、源与签名要求、完整程序审查、安装 staging/扫描/回滚摘要复查、来源保留及同 ID 不自动接管。过滤器只是运行入口，必须核对报告确实包含 `MacPluginDiskPackageImporterTests`、`PluginDiskInstallationTests` 和磁盘 FeatureModel 场景，不能以零匹配当作通过。
-- `./scripts/verify-runtime-bundle-immutability.sh`：静态检查 macOS 与 Windows 资源解析路径；它本身不启动产品，也不替代工作流前后的文件清单/哈希比较。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：静态检查 macOS 与 Windows 资源解析路径；它本身不启动产品，也不替代工作流前后的文件清单/哈希比较。
 
 可复验的产品流程：分别选择社区 ZIP 和解包目录，确认本地提示、文件名、内容摘要及 ZIP 可选归档摘要；取消后无安装及快照残留，再确认安装。继续用相同程序的新版、同版本原包、同版本改过脚本的包逐一替换，每次均应显示全部权限与完整程序并要求确认。审查等待期间改动原输入，安装结果应仍与私有快照一致；改动准备好的快照或已安装/上一版本内容，应分别在安装 staging、扫描或回滚时被拒绝。市场刷新出现同 ID 时，应无市场自动更新/重装接管。导入和待确认期间关闭插件页，确认已有及迟到返回的快照都清理且不会安装。对成功、取消、非法包和资源超限检查临时目录清理，比较前后发行 bundle 清单/哈希并关闭本次应用与子进程。
 
@@ -119,7 +119,7 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 - `shared/contracts/plugins/v1/`
 - `rust/lithe-core/src/plugins/marketplace.rs`
 - `Plugins/marketplace/`
-- `scripts/official-plugin-releases.mjs`
+- `scripts/plugins/official-plugin-releases.mjs`
 - `.github/workflows/release-official-plugins.yml`
 - `macos/Sources/LitheCoreContracts/Plugins/PluginMarketplaceContracts.swift`
 - `macos/Sources/Lithe/Application/Features/PluginMarketplace.swift`

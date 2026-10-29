@@ -854,7 +854,7 @@ private struct RealJavaSupportPackage {
     private let stateRootURL: URL
 
     /// Build the package first with
-    /// `scripts/build-official-plugins.sh --bundled-only --triple <triple>`
+    /// `scripts/plugins/build-official-plugins.sh --bundled-only --triple <triple>`
     /// and pass the directory it prints, plus the plugin ID, as
     /// `LITHE_JAVA_SUPPORT_PACKAGE`. The default is the debug output of a
     /// local build.

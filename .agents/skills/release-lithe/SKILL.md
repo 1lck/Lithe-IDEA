@@ -98,7 +98,7 @@ when a change is platform-specific. Group by new capability, improvement, or
 fix, not by implementation layer. Credit verified contributors together at
 the bottom; optional per-item attribution must be verified and stay concise.
 Do not copy another project's features, identities, or compatibility claims.
-Run `node scripts/validate-stable-release-notes.mjs docs/releases/v<version>.md`
+Run `node scripts/release/notes/validate-stable-release-notes.mjs docs/releases/v<version>.md`
 before committing the notes.
 
 ## Contributors

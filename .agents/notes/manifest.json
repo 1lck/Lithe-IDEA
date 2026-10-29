@@ -18,10 +18,10 @@
   ],
   "noteFilePattern": "yyyy-mm-dd-topic.md",
   "generatedBoard": {
-    "script": "scripts/build-agent-notes-board.mjs",
+    "script": "scripts/agent-notes/build-agent-notes-board.mjs",
     "artifact": ".artifacts/agent-notes-board/index.html"
   },
   "verification": {
-    "script": "scripts/verify-agent-notes.sh"
+    "script": "scripts/agent-notes/verify-agent-notes.sh"
   }
 }

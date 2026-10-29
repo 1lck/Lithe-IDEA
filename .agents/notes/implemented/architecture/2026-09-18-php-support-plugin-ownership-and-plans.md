@@ -16,7 +16,7 @@ macOS 的 PHP 插件现在是 Lithe Store 社区插件 `io.github.lithe-idea.php
 
 ### 分发与安装
 
-- `scripts/official-plugin-distribution.mjs` 显式列出随主程序分发的官方插件。PHP 不在其中；macOS 用户从插件市场的 Lithe Store 社区源安装 PHP 插件。
+- `scripts/plugins/official-plugin-distribution.mjs` 显式列出随主程序分发的官方插件。PHP 不在其中；macOS 用户从插件市场的 Lithe Store 社区源安装 PHP 插件。
 - macOS 的 PHP 语言服务和执行模块均默认禁用、按需激活。安装后的包提供 `.php`、`.phtml` 和 `composer.json` 声明；没有包时不注册它的进程能力。共享的轻量语法识别不需要下载或启动外部进程。
 - macOS 的 PHP 插件是声明式包（`plugin.json` + Intelephense，无原生代码，见 [声明式语言插件](2026-10-12-declarative-language-plugins.md)），携带由 `language-server.json` 固定版本和 SHA-256 的 Intelephense 包。插件管理页下载并校验插件包，运行时把 Intelephense 保存在同一个用户级插件版本目录中；重装、回滚和卸载都处理同一份目录。Node.js 仍是 Intelephense 的外部运行时，PHP、Composer 和项目 PHPUnit 仍由用户自行提供；本地目录导入只用于离线或故障恢复。从 Dock 或 Finder 打开的 Lithe 只继承 launchd 的精简 PATH，里面没有 Homebrew 或 nvm/volta/fnm 安装的 Node；因此宿主在启动语言服务器前用运行时工具发现找到 `node`，通过 `LITHE_NODE_PATH` 传给插件里的 launcher，用户已设置的 `LITHE_NODE_PATH` 优先。语言服务器会在打开文件时自动启动，因此这里绝不选用项目目录里的 `node`（如 `.lithe/bin/node`），只用全局安装的 Node，避免打开不可信项目就执行项目自带的程序。
 - macOS 下载地址使用宿主 App 的 `CFBundleShortVersionString` 组成 Release tag 和 zip 文件名；`BuiltInPluginCatalog.hostVersion` 只用于插件 API 兼容性校验，不能用来定位发布资产。
@@ -61,21 +61,21 @@ macOS 的 PHP 插件现在是 Lithe Store 社区插件 `io.github.lithe-idea.php
 
 不使用 PHP 的用户不承担语言服务器下载、索引和进程成本。代价是首次使用需要显式安装插件和 Node.js；macOS 在线包需要 Lithe publisher Ed25519 签名，但不要求发布者持有 Developer ID；未配置 publisher secret 的 debug 构建默认跳过 PHP 包；本地调试改用 `--development-unsigned` 生成开发包，只有 debug 构建的 Lithe 能从磁盘安装它。Windows 目前提供 Composer 脚本及整套 PHPUnit，未声明支持 macOS 已有的单方法测试发现。Windows 本地包暂不提供在线分发、自动更新或签名身份验证，替换版本需先卸载再导入；包格式仅用于小型 Worker 语言插件。目标平台运行验证未完成前，功能矩阵保持 pending。
 
-插件构建产物、PHPUnit 的 vendor 和应用语言工具缓存没有可靠的跨工作树身份标记，均在 `scripts/worktree-resources.json` 的 excludedResources 中排除。不得把它们共享为可变缓存。
+插件构建产物、PHPUnit 的 vendor 和应用语言工具缓存没有可靠的跨工作树身份标记，均在 `scripts/resources/worktree-resources.json` 的 excludedResources 中排除。不得把它们共享为可变缓存。
 
 ## 验证
 
-- `bun scripts/build-windows-php-plugin.ts` 与 `node scripts/verify-windows-plugin-isolation.mjs`：构建独立 Worker 包并确认宿主没有 PHP 实现导入。
+- `bun scripts/windows/build/build-windows-php-plugin.ts` 与 `node scripts/windows/verify/verify-windows-plugin-isolation.mjs`：构建独立 Worker 包并确认宿主没有 PHP 实现导入。
 - Worker 协议测试实际加载 PHP 入口，检查启用、运行计划与停用；本地包测试检查默认禁用、坏包拒绝和源码删除。
 
-- `node scripts/test-official-plugin-distribution.mjs`：默认分发名单不含 PHP，未知插件不会意外打入主程序。
-- `./scripts/verify-macos-package.sh`：实际组装产物不得含 PHP 插件。
-- `./scripts/verify-official-plugins.sh`：独立包兼容性与签名验证。
+- `node scripts/plugins/test-official-plugin-distribution.mjs`：默认分发名单不含 PHP，未知插件不会意外打入主程序。
+- `./scripts/macos/verify/verify-macos-package.sh`：实际组装产物不得含 PHP 插件。
+- `./scripts/plugins/verify-official-plugins.sh`：独立包兼容性与签名验证。
 - `MacPluginPackageDownloaderTests`：验证 stable/preview 发行资产 URL 按 App 发布版本和架构确定性生成。
 - `LanguageExtensionProcessLifecycleTests.packagedServersArePinnedToTheirOwnPackage`、`LanguageServerToolServiceTests.pinnedExecutableIsTheOnlyCandidate`：验证插件打包的 Intelephense 只从本插件已安装的版本目录启动，不按文件名在 PATH 或其他插件中查找。
 - `PluginPackageStoreTests/reinstallCanReplaceTheActiveVersionOnlyAfterValidation`：验证重装不会绕过签名校验，并在校验完成后替换当前版本。
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`：PHP 运行、PHPUnit 整套/单文件/单方法命令展开与路径保护。
-- `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/test-macos.sh --filter RealPhpIntegrationTests`：真实工具测试；先在 `shared/fixtures/phpunit-project` 执行 `composer install`，并提供 Node.js 与插件组装出的 Intelephense launcher。
+- `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealPhpIntegrationTests`：真实工具测试；先在 `shared/fixtures/phpunit-project` 执行 `composer install`，并提供 Node.js 与插件组装出的 Intelephense launcher。
 - Windows 前端测试包含禁用时不扫描、Composer 数组、下载取消、在途启动后禁用及跨工作区进程隔离。Windows native 测试与实际应用启动必须在 Windows 环境执行；Linux 交叉编译不等于运行验收。
 
 ## 适用范围
@@ -84,8 +84,8 @@ macOS 的 PHP 插件现在是 Lithe Store 社区插件 `io.github.lithe-idea.php
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
 - `Plugins/win/Official/PhpSupport/`
-- `scripts/build-official-plugins.sh`
-- `scripts/package-app.sh`
+- `scripts/plugins/build-official-plugins.sh`
+- `scripts/macos/package/package-app.sh`
 - `windows/tauri/src/extensions/`
 - `windows/tauri/src/features/run-actions/`
 - `windows/tauri/src-tauri/src/language_tools.rs`

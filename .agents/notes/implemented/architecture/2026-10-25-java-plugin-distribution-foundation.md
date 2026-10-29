@@ -90,14 +90,14 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 
 ## 验证
 
-- `./scripts/verify-rust-core-comments.sh`、`./scripts/verify-shared-contracts.sh`：契约、注释和共享输入一致。
+- `./scripts/rust-core/verify-rust-core-comments.sh`、`./scripts/architecture/verify-shared-contracts.sh`：契约、注释和共享输入一致。
 - Rust 的 `declarative_plugins` 与 `marketplace_plugins`：来源策略必须声明能力、非法组合拒绝、旧宿主在下载前拒绝。
 - `PluginBundledPublisherTrustTests`：真实 Core、生产包管理器及注入测试公钥验证签名安装、单一来源、包篡改、伪造来源和缺失运行时，比较安装资源内容。
 - 同一套包存储回归覆盖卸载后重新启动扫描得到 `.removed` 快照时的提示，状态矩阵保留禁用、暂存更新和待重启副本的管理流程；`PluginInstallationGuidancePresentationTests` 用真实原生视图核对深浅主题的缺包通知、模板入口及主动打开市场的按钮，不执行安装或工具。
-- `./scripts/verify-macos-package.sh --slim`：以临时完整索引构建精简 universal app，拒绝 JDT/JDK 下载输入，检查资源缺失、签名和 DMG；默认模式检查保留过渡包。
-- `node --test scripts/test-official-plugin-distribution.mjs`：完整与部分上架、来源/能力不匹配和后续版本门槛。
-- `node --test scripts/official-plugin-releases.test.mjs`：双架构索引、部分归档拒绝、历史标签元数据以及上游输入变更约束。
-- `node scripts/test-reuse-worktree-resources.mjs`、`./scripts/verify-runtime-bundle-immutability.sh`：生成资源拒绝复用、发行目录只读边界。
+- `./scripts/macos/verify/verify-macos-package.sh --slim`：以临时完整索引构建精简 universal app，拒绝 JDT/JDK 下载输入，检查资源缺失、签名和 DMG；默认模式检查保留过渡包。
+- `node --test scripts/plugins/test-official-plugin-distribution.mjs`：完整与部分上架、来源/能力不匹配和后续版本门槛。
+- `node --test scripts/plugins/official-plugin-releases.test.mjs`：双架构索引、部分归档拒绝、历史标签元数据以及上游输入变更约束。
+- `node scripts/resources/test-reuse-worktree-resources.mjs`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：生成资源拒绝复用、发行目录只读边界。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 和 macOS 计时入口：相关测试必须有单项时长与 HTML/JUnit 结果。
 - `.github/workflows/release-official-plugins.yml` 用 actionlint 校验；本地组装两种架构资源，验证 JDK 原生签名和发布归档的完整性。
 
@@ -114,9 +114,9 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `macos/Tests/LitheTests/PluginBundledPublisherTrustTests.swift`
 - `macos/Tests/LitheOfficialPluginVerifier/OfficialPluginVerifier.swift`
-- `scripts/build-official-plugins.sh`
-- `scripts/official-plugin-releases.mjs`
+- `scripts/plugins/build-official-plugins.sh`
+- `scripts/plugins/official-plugin-releases.mjs`
 - `.github/workflows/release-official-plugins.yml`
-- `scripts/worktree-resources.json`
-- `scripts/reuse-worktree-resources.mjs`
+- `scripts/resources/worktree-resources.json`
+- `scripts/resources/reuse-worktree-resources.mjs`
 - `docs/ci-builds.md`

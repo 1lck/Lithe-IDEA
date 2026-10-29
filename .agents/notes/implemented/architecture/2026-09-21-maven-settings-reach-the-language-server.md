@@ -479,11 +479,11 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
   的安装正确返回空、`initializationOptions` 注入且不吃掉扩展目录的键、
   Profile 指纹随安装变化，以及生成文档保留镜像/注释、插入缺失节点、展开空元素、
   转义路径中的 `&`、不误伤 profile 内的同名元素。完整校验运行
-  `./scripts/verify-rust-core.sh`。
-- Rust Core 注释规范：`./scripts/verify-rust-core-comments.sh`。
+  `./scripts/rust-core/verify-rust-core.sh`。
+- Rust Core 注释规范：`./scripts/rust-core/verify-rust-core-comments.sh`。
 - Windows 前端：`bun test src/features/maven` 覆盖优先级链、各层失败时的降级、
   面板留空时把解析结果带进启动上下文、清空路径时丢弃上一次的解析结果。
-  边界校验运行 `./scripts/verify-windows-boundaries.sh`。
+  边界校验运行 `./scripts/windows/verify/verify-windows-boundaries.sh`。
 - Windows 宿主：`cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
   maven_resolution_without_probing` 覆盖 Wrapper 优先、主目录与启动器两种覆盖
   写法、残缺 Wrapper 不被选中。
@@ -492,7 +492,7 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
   `toolchain_probe_` 测试覆盖已到期的探测和两个输出流。前端
   `maven-detected-value.test.tsx`、`maven-project-jdk.test.ts`、`maven.store.test.ts`
   验证显示与启动选择一致，`maven-settings-panel.test.tsx` 验证项目切换丢弃草稿。
-- 共享契约：`./scripts/verify-shared-contracts.sh`。
+- 共享契约：`./scripts/architecture/verify-shared-contracts.sh`。
 - 测试稳定性：`./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 - 生效值显示：Windows 宿主 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
   displayed_` 覆盖显示的 Maven 即启动会运行的 Wrapper、无效选择与启动一致地报错；
@@ -509,7 +509,7 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
   覆盖默认值读写、Maven 保存重试、编辑器跳转、中文搜索，以及打开「设置 → 运行配置」
   不重载同一项目；`run.store` 测试覆盖同一项目重载保留 JDT 刷新与待确认启动、
 等待进行中的识别发布，以及切换项目仍会取消；`project-environment` 测试覆盖保存在
-运行配置刷新完成前返回、刷新失败与 Maven 写入失败的报告。macOS 运行 `./scripts/test-macos.sh`，
+运行配置刷新完成前返回、刷新失败与 Maven 写入失败的报告。macOS 运行 `./scripts/macos/test/test-macos.sh`，
   `RunConfigurationIntegrationTests` 覆盖未生成配置时保存、Git 忽略规则逐条补齐且
   重复保存不改动文件、不支持版本的识别拦截，只有读完当前项目文档后才允许保存
 项目默认值，未生成配置时读取本机默认值，以及服务编辑器保存写入有效默认值；`ProjectRuntimePersistenceTests` 覆盖旧偏好迁移、显式自动优先、损坏文件保留、

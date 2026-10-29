@@ -56,7 +56,9 @@ jobs:
     needs: prepare
     if: github.actor == github.repository_owner || contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor)) || github.event_name == 'schedule'
     runs-on: macos-26
-    timeout-minutes: 30
+    # Intel packaging took ~26 minutes before Sparkle in AutoBuild run 40812978761.
+    # Match stable release budgets so update generation has its own bounded window.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -86,7 +88,7 @@ jobs:
       - name: Set up Rust target
         uses: dtolnay/rust-toolchain@stable
         with:
-          # The app bundles the Linux remote workspace servers (scripts/build-remote-servers.sh).
+          # The app bundles the Linux remote workspace servers (scripts/remote/build-remote-servers.sh).
           targets: ${{ format('{0},x86_64-unknown-linux-musl,aarch64-unknown-linux-musl', matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') }}
 
       - name: Prepare verified dependency caches
@@ -108,7 +110,7 @@ jobs:
           LITHE_CODESIGN_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
         run: |
           if [[ -n "$MACOS_SIGNING_CERTIFICATE" ]]; then
-            zsh scripts/import-macos-signing.sh
+            zsh scripts/release/macos/import-macos-signing.sh
           elif [[ -n "$MACOS_SIGNING_PASSWORD" || -n "$LITHE_CODESIGN_IDENTITY" ]]; then
             echo "Incomplete Developer ID configuration: provide the certificate or remove the optional identity and password."
             exit 1
@@ -117,6 +119,7 @@ jobs:
           fi
 
       - name: Build and package the preview app
+        timeout-minutes: 35
         env:
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
@@ -128,8 +131,8 @@ jobs:
           LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
           test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before publishing preview updates"; exit 1; }
-          ./scripts/package-app.sh
-          ./scripts/create-dmg.sh
+          ./scripts/macos/package/package-app.sh
+          ./scripts/macos/package/create-dmg.sh
           dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
           (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
 
@@ -149,6 +152,7 @@ jobs:
           (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg.sha256")
 
       - name: Generate signed preview updates
+        timeout-minutes: 30
         env:
           GH_TOKEN: ${{ github.token }}
           LITHE_ARCH: ${{ matrix.architecture }}
@@ -158,7 +162,7 @@ jobs:
           LITHE_UPDATE_CHANNEL: preview
           LITHE_PREVIEW_TAG: ${{ env.PREVIEW_TAG }}
           LITHE_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: zsh scripts/create-sparkle-update.sh
+        run: zsh scripts/release/sparkle/create-sparkle-update.sh
 
       - name: Record artifact identity
         env:
@@ -259,4 +263,4 @@ jobs:
           PREVIEW_BUILD: ${{ needs.prepare.outputs.build }}
           LITHE_BUILD_TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
-        run: node scripts/publish-autobuild.mjs
+        run: node scripts/release/autobuild/publish-autobuild.mjs

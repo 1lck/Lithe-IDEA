@@ -133,11 +133,11 @@ Windows 尚未运行 Build Provider 时不暴露这些工具；旧 Maven 专属�
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-ide-host` 验证授权、路径、
   模块参数、输出游标、连接互斥、请求路由和打包输入不变。
-- `node --test scripts/test-ide-mcp.mjs` 在先构建辅助程序后验证真实 stdio
+- `node --test scripts/ide-mcp/test-ide-mcp.mjs` 在先构建辅助程序后验证真实 stdio
   握手、工具发现、结构化结果和可见工具错误。Windows CI 在共享 Rust 测试后
   显式构建 helper 并执行同一协议矩阵，不能仅测试依赖库而遗漏发行平台的 stdio 程序。
-- `./scripts/verify-shared-contracts.sh`、`./scripts/verify-windows-boundaries.sh`、
-  `./scripts/verify-runtime-bundle-immutability.sh` 验证契约和平台边界。
+- `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/windows/verify/verify-windows-boundaries.sh`、
+  `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 验证契约和平台边界。
 - Windows 的 `ide-capabilities.test.ts` 验证旧执行 ID、撤销期间的设置写入、
   设置补丁和共享权限拒绝；macOS 的 `IdeCapabilitiesTests.swift` 验证授权与
   工作区代际、模块不被错误激活以及执行身份。
@@ -167,7 +167,7 @@ Windows 尚未运行 Build Provider 时不暴露这些工具；旧 Maven 专属�
   的 25 项原生计时通过：损坏 POM 时不激活执行模块即可保存工具链，已有草稿返回忙碌，
   损坏配置保留原字节；旧 Maven 工具和 XML 参数在激活前拒绝。真实 Maven 模块编译约
   2.57 秒。三种真实 stdio 会话、14 项 IDE Host 与 23 项前端测试通过；前端测试运行在
-  macOS Bun，不算 Windows 原生证据。完整 `./scripts/verify-rust-core.sh` 用时约 111 秒通过。
+  macOS Bun，不算 Windows 原生证据。完整 `./scripts/rust-core/verify-rust-core.sh` 用时约 111 秒通过。
 
 ## 适用范围
 
@@ -176,4 +176,4 @@ Windows 尚未运行 Build Provider 时不暴露这些工具；旧 Maven 专属�
 - `macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`
 - `macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift`
 - `windows/tauri/src/features/host-api/`
-- `scripts/worktree-resources.json`
+- `scripts/resources/worktree-resources.json`

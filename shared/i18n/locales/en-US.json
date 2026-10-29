@@ -9501,7 +9501,25 @@
     "native.selectedToolchainUnavailable": "The selected toolchain is unavailable.",
     "native.savedBuildOptionsInvalid": "The saved build options are invalid. The original configuration has been kept.",
     "native.buildOptionsSaveFailed": "The build options could not be saved or verified. Reload before retrying.",
-    "native.buildOptionsConflict": "Build options changed on disk. Reload before saving; your changes have been kept."
+    "native.buildOptionsConflict": "Build options changed on disk. Reload before saving; your changes have been kept.",
+    "native.remoteTerminalAsyncStart": "The remote terminal must be started asynchronously.",
+    "native.remoteTerminalInvalidDirectory": "The terminal directory is outside the remote workspace.",
+    "native.remoteTerminalClosedBeforeStart": "The remote terminal closed before it started.",
+    "native.remoteTerminalInputBusy": "The remote terminal is busy. Wait before sending more input.",
+    "native.remoteGitMixedHosts": "A Git operation cannot span different workspace hosts.",
+    "native.remoteGitMixedLocal": "A Git operation cannot span local and remote workspaces.",
+    "native.runtimeDiscoveryFailed": "Runtime discovery failed",
+    "native.remoteRuntimeDiscoveryFailed": "Could not discover runtimes on the remote host. Check the connection and refresh.",
+    "native.runtimeDiscoveryRecovery": "Check the workspace connection and refresh the available runtimes.",
+    "native.remoteRuntimeToolMissing": "The required tool is not available on the remote host.",
+    "native.remoteRuntimeToolRecovery": "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes.",
+    "native.remoteShellDiscoveryFailed": "Could not discover shells on the remote host. Check the connection and try again.",
+    "remote.copyIncomplete": "Some special files could not be copied",
+    "remote.pendingDocumentsLimit": "Remote pending documents exceeded the startup limit. Wait for the language server to start.",
+    "remote.pluginUnapproved": "The remote plugin package is not part of the approved installation.",
+    "remote.pluginHostUnsupported": "This host cannot receive a compatible plugin package. Update the remote server.",
+    "remote.pluginApprovalRequired": "The remote plugin package changes approved commands or permissions. Install and approve that version first.",
+    "remote.pluginPlatformUnavailable": "Plugin {plugin} has no approved package for {platform}. Install a compatible plugin version."
   },
   "overrides": {
     "windows": {

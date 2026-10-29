@@ -75,10 +75,10 @@ macOS 数据库侧栏保留混合类型的分组文件夹，在每个 MySQL/Mari
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'DatabaseWorkspaceLifecycleTests/databaseTree|LitheTreeRowStyleTests'`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 回归使用现有数据库进程端口的可控替身，覆盖 MySQL/MariaDB、混合分组、无默认库、同名表上下文、权限失败重试、刷新移除库以及数据库和表结构在断开/删除/释放后的迟到结果。另用有本地期限的真实 sidecar 子进程验证连接或数据库目录在任务取消、折叠、断开、强制刷新和模块释放后退出；测试不手动放行阻塞请求。受控慢请求还验证结构加载期间立即展开并显示进度、折叠不重开、重复展开命中缓存，编辑器与树共享结构请求且展开不查询表数据。深浅主题宿主测试通过原生辅助功能操作展开和折叠，并验证两个库的表同时出现；这些检查不替代完整工作区的真实连接验收。另用临时 MySQL 8.4.11 实例验证数据库列表的权限过滤，以及两个库中同名表的查询结果和全部对象分组查询；受限账号看不到未授权的第三个库。临时实例及数据在检查后清理。
 

@@ -7,8 +7,8 @@
 //! outside the workspace.
 
 use crate::plugins::declarative::{PluginRejection, Validation};
+use crate::remote::{workspace, workspace_io as fs};
 use serde_json::Value;
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -108,10 +108,26 @@ impl Workspace {
             ));
         }
         let mut roots = vec![slashed(root)];
-        if let Ok(canonical) = path.canonicalize() {
+        let resolved = fs::canonicalize(&path);
+        if workspace::is_remote() && resolved.is_err() {
+            return Err(invalid_output(
+                "The workspace host could not resolve the build root.",
+            ));
+        }
+        if let Ok(canonical) = &resolved {
             roots.push(slashed(&canonical.to_string_lossy()));
         }
-        let canonical = path.canonicalize().unwrap_or(path);
+        let canonical = resolved.unwrap_or(path);
+        if workspace::is_remote() {
+            // Tool output contains host paths, while file adapters retain the
+            // native placeholder identity for containment and navigation.
+            roots.push(slashed(
+                &workspace::remote_path(&canonical).to_string_lossy(),
+            ));
+            roots.push(slashed(
+                &workspace::remote_path(Path::new(root)).to_string_lossy(),
+            ));
+        }
         Ok(Self {
             roots,
             path: canonical,
@@ -129,7 +145,7 @@ impl Workspace {
 
     /// Resolves an existing workspace path without following links outside it.
     pub(crate) fn read_path(&self, relative: &str) -> Option<PathBuf> {
-        let path = self.join(relative).canonicalize().ok()?;
+        let path = fs::canonicalize(self.join(relative)).ok()?;
         path.starts_with(&self.path).then_some(path)
     }
 
@@ -161,8 +177,13 @@ impl Workspace {
     /// after checking existence and resolves links again before navigating.
     pub(crate) fn relativize_reported(&self, raw: &str, base: &str) -> Option<String> {
         let relative = self.relativize(raw, base)?;
-        match self.join(&relative).canonicalize() {
+        match fs::canonicalize(self.join(&relative)) {
             Ok(resolved) if !resolved.starts_with(&self.path) => None,
+            Err(error)
+                if workspace::is_remote() && error.kind() != std::io::ErrorKind::NotFound =>
+            {
+                None
+            }
             _ => Some(relative),
         }
     }

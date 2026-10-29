@@ -1,8 +1,8 @@
 //! Bounded workspace traversal shared by all run-configuration detectors.
 
 use crate::protocol::{CoreError, ErrorCode};
+use crate::remote::workspace_io as fs;
 use std::collections::BTreeSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Detectors only care about manifests near the top of a project. Anything
@@ -25,8 +25,12 @@ pub struct DirectoryContext {
 impl DirectoryContext {
     /// Captures the readable non-directory entries immediately below `path`.
     pub fn at(root: &Path, path: &Path) -> Result<Option<Self>, CoreError> {
-        let Ok(entries) = fs::read_dir(path) else {
-            return Ok(None);
+        let entries = match fs::read_dir(path) {
+            Ok(entries) => entries,
+            // Detection skips a directory the host cannot list, as it does locally,
+            // but a dropped link must not pass for a project without manifests.
+            Err(error) if fs::is_transport_failure(&error) => return Err(error.into()),
+            Err(_) => return Ok(None),
         };
         let files = entries
             .flatten()

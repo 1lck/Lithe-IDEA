@@ -2,7 +2,7 @@
 
 The protocol between a Lithe client and `lithe-remote-server`, which runs at
 the end of a transport chain (SSH host, container, or a chain of both). The
-Rust types in `rust/lithe-remote-protocol/` are the reference
+Rust types in `rust/lithe-remote/src/protocol/` are the reference
 implementation; this document is the compatibility surface for other
 clients. Design rationale lives in
 `.agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md`.
@@ -51,11 +51,21 @@ uses this stream.
 - Field names are camelCase. Byte payloads (`data`) are standard Base64.
 - Paths are absolute paths on the remote host. Relative paths fail with
   `INVALID_PATH`.
-- Requests that change a running resource in order — `process.writeStdin`,
-  `process.closeStdin`, `process.kill`, `terminal.write`, `terminal.resize`,
-  `terminal.close`, `tunnel.write`, `tunnel.close`, `watch.stop`,
-  `walk.cancel` — are applied in the order sent. Other requests may complete
-  in any order.
+- Queued input and resize requests — `process.writeStdin`, `process.closeStdin`,
+  `terminal.write`, `terminal.resize`, `tunnel.write`, `tunnel.close`,
+  `walk.cancel` — are applied in the order sent. Potentially blocking creation
+  and teardown run on workers; other requests may complete in any order.
+- A `process.kill`, `terminal.close`, or `watch.stop` received while the same
+  resource is starting records teardown before worker scheduling. The creating
+  worker applies it after publication, even if the close worker is rejected as
+  `BUSY`, its caller times out, or the connection drops. A close waiter has a
+  60-second deadline; expiry does not abandon the recorded teardown. Malformed
+  controls never cancel creation. Forced kills cannot be downgraded by a later
+  non-forced kill. Unrelated resources remain independent and no registry lock
+  covers spawning, filesystem I/O, or process-tree termination.
+- A nonpersistent disconnect and every session shutdown also reclaim late
+  publications. Persistent disconnects alone retain resources for reconnection;
+  explicit shutdown or idle expiry must not leave a late-created resource alive.
 
 ## Resources and events
 
@@ -83,13 +93,20 @@ subscribe before creating the resource.
 | `fs.readDir` | `path` | `entries` sorted by name byte order, `skippedNonUtf8` |
 | `fs.readFile` | `path`, `offset`, `length` (≤ 8 MiB) | `data`, `eof`, `metadata` |
 | `fs.writeFile` | `path`, `data` (≤ 8 MiB), `expected?`, `overwrite`, `createParents` | metadata after the write |
-| `fs.createDir` | `path`, `recursive` | `null` |
+| `fs.createDir` | `path`, `recursive`, `mode?` (at most `0o7777`) | `null` |
 | `fs.remove` | `path`, `recursive` | `null`; links are removed, never followed |
 | `fs.rename` | `from`, `to`, `overwrite` | `null` |
 | `fs.copy` | `from`, `to`, `recursive`, `overwrite` | `skippedSpecialFiles`; links are copied as links |
+| `fs.trash` | `path` | `null`; moves the entry to the host account's recoverable system trash |
 | `fs.realPath` | `path` | `path` with links resolved |
 | `fs.setPermissions` | `path`, `mode` (≤ `0o7777`) | `null` |
 | `fs.volumeInfo` | `path` | `caseSensitive` (`null` when unknown) |
+| `fs.uploadStart` | `path`, `size`, `sha256`, `mode` | `uploadId` |
+| `fs.uploadChunk` | `uploadId`, `offset`, `data` | next `offset` |
+| `fs.uploadCommit` | `uploadId` | verified `size`, `sha256` |
+| `fs.uploadAbort` | `uploadId` | `null` |
+| `fs.createRunDirectory` | `directoryId` | private session-owned `path` |
+| `fs.releaseRunDirectory` | `directoryId` | `null`; idempotent release of this session's allocation |
 | `walk.start` | `walkId`, `root`, `excludeNames`, `maxEntries?` | `null`; entries follow as events |
 | `walk.cancel` | `walkId` | `null` |
 | `watch.start` | `watchId`, `root`, `excludeNames` | `watchedDirectories` (per-directory backends) |
@@ -114,6 +131,15 @@ directly, through a symbolic link in either direction or onto a hard link —
 and to copy a directory into itself after resolving links. Sockets, FIFOs and
 devices are never copied: at the top level the request fails with
 `UNSUPPORTED`, inside a tree they are skipped and counted.
+With `overwrite: false`, a private sibling staging directory holds the copy
+until an atomic no-replace rename publishes it. A concurrent destination
+creation fails with `ALREADY_EXISTS` and leaves that destination unchanged.
+
+`fs.trash` uses the host's native trash implementation (Freedesktop Trash on
+Linux and the system Trash on macOS). Recovery content and metadata belong to
+the remote account, never to the client placeholder or installation. A host
+without usable trash storage returns an error and retains the original entry;
+it does not fall back to permanent deletion.
 
 `fs.writeFile` replaces the file atomically through a temporary sibling and
 writes through symbolic links. With `expected` (`size`, `modifiedMs`) it fails
@@ -122,6 +148,47 @@ only replaced when `overwrite` is set. A write with neither `expected` nor
 `overwrite` only creates: when two such writes race, exactly one succeeds and
 the other fails with `ALREADY_EXISTS`. When a file is replaced, the temporary
 file never has broader permissions than the original.
+
+Hosts advertising `features: ["upload", ...]` accept staged uploads without
+increasing the frame limit. Upload IDs are server-assigned and owned by the
+connection that created them, including in a persistent session. At most four
+uploads are staged per server; each file is at most 2 GiB. Chunks contain
+1–256 KiB of decoded bytes and must name the exact acknowledged offset.
+`sha256` is a 64-character hexadecimal digest; `mode` permits only `0o000`–`0o777`.
+Staging uses a private `0600` sibling file. Commit verifies size and digest,
+syncs the file and atomically publishes without replacing an existing target.
+Failed commits, aborts, disconnects, session shutdown and an absolute five-minute
+expiry remove staging files. Clients serialize chunks and commit only after
+the last acknowledgement. Interrupted clients may not know whether a completed
+commit published; owners must remove their allocated run directory separately.
+
+Upload registry locks do not cover file creation, writes, `fsync`, publication
+or deletion. Operations on one upload use a separate nonblocking lock (`BUSY`
+for concurrent operations on that upload). Abort, expiry and disconnect mark
+an in-flight upload cancelled without waiting for that lock; its worker retains
+staging cleanup responsibility. Independent uploads remain usable.
+
+The optional `runDirectories` feature owns complete runtime input snapshots,
+not just unpublished upload files. Clients choose a unique `directoryId` before
+allocation (1–64 ASCII letters, digits, `_` or `-`), so a cancelled or lost reply
+can still be released by identity. The host creates a fresh `0700` directory
+below its private `~/.lithe-server/plugin-runs/`; it never adopts an existing
+directory or accepts an arbitrary cleanup path. At most 256 allocations belong
+to a session. A later release is ordered after a pending allocation even when
+its worker has not started. Release is idempotent and affects only that
+session's allocation. A removal failure is returned to the waiting release
+request, and ownership remains registered so release can be retried. Existing
+parent directories must be real, owned by the host user and inaccessible to
+group/other users; allocation never changes their permissions.
+Clients stop the consuming process before release.
+
+Nonpersistent disconnect and session shutdown remove these directories after
+process teardown and worker drain. Persistent disconnect retains them for
+reconnection; an abandoned desktop's directories are removed at idle expiry.
+This is not crash recovery of a forcibly killed server: such directories remain
+until a future process-liveness-aware recovery mechanism or manual cleanup.
+No age-based scan deletes other sessions' snapshots. Installed resources and
+persistent provider state are never cleanup targets.
 
 `process.exit` and `terminal.exit` report the leader. The server keeps owning
 its session until no member is left, so members that outlive the leader can

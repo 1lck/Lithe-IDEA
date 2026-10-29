@@ -177,7 +177,7 @@ Maven 插件单独使用 [`Lithe-IDEA/lithe-plugin-maven@bfa56dc80914df22ab60967
 
 D1/D2 或 E1/E2 若出现无法独立完成的消费者依赖，应缩成更小的完整用户流程，或合并紧耦合交付；不能在两批之间制造依赖已删除服务、无法编译或配置丢失的中间状态。没有可审阅的真实运行证据时，相应能力保持 `verificationStatus: pending`。
 
-本阶段不调整功能矩阵的实现/验证状态，不迁移数据库数据，不增加插件资源目录。后续新增下载/生成/缓存入口时，须同项更新 `scripts/worktree-resources.json`、复用脚本校验路由及测试和 `docs/ci-builds.md`；运行时状态继续隔离，不能因插件化加入跨工作树共享可变缓存。
+本阶段不调整功能矩阵的实现/验证状态，不迁移数据库数据，不增加插件资源目录。后续新增下载/生成/缓存入口时，须同项更新 `scripts/resources/worktree-resources.json`、复用脚本校验路由及测试和 `docs/ci-builds.md`；运行时状态继续隔离，不能因插件化加入跨工作树共享可变缓存。
 
 ## 考虑过的备选方案
 
@@ -208,8 +208,8 @@ D/E/F 完成须逐行附上真实新路径、删除证据、工具/插件/平台
 本阶段只做文档与静态源码/Git 核对。交付前运行以下现有检查；执行结果随交付记录，不把静态通过写成运行时通过：
 
 ```bash
-./scripts/verify-agent-notes.sh
-./scripts/verify-runtime-bundle-immutability.sh
+./scripts/agent-notes/verify-agent-notes.sh
+./scripts/macos/verify/verify-runtime-bundle-immutability.sh
 git diff --check
 ```
 

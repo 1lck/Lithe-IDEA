@@ -19,6 +19,9 @@ pub struct CoreRequest {
     /// Host-owned Git preferences, scoped to this request only.
     #[serde(default)]
     pub git_execution: Option<crate::git::execution_policy::GitExecutionOptions>,
+    /// Remote host selected by the native workspace registry; absent for local workspaces.
+    #[serde(default)]
+    pub(crate) remote_workspace: Option<crate::remote::workspace::Workspace>,
     /// Stable compatibility name resolved by [`CoreCommand::parse`].
     pub command: String,
     /// Command-specific JSON object; omitted payloads deserialize as JSON null.
@@ -437,6 +440,20 @@ pub enum CoreCommand {
     RemoteReadFile,
     /// Saves a file over an open remote connection (`remote.writeFile`).
     RemoteWriteFile,
+    /// Performs a non-streaming operation on an existing workspace host.
+    RemoteHostRequest,
+    /// Owns a remote process and relays output until it exits or is cancelled.
+    RemoteRunProcess,
+    /// Captures a short remote process with explicit time and output budgets.
+    RemoteCaptureProcess,
+    /// Owns a remote PTY and relays output until it exits or is cancelled.
+    RemoteRunTerminal,
+    /// Owns a host watch and relays changes until cancellation or root removal.
+    RemoteRunWatch,
+    /// Streams a native source into integrity-checked host file staging.
+    RemoteUploadFile,
+    /// Returns cached handshake capabilities of one connection.
+    RemoteHostInfo,
     /// Inspects repository initialization and scoped commit identity.
     GitRepositorySetup,
     /// Initializes an existing folder outside any repository.
@@ -722,6 +739,13 @@ impl CoreCommand {
             "remote.closeAll" => Some(Self::RemoteCloseAll),
             "remote.readFile" => Some(Self::RemoteReadFile),
             "remote.writeFile" => Some(Self::RemoteWriteFile),
+            "remote.hostRequest" => Some(Self::RemoteHostRequest),
+            "remote.runProcess" => Some(Self::RemoteRunProcess),
+            "remote.captureProcess" => Some(Self::RemoteCaptureProcess),
+            "remote.runTerminal" => Some(Self::RemoteRunTerminal),
+            "remote.runWatch" => Some(Self::RemoteRunWatch),
+            "remote.uploadFile" => Some(Self::RemoteUploadFile),
+            "remote.hostInfo" => Some(Self::RemoteHostInfo),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
             "git.repositorySetup" => Some(Self::GitRepositorySetup),

@@ -46,7 +46,7 @@ macOS 上 Java 调试启动的 JVM 现在就是“运行”会用的那个 JDK�
   - `debugJavaRuntimeFollowsTheRunSelectionChain`：调试入口与运行入口返回同一路径。
   - `javaTestDebugLaunchUsesTheSharedRustConfiguration`：调试测试使用 Maven 的 JDK，未注入时不写 `javaExec`。
 - 实际应用（2026-10-14，macOS）：以 `JAVA_HOME` 指向 `/Library/Java/JavaVirtualMachines/jdk-21.jdk` 启动，调试 Spring Boot 配置停在断点时，被调试进程与随后“运行”同一配置的进程都是该 JDK 的 `bin/java`，语言服务器进程仍是插件运行时；改为另一个 JDK 21 重启后调试 Java 主类，JVM 随之变为新的 JDK。未在界面里修改项目 JDK 设置后实测，也未实测无效路径的报错展示。
-- `./scripts/test-macos.sh --filter '(RunConfigurationIntegrationTests|JavaTestDebugLaunchServiceTests|MavenRuntimeTests|RunWorkflowCoordinatorTests)'`。
+- `./scripts/macos/test/test-macos.sh --filter '(RunConfigurationIntegrationTests|JavaTestDebugLaunchServiceTests|MavenRuntimeTests|RunWorkflowCoordinatorTests)'`。
 
 ## 适用范围
 

@@ -68,7 +68,7 @@ API Key 对话之外的 Agent 能力在 Windows 上仍然缺失。`windows/tauri
 
 - `cd windows/tauri && bun run typecheck`。
 - `cd windows/tauri && bun test src/features/ai src/platform`。
-- `node scripts/verify-agent-notes.mjs`、`node scripts/generate-platform-feature-matrix.mjs --check`。
+- `node scripts/agent-notes/verify-agent-notes.mjs`、`node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs --check`。
 - 运行时收尾：启动 Windows 产品，打开「设置 → 工具 → AI 聊天与编辑」，
   确认不再出现 Codex 集成区块、CLI 状态和「安装 Codex CLI」提示；打开 Agent
   面板，确认下拉只列出本机 Agent 与终端 Agent，选中后不再出现 Codex 连接错误。

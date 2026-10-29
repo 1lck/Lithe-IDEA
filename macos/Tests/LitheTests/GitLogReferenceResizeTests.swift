@@ -45,12 +45,12 @@ struct GitLogReferenceResizeTests {
     func retainedHostsPreserveOuterDividerHitArea(horizontal: Bool) async throws {
         let store = WorkbenchToolContentStore()
         var committed: [CGFloat] = []
-        let host = NSHostingView(rootView: LitheSplitPaneView(
+        let host = DividerHitTestHost(rootView: LitheSplitPaneView(
             axis: horizontal ? .horizontal : .vertical, placement: .leading,
             defaultSize: 240, minimum: 100, maximum: 400, onCommit: { committed.append($0) },
             sized: { RetainedWorkbenchToolContent(store: store, tool: .gitLog, content: Color.red) },
             flexible: { RetainedWorkbenchToolContent(store: store, tool: .terminal, content: Color.blue) })
-            .overlay { WorkbenchToolContentSurface(store: store) }
+            .workbenchToolContentLayers(store: store) { EmptyView() }
             .padding(.leading, 20).padding(.top, 30))
         host.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
@@ -65,6 +65,7 @@ struct GitLogReferenceResizeTests {
         host.layoutSubtreeIfNeeded()
         let handle = try #require(descendants(host).compactMap { $0 as? SplitHandleInteractionView }.first)
         let hosts = store.entries.mapValues { ObjectIdentifier($0.host) }
+        host.resetHitTestCounts()
         for offset: CGFloat in [0, -4, 4] {
             let center = NSPoint(x: handle.bounds.midX, y: handle.bounds.midY)
             let origin = handle.convert(NSPoint(x: center.x + (horizontal ? offset : 0),
@@ -86,11 +87,129 @@ struct GitLogReferenceResizeTests {
             #expect(committed.last == previousSize + 20)
             #expect(store.entries.mapValues { ObjectIdentifier($0.host) } == hosts)
         }
+        #expect(host.maximumHitTestDepth == 1,
+                "Divider forwarding must not synchronously reenter the SwiftUI root hit test")
         for entry in store.entries.values {
             let point = entry.host.convert(NSPoint(x: entry.host.bounds.midX, y: entry.host.bounds.midY), to: host.superview)
-            #expect(host.hitTest(point)?.isDescendant(of: entry.host) == true,
-                    "Panel interiors must remain interactive")
+            host.resetHitTestCounts()
+            for _ in 0..<100 {
+                #expect(host.hitTest(point)?.isDescendant(of: entry.host) == true,
+                        "Panel interiors must remain interactive")
+            }
+            #expect(host.hitTestCount == 100 && host.maximumHitTestDepth == 1,
+                    "Ordinary pointer queries must visit the root exactly once, without nested SwiftUI access")
+            window.sendEvent(try #require(NSEvent.mouseEvent(with: .mouseMoved,
+                location: entry.host.convert(NSPoint(x: entry.host.bounds.midX, y: entry.host.bounds.midY), to: nil),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 0, pressure: 0)))
+            #expect(host.maximumHitTestDepth == 1)
         }
+    }
+
+    @Test(arguments: [true, false])
+    func retainedDividerForwardingFollowsCollapseDisableAndUnmount(horizontal: Bool) async throws {
+        let store = WorkbenchToolContentStore()
+        func content(collapsed: Bool = false, enabled: Bool = true, mounted: Bool = true) -> some View {
+            Group {
+                if mounted {
+                    LitheSplitPaneView(axis: horizontal ? .horizontal : .vertical, placement: .leading,
+                        defaultSize: 240, minimum: 100, maximum: 400, isSizedPaneCollapsed: collapsed,
+                        sized: {
+                            LitheSplitPaneView(axis: horizontal ? .vertical : .horizontal, placement: .leading,
+                                defaultSize: 120, minimum: 30, maximum: 300,
+                                sized: { Color.red }, flexible: { Color.green })
+                        },
+                        flexible: { RetainedWorkbenchToolContent(store: store, tool: .terminal, content: Color.blue) })
+                        .disabled(!enabled)
+                } else {
+                    RetainedWorkbenchToolContent(store: store, tool: .terminal, content: Color.blue)
+                }
+            }.workbenchToolContentLayers(store: store) { EmptyView() }
+                .padding(.leading, 20).padding(.top, 30)
+        }
+        let host = DividerHitTestHost(rootView: content())
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        await Task.yield()
+        host.layoutSubtreeIfNeeded()
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let handles = descendants(host).compactMap { $0 as? SplitHandleInteractionView }
+        let handle = try #require(handles.first { $0.axis == (horizontal ? .horizontal : .vertical) })
+        let nested = try #require(handles.first { $0 !== handle })
+        let terminal = try #require(store.entries[.terminal]?.host)
+        func expectForwarding(_ expected: SplitHandleInteractionView?) {
+            let point = handle.convert(NSPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: store.surface)
+            #expect(store.splitHandleHitTests.handle(at: point, in: store.surface) === expected)
+        }
+        expectForwarding(handle)
+        let nestedPoint = nested.convert(NSPoint(x: nested.bounds.midX, y: nested.bounds.midY), to: store.surface)
+        #expect(store.splitHandleHitTests.handle(at: nestedPoint, in: store.surface) === nested)
+        host.rootView = content(enabled: false)
+        host.layoutSubtreeIfNeeded()
+        expectForwarding(nil)
+        #expect(store.splitHandleHitTests.handle(at: nestedPoint, in: store.surface) == nil)
+        host.rootView = content()
+        host.layoutSubtreeIfNeeded()
+        expectForwarding(handle)
+        host.rootView = content(collapsed: true)
+        host.layoutSubtreeIfNeeded()
+        expectForwarding(nil)
+        #expect(store.splitHandleHitTests.handle(at: nestedPoint, in: store.surface) == nil,
+                "A mounted divider inside a collapsed ancestor must not forward events")
+        host.rootView = content()
+        host.layoutSubtreeIfNeeded()
+        expectForwarding(handle)
+        #expect(store.entries[.terminal]?.host === terminal)
+        host.rootView = content(mounted: false)
+        host.layoutSubtreeIfNeeded()
+        #expect(handle.window == nil)
+        let interior = terminal.convert(NSPoint(x: terminal.bounds.midX, y: terminal.bounds.midY), to: host.superview)
+        host.resetHitTestCounts()
+        #expect(host.hitTest(interior)?.isDescendant(of: terminal) == true)
+        #expect(host.maximumHitTestDepth == 1)
+    }
+
+    @Test
+    func retainedInternalDividersKeepNormalTraversalAndYieldToOuterEdges() async throws {
+        let store = WorkbenchToolContentStore()
+        let host = DividerHitTestHost(rootView: LitheSplitPaneView(axis: .horizontal, placement: .leading,
+            defaultSize: 240, minimum: 100, maximum: 400,
+            sized: {
+                RetainedWorkbenchToolContent(store: store, tool: .gitLog,
+                    content: LitheSplitPaneView(axis: .vertical, placement: .leading,
+                        defaultSize: 120, minimum: 30, maximum: 300,
+                        sized: { Color.red }, flexible: { Color.green }))
+            }, flexible: { RetainedWorkbenchToolContent(store: store, tool: .terminal, content: Color.blue) })
+            .workbenchToolContentLayers(store: store) { EmptyView() })
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        await Task.yield()
+        host.layoutSubtreeIfNeeded()
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let handles = descendants(host).compactMap { $0 as? SplitHandleInteractionView }
+        let outer = try #require(handles.first { $0.axis == .horizontal })
+        let inner = try #require(handles.first { $0.axis == .vertical })
+        let innerCenter = inner.convert(NSPoint(x: inner.bounds.midX, y: inner.bounds.midY), to: host.superview)
+        host.resetHitTestCounts()
+        #expect(host.hitTest(innerCenter) === inner)
+        let y = inner.convert(NSPoint(x: inner.bounds.midX, y: inner.bounds.midY), to: outer).y
+        for offset: CGFloat in [-4, 0, 4] {
+            let point = outer.convert(NSPoint(x: outer.bounds.midX + offset, y: y), to: host.superview)
+            #expect(host.hitTest(point) === outer, "The inner divider cannot steal the outer expanded target")
+        }
+        #expect(host.maximumHitTestDepth == 1)
     }
 
     @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
@@ -242,5 +361,25 @@ struct GitLogReferenceResizeTests {
         #expect(descendants(host).contains { String(describing: type(of: $0)) == "LitheRightClickCaptureView" },
                 "Retained branch rows must be present in the first layout")
         print("GIT_LOG_REOPEN refs=\(count) restore=\(reopenStarted.duration(to: clock.now))")
+    }
+}
+
+@MainActor
+private final class DividerHitTestHost<Content: View>: NSHostingView<Content> {
+    private var hitTestDepth = 0
+    private(set) var maximumHitTestDepth = 0
+    private(set) var hitTestCount = 0
+
+    func resetHitTestCounts() {
+        maximumHitTestDepth = 0
+        hitTestCount = 0
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        hitTestDepth += 1
+        hitTestCount += 1
+        maximumHitTestDepth = max(maximumHitTestDepth, hitTestDepth)
+        defer { hitTestDepth -= 1 }
+        return super.hitTest(point)
     }
 }

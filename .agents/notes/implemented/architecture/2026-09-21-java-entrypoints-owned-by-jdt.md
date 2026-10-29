@@ -141,7 +141,7 @@ Windows 会先同步当前编辑文档再请求该操作。两端都不再解析
   精确运行这两个非传统命名测试并检查执行标记。
 - 真实 JDT 测试 `real_jdtls_lists_entrypoints_and_classpaths_behind_a_symbolic_link`
   通过符号链接打开工作区，要求仍然列出入口；去掉作用域解析后它会得到空列表。
-- `scripts/verify-java-semantic-ownership.mjs` 阻止已删除的本地入口/测试扫描标识符
+- `scripts/architecture/verify-java-semantic-ownership.mjs` 阻止已删除的本地入口/测试扫描标识符
   回到 Rust、macOS 或 Windows 产品源码。
 - Windows 和 macOS 打包同一份上游 `contributes.javaExtensions` bundle 列表；
   Windows CI 的独立真实 JDT 任务只在 Java/JDT 相关路径变化时运行。
@@ -181,8 +181,8 @@ Windows 会先同步当前编辑文档再请求该操作。两端都不再解析
 - `rust/lithe-core/src/lsp/languages/`
 - `rust/lithe-core/src/execution/configuration.rs`
 - `third_party/jdtls/manifest.json`
-- `scripts/prepare-jdtls.sh`
-- `scripts/prepare-jdtls.ps1`
+- `scripts/macos/prepare/prepare-jdtls.sh`
+- `scripts/windows/prepare/prepare-jdtls.ps1`
 - `windows/tauri/src/features/run/`
 - `windows/tauri/src/platform/lsp-core-adapter.ts`
 - `macos/Sources/LitheExecutionModule/Services/`

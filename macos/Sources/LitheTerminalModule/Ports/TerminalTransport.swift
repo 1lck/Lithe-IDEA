@@ -73,6 +73,9 @@ public protocol TerminalTransport: AnyObject {
     /// Whether the host terminal renders a light background, advertised through `COLORFGBG`
     /// so TUIs pick a palette without querying; hosts that cannot tell keep it unset.
     var reportsLightBackground: Bool? { get }
+    /// Network PTYs become ready after a remote acknowledgement. Local PTYs
+    /// keep their existing synchronous launch behavior.
+    var requiresAsyncStart: Bool { get }
 
     /// Applies the host surface state to the native view before the shell
     /// starts, so the exported `COLORFGBG` matches the OSC 11 answer the
@@ -82,7 +85,10 @@ public protocol TerminalTransport: AnyObject {
     func defaultShellPath() -> String
     func defaultEnvironment() -> [String: String]
     func start(workingDirectory: String, shellPath: String, environment: [String: String]) throws
+    func startShell(workingDirectory: String, shellPath: String, environment: [String: String]) async throws
     func startProcess(_ launch: TerminalProcessLaunch, environment: [String: String]) throws -> Int32
+    /// Waits for the host to acknowledge a managed process without blocking UI work.
+    func startProcessAsync(_ launch: TerminalProcessLaunch, environment: [String: String]) async throws -> Int32
     func send(_ input: Data) throws
     func interrupt() throws
     func focus()
@@ -99,6 +105,13 @@ public protocol TerminalTransport: AnyObject {
 }
 
 public extension TerminalTransport {
+    var requiresAsyncStart: Bool { false }
+    func startShell(workingDirectory: String, shellPath: String, environment: [String: String]) async throws {
+        try start(workingDirectory: workingDirectory, shellPath: shellPath, environment: environment)
+    }
+    func startProcessAsync(_ launch: TerminalProcessLaunch, environment: [String: String]) async throws -> Int32 {
+        try startProcess(launch, environment: environment)
+    }
     var termProgramVersion: String? { nil }
     func stopAndWait() async { stop() }
     func runningPrograms() -> [TerminalRunningProgram] { [] }

@@ -85,7 +85,7 @@ GDB、LLDB 可以调试 C、C++、Rust 和汇编，但二进制不一定有源�
 - 在 `main.c:8` 设行断点停住后连续单步：`next` / `stepIn` 带 `granularity: "instruction"` 每次只前进一条指令（arm64 每次 PC +4，源码行仍是 8）；`granularity: "line"` 才会走到第 9 行。这说明“看起来还是代码级单步”是界面没有提示造成的，内核发送的粒度本来就对。
 - 没有 `-g` 的二进制里，在函数或文件上设的断点不会绑定；这类程序在 `main` 之前没有可停的位置。要在反汇编里选定位置停下，用带调试信息的程序：先用行断点停住，再点击后面指令的断点栏，然后继续执行。指令断点只属于当前会话，下次运行地址会变（ASLR）。
 - 地址有大小写和前导零的差异（`0x10000049C` 与 `0x10000049c`），所以比较地址只做文本规范化，不做数值运算。
-- 直接 `swift build` 得到的是没有链接 Rust Core 的二进制，调试和打开文件都不可用；本地验证要用 `scripts/build-macos.sh --configuration debug --triple arm64-apple-macosx` 构建，把产物放进开发包并重新签名（开发包标识 `app.lithe.desktop.dev`，数据目录与正式版分开）。
+- 直接 `swift build` 得到的是没有链接 Rust Core 的二进制，调试和打开文件都不可用；本地验证要用 `scripts/macos/build/build-macos.sh --configuration debug --triple arm64-apple-macosx` 构建，把产物放进开发包并重新签名（开发包标识 `app.lithe.desktop.dev`，数据目录与正式版分开）。
 - 两轴滚动里的文本如果不用 `fixedSize(horizontal: true, vertical: false)`，宽度会塌成 0，反汇编列表整行看起来是空的。
 - JSON 视图顶部的空白条来自复制按钮单独占一行；改成浮在第一行右侧、各行右侧留出按钮宽度，并按键、字符串、数字、关键字分色。
 
@@ -122,7 +122,7 @@ GDB、LLDB 可以调试 C、C++、Rust 和汇编，但二进制不一定有源�
 
 ## 验证
 
-本次只修改文档，运行 `./scripts/verify-agent-notes.sh`，不提供运行时证据。实施时加载 `write-stable-tests`，增加 `shared/fixtures/debug/*-v2.json`，运行 `./scripts/verify-shared-contracts.sh`、`./scripts/verify-rust-core.sh` 和对应平台测试；更新功能矩阵，真实调试流程结束后清理本次启动的进程和资源。
+本次只修改文档，运行 `./scripts/agent-notes/verify-agent-notes.sh`，不提供运行时证据。实施时加载 `write-stable-tests`，增加 `shared/fixtures/debug/*-v2.json`，运行 `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh` 和对应平台测试；更新功能矩阵，真实调试流程结束后清理本次启动的进程和资源。
 
 ## 适用范围
 

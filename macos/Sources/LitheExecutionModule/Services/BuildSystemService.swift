@@ -62,6 +62,7 @@ package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
     package let instance: BuildSystemInstance
     package let declaration: DeclarativeBuildSystem
     package let source: BuildSystemPluginSource
+    package let workspaceURL: URL?
     package var model: BuildModel?
     package var modelState: BuildModelState
     package var options: [BuildResolvedOption]
@@ -74,13 +75,14 @@ package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
 
     package var id: String { instance.id }
     package var target: BuildSystemTarget {
-        BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID)
+        BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID, workspaceURL: workspaceURL)
     }
 
     package init(
         instance: BuildSystemInstance,
         declaration: DeclarativeBuildSystem,
         source: BuildSystemPluginSource,
+        workspaceURL: URL? = nil,
         model: BuildModel? = nil,
         modelState: BuildModelState = .notLoaded,
         options: [BuildResolvedOption] = [],
@@ -89,6 +91,7 @@ package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
         dependencies: [String: BuildDependencyState] = [:]
     ) {
         self.instance = instance; self.declaration = declaration; self.source = source
+        self.workspaceURL = workspaceURL
         self.model = model; self.modelState = modelState; self.options = options; self.sync = sync
         self.isReloadRequired = isReloadRequired; self.dependencies = dependencies
     }
@@ -503,7 +506,16 @@ package final class BuildSystemService: ObservableObject {
                                 settings: self.settings(input.entry.source.pluginID)
                               )
                         else { continue }
-                        executables[input.entry.id] = self.tools.languageImportExecutable(invocation, workspaceURL: workspaceURL)
+                        do {
+                            executables[input.entry.id] = try await self.tools.prepareLanguageImportExecutable(invocation, workspaceURL: workspaceURL)
+                        } catch {
+                            guard self.generation == generation, self.detectionID == detectionID,
+                                  !Task.isCancelled else { return }
+                            self.failLanguageImport(error)
+                            return
+                        }
+                        guard self.generation == generation, self.detectionID == detectionID,
+                              !Task.isCancelled else { return }
                     }
                     let withExecutables = executables
                     let configured = await Task.detached(priority: .userInitiated) {
@@ -863,9 +875,7 @@ package final class BuildSystemService: ObservableObject {
         owner: CommandOwner
     ) async -> Result<LoadedModel, Error> {
         do {
-            let context = try planContext(entry, workspaceURL: workspaceURL)
-            let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
-            defer { if let outputFile { stateLocator.removeOutputFile(outputFile) } }
+            return .success(try await withPlanContext(entry, workspaceURL: workspaceURL, allocatesOutputFile: true) { context, outputFile in
             let planner = planner
             let plan = try await outputPlan(entry, workspaceURL: workspaceURL, reason: reason, owner: owner) { hints in
                 try planner.modelPlan(entry.target, context: context, outputFile: outputFile, providerHints: hints)
@@ -898,7 +908,8 @@ package final class BuildSystemService: ObservableObject {
                 )
             }.value
             guard modelInputsAreCurrent(context.modelInputs) else { throw CancellationError() }
-            return .success(loaded)
+            return loaded
+            })
         } catch {
             return .failure(error)
         }
@@ -973,7 +984,7 @@ package final class BuildSystemService: ObservableObject {
             guard let providers = service.providers, debugLaunch != nil || service.runLauncher != nil else {
                 throw BuildSystemServiceError(Self.providerUnsupportedMessage)
             }
-            let context = try service.planContext(entry, workspaceURL: workspaceURL)
+            return try await service.withPlanContext(entry, workspaceURL: workspaceURL) { context, _ in
             let planned: BuildProviderRequest
             if debugLaunch != nil {
                 planned = try service.planner.prepareDebugPlan(entry.target, context: context, run: request.run,
@@ -1025,6 +1036,7 @@ package final class BuildSystemService: ObservableObject {
             service.preparedApplication = (entry.source, operationID)
             service.applicationLaunched.send(entryID)
             return 0
+            }
         }
     }
 
@@ -1053,7 +1065,7 @@ package final class BuildSystemService: ObservableObject {
         testDiscoveries[entryID] = nil
         discoverySnapshots[entryID] = nil
         return startRun(entryID, title: L10n.string("Discover Tests")) { service, run in
-            let context = try service.planContext(entry, workspaceURL: workspaceURL)
+            try await service.withPlanContext(entry, workspaceURL: workspaceURL) { context, _ in
             let request = try service.planner.testDiscoveryPlan(entry.target, context: context)
             let isValid = service.runValidity(.provider(request), entry: entry, workspaceURL: workspaceURL, run: run)
             service.providerRunID = run.id
@@ -1079,6 +1091,7 @@ package final class BuildSystemService: ObservableObject {
                 else if service.runID == run.id { service.testDiscoveries[entryID] = nil }
                 throw error
             }
+            }
         }
     }
 
@@ -1097,7 +1110,7 @@ package final class BuildSystemService: ObservableObject {
     package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID) else { return nil }
         return startRun(entryID, title: title) { service, run in
-            let base = try service.planContext(entry, workspaceURL: workspaceURL)
+            try await service.withPlanContext(entry, workspaceURL: workspaceURL) { base, _ in
             let proposed = base.options.merging(request.optionOverrides) { _, override in override }
             if !request.optionOverrides.isEmpty {
                 let resolution = try service.planner.resolveOptions(entry.target, options: proposed, modelValues: entry.model?.optionValues)
@@ -1127,6 +1140,7 @@ package final class BuildSystemService: ObservableObject {
                 service.testResults = results
             }
             return collected.exitCode
+            }
         }
     }
 
@@ -1134,7 +1148,7 @@ package final class BuildSystemService: ObservableObject {
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID) else { return nil }
         return startRun(entryID, title: title) { service, run in
-            let context = try service.planContext(entry, workspaceURL: workspaceURL)
+            try await service.withPlanContext(entry, workspaceURL: workspaceURL) { context, _ in
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
             let isValid = service.runValidity(plan.execution, entry: entry, workspaceURL: workspaceURL, run: run)
             defer { if service.providerRunID == run.id { service.providerRunID = nil } }
@@ -1186,6 +1200,7 @@ package final class BuildSystemService: ObservableObject {
                 }
             }
             return collected.exitCode
+            }
         }
     }
 
@@ -1392,9 +1407,7 @@ package final class BuildSystemService: ObservableObject {
         owner: CommandOwner
     ) async -> Result<BuildDependencyTree, Error> {
         do {
-            let context = try planContext(entry, workspaceURL: workspaceURL)
-            let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
-            defer { if let outputFile { stateLocator.removeOutputFile(outputFile) } }
+            return .success(try await withPlanContext(entry, workspaceURL: workspaceURL, allocatesOutputFile: true) { context, outputFile in
             let planner = planner
             let selection = project.map(BuildSelection.init(project:))
             let plan = try await outputPlan(entry, workspaceURL: workspaceURL, reason: reason, owner: owner) { hints in
@@ -1420,7 +1433,8 @@ package final class BuildSystemService: ObservableObject {
                 )
             }.value
             guard modelInputsAreCurrent(context.modelInputs) else { throw CancellationError() }
-            return .success(loaded)
+            return loaded
+            })
         } catch {
             return .failure(error)
         }
@@ -1824,6 +1838,40 @@ package final class BuildSystemService: ObservableObject {
         )
     }
 
+    private func withPlanContext<Value>(
+        _ entry: BuildSystemEntry, workspaceURL: URL, allocatesOutputFile: Bool = false,
+        perform: (BuildPlanContext, URL?) async throws -> Value
+    ) async throws -> Value {
+        let stored = try storedOptions(for: entry, workspaceURL: workspaceURL)
+        let resolution = try? planner.resolveOptions(
+            entry.target, options: stored, modelValues: entry.model?.optionValues
+        )
+        // Resolved before the lease below so a throw cannot skip `release()`.
+        let modelInputs = try resolvedModelInputs(entry, workspaceURL: workspaceURL)
+        let resources = try await stateLocator.prepareRun(
+            pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
+            packageURL: entry.source.packageURL, workspaceURL: workspaceURL, allocatesOutputFile: allocatesOutputFile
+        )
+        let context = BuildPlanContext(
+            root: entry.instance.root,
+            // A plan gets only values Core still accepts for the current
+            // model; otherwise a removed Cargo feature would reach the argv.
+            options: Self.effectiveOptionValues(resolution, stored: stored),
+            pluginDirectory: resources.pluginDirectory,
+            workspaceStateDirectory: resources.workspaceStateDirectory,
+            modelInputs: modelInputs
+        )
+        do {
+            try Task.checkCancellation()
+            let value = try await perform(context, resources.outputFile)
+            await resources.release()
+            return value
+        } catch {
+            await resources.release()
+            throw error
+        }
+    }
+
     private func resolvedModelInputs(_ consumer: BuildSystemEntry, workspaceURL: URL) throws -> ToolingJSONValue? {
         guard !consumer.declaration.modelInputs.isEmpty else { return nil }
         let enabled = sources()
@@ -1973,7 +2021,7 @@ package final class BuildSystemService: ObservableObject {
         return { [weak self] in
             guard let self, self.isCurrent(run) else { return false }
             guard case .provider(let request) = plan else { return true }
-            guard self.modelInputsAreCurrent(request), self.providerConfigurationRevision == revision,
+            guard let baseline, self.modelInputsAreCurrent(request), self.providerConfigurationRevision == revision,
                   self.settings(entry.source.pluginID) == launchSettings,
                   let current = self.entry(entry.id), current.source == entry.source else { return false }
             return self.optionFingerprint(current, workspaceURL: workspaceURL) == baseline
@@ -2313,7 +2361,7 @@ package final class BuildSystemService: ObservableObject {
                 workspace: storedOptions[instance.buildSystemID] ?? [:],
                 instance: (instanceDefaults[instance.buildSystemID] ?? [:]).merging(instanceOptions[instance.buildSystemID]?[instance.root] ?? [:]) { _, root in root }
             )
-            let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID)
+            let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID, workspaceURL: workspaceURL)
             let earlier = previous[instance.id]
             // The instance ID is the build-system ID plus its root, so another
             // plugin can take the same ID over. Its model and dependencies are
@@ -2352,6 +2400,7 @@ package final class BuildSystemService: ObservableObject {
                 instance: instance,
                 declaration: declaration,
                 source: source,
+                workspaceURL: workspaceURL,
                 model: model,
                 modelState: modelState,
                 options: resolution?.options ?? [],

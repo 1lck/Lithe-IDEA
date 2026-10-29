@@ -18,7 +18,7 @@ Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全
 
 迁移之前 JDT LS 和声明式插件契约有三处不一致：
 
-1. **资源在 app 里**。`scripts/package-app.sh` 把 JDT LS 和 JDK 拷到 `Contents/Resources/LanguageServers`，宿主扫描这个写死的目录来找 launcher、配置目录、Lombok 和扩展 jar。JDT LS 升级必须跟着 Lithe 发版，不写 Java 的用户也要带着这约 400 MB。
+1. **资源在 app 里**。`scripts/macos/package/package-app.sh` 把 JDT LS 和 JDK 拷到 `Contents/Resources/LanguageServers`，宿主扫描这个写死的目录来找 launcher、配置目录、Lombok 和扩展 jar。JDT LS 升级必须跟着 Lithe 发版，不写 Java 的用户也要带着这约 400 MB。
 2. **契约表达不了它的启动方式**。API 1 只能声明“包内一个可执行文件加静态参数”，运行时只有 `go` 和 `node`。PHP 插件为此在包里放了启动脚本。
 3. **宿主里有按语言 ID 的特判**。组合根里有多处 `descriptor.id == "java"`，工具发现里有专门找内置 `jdtls` 的分支。
 
@@ -108,7 +108,7 @@ dev.lithe.plugin.java-support/
 └── runtime/<arch>/             # JDK，每个架构一份
 ```
 
-组装逻辑放在插件自己的目录：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由 `scripts/build-official-plugins.sh` 调用。`plugin.json` 精确写出入口 jar 的文件名，升级 JDT LS 后文件名对不上会在组装时失败，而不是等到用户打开 Java 文件。
+组装逻辑放在插件自己的目录：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由 `scripts/plugins/build-official-plugins.sh` 调用。`plugin.json` 精确写出入口 jar 的文件名，升级 JDT LS 后文件名对不上会在组装时失败，而不是等到用户打开 Java 文件。
 
 `LitheOfficialPluginVerifier` 的规则随之调整：Mach-O 原生代码只允许出现在清单 `packagedRuntime` 声明的顶层目录内；包内任何位置都不允许符号链接。
 
@@ -183,12 +183,12 @@ dev.lithe.plugin.java-support/
 ## 验证
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib plugins`：API 2 的合法与非法清单、启动计划标准答案、运行时版本判定，以及仓库里的官方 `plugin.json`。
-- `./scripts/verify-official-plugins.sh`：组装三个官方包并校验入口、自带运行时、符号链接和原生代码的位置。
+- `./scripts/plugins/verify-official-plugins.sh`：组装三个官方包并校验入口、自带运行时、符号链接和原生代码的位置。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|JavaLanguageServerRuntimeTests|MacJdtWorkspaceStateTests|MacJdtHostIntegrationStateTests|LanguageToolEnvironmentTests'`：按声明定位资源、路径固定在包内、版本过滤、默认启用、移除与恢复；卸载后 JDT 的索引和 Equinox 配置区被删除（扫描失败或插件被拒绝时保留）；运行时启动的服务器 `PATH` 上先找到宿主选中的运行时。
-- `LITHE_RUN_JAVA_DEBUG_INTEGRATION=1 ./scripts/test-macos.sh --filter RealJavaDebugIntegrationTests`：从组装好的插件包启动真实的 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。
-- `./scripts/test-macos.sh --filter '(LanguageProviderCatalogSourceTests|RunWorkflowCoordinatorTests|RunConfigurationIntegrationTests)'`：用仓库里的官方 Java 清单验证能力目录保留运行、测试、调试；未声明的插件得不到任何宿主能力；注册表只为声明的能力创建内置工具；声明了 `run` 的语言不要求执行模块。
-- `./scripts/verify-macos-package.sh`：打出的应用里 Java Support 的文件齐全，且不存在 `Contents/Resources/LanguageServers`。
-- `./scripts/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
+- `LITHE_RUN_JAVA_DEBUG_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealJavaDebugIntegrationTests`：从组装好的插件包启动真实的 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。
+- `./scripts/macos/test/test-macos.sh --filter '(LanguageProviderCatalogSourceTests|RunWorkflowCoordinatorTests|RunConfigurationIntegrationTests)'`：用仓库里的官方 Java 清单验证能力目录保留运行、测试、调试；未声明的插件得不到任何宿主能力；注册表只为声明的能力创建内置工具；声明了 `run` 的语言不要求执行模块。
+- `./scripts/macos/verify/verify-macos-package.sh`：打出的应用里 Java Support 的文件齐全，且不存在 `Contents/Resources/LanguageServers`。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
 
 生产启动适配的回归使用 `RustLanguageServerLaunchTests`，直接从 `RustCoreBridge.startPluginLanguageServer` 经 C ABI 启动本地标准输入输出协议夹具；不经过协议默认回退。它用函数所属插件校验、credentials 请求与响应、通用插件配置查询、Java 启动参数、缓存配置副本和工作区指纹日志验证实际接线。夹具使用 macOS 开发工具已有的 Python，不依赖真实 JVM 或联网；Core 会话负责子进程，测试始终停止并销毁会话，再移除临时资源。运行命令：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter RustLanguageServerLaunchTests`。
 
@@ -197,8 +197,8 @@ dev.lithe.plugin.java-support/
 - `shared/contracts/plugins/v1/`
 - `rust/lithe-core/src/plugins/declarative.rs`
 - `Plugins/mac/Official/JavaSupport/`
-- `scripts/build-official-plugins.sh`
-- `scripts/package-app.sh`
+- `scripts/plugins/build-official-plugins.sh`
+- `scripts/macos/package/package-app.sh`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/HostIntegrations/`
 - `macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift`

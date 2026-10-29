@@ -88,7 +88,7 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
     }
 }
 
-struct InstalledPluginPackage: Equatable {
+struct InstalledPluginPackage: Equatable, Sendable {
     let descriptor: DeclarativePluginDescriptor
     let installation: PluginInstallationRecord
     let packageURL: URL
@@ -130,6 +130,7 @@ final class MacPluginPackageStore {
     /// Expands build provider launches so installation can check the files
     /// they point at. A package that declares a provider is refused without it.
     private let launchPlanner: (any DeclarativeLanguageServerLaunchPlanning)?
+    private let architecture: String
     private let verifier: any PluginPackageSignatureVerifying
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -143,6 +144,7 @@ final class MacPluginPackageStore {
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
         validator: any DeclarativePluginManifestValidating,
         launchPlanner: (any DeclarativeLanguageServerLaunchPlanning)? = nil,
+        architecture: String = MacPluginLanguageServerLaunchResolver.hostArchitecture,
         verifier: any PluginPackageSignatureVerifying = MacOfficialPluginSignatureVerifier(),
         fileManager: FileManager = .default
     ) {
@@ -153,6 +155,7 @@ final class MacPluginPackageStore {
         self.hostVersion = hostVersion
         self.validator = validator
         self.launchPlanner = launchPlanner ?? validator as? any DeclarativeLanguageServerLaunchPlanning
+        self.architecture = architecture
         self.verifier = verifier
         self.fileManager = fileManager
         encoder = JSONEncoder()
@@ -358,16 +361,20 @@ final class MacPluginPackageStore {
 
     /// A preparation worker owns its decoder and never reads or writes installed
     /// records. Immutable validation policy is shared with the installation store.
-    func makePreparationStoreFactory() -> @Sendable () -> MacPluginPackageStore {
+    func makePreparationStoreFactory(architecture: String? = nil) -> @Sendable () -> MacPluginPackageStore {
         let rootURL = rootURL
         let hostVersion = hostVersion
         let validator = validator
         let verifier = verifier
+        let launchPlanner = launchPlanner
+        let architecture = architecture ?? self.architecture
         return {
             MacPluginPackageStore(
                 rootURL: rootURL,
                 hostVersion: hostVersion,
                 validator: validator,
+                launchPlanner: launchPlanner,
+                architecture: architecture,
                 verifier: verifier,
                 fileManager: FileManager()
             )
@@ -811,7 +818,7 @@ final class MacPluginPackageStore {
                     pluginDirectory: root,
                     stateDirectory: unused.appendingPathComponent("state", isDirectory: true),
                     workspaceStateDirectory: nil,
-                    architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
+                    architecture: architecture,
                     settings: [:]
                 )
             )
@@ -845,7 +852,7 @@ final class MacPluginPackageStore {
                     pluginDirectory: root,
                     stateDirectory: unused.appendingPathComponent("state", isDirectory: true),
                     workspaceStateDirectory: unused.appendingPathComponent("workspace", isDirectory: true),
-                    architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
+                    architecture: architecture,
                     settings: [:]
                 )
             )

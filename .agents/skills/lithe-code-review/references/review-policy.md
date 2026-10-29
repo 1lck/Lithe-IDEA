@@ -83,11 +83,11 @@
   `NSLocalizedDescriptionKey` / 通知 / 字符串参数里的裸英文，都按硬编码处理。
 - 同一次改动是否补齐 `shared/i18n` 的 `messages.json`、`en-US.json`、`zh-CN.json` 并提交生成结果；
   参数个数、类型与顺序是否一致，句子是否被拆成会在中文里语序错误的片段。
-- 是否修改了 `scripts/verify-app-language-localization.mjs`、扩大豁免名单、改用 `Text(verbatim:)` 或把文案放进
+- 是否修改了 `scripts/i18n/verify-app-language-localization.mjs`、扩大豁免名单、改用 `Text(verbatim:)` 或把文案放进
   变量来躲过检查；这类绕过本身就是问题，不能当作“检查已通过”。
 - 是否把上游诊断、用户内容或 Agent 返回内容错当界面文案去翻译或改写。
-- 审查时运行（或要求作者提供结果）`node scripts/verify-app-language-localization.mjs` 与
-  `node scripts/generate-i18n.mjs --check`。
+- 审查时运行（或要求作者提供结果）`node scripts/i18n/verify-app-language-localization.mjs` 与
+  `node scripts/i18n/generate-i18n.mjs --check`。
 
 严重程度：硬编码或绕过 i18n 的用户可见文案默认按 **P2** 报告并要求修复后再提交 PR；
 能说明在系统语言与应用语言不一致时会显示错误语言，或检查脚本被放宽、跳过时，按 **P1** 报告。

@@ -433,12 +433,39 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 不透明保留面板的高亮、文字区域像素，覆盖明暗主题、两种工具和底部左右目标；同时检查工作区
 偏移、预览清理、鼠标穿透和宿主身份。组件渲染回归不替代整机拖放的人工验收。
 
-固定表面的命中不能覆盖外层分隔条伸入面板的区域。`Surface.hitTest` 在同一次同步查询内跳过自己，
-复用下层原生命中结果；如果下层命中 `SplitHandleInteractionView`，优先将事件交给它，
-否则沿用保留宿主的正常命中。不要临时隐藏宿主、缩小内容或另算一份分隔条矩形。
-`retainedHostsPreserveOuterDividerHitArea` 覆盖横纵方向，实际通过窗口发送中央和两侧偏移 4pt
-的按下、拖动和松开事件，检查每次提交尺寸、面板中央命中及两个宿主身份；直接调用 handle
-方法绕过了窗口命中分发，不能证明这条边界。
+固定表面的命中不能覆盖外层分隔条伸入面板的区域，也不能在命中过程中重新查询窗口根视图。
+命中测试（`hitTest`）用于确定鼠标下的控件；祖先正在遍历 SwiftUI 时，后代再次调用祖先的
+`hitTest` 会同步重入尚未结束的遍历。旧实现虽然用布尔值阻止 `Surface` 自身无限递归，
+仍会重入祖先。[Issue #1542](https://github.com/1lck/Lithe-IDEA/issues/1542) 的
+0.6.5 Intel 发布二进制 UUID 与报告一致，崩溃位置对应这次根视图回查内部的 Swift 独占访问冲突。
+独占访问要求同一存储的修改不能相互重叠，同一线程重入也可能违反；不能因此推断是后台索引竞争。
+报告没有给出冲突存储的名称，不声称已确定 SwiftUI 内部的具体变量。
+
+正确做法是由每个工作台的 `WorkbenchToolContentStore` 持有一个弱引用登记表
+`SplitHandleHitTestRegistry`，只把原布局树中的分隔条加入表中。固定表面先正常查询自己的
+保留内容，再从登记表判断是否应交给外层分隔条；判断只读取原生控件当前的 `bounds`、
+`visibleRect`（祖先裁剪后仍可见的范围）及坐标转换，不调用任何祖先的 `hitTest`。
+重叠分隔条沿原生兄弟视图层级择前，不按登记顺序选择。不缓存另一套布局矩形，也不在每次
+鼠标移动时扫描整个窗口树，因此重内容的规模不会增加查找的候选数量。
+
+登记表不传给独立的保留宿主，Git Log 内部的分隔条仍由自身正常遍历接收事件，不抢走外层边缘。
+禁用、收起和卸载时取消登记；收起面板中的嵌套分隔条也清除登记作用域。查询还排除隐藏、
+透明、已裁剪或不在同一窗口中的控件。原生控件移动窗口时更新登记，弱引用避免工作台持有已卸载
+控件。代价是新增绕过 SwiftUI 遍历的转发路径必须显式维护可交互状态；不能假定任意 SwiftUI
+隐藏修饰符都能从 AppKit 控件推断出来。
+
+不要改成“根视图回查但多加一层防递归”，这仍然重入祖先；也不要简单删除外层分隔条转发，
+那会把 10pt 命中范围缩成没有被保留面板遮住的部分。临时隐藏宿主或缩小内容同样不采用，
+避免破坏焦点、跟踪和原有布局。
+
+`retainedHostsPreserveOuterDividerHitArea` 覆盖横纵方向及工作区偏移，实际通过窗口发送中央和
+两侧偏移 4pt 的按下、拖动和松开事件，检查每次尺寸只提交一次、面板中央命中及两个宿主身份；
+根视图命中深度必须为 1，连续 100 次面板查询也只进入根视图 100 次。原实现会稳定得到深度 2
+和 200 次根查询，新实现消除该重入。直接调用 handle 方法绕过窗口分发，不能证明这条边界。
+`GitLogReferenceResizeTests` 另覆盖禁用、收起、恢复、嵌套及卸载；
+`SplitHandleHitTestTests` 覆盖实时几何、裁剪、原生层级、窗口隔离及弱引用生命周期；
+`DiffScrollSynchronizationTests` 在普通和保留侧栏下经真实窗口事件验证两端收起后仍可拉回。
+较新系统可复现旧实现重入，但未复现原报告的 abort；这些回归不替代 macOS 13 Intel 原机验收。
 
 `TerminalPlacementFeatureModelTests.retainedTerminalRestoresFocusAndWallpaperWithoutRecreatingItsSurface`
 使用真实 `TerminalView`/`TerminalSurfaceView` 和无进程测试 transport，在明暗主题检查标题栏/正文像素、
@@ -485,9 +512,9 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 明暗主题下修改文件名的实际像素色、无逐行分隔线，以及可视宽度变化后的滚动范围。
 
 
-- `./scripts/build-macos.sh`
-- `./scripts/verify-git-graph.sh`
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/macos/build/build-macos.sh`
+- `./scripts/git-graph/verify-git-graph.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - `git diff --check`
 
 上游对照 fixture 固定保存在
@@ -516,6 +543,12 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 - `macos/Sources/Lithe/Views/Git/GitLogView.swift`
 - `macos/Sources/Lithe/Views/Git/GitWorktreesView.swift`
 - `macos/Sources/Lithe/Views/Git/GitWorktreeRowsView.swift`
+- `macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift`
+- `macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift`
+- `macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`
+- `macos/Tests/LitheTests/GitLogReferenceResizeTests.swift`
+- `macos/Tests/LitheTests/SplitHandleHitTestTests.swift`
+- `macos/Tests/LitheTests/DiffScrollSynchronizationTests.swift`
 - `macos/Tests/LitheTests/GitWorktreeAppearanceTests.swift`
 - `macos/Sources/Lithe/Views/Git/GitCommitFileTreeView.swift`
 - `macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`

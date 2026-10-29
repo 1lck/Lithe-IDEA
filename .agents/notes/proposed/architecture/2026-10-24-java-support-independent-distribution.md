@@ -29,7 +29,7 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 ### 独立分发存在几个实际阻碍
 
 1. **信任方式不同。** Java 当前声明 `sameTeamAsHost`，含义是由宿主 app 的代码签名封住资源；`MacOfficialPluginSignatureVerifier` 会拒绝位于宿主 bundle 外的这种包。下载版需要 `publisherPackage` 发布者签名，不能只把同一目录压缩上传。
-2. **发布工具还不能原样发布 Java。** `scripts/official-plugin-releases.mjs` 当前按 API 1、单个下载项生成索引；Java 已使用 API 3，需要准确保留 `requires`，并按架构记录不同下载包和校验值。
+2. **发布工具还不能原样发布 Java。** `scripts/plugins/official-plugin-releases.mjs` 当前按 API 1、单个下载项生成索引；Java 已使用 API 3，需要准确保留 `requires`，并按架构记录不同下载包和校验值。
 3. **旧宿主不一定能安装新版。** 旧版官方目录将 Java 的签名策略固定为 `sameTeamAsHost`。即使旧宿主认识 API 3 和清单的全部能力，也不代表它能接受下载版的新信任方式。
 4. **首次离线体验会变化。** 当前实现明确以“首次启动离线可用”为随包发行的理由。改为按需安装后，未安装 Java 插件的新用户需要联网，或提前准备可信磁盘包。这是本提案建议改变的产品行为，尚未落地。
 5. **语言服务器 JDK 同时参与现有运行时发现。** 资源移出主包时，需要验证项目运行时选择，防止运行或调试落到失效的旧插件路径。
@@ -115,7 +115,7 @@ Windows 插件包使用自己的原生运行时、入口和存储适配器，复
 | JDT 索引、Equinox 可写配置、日志 | 宿主现有平台缓存与状态适配器 | 由集成和会话负责，不复制到安装包，不跨工作树共享 |
 | JDT/JDK 构建下载缓存 | 构建准备脚本 | 有版本、平台、架构和来源校验时才允许按现有资源路由复用 |
 
-移除旧路径或增加新生成物时，同步更新 `scripts/worktree-resources.json`、`scripts/reuse-worktree-resources.mjs` 的校验路由、对应测试，以及 `docs/ci-builds.md` 的独立工作树章节。安装包和可变状态没有可靠复用身份时继续隔离。
+移除旧路径或增加新生成物时，同步更新 `scripts/resources/worktree-resources.json`、`scripts/resources/reuse-worktree-resources.mjs` 的校验路由、对应测试，以及 `docs/ci-builds.md` 的独立工作树章节。安装包和可变状态没有可靠复用身份时继续隔离。
 
 运行时不向 app bundle、Windows 安装目录或插件安装版本写入内容，保持代码签名及 Sparkle 增量更新的源基线。典型安装、启动、运行、测试、调试和卸载流程都要比较发行目录与已安装插件版本的文件清单和哈希。
 
@@ -176,22 +176,22 @@ Windows 插件包使用自己的原生运行时、入口和存储适配器，复
 本提案只修改决策文档，当前执行：
 
 ```bash
-./scripts/verify-agent-notes.sh
+./scripts/agent-notes/verify-agent-notes.sh
 git diff --check
 ```
 
 后续实现按改动选择以下现有入口，并按 `write-stable-tests` Skill 编写和运行有界测试；下面是计划要求，不表示本次已经执行：
 
 ```bash
-./scripts/verify-shared-contracts.sh
-./scripts/verify-official-plugins.sh
-./scripts/verify-macos-package.sh
-./scripts/verify-runtime-bundle-immutability.sh
-node scripts/test-reuse-worktree-resources.mjs
-node scripts/verify-java-semantic-ownership.mjs
-./scripts/verify-service-boundaries.sh
-./scripts/verify-windows-boundaries.sh
-./scripts/verify-platform-feature-matrix.sh
+./scripts/architecture/verify-shared-contracts.sh
+./scripts/plugins/verify-official-plugins.sh
+./scripts/macos/verify/verify-macos-package.sh
+./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+node scripts/resources/test-reuse-worktree-resources.mjs
+node scripts/architecture/verify-java-semantic-ownership.mjs
+./scripts/architecture/verify-service-boundaries.sh
+./scripts/windows/verify/verify-windows-boundaries.sh
+./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
 实现时新增覆盖官方索引真实 API/能力与多下载项、过渡期来源选择、签名降级拒绝、用户选择迁移及版本回滚的回归；复用现有 Java 入口、真实 JDT、运行配置、测试和调试集成验证。修改平台实现后，在提交和 PR 前通过相对实际基线的矩阵变更门禁；所有本次验证启动的应用和子进程在交付前关闭并确认无残留。
@@ -209,12 +209,12 @@ node scripts/verify-java-semantic-ownership.mjs
 
 - `Plugins/mac/Official/JavaSupport/`
 - `Plugins/marketplace/`
-- `scripts/build-official-plugins.sh`
-- `scripts/official-plugin-releases.mjs`
-- `scripts/package-app.sh`
-- `scripts/verify-macos-package.sh`
-- `scripts/worktree-resources.json`
-- `scripts/reuse-worktree-resources.mjs`
+- `scripts/plugins/build-official-plugins.sh`
+- `scripts/plugins/official-plugin-releases.mjs`
+- `scripts/macos/package/package-app.sh`
+- `scripts/macos/verify/verify-macos-package.sh`
+- `scripts/resources/worktree-resources.json`
+- `scripts/resources/reuse-worktree-resources.mjs`
 - `docs/ci-builds.md`
 - `third_party/jdtls/manifest.json`
 - `third_party/jdk/manifest.json`

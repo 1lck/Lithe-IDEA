@@ -53,11 +53,11 @@ Issue #966 同时报告更新提示和浏览器预览问题。原来的两个浏
 
 ## 验证
 
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/test-macos.sh`：包含 `HTMLBrowserOpenerTests`。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/macos/test/test-macos.sh`：包含 `HTMLBrowserOpenerTests`。
 - `windows/tauri/src-tauri/src/html_browser.rs` 的测试验证文件 URL、输入边界和失败传播。
 - Windows 前端的扩展生命周期测试验证缺失依赖时不卸载、不清状态；更新状态
   测试验证隐藏更新和请求失败不显示最新版。

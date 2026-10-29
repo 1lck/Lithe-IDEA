@@ -28,6 +28,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
     private let versionChecker: any LanguageServerRuntimeVersionChecking
     private let runtime: any LanguageToolRuntimePort
     private let core: any LanguageServerRuntimeCore
+    private let remoteLaunches: MacRemotePluginLaunchPreparer?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     /// Ends the processes carrying a backend's token; `immediately` skips the
     /// graceful stop. See `MacPluginBackendProcesses`.
@@ -37,11 +38,13 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
     /// One process, from its start until it is dropped.
     private final class Running {
         let settings: [String: ToolingJSONValue]
+        let hostIdentity: String?
         var task: Task<Started, Error>?
         var session: LanguageServerRuntimeSession?
 
-        init(settings: [String: ToolingJSONValue]) {
+        init(settings: [String: ToolingJSONValue], hostIdentity: String?) {
             self.settings = settings
+            self.hostIdentity = hostIdentity
         }
     }
 
@@ -60,6 +63,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
         runtime: any LanguageToolRuntimePort,
         core: any LanguageServerRuntimeCore,
         processRegistry: (any LanguageServerProcessRegistry)?,
+        remoteLaunches: MacRemotePluginLaunchPreparer? = nil,
         endBackendProcesses: @escaping @MainActor (_ token: String, _ immediately: Bool) -> Void = { token, immediately in
             MacPluginBackendProcesses.end(
                 token: token,
@@ -72,6 +76,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
         self.versionChecker = versionChecker
         self.runtime = runtime
         self.core = core
+        self.remoteLaunches = remoteLaunches
         self.processRegistry = processRegistry
         self.endBackendProcesses = endBackendProcesses
     }
@@ -133,7 +138,8 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
         try Task.checkCancellation()
         let settings = launchResolver.settingValues(forPlugin: target.pluginID, workspaceRootURL: target.workspaceURL)
         if let entry = running[target], let task = entry.task {
-            if entry.settings != settings || entry.session.map({ !$0.isRunning }) == true {
+            if entry.settings != settings || entry.session.map({ !$0.isRunning }) == true
+                || entry.hostIdentity != remoteLaunches?.identity(target.workspaceURL) {
                 stop(entry, for: target)
             } else {
                 let started = try await Self.waitForStart(task)
@@ -141,7 +147,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
                 return started
             }
         }
-        let entry = Running(settings: settings)
+        let entry = Running(settings: settings, hostIdentity: remoteLaunches?.identity(target.workspaceURL))
         running[target] = entry
         // The start is shared by every request that arrives meanwhile, so no
         // single caller's cancellation cancels it; a failed start clears the
@@ -194,21 +200,27 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
     }
 
     private func launch(_ target: VcsProviderTarget, entry: Running) async throws -> Started {
-        let provider = try launchResolver.resolveVcsProvider(
+        let prepared = try await remoteLaunches?.prepareVcs(target)
+        let provider = try prepared?.launch ?? launchResolver.resolveVcsProvider(
             pluginID: target.pluginID,
             vcs: target.vcs,
             manifest: target.manifest,
             packageURL: target.packageURL,
             workspaceRootURL: target.workspaceURL
         )
-        var (executableURL, environment) = try await resolveExecutable(provider.process, workspaceURL: target.workspaceURL)
-        let toolPath = try await resolveTool(provider, workspaceURL: target.workspaceURL)
-        try Task.checkCancellation()
-        guard running[target] === entry else { throw CancellationError() }
+        let executableURL: URL
+        var environment: [String: String]
+        let toolPath: String?
+        do {
+            (executableURL, environment) = try await resolveExecutable(provider.process, workspaceURL: target.workspaceURL)
+            toolPath = try await resolveTool(provider, workspaceURL: target.workspaceURL)
+            try Task.checkCancellation()
+            guard running[target] === entry, prepared?.owner.isCurrent() != false else { throw CancellationError() }
+        } catch { await prepared?.owner.release(); throw error }
         // Every process the backend starts, the VCS client included, inherits
         // this token, so what it leaves behind can be ended when it is gone.
         let backendToken = UUID().uuidString
-        environment.merge(MacPluginBackendProcesses.environment(token: backendToken)) { _, token in token }
+        if prepared == nil { environment.merge(MacPluginBackendProcesses.environment(token: backendToken)) { _, token in token } }
         let session = LanguageServerRuntimeSession(
             providerID: "vcsProvider:\(target.pluginID):\(target.vcs)",
             executableURL: executableURL,
@@ -216,16 +228,20 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
             environment: environment,
             initializationOptions: provider.process.initializationOptions,
             initializeTimeout: 60,
-            core: core,
+            core: prepared?.owner.core ?? core,
             processRegistry: processRegistry,
             moduleID: .vcsProvidersExtension(target.pluginID),
             pluginID: target.pluginID
         )
         let endBackendProcesses = endBackendProcesses
-        session.terminateProcess = { endBackendProcesses(backendToken, true) }
-        session.onReleased = { endBackendProcesses(backendToken, false) }
+        if let owner = prepared?.owner { session.releaseResources = owner.release }
+        else {
+            session.terminateProcess = { endBackendProcesses(backendToken, true) }
+            session.onReleased = { endBackendProcesses(backendToken, false) }
+        }
         entry.session = session
-        try await waitUntilReady(session, rootURL: target.workspaceURL)
+        do { try await waitUntilReady(session, rootURL: target.workspaceURL) }
+        catch { session.stop(); throw error }
         try Task.checkCancellation()
         guard running[target] === entry else { throw CancellationError() }
         // Core publishes the negotiation before the session is ready. A
@@ -288,7 +304,10 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
         var requirement: LanguageServerExecutableVersionRequirement?
         switch process.executable {
         case .file(let url):
-            return (url, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
+            if remoteLaunches?.identity(workspaceURL) == nil {
+                return (url, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
+            }
+            invocation = BuildInvocation(executables: [.setting(id: "pluginPackage", path: url.path)], runtimeDependencies: runtimes)
         case .commands(let commands):
             invocation = BuildInvocation(executables: commands.map { .command($0) }, runtimeDependencies: runtimes)
         case .runtime(let tool, let versionRequirement):

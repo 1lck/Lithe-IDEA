@@ -55,16 +55,16 @@ Search Everywhere、终端输出和 Run/Tests 输出。
 
 ## 验证
 
-- `scripts/measure-macos-performance-baseline.sh --list`
-- `scripts/measure-macos-performance-baseline.sh --scenario T --fixture 500KiB --runs 3`
-- `./scripts/test-macos.sh`
+- `scripts/macos/perf/measure-macos-performance-baseline.sh --list`
+- `scripts/macos/perf/measure-macos-performance-baseline.sh --scenario T --fixture 500KiB --runs 3`
+- `./scripts/macos/test/test-macos.sh`
 
 具体场景、fixture 和交互操作步骤见
 [`docs/performance/macos-interaction-baseline.md`](../../../../docs/performance/macos-interaction-baseline.md)。
 
 ## 适用范围
 
-- `scripts/measure-macos-performance-baseline.sh`
+- `scripts/macos/perf/measure-macos-performance-baseline.sh`
 - `docs/performance/macos-interaction-baseline.md`
 - `macos/Sources/`
 - `macos/Tests/`

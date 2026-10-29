@@ -326,6 +326,7 @@ enum JavaEnvironmentStatus: Equatable, Sendable {
     case ready
     case jdkMissing
     case configuredJDKInvalid(path: String)
+    case probeFailed(message: String)
 
     var requiresAttention: Bool {
         self != .checking && self != .ready
@@ -333,7 +334,7 @@ enum JavaEnvironmentStatus: Equatable, Sendable {
 
     var blocksJavaRun: Bool {
         switch self {
-        case .jdkMissing, .configuredJDKInvalid: true
+        case .jdkMissing, .configuredJDKInvalid, .probeFailed: true
         case .checking, .ready: false
         }
     }
@@ -360,6 +361,7 @@ struct JavaEnvironmentReport: Equatable, Sendable {
         case .ready: "Java environment ready"
         case .jdkMissing: "JDK not found"
         case .configuredJDKInvalid: "Configured JDK is invalid"
+        case .probeFailed: "Runtime discovery failed"
         }
     }
 
@@ -373,6 +375,7 @@ struct JavaEnvironmentReport: Equatable, Sendable {
             "This project contains Java sources, but no usable JDK was detected."
         case .configuredJDKInvalid(let path):
             "The configured JDK path is not a valid JDK: \(path)"
+        case .probeFailed(let message): message
         }
     }
 
@@ -383,6 +386,8 @@ struct JavaEnvironmentReport: Equatable, Sendable {
             "Choose a JDK in Settings → Project or install a full JDK and set JAVA_HOME."
         case .configuredJDKInvalid:
             "Choose another JDK in Settings → Project or clear the invalid path."
+        case .probeFailed:
+            "Check the workspace connection and refresh the available runtimes."
         }
     }
 }

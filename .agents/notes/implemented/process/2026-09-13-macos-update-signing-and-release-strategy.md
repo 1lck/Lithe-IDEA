@@ -83,7 +83,7 @@ v1→v2 那次一样让旧包立刻失效。同一个 key ID 永远不能换成�
 v1 包在新版本里仍会被拒绝，需要重新下载 v2 包。多 key 表是为以后的轮换准备的，
 并没有恢复 v1 兼容性。
 
-构建侧对应 `scripts/build-official-plugins.sh --development-unsigned`，只在 debug
+构建侧对应 `scripts/plugins/build-official-plugins.sh --development-unsigned`，只在 debug
 配置下可用，用来在没有私钥时产出这种开发包；release 配置传入该参数会直接失败。
 
 官方插件由组织仓库 `Lithe-IDEA/Lithe-IDEA` 的独立插件发布工作流使用
@@ -113,9 +113,15 @@ feed，Sparkle 生成不出有效 patch 时也会省略该 delta 并回退到全
 任何阶段都不得跨工作树复制，也不写已安装 app。成功下载仍须通过原有
 Sparkle 处理和发布校验，不改变签名、哈希或 appcast 的接受条件。
 
-稳定版 macOS build job 总期限为 75 分钟，打包步骤为 35 分钟，Sparkle
-步骤为 30 分钟，为双架构打包和有界下载重试留出预算。Preview 工作流的
-期限不变；上述下载保护位于两个渠道共用的发布脚本内。
+稳定版与 AutoBuild 的 macOS build job 总期限均为 75 分钟，打包步骤为
+35 分钟，Sparkle 步骤为 30 分钟，为每个架构的打包和有界下载重试留出预算。
+原先只调整了稳定版，AutoBuild 仍受整个 job 的 30 分钟上限约束；运行
+40812978761 的 Intel 打包约 26 分钟，进入 Sparkle 后被总上限取消，重跑也
+出现相同结果。因此两个工作流都要受同一组离线回归断言保护，不能只因为
+修复合入 `preview` 分支，就认为 AutoBuild 工作流也获得了相同修改。
+正确做法是保留分阶段期限并为上传、校验和清理留出总预算；不要取消所有
+期限，或反复重跑仍含 30 分钟上限的旧任务。上述下载保护仍位于两个渠道
+共用的发布脚本内，不改变签名与基线验证。
 
 ### 独立开发版身份与运行状态
 
@@ -194,10 +200,10 @@ ZIP 生成增量；不兼容身份跳过，损坏归档仍失败。新开发版�
 `MacDevelopmentProfileMigrationTests`、Windows 的 `profile_migration_tests.rs` 与
 `profile-migration.test.ts`（首次复制、已有数据保护、失败重试及快照恢复）、
 `AppUpdateChannelTests` 与 Windows 的 `update-channel.test.ts`（首次默认及显式选择）、
-`scripts/test-sparkle-update.rb`（六种渠道/架构元数据、同身份基线与差分验签、
+`scripts/release/sparkle/test-sparkle-update.rb`（六种渠道/架构元数据、同身份基线与差分验签、
 损坏 ZIP/缺失或非法元数据必须返回 1，只有验证后身份不兼容才返回 3，发布链必须停止）、
-`scripts/test-reuse-worktree-resources.mjs`（运行状态拒绝复用）及
-`scripts/verify-runtime-bundle-immutability.sh`（发行目录只读规则）。真实 Windows
+`scripts/resources/test-reuse-worktree-resources.mjs`（运行状态拒绝复用）及
+`scripts/macos/verify/verify-runtime-bundle-immutability.sh`（发行目录只读规则）。真实 Windows
 双安装器并存和原生 WebView，以及真实双架构签名升级，仍须在对应平台复验，不能
 用前端测试替代。
 
@@ -385,15 +391,15 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 # 在仓库根目录运行；Bun 包装器自动选择 windows/tauri 作为工作目录。
 node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-updater.json -- src/features/settings/lib/update-channel.test.ts src/features/settings/stores/update.store.test.ts src/features/settings/components/update-channel-selector.test.tsx src/features/layout/components/installed-build-label.test.tsx
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
-./scripts/test-macos.sh
-./scripts/verify-macos-package.sh
-./scripts/verify-official-plugins.sh
+./scripts/macos/test/test-macos.sh
+./scripts/macos/verify/verify-macos-package.sh
+./scripts/plugins/verify-official-plugins.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginLocalDevelopmentTests|PluginPackageSignatureTests|PluginPackageStoreTests'
-sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
-ruby scripts/test-sparkle-update.rb "$sparkle_tools"
-node scripts/test-download-sparkle-baseline.mjs
-node --test scripts/test-publish-autobuild.mjs
-node scripts/test-reuse-worktree-resources.mjs
+sparkle_tools=$(zsh scripts/release/sparkle/prepare-sparkle-tools.sh)
+ruby scripts/release/sparkle/test-sparkle-update.rb "$sparkle_tools"
+node scripts/release/sparkle/test-download-sparkle-baseline.mjs
+node --test scripts/release/autobuild/test-publish-autobuild.mjs
+node scripts/resources/test-reuse-worktree-resources.mjs
 actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/release-preview-windows.yml .github/workflows/ci-macos.yml
 ```
 
@@ -409,21 +415,21 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 
 ## 适用范围
 
-- `scripts/prepare-sparkle-tools.sh`
-- `scripts/create-sparkle-update.sh`
-- `scripts/publish-autobuild.mjs`
-- `scripts/test-publish-autobuild.mjs`
-- `scripts/worktree-resources.json`
-- `scripts/reuse-worktree-resources.mjs`
-- `scripts/download-sparkle-baseline.mjs`
-- `scripts/test-download-sparkle-baseline.mjs`
-- `scripts/verify-macos-package.sh`
-- `scripts/test-sparkle-update.rb`
-- `scripts/create-macos-update-manifest.rb`
+- `scripts/release/sparkle/prepare-sparkle-tools.sh`
+- `scripts/release/sparkle/create-sparkle-update.sh`
+- `scripts/release/autobuild/publish-autobuild.mjs`
+- `scripts/release/autobuild/test-publish-autobuild.mjs`
+- `scripts/resources/worktree-resources.json`
+- `scripts/resources/reuse-worktree-resources.mjs`
+- `scripts/release/sparkle/download-sparkle-baseline.mjs`
+- `scripts/release/sparkle/test-download-sparkle-baseline.mjs`
+- `scripts/macos/verify/verify-macos-package.sh`
+- `scripts/release/sparkle/test-sparkle-update.rb`
+- `scripts/release/macos/create-macos-update-manifest.rb`
 - `.github/workflows/release-macos.yml`
 - `.github/workflows/release-preview-macos.yml`
 - `.github/workflows/release-preview-windows.yml`
-- `scripts/build-official-plugins.sh`
+- `scripts/plugins/build-official-plugins.sh`
 - `macos/Sources/LithePluginPackageSigning/`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`

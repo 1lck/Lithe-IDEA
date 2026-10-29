@@ -1,0 +1,134 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+ROOT_DIR="${0:A:h:h:h:h}"
+INFO_PLIST="$ROOT_DIR/macos/Resources/Info.plist"
+DEFAULT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
+DEFAULT_BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST")
+VERSION="${LITHE_VERSION:-$DEFAULT_VERSION}"
+BUILD_NUMBER="${LITHE_BUILD_NUMBER:-$DEFAULT_BUILD_NUMBER}"
+ARCH="${LITHE_ARCH:-universal}"
+DIST_ROOT="${LITHE_DIST_ROOT:-$ROOT_DIR/dist}"
+SIGNING_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}"
+ARM64_TRIPLE="arm64-apple-macosx"
+X86_64_TRIPLE="x86_64-apple-macosx"
+MARKETPLACE_INDEX="${LITHE_OFFICIAL_PLUGIN_INDEX:-$ROOT_DIR/Plugins/marketplace/index.json}"
+
+case "$ARCH" in
+    universal) APP_DIR="$DIST_ROOT/Lithe.app" ;;
+    arm64|x86_64) APP_DIR="$DIST_ROOT/Lithe-$ARCH.app" ;;
+    *) print -u2 -- "Unsupported app architecture: $ARCH"; exit 1 ;;
+esac
+
+cd "$ROOT_DIR"
+# Java Support assembles JDT LS and its JDK into its own plugin package later
+# in this script. They are prepared here first so a missing or invalid
+# download fails before the application is compiled.
+bundle_java=$(node "$ROOT_DIR/scripts/plugins/official-plugin-distribution.mjs" dev.lithe.plugin.java-support "$MARKETPLACE_INDEX")
+if [[ "$bundle_java" == true ]]; then
+    LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/macos/prepare/prepare-jdtls.sh" > /dev/null
+    if [[ "$ARCH" == "universal" ]]; then
+        if [[ -n "${LITHE_JDK_ROOT:-}" ]]; then
+            print -u2 -- \
+                "Universal packaging requires LITHE_JDK_ARM64_ROOT and LITHE_JDK_X86_64_ROOT instead of LITHE_JDK_ROOT"
+            exit 1
+        fi
+        LITHE_JDK_ROOT="${LITHE_JDK_ARM64_ROOT:-}" LITHE_JDK_TARGET_ARCH="arm64" \
+            "$ROOT_DIR/scripts/macos/prepare/prepare-jdk.sh" > /dev/null
+        LITHE_JDK_ROOT="${LITHE_JDK_X86_64_ROOT:-}" LITHE_JDK_TARGET_ARCH="x86_64" \
+            "$ROOT_DIR/scripts/macos/prepare/prepare-jdk.sh" > /dev/null
+    else
+        LITHE_JDK_TARGET_ARCH="$ARCH" "$ROOT_DIR/scripts/macos/prepare/prepare-jdk.sh" > /dev/null
+    fi
+fi
+if [[ "$ARCH" == "universal" ]]; then
+    scripts/macos/build/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
+    scripts/macos/build/build-macos.sh --configuration release --triple "$X86_64_TRIPLE"
+else
+    triple="$ARCH-apple-macosx"
+    scripts/macos/build/build-macos.sh --configuration release --triple "$triple"
+fi
+
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
+
+ide_mcp=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/ide-mcp/build-ide-mcp.sh")
+mkdir -p "$APP_DIR/Contents/Helpers"
+cp "$ide_mcp" "$APP_DIR/Contents/Helpers/lithe-mcp"
+if [[ "$ARCH" == "universal" ]]; then
+    arm64_binary="$ROOT_DIR/.build/$ARM64_TRIPLE/release/Lithe"
+    x86_64_binary="$ROOT_DIR/.build/$X86_64_TRIPLE/release/Lithe"
+    if [[ ! -x "$arm64_binary" || ! -x "$x86_64_binary" ]]; then
+        print -u2 -- "Missing architecture-specific release binary"
+        exit 1
+    fi
+    lipo -create "$arm64_binary" "$x86_64_binary" -output "$APP_DIR/Contents/MacOS/Lithe"
+else
+    arch_binary="$ROOT_DIR/.build/$ARCH-apple-macosx/release/Lithe"
+    if [[ ! -x "$arch_binary" ]]; then
+        print -u2 -- "Missing $ARCH release binary"
+        exit 1
+    fi
+    cp "$arch_binary" "$APP_DIR/Contents/MacOS/Lithe"
+fi
+if [[ "$ARCH" == "universal" ]]; then
+    swiftpm_resource_root="$ROOT_DIR/.build/$ARM64_TRIPLE/release"
+else
+    swiftpm_resource_root="$ROOT_DIR/.build/$ARCH-apple-macosx/release"
+fi
+# SwiftTerm compiles its Metal shaders from this SwiftPM bundle at runtime.
+# Without it, setUseMetal(true) falls back to Core Graphics in packaged apps.
+for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
+    resource_bundle="$swiftpm_resource_root/$bundle_name"
+    if [[ ! -d "$resource_bundle" ]]; then
+        print -u2 -- "Missing SwiftPM resource bundle: $resource_bundle"
+        exit 1
+    fi
+    cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/$bundle_name"
+done
+OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
+mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"
+# Declarative plugin packages contain no host-loaded code. Java Support ships
+# JDT LS and the JDK it runs on inside its own package, assembled for the
+# architectures of this app; the application itself carries no language server.
+if [[ "$ARCH" == "universal" ]]; then
+    plugin_triple="$ARM64_TRIPLE"
+else
+    plugin_triple="$ARCH-apple-macosx"
+fi
+plugin_root=$(scripts/plugins/build-official-plugins.sh --bundled-only \
+    --marketplace-index "$MARKETPLACE_INDEX" \
+    --configuration release \
+    --arch "$ARCH" \
+    --triple "$plugin_triple")
+for plugin_package in "$plugin_root"/*(/N); do
+    cp -R "$plugin_package" "$OFFICIAL_PLUGIN_DESTINATION/${plugin_package:t}"
+done
+
+# Remote workspace servers ship read-only; Lithe uploads them to SSH hosts
+# and never writes into this directory.
+remote_server_root=$(scripts/remote/build-remote-servers.sh)
+cp -R "$remote_server_root" "$APP_DIR/Contents/Resources/RemoteServers"
+
+# The official marketplace index ships read-only so the catalog works
+# offline; refreshed copies are written to the user's Caches at runtime.
+mkdir -p "$APP_DIR/Contents/Resources/PluginMarketplace"
+cp "$MARKETPLACE_INDEX" "$APP_DIR/Contents/Resources/PluginMarketplace/index.json"
+
+cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
+zsh "$ROOT_DIR/scripts/macos/package/embed-sparkle.sh" "$APP_DIR"
+zsh "$ROOT_DIR/scripts/macos/package/configure-sparkle-app.sh" "$APP_DIR/Contents/Info.plist" "$ARCH"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_DIR/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"
+"$ROOT_DIR/scripts/macos/package/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"
+cp "$ROOT_DIR/macos/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+cp -R "$ROOT_DIR/macos/Resources/IDEAIcons" "$APP_DIR/Contents/Resources/IDEAIcons"
+cp -R "$ROOT_DIR/macos/Resources/GitGraph" "$APP_DIR/Contents/Resources/GitGraph"
+cp -R "$ROOT_DIR/macos/Resources/Fonts" "$APP_DIR/Contents/Resources/Fonts"
+cp -R "$ROOT_DIR/.artifacts/editor/macos" "$APP_DIR/Contents/Resources/MonacoEditor"
+zsh "$ROOT_DIR/scripts/macos/package/package-macos-localizations.sh" \
+    "$ROOT_DIR/macos/Resources" "$APP_DIR/Contents/Resources"
+codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_DIR"
+
+echo "$APP_DIR"

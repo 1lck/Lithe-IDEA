@@ -15,7 +15,7 @@ package struct BuildNativeConfigurationContext: Equatable, Sendable {
     package let optionsRevision: Int
     package let settings: [String: ToolingJSONValue]
     package let plan: BuildPlanContext
-    package var target: BuildSystemTarget { BuildSystemTarget(manifest: source.manifest, buildSystemID: buildSystemID) }
+    package var target: BuildSystemTarget { BuildSystemTarget(manifest: source.manifest, buildSystemID: buildSystemID, workspaceURL: workspace) }
     package var provider: BuildProviderTarget {
         BuildProviderTarget(pluginID: source.pluginID, manifest: source.manifest,
             packageURL: source.packageURL, buildSystemID: buildSystemID, workspaceURL: workspace)

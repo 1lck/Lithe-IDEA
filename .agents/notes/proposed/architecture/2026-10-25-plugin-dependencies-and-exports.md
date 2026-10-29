@@ -83,7 +83,7 @@
 
 ## 验证
 
-本次只运行 `./scripts/verify-agent-notes.sh` 和文档检查，没有依赖解析器或跨包调用实现，不能声称安装或授权用例通过。实施时使用 `write-stable-tests`、`./scripts/verify-shared-contracts.sh`、`./scripts/verify-rust-core.sh`，并分别验证两个宿主和函数 SDK；新增资源时遵守工作树复用与安装目录只读要求。
+本次只运行 `./scripts/agent-notes/verify-agent-notes.sh` 和文档检查，没有依赖解析器或跨包调用实现，不能声称安装或授权用例通过。实施时使用 `write-stable-tests`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`，并分别验证两个宿主和函数 SDK；新增资源时遵守工作树复用与安装目录只读要求。
 
 ## 适用范围
 

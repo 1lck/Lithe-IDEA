@@ -23,6 +23,6 @@
     ]
   },
   "owner": "Editor / Git",
-  "verification": "macOS：打开已跟踪文件，行号区右键开启及隐藏 Git Blame；检查作者、日期、提交点击与栏宽恢复。检查深浅主题、中文菜单、分屏、只读已跟踪文件，以及非仓库、未跟踪文件入口禁用。菜单打开后切换或关闭文档，旧动作不能作用到新文档。运行 scripts/probe-macos-monaco.sh --workbench-tests 验证真实 WebKit 命中、动作、模型生命周期和选区/撤销保护；完整产品 Git 数据链路另行实机验收。 在已有断点的 Java 行号上执行完整 mousedown/mouseup/contextmenu 右键序列，打开菜单不能触发断点编辑；仅点击编辑断点时发送该行请求。检查切换文件后的旧编辑动作失效。",
+  "verification": "macOS：打开已跟踪文件，行号区右键开启及隐藏 Git Blame；检查作者、日期、提交点击与栏宽恢复。检查深浅主题、中文菜单、分屏、只读已跟踪文件，以及非仓库、未跟踪文件入口禁用。菜单打开后切换或关闭文档，旧动作不能作用到新文档。运行 scripts/macos/probe/probe-macos-monaco.sh --workbench-tests 验证真实 WebKit 命中、动作、模型生命周期和选区/撤销保护；完整产品 Git 数据链路另行实机验收。 在已有断点的 Java 行号上执行完整 mousedown/mouseup/contextmenu 右键序列，打开菜单不能触发断点编辑；仅点击编辑断点时发送该行请求。检查切换文件后的旧编辑动作失效。",
   "notes": "沿用已有 GitFeatureModel.loadBlame 和作者/提交展示；共享编辑器只在宿主显式启用 gitBlameMenu 时添加入口，Windows 现有 Blame 能力不受此入口开关影响。"
 }

@@ -216,9 +216,12 @@ package struct BuildSystemPluginSource: Equatable, Sendable {
 package struct BuildSystemTarget: Equatable, Sendable {
     package let manifest: Data
     package let buildSystemID: String
+    /// Retains the owning host even for pure plans with only relative paths.
+    package let workspaceURL: URL?
 
-    package init(manifest: Data, buildSystemID: String) {
+    package init(manifest: Data, buildSystemID: String, workspaceURL: URL? = nil) {
         self.manifest = manifest; self.buildSystemID = buildSystemID
+        self.workspaceURL = workspaceURL
     }
 }
 
@@ -558,10 +561,15 @@ package protocol BuildToolResolving: AnyObject {
     ) async throws -> ResolvedBuildTool
     /// Passive discovery for project import; must never probe or execute tools.
     func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL?
+    /// Host discovery may require I/O; project import still never runs code.
+    func prepareLanguageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) async throws -> URL?
 }
 
 package extension BuildToolResolving {
     func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? { nil }
+    func prepareLanguageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) async throws -> URL? {
+        languageImportExecutable(invocation, workspaceURL: workspaceURL)
+    }
 }
 
 // MARK: Options
@@ -1308,6 +1316,36 @@ package protocol BuildSystemStateLocating: Sendable {
     /// A fresh, not yet existing path for one `${outputFile}`.
     func allocateOutputFile(in workspaceStateDirectory: URL) throws -> URL
     func removeOutputFile(_ url: URL)
+    /// Resolves host-owned paths before Core expands command templates. The
+    /// returned cleanup retains that host even after a workspace reconnects.
+    func prepareRun(pluginID: String, buildSystemID: String, packageURL: URL?,
+                    workspaceURL: URL, allocatesOutputFile: Bool) async throws -> BuildSystemRunResources
+}
+
+package struct BuildSystemRunResources: Sendable {
+    package let pluginDirectory: URL?
+    package let workspaceStateDirectory: URL
+    package let outputFile: URL?
+    package let release: @Sendable () async -> Void
+
+    package init(pluginDirectory: URL?, workspaceStateDirectory: URL, outputFile: URL?,
+                 release: @escaping @Sendable () async -> Void) {
+        self.pluginDirectory = pluginDirectory
+        self.workspaceStateDirectory = workspaceStateDirectory
+        self.outputFile = outputFile
+        self.release = release
+    }
+}
+
+extension BuildSystemStateLocating {
+    package func prepareRun(pluginID: String, buildSystemID: String, packageURL: URL?,
+                            workspaceURL: URL, allocatesOutputFile: Bool) async throws -> BuildSystemRunResources {
+        let directory = try workspaceStateDirectory(pluginID: pluginID, buildSystemID: buildSystemID, workspaceURL: workspaceURL)
+        let output = try allocatesOutputFile ? allocateOutputFile(in: directory) : nil
+        return BuildSystemRunResources(pluginDirectory: packageURL, workspaceStateDirectory: directory, outputFile: output) {
+            if let output { removeOutputFile(output) }
+        }
+    }
 }
 
 // MARK: Processes

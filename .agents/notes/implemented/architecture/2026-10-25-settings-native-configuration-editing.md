@@ -103,7 +103,7 @@ Maven 模型缓存版本 2 保存上游实际选中的来源，即使来源由�
 - 修改设置页时覆盖：标准来源发现、当前值回显、继承值未修改不产生覆盖、编辑取消不写入、确认后仅修改目标字段、保存后重新读取、重开后仍一致。
 - 补充敏感字段不泄露、外部修改冲突、文件缺失或无权限、写入失败保留草稿，以及恢复默认后立即失焦、切页或关闭不写回旧值。测试使用临时目录或隔离存储，不读取或修改开发者真实配置。
 - 按目标平台执行原生交互测试和真实工作流；单元测试通过不能替代整页验收。记录未完成的设置页迁移，不把政策当运行时证据。
-- 运行 `./scripts/verify-agent-notes.sh`；有产品实现改动时执行对应测试、`./scripts/verify-service-boundaries.sh`、`./scripts/verify-runtime-bundle-immutability.sh` 和功能矩阵检查。
+- 运行 `./scripts/agent-notes/verify-agent-notes.sh`；有产品实现改动时执行对应测试、`./scripts/architecture/verify-service-boundaries.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和功能矩阵检查。
 - `BuildNativeConfigurationTests` 覆盖继承/取消、XML 内容与权限/扩展属性保留、外部写入、缺失文件、只读根和符号链接目标变化；`BuildSystemServiceTests` 覆盖选项 ABA、旧工作区回复及回读失败。`MacNativeBuildProviderIntegrationTests` 的显式 stage D 场景使用真实 Maven、SDK、Core、Provider 会话和平台文件 adapter；其通过情况仍以实际计时报告为准。
 
 ## 适用范围

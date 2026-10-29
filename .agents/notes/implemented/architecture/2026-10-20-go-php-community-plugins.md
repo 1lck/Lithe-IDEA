@@ -82,11 +82,11 @@ Go/PHP 插件可以独立迭代和发布，不占用主仓库 CI，也不需要 
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginMarketplace|PluginManager|PluginManagementPresentation|PluginPackageStore|ApplicationRelauncher'`：已迁移 ID 不出现在官方列表、没有官方来源和更新、可以卸载，旧 ID 仍要求 publisher 签名；旧包未删除前社区版不可安装；启用的旧包卸载、重启后安装替代包会启用，用户关闭过的保持关闭；重启辅助进程的等待有上限且不会多开实例。
-- `node --test scripts/official-plugin-releases.test.mjs`：官方插件配置为空时发布计划为空，发布流程用合成插件继续可测。
-- `node scripts/test-official-plugin-distribution.mjs`：应用内置名单只含 Java Support。
-- `node scripts/test-reuse-worktree-resources.mjs`：已删除的 PHP 下载资源不再出现在复用清单里。
-- `./scripts/verify-platform-feature-matrix.sh`：Go/PHP 功能矩阵的证据路径指向迁移后的文件。
-- `./scripts/verify-agent-notes.sh`：本笔记格式和路径有效。
+- `node --test scripts/plugins/official-plugin-releases.test.mjs`：官方插件配置为空时发布计划为空，发布流程用合成插件继续可测。
+- `node scripts/plugins/test-official-plugin-distribution.mjs`：应用内置名单只含 Java Support。
+- `node scripts/resources/test-reuse-worktree-resources.mjs`：已删除的 PHP 下载资源不再出现在复用清单里。
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：Go/PHP 功能矩阵的证据路径指向迁移后的文件。
+- `./scripts/agent-notes/verify-agent-notes.sh`：本笔记格式和路径有效。
 - 社区仓库各自的 CI 打包并校验 `plugin.json`；Lithe Store 仓库的索引校验脚本（`validate-index.mjs --verify-archives`）校验索引条目和下载包哈希。
 
 ## 适用范围
@@ -101,5 +101,5 @@ Go/PHP 插件可以独立迭代和发布，不占用主仓库 CI，也不需要 
 - `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/`
 - `Plugins/mac/README.md`
 - `Plugins/marketplace/`
-- `scripts/official-plugin-releases.mjs`
-- `scripts/build-official-plugins.sh`
+- `scripts/plugins/official-plugin-releases.mjs`
+- `scripts/plugins/build-official-plugins.sh`

@@ -26,7 +26,7 @@ PHP Support 已经验证了独立插件包、固定 Intelephense 版本和插件
 
 ### 2. 构建阶段完成下载、解压和组装
 
-官方 macOS 插件统一通过 `scripts/build-official-plugins.sh` 组装。该脚本负责：
+官方 macOS 插件统一通过 `scripts/plugins/build-official-plugins.sh` 组装。该脚本负责：
 
 1. 从插件目录读取 `plugin.json` 和 `language-server.json`。
 2. 调用插件专属准备脚本下载并校验语言服务器归档。
@@ -79,25 +79,25 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 
 用户只为安装的语言承担下载和索引成本，插件包可以独立发布、验证、重装和卸载。构建过程需要访问固定的上游归档，发布环境必须准备对应架构和签名身份；Node.js 等外部运行时仍由平台能力检查，不由插件偷偷写入安装目录。
 
-插件包、解压结果、语言服务器下载缓存和运行时语言工具没有可靠的跨工作树身份标记，继续在 `scripts/worktree-resources.json` 中作为隔离资源处理，不能通过工作树复用脚本复制。
+插件包、解压结果、语言服务器下载缓存和运行时语言工具没有可靠的跨工作树身份标记，继续在 `scripts/resources/worktree-resources.json` 中作为隔离资源处理，不能通过工作树复用脚本复制。
 
 ## 验证
 
-- `./scripts/verify-official-plugins.sh`：检查官方插件组装、语言服务器清单、启动器、包内无原生代码和包签名。
-- `./scripts/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
-- `node scripts/test-reuse-worktree-resources.mjs`：确认语言服务器下载和插件包不能跨工作树复用。
-- `./scripts/verify-agent-notes.sh`：确认本笔记格式、路径和验证命令有效。
+- `./scripts/plugins/verify-official-plugins.sh`：检查官方插件组装、语言服务器清单、启动器、包内无原生代码和包签名。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
+- `node scripts/resources/test-reuse-worktree-resources.mjs`：确认语言服务器下载和插件包不能跨工作树复用。
+- `./scripts/agent-notes/verify-agent-notes.sh`：确认本笔记格式、路径和验证命令有效。
 - 相关 macOS 测试：`MacPluginPackageDownloaderTests`、`LanguageServerToolServiceTests`、`LanguageExtensionProcessLifecycleTests` 和 `PluginPackageStoreTests`。
 - 新增插件还必须验证下载失败、校验失败、取消、等待重启、重装、回滚、禁用和卸载后的进程与文件清理。
 
 ## 适用范围
 
 - `Plugins/mac/Official/`
-- `scripts/build-official-plugins.sh`
+- `scripts/plugins/build-official-plugins.sh`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
 - `macos/Sources/LitheLanguageIntelligenceModule/`
 - `windows/tauri/src/extensions/`
 - `windows/tauri/src-tauri/src/language_tools.rs`
-- `scripts/worktree-resources.json`
+- `scripts/resources/worktree-resources.json`
 - `docs/ci-builds.md`

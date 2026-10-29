@@ -32,7 +32,7 @@ The three Developer ID settings are optional and must be configured together:
 | `MACOS_SIGNING_CERTIFICATE` | Optional repository secret | Base64-encoded PKCS#12 certificate and private key |
 | `MACOS_SIGNING_PASSWORD` | Optional repository secret | PKCS#12 export password |
 
-Use the pinned tools returned by `zsh scripts/prepare-sparkle-tools.sh`.
+Use the pinned tools returned by `zsh scripts/release/sparkle/prepare-sparkle-tools.sh`.
 Generate the Sparkle key with `generate_keys --account lithe` and export it
 with `generate_keys --account lithe -x <private-key-file>`. Keep an offline
 backup of the private key. Do not commit the export or paste it into an issue.
@@ -231,7 +231,7 @@ rollback and offer manual installation instead. To enable them without rebuildin
 an authorized maintainer must obtain and verify the original binaries, sign each
 with the existing Sparkle private key using `sign_update --ed-key-file - -p`, save
 the public signature as `<DMG filename>.edsig`, and regenerate the manifest with
-`create-macos-update-manifest.rb --require-signatures`. Publishing that manifest
+`scripts/release/macos/create-macos-update-manifest.rb --require-signatures`. Publishing that manifest
 is a separate release operation; no existing live release is modified by this PR.
 
 Install and Restart uses the same unsaved-document confirmation and bounded
@@ -261,13 +261,13 @@ its own update channel (Sparkle or the legacy updater, depending on its version)
 Run the focused Swift timing harness, the full macOS suite, and package checks:
 
 ```sh
-./scripts/verify-runtime-bundle-immutability.sh
+./scripts/macos/verify/verify-runtime-bundle-immutability.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
-./scripts/test-macos.sh
-./scripts/verify-macos-package.sh
-sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
-ruby scripts/test-sparkle-update.rb "$sparkle_tools"
+./scripts/macos/test/test-macos.sh
+./scripts/macos/verify/verify-macos-package.sh
+sparkle_tools=$(zsh scripts/release/sparkle/prepare-sparkle-tools.sh)
+ruby scripts/release/sparkle/test-sparkle-update.rb "$sparkle_tools"
 actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/ci-macos.yml
 ```
 

@@ -27,7 +27,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-const MAX_TEST_CASES: usize = 10_000;
+pub(super) const MAX_TEST_CASES: usize = 10_000;
 // Durations cross JSON into JavaScript and must retain exact integer precision.
 const MAX_DURATION_MILLIS: u64 = 9_007_199_254_740_991;
 const MAX_DIAGNOSTICS: usize = 10_000;
@@ -173,7 +173,11 @@ pub(crate) fn source_marker(
         .markers
         .iter()
         .map(|marker| join_relative(root, marker))
-        .find(|path| workspace.read_path(path).is_some_and(|path| path.is_file()))
+        .find(|path| {
+            workspace
+                .read_path(path)
+                .is_some_and(|path| crate::remote::workspace_io::is_file(path).unwrap_or(false))
+        })
 }
 
 /// The model with the run entries derived from it.
@@ -516,7 +520,7 @@ fn provider_test_cases(
 /// Directories whose reports belong to the run: the selected project, or the
 /// root and every model project inside it, deepest first so a file two globs
 /// reach is read relative to its own project.
-fn report_directories(
+pub(super) fn report_directories(
     root: &str,
     directory: &str,
     request: &DecodeTestResultsRequest,
