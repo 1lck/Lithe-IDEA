@@ -156,8 +156,8 @@ Tab Bar 目前不承载拖拽排序，若未来开放项目排序，必须复用
 
 - `bun test windows/tauri/src/features/window/components/project-tab-bar.test.ts windows/tauri/src/features/window/utils/project-tab-bar-model.test.ts`
 - `bun --cwd windows/tauri run typecheck`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - `bun test windows/tauri/src/features/window/services/project-window-router.test.ts`
 - `bun test windows/tauri/src/features/workspace/services/workspace-lifecycle.test.ts windows/tauri/src/features/file-system/controllers/project-open-destination.test.ts`
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml project_window_registry`

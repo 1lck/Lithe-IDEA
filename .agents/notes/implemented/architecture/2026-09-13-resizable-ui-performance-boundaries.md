@@ -30,6 +30,11 @@ macOS 和 Windows 可以用不同的 UI 技术实现，但用户看到的交互�
   坐标原点也跟着移动，导致指针和分隔条跳动。
 - 高频事件必须节流、合并或经过死区过滤。尺寸状态尽量放在局部布局容器
   中，避免每次拖动都重新计算整个功能页面。
+- macOS 原生覆盖层转发分隔条事件时，禁止在 `hitTest` 内回查窗口根视图或其他祖先，
+  防止同步重入 SwiftUI 并触发独占访问冲突。复用工作台内弱引用登记的原生分隔条，按当前
+  可见几何判断，不缓存另一套布局，也不在鼠标移动时扫描全树；禁用、收起和卸载同步取消登记。
+  保留宿主及完整 10pt 命中范围的取舍和验证见
+  [Git Log 固定原生表面](../feature/2026-09-13-macos-git-graph-intellij-layout.md)。
 - 共享分隔容器只在拖动开始、结束时通过 `isLithePaneResizing` 环境值
   通知后代暂停交互装饰。嵌套分隔器必须保留祖先的拖动状态；尺寸每次变化
   不再发布另一份状态。共享右键菜单在拖动时移除原生命中覆盖层，行悬停
@@ -182,7 +187,7 @@ IDEA 的 [BranchesTreeComponent](https://github.com/JetBrains/intellij-community
 
 ## 验证
 
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - `git diff --check`
 - 相关 macOS 或 Windows 产品构建
 - Windows 标签滚轮行为测试：

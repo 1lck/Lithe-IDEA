@@ -1,8 +1,27 @@
 import AppKit
 import Foundation
 import UniformTypeIdentifiers
+import LitheModuleAPI
 
 final class MacPlatformUI: PlatformUI {
+    func confirmHardLinkSave(at url: URL) -> DocumentHardLinkSaveMode? {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L10n.string("Save a hard-linked file?")
+        alert.informativeText = String(format: L10n.string("%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved."), url.lastPathComponent)
+        alert.addButton(withTitle: L10n.string("Save as Independent File"))
+        alert.addButton(withTitle: L10n.string("Update All Hard Links"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
+        // Neither Return nor Escape may accidentally authorize a shared-file mutation.
+        alert.buttons[0].keyEquivalent = ""
+        alert.buttons[2].keyEquivalent = "\u{1b}"
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .replaceCurrentPath
+        case .alertSecondButtonReturn: return .updateLinkedFile
+        default: return nil
+        }
+    }
+
     func activateApplication() {
         NSApplication.shared.activate(ignoringOtherApps: true)
     }

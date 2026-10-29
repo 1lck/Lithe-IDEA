@@ -174,9 +174,9 @@ Windows 以后也没法复用。因此生产路径走 Rust，Swift 版本只作�
 
 - `cd rust && cargo test -p lithe-core project`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'LitheCoreLogicTests'`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'ProjectTreeLoaderTests|LazyProjectTreeInventoryTests|projectTreeLoaderCompactsPackagesLikeTheFullTreeConversion|ProjectTreeSelectionTests'`
 
 ## 适用范围

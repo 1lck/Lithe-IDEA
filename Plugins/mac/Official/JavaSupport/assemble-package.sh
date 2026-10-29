@@ -31,7 +31,7 @@ case "$ARCH" in
     *) print -u2 -- "Unsupported architecture: $ARCH"; exit 2 ;;
 esac
 
-jdtls_root=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdtls.sh")
+jdtls_root=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/macos/prepare/prepare-jdtls.sh")
 language_server="$OUTPUT_DIR/language-server"
 rm -rf "$language_server" "$OUTPUT_DIR/runtime" "$OUTPUT_DIR/icons" "$OUTPUT_DIR/templates"
 cp -R "$PLUGIN_DIR/icons" "$OUTPUT_DIR/icons"
@@ -65,9 +65,9 @@ for runtime_arch in "${runtime_architectures[@]}"; do
     if [[ "$ARCH" == "universal" ]]; then
         override_variable="LITHE_JDK_${runtime_arch:u}_ROOT"
         jdk_root=$(LITHE_JDK_ROOT="${(P)override_variable:-}" LITHE_JDK_TARGET_ARCH="$runtime_arch" \
-            "$ROOT_DIR/scripts/prepare-jdk.sh")
+            "$ROOT_DIR/scripts/macos/prepare/prepare-jdk.sh")
     else
-        jdk_root=$(LITHE_JDK_TARGET_ARCH="$runtime_arch" "$ROOT_DIR/scripts/prepare-jdk.sh")
+        jdk_root=$(LITHE_JDK_TARGET_ARCH="$runtime_arch" "$ROOT_DIR/scripts/macos/prepare/prepare-jdk.sh")
     fi
     mkdir -p "$OUTPUT_DIR/runtime"
     cp -R "$jdk_root" "$OUTPUT_DIR/runtime/$runtime_arch"

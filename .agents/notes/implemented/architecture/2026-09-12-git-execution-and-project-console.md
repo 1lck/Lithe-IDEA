@@ -213,20 +213,20 @@ Fetch 状态回归覆盖无输出等待、阶段切换、认证、并发仓库�
 仍停留在 Git Log、底部进度变化和完成后收起。
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/verify-rust-core-comments.sh`
-- `./scripts/verify-rust-core.sh`
-- `./scripts/verify-core.sh`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/rust-core/verify-rust-core-comments.sh`
+- `./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/architecture/verify-core.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 共享 fixture 覆盖命令、事件、生命周期、Fetch、远程查询和完整展示结果。
 本地 HTTP 认证测试服务器直接绑定数字回环地址，不做反向 DNS 查询。服务器
 启动不能在 Git 请求 deadline 之前引入无界网络等待；回归用例禁止调用
 `socket.getfqdn`，认证、重试与取消场景仍保留原有 15 秒预算。
 
-Rust 与 macOS 测试使用仓库计时工具；`scripts/test-git-execution.py` 通过
+Rust 与 macOS 测试使用仓库计时工具；`scripts/rust-core/test-git-execution.py` 通过
 C ABI 和隔离仓库、本地认证服务验证配置作用域、部分成功、重试、取消及
 包含空格的 AskPass 路径，要求已构建的 Core 和 macOS 应用。
 Windows CI 使用同一计时工具执行生命周期日志回归并保留 HTML/JUnit 报告，
@@ -284,7 +284,7 @@ Windows ARM64 本地对比从 1.799 秒降到 1.362 秒，但这不代表托管 
 - `windows/tauri/src-tauri/src/platform.rs`
 - `shared/fixtures/git/`
 - `shared/contracts/rust-core-api.md`
-- `scripts/test-git-execution.py`
+- `scripts/rust-core/test-git-execution.py`
 - `.github/workflows/ci-windows.yml`
 
 ### macOS Console 左侧工具栏样式

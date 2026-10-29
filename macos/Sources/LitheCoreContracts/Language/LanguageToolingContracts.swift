@@ -1181,6 +1181,7 @@ package protocol LanguageProviderRuntime: AnyObject {
     var supportsLanguageServerSession: Bool { get }
     var unavailableToolingMessage: String? { get }
     func makeLanguageServerSession() -> (any LanguageServerSession)?
+    func makeLanguageServerSession(rootURL: URL) -> (any LanguageServerSession)?
 }
 
 @MainActor
@@ -1207,4 +1208,5 @@ package extension LanguageProviderRuntime {
     var supportsLanguageServerSession: Bool { false }
     var unavailableToolingMessage: String? { nil }
     func makeLanguageServerSession() -> (any LanguageServerSession)? { nil }
+    func makeLanguageServerSession(rootURL: URL) -> (any LanguageServerSession)? { makeLanguageServerSession() }
 }

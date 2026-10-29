@@ -3,6 +3,10 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 extension RustCoreBridge: LanguageServerRuntimeCore {
+    func requiresBackgroundLanguageServerStart(rootURL: URL) -> Bool {
+        remoteWorkspaces?.resolve(rootURL) != nil
+    }
+
     func startLanguageServer(
         providerID: String,
         executableURL: URL,

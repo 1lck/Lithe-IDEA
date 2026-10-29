@@ -114,11 +114,17 @@ pub(crate) fn invocation_plan(
     manifest: &DeclarativePluginManifest,
 ) -> Validation<Value> {
     let root = decode::request_path(&request.root, "root")?;
+    let platform = crate::remote::workspace::current()
+        .map(|host| match host.connection.session.hello().host.os {
+            lithe_remote::protocol::methods::OperatingSystem::Linux => Platform::Linux,
+            lithe_remote::protocol::methods::OperatingSystem::Macos => Platform::Macos,
+        })
+        .unwrap_or(request.platform);
     let invocation = &build_system.invocation;
     let mut executables = candidates(
         &invocation.executables,
         &root,
-        request.platform,
+        platform,
         manifest,
         &request.settings,
     )?;
@@ -143,7 +149,7 @@ pub(crate) fn invocation_plan(
         "runtimeDependencies": invocation
             .runtime_dependencies
             .iter()
-            .map(|dependency| runtime(dependency, &root, request.platform, manifest, &request.settings))
+            .map(|dependency| runtime(dependency, &root, platform, manifest, &request.settings))
             .collect::<Validation<Vec<_>>>()?,
         "version": invocation.version.as_ref().map(|probe| json!({ "arguments": probe.arguments })),
         "minimumVersion": invocation.minimum_version,

@@ -39,8 +39,8 @@ Issue #727 的 Maven 路径只保存在 Maven 面板中，不在系统 PATH 或 
 - `windows/tauri/src/features/run/stores/run-project-load.test.ts`：旧加载结果不能恢复已消除的告警。
 - `windows/tauri/src/features/run/stores/run-maven-context.test.ts`：实际启动等待相同工作区的 Maven 上下文。
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs -- src/features/run/services/resolve-run-project.test.ts src/features/run/stores/run-project-load.test.ts src/features/run/stores/run-maven-context.test.ts`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 

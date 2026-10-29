@@ -4,8 +4,8 @@
 //! build-system modules remain owned by their provider and bypass these defaults.
 
 use crate::protocol::CoreError;
+use crate::remote::workspace_io as fs;
 use std::collections::BTreeSet;
-use std::fs;
 use std::io;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
@@ -89,7 +89,8 @@ fn read_directory(path: &Path) -> io::Result<Vec<(PathBuf, bool, bool)>> {
         .collect()
 }
 
-fn scan_with_reader(
+// Crate-visible so remote integration tests can drop the link between reads.
+pub(crate) fn scan_with_reader(
     root: &Path,
     max_depth: Option<usize>,
     read: &impl Fn(&Path) -> io::Result<Vec<(PathBuf, bool, bool)>>,
@@ -127,6 +128,11 @@ fn visit_with_reader(
         let entries = match read(&path) {
             Ok(entries) => entries,
             Err(error) if path == root => return Err(CoreError::from(error)),
+            // A broken remote transport says nothing about this directory, and
+            // continuing would publish a model built from a truncated tree.
+            // Failures the host reports for one path stay explicit incomplete-scan
+            // evidence, exactly as they do for a local workspace.
+            Err(error) if fs::is_transport_failure(&error) => return Err(CoreError::from(error)),
             Err(_) => {
                 unreadable_paths.insert(relative(root, &path));
                 continue;

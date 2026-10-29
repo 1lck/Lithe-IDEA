@@ -61,7 +61,52 @@ Windows 使用 `ReplaceFileW` 保留原目标访问控制；macOS 复制元数�
 文件不存在时只有明确认可缺失状态才能重建，创建不能覆盖并发出现的新文件。
 Windows 新文件采用不带覆盖标志的原生移动提交，不能依赖硬链接，否则 FAT32、
 exFAT 等可写卷会无法另存新文件。macOS 保留自身的原生创建策略。
-符号链接、硬链接及不支持的对象直接拒绝；本地 UTF-8 文本限制为 32 MB。
+符号链接及不支持的对象直接拒绝；本地文本限制为 32 MB。Windows 保持原有
+硬链接拒绝策略；macOS 硬链接读取与保存选择见下一节，不能把读取放开误当作
+允许无条件替换或删除。
+
+### macOS 硬链接打开与单次保存确认（#1419）
+
+硬链接是同一个底层文件的多个路径名字，不是编码或二进制格式。`pom.xml`
+链接数为 2 时也可以正常读取，不能因为保存策略限制而提示“不是文本”。
+macOS 用不跟随最终符号链接、非阻塞的文件描述符打开，再检查实际对象类型
+和大小；这也避免路径变成命名管道后卡住文档队列。权限、缺失、目录、大小、
+解码、符号链接和非普通文件的打开失败分别显示本地化原因与下一步建议。成功解码但
+正文不是文本时，继续探测已注册的二进制查看器；解码失败只允许明确的二进制签名
+匹配打开查看器，不能仅凭扩展名掩盖编码错误。权限等读取失败不走查看器。日志只记录错误
+分类、domain 和 code，不记录文件内容或完整路径。
+
+硬链接允许编辑，但保存入口遇到链接数大于 1 时先返回类型化的确认要求。
+手动、关闭、运行前及编码转换保存共用此入口，用户每次选择：
+
+- 保存为独立文件：沿用同目录暂存与替换，只更新当前路径，其他名字仍指向原内容。
+- 更新所有硬链接：通过同一个读写文件描述符原地写入，再调整长度并同步；所有
+  指向该底层文件的名字都会受影响，可能包括工作区外的路径。
+- 取消：不写盘，保留未保存正文，并阻止依赖此次保存的关闭或运行操作继续。
+
+确认只绑定本次文档修订、路径、设备号、底层文件编号和链接数，不记住为长期
+偏好。平台端在写入前再次比较对象身份与原始字节基线，变化后拒绝写入，不能
+用用户确认跳过外部修改冲突。自动保存不弹模态确认、不复用上次选择，只保留
+脏状态并提示手动保存。本地/远程路由必须原样转发本地单次授权；远程目标不接受
+本地对象授权，不把它降级成传输层写入。原地写后（包括失败）主动核对其他打开路径，不能假定 watcher 会
+为每个别名发通知；其他标签有本地输入时仍走冲突保护，不直接覆盖。
+
+显式保存可能正在等待同一文档的自动保存检查。若自动保存因需要硬链接确认而
+停止，显式调用必须按自己的编码与确认策略重新进入受保护保存，不能只把
+“请手动保存”错误交还给已经点击保存的用户。重新进入前检查调用取消、会话、
+文档归属和位置代次；随后重新同步编辑器，确认最新修订并继续使用原有磁盘基线。
+例如自动检查 A 的旧输入时用户点击保存并继续输入 B，确认针对重新同步后的 B；
+不要复用 A 的快照，也不要把权限错误或冲突当作确认要求重试。取消确认仍保留
+草稿，自动保存本身不能因此获得弹窗或重试权限。
+
+例如两个路径 A/B 指向同一文件，保存 A 为独立文件后 B 不变；选择更新所有
+硬链接后 A/B 都是新内容。不要直接删除共享读取函数里的链接检查，从而让
+自动保存静默拆链，或让受保护回撤一并放宽：`trashDocument` 仍要求单链接。
+
+原地写不具备原子替换的崩溃安全性。系统中断或写入失败可能留下部分内容，
+弹窗必须事先说明；失败保留编辑器正文并明确提醒检查所有链接，不尝试回滚
+覆盖其他程序的新写入。非阻塞 advisory lock（只约束同样遵守锁的程序）与
+进程内锁都不能阻止任意外部写入，最终校验与提交之间仍有竞争窗口。
 
 手动、自动、关闭、运行和调试前保存通过同一个受保护入口。macOS 调用链等待
 异步保存结果，文件访问在后台队列执行。保存期间的新输入保留为未保存状态，
@@ -157,6 +202,8 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
   因此采用父目录观察加激活恢复。
 - 时间戳、长度或保存后短暂忽略都不能判断真实内容；跨程序强制加锁则破坏协作，
   而且各平台语义不同。保留内容基线并在原生提交前复查。
+- 拒绝读取所有硬链接会把正常 XML 误判为非文本；默认原地写会影响未知路径，
+  默认替换会静默拆链。因此允许读取，但两种写入影响均由用户逐次明确选择。
 
 ## 后果
 
@@ -174,15 +221,15 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
 ## 验证
 
 共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。
-运行 `./scripts/verify-shared-contracts.sh`、`./scripts/verify-rust-core.sh`、
-`./scripts/verify-core.sh` 和 `./scripts/verify-rust-core-comments.sh`。
+运行 `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`、
+`./scripts/architecture/verify-core.sh` 和 `./scripts/rust-core/verify-rust-core-comments.sh`。
 
-macOS 使用 `./scripts/test-macos.sh` 及
+macOS 使用 `./scripts/macos/test/test-macos.sh` 及
 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh`，验证等长同时间
 修改、缺失重建、过期基线、Unicode 字节差异、异步保存期间输入及关闭流程。
 `DocumentSaveBatchTests` 验证跨工作区保存后的新输入和新增会话；
 `MacDocumentObservationTests` 验证普通事件路径筛选、目录替换和丢失事件恢复。
-Windows 使用 `./scripts/build-windows.ps1 -Configuration Release`，以及
+Windows 使用 `./scripts/windows/build/build-windows.ps1 -Configuration Release`，以及
 `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1`；原生测试覆盖
 替换通知、多窗口释放、提交前变化与暂存清理，前端测试覆盖注册代次、保存延后
 核对和冲突选择。连续打断后的调度、保存等待和关闭取消使用手动调度器验证，
@@ -192,8 +239,19 @@ Windows 使用 `./scripts/build-windows.ps1 -Configuration Release`，以及
 交替使用有界测试门控制顺序。Windows CI 显式运行文档监听控制器测试，并在
 WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依赖包内的测试。
 
-边界和笔记分别使用 `./scripts/verify-service-boundaries.sh`、
-`./scripts/verify-windows-boundaries.sh`、`./scripts/verify-agent-notes.sh`。
+`DocumentHardLinkTests` 覆盖真实双硬链接读取、两种保存后的内容与底层文件身份、
+未确认不写盘、同内容替换/链接数变化后的授权失效、确认后外部修改冲突，以及
+大小、权限、解码和特殊文件错误。`DocumentOpenAndHardLinkWorkflowTests` 覆盖
+每次保存重新确认、取消保留输入、自动保存暂停、关闭取消、模态期间新输入、
+编码重开取消、别名标签刷新与脏别名冲突、独立文件打开和读取错误不误调用二进制查看器。
+自动与显式保存重叠时，用有界原生检查门和同步编辑器回调固定先后顺序，覆盖
+两种确认选择、显式编码、最新输入与磁盘基线、取消确认、取消等待、会话重置、
+关闭、移走再移回及普通 I/O 错误不重试。
+`RemoteWorkspaceRoutingTests` 覆盖生产路由转发本地两种保存授权和拒绝远程使用本地授权；
+计时报告不替代真实弹窗操作验收。
+
+边界和笔记分别使用 `./scripts/architecture/verify-service-boundaries.sh`、
+`./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
 实际运行结果和未通过的既有测试写入交付说明；单元测试不冒充完整产品界面验收。
 
 ## 适用范围

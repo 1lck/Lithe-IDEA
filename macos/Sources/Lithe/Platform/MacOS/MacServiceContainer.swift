@@ -14,12 +14,21 @@ import LitheTerminalModule
 import LitheWorkspaceModule
 
 private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
+    let registry: RemoteWorkspaceRegistry
+    let transport: any RemoteWorkspaceTransport
+
     func make(
         configuration: DirectoryWatchConfiguration,
         visibilityRules: FileVisibilityRules,
         onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void
     ) -> any DirectoryChangeSource {
-        MacDirectoryWatcher(
+        if let binding = registry.resolve(configuration.workspaceRoot)?.binding {
+            return RemoteDirectoryObservation(
+                configuration: configuration, visibilityRules: visibilityRules,
+                binding: binding, registry: registry, transport: transport, onChange: onChange
+            )
+        }
+        return MacDirectoryWatcher(
             configuration: configuration,
             visibilityRules: visibilityRules,
             onChange: onChange
@@ -89,8 +98,10 @@ final class MacServiceContainer {
                 fields: ["operation_id": event.operationId, "duration_ms": event.durationMilliseconds.map(String.init) ?? "",
                     "exit_code": event.exitCode.map(String.init) ?? "", "error_code": event.error?.code ?? ""])
         }
+        let remoteWorkspaces = RemoteWorkspaceRegistry()
         let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences,
-                                      gitExecutionJournal: gitExecutionJournal)
+                                      gitExecutionJournal: gitExecutionJournal,
+                                      remoteWorkspaces: remoteWorkspaces)
         let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".m2/repository", isDirectory: true)
         let gradleRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -112,7 +123,6 @@ final class MacServiceContainer {
         let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
         // Remote workspaces open under an empty placeholder root; both file
         // ports route every URL below such a root to the connected host.
-        let remoteWorkspaces = RemoteWorkspaceRegistry()
         let remoteOperations = RustRemoteConnectionOperations(core: rustCore)
         // Core owns the OpenSSH trees; closing them at exit also stops the
         // remote servers they carry.
@@ -251,6 +261,23 @@ final class MacServiceContainer {
                 debugAdapterSessionsBox.stopSessions(ofPlugin: pluginID)
             }
         }
+        let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)
+        let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
+        #if DEBUG
+        pluginMarketplaceTransport = MacPluginMarketplaceFixtureTransport.fromEnvironment()
+            ?? MacURLSessionPluginMarketplaceTransport()
+        #else
+        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport()
+        #endif
+        let remotePluginPackages = MacRemotePluginPackageDeployer(
+            installed: pluginStartup.registeredPlugins,
+            makeStore: { architecture in
+                MacPluginPackageStore(rootURL: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/Plugins"),
+                    validator: declarativePluginOperations, architecture: architecture)
+            },
+            evaluator: pluginMarketplaceEvaluator, transport: pluginMarketplaceTransport,
+            host: remoteOperations, temporaryDirectory: fileStorage.temporaryDirectory()
+        )
         let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
         let moduleRegistry = ModuleRegistry(
             runtime: moduleRuntime,
@@ -293,7 +320,20 @@ final class MacServiceContainer {
                             preferredAppearanceIsDark: { settings.themePreference.preferredIsDark }
                         )
                     },
-                    shellDiscovery: { MacTerminalTransport.availableShells() }
+                    workspaceTerminalFactory: { root in
+                        let renderer = MacTerminalTransport(
+                            scrollbackLines: settings.terminalScrollbackLines,
+                            preferredAppearanceIsDark: { settings.themePreference.preferredIsDark }
+                        )
+                        guard let resolved = remoteWorkspaces.resolve(root) else { return renderer }
+                        return MacRemoteTerminalTransport(renderer: renderer, binding: resolved.binding,
+                                                          transport: remoteOperations)
+                    },
+                    shellDiscovery: { MacTerminalTransport.availableShells() },
+                    workspaceShellDiscovery: { root in
+                        guard let resolved = remoteWorkspaces.resolve(root) else { return nil }
+                        return try await MacRemoteShellDiscovery.discover(session: resolved.binding.sessionID, host: remoteOperations)
+                    }
                 )
             })
         } catch {
@@ -302,7 +342,13 @@ final class MacServiceContainer {
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store,
-            toolDiscovery: MacRuntimeToolDiscovery()
+            toolDiscovery: MacRuntimeToolDiscovery(),
+            javaSelector: rustCore,
+            workspaceRuntime: { root in
+                guard let binding = remoteWorkspaces.binding(forRoot: root) else { return nil }
+                let locator = MacRemoteRuntimeLocator(binding: binding, host: remoteOperations)
+                return (locator, locator)
+            }
         )
         let languageServerCacheDirectory = fileStorage.cacheDirectory()
             .appendingPathComponent("Lithe/language-servers", isDirectory: true)
@@ -326,23 +372,29 @@ final class MacServiceContainer {
         // Provider processes of plugin build systems, one per plugin, build
         // system, and workspace. Created eagerly so the language sessions
         // can be connected; nothing starts until a model or dependency load.
+        let remotePluginLaunches = MacRemotePluginLaunchPreparer(registry: remoteWorkspaces, packages: remotePluginPackages,
+            host: remoteOperations, planner: declarativePluginOperations, resolver: pluginLaunchResolver, core: rustCore)
+        let providerTools = MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage,
+            registry: remoteWorkspaces, remoteFiles: remoteOperations, remoteProcesses: remoteOperations)
         let buildProviderSessions = MacBuildProviderSessions(
             launchResolver: pluginLaunchResolver,
-            tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+            tools: providerTools,
             versionChecker: declarativePluginOperations,
             runtime: runtimeService,
             core: rustCore,
-            processRegistry: processRegistry
+            processRegistry: processRegistry,
+            remoteLaunches: remotePluginLaunches
         )
         // Provider processes of plugin VCS providers, one per plugin, VCS,
         // and workspace; one starts on the first request for a detected root.
         let vcsProviderSessions = MacVcsProviderSessions(
             launchResolver: pluginLaunchResolver,
-            tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+            tools: providerTools,
             versionChecker: declarativePluginOperations,
             runtime: runtimeService,
             core: rustCore,
-            processRegistry: processRegistry
+            processRegistry: processRegistry,
+            remoteLaunches: remotePluginLaunches
         )
         // Plugin backends, one per plugin for the whole application: the
         // first project window creates them, and every window registers the
@@ -439,6 +491,13 @@ final class MacServiceContainer {
                             try pluginLaunchResolver.resolve(source, workspaceRootURL: rootURL)
                         },
                         languageServerCacheDirectory: languageServerCacheDirectory,
+                        workspaceSessionFactory: { descriptor, root in
+                            LanguageServerRuntimeSession(providerID: descriptor.launchSource?.languageID ?? "remote",
+                                executableURL: root, arguments: [], environment: [:], prepareProcess: { workspace in
+                                    try await remotePluginLaunches.prepareLanguage(descriptor, workspaceURL: workspace,
+                                        tools: providerTools, versionChecker: declarativePluginOperations)
+                                }, core: rustCore, processRegistry: processRegistry, pluginID: descriptor.launchSource?.pluginID)
+                        },
                         processRegistry: processRegistry
                     )
                     let runtimes = languagePackDefinitions.packs
@@ -463,12 +522,14 @@ final class MacServiceContainer {
                                 .contains(providerID)
                         },
                         workspaceFingerprintProvider: { descriptor, workspaceRootURL in
-                            try languageServerHostIntegrations.workspaceFingerprint(
+                            if remoteWorkspaces.contains(workspaceRootURL) { return nil }
+                            return try languageServerHostIntegrations.workspaceFingerprint(
                                 for: descriptor,
                                 workspaceRootURL: workspaceRootURL
                             )
                         },
                         workspaceStateResetter: { descriptor, workspaceRootURL, fingerprint in
+                            guard !remoteWorkspaces.contains(workspaceRootURL) else { throw CocoaError(.featureUnsupported) }
                             try languageServerHostIntegrations.resetWorkspaceState(
                                 for: descriptor,
                                 workspaceRootURL: workspaceRootURL,
@@ -476,7 +537,8 @@ final class MacServiceContainer {
                             )
                         },
                         workspaceStateCleaner: { descriptor, workspaceRootURL, fingerprint in
-                            try languageServerHostIntegrations.pruneWorkspaceState(
+                            if remoteWorkspaces.contains(workspaceRootURL) { return 0 }
+                            return try languageServerHostIntegrations.pruneWorkspaceState(
                                 for: descriptor,
                                 workspaceRootURL: workspaceRootURL,
                                 fingerprint: fingerprint
@@ -530,14 +592,19 @@ final class MacServiceContainer {
                         tools: MacBuildToolResolver(
                             runtime: runtimeService,
                             processRunner: processRunner,
-                            fileStorage: fileStorage
+                            fileStorage: fileStorage,
+                            registry: remoteWorkspaces,
+                            remoteFiles: remoteOperations,
+                            remoteProcesses: remoteOperations
                         ),
                         optionsStore: MacBuildOptionsStore(store: store),
-                        stateLocator: MacBuildSystemStateLocator(
+                        stateLocator: MacRemoteBuildStateLocator(local: MacBuildSystemStateLocator(
                             directories: MacPluginStateDirectories(fileStorage: fileStorage),
                             fileStorage: fileStorage
-                        ),
-                        runner: MacBuildCommandRunner(processRegistry: processRegistry),
+                        ), registry: remoteWorkspaces, host: remoteOperations, packages: remotePluginPackages),
+                        runner: MacRemoteBuildCommandRunner(
+                            local: MacBuildCommandRunner(processRegistry: processRegistry),
+                            registry: remoteWorkspaces, host: remoteOperations),
                         providers: buildProviderSessions,
                         runLauncher: runService,
                         settings: { pluginSettings.values(forPlugin: $0) },
@@ -840,7 +907,6 @@ final class MacServiceContainer {
             chooseFile: MacPluginWebFileDialog.choose
         )
         pluginWebPageLifecycle.register(pluginWebPages)
-        let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)
         let pluginManager = MacPluginManager(
             packageStore: pluginPackageStore,
             moduleRuntime: moduleRuntime,
@@ -892,13 +958,6 @@ final class MacServiceContainer {
             },
             livePlugins: livePlugins
         )
-        let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
-        #if DEBUG
-        pluginMarketplaceTransport = MacPluginMarketplaceFixtureTransport.fromEnvironment()
-            ?? MacURLSessionPluginMarketplaceTransport()
-        #else
-        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport()
-        #endif
         let pluginMarketplace = MacPluginMarketplaceService(
             evaluator: pluginMarketplaceEvaluator,
             packageStore: pluginPackageStore,
@@ -1016,7 +1075,7 @@ final class MacServiceContainer {
             directoryMarkStore: directoryMarkStore,
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
             workbenchBackgroundPlatform: MacWorkbenchBackgroundPlatform(store: store),
-            directoryWatcherFactory: MacDirectoryWatcherFactory(),
+            directoryWatcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport),
             platformUI: platformUI,
             shortcutDetectorFactory: MacShortcutDetectorFactory(),
             debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry),
@@ -1043,7 +1102,7 @@ final class MacServiceContainer {
                 mappingStore: MacVcsRootMappingStore(store: store),
                 readFile: { url in try? fileStorage.readData(from: url, options: .mappedIfSafe) },
                 fileExists: { url in fileStorage.fileExists(at: url) },
-                metadataWatcherFactory: MacDirectoryWatcherFactory(),
+                metadataWatcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport),
                 sources: {
                     // Enablement is read on every detection, so turning a
                     // plugin off takes its roots away at once.

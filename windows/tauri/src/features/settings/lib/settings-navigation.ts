@@ -221,6 +221,8 @@ export const settingsCategories: Array<{
       "settings.git.folderChanges",
       "settings.git.untracked",
       "settings.git.stagedFirst",
+      "settings.git.showChangelists",
+      "settings.git.showParentReferences",
       "settings.git.openDiff",
       "settings.git.compactBadges",
       "settings.git.collapseEmpty",

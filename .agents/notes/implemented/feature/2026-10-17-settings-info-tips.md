@@ -71,12 +71,12 @@ Issue 举的是通用、Git 和 Agent 管理三个页面，但同类常驻说明
 
 ## 验证
 
-- `./scripts/test-macos.sh --filter ContextMenuCoverageTests`：深浅主题下，已请求打开的弹层先在窗口外创建，再挂载锚点，必须自动显示；移除锚点必须关闭。
+- `./scripts/macos/test/test-macos.sh --filter ContextMenuCoverageTests`：深浅主题下，已请求打开的弹层先在窗口外创建，再挂载锚点，必须自动显示；移除锚点必须关闭。
 
-- `./scripts/test-macos.sh --filter GitSettingsPresentationTests` 与 `cargo test --manifest-path rust/Cargo.toml -p lithe-core git::configuration::`（Git 布尔等价写法、无值/空值、原始编辑值不变、远程覆盖以及 prune/all/none/reachable 回显）
-- `./scripts/test-macos.sh --filter SettingsSearchVocabularyTests`
-- `./scripts/test-macos.sh --filter SettingsSidebarLayoutTests`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/macos/test/test-macos.sh --filter GitSettingsPresentationTests` 与 `cargo test --manifest-path rust/Cargo.toml -p lithe-core git::configuration::`（Git 布尔等价写法、无值/空值、原始编辑值不变、远程覆盖以及 prune/all/none/reachable 回显）
+- `./scripts/macos/test/test-macos.sh --filter SettingsSearchVocabularyTests`
+- `./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - 实机打开设置通用、Git 和 Agents 页：默认只显示标签和 ⓘ；悬停约半秒出现说明，移开关闭；点击图标固定；用 Tab 聚焦后 Space/Return 打开；错误、警告和空态仍然直接可见。
 - 实机打开编辑器页：下拉框和步进器贴内容区右缘；切换字体后旧字体和新字体并列显示约 2.5 秒再淡出；调整字号时预览同步变化。
 - 实机打开 Git 行为与配置：设置名、当前生效值、下拉框和重置/应用按钮在同一行，短选项下拉框宽度收窄；缩窄窗口后当前生效值换行但按钮不被裁切。

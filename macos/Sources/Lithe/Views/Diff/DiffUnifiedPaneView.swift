@@ -4,10 +4,11 @@ import LitheGitModule
 /// Presentation only: replacements show the existing old row then the existing new row.
 /// No comparison, navigation ID, or repository state is changed by the viewer toggle.
 struct DiffUnifiedLayout {
-    let identity = UUID()
     let items: [DiffSplitLayout.Item]
     let height: CGFloat
     let stripeLayout: DiffSplitLayout
+    /// Derived from the content like the split layout's, so re-rendering reuses the prepared text.
+    var identity: DiffSplitLayout.Identity { stripeLayout.identity }
 
     init(rows: [DiffRow], displayRows: [DiffDisplayRow]? = nil,
          fontFamily: String = EditorFontDefaults.monospacedFamily) {

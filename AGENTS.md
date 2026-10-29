@@ -28,7 +28,7 @@
 - 运行时缓存、索引、OSGi/Eclipse 状态、下载物、解压物、插件状态、日志和锁文件，必须通过平台存储/缓存 adapter 放到 Caches、Application Support、临时目录或用户工作区；不得从 `Bundle.main.resourceURL`、`resource_dir()` 或安装目录推导可写目标。
 - 资源解析器可以从 bundle 读取固定输入，但写入前必须证明目标是平台可写目录；不要用“启动前清理 bundle”修复，因为进程崩溃、权限和并发更新都可能留下不同基线。
 - 每个新增资源路径都要在代码或 Agent Note 中说明生命周期、所有权、可写位置、是否会影响代码签名和 Sparkle delta，并为典型启动/工作流增加 bundle 文件清单或哈希不变的验证。
-- 代码审查和测试必须运行 `scripts/verify-runtime-bundle-immutability.sh`；macOS 生产路径和 Windows/Tauri 资源解析路径都要覆盖。发现运行时写入发行目录时，先迁移到平台存储 adapter，再继续功能开发。
+- 代码审查和测试必须运行 `scripts/macos/verify/verify-runtime-bundle-immutability.sh`；macOS 生产路径和 Windows/Tauri 资源解析路径都要覆盖。发现运行时写入发行目录时，先迁移到平台存储 adapter，再继续功能开发。
 
 ## 界面文案必须走统一 i18n 接口
 
@@ -39,10 +39,10 @@
 - macOS：视图里的字面量交给 SwiftUI（`Text("…")` 等）；视图之外（错误、`NSAlert`、通知、`errorDescription`、
   字符串参数）一律用 `L10n.string("…")`。禁止直接使用 `String(localized:)`、`NSLocalizedString`，
   禁止用 `locale:` 代替语言选择（它只影响数字和日期格式）。
-- 新增文案时，同一次改动里在 `shared/i18n/` 补齐中英词条，运行 `node scripts/generate-i18n.mjs`，
+- 新增文案时，同一次改动里在 `shared/i18n/` 补齐中英词条，运行 `node scripts/i18n/generate-i18n.mjs`，
   提交生成结果；不要手改 `Localizable.strings` 或 `*.generated.*`。
-- 提交前必须运行 `node scripts/verify-app-language-localization.mjs` 和
-  `node scripts/generate-i18n.mjs --check`。检查失败时补词条或改用 `L10n`，
+- 提交前必须运行 `node scripts/i18n/verify-app-language-localization.mjs` 和
+  `node scripts/i18n/generate-i18n.mjs --check`。检查失败时补词条或改用 `L10n`，
   不得通过放宽脚本、扩大豁免名单或跳过检查来通过。
 - 上游诊断、用户内容、Agent 返回内容不是界面翻译，不要改写（见 `shared/i18n/README.md`）。
 
@@ -74,14 +74,20 @@
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
 5. 提交 PR 时默认创建 Draft PR（`gh pr create --draft`）。Draft PR 只运行 Linux 检查，不占用 macOS 和 Windows runner。开发完成、本地验证通过、可以评审时，再用 `gh pr ready` 标记为 ready，这时才会运行完整 CI。标记为 ready 之后，把修改攒在一起再 push：每次 push 都会重新运行完整 CI，并取消上一轮还没跑完的 CI。仓库曾因 Actions 用量过高被 GitHub 判定为滥用，所以不要为了看 CI 结果而反复 push；能在本地验证的先在本地验证。
 
+## 脚本放置与分类
+
+新增、移动脚本前，先阅读 `develop-lithe` Skill 的“脚本放置与分类”一节。脚本必须放在 `scripts/` 下，
+并按作用语义放进对应子目录（CI 脚本在 `scripts/ci/<工作流名>/` 下），不得直接放在 `scripts/` 根目录。
+入口文件只保留这条提醒，目录表和同步清单以 Skill 为准。
+
 ## 工作树资源复用与文档维护
 
 - Git worktree 之间不共享各自的 `.artifacts`。单独工作树进行本地编译时，优先
-  通过 `scripts/reuse-worktree-resources.mjs --source <已有工作树>` 复用资源，不要
+  通过 `scripts/resources/reuse-worktree-resources.mjs --source <已有工作树>` 复用资源，不要
   手工搬运或直接共享整个 `.artifacts`。脚本必须保持源目录只读，通过目标临时
   目录完成校验，并在原子发布后再次校验。
 - 新增或修改任何下载、解压、生成或缓存资源时，必须同步更新
-  `scripts/worktree-resources.json`、`scripts/reuse-worktree-resources.mjs` 的校验路由、
+  `scripts/resources/worktree-resources.json`、`scripts/resources/reuse-worktree-resources.mjs` 的校验路由、
   对应测试，以及 `docs/ci-builds.md` 的“独立工作树的本地编译”章节。更新内容
   至少包括资源路径、是否允许跨 worktree 复用、版本/平台/架构/工具链身份约束、
   校验来源、复制时机，以及不能共享时的隔离原因。
@@ -107,7 +113,7 @@
 - 修改 `shared/contracts/plugins/v1/` 下任何文件（README、schema、fixture）的 PR 合并后，在
   lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`
   并提交。不要在 lithe-plugin-docs 里直接改副本。
-- 契约 README 里指向该目录以外的链接必须写成绝对 URL；`scripts/verify-shared-contracts.sh`
+- 契约 README 里指向该目录以外的链接必须写成绝对 URL；`scripts/architecture/verify-shared-contracts.sh`
   会拒绝离开该目录的相对链接。
 - 面向插件开发者的新说明写进 lithe-plugin-docs，不写进本仓库或 Lithe Store。
 - 本仓库不保存 SDK。修改插件后端协议（例如 `rust/lithe-core/src/lsp/interface/plugin_function.rs`）时，

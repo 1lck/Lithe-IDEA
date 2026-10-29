@@ -109,11 +109,11 @@ Swift 功能模型负责草稿与 UI 状态，Rust Core 负责严格命令分派
   严格请求；Swift 与 TypeScript 读取同一个跨平台 fixture。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentHooks|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests|ContextMenuCoverageTests'`。
-- `./scripts/verify-runtime-bundle-immutability.sh`、`./scripts/verify-service-boundaries.sh`、
-  `./scripts/verify-shared-contracts.sh`、`./scripts/verify-agent-notes.sh`、
-  `./scripts/verify-platform-feature-matrix.sh`。
-- `node --test scripts/test-reuse-worktree-resources.mjs`。
-- `./scripts/verify-rust-core.sh` 全量通过，含 1,157 项 Core 单元测试、C ABI、
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/architecture/verify-service-boundaries.sh`、
+  `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、
+  `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
+- `node --test scripts/resources/test-reuse-worktree-resources.mjs`。
+- `./scripts/rust-core/verify-rust-core.sh` 全量通过，含 1,157 项 Core 单元测试、C ABI、
   链接符号和 Git/Swift 桥接；更新后的实际 macOS 开发预览已确认 AI > Hooks 入口。
 - 本机隔离用户目录 smoke：Codex 0.160.0 通过原生 `hooks/list` 识别生成
   的配置，初始保持未信任，临时目录中显式设置原生信任后首轮触发

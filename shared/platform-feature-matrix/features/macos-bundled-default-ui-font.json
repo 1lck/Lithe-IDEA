@@ -13,7 +13,7 @@
       "macos/Sources/Lithe/LitheApp.swift",
       "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
       "macos/EditorFrontend/index.html",
-      "scripts/verify-macos-package.sh",
+      "scripts/macos/verify/verify-macos-package.sh",
       "macos/Tests/LitheTests/BundledUIFontTests.swift"
     ]
   },

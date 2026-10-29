@@ -34,7 +34,7 @@ final class DiffNativeColumnState: ObservableObject {
         let range: NSRange
         let sourceNumber: Int?
     }
-    private var identity: UUID?
+    private var identity: DiffSplitLayout.Identity?
     private var fileExtension = ""
     private var dark = false
     private var highlightsWords = false
@@ -59,7 +59,7 @@ final class DiffNativeColumnState: ObservableObject {
         gutter?.needsDisplay = true
     }
 
-    func prepare(identity: UUID, items: [DiffSplitLayout.Item], side: DiffSide,
+    func prepare(identity: DiffSplitLayout.Identity, items: [DiffSplitLayout.Item], side: DiffSide,
                  fileExtension: String, highlightsWords: Bool, dark: Bool, unified: Bool = false,
                  fontFamily: String = EditorFontDefaults.monospacedFamily) {
         guard self.identity != identity || self.fileExtension != fileExtension
@@ -152,7 +152,7 @@ final class DiffNativeColumnState: ObservableObject {
 
 struct DiffNativeCodeColumn: NSViewRepresentable {
     let state: DiffNativeColumnState
-    let layoutIdentity: UUID
+    let layoutIdentity: DiffSplitLayout.Identity
     let items: [DiffSplitLayout.Item]
     let side: DiffSide
     let fileExtension: String
@@ -162,6 +162,7 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
     let fontFamily: String
     var unified = false
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeNSView(context: Context) -> DiffNativeTextView {
         let view = DiffNativeTextView(frame: .zero)
@@ -186,6 +187,8 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
     }
 
     func updateNSView(_ view: DiffNativeTextView, context: Context) {
+        view.isSelectable = isEnabled
+        if !isEnabled, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
         state.prepare(identity: layoutIdentity, items: items, side: side,
             fileExtension: fileExtension, highlightsWords: highlightsWords, dark: colorScheme == .dark,
             unified: unified, fontFamily: fontFamily)
@@ -207,6 +210,8 @@ final class DiffNativeTextView: NSTextView, NSTextViewDelegate {
     var column: DiffNativeColumnState?
     var appliedRevision = -1
     private let menuPresenter = LitheContextMenuPresenter()
+
+    override var acceptsFirstResponder: Bool { isSelectable && super.acceptsFirstResponder }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()

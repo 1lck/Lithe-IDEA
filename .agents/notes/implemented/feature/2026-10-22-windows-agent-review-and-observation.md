@@ -36,8 +36,8 @@ Agent 上报的差异只是证据，不能直接当成可覆盖整个文件的�
 
 - `windows/tauri` 中运行 `bun run typecheck` 与 Agent 前端测试，覆盖片段歧义、精确创建、外部变化、重放、统计去重和重叠计时。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust` 覆盖平台文档路径、身份检查与受保护移除。
-- 交互式 Windows 会话运行 `./scripts/test-windows-agent-recycle.ps1`：使用真实 Shell 回收一个独占临时工作区中的中文文件名，检查回收站条目与字节，再仅恢复和清理该工作区的条目。原生调用有 15 秒期限，Shell 恢复轮询有 10 秒期限，报告含验收与清理耗时；常规 Rust 套件跳过此显式验收。
-- `node scripts/test-reuse-worktree-resources.mjs` 验证图片缓存不能跨工作树复用，缓存不属于发行资源。
+- 交互式 Windows 会话运行 `./scripts/windows/test/test-windows-agent-recycle.ps1`：使用真实 Shell 回收一个独占临时工作区中的中文文件名，检查回收站条目与字节，再仅恢复和清理该工作区的条目。原生调用有 15 秒期限，Shell 恢复轮询有 10 秒期限，报告含验收与清理耗时；常规 Rust 套件跳过此显式验收。
+- `node scripts/resources/test-reuse-worktree-resources.mjs` 验证图片缓存不能跨工作树复用，缓存不属于发行资源。
 - 桌面验收必须检查实际文件字节、原生回收站路径和发行资源前后哈希；单元测试不替代这些运行时证据。
 
 ## 适用范围

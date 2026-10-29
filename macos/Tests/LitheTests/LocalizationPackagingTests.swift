@@ -88,7 +88,7 @@ private struct LocalizationPackagingFixture {
     func package(source: URL, destination: URL) -> ProcessResult {
         MacProcessRunner().run(ProcessRequest(
             executablePath: "/bin/zsh",
-            arguments: [repository.appendingPathComponent("scripts/package-macos-localizations.sh").path,
+            arguments: [repository.appendingPathComponent("scripts/macos/package/package-macos-localizations.sh").path,
                         source.path, destination.path],
             timeoutMilliseconds: 5_000
         ))

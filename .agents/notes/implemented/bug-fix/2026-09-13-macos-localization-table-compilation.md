@@ -20,7 +20,7 @@ SwiftUI（macOS 界面框架）接收显式语言环境后，所调用的 Founda
 
 ## 决策
 
-三个打包入口调用 `scripts/package-macos-localizations.sh`，复制英语、简体中文资源后，通过系统的 `plutil` 工具转换 `.strings` 和 `.stringsdict` 文件。
+三个打包入口调用 `scripts/macos/package/package-macos-localizations.sh`，复制英语、简体中文资源后，通过系统的 `plutil` 工具转换 `.strings` 和 `.stringsdict` 文件。
 转换失败或缺失必要语言资源时，打包立即失败，避免交付未优化或缺少翻译的应用。
 转换必须发生在代码签名前，不能修改已经签名或正在运行的应用。
 
@@ -44,19 +44,19 @@ CI 分类将翻译打包脚本映射到 Swift 回归测试与 macOS 双架构打
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter LocalizationPackagingTests`
-- `./scripts/build-macos.sh --configuration debug`
-- `./scripts/preview.sh`：确认输出包的翻译文件为二进制，检查四个面板切换与中英文往返切换。
-- `./scripts/verify-agent-notes.sh`
-- `./scripts/test-classify-ci-changes.sh`
+- `./scripts/macos/build/build-macos.sh --configuration debug`
+- `./scripts/macos/build/preview.sh`：确认输出包的翻译文件为二进制，检查四个面板切换与中英文往返切换。
+- `./scripts/agent-notes/verify-agent-notes.sh`
+- `./scripts/ci/common/test-classify-ci-changes.sh`
 
 性能对照应固定应用可执行文件、项目、语言和操作序列，仅改变打包后的翻译格式。记录采样窗口和平台，不把样本数量当作精确点击耗时。
 
 ## 适用范围
 
-- `scripts/package-macos-localizations.sh`
-- `scripts/package-app.sh`
-- `scripts/preview.sh`
-- `scripts/measure-macos-performance-baseline.sh`
+- `scripts/macos/package/package-macos-localizations.sh`
+- `scripts/macos/package/package-app.sh`
+- `scripts/macos/build/preview.sh`
+- `scripts/macos/perf/measure-macos-performance-baseline.sh`
 - `macos/Tests/LitheTests/LocalizationPackagingTests.swift`
 - `macos/Resources/en.lproj/Localizable.strings`
 - `macos/Resources/zh-Hans.lproj/Localizable.strings`

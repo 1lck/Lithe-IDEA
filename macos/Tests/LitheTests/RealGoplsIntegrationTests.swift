@@ -1,7 +1,7 @@
 // Real gopls integration: exercises the manager, Swift semantic facade, and a
 // real process-owning Rust Core. Disabled by default; run explicitly with:
 //
-//   scripts/build-rust-core.sh --debug --target aarch64-apple-darwin
+//   scripts/rust-core/build-rust-core.sh --debug --target aarch64-apple-darwin
 //
 //   LITHE_RUN_GOPLS_INTEGRATION=1 \
 //   LITHE_GOPLS_PATH="$HOME/.go/bin/gopls" \

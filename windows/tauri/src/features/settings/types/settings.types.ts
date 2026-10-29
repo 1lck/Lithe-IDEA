@@ -205,6 +205,10 @@ export interface Settings {
   autoRefreshGitStatus: boolean;
   showUntrackedFiles: boolean;
   showStagedFirst: boolean;
+  /** Windows-only: shows the Commit panel's ChangeList selector and groups. */
+  showGitChangelists: boolean;
+  /** Windows-only: shows the "update parent repository references" option. */
+  showGitParentReferences: boolean;
   gitDefaultDiffView: "unified" | "split";
   openDiffOnClick: boolean;
   showGitStatusInFileTree: boolean;

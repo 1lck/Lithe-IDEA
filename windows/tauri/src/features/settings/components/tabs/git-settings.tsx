@@ -27,6 +27,8 @@ export const GitSettings = () => {
       gitDefaultDiffView: state.settings.gitDefaultDiffView,
       openDiffOnClick: state.settings.openDiffOnClick,
       showStagedFirst: state.settings.showStagedFirst,
+      showGitChangelists: state.settings.showGitChangelists,
+      showGitParentReferences: state.settings.showGitParentReferences,
       showUntrackedFiles: state.settings.showUntrackedFiles,
     })),
   );
@@ -174,6 +176,38 @@ export const GitSettings = () => {
           <Switch
             checked={settings.showStagedFirst}
             onChange={(checked) => updateSetting("showStagedFirst", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={t("settings.git.showChangelists")}
+          description={t("settings.git.showChangelistsDescription")}
+          onReset={() =>
+            updateSetting("showGitChangelists", getDefaultSetting("showGitChangelists"))
+          }
+          canReset={settings.showGitChangelists !== getDefaultSetting("showGitChangelists")}
+        >
+          <Switch
+            checked={settings.showGitChangelists}
+            onChange={(checked) => updateSetting("showGitChangelists", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={t("settings.git.showParentReferences")}
+          description={t("settings.git.showParentReferencesDescription")}
+          onReset={() =>
+            updateSetting("showGitParentReferences", getDefaultSetting("showGitParentReferences"))
+          }
+          canReset={
+            settings.showGitParentReferences !== getDefaultSetting("showGitParentReferences")
+          }
+        >
+          <Switch
+            checked={settings.showGitParentReferences}
+            onChange={(checked) => updateSetting("showGitParentReferences", checked)}
             size="sm"
           />
         </SettingRow>

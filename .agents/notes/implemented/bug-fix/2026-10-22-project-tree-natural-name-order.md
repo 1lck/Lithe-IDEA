@@ -56,7 +56,7 @@ macOS 项目树的主路径是 Rust Core 的目录列表，兜底扫描只在 Co
 ## 验证
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib file_name_order`：共享 fixture、特殊字符的全序检查、`workspace.listDirectories` 的目录优先与版本号顺序，以及快照 `files`（含与不含 `includeTree`）保持遍历顺序。
-- `./scripts/test-macos.sh --filter ProjectTreeNameOrderTests`：fixture、兜底扫描和新增文件的位置；另需运行 `GitGraphLayoutTests` 确认分支名排序不变。
+- `./scripts/macos/test/test-macos.sh --filter ProjectTreeNameOrderTests`：fixture、兜底扫描和新增文件的位置；另需运行 `GitGraphLayoutTests` 确认分支名排序不变。
 - 在 macOS 打开含 `docs/releases/v0.1.4.md`、`v0.1.12.md` 的仓库，确认树中 `v0.1.4` 在 `v0.1.12` 之前，并在外部新建 `v0.1.5.md` 后插入到 `v0.1.4` 与 `v0.1.12` 之间。
 
 ## 适用范围

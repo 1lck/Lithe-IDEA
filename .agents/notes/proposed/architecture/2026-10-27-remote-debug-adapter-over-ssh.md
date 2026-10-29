@@ -212,7 +212,7 @@
 - 首帧噪声：噪声后接正常帧能成功；超过 64 KiB 或没有 `Content-Length:` 时会话结束并返回被丢弃输出；进入帧流之后的格式错误仍然报错。
 - ssh 失败分类：每一类用固定 stderr 样本测试，原文被保留。
 - 平台集成测试使用**假 ssh 可执行文件**（有界等待），验证确认弹窗每次出现、结束后没有残留的 ssh 进程、断开时发送了正确的 `terminateDebuggee`。
-- 契约、README、schema、fixture 更新；`shared/i18n/` 补齐中英词条并通过 `node scripts/generate-i18n.mjs --check`；功能矩阵 `plugin-debug-adapters` 增补说明；合并后同步 lithe-plugin-docs。
+- 契约、README、schema、fixture 更新；`shared/i18n/` 补齐中英词条并通过 `node scripts/i18n/generate-i18n.mjs --check`；功能矩阵 `plugin-debug-adapters` 增补说明；合并后同步 lithe-plugin-docs。
 - 真机验收：一台 Linux 主机上的 `gdb -i=dap`（设断点、命中、栈帧对应本地源码、单步、结束、断线）。
 
 ## 风险
@@ -226,12 +226,12 @@
 
 ## 验证
 
-本轮只更新范围和设计说明，运行 `./scripts/verify-agent-notes.sh` 与 `git diff --check`；不提供 SSH、隧道或远端调试的运行验收证据。路径映射的核对依据为 [debugpy 1.8.22 的客户端路径转换](https://github.com/microsoft/debugpy/blob/v1.8.22/src/debugpy/_vendored/pydevd/pydevd_file_utils.py#L844-L901)。未来实施时加载 `write-stable-tests`，再按上面的验收标准执行对应平台测试和真机流程。
+本轮只更新范围和设计说明，运行 `./scripts/agent-notes/verify-agent-notes.sh` 与 `git diff --check`；不提供 SSH、隧道或远端调试的运行验收证据。路径映射的核对依据为 [debugpy 1.8.22 的客户端路径转换](https://github.com/microsoft/debugpy/blob/v1.8.22/src/debugpy/_vendored/pydevd/pydevd_file_utils.py#L844-L901)。未来实施时加载 `write-stable-tests`，再按上面的验收标准执行对应平台测试和真机流程。
 
 ## 适用范围
 
 - `rust/lithe-core/src/debug/`
-- `rust/lithe-remote-client/src/transport.rs`
+- `rust/lithe-remote/src/client/transport.rs`
 - `shared/contracts/plugins/v1/`
 - `macos/Sources/Lithe/Platform/MacOS/Debug/`
 - `shared/i18n/`

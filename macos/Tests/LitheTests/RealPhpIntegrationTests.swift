@@ -4,7 +4,7 @@
 // process-owning Rust Core with real external tools. Disabled by default; run
 // explicitly with:
 //
-//   scripts/build-rust-core.sh --debug --target aarch64-apple-darwin
+//   scripts/rust-core/build-rust-core.sh --debug --target aarch64-apple-darwin
 //
 //   cd shared/fixtures/phpunit-project && composer install    # once, provisions PHPUnit
 //
@@ -17,7 +17,7 @@
 //     -Xlinker "$(pwd)/rust/target/macos/aarch64-apple-darwin/debug/liblithe_core.a" \
 //     --filter RealPhpIntegrationTests
 //
-// `scripts/test-macos.sh` performs the same `-force_load` step when
+// `scripts/macos/test/test-macos.sh` performs the same `-force_load` step when
 // LITHE_RUN_PHP_INTEGRATION=1 is set, which is also how the stability harness
 // times this suite. Intel macOS needs the target/triple and library path swapped
 // to x86_64.

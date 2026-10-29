@@ -170,7 +170,7 @@ final class TestJVMPerformanceFeatureModel: ObservableObject {
             guard let self, generation == current else { return }
             recordingDuration = min(120, max(0, Date().timeIntervalSince(recording.startedAt)))
             isRecording = false; isBusy = false
-            if let first = processes.first, selectedProcess.map({ !processes.contains($0) }) ?? true { selectedProcess = first }
+            if let first = processes.first, selectedProcess.map({ !self.processes.contains($0) }) ?? true { selectedProcess = first }
             selectMetrics(active: active)
             reconcileDiscovery()
         }

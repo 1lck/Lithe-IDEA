@@ -84,9 +84,9 @@ Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 
 
 ## 验证
 
-- `./scripts/verify-rust-core-comments.sh`
-- `./scripts/verify-rust-core.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/rust-core/verify-rust-core-comments.sh`
+- `./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - 用例 `java_start_adds_runtime_memory_and_unique_data_arguments` 和
   `java_direct_start_builds_complete_shell_free_arguments_and_is_stable` 固定两条启动
   路径的完整参数列表，`java_start_keeps_the_heap_above_the_jdtls_constrained_memory_threshold`

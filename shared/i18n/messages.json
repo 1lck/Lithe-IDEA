@@ -13984,17 +13984,29 @@
     },
     {
       "id": "git.diff.repositoryPreviewEmptyTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewEmptyTitle",
+      "description": "Shared repository comparison editor tab title",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Repository Diff",
+        "arguments": []
+      }
     },
     {
       "id": "git.diff.repositoryPreviewTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewTitle",
+      "description": "Shared repository comparison editor tab file title",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
+      "macos": {
+        "key": "Repository Diff: %@",
+        "arguments": [
+          "file"
+        ]
+      },
       "parameters": {
         "file": "string"
       }
@@ -19329,8 +19341,13 @@
       "id": "git.unifiedView",
       "description": "Windows UI: git.unifiedView",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Unified view",
+        "arguments": []
+      }
     },
     {
       "id": "git.unstageAllChanges",
@@ -39590,6 +39607,17 @@
       }
     },
     {
+      "id": "native.hideCommitDetails",
+      "description": "Native UI: Hide commit details",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide commit details",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.hideConfigurationList",
       "description": "Native UI: Hide configuration list",
       "platforms": [
@@ -57080,6 +57108,17 @@
       }
     },
     {
+      "id": "native.sideBySideView",
+      "description": "Native UI: Side-by-side view",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Side-by-side view",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.signInToCodex",
       "description": "Native UI: Sign in to Codex",
       "platforms": [
@@ -69878,6 +69917,34 @@
     {
       "id": "settings.git.stagedFirstDescription",
       "description": "Windows UI: settings.git.stagedFirstDescription",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showChangelists",
+      "description": "Windows UI: settings.git.showChangelists",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showChangelistsDescription",
+      "description": "Windows UI: settings.git.showChangelistsDescription",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showParentReferences",
+      "description": "Windows UI: settings.git.showParentReferences",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showParentReferencesDescription",
+      "description": "Windows UI: settings.git.showParentReferencesDescription",
       "platforms": [
         "windows"
       ]
@@ -90170,6 +90237,576 @@
       "macos": {
         "key": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.",
         "arguments": []
+      }
+    },
+    {
+      "id": "git.log.olderCommitsFailed",
+      "description": "Git history pagination failure; explicitly refresh because the failed Core cursor is consumed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not load older commits. Refresh history",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stageFiles",
+      "description": "Native UI: Stage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unstageFiles",
+      "description": "Native UI: Unstage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unstage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardChangesToSelectedFiles",
+      "description": "Native UI: Discard changes to selected files?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discard changes to selected files?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardWorktreeChangesWarning",
+      "description": "Native UI: This action cannot be undone by Lithe. Untracked files will be deleted.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This action cannot be undone by Lithe. Untracked files will be deleted.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteTerminalAsyncStart",
+      "description": "Remote terminal failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote terminal must be started asynchronously.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteTerminalInvalidDirectory",
+      "description": "Remote terminal failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The terminal directory is outside the remote workspace.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteTerminalClosedBeforeStart",
+      "description": "Remote terminal failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote terminal closed before it started.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteTerminalInputBusy",
+      "description": "Remote terminal failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote terminal is busy. Wait before sending more input.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteGitMixedHosts",
+      "description": "Remote workspace host isolation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A Git operation cannot span different workspace hosts.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteGitMixedLocal",
+      "description": "Remote workspace host isolation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A Git operation cannot span local and remote workspaces.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.runtimeDiscoveryFailed",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Runtime discovery failed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteRuntimeDiscoveryFailed",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not discover runtimes on the remote host. Check the connection and refresh.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.runtimeDiscoveryRecovery",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Check the workspace connection and refresh the available runtimes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteRuntimeToolMissing",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The required tool is not available on the remote host.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteRuntimeToolRecovery",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteShellDiscoveryFailed",
+      "description": "Remote terminal shell discovery failure and recovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not discover shells on the remote host. Check the connection and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.copyIncomplete",
+      "description": "A remote directory copy skipped sockets, devices or named pipes.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Some special files could not be copied",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pendingDocumentsLimit",
+      "description": "Bounded document snapshots while a remote backend is starting.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remote pending documents exceeded the startup limit. Wait for the language server to start.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pluginUnapproved",
+      "description": "Remote plugin deployment validation failure.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote plugin package is not part of the approved installation.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pluginHostUnsupported",
+      "description": "Remote plugin deployment validation failure.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This host cannot receive a compatible plugin package. Update the remote server.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pluginApprovalRequired",
+      "description": "Remote plugin deployment validation failure.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote plugin package changes approved commands or permissions. Install and approve that version first.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pluginPlatformUnavailable",
+      "description": "Remote plugin deployment validation failure.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ has no approved package for %@. Install a compatible plugin version.",
+        "arguments": [
+          "plugin",
+          "platform"
+        ]
+      },
+      "parameters": {
+        "plugin": "string",
+        "platform": "string"
+      }
+    },
+    {
+      "id": "document.fileAccess.isHardLinkedChangesAreNotSavedAutomaticallySaveManuallyToChooseHowToUpdateTheFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "document.fileAccess.sharesItsContentsWithOtherPathsSaveAsIndependentFileUpdatesOnlyThisPathAndBreaksItsHardLinkRelationshipUpdateAllHardLinksWritesToTheSharedFileIncludingLinksOutsideThisProjectItIsNotAtomicAndAnInterruptedWriteMayLeavePartialContentsCancelKeepsYourEditsUnsaved",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "document.fileAccess.checkTheFileAndParentFolderPermissionsAndAllowLitheToAccessThisLocationInSystemSettings",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Check the file and parent folder permissions, and allow Lithe to access this location in System Settings.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.couldNotDecodeThisFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not decode this file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.couldNotOpen",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not open %@: %@ %@",
+        "arguments": [
+          "arg1",
+          "arg2",
+          "arg3"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string",
+        "arg3": "string"
+      }
+    },
+    {
+      "id": "document.fileAccess.couldNotReadThisFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not read this file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.fileIsNotAvailable",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File is not available",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.fileIsTooLargeToOpen",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File is too large to open",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.foldersCannotBeOpenedAsText",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Folders cannot be opened as text",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.onlyRegularFilesCanBeOpenedAsTextDevicesSocketsAndNamedPipesAreNotSupported",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only regular files can be opened as text. Devices, sockets and named pipes are not supported.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.openATextFileInsteadOfAFolder",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a text file instead of a folder.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.openTheTargetFileDirectlySymbolicLinkEditingIsNotSupportedByThisFileAdapter",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open the target file directly. Symbolic-link editing is not supported by this file adapter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.permissionDeniedWhenOpeningThisFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Permission denied when opening this file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.saveAHardLinkedFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save a hard-linked file?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.saveAsIndependentFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save as Independent File",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.symbolicLinksCannotBeOpenedInThisEditor",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Symbolic links cannot be opened in this editor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.textFilesAreLimitedTo32MbOpenThisFileInAnExternalEditor",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Text files are limited to 32 MB. Open this file in an external editor.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theDecodedContentsContainNonTextCharactersUseASuitableFileViewer",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The decoded contents contain non-text characters. Use a suitable file viewer.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theFileCouldNotBeDecodedWithTheSelectedOrDetectedEncodingCheckItsEncodingOrOpenItInAnExternalEditor",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theFileCouldNotBeReadCheckItsAvailabilityAndTryAgain",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file could not be read. Check its availability and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theFileNoLongerExistsOrWasMovedRefreshTheProjectAndTryAgain",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file no longer exists or was moved. Refresh the project and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theFileOrItsHardLinksChangedWhileSavingYourEditsAreStillUnsavedCheckTheFileAndSaveAgain",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This file type cannot be opened in this editor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.updateAllHardLinks",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Update All Hard Links",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.savePermissionDenied",
+      "description": "macOS document save permission failure; retains the unsaved draft.",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.",
+        "arguments": [
+          "arg1"
+        ]
       }
     }
   ]

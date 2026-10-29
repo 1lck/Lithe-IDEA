@@ -74,16 +74,16 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 
 ## 验证
 
-- `node scripts/generate-i18n.mjs --check`：清单、参数、覆盖和产物一致性；只读。
-- `node --test --test-timeout=60000 scripts/test-i18n.mjs`：非法输入、生成物所有权、新增语言、
+- `node scripts/i18n/generate-i18n.mjs --check`：清单、参数、覆盖和产物一致性；只读。
+- `node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs`：非法输入、生成物所有权、新增语言、
   平台覆盖、回退链和 macOS 二进制打包；比较打包前后源文件字节。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`：稳定性静态规则。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'SharedI18nTests|AppLocalizationTests|LocalizationPackagingTests|GitLocalizationTests'`：原生资源查找、兼容 key、实际参数格式化、切换及原有行为。
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs -- src/i18n/locale.test.ts src/i18n/shared-i18n.test.ts src/features/settings/lib/settings-normalization.test.ts`：Windows 前端资源与设置；宿主平台必须在报告中注明。
-- `./scripts/verify-runtime-bundle-immutability.sh`：同时检查 macOS 与 Windows 运行时资源路径。
-- `node --test --test-timeout=15000 scripts/test-reuse-worktree-resources.mjs`：拒绝跨工作树资源复制。
-- `./scripts/verify-shared-contracts.sh`、`./scripts/verify-windows-boundaries.sh` 和
-  `./scripts/verify-platform-feature-matrix.sh`：共享边界与能力记录。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：同时检查 macOS 与 Windows 运行时资源路径。
+- `node --test --test-timeout=15000 scripts/resources/test-reuse-worktree-resources.mjs`：拒绝跨工作树资源复制。
+- `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/windows/verify/verify-windows-boundaries.sh` 和
+  `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：共享边界与能力记录。
 
 生成器测试与原生测试共同消费 `shared/fixtures/i18n/format-v1.json` 和 `native-abi-v1.json`，覆盖32位有符号、64位无符号参数及参数重排、重复、
 大整数、零、Unicode 和用户值中的格式符。独立 CI 在 Linux、macOS、Windows 执行生成器
@@ -99,8 +99,8 @@ Node 22 会把命令行超时同时应用到整份文件。词条增加后，mac
 
 - `shared/i18n/`
 - `shared/fixtures/i18n/format-v1.json`
-- `scripts/generate-i18n.mjs`
-- `scripts/package-macos-localizations.sh`
+- `scripts/i18n/generate-i18n.mjs`
+- `scripts/macos/package/package-macos-localizations.sh`
 - `windows/tauri/src/i18n/`
 - `macos/Resources/en.lproj/Localizable.strings`
 - `macos/Resources/zh-Hans.lproj/Localizable.strings`

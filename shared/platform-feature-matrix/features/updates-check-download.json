@@ -12,9 +12,9 @@
       "macos/Tests/LitheTests/MacAppIdentityTests.swift",
       "macos/Sources/Lithe/Platform/MacOS/Persistence/MacDevelopmentProfileMigration.swift",
       "macos/Tests/LitheTests/MacDevelopmentProfileMigrationTests.swift",
-      "scripts/test-sparkle-update.rb",
-      "scripts/verify-release-signature.mjs",
-      "scripts/verify-macos-release-install.sh"
+      "scripts/release/sparkle/test-sparkle-update.rb",
+      "scripts/release/sparkle/verify-release-signature.mjs",
+      "scripts/release/macos/verify-macos-release-install.sh"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

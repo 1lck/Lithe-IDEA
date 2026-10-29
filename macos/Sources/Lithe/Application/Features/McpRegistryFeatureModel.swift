@@ -17,6 +17,7 @@ final class McpRegistryFeatureModel: ObservableObject {
     private var requestID = UUID()
     private var query = ""
     private var route = McpRegistryRoute.system
+    private var visitedCursors: Set<String> = []
 
     init(registry: (any McpRegistryProviding)?) {
         self.registry = registry
@@ -31,9 +32,12 @@ final class McpRegistryFeatureModel: ObservableObject {
     }
 
     func search(_ text: String, loadMore: Bool = false, route: McpRegistryRoute = .system) async {
+        let search = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if loadMore && search == query && route == self.route {
+            guard !isLoading, nextCursor != nil else { return }
+        }
         let id = UUID()
         requestID = id
-        let search = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let cursor = loadMore && search == query && route == self.route ? nextCursor : nil
         if cursor == nil {
             entries = featured.filter {
@@ -42,6 +46,7 @@ final class McpRegistryFeatureModel: ObservableObject {
                     .contains { $0.localizedCaseInsensitiveContains(search) }
             }
             nextCursor = nil
+            visitedCursors = []
         }
         query = search
         self.route = route
@@ -58,11 +63,15 @@ final class McpRegistryFeatureModel: ObservableObject {
             guard requestID == id, !Task.isCancelled else { return }
             var seen = Set(entries.map(\.id))
             var connections = Set(entries.compactMap { connection(of: $0) })
-            entries += page.entries.filter { entry in
+            let fresh = page.entries.filter { entry in
                 guard seen.insert(entry.id).inserted else { return false }
                 return connection(of: entry).map { connections.insert($0).inserted } ?? true
             }
-            nextCursor = page.nextCursor == cursor ? nil : page.nextCursor
+            entries += fresh
+            if let cursor { visitedCursors.insert(cursor) }
+            nextCursor = page.nextCursor.flatMap { next in
+                next == cursor || visitedCursors.contains(next) || (cursor != nil && fresh.isEmpty) ? nil : next
+            }
         } catch {
             guard requestID == id, !Task.isCancelled else { return }
             canRetryDirectly = route == .system
@@ -78,6 +87,16 @@ final class McpRegistryFeatureModel: ObservableObject {
                 self.error = L10n.string("The MCP Registry could not be loaded. Try again or add a server manually.")
             }
         }
+    }
+
+    func loadNextPage() async {
+        guard error == nil, !isLoading, nextCursor != nil else { return }
+        await search(query, loadMore: true, route: route)
+    }
+
+    func retry(route: McpRegistryRoute) async {
+        guard !isLoading else { return }
+        await search(query, loadMore: nextCursor != nil, route: route)
     }
 
     private func connection(of entry: McpRegistryEntry) -> McpServerDefinition? {

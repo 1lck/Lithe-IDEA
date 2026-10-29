@@ -29,6 +29,7 @@
 "%@ free of %@" = "%@ free of %@";
 "%@ holds the metadata of several version control systems. Choose the one that manages it." = "%@ holds the metadata of several version control systems. Choose the one that manages it.";
 "%@ in %@" = "%@ in %@";
+"%@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file." = "%@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file.";
 "%@ is needed for this project but %@ is disabled." = "%@ is needed for this project but %@ is disabled.";
 "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace." = "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace.";
 "%@ is not available." = "%@ is not available.";
@@ -44,6 +45,7 @@
 "%@ provider (inside the plugin)" = "%@ provider (inside the plugin)";
 "%@ provider (installed on this Mac)" = "%@ provider (installed on this Mac)";
 "%@ returned an invalid language-server provider." = "%@ returned an invalid language-server provider.";
+"%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved." = "%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved.";
 "%@ started a task that is still running" = "%@ started a task that is still running";
 "%@ test run timed out after %@ seconds." = "%@ test run timed out after %@ seconds.";
 "%@ testing extension is not active." = "%@ testing extension is not active.";
@@ -143,6 +145,8 @@
 "8 spaces" = "8 spaces";
 "; " = "; ";
 "A ChangeList with this name already exists." = "A ChangeList with this name already exists.";
+"A Git operation cannot span different workspace hosts." = "A Git operation cannot span different workspace hosts.";
+"A Git operation cannot span local and remote workspaces." = "A Git operation cannot span local and remote workspaces.";
 "A Hook with this name already exists." = "A Hook with this name already exists.";
 "A Java cache-retention target is not a removable directory." = "A Java cache-retention target is not a removable directory.";
 "A Java project with no build tool, Maven, or Gradle." = "A Java project with no build tool, Maven, or Gradle.";
@@ -551,6 +555,8 @@
 "Check the Hook name, command, event, Agents and timeout (1–86400 seconds)." = "Check the Hook name, command, event, Agents and timeout (1–86400 seconds).";
 "Check the MCP command, URL and headers." = "Check the MCP command, URL and headers.";
 "Check the configuration format, API URL and model. Each configuration must be under 64 KiB." = "Check the configuration format, API URL and model. Each configuration must be under 64 KiB.";
+"Check the file and parent folder permissions, and allow Lithe to access this location in System Settings." = "Check the file and parent folder permissions, and allow Lithe to access this location in System Settings.";
+"Check the workspace connection and refresh the available runtimes." = "Check the workspace connection and refresh the available runtimes.";
 "Check your internet connection and try again later." = "Check your internet connection and try again later.";
 "Check: %@" = "Check: %@";
 "Checked %@" = "Checked %@";
@@ -950,6 +956,9 @@
 "Could not confirm" = "Could not confirm";
 "Could not connect to the Debug Adapter: %@" = "Could not connect to the Debug Adapter: %@";
 "Could not copy your Stable settings" = "Could not copy your Stable settings";
+"Could not decode this file" = "Could not decode this file";
+"Could not discover runtimes on the remote host. Check the connection and refresh." = "Could not discover runtimes on the remote host. Check the connection and refresh.";
+"Could not discover shells on the remote host. Check the connection and try again." = "Could not discover shells on the remote host. Check the connection and try again.";
 "Could not find the Java source for %@" = "Could not find the Java source for %@";
 "Could not import MCP JSON. Check the mcpServers object and try again." = "Could not import MCP JSON. Check the mcpServers object and try again.";
 "Could not inspect saved file" = "Could not inspect saved file";
@@ -959,12 +968,14 @@
 "Could not load changed files" = "Could not load changed files";
 "Could not load dependencies" = "Could not load dependencies";
 "Could not load file preview" = "Could not load file preview";
+"Could not load older commits. Refresh history" = "Could not load older commits. Refresh history";
 "Could not load project" = "Could not load project";
 "Could not load saved changes" = "Could not load saved changes";
 "Could not load service dependencies" = "Could not load service dependencies";
 "Could not load the changed files." = "Could not load the changed files.";
 "Could not load this image" = "Could not load this image";
 "Could not move the editor tab. Its content could not be synchronized." = "Could not move the editor tab. Its content could not be synchronized.";
+"Could not open %@: %@ %@" = "Could not open %@: %@ %@";
 "Could not open HTML in browser" = "Could not open HTML in browser";
 "Could not open the remote folder: %@" = "Could not open the remote folder: %@";
 "Could not prepare the run configuration: %@" = "Could not prepare the run configuration: %@";
@@ -974,11 +985,13 @@
 "Could not read the command line." = "Could not read the command line.";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "Could not read the selected built-in background." = "Could not read the selected built-in background.";
+"Could not read this file" = "Could not read this file";
 "Could not register Lithe MCP in %@: %@" = "Could not register Lithe MCP in %@: %@";
 "Could not remove Lithe MCP from %@: %@" = "Could not remove Lithe MCP from %@: %@";
 "Could not restore local history" = "Could not restore local history";
 "Could not restore project history" = "Could not restore project history";
 "Could not restore this project history entry" = "Could not restore this project history entry";
+"Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved." = "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.";
 "Could not save access to the selected background image." = "Could not save access to the selected background image.";
 "Could not save service selection" = "Could not save service selection";
 "Could not save the connections: %@" = "Could not save the connections: %@";
@@ -1178,6 +1191,7 @@
 "Discard Block" = "Discard Block";
 "Discard Changes" = "Discard Changes";
 "Discard and Retry" = "Discard and Retry";
+"Discard changes to selected files?" = "Discard changes to selected files?";
 "Discard draft and reload?" = "Discard draft and reload?";
 "Discard selected change" = "Discard selected change";
 "Discard this change block" = "Discard this change block";
@@ -1464,6 +1478,8 @@
 "File edits" = "File edits";
 "File encoding" = "File encoding";
 "File inventory only. Claude determines whether this skill is available in a session." = "File inventory only. Claude determines whether this skill is available in a session.";
+"File is not available" = "File is not available";
+"File is too large to open" = "File is too large to open";
 "File mask:" = "File mask:";
 "File patterns" = "File patterns";
 "File saved" = "File saved";
@@ -1503,6 +1519,7 @@
 "Floating Point" = "Floating Point";
 "Folder" = "Folder";
 "Folder name" = "Folder name";
+"Folders cannot be opened as text" = "Folders cannot be opened as text";
 "Follow Git setting" = "Follow Git setting";
 "Follow Git tag rules" = "Follow Git tag rules";
 "Follow the instructions you define below" = "Follow the instructions you define below";
@@ -1656,6 +1673,7 @@
 "Hide Session Details" = "Hide Session Details";
 "Hide Terminal tool window" = "Hide Terminal tool window";
 "Hide commit decorations" = "Hide commit decorations";
+"Hide commit details" = "Hide commit details";
 "Hide configuration list" = "Hide configuration list";
 "Hide plan" = "Hide plan";
 "Hide thinking" = "Hide thinking";
@@ -1761,6 +1779,7 @@
 "Install community plugin “%@”?" = "Install community plugin “%@”?";
 "Install from repository" = "Install from repository";
 "Install the selected channel" = "Install the selected channel";
+"Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes." = "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes.";
 "Installation" = "Installation";
 "Installation: %@" = "Installation: %@";
 "Installed" = "Installed";
@@ -2479,6 +2498,7 @@
 "Only API keys are used. The Agent's own account sign-in, such as a ChatGPT login, is never used." = "Only API keys are used. The Agent's own account sign-in, such as a ChatGPT login, is never used.";
 "Only ask for actions detected as potentially unsafe" = "Only ask for actions detected as potentially unsafe";
 "Only local files can be attached to an Agent message." = "Only local files can be attached to an Agent message.";
+"Only regular files can be opened as text. Devices, sockets and named pipes are not supported." = "Only regular files can be opened as text. Devices, sockets and named pipes are not supported.";
 "Only source files of the current language can be opened from outside the workspace" = "Only source files of the current language can be opened from outside the workspace";
 "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields." = "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.";
 "Only the commit message changes. %lld commits will receive new identities. Staged files are not included." = "Only the commit message changes. %lld commits will receive new identities. Staged files are not included.";
@@ -2534,6 +2554,7 @@
 "Open a project to use Git" = "Open a project to use Git";
 "Open a source file before running Current File." = "Open a source file before running Current File.";
 "Open a source file or choose a project Run configuration" = "Open a source file or choose a project Run configuration";
+"Open a text file instead of a folder." = "Open a text file instead of a folder.";
 "Open again" = "Open again";
 "Open file" = "Open file";
 "Open file in editor to see problems" = "Open file in editor to see problems";
@@ -2555,6 +2576,7 @@
 "Open remote" = "Open remote";
 "Open service in browser" = "Open service in browser";
 "Open the Markdown file inside a workspace before pasting an image" = "Open the Markdown file inside a workspace before pasting an image";
+"Open the target file directly. Symbolic-link editing is not supported by this file adapter." = "Open the target file directly. Symbolic-link editing is not supported by this file adapter.";
 "Open to inspect" = "Open to inspect";
 "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them." = "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them.";
 "Open…" = "Open…";
@@ -2626,6 +2648,7 @@
 "Performance Results" = "Performance Results";
 "Performance is available for local Java processes launched by Lithe." = "Performance is available for local Java processes launched by Lithe.";
 "Perl Support" = "Perl Support";
+"Permission denied when opening this file" = "Permission denied when opening this file";
 "Permission required" = "Permission required";
 "Permissions" = "Permissions";
 "Permissions & Programs" = "Permissions & Programs";
@@ -2651,6 +2674,7 @@
 "Plugin %@ from the official repository is not signed by Lithe, so it was not installed." = "Plugin %@ from the official repository is not signed by Lithe, so it was not installed.";
 "Plugin %@ has been removed from Lithe. Uninstall the old package." = "Plugin %@ has been removed from Lithe. Uninstall the old package.";
 "Plugin %@ has no Lithe signature. Community plugins require confirmation before installation." = "Plugin %@ has no Lithe signature. Community plugins require confirmation before installation.";
+"Plugin %@ has no approved package for %@. Install a compatible plugin version." = "Plugin %@ has no approved package for %@. Install a compatible plugin version.";
 "Plugin %@ has no previous version to restore." = "Plugin %@ has no previous version to restore.";
 "Plugin %@ has no setting %@." = "Plugin %@ has no setting %@.";
 "Plugin %@ is an unsigned development package. Only development builds of Lithe can load it." = "Plugin %@ is an unsigned development package. Only development builds of Lithe can load it.";
@@ -2943,6 +2967,7 @@
 "Remote Project" = "Remote Project";
 "Remote URL" = "Remote URL";
 "Remote folder" = "Remote folder";
+"Remote pending documents exceeded the startup limit. Wait for the language server to start." = "Remote pending documents exceeded the startup limit. Wait for the language server to start.";
 "Remote: %@" = "Remote: %@";
 "Removal pending" = "Removal pending";
 "Remove" = "Remove";
@@ -3014,6 +3039,8 @@
 "Replays every commit onto the base branch without a merge commit." = "Replays every commit onto the base branch without a merge commit.";
 "Reported change" = "Reported change";
 "Repository" = "Repository";
+"Repository Diff" = "Repository Diff";
+"Repository Diff: %@" = "Repository Diff: %@";
 "Repository URL" = "Repository URL";
 "Repository changed; review and retry" = "Repository changed; review and retry";
 "Repository identity overrides inherited global values. Clear an override to use inherited settings." = "Repository identity overrides inherited global values. Clear an override to use inherited settings.";
@@ -3181,6 +3208,7 @@
 "Runs on %@ shipped with the plugin" = "Runs on %@ shipped with the plugin";
 "Runs the %@ installed on this Mac through the %@ adapter." = "Runs the %@ installed on this Mac through the %@ adapter.";
 "Runtime" = "Runtime";
+"Runtime discovery failed" = "Runtime discovery failed";
 "Runtime used by the language server (installed on this Mac)" = "Runtime used by the language server (installed on this Mac)";
 "Rust Core cache-retention planning is unavailable." = "Rust Core cache-retention planning is unavailable.";
 "Rust Core returned a Java cache-retention key that was not observed." = "Rust Core returned a Java cache-retention key that was not observed.";
@@ -3212,7 +3240,9 @@
 "Save Message" = "Save Message";
 "Save Metadata" = "Save Metadata";
 "Save Patch…" = "Save Patch…";
+"Save a hard-linked file?" = "Save a hard-linked file?";
 "Save after" = "Save after";
+"Save as Independent File" = "Save as Independent File";
 "Save changed files automatically" = "Save changed files automatically";
 "Save each field separately. Switching scope reloads the saved values." = "Save each field separately. Switching scope reloads the saved values.";
 "Save instructions" = "Save instructions";
@@ -3442,6 +3472,7 @@
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
 "Side-by-side" = "Side-by-side";
+"Side-by-side view" = "Side-by-side view";
 "Sign in again" = "Sign in again";
 "Sign in to Codex" = "Sign in to Codex";
 "Sign in to GitHub" = "Sign in to GitHub";
@@ -3498,6 +3529,7 @@
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Some dependencies are not shown." = "Some dependencies are not shown.";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
+"Some special files could not be copied" = "Some special files could not be copied";
 "Sort by Last Updated" = "Sort by Last Updated";
 "Sort by Name" = "Sort by Name";
 "Sort plugins" = "Sort plugins";
@@ -3521,6 +3553,7 @@
 "Stack frame display options" = "Stack frame display options";
 "Stage All and Commit use the current ChangeList." = "Stage All and Commit use the current ChangeList.";
 "Stage File" = "Stage File";
+"Stage Files" = "Stage Files";
 "Stage all changes" = "Stage all changes";
 "Stage all files" = "Stage all files";
 "Stage all files in current ChangeList" = "Stage all files in current ChangeList";
@@ -3635,6 +3668,7 @@
 "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again." = "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again.";
 "Switched" = "Switched";
 "Switches save native Agent settings. Reconnect existing conversations to refresh available skills." = "Switches save native Agent settings. Reconnect existing conversations to refresh available skills.";
+"Symbolic links cannot be opened in this editor" = "Symbolic links cannot be opened in this editor";
 "Symbols" = "Symbols";
 "Sync again" = "Sync again";
 "Sync and remove missing tags" = "Sync and remove missing tags";
@@ -3679,6 +3713,7 @@
 "Tests passed" = "Tests passed";
 "Text" = "Text";
 "Text editor" = "Text editor";
+"Text files are limited to 32 MB. Open this file in an external editor." = "Text files are limited to 32 MB. Open this file in an external editor.";
 "Text or hash" = "Text or hash";
 "Text, me, author:, branch:, path:" = "Text, me, author:, branch:, path:";
 "That skill name is reserved by Claude. Choose a different name." = "That skill name is reserved by Claude. Choose a different name.";
@@ -3808,6 +3843,7 @@
 "The debug adapter outgoing buffer is full." = "The debug adapter outgoing buffer is full.";
 "The debug adapter provided an invalid terminal working directory." = "The debug adapter provided an invalid terminal working directory.";
 "The debugger did not return object fields in time." = "The debugger did not return object fields in time.";
+"The decoded contents contain non-text characters. Use a suitable file viewer." = "The decoded contents contain non-text characters. Use a suitable file viewer.";
 "The default ChangeList cannot be renamed." = "The default ChangeList cannot be renamed.";
 "The document changed before Java navigation completed." = "The document changed before Java navigation completed.";
 "The document is not synchronized with the language server." = "The document is not synchronized with the language server.";
@@ -3823,8 +3859,12 @@
 "The featured MCP catalog could not be loaded." = "The featured MCP catalog could not be loaded.";
 "The field value does not match its declaration or exceeds its size limit." = "The field value does not match its declaration or exceeds its size limit.";
 "The field value is invalid or exceeds 1024 UTF-8 bytes." = "The field value is invalid or exceeds 1024 UTF-8 bytes.";
+"The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor." = "The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor.";
+"The file could not be read. Check its availability and try again." = "The file could not be read. Check its availability and try again.";
 "The file has changed since the Agent edit. Open the diff and review it manually." = "The file has changed since the Agent edit. Open the diff and review it manually.";
 "The file is too large to compare." = "The file is too large to compare.";
+"The file no longer exists or was moved. Refresh the project and try again." = "The file no longer exists or was moved. Refresh the project and try again.";
+"The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.";
 "The file system that holds the home directory." = "The file system that holds the home directory.";
 "The file will be created when you save." = "The file will be created when you save.";
 "The function call was cancelled." = "The function call was cancelled.";
@@ -3908,12 +3948,18 @@
 "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually." = "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually.";
 "The pull request will return to the open list and can receive new reviews." = "The pull request will return to the open list and can receive new reviews.";
 "The rebase was aborted. Inspect the branch and working files before continuing your work." = "The rebase was aborted. Inspect the branch and working files before continuing your work.";
+"The remote plugin package changes approved commands or permissions. Install and approve that version first." = "The remote plugin package changes approved commands or permissions. Install and approve that version first.";
+"The remote plugin package is not part of the approved installation." = "The remote plugin package is not part of the approved installation.";
+"The remote terminal closed before it started." = "The remote terminal closed before it started.";
+"The remote terminal is busy. Wait before sending more input." = "The remote terminal is busy. Wait before sending more input.";
+"The remote terminal must be started asynchronously." = "The remote terminal must be started asynchronously.";
 "The reported file changes have been updated. Review them again before rolling back." = "The reported file changes have been updated. Review them again before rolling back.";
 "The repository changed or another Git operation is running. Preview the patch again." = "The repository changed or another Git operation is running. Preview the patch again.";
 "The repository changed or another Git operation is running. Refresh before retrying." = "The repository changed or another Git operation is running. Refresh before retrying.";
 "The repository changed or another Git operation is running. Refresh the preview to retry." = "The repository changed or another Git operation is running. Refresh the preview to retry.";
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
 "The request has no secret." = "The request has no secret.";
+"The required tool is not available on the remote host." = "The required tool is not available on the remote host.";
 "The response stopped at the model's token limit." = "The response stopped at the model's token limit.";
 "The saved provider run configuration is unavailable." = "The saved provider run configuration is unavailable.";
 "The selected AI provider has an invalid API URL or model." = "The selected AI provider has an invalid API URL or model.";
@@ -3935,6 +3981,7 @@
 "The selected versions match" = "The selected versions match";
 "The server asked again. Check the previous answer." = "The server asked again. Check the previous answer.";
 "The server rejected the credentials. Check the user name and the authentication method." = "The server rejected the credentials. Check the user name and the authentication method.";
+"The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying." = "The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying.";
 "The shared instruction directory must be absolute." = "The shared instruction directory must be absolute.";
 "The skill could not be published. Check permissions and existing skill names." = "The skill could not be published. Check permissions and existing skill names.";
 "The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory." = "The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory.";
@@ -3948,6 +3995,7 @@
 "The staged changes will be committed and the current branch will be pushed to its configured remote." = "The staged changes will be committed and the current branch will be pushed to its configured remote.";
 "The stopped source file is no longer available: %@" = "The stopped source file is no longer available: %@";
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.";
+"The terminal directory is outside the remote workspace." = "The terminal directory is outside the remote workspace.";
 "The test file is outside the current workspace: %@" = "The test file is outside the current workspace: %@";
 "The update could not be installed. Download the release manually and try again." = "The update could not be installed. Download the release manually and try again.";
 "The update package could not be downloaded. Check your internet connection and try again." = "The update package could not be downloaded. Check your internet connection and try again.";
@@ -4003,6 +4051,7 @@
 "This Markdown document is read-only" = "This Markdown document is read-only";
 "This Window" = "This Window";
 "This action cannot be undone by Lithe." = "This action cannot be undone by Lithe.";
+"This action cannot be undone by Lithe. Untracked files will be deleted." = "This action cannot be undone by Lithe. Untracked files will be deleted.";
 "This adapter cannot step by instruction; steps still move by line" = "This adapter cannot step by instruction; steps still move by line";
 "This adapter does not support hot code replacement." = "This adapter does not support hot code replacement.";
 "This address cannot be opened here." = "This address cannot be opened here.";
@@ -4028,10 +4077,12 @@
 "This file changed outside Lithe while you had unsaved edits." = "This file changed outside Lithe while you had unsaved edits.";
 "This file has unsaved editor changes. Save or discard them before rolling back the Agent edit." = "This file has unsaved editor changes. Save or discard them before rolling back the Agent edit.";
 "This file is outside the current project." = "This file is outside the current project.";
+"This file type cannot be opened in this editor" = "This file type cannot be opened in this editor";
 "This file was deleted outside Lithe. Your editor content is preserved." = "This file was deleted outside Lithe. Your editor content is preserved.";
 "This folder already belongs to a Git repository" = "This folder already belongs to a Git repository";
 "This folder cannot be read." = "This folder cannot be read.";
 "This folder is empty" = "This folder is empty";
+"This host cannot receive a compatible plugin package. Update the remote server." = "This host cannot receive a compatible plugin package. Update the remote server.";
 "This page" = "This page";
 "This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.";
@@ -4164,6 +4215,7 @@
 "Undo Commit" = "Undo Last Commit (Keep Changes)";
 "Undo Commit…" = "Undo Last Commit (Keep Changes)…";
 "Unhandled" = "Unhandled";
+"Unified view" = "Unified view";
 "Uninstall" = "Uninstall";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language.";
 "Uninstall %@?" = "Uninstall %@?";
@@ -4191,6 +4243,7 @@
 "Unsigned Decimal" = "Unsigned Decimal";
 "Unsigned development package. Release builds of Lithe will not load it." = "Unsigned development package. Release builds of Lithe will not load it.";
 "Unstage" = "Unstage";
+"Unstage Files" = "Unstage Files";
 "Unstage all files" = "Unstage all files";
 "Unstage all files in repository" = "Unstage all files in repository";
 "Unstage file" = "Unstage file";
@@ -4208,6 +4261,7 @@
 "Update" = "Update";
 "Update %@" = "Update %@";
 "Update %@/%@ after %@" = "Update %@/%@ after %@";
+"Update All Hard Links" = "Update All Hard Links";
 "Update Available" = "Update Available";
 "Update Current Branch" = "Update Current Branch";
 "Update Lithe to use this configuration version." = "Update Lithe to use this configuration version.";
@@ -4519,6 +4573,32 @@
 "debugger.threadsAndVariables" = "Threads & Variables";
 "detected on this Mac" = "detected on this Mac";
 "ditto exited with code %@: %@" = "ditto exited with code %@: %@";
+"document.fileAccess.checkTheFileAndParentFolderPermissionsAndAllowLitheToAccessThisLocationInSystemSettings" = "Check the file and parent folder permissions, and allow Lithe to access this location in System Settings.";
+"document.fileAccess.couldNotDecodeThisFile" = "Could not decode this file";
+"document.fileAccess.couldNotOpen" = "Could not open %1$@: %2$@ %3$@";
+"document.fileAccess.couldNotReadThisFile" = "Could not read this file";
+"document.fileAccess.fileIsNotAvailable" = "File is not available";
+"document.fileAccess.fileIsTooLargeToOpen" = "File is too large to open";
+"document.fileAccess.foldersCannotBeOpenedAsText" = "Folders cannot be opened as text";
+"document.fileAccess.isHardLinkedChangesAreNotSavedAutomaticallySaveManuallyToChooseHowToUpdateTheFile" = "%1$@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file.";
+"document.fileAccess.onlyRegularFilesCanBeOpenedAsTextDevicesSocketsAndNamedPipesAreNotSupported" = "Only regular files can be opened as text. Devices, sockets and named pipes are not supported.";
+"document.fileAccess.openATextFileInsteadOfAFolder" = "Open a text file instead of a folder.";
+"document.fileAccess.openTheTargetFileDirectlySymbolicLinkEditingIsNotSupportedByThisFileAdapter" = "Open the target file directly. Symbolic-link editing is not supported by this file adapter.";
+"document.fileAccess.permissionDeniedWhenOpeningThisFile" = "Permission denied when opening this file";
+"document.fileAccess.saveAHardLinkedFile" = "Save a hard-linked file?";
+"document.fileAccess.saveAsIndependentFile" = "Save as Independent File";
+"document.fileAccess.savePermissionDenied" = "Could not save %1$@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.";
+"document.fileAccess.sharesItsContentsWithOtherPathsSaveAsIndependentFileUpdatesOnlyThisPathAndBreaksItsHardLinkRelationshipUpdateAllHardLinksWritesToTheSharedFileIncludingLinksOutsideThisProjectItIsNotAtomicAndAnInterruptedWriteMayLeavePartialContentsCancelKeepsYourEditsUnsaved" = "%1$@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved.";
+"document.fileAccess.symbolicLinksCannotBeOpenedInThisEditor" = "Symbolic links cannot be opened in this editor";
+"document.fileAccess.textFilesAreLimitedTo32MbOpenThisFileInAnExternalEditor" = "Text files are limited to 32 MB. Open this file in an external editor.";
+"document.fileAccess.theDecodedContentsContainNonTextCharactersUseASuitableFileViewer" = "The decoded contents contain non-text characters. Use a suitable file viewer.";
+"document.fileAccess.theFileCouldNotBeDecodedWithTheSelectedOrDetectedEncodingCheckItsEncodingOrOpenItInAnExternalEditor" = "The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor.";
+"document.fileAccess.theFileCouldNotBeReadCheckItsAvailabilityAndTryAgain" = "The file could not be read. Check its availability and try again.";
+"document.fileAccess.theFileNoLongerExistsOrWasMovedRefreshTheProjectAndTryAgain" = "The file no longer exists or was moved. Refresh the project and try again.";
+"document.fileAccess.theFileOrItsHardLinksChangedWhileSavingYourEditsAreStillUnsavedCheckTheFileAndSaveAgain" = "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.";
+"document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying" = "The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying.";
+"document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor" = "This file type cannot be opened in this editor";
+"document.fileAccess.updateAllHardLinks" = "Update All Hard Links";
 "duplicate omitted" = "duplicate omitted";
 "extensions.reinstall" = "Reinstall";
 "extensions.uninstall" = "Uninstall";
@@ -4530,6 +4610,10 @@
 "from JAVA_HOME" = "from JAVA_HOME";
 "generated main" = "generated main";
 "generated test" = "generated test";
+"git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
+"git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";
+"git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";
+"git.unifiedView" = "Unified view";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
@@ -5610,10 +5694,12 @@
 "native.discardAndRetry" = "Discard and Retry";
 "native.discardBlock" = "Discard Block";
 "native.discardChanges" = "Discard Changes";
+"native.discardChangesToSelectedFiles" = "Discard changes to selected files?";
 "native.discardDraftAndReload" = "Discard draft and reload?";
 "native.discardSelectedChange" = "Discard selected change";
 "native.discardThisChangeBlock" = "Discard this change block";
 "native.discardThisFileAndRetry" = "Discard this file and retry";
+"native.discardWorktreeChangesWarning" = "This action cannot be undone by Lithe. Untracked files will be deleted.";
 "native.discardedEditorChanges" = "Discarded editor changes";
 "native.disconnect" = "Disconnect";
 "native.disconnected" = "Disconnected";
@@ -6071,6 +6157,7 @@
 "native.hideBuildOutputToolWindow" = "Hide Build Output tool window";
 "native.hideBuildToolWindow" = "Hide Build tool window";
 "native.hideCommitDecorations" = "Hide commit decorations";
+"native.hideCommitDetails" = "Hide commit details";
 "native.hideConfigurationList" = "Hide configuration list";
 "native.hideDebugToolWindow" = "Hide Debug tool window";
 "native.hideDetails" = "Hide Details";
@@ -7520,8 +7607,18 @@
 "native.remoteFetchFailed" = "Remote Fetch failed";
 "native.remoteFetchSucceeded" = "Remote Fetch succeeded";
 "native.remoteFolder" = "Remote folder";
+"native.remoteGitMixedHosts" = "A Git operation cannot span different workspace hosts.";
+"native.remoteGitMixedLocal" = "A Git operation cannot span local and remote workspaces.";
 "native.remoteJVMTomcat" = "Remote JVM / Tomcat";
 "native.remoteProject" = "Remote Project";
+"native.remoteRuntimeDiscoveryFailed" = "Could not discover runtimes on the remote host. Check the connection and refresh.";
+"native.remoteRuntimeToolMissing" = "The required tool is not available on the remote host.";
+"native.remoteRuntimeToolRecovery" = "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes.";
+"native.remoteShellDiscoveryFailed" = "Could not discover shells on the remote host. Check the connection and try again.";
+"native.remoteTerminalAsyncStart" = "The remote terminal must be started asynchronously.";
+"native.remoteTerminalClosedBeforeStart" = "The remote terminal closed before it started.";
+"native.remoteTerminalInputBusy" = "The remote terminal is busy. Wait before sending more input.";
+"native.remoteTerminalInvalidDirectory" = "The terminal directory is outside the remote workspace.";
 "native.remoteURL" = "Remote URL";
 "native.removalPending" = "Removal pending";
 "native.removeAll" = "Remove All";
@@ -7753,6 +7850,8 @@
 "native.runsTests" = "Runs %1$@ tests";
 "native.runsTheInstalledOnThisMacThroughTheAdapter" = "Runs the %1$@ installed on this Mac through the %2$@ adapter.";
 "native.runtime" = "Runtime";
+"native.runtimeDiscoveryFailed" = "Runtime discovery failed";
+"native.runtimeDiscoveryRecovery" = "Check the workspace connection and refresh the available runtimes.";
 "native.runtimeUsedByTheLanguageServerInstalledOnThisMac" = "Runtime used by the language server (installed on this Mac)";
 "native.rustCoreCacheRetentionPlanningIsUnavailable" = "Rust Core cache-retention planning is unavailable.";
 "native.rustCoreReturnedAJavaCacheRetentionKey" = "Rust Core returned a Java cache-retention key that was not observed.";
@@ -8000,6 +8099,7 @@
 "native.showingThePreviousJavaEntriesWhileTheJavaLanguageServicePreparesTheProject" = "Showing the previous Java entries while the Java language service prepares the project.";
 "native.shownAcrossTheEntireWorkbenchIncludingToolbarsProjectTreeEditorTabsTerminalsAndStatusBar" = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
 "native.sideBySide" = "Side-by-side";
+"native.sideBySideView" = "Side-by-side view";
 "native.signInToCodex" = "Sign in to Codex";
 "native.signInToGitHub" = "Sign in to GitHub";
 "native.signInToViewAndManagePullRequests" = "Sign in to view and manage pull requests.";
@@ -8089,6 +8189,7 @@
 "native.stageAtLeastOneFileFirst" = "Stage at least one file first";
 "native.stageFile" = "Stage File";
 "native.stageFile.variant2" = "Stage file";
+"native.stageFiles" = "Stage Files";
 "native.stageThisChangeBlock" = "Stage this change block";
 "native.stageYourFilesInChangesEnterACommitMessageAndCreateTheFirstCommit" = "Stage your files in Changes, enter a commit message, and create the first commit.";
 "native.staged" = "STAGED";
@@ -8741,6 +8842,7 @@
 "native.unstageAllFiles" = "Unstage all files";
 "native.unstageAllFilesInRepository" = "Unstage all files in repository";
 "native.unstageFile" = "Unstage file";
+"native.unstageFiles" = "Unstage Files";
 "native.unstageThisChangeBlock" = "Unstage this change block";
 "native.unstaged" = "Unstaged";
 "native.unstagedChanges" = "Unstaged changes";
@@ -9008,6 +9110,12 @@
 "punctuation and symbols" = "punctuation and symbols";
 "quickOpen.filesCount" = "%1$lld files";
 "rebase" = "rebase";
+"remote.copyIncomplete" = "Some special files could not be copied";
+"remote.pendingDocumentsLimit" = "Remote pending documents exceeded the startup limit. Wait for the language server to start.";
+"remote.pluginApprovalRequired" = "The remote plugin package changes approved commands or permissions. Install and approve that version first.";
+"remote.pluginHostUnsupported" = "This host cannot receive a compatible plugin package. Update the remote server.";
+"remote.pluginPlatformUnavailable" = "Plugin %1$@ has no approved package for %2$@. Install a compatible plugin version.";
+"remote.pluginUnapproved" = "The remote plugin package is not part of the approved installation.";
 "results" = "results";
 "revert" = "revert";
 "run configuration" = "run configuration";

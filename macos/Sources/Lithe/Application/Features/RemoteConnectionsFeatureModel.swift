@@ -178,7 +178,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         autoAnsweredPrompts = []
         let prober = prober
         testTask = Task { [weak self] in
-            let result = await prober.probe(connection.target) { prompt in
+            let result = await prober.probe(connection.target) { [weak self] prompt in
                 Task { @MainActor [weak self] in self?.receive(prompt, for: connection.id) }
             }
             guard let self, !Task.isCancelled, self.testedID == connection.id else { return }
@@ -293,7 +293,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         autoAnsweredPrompts = []
         let sessions = sessions
         testTask = Task { [weak self] in
-            let result = await sessions.connect(connection.target, servers: servers) { prompt in
+            let result = await sessions.connect(connection.target, servers: servers) { [weak self] prompt in
                 Task { @MainActor [weak self] in self?.receive(prompt, for: connection.id) }
             }
             guard let self, !Task.isCancelled, self.testedID == connection.id else {

@@ -1100,14 +1100,7 @@ export function GitReferenceTree({
                   ? undefined
                   : referenceErrorsByRepository?.get(group.repositoryKey);
                 return (
-                  <div
-                    key={group.repositoryKey}
-                    className="mb-1 rounded-sm border-l-2"
-                    style={{
-                      borderColor: repositoryColor,
-                      backgroundColor: `${repositoryColor}14`,
-                    }}
-                  >
+                  <div key={group.repositoryKey}>
                     <button
                       type="button"
                       onClick={() => toggleReferenceGroup(repositoryCollapseId)}
@@ -1116,20 +1109,21 @@ export function GitReferenceTree({
                         { name: repositoryName },
                       )}
                       title={`${t("git.log.repository")}: ${group.repositoryPath}`}
-                      className="flex h-6 w-full items-center gap-1.5 rounded px-1.5 text-left font-medium hover:bg-accent/80"
+                      className="flex h-6 w-full items-center gap-1.5 rounded px-1.5 text-left hover:bg-accent/80"
                     >
                       {repositoryCollapsed ? (
                         <CaretRightIcon className="size-3" />
                       ) : (
                         <CaretDownIcon className="size-3" />
                       )}
-                      <FolderIcon
-                        className="size-3.5 shrink-0"
-                        style={{ color: repositoryColor }}
+                      <FolderIcon className="size-3.5 shrink-0 text-subtle-foreground" />
+                      {/* Same as macOS: the repository color is only a small dot, never a tinted card. */}
+                      <span
+                        data-testid="git-repository-color-dot"
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: repositoryColor }}
                       />
-                      <span className="truncate" style={{ color: repositoryColor }}>
-                        {repositoryName}
-                      </span>
+                      <span className="truncate">{repositoryName}</span>
                       {repositoryError ? null : (
                         <span className="ml-auto text-subtle-foreground tabular-nums">
                           {group.visibleReferences.length}
