@@ -5,7 +5,7 @@
   "capability": "在设置 › 外观与行为 › 网络配置应用自身 HTTP 流量的代理：跟随系统、不走代理、自定义代理服务器（HTTP/SOCKS5、服务器地址、端口、可选用户名与 Keychain 保存的密码、逗号分隔的排除列表），并提供有界的测试连接；插件市场、GitHub、AI 提供方与稳定版回滚下载经统一会话工厂解析代理策略，配置变化后对新请求生效",
   "macos": {
     "implementationStatus": "implemented",
-    "verificationStatus": "pending",
+    "verificationStatus": "verified",
     "evidence": [
       "macos/Sources/Lithe/Models/Settings/NetworkProxyPreferences.swift",
       "macos/Sources/Lithe/Models/Settings/AppSettings.swift",
@@ -31,5 +31,5 @@
   },
   "owner": "Settings",
   "notes": "设置模型（模式/类型/地址/端口/用户名/排除列表）走 AppSettings 的 KeyValueStore 端口持久化；密码不入偏好存储，由组合根经 MacKeychainSecureStore 加载并推入 NetworkProxyPreferences 线程安全快照，保存走 AppModel 的 SecureStore 端口。MacNetworkSessionProvider 按快照缓存会话并在配置变化时 finishTasksAndInvalidate 旧会话，同时暴露 applyPolicy 供自带超时的稳定版回滚下载复用同一策略；三个 URLSession 传输（插件市场、GitHub、AI HTTPS）改为按请求解析 sessionProvider，故设置变化对新请求生效、无需重建服务。自定义未填完整地址/端口时按跟随系统处理，不静默断网。认证质询由 MacProxySessionDelegate 应答（Basic/Digest/NTLM，previousFailureCount 为 0 时），错误凭据不会循环重试。排除列表映射 kCFNetworkProxiesExceptionsList；SOCKS5 使用独立字典键。测试连接经端口 NetworkProxyChecking 由 MacNetworkProxyTester 实现，HEAD https://github.com、10 秒超时、不抛错只回结果。明确不接管：Sparkle 更新（SPUDownloader 写死 defaultSessionConfiguration 且无注入 API，天然跟随系统代理，跟随系统档行为不变）、AI 明文 HTTP 的 NWConnection 分支、Agent/git CLI 子进程、JVM 依赖下载。Windows 是独立的 Tauri/reqwest 网络栈，本条目标记平台专属，由后续 PR 接入。",
-  "verification": "运行 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests' 与 ./scripts/test-macos.sh --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests|AppSettingsTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests'，覆盖三字段持久化/重启读取/恢复默认、快照推送、三种模式的代理字典构造（HTTP 双Enable、SOCKS5、认证键、排除列表、直连空字典、系统 nil）、同配置复用会话与配置变化换新会话、质询 delegate 的凭据映射。实机：系统设置配置代理后打开设置 → 网络，默认跟随系统；切「不走代理」后插件市场应直连；配置本地代理并点测试连接，确认成功耗时或失败原因显示；保存后重启应用确认密码仍生效（Keychain）且不回显；排除列表里的主机直连。运行前后对比安装目录文件清单与哈希，确认运行时未写入发行目录。"
+  "verification": "已完成实机验收（2026-10-29，macOS 15.8.1 Intel，打包构建）：设置 › 外观与行为 › 网络三档切换生效；自定义 HTTP 代理 + 测试连接返回成功耗时，错误端口返回失败原因；保存后重启保留且密码经 Keychain 不回显；经自定义代理完成插件市场访问与安装。自动化：运行 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests' 与 ./scripts/macos/test/test-macos.sh --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests|AppSettingsTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests'；运行前后对比安装目录文件清单与哈希，确认运行时未写入发行目录。"
 }
