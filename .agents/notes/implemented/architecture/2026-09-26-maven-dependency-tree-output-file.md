@@ -129,15 +129,15 @@ m2e 内嵌的 Maven，而不是用户配置的 Maven 或 mvnd，违反“依赖�
   覆盖计划参数（含 `-N` 与 `outputFile` 校验）、共享 fixture
   `shared/fixtures/maven/dependency-tree-v2.json`（LF 与 CRLF）、6,000 与
   10,000 节点的大树、字节/节点/行长/深度上限、格式漂移与缺失文件。完整校验运行
-  `./scripts/verify-rust-core.sh`。
-- Rust Core 注释规范：`./scripts/verify-rust-core-comments.sh`。
-- 共享契约：`./scripts/verify-shared-contracts.sh`。
+  `./scripts/rust-core/verify-rust-core.sh`。
+- Rust Core 注释规范：`./scripts/rust-core/verify-rust-core-comments.sh`。
+- 共享契约：`./scripts/architecture/verify-shared-contracts.sh`。
 - Windows 前端：在 `windows/tauri` 运行
   `bun test --preload ./src/test-utils/vite-assets.ts src/features/maven`，覆盖
   每条结束路径都删除临时文件、读完才删除、删除失败只记日志。
-- macOS：`./scripts/test-macos.sh`，其中 `ExecutionModuleTests` 覆盖服务生命周期，
+- macOS：`./scripts/macos/test/test-macos.sh`，其中 `ExecutionModuleTests` 覆盖服务生命周期，
   `MavenRuntimeTests` 验证 fixture 解码与 PID 目录清理。普通 Swift 单测不链接
-  Core，`MavenDependencyTreeBridgeTests` 在 `./scripts/verify-rust-core.sh` 的
+  Core，`MavenDependencyTreeBridgeTests` 在 `./scripts/rust-core/verify-rust-core.sh` 的
   Core 链接测试中通过真实 Core 规划并读取树文件。
 
 ## 适用范围

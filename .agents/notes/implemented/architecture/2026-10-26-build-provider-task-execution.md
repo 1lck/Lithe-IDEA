@@ -205,12 +205,12 @@ Agent 入口回归从真实本地 Run 配置读取选择器，用可控 Provider
 可复验的检查入口：
 
 ```bash
-./scripts/verify-agent-notes.sh
-./scripts/verify-shared-contracts.sh
-./scripts/verify-runtime-bundle-immutability.sh
-./scripts/verify-service-boundaries.sh
-./scripts/verify-windows-boundaries.sh
-./scripts/verify-rust-core-comments.sh
+./scripts/agent-notes/verify-agent-notes.sh
+./scripts/architecture/verify-shared-contracts.sh
+./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/architecture/verify-service-boundaries.sh
+./scripts/windows/verify/verify-windows-boundaries.sh
+./scripts/rust-core/verify-rust-core-comments.sh
 ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --jobs 6 --filter 'BuildSystemServiceTests|ExecutionModuleTests|MacBuildProviderSessionsTests|RustBuildSystemOperationsTests|BuildToolProviderResolutionTests|PluginWebBridgeTests|BuildSystemToolWindowTests|RunConfigurationIntegrationTests|RunWorkflowCoordinatorTests|IdeCapabilitiesTests'
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'BuildSystemServiceTests|RustBuildSystemOperationsTests|MacBuildProviderSessionsTests|LitheDebugModuleTests|PluginDebugAdapterTests|PluginLiveActivationTests|RunConfigurationIntegrationTests|RunWorkflowCoordinatorTests'

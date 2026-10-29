@@ -187,7 +187,7 @@ IDEA 的 [BranchesTreeComponent](https://github.com/JetBrains/intellij-community
 
 ## 验证
 
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - `git diff --check`
 - 相关 macOS 或 Windows 产品构建
 - Windows 标签滚轮行为测试：

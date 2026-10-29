@@ -113,7 +113,7 @@ Windows 的目录探测、JDK release 读取、临时文件写入和进程创建
 例如 A 准备期间启动 B，即使 A 最后才完成，也必须释放 A 的临时文件而不启动它。
 不能只把同步命令改成后台执行而省略归属检查，否则停止后旧进程可能重新出现。
 
-临时 argfile 与 classpath JAR 在 `scripts/worktree-resources.json` 的
+临时 argfile 与 classpath JAR 在 `scripts/resources/worktree-resources.json` 的
 `java-launch-temporaries` 中登记为不可复用资源，复用脚本直接拒绝。它们属于单次
 执行，没有构建身份 stamp，任何阶段都不能跨工作树复制，也不写发行目录。
 

@@ -12,7 +12,7 @@
 
 ## 问题
 
-原来的原生插件由 `scripts/build-official-plugins.sh` 用宿主当次构建产出的 `.swiftmodule` 编译，并用 `-undefined dynamic_lookup` 链接。`Package.swift` 没有开启 library evolution（库演进模式，保证二进制接口跨版本稳定的编译选项），所以插件与那一次宿主构建强绑定：宿主一改 `LitheModuleAPI` 或 `LitheCoreContracts`，旧插件在运行时就可能找不到符号甚至崩溃。插件一旦拆到独立仓库，就必须跟着每个 Lithe 版本重新编译和发布。
+原来的原生插件由 `scripts/plugins/build-official-plugins.sh` 用宿主当次构建产出的 `.swiftmodule` 编译，并用 `-undefined dynamic_lookup` 链接。`Package.swift` 没有开启 library evolution（库演进模式，保证二进制接口跨版本稳定的编译选项），所以插件与那一次宿主构建强绑定：宿主一改 `LitheModuleAPI` 或 `LitheCoreContracts`，旧插件在运行时就可能找不到符号甚至崩溃。插件一旦拆到独立仓库，就必须跟着每个 Lithe 版本重新编译和发布。
 
 另外，现有 Go/PHP 插件实际只做四件事：声明语言和文件扩展名、启动 gopls/intelephense、生成运行命令、生成测试命令。这些都是数据，宿主本来就有通用的语言服务器模块和执行模块（Python、Rust 等内置语言在用），不需要插件代码。
 
@@ -97,12 +97,12 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 ## 验证
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`：合法样例、非法样例错误码、命令展开标准答案，以及仓库里的官方 `plugin.json`。
-- `./scripts/verify-shared-contracts.sh`：契约目录自洽（schema、fixture 引用、错误码均已在 README 中登记）。
-- `./scripts/verify-official-plugins.sh`：组装官方包并用 `LitheOfficialPluginVerifier` 检查信任策略、打包入口和"包内无 Mach-O"。
+- `./scripts/architecture/verify-shared-contracts.sh`：契约目录自洽（schema、fixture 引用、错误码均已在 README 中登记）。
+- `./scripts/plugins/verify-official-plugins.sh`：组装官方包并用 `LitheOfficialPluginVerifier` 检查信任策略、打包入口和"包内无 Mach-O"。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|LanguageNavigationCoordinatorTests|ExternalNavigationTests'`：包校验、旧包过渡、签名、启停与进程清理、打包入口固定、跨工作区跳转边界。
-- `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/test-macos.sh --filter RealPhpIntegrationTests`：真实 Intelephense 与 PHPUnit。
-- `node scripts/test-reuse-worktree-resources.mjs`：磁盘快照、安装状态和审批记录禁止跨工作树复制。
-- `./scripts/verify-runtime-bundle-immutability.sh`：静态检查两端发行资源写入边界；磁盘安装、取消、失败、扫描与回滚的产品验收还需比较前后 bundle 文件清单/哈希，不能用静态通过替代真实验证。磁盘每次确认与两入口完整程序展示的行为验收见插件市场 Note；功能矩阵继续保持 `pending`。
+- `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealPhpIntegrationTests`：真实 Intelephense 与 PHPUnit。
+- `node scripts/resources/test-reuse-worktree-resources.mjs`：磁盘快照、安装状态和审批记录禁止跨工作树复制。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：静态检查两端发行资源写入边界；磁盘安装、取消、失败、扫描与回滚的产品验收还需比较前后 bundle 文件清单/哈希，不能用静态通过替代真实验证。磁盘每次确认与两入口完整程序展示的行为验收见插件市场 Note；功能矩阵继续保持 `pending`。
 
 ## 适用范围
 
@@ -117,4 +117,4 @@ gopls 把 `fmt.Println` 的定义指向 `GOROOT/src/fmt/print.go`，Intelephense
 - `macos/Sources/LitheExecutionModule/Modules/BundledLanguageExecutionModule.swift`
 - `macos/Sources/LitheLanguageIntelligenceModule/Modules/BundledLanguageServerModule.swift`
 - `Plugins/mac/Official/`
-- `scripts/build-official-plugins.sh`
+- `scripts/plugins/build-official-plugins.sh`

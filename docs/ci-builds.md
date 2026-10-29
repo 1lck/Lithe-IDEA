@@ -32,7 +32,7 @@ The summary records the exact checked-out revision. For a pull request this is
 normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
 gate** for the combined test result. The macOS **Swift tests** job builds the
 Swift tests once and runs the suites selected by the classifier;
-**Remote Workspace CI gate** checks the Linux remote workspace lane (`scripts/verify-remote-workspace.sh`),
+**Remote Workspace CI gate** checks the Linux remote workspace lane (`scripts/remote/verify-remote-workspace.sh`),
 which draft pull requests keep because it uses no macOS runner. **macOS Plugin CI**
 stays separate: it only reserves a macOS runner when the classifier selects the
 plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds.
@@ -46,7 +46,7 @@ for that caller.
 
 A new push to a pull request does not rerun every lane. In **macOS CI**,
 **macOS Plugin CI** and **Windows CI**, the classify job runs
-`scripts/plan-ci-lane-reuse.mjs`, which decides per lane (Swift tests, Rust Core
+`scripts/ci/common/plan-ci-lane-reuse.mjs`, which decides per lane (Swift tests, Rust Core
 tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
 
 - It finds the latest earlier run of the same pull request that actually ran
@@ -64,7 +64,7 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
   action. Windows crates, toolchain and frontend manifests and Windows scripts
   count only for Windows CI. macOS Swift packages and build scripts count for
   macOS CI and the plugin CI, which builds through the same actions and
-  `scripts/test-macos.sh`. Rust workspace manifests under `rust/`, the
+  `scripts/macos/test/test-macos.sh`. Rust workspace manifests under `rust/`, the
   classifier and planner, and the root Bun workspace count for every workflow.
   The step summary lists the infrastructure paths that caused a rerun and those
   ignored because they only reach other workflows.
@@ -131,13 +131,13 @@ been retired. The reasons and the lessons for any future attempt are in
 #### Rust Core bridge checks reuse the Swift build
 
 **Rust Core tests** run only the Rust checks in
-`scripts/verify-rust-core-crates.sh`. The Swift-linked checks (C ABI probe, Core
+`scripts/rust-core/verify-rust-core-crates.sh`. The Swift-linked checks (C ABI probe, Core
 symbols in the linked app, Git execution integration, and the Git console and
 Maven bridge tests) run in **Swift tests** through
-`scripts/verify-rust-core-swift-bridge.sh --skip-build`, reusing that job's test
+`scripts/rust-core/verify-rust-core-swift-bridge.sh --skip-build`, reusing that job's test
 build. A Rust-only change therefore starts **Swift tests** to build and run the
 bridge checks, without the full Swift unit suites. Locally,
-`scripts/verify-rust-core.sh` still runs both halves.
+`scripts/rust-core/verify-rust-core.sh` still runs both halves.
 
 ### macOS runner budget
 
@@ -146,7 +146,7 @@ five GitHub-hosted macOS jobs at a time across every workflow and pull request. 
 jobs mean this pool is full; it is a concurrency limit, not a quota or abuse
 signal. Keep macOS jobs per push low:
 
-- Do not add a macOS job that repeats `./scripts/test-macos.sh list` for every
+- Do not add a macOS job that repeats `./scripts/macos/test/test-macos.sh list` for every
   Swift change; add a filtered step to the shared **Swift tests** job instead.
   The plugin lane is the deliberate exception because most pull requests do
   not select it.
@@ -229,7 +229,7 @@ gh workflow run release-preview-macos.yml \
 或空的 `starter` 上传残片。同时间但源码、插件、安装包或 feed 字节不同，以及更旧
 身份遇到较新检查点，都会在远端变更前失败。没有有效检查点不能跳过时间顺序。
 
-`publish-autobuild.mjs` 从 prepare SHA 用 `git fetch/show` 把
+`scripts/release/autobuild/publish-autobuild.mjs` 从 prepare SHA 用 `git fetch/show` 把
 `Plugins/marketplace/official-plugins.json` 和 `index.json` 固定到本次临时目录，
 按数值语义版本选择每个已注册可下载插件的最新版本，保留全部下载变体并去重。
 只下载索引指向的 `Lithe-IDEA` 组织 GitHub Release ZIP；仓库重命名重定向由 gh
@@ -308,7 +308,7 @@ change should be evaluated separately if queueing continues to dominate.
 
 ### macOS 测试窗口的桌面隔离
 
-普通 `./scripts/test-macos.sh` 和计时测试默认使用 `LITHE_TEST_WINDOW_MODE=isolated`。
+普通 `./scripts/macos/test/test-macos.sh` 和计时测试默认使用 `LITHE_TEST_WINDOW_MODE=isolated`。
 界面用例照常运行，真实窗口的原生排序、布局、弹窗和事件处理保留，但测试进程内
 的窗口完全透明，该进程也不会主动切换前台应用。原生视图截图仍可生成。
 隔离模块只由测试目标依赖，直接运行 `swift test` 也默认隔离，不进入发行程序。
@@ -316,7 +316,7 @@ change should be evaluated separately if queueing continues to dominate.
 需要观察测试窗口或验证真实桌面效果时显式选择：
 
 ```bash
-LITHE_TEST_WINDOW_MODE=visible ./scripts/test-macos.sh --filter AgentActivityPresentationTests
+LITHE_TEST_WINDOW_MODE=visible ./scripts/macos/test/test-macos.sh --filter AgentActivityPresentationTests
 ```
 
 可见模式使用原始 AppKit 行为。真实桌面合成、硬件输入和跨应用激活测试应在独立
@@ -327,7 +327,7 @@ macOS 登录会话或虚拟机中运行可见模式。独立启动的产品进�
 
 ### macOS Git 真实窗口性能采样
 
-普通 `./scripts/test-macos.sh` 和 `./scripts/test-git-performance-baseline.sh`
+普通 `./scripts/macos/test/test-macos.sh` 和 `./scripts/macos/perf/test-git-performance-baseline.sh`
 默认跳过两个 WindowServer/display-link 真实窗口采样用例，继续运行 Git 图布局、
 离屏绘制和其他性能回归验证。图形离屏帧采样保留完整 1,000 行历史，分别在
 开头、中间、末尾采样 40 行可见区域，并检查位图确实绘制了图形。完整图的
@@ -347,11 +347,11 @@ LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
 没有可用显示或没有收到显示链接回调时，用例输出未采样原因，不能将其计为真实
 帧率验证。不要在普通开发验证或无人值守 CI 中默认设置该环境变量。
 
-Swift 文本文件策略直接调用 Rust Core，因此 `scripts/test-macos.sh` 会先构建并链接
+Swift 文本文件策略直接调用 Rust Core，因此 `scripts/macos/test/test-macos.sh` 会先构建并链接
 当前工作树的 Core 静态库。它复用现有 `rust/target/macos` 构建路径；这是可变编译状态，
 不允许跨工作树复制或共享，也没有新增可复用资源目录。依赖下载仍按下文清单复用。
 Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
-`./scripts/test-macos.sh list` 构建并发现测试，独立步骤上限为 40 分钟；随后计时工具
+`./scripts/macos/test/test-macos.sh list` 构建并发现测试，独立步骤上限为 40 分钟；随后计时工具
 传入 `--skip-build`，测试阶段保留 960 秒总时限及 17 分钟外层步骤时限，给超时清理
 与报告留出一分钟。构建失败时不生成合并报告，避免同一失败被重复计为“未生成测试
 报告”；构建成功而报告缺失仍会失败。冷构建不再消耗测试执行预算；单测试预算和无
@@ -372,10 +372,10 @@ SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记�
 
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
-然后运行 `node scripts/generate-i18n.mjs --check` 校验。修改源翻译后运行不带
+然后运行 `node scripts/i18n/generate-i18n.mjs --check` 校验。修改源翻译后运行不带
 `--check` 的同一命令，在当前工作树重新生成。资源身份由当前语言清单、词条、翻译
 共同决定，跨平台和架构均不需要下载；没有独立的工具链或
-可复用 identity stamp。`worktree-resources.json` 将它登记为 `shared-i18n` 不可复用项，
+可复用 identity stamp。`scripts/resources/worktree-resources.json` 将它登记为 `shared-i18n` 不可复用项，
 复用脚本拒绝所有复制阶段。不要从其他工作树或已签名应用复制生成文件。
 macOS 打包只在本次构建的目标目录转换为二进制字符串表，签名前完成；应用运行时
 只读取，不产生缓存或修改安装资源。维护步骤见 [共享翻译说明](../shared/i18n/README.md)。
@@ -395,7 +395,7 @@ HTTP/SSE 响应体和 stdio 元数据限制为 2 MiB，原生文件由现有平�
 这些保留值随资料持久化，不能复制到其他工作树；取消/离页释放进程与内存，不写 app bundle 或安装目录。
 用户明确运行包命令可能产生的 npm/uv 缓存归上游运行时管理，不属于可跨工作树复用的 Lithe 构建资源。
 
-随 App 附带的远端工作区服务登记为 `remote-server-artifacts`。`scripts/build-remote-servers.sh`
+随 App 附带的远端工作区服务登记为 `remote-server-artifacts`。`scripts/remote/build-remote-servers.sh`
 每次打包都从 `rust/lithe-remote/` 用 `--no-default-features --features server`
 只构建 `lithe-remote-server` 可执行文件，不编译客户端；两个 Linux musl 静态版输出到
 `rust/target/remote-servers/`，再复制到 `Contents/Resources/RemoteServers/`；构建机需要
@@ -499,7 +499,7 @@ macOS 的暂存目录由导出成功、失败或取消清理。测试必须注�
 
 #### 日志与诊断的原生界面检查
 
-编译 macOS 测试后运行 `./scripts/probe-macos-logging-ui.sh --skip-build`，或省略
+编译 macOS 测试后运行 `./scripts/macos/probe/probe-macos-logging-ui.sh --skip-build`，或省略
 `--skip-build` 先构建测试。脚本使用当前 Xcode 的 SwiftPM runner，在系统临时目录
 创建一次性的 `Lithe Logging UI.app`，并复用产品本地化打包脚本装入中英文字符串表。
 它运行真实原生页面的四种语言/明暗组合，生成 `.artifacts/test-stability/logging-*.png`
@@ -516,10 +516,10 @@ runner、产品字符串表、外观和测试参数，没有可跨工作树迁�
 它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、
 架构或工具链 identity stamp；任何复制阶段都应排除。资源清单的
 `excludedResources.platform-feature-matrix` 由复用脚本直接拒绝。目标工作树运行
-`node scripts/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
+`node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
 
-IDE MCP helper 由 `scripts/build-ide-mcp.sh`（macOS）和
-`scripts/build-windows-ide-mcp.mjs`（Windows Tauri 构建前）从当前源码与
+IDE MCP helper 由 `scripts/ide-mcp/build-ide-mcp.sh`（macOS）和
+`scripts/ide-mcp/build-windows-ide-mcp.mjs`（Windows Tauri 构建前）从当前源码与
 `rust/Cargo.lock` 构建。`dist/ide-mcp/`、`rust/target/windows-ide-mcp/` 和
 `windows/tauri/src-tauri/helpers/` 没有可靠 identity stamp，不允许跨工作树复用；
 目标架构、Rust 工具链及签名由各自打包流程验证，复制只发生在本次构建的打包阶段。
@@ -534,20 +534,20 @@ Git worktree 只共享 Git 对象，不共享各自的 `.artifacts` 目录。如
 工作树：
 
 ```bash
-node scripts/reuse-worktree-resources.mjs --source /path/to/existing-worktree
+node scripts/resources/reuse-worktree-resources.mjs --source /path/to/existing-worktree
 ```
 
 脚本默认处理注册表中的全部资源，也可以重复传入 `--resource` 只处理指定资源：
 
 ```bash
-node scripts/reuse-worktree-resources.mjs \
+node scripts/resources/reuse-worktree-resources.mjs \
   --source /path/to/existing-worktree \
   --resource cargo \
   --resource jdtls \
   --resource jdk
 ```
 
-`node scripts/reuse-worktree-resources.mjs --list` 可以查看当前注册资源。脚本只允许
+`node scripts/resources/reuse-worktree-resources.mjs --list` 可以查看当前注册资源。脚本只允许
 同一 Git 仓库的 linked worktree 互相复用资源，不修改源工作树。它先把源资源
 复制到目标工作树的临时目录，按照对应的 manifest、lockfile 或完整性清单校验，
 再原子替换目标目录并进行第二次校验。目标已有不少于源缓存的有效文件时会保留
@@ -557,7 +557,7 @@ JDTLS 和 JDK 使用
 [`third_party/jdtls/manifest.json`](../third_party/jdtls/manifest.json) 与
 [`third_party/jdk/manifest.json`](../third_party/jdk/manifest.json) 中的
 SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性清单。当前
-自动复用的资源由 [`scripts/worktree-resources.json`](../scripts/worktree-resources.json)
+自动复用的资源由 [`scripts/resources/worktree-resources.json`](../scripts/resources/worktree-resources.json)
 统一注册：
 
 - `.artifacts/cargo-home/registry/cache/`：Cargo crate 下载归档；按所有相关
@@ -609,14 +609,14 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   每次 gh 子进程有 120 秒期限，暂时性故障最多三次尝试，每次重试先清除本次残片；
   本地输入全部验证后才上传。发布器的 `finally` 删除自己创建的精确 mkdtemp 目录，
   成功和失败都不留下 staging，不写运行时 app bundle，不影响签名与 Sparkle 基线。
-  本地工作树只运行 `node --test scripts/test-publish-autobuild.mjs` 和资源复用测试，
+  本地工作树只运行 `node --test scripts/release/autobuild/test-publish-autobuild.mjs` 和资源复用测试，
   不复制别的工作树 staging，也不把正式发布命令当作验证命令。
 
 - 插件 UI 图标：包内声明的 SVG/PNG 属于安装版本的签名或社区内容摘要，
   macOS 在安装与启动时校验路径、大小、静态 SVG 子集和原生解码。资源在安装
   阶段随包复制，运行时只读，内存图像随当前进程目录释放；不创建磁盘缓存。
   `excludedResources.plugin-ui-icons` 通过复用脚本已有的排除资源路由拒绝复制，
-  `scripts/test-reuse-worktree-resources.mjs` 验证该路由。
+  `scripts/resources/test-reuse-worktree-resources.mjs` 验证该路由。
   没有可复用的版本/平台/架构/工具链 identity stamp，不得从安装包、已签名 app
   或其他工作树搬运图标；仓库内官方源资源从 Git 获取，构建打包时才复制。
   校验与渲染不会修改 bundle，因而不改变代码签名或 Sparkle delta 基线。
@@ -653,8 +653,8 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   重验摘要。`PluginDiskProvenance` 与 marketplace provenance 分开，市场同 ID 条目不能
   自动接管本地包的更新来源。本地磁盘社区首次安装、更新和同版本替换每次确认完整权限/程序，
   官方固定 ID、命名空间及签名要求与 DEBUG 开发包例外不变。
-  验证运行 `node scripts/test-reuse-worktree-resources.mjs`，确认排除项不在 `--list` 且
-  混合复制请求在任何工作树访问前失败；运行 `./scripts/verify-runtime-bundle-immutability.sh`
+  验证运行 `node scripts/resources/test-reuse-worktree-resources.mjs`，确认排除项不在 `--list` 且
+  混合复制请求在任何工作树访问前失败；运行 `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
   检查两端发行资源路径。macOS 产品验收另比较典型安装/取消/失败工作流前后的发行 bundle
   文件清单和哈希；运行时只写平台临时目录及 Application Support，不改变代码签名或
   Sparkle delta。Windows 尚未实现此声明式磁盘安装流程，不能把边界说明视为实现证据。
@@ -736,9 +736,9 @@ Java Support 当前仍随应用发行，独立下载的构建配置已登记，�
 离线可使用可信磁盘包。当前无线上发布，默认构建仍保留过渡包。
 
 构建输入 `LITHE_OFFICIAL_PLUGIN_INDEX` 默认为 `Plugins/marketplace/index.json`，只读，
-同时决定内置分发和应用内嵌索引；传给 `build-official-plugins.sh --marketplace-index`。
+同时决定内置分发和应用内嵌索引；传给 `scripts/plugins/build-official-plugins.sh --marketplace-index`。
 没有下载或缓存步骤，不允许从其他工作树的生成索引或用户运行时索引复用。
-`verify-macos-package.sh --slim` 在本次临时目录生成双架构索引 fixture，并验证在缺少
+`scripts/macos/verify/verify-macos-package.sh --slim` 在本次临时目录生成双架构索引 fixture，并验证在缺少
 JDT/JDK 输入时仍能生成不含 Java 资源的 universal app 和 DMG；fixture 不是可发布索引，
 随测试目录清理，不影响签名或 Sparkle 发行基线。
 
@@ -774,7 +774,7 @@ Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app
   从源码目录直接复制，不下载、与架构无关；模板只读，新项目先写进用户所选目录下的临时目录，
   完成后整体移动到位，不写 app bundle 或插件包，不影响代码签名和 Sparkle delta。
 - **组装入口**：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由
-  `scripts/build-official-plugins.sh` 调用，`--arch arm64|x86_64|universal` 决定带哪些架构的 JDK
+  `scripts/plugins/build-official-plugins.sh` 调用，`--arch arm64|x86_64|universal` 决定带哪些架构的 JDK
   和 Equinox 配置。应用本身不再包含 `Contents/Resources/LanguageServers`。
 - **是否允许跨 worktree 复用**：组装后的包不允许复用。它由 `jdtls` 和 `jdk` 两个可复用的下载缓存
   生成，新工作树应复用这两个缓存后在本地重新组装。
@@ -794,7 +794,7 @@ Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app
 包内网页、脚本和 app bundle 始终只读，因此不改变签名或 Sparkle delta 的源基线。
 这类用户 JSON 没有版本、平台、架构或工具链 identity stamp，工作区摘要只是存储键，
 任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
-排除路由直接拒绝，由 `scripts/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
+排除路由直接拒绝，由 `scripts/resources/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity
@@ -805,8 +805,8 @@ The artifact behavior and compression setting follow
 reuse follows GitHub's
 [branch access restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
 
-Windows PHP Worker 插件使用 `bun scripts/build-windows-php-plugin.ts` 单独构建到
-`.artifacts/windows-plugins/`，通过 `node scripts/verify-windows-plugin-isolation.mjs`
+Windows PHP Worker 插件使用 `bun scripts/windows/build/build-windows-php-plugin.ts` 单独构建到
+`.artifacts/windows-plugins/`，通过 `node scripts/windows/verify/verify-windows-plugin-isolation.mjs`
 检查入口独立性。它绑定包格式、宿主 SDK 和当前 Bun 构建版本，没有 identity stamp，
 在资源清单中注册为不可复用；不随 Windows 应用构建复制。用户导入后的源码与状态
 位于 WebView 用户配置的 `lithe.worker-package:<id>`，也禁止跨 worktree 复用。
@@ -825,5 +825,5 @@ CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker
 代码签名或 Sparkle delta 基线。
 
 原生 UI 截图位于 `.artifacts/test-stability/hooks-ui/`，绑定本次源码、主题、
-语言和窗口尺寸，不作为可复用资源。运行 `node --test scripts/test-reuse-worktree-resources.mjs`
+语言和窗口尺寸，不作为可复用资源。运行 `node --test scripts/resources/test-reuse-worktree-resources.mjs`
 验证 `agent-hook-library-state` 被复用入口拒绝。

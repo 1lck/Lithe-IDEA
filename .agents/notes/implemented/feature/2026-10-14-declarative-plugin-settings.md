@@ -72,9 +72,9 @@ settings v2 仍复用 v1 的启动模板展开，但新增设置注册页、项�
 ```bash
 cargo test --manifest-path rust/lithe-core/Cargo.toml declarative
 cargo test --manifest-path rust/lithe-core/Cargo.toml jdt
-./scripts/verify-shared-contracts.sh
-./scripts/test-macos.sh --filter PluginSettingsTests
-./scripts/test-macos.sh --filter PluginLanguageServerLaunchResolverTests
+./scripts/architecture/verify-shared-contracts.sh
+./scripts/macos/test/test-macos.sh --filter PluginSettingsTests
+./scripts/macos/test/test-macos.sh --filter PluginLanguageServerLaunchResolverTests
 ```
 
 契约夹具：`shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json` 声明了三种类型的选项；`command-plans.json` 覆盖默认值、存储值、不合法存储值的回退和布尔类型保持；`invalid-manifests.json` 覆盖选项声明与引用的拒绝情形。

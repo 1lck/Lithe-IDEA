@@ -57,7 +57,7 @@ SDK 复制只发生在打包阶段，staging 在成功或失败后清理；发�
 - 独立插件 CI：`node scripts/prepare-core.mjs` 构建固定宿主公开接口桥接；`LITHE_CARGO_INTEGRATION=1 node scripts/test.mjs` 执行 SDK 哈希、Node 单元、包校验、3 项 Core 兼容性回归及真实 Cargo 双包 workspace。
 - 集成验证覆盖真实模型解码、Core 生成的 Build/Check/Test/Clean 与 binary/example 运行、选项与精确用例选择、失败诊断、后端退出及包文件字节不变；插件仓库上传逐测试 HTML、JUnit 与日志。
 - 主仓库现有 `build_systems` 和 `community_build_plugins` 回归继续验证通用宿主行为，不依赖社区 Cargo 发布清单或外部 checkout。
-- `./scripts/verify-runtime-bundle-immutability.sh`、`./scripts/verify-platform-feature-matrix.sh`、`./scripts/verify-agent-notes.sh`。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
 - 原生磁盘安装、窗口交互与进程关闭的验收状态由 cargo-build-plugin 功能记录单独维护。
 
 ## 适用范围

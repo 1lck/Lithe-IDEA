@@ -90,11 +90,11 @@ JDT LS 自带一个文件系统插件 `org.eclipse.jdt.ls.filesystem`。它根�
 
 ## 验证
 
-- `./scripts/verify-rust-core-comments.sh`
-- `./scripts/verify-rust-core.sh`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-agent-notes.sh`
-- `./scripts/test-macos.sh`
+- `./scripts/rust-core/verify-rust-core-comments.sh`
+- `./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
+- `./scripts/macos/test/test-macos.sh`
 
 `jdt_project_metadata` 的测试覆盖：多层模块的未跟踪文件被删除且状态目录被重置；Git 跟踪的
 文件和 `.settings` 里的非 prefs 文件保留；嵌套仓库里被内层仓库跟踪的文件保留；非 Git 工作区

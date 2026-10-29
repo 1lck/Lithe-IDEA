@@ -97,7 +97,7 @@ Windows 原来有五个漏洞，叠在一起导致“关闭 Lithe 后服务还�
 - `macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift`：`stoppingTheGraphStopsServiceSessions` 启动一个服务会话，确认它不算“当前运行”但让执行图保持活跃，`stop()` 之后进程停止、活跃状态清除。
 - `macos/Tests/LitheTests/MacProcessRunnerTests.swift`：`applicationExitKillsEveryGroupItsOwnersLeftRunning` 启动一个忽略 SIGTERM 的进程和一个带忽略 SIGTERM 后代的进程，所有者丢弃引用后调用兜底，确认两个进程组在 2 秒内消失。
 - 实际应用（2026-10-14，macOS）：运行 Spring Boot 配置，Java 进程监听 8080 后从菜单退出 Lithe，1 秒内 Lithe、语言服务器和 Spring Boot 进程全部消失，端口释放。修改前同样的操作会留下 Java 进程。未实测更新安装的强制退出路径。
-- `./scripts/test-macos.sh --filter '(MacProcessRunnerTests|ExecutionModule)'`。
+- `./scripts/macos/test/test-macos.sh --filter '(MacProcessRunnerTests|ExecutionModule)'`。
 - `rust/lithe-git-host/tests/process.rs`：`process_tree_terminate_ends_the_root_and_its_descendants` 启动一个会再启动后代的进程，确认 `terminate` 返回时两者都已结束；Windows 上 `dropping_a_process_tree_ends_it_like_a_crashed_host` 只丢弃句柄，确认内核结束整组。
 - `windows/tauri/src-tauri/src/run.rs` 测试（仅 Windows）：关闭一个窗口只结束它自己的进程树、丢弃会话等同 Lithe 崩溃、原生列表按启动顺序包含全部会话。
   - Windows CI 39919376382 在关闭窗口和丢弃会话两例中，根进程已退出，但立即读取的 `sysinfo` 快照仍包含后代 PID。测试改为停止前打开后代的只等待句柄，停止后分别在两秒内等待根进程和后代的退出信号；另一窗口的后代用零等待确认仍在运行。依据 [Windows 进程终止语义](https://learn.microsoft.com/en-us/windows/win32/procthread/terminating-a-process)，退出进程的对象可以因尚未关闭的句柄而继续存在，进程退出信号才是结束依据。保留原来的窗口隔离、重复关闭和崩溃清理断言，不改产品停止流程。夹具的首字节就绪信号有两秒期限，失败路径和断言展开时也按所属会话清理进程树、等待退出并释放管道和句柄；不依赖任意睡眠或 PID 重查。

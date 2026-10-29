@@ -167,7 +167,7 @@ HTML 预览里，`WKUIDelegate` 的 `requestMediaCapturePermissionFor` 把请求
 
 **为什么现在是休眠的**：WebKit 是否向页面提供 `navigator.mediaDevices`，默认取决于宿主应用的 Info.plist 有没有摄像头 / 麦克风用途说明。当前构建没有 `NSCameraUsageDescription` 和 `NSMicrophoneUsageDescription`，在本机实测页面里 `navigator.mediaDevices` 是 `undefined`，页面发不出请求，也不会出现系统权限框。这是想要的安全默认：macOS 会结束一个没有用途说明却去访问摄像头 / 麦克风的进程。`decide` 把同一个检查再做一遍（`WebMediaAccess.outcome`）：请求到了委托但缺少用途说明时，直接拒绝，不弹授权框；HTML 预览里还会提示一次“此版本无法让页面使用摄像头或麦克风”。生产代码不会去打开 WebKit 的私有开关 `mediaDevicesEnabled`，只有测试会。
 
-要让功能真正可用，需要在 `macos/Resources/Info.plist` 增加 `NSCameraUsageDescription` 和 `NSMicrophoneUsageDescription`（以及它们的本地化文案）。隐私用途说明和 entitlements 属于要先经维护者确认的改动，所以这次没有动它们，功能保持休眠。**2026-10-22 维护者的决定：继续保持休眠，不改 Info.plist 和 entitlements，不做真机验证，也不做子进程隔离**；原因是下一段的子进程继承问题，用途说明不能单独补，必须和子进程隔离一起上。打包脚本 `scripts/package-app.sh` 用 `codesign --force --deep --sign "$SIGNING_IDENTITY"`，默认是 ad-hoc 签名（`-`），不带 `--options runtime`，也没有 entitlements 文件，没有启用 hardened runtime 或沙盒，所以从系统要求看，补用途说明就能让功能跑起来（能不能补见下一段）；以后启用 hardened runtime 时还要加 `com.apple.security.device.camera` 和 `com.apple.security.device.audio-input`。ad-hoc 签名的应用，系统记录的摄像头 / 麦克风授权很可能跟着代码签名哈希走，应用更新后需要重新授权（未实测）。
+要让功能真正可用，需要在 `macos/Resources/Info.plist` 增加 `NSCameraUsageDescription` 和 `NSMicrophoneUsageDescription`（以及它们的本地化文案）。隐私用途说明和 entitlements 属于要先经维护者确认的改动，所以这次没有动它们，功能保持休眠。**2026-10-22 维护者的决定：继续保持休眠，不改 Info.plist 和 entitlements，不做真机验证，也不做子进程隔离**；原因是下一段的子进程继承问题，用途说明不能单独补，必须和子进程隔离一起上。打包脚本 `scripts/macos/package/package-app.sh` 用 `codesign --force --deep --sign "$SIGNING_IDENTITY"`，默认是 ad-hoc 签名（`-`），不带 `--options runtime`，也没有 entitlements 文件，没有启用 hardened runtime 或沙盒，所以从系统要求看，补用途说明就能让功能跑起来（能不能补见下一段）；以后启用 hardened runtime 时还要加 `com.apple.security.device.camera` 和 `com.apple.security.device.audio-input`。ad-hoc 签名的应用，系统记录的摄像头 / 麦克风授权很可能跟着代码签名哈希走，应用更新后需要重新授权（未实测）。
 
 **补用途说明之前必须知道的事**：系统的摄像头 / 麦克风授权属于整个 Lithe，不属于某个页面或插件。使用者在任何一个弹窗里点过“Allow”并通过系统权限框之后，系统记下的是“Lithe 可以用摄像头”。网页这一侧有 `decide` 把关，但 Lithe 启动的子孙进程（插件后端、语言服务器、内置终端里的命令、Agent CLI 和它的 shell 工具）这一侧没有。目前没有用途说明，系统会直接拒绝这些访问，所以现在不存在这个口子；补用途说明就是把它打开。
 
@@ -255,13 +255,13 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 
 ## 验证
 
-- `./scripts/test-macos.sh --filter HTMLPreview`
+- `./scripts/macos/test/test-macos.sh --filter HTMLPreview`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter HTMLPreview`：带单测试计时运行。这些用例都跑真实 `WKWebView`，每项要在 1 秒告警线以内；模拟摄像头 / 麦克风那一组必须串行，原因见“摄像头和麦克风”。
-- `./scripts/test-macos.sh --filter HTMLPreviewPageShortcut`：页面快捷键的放行规则，以及经 `NSApplication.sendEvent` 驱动真实监听器的回归测试（先确认页面认领每个按键，再装上监听器确认页面有焦点时按键没有被键位拿走，最后把焦点移到页面外确认同样的按键归键位）。
-- `./scripts/test-macos.sh --filter AppLocalizationTests`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/macos/test/test-macos.sh --filter HTMLPreviewPageShortcut`：页面快捷键的放行规则，以及经 `NSApplication.sendEvent` 驱动真实监听器的回归测试（先确认页面认领每个按键，再装上监听器确认页面有焦点时按键没有被键位拿走，最后把焦点移到页面外确认同样的按键归键位）。
+- `./scripts/macos/test/test-macos.sh --filter AppLocalizationTests`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - 在运行的应用中打开 HTML：用工具栏后退/前进/刷新，输入本地路径和网址，点击锚点和相对链接，触发 `alert`/`confirm`/`prompt`，打开开发者工具并确认停靠在页面下方。
 - 打开一个比预览区域宽且高的页面，确认右边缘和下边缘常驻滚动条，缩放到 500% 后滚动条仍是正常粗细，内容放得下的页面没有滚动条。
 - 点击指向压缩包的链接弹出保存面板、`<a download>` 保存、在地址栏输入带 `index.html` 的目录路径或点击不带斜杠的目录链接（包括 iframe 里的）能正常加载其中的脚本、缩放时 iframe 里的滚动条保持同样粗细、在分屏里切换到另一个 HTML 标签时预览显示新文件（对应 `HTMLPreviewBrowserTests` 里的同名用例）。
@@ -269,7 +269,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - 在运行的应用中按 ⌘F 打开查找条，输入文字确认页面里的匹配项被选中；⌘G / ⇧⌘G 与 Return / ⇧Return 前进、后退并回绕；输入页面里没有的文字显示 “No matches”；Esc 收起后键盘回到页面；用默认键位，焦点在预览页面里按 ⌘F / ⌘G / ⇧⌘G 打开并驱动的是预览的查找条而不是编辑器的查找；分屏时焦点在编辑器里按 ⌘F / ⌘G / ⌘P 仍归编辑器。
 - 在页面空白处、链接和图片上右键：没有“在新窗口中打开”，链接上有“拷贝链接”，空白处在“检查元素”上方有 Print… 和 Export as PDF…。⌘P 或 Print… 以窗口 sheet 打开系统打印面板；Export as PDF… 保存整页，文件名取页面标题。
 - 补上 Info.plist 用途说明之后，在运行的应用中打开调用 `getUserMedia` 的页面：弹窗写明页面名称，默认按钮是 Don’t Allow；允许后地址栏右侧出现指示器，菜单里的静音 / 停止生效；再次打开同一页面仍会询问；页面里没有 `getDisplayMedia`。再用一个调用 `getUserMedia` 的插件页确认：弹窗写“插件“X”……”并带插件 ID，点 Don’t Allow 页面收到 `NotAllowedError`，允许后隐藏该工具窗口，系统菜单栏的绿点 / 橙点随之消失；再显示窗口并让页面第二次调用 `getUserMedia`，记录是否再次询问，并据此校对插件弹窗里的说明。当前构建没有这些用途说明，这一步还不能做；补用途说明时还要同时验证子进程隔离（在 Lithe 的内置终端和插件后端里尝试打开摄像头应当失败），验收标准见提议 Note `2026-10-22-child-process-media-isolation.md`。
-- `./scripts/test-macos.sh --filter 'WebMedia|MockCapture|PluginMediaCapture|HTMLPreviewMediaCapture'`：门的决策、源码扫描、拒绝委托和两条端到端路径（HTML 预览、插件页）。
+- `./scripts/macos/test/test-macos.sh --filter 'WebMedia|MockCapture|PluginMediaCapture|HTMLPreviewMediaCapture'`：门的决策、源码扫描、拒绝委托和两条端到端路径（HTML 预览、插件页）。
 
 ## 适用范围
 

@@ -68,13 +68,13 @@
 
 ## 验证
 
-- `./scripts/test-macos.sh --filter LitheDebugModuleTests`
-- `./scripts/test-macos.sh --filter 'DeclarativeDebugAdapterConsoleTests'`
+- `./scripts/macos/test/test-macos.sh --filter LitheDebugModuleTests`
+- `./scripts/macos/test/test-macos.sh --filter 'DeclarativeDebugAdapterConsoleTests'`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml console_completions`
-- `./scripts/verify-shared-contracts.sh`
-- `node scripts/generate-i18n.mjs --check`
-- `node scripts/verify-app-language-localization.mjs`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `node scripts/i18n/generate-i18n.mjs --check`
+- `node scripts/i18n/verify-app-language-localization.mjs`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 

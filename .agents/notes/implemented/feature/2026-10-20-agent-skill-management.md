@@ -81,11 +81,11 @@ Windows 已能使用共享 Core 与 Host 操作，但设置页面和真实 Windo
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentSkillsFeatureModelTests|AgentSkillsRustBridgeTests|AgentSkillsAppearanceTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests'`
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host --report .artifacts/test-stability/agent-skills-rust.json`
 - Windows 在原生 CI 中运行相同 Host 测试，覆盖暂存后出现的空目录、普通文件和非空目录都不覆盖，缺失的 Unicode 目标完整发布，以及 NUL 路径不按截断名称发布。这些文件系统用例不等于 Windows 设置页或真实 Agent 会话验收。
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 原生布局测试覆盖窄宽页面及深浅主题，检查菜单锚点落在可见宽度内；开关测试分别阻塞两次原生写入，对比首次点击前、关闭保存中、关闭确认后、再次开启保存中和开启确认后的全部原生开关位置，确保提示变化不移动技能行。可通过 `LITHE_AGENT_SKILLS_SCREENSHOTS` 输出审查截图。夹具验证原生发现与目录清单的区别、原生启用状态、Claude 本地配置可见性、作用范围和插件身份；临时项目通过真实 Core 桥验证创建、查看和冲突。受控假 App Server 验证发现只读，启停只执行发现、原生配置写入和读取核对，拒绝未知路径，均不发送创建会话或提示词请求。临时配置验证全局/项目隔离、其他字段及文件权限保留、无效配置、锁冲突、符号链接和取消清理；功能模型验证点击立即反馈但不提前报告已保存、失败回滚到已确认状态、写入串行和项目切换拒绝旧结果；原生控件回归验证保存期间当前开关立即关闭且不增加加载转圈，其他开启行的原生状态、交互能力与像素外观不变；功能模型控制两次写入的释放次序，验证同一 Agent 的连续保存不丢确认、单项失败后队列继续、重复点击去重，以及切项目/退出时未执行请求不再启动。窗口失去焦点时保留 macOS 原生非活动外观，滑块位置和实际原生配置不随窗口焦点变化。
 

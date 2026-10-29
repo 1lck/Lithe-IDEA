@@ -78,9 +78,9 @@ Codex/Claude 的 OAuth 登录不等同于可用 API 密钥，本次不实现 CLI
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`：测试稳定性静态检查。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`：前端行为和单测试计时。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust`：共享 Rust 的计时验证。
-- `./scripts/build-windows.ps1 -Configuration Release`：Windows 完整构建。
+- `./scripts/windows/build/build-windows.ps1 -Configuration Release`：Windows 完整构建。
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml`：宿主适配器回归。
-- `node scripts/verify-agent-notes.mjs`：设计笔记格式和链接。
+- `node scripts/agent-notes/verify-agent-notes.mjs`：设计笔记格式和链接。
 
 具体执行结果与使用步骤记录在[实现文档](../../../../docs/development/windows-ai-commit.md)。
 

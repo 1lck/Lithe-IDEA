@@ -512,9 +512,9 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 明暗主题下修改文件名的实际像素色、无逐行分隔线，以及可视宽度变化后的滚动范围。
 
 
-- `./scripts/build-macos.sh`
-- `./scripts/verify-git-graph.sh`
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/macos/build/build-macos.sh`
+- `./scripts/git-graph/verify-git-graph.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - `git diff --check`
 
 上游对照 fixture 固定保存在

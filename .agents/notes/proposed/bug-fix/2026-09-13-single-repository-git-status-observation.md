@@ -247,12 +247,12 @@ burst 防抖、刷新期间补刷新、freeze 嵌套、full rescan/watch-roots
 
 ```bash
 swift test --disable-sandbox
-./scripts/verify-core.sh
-./scripts/verify-git-graph.sh
-./scripts/verify-service-boundaries.sh
-./scripts/verify-shared-contracts.sh
-./scripts/verify-windows-boundaries.sh
-./scripts/verify-rust-core.sh
+./scripts/architecture/verify-core.sh
+./scripts/git-graph/verify-git-graph.sh
+./scripts/architecture/verify-service-boundaries.sh
+./scripts/architecture/verify-shared-contracts.sh
+./scripts/windows/verify/verify-windows-boundaries.sh
+./scripts/rust-core/verify-rust-core.sh
 ```
 
 若修改 Rust Core，另需运行对应 Cargo 测试并确保格式检查通过。

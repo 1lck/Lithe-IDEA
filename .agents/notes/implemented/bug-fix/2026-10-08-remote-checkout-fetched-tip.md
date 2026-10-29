@@ -39,7 +39,7 @@ IntelliJ Community `fb72b4df43aba102479eb0502d20b03586b9c5b8` 的 `GitRemoteBran
 - 共享场景 `shared/fixtures/git/remote-checkout-v1.json` 由真实 Git 集成测试驱动，覆盖当前／其他分支、缺失本地分支、工作区／暂存区／未跟踪文件、Force、Smart Checkout、本地独有提交和其他工作树占用。
 - `rust/lithe-core/src/tests/git_remote_checkout.rs` 验证真实 Fetch 后 HEAD、本地引用、跟踪关系与文件内容一致，并验证失败保留引用、文件、暂存区和 stash；另覆盖旧请求格式、普通本地 Checkout 与 Checkout and Rebase。
 - `windows/tauri/src/features/git/components/log/git-log-branch-actions.test.tsx` 使用实际 API 的空成功 `message`，验证本地／远程 Checkout 在中英文下仍显示完整成功文案与所选引用名称，并刷新 Git Log。
-- 运行 `.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1` 和共享 Rust 的单测试计时工具；运行 `scripts/verify-rust-core-comments.sh`、`scripts/verify-agent-notes.sh`、`scripts/verify-platform-feature-matrix.sh`、`scripts/verify-runtime-bundle-immutability.sh`。
+- 运行 `.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1` 和共享 Rust 的单测试计时工具；运行 `scripts/rust-core/verify-rust-core-comments.sh`、`scripts/agent-notes/verify-agent-notes.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
 - 用户于 2026-10-08 确认本次 Windows 改动的本地测试没有问题，作为远程 Checkout 更新与成功提示恢复的用户验收依据。macOS 编译／原生界面及其他矩阵验收场景仍需单独验证；不要把本次反馈扩大为整项能力的全平台验收。
 
 ## 适用范围

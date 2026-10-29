@@ -67,17 +67,17 @@ jobs:
         shell: bash
         run: |
           notes_file="docs/releases/v${LITHE_VERSION}.md"
-          node scripts/validate-stable-release-notes.mjs "$notes_file"
+          node scripts/release/notes/validate-stable-release-notes.mjs "$notes_file"
 
       - name: Validate repository release contracts
         run: |
           sudo apt-get update
           sudo apt-get install -y zsh
-          zsh scripts/verify-runtime-bundle-immutability.sh
-          zsh scripts/verify-agent-notes.sh
-          bash scripts/verify-platform-feature-matrix.sh
+          zsh scripts/macos/verify/verify-runtime-bundle-immutability.sh
+          zsh scripts/agent-notes/verify-agent-notes.sh
+          bash scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
           bash .agents/skills/write-stable-tests/scripts/verify-test-stability.sh
-          node --test scripts/verify-release-signature.test.mjs
+          node --test scripts/release/sparkle/verify-release-signature.test.mjs
 
   build:
     name: Build ${{ matrix.architecture }} release
@@ -108,7 +108,7 @@ jobs:
       - name: Set up Rust target
         uses: dtolnay/rust-toolchain@stable
         with:
-          # The app bundles the Linux remote workspace servers (scripts/build-remote-servers.sh).
+          # The app bundles the Linux remote workspace servers (scripts/remote/build-remote-servers.sh).
           targets: ${{ format('{0},x86_64-unknown-linux-musl,aarch64-unknown-linux-musl', matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') }}
 
       - name: Prepare verified dependency caches
@@ -128,7 +128,7 @@ jobs:
           LITHE_CODESIGN_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
         run: |
           if [[ -n "$MACOS_SIGNING_CERTIFICATE" ]]; then
-            zsh scripts/import-macos-signing.sh
+            zsh scripts/release/macos/import-macos-signing.sh
           elif [[ -n "$MACOS_SIGNING_PASSWORD" || -n "$LITHE_CODESIGN_IDENTITY" ]]; then
             echo "Incomplete Developer ID configuration: provide the certificate or remove the optional identity and password."
             exit 1
@@ -145,8 +145,8 @@ jobs:
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
         run: |
           test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before releasing"; exit 1; }
-          ./scripts/package-app.sh
-          ./scripts/create-dmg.sh
+          ./scripts/macos/package/package-app.sh
+          ./scripts/macos/package/create-dmg.sh
           dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
           (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
 
@@ -187,7 +187,7 @@ jobs:
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
           LITHE_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
-        run: zsh scripts/create-sparkle-update.sh
+        run: zsh scripts/release/sparkle/create-sparkle-update.sh
 
       - name: Verify updater key and installed application
         timeout-minutes: 5
@@ -197,8 +197,8 @@ jobs:
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           dmg="dist/Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
-          node scripts/verify-release-signature.mjs "$dmg" "$dmg.edsig" "$LITHE_SPARKLE_PUBLIC_KEY"
-          zsh scripts/verify-macos-release-install.sh "$dmg" "$LITHE_VERSION" "$LITHE_SPARKLE_PUBLIC_KEY"
+          node scripts/release/sparkle/verify-release-signature.mjs "$dmg" "$dmg.edsig" "$LITHE_SPARKLE_PUBLIC_KEY"
+          zsh scripts/release/macos/verify-macos-release-install.sh "$dmg" "$LITHE_VERSION" "$LITHE_SPARKLE_PUBLIC_KEY"
 
       - name: Upload release assets
         uses: actions/upload-artifact@v7
@@ -257,7 +257,7 @@ jobs:
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          ruby scripts/create-macos-update-manifest.rb \
+          ruby scripts/release/macos/create-macos-update-manifest.rb \
             --require-signatures \
             --version "$LITHE_VERSION" \
             --repository "$GITHUB_REPOSITORY" \
@@ -345,7 +345,7 @@ jobs:
           intel_sha=$(awk 'NR == 1 { print $1 }' "$CHECKSUM_DIR/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256")
           LITHE_ARM64_SHA256="$arm_sha" \
           LITHE_X86_64_SHA256="$intel_sha" \
-          ruby scripts/update-homebrew-cask.rb
+          ruby scripts/release/macos/update-homebrew-cask.rb
 
       - name: Validate the Cask
         env:

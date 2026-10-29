@@ -47,8 +47,8 @@ Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。
 - `rust/lithe-core` 单测覆盖：初始化选项在导入前即携带 Gradle 设置、无 wrapper 描述文件时省略 wrapper 字段、无 Gradle 上下文时不下发 `java.import`、按 section 查询返回对应 Gradle 取值、叶子合并保留调用方已声明的 `offline` 与 `version`。
 - `windows/tauri/src-tauri/src/lsp.rs` 单测覆盖：工作区指纹识别 Gradle 设置文件与 wrapper 描述文件且忽略 `gradle.properties`、根目录缺少构建文件时不判为 Gradle、仅有 `gradlew` 脚本时不认为存在 wrapper、Maven 工作区不产生 Gradle 上下文。
 - `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts` 与 `windows/tauri/src/platform/lsp-core-adapter.test.ts` 覆盖 TS 透传：有 Gradle 上下文时原样转发，无上下文时为 `null`。
-- `scripts/verify-rust-core.sh`、`scripts/verify-rust-core-comments.sh`、`scripts/verify-rust-core-layout.sh` 校验 Rust 核心的格式、注释与包布局。
-- `scripts/verify-platform-feature-matrix.sh`、`scripts/verify-platform-feature-matrix-change.sh` 与 `scripts/verify-agent-notes.sh` 校验功能矩阵与 Note 记录。
+- `scripts/rust-core/verify-rust-core.sh`、`scripts/rust-core/verify-rust-core-comments.sh`、`scripts/rust-core/verify-rust-core-layout.sh` 校验 Rust 核心的格式、注释与包布局。
+- `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh` 与 `scripts/agent-notes/verify-agent-notes.sh` 校验功能矩阵与 Note 记录。
 - 真实运行验证：在 Windows 打开一个带 Gradle wrapper 的工程，确认 JDT LS 通过 Buildship 完成导入与依赖解析，源码可跳转、补全并能高亮 Gradle 依赖中的类型。此项待实机确认，故功能矩阵验证状态仍为待验证。
 
 ## 适用范围

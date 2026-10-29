@@ -321,7 +321,7 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - 任务通过现有执行链路运行，具备取消、期限和输出上限；禁用插件会停止它登记的守护进程，用户在终端启动的同一工具不受影响。
 - `junitXml` 和 `lineMatcher` 解码出的诊断与测试结果能跳转到编辑器位置。
 - 迁移过程中 Maven 工具窗口的生命周期、Profile、依赖树和执行目标行为不变；`build.*` 与 `maven.*` 并行期间，两者对同一组 Maven fixture 的结果一致。
-- 两端宿主代码里没有按构建系统 ID 写的分支；运行 `./scripts/verify-shared-contracts.sh`、`./scripts/verify-runtime-bundle-immutability.sh` 通过。
+- 两端宿主代码里没有按构建系统 ID 写的分支；运行 `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 通过。
 
 ## 风险
 

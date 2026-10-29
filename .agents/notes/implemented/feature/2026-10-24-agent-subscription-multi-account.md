@@ -63,7 +63,7 @@ Claude 与 Codex 的官方订阅都可以保存多个账号。每个账号对应
 
 - `cargo test -p lithe-agent-host --lib`：目录透传、相对路径拒绝、已登录账号随事件发出。
 - `AgentAccountTests`：配速计算、账号仅保存路径、观察值按账号保留、每个 Agent 只收到自己的账号目录。
-- `./scripts/verify-platform-feature-matrix.sh`、`node scripts/generate-i18n.mjs --check`。
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`node scripts/i18n/generate-i18n.mjs --check`。
 
 ## 适用范围
 

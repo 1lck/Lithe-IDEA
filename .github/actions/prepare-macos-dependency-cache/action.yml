@@ -185,7 +185,7 @@ runs:
           jdtls_outcome="$JDTLS_RESTORE_OUTCOME"
           jdk_outcome="$JDK_RESTORE_OUTCOME"
         fi
-        "$GITHUB_WORKSPACE/scripts/validate-macos-dependency-caches.sh" \
+        "$GITHUB_WORKSPACE/scripts/macos/prepare/validate-macos-dependency-caches.sh" \
           --swiftpm-enabled "${{ inputs.swiftpm }}" \
           --swiftpm-outcome "${swiftpm_outcome:-skipped}" \
           --swiftpm-hit "${swiftpm_hit:-}" \
@@ -199,7 +199,7 @@ runs:
     - name: Resolve SwiftPM dependencies with fallback
       if: inputs.swiftpm == 'true'
       shell: zsh {0}
-      run: "$GITHUB_WORKSPACE/scripts/prepare-macos-dependencies.sh"
+      run: "$GITHUB_WORKSPACE/scripts/macos/prepare/prepare-macos-dependencies.sh"
 
     - name: Resolve Cargo compilation cache identity
       id: cargo_build_identity
@@ -228,7 +228,7 @@ runs:
       env:
         KEY_PREFIX: macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}
         BUILD_ARCHITECTURE: ${{ inputs.cargo-build-architecture }}
-        SOURCE_HASH: ${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'rust/.cargo/**', 'scripts/build-rust-core.sh', 'scripts/build-ide-mcp.sh') }}
+        SOURCE_HASH: ${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'rust/.cargo/**', 'scripts/rust-core/build-rust-core.sh', 'scripts/ide-mcp/build-ide-mcp.sh') }}
       run: |
         echo "prefix=$KEY_PREFIX" >> "$GITHUB_OUTPUT"
         echo "key=$KEY_PREFIX-$BUILD_ARCHITECTURE-$SOURCE_HASH" >> "$GITHUB_OUTPUT"

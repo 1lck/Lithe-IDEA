@@ -67,7 +67,7 @@ jobs:
           if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
             export LITHE_CI_SCOPE=release_promotion
           fi
-          ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          ./scripts/ci/common/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Summarize selected lanes
         shell: bash
@@ -110,10 +110,10 @@ jobs:
           key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
 
       - name: Check formatting, lints and remote server targets
-        run: ./scripts/verify-remote-workspace.sh --static
+        run: ./scripts/remote/verify-remote-workspace.sh --static
 
       - name: Test remote workspace client, protocol and server
-        run: ./scripts/verify-remote-workspace.sh --tests
+        run: ./scripts/remote/verify-remote-workspace.sh --tests
 
       - name: Upload test timing report
         if: always()

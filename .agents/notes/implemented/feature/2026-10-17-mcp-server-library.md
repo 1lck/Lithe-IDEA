@@ -219,19 +219,19 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 - `LITHE_MCP_PROBE_INTEGRATION=1 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 45 -- --filter McpArgumentRoundTripTests`（显式联网验收 Context7 的真实工具列表、原生大栈线程、取消前启动保护、精确参数、独立工具规则和过期文件保护；普通测试不依赖公网）
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host --report .artifacts/test-stability/mcp-tools-host.json`（本地 stdio、HTTP JSON/SSE 响应、分页、超大响应拒绝、虚拟超时及取消后进程回收）
 
-- `./scripts/test-macos.sh --filter "McpRegistryTests|McpServerLibraryTests"`：离线首页零网络请求、失败保留精选、显式选择路由和路由间分页隔离、精选与在线连接去重，Registry 桥接、分页、取消、旧请求淘汰，JSON 预览不写文件也不取得所有权；原生卡片浅色/深色下在 420 与 780 点宽度重排，截图写入 `.artifacts/mcp-discovery/` 供人工检查。
-- `LITHE_RUN_MCP_REGISTRY_INTEGRATION=1 ./scripts/test-macos.sh --filter McpRegistryIntegrationTests`：可选联网集成，通过生产 adapter 显式直连官方目录并分页；普通单元测试不依赖公网。
+- `./scripts/macos/test/test-macos.sh --filter "McpRegistryTests|McpServerLibraryTests"`：离线首页零网络请求、失败保留精选、显式选择路由和路由间分页隔离、精选与在线连接去重，Registry 桥接、分页、取消、旧请求淘汰，JSON 预览不写文件也不取得所有权；原生卡片浅色/深色下在 420 与 780 点宽度重排，截图写入 `.artifacts/mcp-discovery/` 供人工检查。
+- `LITHE_RUN_MCP_REGISTRY_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter McpRegistryIntegrationTests`：可选联网集成，通过生产 adapter 显式直连官方目录并分页；普通单元测试不依赖公网。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::registry::`：精选目录无需网络且草稿固定版本，元数据夹具、失效记录、动态输入、危险链接和大小上限。
-- `node --test scripts/test-reuse-worktree-resources.mjs`：进程内目录元数据不得跨 worktree 复用。
+- `node --test scripts/resources/test-reuse-worktree-resources.mjs`：进程内目录元数据不得跨 worktree 复用。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core mcp::`（覆盖删除首项/中间项/末项、同行相邻项、值跨多行且下一个键同行的布局、单行与混合换行布局，JSON 输出重新解析，重复 JSON 键拒绝编辑；Codex 更新保留 `bearer_token_env_var`、`startup_timeout_sec`、未知键、建模键与值的注释、未变化的 args 数组内注释和非字符串 env 值，变量列表清空时也保留非字符串值；内联 `mcp_servers` 表可删除、可编辑；拒绝重复变量键；哈希忽略当前传输不写入的 command/args/env/url/headers 且与重解析一致；重命名保留专属字段）
-- `./scripts/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册、项目切换后清理两个项目的注册、Git 排除失败不回滚账本、注销冲突写入错误横幅、重复变量键校验、重命名外部条目、按 Agent 开启时忽略传输不写入的字段、切换传输方式丢弃隐藏字段后仍保持所有权、重命名保留 Codex 字段、自然排序条目的所有权、两个窗口合并账本）
-- `./scripts/test-macos.sh --filter "McpWriteProtectionTests|FileStorageReplacementTests|McpFeatureBatchFailureTests"`（备份完成后外部保存被保留并返回 `changedOnDisk`，预检后出现的新文件不被覆盖；`MacFileStorage.replaceData` 拒绝过期快照、按匹配快照原子发布、拒绝覆盖已存在文件；`removeData` 只删除匹配快照的文件；失败/成功路径都不遗留临时文件；临时文件从创建起为 `0600`；回滚换出更新保存或无法恢复时保留并报告路径；不支持交换的卷拒绝写入和删除）
-- `./scripts/test-macos.sh --filter "McpBatchTransactionTests|McpServerSummaryTests|McpExcludePreservationTests"`（用第二次写入前的同步故障注入覆盖已有文件恢复、新文件删除、回滚保留外部修改与路径提示、失败保存和注册不发布账本；摘要不含 args 或 URL 凭据；exclude 原始非 UTF-8 字节保留、LF/CRLF 幂等及已有文件读取失败保护）
-- `./scripts/test-macos.sh --filter "McpArgumentRoundTripTests|McpSymlinkConfigurationTests"`（Codex 与 Claude 只改 env 时保留空参数、空白参数和嵌入换行；修改参数文本保留空行；相对及绝对符号链接可读取、生成计划、保存和备份，后续写入失败恢复链接目标，目标外部修改不覆盖，错误展示原路径并保留大小上限）
+- `./scripts/macos/test/test-macos.sh --filter McpServerLibraryTests`（覆盖计划后磁盘变化拒绝写入、文件在计划后出现拒绝创建、linked worktree 公共排除文件、关闭会话后仍能清理项目注册、项目切换后清理两个项目的注册、Git 排除失败不回滚账本、注销冲突写入错误横幅、重复变量键校验、重命名外部条目、按 Agent 开启时忽略传输不写入的字段、切换传输方式丢弃隐藏字段后仍保持所有权、重命名保留 Codex 字段、自然排序条目的所有权、两个窗口合并账本）
+- `./scripts/macos/test/test-macos.sh --filter "McpWriteProtectionTests|FileStorageReplacementTests|McpFeatureBatchFailureTests"`（备份完成后外部保存被保留并返回 `changedOnDisk`，预检后出现的新文件不被覆盖；`MacFileStorage.replaceData` 拒绝过期快照、按匹配快照原子发布、拒绝覆盖已存在文件；`removeData` 只删除匹配快照的文件；失败/成功路径都不遗留临时文件；临时文件从创建起为 `0600`；回滚换出更新保存或无法恢复时保留并报告路径；不支持交换的卷拒绝写入和删除）
+- `./scripts/macos/test/test-macos.sh --filter "McpBatchTransactionTests|McpServerSummaryTests|McpExcludePreservationTests"`（用第二次写入前的同步故障注入覆盖已有文件恢复、新文件删除、回滚保留外部修改与路径提示、失败保存和注册不发布账本；摘要不含 args 或 URL 凭据；exclude 原始非 UTF-8 字节保留、LF/CRLF 幂等及已有文件读取失败保护）
+- `./scripts/macos/test/test-macos.sh --filter "McpArgumentRoundTripTests|McpSymlinkConfigurationTests"`（Codex 与 Claude 只改 env 时保留空参数、空白参数和嵌入换行；修改参数文本保留空行；相对及绝对符号链接可读取、生成计划、保存和备份，后续写入失败恢复链接目标，目标外部修改不覆盖，错误展示原路径并保留大小上限）
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter "McpServerLibraryTests|McpSymlinkConfigurationTests|McpWriteProtectionTests|FileStorageReplacementTests|McpFeatureBatchFailureTests"`（双窗口顺序保存，分别覆盖旧编辑器未刷新和刷新后可见字段恰好等于新版本的情况；认证或超时字段外部变化后阻止旧草稿保存、重命名、关闭开关、删除与关闭项目清理；双 Agent 合并条目使用各自的来源版本；旧账本重新接管前拒绝自动删除；同一编辑器内接管后关闭对应 Agent 可以保存；重复注册不接管外部新增的超时配置，保留原账本）
-- `./scripts/test-macos.sh --filter IdeCapabilitiesTests`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/macos/test/test-macos.sh --filter IdeCapabilitiesTests`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - 实机：无项目时打开设置 → MCP，确认 Codex/Claude 已有服务器被列出；编辑 env 并保存，确认原文件注释和未知键保留、备份生成；按 Agent 关闭外部创建的条目会被拒绝，接管所有权后可移除。
 - 实机：打开项目并启用 MCP，确认 `~/.claude.json` 项目条目和 `<项目>/.codex/config.toml` 写入，`.git/info/exclude` 包含 `.codex/config.toml`；禁用后条目清理，外部改过的条目保留并提示。
 

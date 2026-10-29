@@ -84,7 +84,7 @@ IDE -- DAP（调试适配器协议，stdio 或 TCP）--> 调试适配器
 
 ## 验证
 
-原提案阶段仅补充设计；TCP 实现与验证入口以已实现决策为准。维护本提案时运行 `./scripts/verify-agent-notes.sh`、`./scripts/verify-shared-contracts.sh`、`./scripts/verify-platform-feature-matrix.sh` 和 `git diff --check`，不据此声称有运行时连接证据。
+原提案阶段仅补充设计；TCP 实现与验证入口以已实现决策为准。维护本提案时运行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `git diff --check`，不据此声称有运行时连接证据。
 
 后续实现先加载 `write-stable-tests`，用可控 socket 和有界等待覆盖验收标准，再执行对应平台测试与真实适配器流程；同步平台功能矩阵，验证发行包只读，清理本次启动的所有进程。
 
