@@ -1445,10 +1445,24 @@ final class DocumentFeatureModel: ObservableObject {
               !wasOwned || observedDocuments.contains(where: { $0 === document }) else { throw CancellationError() }
         guard document.isDirty || targetEncoding != nil else { return }
         if let task = saveTasks[document.id] {
-            try await task.value
+            let url = document.url
+            let locationRevision = document.locationRevision
+            do { try await task.value }
+            catch is DocumentHardLinkConfirmationRequired where allowsHardLinkConfirmation {
+                // An automatic save cannot ask for consent. The explicit waiter
+                // must start its own guarded save, not inherit that policy.
+                try Task.checkCancellation()
+                guard persistenceGeneration == generation, document.url == url,
+                      document.locationRevision == locationRevision,
+                      !wasOwned || observedDocuments.contains(where: { $0 === document }) else { throw CancellationError() }
+                try await saveDocument(document, targetEncoding: targetEncoding,
+                    allowingEncodingReopen: allowingEncodingReopen, allowsHardLinkConfirmation: allowsHardLinkConfirmation)
+                return
+            }
             guard !document.isDirty else { throw SaveProgress.newerRevisionPending }
             if let targetEncoding, document.saveEncoding != targetEncoding {
-                try await saveDocument(document, targetEncoding: targetEncoding)
+                try await saveDocument(document, targetEncoding: targetEncoding,
+                    allowingEncodingReopen: allowingEncodingReopen, allowsHardLinkConfirmation: allowsHardLinkConfirmation)
             }
             return
         }

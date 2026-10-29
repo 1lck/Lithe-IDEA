@@ -83,6 +83,136 @@ struct DocumentOpenAndHardLinkWorkflowTests {
         #expect(messages.isEmpty)
     }
 
+    @Test(arguments: [DocumentHardLinkSaveMode.replaceCurrentPath, .updateLinkedFile], [false, true])
+    func explicitSaveTakesOverAnAutoSaveAwaitingHardLinkDetection(mode: DocumentHardLinkSaveMode, converting: Bool) async throws {
+        let check = WriteCheck()
+        let files = Files(firstWriteCheck: check)
+        var prompts = 0
+        let feature = makeFeature(files: files, autoSave: true, confirm: { _ in prompts += 1; return mode })
+        defer { check.release.open(); feature.reset() }
+        await open(feature)
+        let document = try #require(feature.activeDocument)
+        document.applyLiveEditorText("first draft")
+        let automatic = try #require(feature.documentDidChange(document))
+        defer { automatic.cancel() }
+        try #require(await check.started.waitUntilOpen(), "Automatic hard-link detection did not start")
+        let synchronized = observeNextSaveSynchronization(document)
+        let explicit = Task { @MainActor in
+            if converting { try await feature.save(document, encoding: .utf16LE) }
+            else { try await feature.save(document) }
+        }
+        defer { explicit.cancel(); document.synchronizeEditor = nil }
+        #expect(await synchronized.waitUntilOpen(), "Explicit save did not join the pending automatic save")
+        #expect(prompts == 0)
+        // New input before consent must be saved using the original disk baseline.
+        document.applyLiveEditorText("latest draft")
+        check.release.open()
+        await automatic.value
+        try await explicit.value
+        #expect(prompts == 1)
+        #expect(files.savedModes == [mode])
+        #expect(files.writes.count == 3)
+        #expect(files.writes.map(\.text) == ["first draft", "latest draft", "latest draft"])
+        #expect(files.writes.allSatisfy { $0.baseline == "original" && $0.identity == "bytes" })
+        #expect(files.writes.last?.encoding == (converting ? .utf16LE : .utf8))
+        #expect(document.saveEncoding == (converting ? .utf16LE : .utf8))
+        #expect(document.savedText == "latest draft")
+        #expect(!document.isDirty)
+    }
+
+    @Test func cancellingOverlappingExplicitConsentKeepsTheDraft() async throws {
+        let check = WriteCheck()
+        let files = Files(firstWriteCheck: check)
+        var prompts = 0
+        let feature = makeFeature(files: files, autoSave: true, confirm: { _ in prompts += 1; return nil })
+        defer { check.release.open(); feature.reset() }
+        await open(feature)
+        let document = try #require(feature.activeDocument)
+        document.applyLiveEditorText("unsaved")
+        let automatic = try #require(feature.documentDidChange(document))
+        defer { automatic.cancel() }
+        try #require(await check.started.waitUntilOpen())
+        let synchronized = observeNextSaveSynchronization(document)
+        let explicit = Task { @MainActor in try await feature.save(document) }
+        defer { explicit.cancel(); document.synchronizeEditor = nil }
+        #expect(await synchronized.waitUntilOpen())
+        check.release.open()
+        await automatic.value
+        await #expect(throws: CancellationError.self) { try await explicit.value }
+        #expect(prompts == 1)
+        #expect(files.savedModes.isEmpty)
+        #expect(files.writes.count == 2)
+        #expect(document.text == "unsaved")
+        #expect(document.isDirty)
+        #expect(document.lifecycleState.status != .saving)
+    }
+
+    @Test(arguments: ["cancel", "reset", "close", "relocate"])
+    func obsoleteExplicitWaitersNeverRequestHardLinkConsent(ending: String) async throws {
+        let check = WriteCheck()
+        let files = Files(firstWriteCheck: check)
+        var prompts = 0
+        let feature = makeFeature(files: files, autoSave: true, confirm: { _ in prompts += 1; return .updateLinkedFile })
+        defer { check.release.open(); feature.reset() }
+        await open(feature)
+        let document = try #require(feature.activeDocument)
+        document.applyLiveEditorText("unsaved")
+        let automatic = try #require(feature.documentDidChange(document))
+        defer { automatic.cancel() }
+        try #require(await check.started.waitUntilOpen())
+        let synchronized = observeNextSaveSynchronization(document)
+        let explicit = Task { @MainActor in try await feature.save(document) }
+        defer { explicit.cancel(); document.synchronizeEditor = nil }
+        #expect(await synchronized.waitUntilOpen())
+        switch ending {
+        case "cancel": explicit.cancel()
+        case "reset": feature.reset()
+        case "close":
+            document.synchronizeEditor = nil
+            feature.requestCloseDocument(document)
+            let close = try #require(feature.closePendingDocument(discardingChanges: true))
+            defer { close.cancel() }
+            await close.value
+            #expect(!feature.openDocuments.contains { $0 === document })
+        default:
+            let originalURL = document.url
+            document.relocate(to: originalURL.appendingPathExtension("moved"))
+            document.relocate(to: originalURL)
+        }
+        check.release.open()
+        await automatic.value
+        await #expect(throws: CancellationError.self) { try await explicit.value }
+        #expect(prompts == 0)
+        #expect(files.savedModes.isEmpty)
+        #expect(files.writes.count == 1)
+        #expect(document.text == "unsaved")
+    }
+
+    @Test func overlappingExplicitSaveDoesNotRetryAnIOFailure() async throws {
+        let check = WriteCheck(failure: CocoaError(.fileWriteNoPermission))
+        let files = Files(firstWriteCheck: check)
+        var prompts = 0
+        let feature = makeFeature(files: files, autoSave: true, confirm: { _ in prompts += 1; return .updateLinkedFile })
+        defer { check.release.open(); feature.reset() }
+        await open(feature)
+        let document = try #require(feature.activeDocument)
+        document.applyLiveEditorText("unsaved")
+        let automatic = try #require(feature.documentDidChange(document))
+        defer { automatic.cancel() }
+        try #require(await check.started.waitUntilOpen())
+        let synchronized = observeNextSaveSynchronization(document)
+        let explicit = Task { @MainActor in try await feature.save(document) }
+        defer { explicit.cancel(); document.synchronizeEditor = nil }
+        #expect(await synchronized.waitUntilOpen())
+        check.release.open()
+        await automatic.value
+        await #expect(throws: CocoaError(.fileWriteNoPermission)) { try await explicit.value }
+        #expect(prompts == 0)
+        #expect(files.writes.count == 1)
+        #expect(files.savedModes.isEmpty)
+        #expect(document.isDirty)
+    }
+
     @Test func cancellingTheChoiceBeforeEncodingReopenKeepsTheDraftAndEncoding() async throws {
         let files = Files()
         var messages: [String] = []
@@ -270,6 +400,17 @@ struct DocumentOpenAndHardLinkWorkflowTests {
             isReadOnly: false, displayPath: nil, activateWhenReady: true)
     }
 
+    private func observeNextSaveSynchronization(_ document: EditorDocument) -> TestGate {
+        let synchronized = TestGate()
+        document.synchronizeEditor = { complete in
+            complete(.success(()))
+            // A synchronous acknowledgment does not suspend the MainActor save.
+            // The test resumes only after it reaches the pending write's await.
+            synchronized.open()
+        }
+        return synchronized
+    }
+
     private func makeFeature(
         files: Files, autoSave: Bool = false,
         registry: BinaryFileViewerRegistry = BinaryFileViewerRegistry(),
@@ -290,19 +431,43 @@ struct DocumentOpenAndHardLinkWorkflowTests {
         return feature
     }
 
+    private final class WriteCheck: Sendable {
+        let started = TestGate(), release = TestGate()
+        let failure: any Error
+        init(failure: any Error = DocumentHardLinkConfirmationRequired(targetIdentity: "target")) {
+            self.failure = failure
+        }
+        func wait(timeout: Duration) async throws {
+            started.open()
+            #expect(await release.waitUntilOpen(timeout: timeout), "Automatic hard-link check gate timed out")
+            throw failure
+        }
+    }
+
     private final class Files: WorkspaceFileOperations, @unchecked Sendable {
+        struct Write: Sendable {
+            let text: String
+            let baseline: String?
+            let identity: String?
+            let encoding: DocumentEncoding
+        }
         private let failure: Error?
         private let updatesSharedContents: Bool
         private let authorizedFailure: Error?
+        private let firstWriteCheck: WriteCheck?
         private let lock = NSLock()
         private var modes: [DocumentHardLinkSaveMode] = []
+        private var recordedWrites: [Write] = []
         private var sharedText = "original"
         private var sharedIdentity = "bytes"
         var savedModes: [DocumentHardLinkSaveMode] { lock.withLock { modes } }
-        init(failure: Error? = nil, updatesSharedContents: Bool = false, authorizedFailure: Error? = nil) {
+        var writes: [Write] { lock.withLock { recordedWrites } }
+        init(failure: Error? = nil, updatesSharedContents: Bool = false, authorizedFailure: Error? = nil,
+            firstWriteCheck: WriteCheck? = nil) {
             self.failure = failure
             self.updatesSharedContents = updatesSharedContents
             self.authorizedFailure = authorizedFailure
+            self.firstWriteCheck = firstWriteCheck
         }
         var supportsDocumentEncoding: Bool { true }
         func readDocumentDetails(from url: URL, encoding: DocumentEncoding?) throws -> DocumentReadDetails? {
@@ -314,12 +479,18 @@ struct DocumentOpenAndHardLinkWorkflowTests {
         }
         func writeDocumentTextAsync(_ text: String, to url: URL, expectedContent: String?, encoding: DocumentEncoding,
             expectedIdentity: String?) async throws -> EncodedDocumentWriteResult {
+            let isFirst = lock.withLock {
+                recordedWrites.append(.init(text: text, baseline: expectedContent, identity: expectedIdentity, encoding: encoding))
+                return recordedWrites.count == 1
+            }
+            if isFirst, let firstWriteCheck { try await firstWriteCheck.wait(timeout: .seconds(2)) }
             throw DocumentHardLinkConfirmationRequired(targetIdentity: "target")
         }
         func writeDocumentTextAsync(_ text: String, to url: URL, expectedContent: String?, encoding: DocumentEncoding,
             expectedIdentity: String?, hardLinkAuthorization: DocumentHardLinkAuthorization) async throws -> EncodedDocumentWriteResult {
             #expect(hardLinkAuthorization.targetIdentity == "target")
             return try lock.withLock {
+                recordedWrites.append(.init(text: text, baseline: expectedContent, identity: expectedIdentity, encoding: encoding))
                 modes.append(hardLinkAuthorization.mode)
                 if updatesSharedContents, hardLinkAuthorization.mode == .updateLinkedFile {
                     sharedText = text
