@@ -117,6 +117,7 @@ fn jdt_workspace_fingerprint_matches_the_shared_compatibility_fixture() {
             "payload": {
                 "buildFiles": case["buildFiles"],
                 "directMavenModules": case["directMavenModules"],
+                "gradleWrapperDistribution": case["gradleWrapperDistribution"],
                 "jdtlsVersion": case["jdtlsVersion"]
             }
         });

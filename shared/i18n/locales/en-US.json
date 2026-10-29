@@ -9051,7 +9051,6 @@
     "native.unableToSaveWorkspaceDependencyConfiguration": "Unable to save workspace dependency configuration: {arg1}",
     "native.theJavaSupportPluginDoesNotProvideReinstall": "The Java Support plugin does not provide {arg1}. Reinstall the plugin.",
     "native.rustCoreWorkspaceFingerprintResolutionIsUnavailable": "Rust Core workspace-fingerprint resolution is unavailable.",
-    "native.couldNotReadJavaBuildFileMetadataFor": "Could not read Java build-file metadata for {arg1}.",
     "native.theBundledJdtLsManifestIsInvalidAt": "The bundled JDT LS manifest is invalid at {arg1}.",
     "native.theBundledJdtLsVersionCouldNotBe": "The bundled JDT LS version could not be determined.",
     "native.theBundledJdtLsInstallationCouldNotBe": "The bundled JDT LS installation could not be determined.",

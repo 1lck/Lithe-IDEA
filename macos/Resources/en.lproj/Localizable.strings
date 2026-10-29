@@ -981,7 +981,6 @@
 "Could not prepare the run configuration: %@" = "Could not prepare the run configuration: %@";
 "Could not read %@." = "Could not read %@.";
 "Could not read %@: %@" = "Could not read %@: %@";
-"Could not read Java build-file metadata for %@." = "Could not read Java build-file metadata for %@.";
 "Could not read the command line." = "Could not read the command line.";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "Could not read the selected built-in background." = "Could not read the selected built-in background.";
@@ -5473,7 +5472,6 @@
 "native.couldNotPrepareTheRunConfiguration" = "Could not prepare the run configuration: %1$@";
 "native.couldNotRead" = "Could not read %1$@: %2$@";
 "native.couldNotRead.variant2" = "Could not read %1$@.";
-"native.couldNotReadJavaBuildFileMetadataFor" = "Could not read Java build-file metadata for %1$@.";
 "native.couldNotReadTheCommandLine" = "Could not read the command line.";
 "native.couldNotReadTheProjectFolderCheckThatItStillExistsAndThatLitheHasPermissionToAccessIt" = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "native.couldNotReadTheSelectedBuiltInBackground" = "Could not read the selected built-in background.";

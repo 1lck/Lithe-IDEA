@@ -2654,16 +2654,23 @@ Packaged macOS and Windows plans always use structured direct launch, so runtime
 startup has no shell, PowerShell, or user-`PATH` dependency. Wrapper launch
 remains optional only for external or older plans.
 
-For JDT LS, platform adapters observe root Maven/Gradle descriptor timestamps
-and sizes, names of direct Maven module directories, and the selected JDT LS
-version. They submit those raw observations to `java.jdtWorkspaceFingerprint`;
+For JDT LS, platform adapters observe which root Maven/Gradle descriptors
+exist, names of direct Maven module directories, the Gradle wrapper's
+`distributionUrl` when the workspace has one, and the selected JDT LS version. They submit those raw observations to `java.jdtWorkspaceFingerprint`;
 Rust Core validates, sorts, de-duplicates, and constructs the sole portable
 fingerprint representation. Core then hashes the normalized workspace identity
 followed by a null separator and that opaque fingerprint to select
 `cacheDirectory/jdtls/<workspaceKey>`.
 Omitting the fingerprint preserves the legacy path-only key for older clients.
 Changing structure selects a new directory without deleting the old one, so a
-later switch back can reuse it.
+later switch back can reuse it. Editing a descriptor is not a structural change:
+JDT LS compares each POM and Gradle file's timestamp with the state it saved and
+updates only the changed projects on restart, and running sessions receive the
+edit through `lsp.workspaceFilesChanged`. Keying the directory on descriptor
+timestamps would discard the whole index after any touch of the file. The Gradle
+version is the exception: JDT LS does not check the wrapper descriptor, so the
+wrapper's `distributionUrl` takes part in the fingerprint and a version change
+selects a fresh directory.
 
 Core starts JDT LS with
 `-Djava.import.generatesMetadataFilesAtProjectRoot=false`, so the Eclipse
@@ -2681,9 +2688,9 @@ at the removed files, and records the removed workspace-relative paths in the
 session's `info` log event.
 
 `java.jdtWorkspaceFingerprint` accepts
-`{ buildFiles, directMavenModules, jdtlsVersion }`. Each build-file observation
-contains a workspace-relative `path`, `modifiedUnixMilliseconds`, and
-`sizeBytes`. It returns `{ workspaceFingerprint }`; platforms must not recreate
+`{ buildFiles, directMavenModules, gradleWrapperDistribution?, jdtlsVersion }`.
+Each build-file observation contains only a workspace-relative `path`;
+`gradleWrapperDistribution`, when sent, must not be blank. It returns `{ workspaceFingerprint }`; platforms must not recreate
 or parse this opaque string. Compatibility cases are in
 `shared/fixtures/lsp/jdt-workspace-fingerprint-v1.json`.
 
