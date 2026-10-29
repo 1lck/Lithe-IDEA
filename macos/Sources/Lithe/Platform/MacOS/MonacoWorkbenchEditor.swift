@@ -327,6 +327,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private var lastGitStates: [String: Data] = [:]
     private var lastMarkers: [String: [EditorDiagnostic]] = [:]
     private var synchronizingIDs: Set<String> = []
+    /// Content version recorded when an origin-tagged plugin edit crossed the
+    /// bridge, keyed by the edit token until the applying call collects it.
+    private var pluginEditAcknowledgements: [String: UInt64] = [:]
     private var markdownScrollBinding: Binding<MarkdownScrollPosition>?
     private var markdownScrollID: String?
     private var markdownScrollRevision: UInt64?
@@ -539,6 +542,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         document.synchronizeEditor = { [self] completion in
             self.synchronize(id: id, completion: completion)
         }
+        document.editorSurface = MonacoDocumentSurface(session: self)
         document.holdEditorForClose = { [self, weak document] completion in
             guard let document else { completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return }
             let token = UUID().uuidString
@@ -818,6 +822,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             documentReadOnlyStates[oldID] = nil
             if let old = documents[oldID], old.editorSynchronizationOwnerID == synchronizationOwnerID {
                 old.synchronizeEditor = nil; old.holdEditorForClose = nil; old.editorSynchronizationOwnerID = nil
+                old.editorSurface = nil
             }
             completionLists[oldID] = nil
             codeActionLists[oldID] = nil
@@ -1330,6 +1335,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
             applyingEdit = false
             revisions[id, default: 0] += 1
+            if let origin = body["origin"] as? String { pluginEditAcknowledgements[origin] = document.contentVersion }
             model?.documentFeature.promotePreviewDocument(document)
             model?.documentDidChange(document)
             if let model { refreshDebugState(model: model) }
@@ -1629,5 +1635,121 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         // A surviving document remains guarded if teardown happened before a successful drain.
         // The stale weak synchronization callback fails instead of silently saving old content.
         pending.values.forEach { $0(.failure(EditorDocument.DocumentError.editorNotSynchronized)) }
+    }
+}
+
+// MARK: - Plugin document surface
+
+/// Adapter from the host-internal ``EditorDocumentSurface`` port to the Monaco
+/// bridge. Version checks compare the bridge revision captured synchronously with
+/// the document's ``EditorDocument/contentVersion``; Monaco repeats the check
+/// against its own revision, so input not yet acknowledged by Swift rejects the edit.
+@MainActor
+private final class MonacoDocumentSurface: EditorDocumentSurface {
+    private weak var session: MonacoWorkbenchSession?
+
+    init(session: MonacoWorkbenchSession) { self.session = session }
+
+    func readSelections(of document: EditorDocument) async throws -> EditorSurfaceSelections {
+        guard let session else { throw EditorDocumentServiceError.editorUnavailable }
+        return try await session.readPluginSelections(of: document)
+    }
+
+    func apply(_ request: EditorSurfaceEditRequest, to document: EditorDocument) async throws -> UInt64 {
+        guard let session else { throw EditorDocumentServiceError.editorUnavailable }
+        return try await session.applyPluginEdits(request, to: document)
+    }
+}
+
+/// Sendable decoding of the editor's reply so no `Any` crosses the continuation.
+private struct MonacoPluginReply: Sendable {
+    let status: String
+    let revision: Int?
+    let selections: [EditorSelection]
+
+    init(_ value: Any?) {
+        let body = value as? [String: Any] ?? [:]
+        status = body["status"] as? String ?? "invalid"
+        revision = body["revision"] as? Int
+        selections = (body["selections"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let anchorLine = item["anchorLine"] as? Int, let anchorColumn = item["anchorColumn"] as? Int,
+                  let activeLine = item["activeLine"] as? Int, let activeColumn = item["activeColumn"] as? Int else { return nil }
+            return EditorSelection(anchor: EditorTextPosition(line: anchorLine, column: anchorColumn),
+                                   active: EditorTextPosition(line: activeLine, column: activeColumn))
+        }
+    }
+}
+
+extension MonacoWorkbenchSession {
+    private func pluginCall(_ script: String, payload: [String: Any]) async throws -> MonacoPluginReply {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<MonacoPluginReply, Error>) in
+            call(script, arguments: ["payload": payload]) { result in
+                switch result {
+                case .success(let value): continuation.resume(returning: MonacoPluginReply(value))
+                case .failure: continuation.resume(throwing: EditorDocumentServiceError.editorUnavailable)
+                }
+            }
+        }
+    }
+
+    /// The bridge revision of a document this session owns and can currently serve.
+    private func pluginRevision(of document: EditorDocument) throws -> (id: String, revision: Int) {
+        let id = document.id.uuidString
+        guard currentDocument(id) === document else { throw EditorDocumentServiceError.documentNotFound }
+        guard ready, !failed, webView != nil, !synchronizingIDs.contains(id), !unconfirmedModels.contains(id),
+              let revision = revisions[id] else { throw EditorDocumentServiceError.editorUnavailable }
+        return (id, revision)
+    }
+
+    fileprivate func readPluginSelections(of document: EditorDocument) async throws -> EditorSurfaceSelections {
+        let (id, _) = try pluginRevision(of: document)
+        let reply = try await pluginCall("window.lithe.pluginSelections(payload)", payload: ["id": id])
+        guard currentDocument(id) === document else { throw EditorDocumentServiceError.documentNotFound }
+        guard reply.status == "ok", let revision = reply.revision else {
+            throw reply.status == "documentNotFound" ? EditorDocumentServiceError.documentNotFound
+                : EditorDocumentServiceError.editorUnavailable
+        }
+        // A differing revision means keystrokes are still crossing the bridge;
+        // the selections then describe text this side has not seen yet.
+        guard revision == revisions[id] else {
+            throw EditorDocumentServiceError.versionConflict(expected: document.contentVersion, actual: document.contentVersion &+ 1)
+        }
+        return EditorSurfaceSelections(selections: reply.selections, version: document.contentVersion)
+    }
+
+    fileprivate func applyPluginEdits(_ request: EditorSurfaceEditRequest, to document: EditorDocument) async throws -> UInt64 {
+        let (id, revision) = try pluginRevision(of: document)
+        guard !isReadOnly(document) else { throw EditorDocumentServiceError.readOnly }
+        guard document.contentVersion == request.expectedVersion else {
+            throw EditorDocumentServiceError.versionConflict(expected: request.expectedVersion, actual: document.contentVersion)
+        }
+        let token = UUID().uuidString
+        defer { pluginEditAcknowledgements[token] = nil }
+        let edits: [[String: Any]] = request.edits.map { edit in
+            ["startLineNumber": edit.range.start.line, "startColumn": edit.range.start.column,
+             "endLineNumber": edit.range.end.line, "endColumn": edit.range.end.column, "text": edit.normalizedText]
+        }
+        let reply = try await pluginCall("window.lithe.applyPluginEdits(payload)", payload: [
+            "id": id, "revision": revision, "token": token, "eol": request.lineSeparator, "edits": edits,
+        ])
+        switch reply.status {
+        case "applied":
+            // The tagged edit was acknowledged before the editor replied, so its
+            // version is exact even if newer keystrokes have arrived since.
+            if let version = pluginEditAcknowledgements[token] { return version }
+            // Monaco drops edits that rewrite identical text; nothing crossed
+            // the bridge, so the buffer is still at the expected version.
+            if reply.revision == revision, document.contentVersion == request.expectedVersion { return request.expectedVersion }
+            throw EditorDocumentServiceError.editorUnavailable
+        case "versionConflict":
+            throw EditorDocumentServiceError.versionConflict(
+                expected: request.expectedVersion, actual: max(document.contentVersion, request.expectedVersion &+ 1))
+        case "composition": throw EditorDocumentServiceError.compositionInProgress
+        case "readOnly": throw EditorDocumentServiceError.readOnly
+        case "documentNotFound": throw EditorDocumentServiceError.documentNotFound
+        case "outOfRange":
+            throw EditorDocumentServiceError.rangeOutOfBounds(editIndex: request.edits.first?.index ?? 0)
+        default: throw EditorDocumentServiceError.editorUnavailable
+        }
     }
 }
