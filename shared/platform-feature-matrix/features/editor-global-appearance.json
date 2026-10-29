@@ -1,0 +1,40 @@
+{
+  "id": "editor-global-appearance",
+  "area": "编辑器",
+  "group": "排版",
+  "capability": "所有项目的源码编辑器共享字体、字号、行间距、高亮配色和常用显示偏好，修改后即时生效并持久化",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Models/Settings/EditorAppearanceSettings.swift",
+      "macos/Sources/Lithe/Models/Settings/AppSettings.swift",
+      "macos/Sources/Lithe/Views/App/SettingsView.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+      "frontend/editor/src/theme.ts",
+      "frontend/editor/src/workbench.ts",
+      "macos/Tests/LitheTests/AppSettingsTests.swift",
+      "macos/Tests/LitheTests/MonacoWorkbenchThemeTests.swift",
+      "macos/Experiments/Monaco/workbench.integration.ts",
+      "frontend/editor/themes/vscode.json",
+      "frontend/editor/themes/idea.json",
+      "frontend/editor/src/textmate-grammar.ts",
+      "frontend/editor/src/semantic-tokens.ts"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/settings/types/settings.types.ts",
+      "windows/tauri/src/features/settings/components/tabs/editor-settings.tsx",
+      "windows/tauri/src/features/editor/engines/monaco/use-monaco-editor-settings.ts",
+      "windows/tauri/src/extensions/themes/theme-loader.ts",
+      "frontend/editor/themes/github.json",
+      "frontend/editor/themes/one.json"
+    ]
+  },
+  "owner": "Editor / Settings",
+  "notes": "macOS 在既有字体、字号、软换行、缩略图设置上增加独立 Lithe/GitHub/One 高亮方案、注释斜体、字体连字、行间距、绝对/相对/隐藏行号、空白符模式、缩进引导线、当前行高亮、括号着色、固定作用域标题、滚动及光标偏好。配色自动适配界面明暗但不改界面主题。行间距为字号倍数，0 保留 Monaco 自动值；新字段逐项回退，旧设置保持默认渲染。作用于主编辑器、分栏、独立文件窗口和完整源码预览。原生 Diff、SQL 控制台、终端和结果行片段保留各自排版。本次不实现外部 IDE 检测和配置导入。Windows 已有多数选项与主题体系，尚未对齐独立源码配色选择；GitHub/One JSON 仅移到共享编辑器目录，Windows 内容与行为不变。 Git 作者栏保留相对或隐藏行号，样式变更重新安装作者栏，关闭作者栏和切换标签后恢复所选行号模式。 新增 VS Code 当前默认 Dark/Light 2026 与 IntelliJ IDEA Islands Dark/Light 代码配色，按官方固定提交映射通用词法和语义角色，保留声明/调用差异；不加载外部配置。 彩色配对括号归属语法高亮方案，移除手动开关及旧持久化覆盖；IDEA 关闭，其余内置方案启用。语法高亮分组只读显示方案状态。IDEA 的 Java 词法方法名使用正文色，语义层保留 declaration/static 标记，区分普通声明、调用与静态方法。",
+  "verification": "自动化：运行 AppSettingsTests、MonacoWorkbenchThemeTests、SettingsSearchVocabularyTests，以及 scripts/macos/probe/probe-macos-monaco.sh --workbench-tests，检查持久化、逐字段坏值回退、恢复默认、双外观词法/语义配色、已有与新建分栏选项、模型/光标/撤销历史保留。产品验收：在中文和英文设置中检索行间距、配色、空白符和光标；在深浅外观及多个项目中逐项切换，检查主编辑器、分栏、独立窗口和完整源码预览实时更新。检查 6/72 字号与 1/3 倍行间距边界、键盘选择、窄设置窗口滚动、关闭设置与重启后的恢复，以及恢复默认。完整产品 UI 验收和 Windows WebView2 验收仍待完成；组件和 WebKit 探针通过不替代这些验收。"
+}

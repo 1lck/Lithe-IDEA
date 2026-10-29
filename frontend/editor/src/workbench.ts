@@ -458,14 +458,22 @@ export function mountWorkbench(host: WorkbenchHost) {
           const show = value && (line === firstVisibleLine || byLine.get(line - 1)?.commit !== value.commit);
           const label = value ? `${value.author} · ${value.date}` : "";
           const metadata = value ? `<span class="lithe-blame" title="${escapeHTML(`${label} · ${value.commit.slice(0, 8)}`)}">${show ? escapeHTML(label) : "&#8203;"}</span>` : "";
-          return `${metadata}<span class="lithe-blame-line">${line}</span>`;
-        } } : { lineNumbers: "on", lineNumbersMinChars: host.lineNumbersFirst ? 1 : 5 });
+          const mode = displayOptions.lineNumbers ?? "on";
+          const activeLine = view.getPosition()?.lineNumber ?? line;
+          const number = mode === "off" ? "" : mode === "relative" && line !== activeLine ? Math.abs(line - activeLine) : line;
+          return `${metadata}<span class="lithe-blame-line">${number}</span>`;
+        } } : { lineNumbers: displayOptions.lineNumbers ?? "on", lineNumbersMinChars: host.lineNumbersFirst ? 1 : 5 });
       }
       const value = current();
       for (const action of ["show", "stage", "unstage", "discard"] as const)
         keys[action].set(!!value && (action === "show" || (!value.entry.readonly && value.marker[action])));
     };
-    gitContextUpdates.set(view, refresh);
+    gitContextUpdates.set(view, () => {
+      // Display updates replace Monaco's line-number option. Reinstall active
+      // blame without losing the user's relative/hidden line-number preference.
+      renderedBlame = {};
+      refresh();
+    });
     const run = async (action: string, line?: number) => {
       const value = current(line);
       if (!value) return;
@@ -1068,6 +1076,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       const name = theme ? defineWorkbenchTheme(theme, host.palette)
         : payload.dark ? "lithe-dark" : "lithe-light";
       Object.assign(displayOptions, {
+        ...payload.appearance,
         // Standalone updateOptions and newly created split editors both apply
         // this construction theme globally, so it must track the host theme.
         theme: name,
@@ -1079,6 +1088,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       for (const view of allEditors()) {
         view.updateOptions(displayOptions);
         navigationContexts.get(view)?.();
+        gitContextUpdates.get(view)?.();
       }
       monaco.editor.setTheme(name);
     },

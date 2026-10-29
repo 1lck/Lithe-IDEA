@@ -431,6 +431,17 @@
       ],
       "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
       "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/i18n/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
+    },
+    {
+      "id": "editor-theme-assets",
+      "reusable": false,
+      "locations": [
+        ".artifacts/editor/macos/",
+        ".artifacts/monaco-workbench/test-assets/",
+        ".artifacts/monaco-probe/assets/"
+      ],
+      "identity": "Current source palettes, upstream pinned theme revisions, license/NOTICE files, Monaco and Bun versions; no validated build identity stamp",
+      "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines."
     }
   ]
 }

@@ -29,6 +29,7 @@ final class AppSettings: ObservableObject {
         static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
+        static let editorAppearance = "settings.editorAppearance"
         static let editorFontFamily = "settings.editorFontFamily"
         static let editorSoftWrap = "settings.editorSoftWrap"
         static let editorMinimap = "settings.editorMinimap"
@@ -103,7 +104,26 @@ final class AppSettings: ObservableObject {
             InterfaceLanguage.select(language.rawValue)
         }
     }
-    @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
+    @Published var editorFontSize: Double {
+        didSet {
+            let normalized = EditorAppearanceSettings.normalizedFontSize(editorFontSize)
+            if editorFontSize != normalized {
+                editorFontSize = normalized
+                return
+            }
+            defaults.set(editorFontSize, forKey: Key.editorFontSize)
+        }
+    }
+    @Published var editorAppearance: EditorAppearanceSettings {
+        didSet {
+            let normalized = EditorAppearanceSettings(values: editorAppearance.storedValues)
+            if editorAppearance != normalized {
+                editorAppearance = normalized
+                return
+            }
+            defaults.set(editorAppearance.storedValues, forKey: Key.editorAppearance)
+        }
+    }
     /// 代码编辑器编程字体族。默认是随包分发的 JetBrains Mono，只有在用户
     /// 显式选择系统字体后才偏离打包字体；终端、Output 工具窗和提交信息
     /// 输入框继续使用打包字体，与 IDEA 的 Editor/Console 字体分工一致。
@@ -307,7 +327,12 @@ final class AppSettings: ObservableObject {
         let storedLanguage = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
         language = storedLanguage
         InterfaceLanguage.select(storedLanguage.rawValue)
-        editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        editorFontSize = EditorAppearanceSettings.normalizedFontSize(
+            defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        )
+        editorAppearance = EditorAppearanceSettings(
+            values: defaults.object(forKey: Key.editorAppearance) as? [String: Any] ?? [:]
+        )
         editorFontFamily = EditorFontResolution.normalizedFamily(
             defaults.string(forKey: Key.editorFontFamily)
         )
@@ -507,6 +532,7 @@ final class AppSettings: ObservableObject {
         themePreference = .dark
         language = .defaultLanguage
         editorFontSize = 13
+        editorAppearance = EditorAppearanceSettings()
         editorFontFamily = EditorFontDefaults.monospacedFamily
         editorSoftWrapEnabled = false
         editorMinimapEnabled = true

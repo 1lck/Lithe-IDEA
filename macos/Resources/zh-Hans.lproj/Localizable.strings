@@ -198,6 +198,7 @@
 "Abort Rebase" = "中止变基";
 "Abort this rebase and restore its original branch?" = "中止此次变基并恢复原分支？";
 "Abort…" = "中止…";
+"Absolute" = "绝对行号";
 "Accept" = "接受";
 "Accept edits" = "接受编辑";
 "Accepts all permissions" = "跳过常规权限审批，仍受环境和管理策略限制。";
@@ -343,6 +344,7 @@
 "Application-wide editor and terminal settings remain available in the other categories." = "应用级编辑器和终端设置仍可在其他分类中使用。";
 "Applications" = "应用";
 "Applies immediately" = "立即生效";
+"Applies immediately to source editors in all projects." = "立即应用于所有项目的源码编辑器。";
 "Applies the next time the language server starts." = "下次启动语言服务器时生效。";
 "Apply" = "应用";
 "Apply %@ to the current branch." = "将提交 %@ 应用到当前分支。";
@@ -447,6 +449,10 @@
 "Big Endian" = "大端序";
 "Binary" = "二进制";
 "Binary files cannot be compared." = "无法比较二进制文件。";
+"Blink" = "闪烁";
+"Block" = "方块";
+"Boundary" = "边界空白";
+"Bracket colors follow the selected editor color scheme." = "括号颜色跟随所选编辑器配色方案。";
 "Branch" = "分支";
 "Branch '%@' tracks '%@', which has a different name. Choose which branch to update." = "分支“%@”跟踪的是名称不同的“%@”。请选择要更新哪个分支。";
 "Branch context" = "分支上下文";
@@ -765,6 +771,7 @@
 "Collapsed" = "已折叠";
 "Collected logs cleared." = "已清空收集的日志。";
 "Color theme" = "配色主题";
+"Colorize bracket pairs" = "彩色配对括号";
 "Combine the messages when the rebase runs, including changes made at earlier Edit stops" = "变基执行时合并消息，包含此前暂停修订时更新的消息";
 "Combined commit message" = "合并后的提交消息";
 "Combines the pull request into one commit on the base branch." = "将拉取请求压缩为目标分支上的一个提交。";
@@ -1051,6 +1058,9 @@
 "Current version: %@ · Verified target: %@" = "当前版本：%@ · 已核验目标：%@";
 "Current: %@" = "当前：%@";
 "Currently effective" = "当前生效";
+"Cursor" = "光标";
+"Cursor blinking" = "光标闪烁";
+"Cursor style" = "光标样式";
 "Custom" = "自定义";
 "Custom API provider" = "自定义 API 服务";
 "Custom Agent" = "自定义 Agent";
@@ -1177,6 +1187,7 @@
 "Disable breakpoint" = "禁用断点";
 "Disable soft wraps" = "禁用自动换行";
 "Disabled" = "已禁用";
+"Disabled by color scheme" = "配色方案已关闭";
 "Disabled in Agent" = "Agent 已禁用";
 "Disabled in this workspace" = "此工作区已停用";
 "Disassembly" = "反汇编";
@@ -1285,6 +1296,9 @@
 "Edited %lld files" = "编辑了 %lld 个文件";
 "Editor" = "编辑器";
 "Editor and language services" = "编辑器与语言服务";
+"Editor color scheme" = "编辑器配色方案";
+"Editor colors follow light and dark appearance independently of the interface theme." = "代码配色自动适配深浅外观，可独立于界面主题选择。";
+"Editor display" = "编辑器显示";
 "Editor resources are missing. Rebuild or reinstall Lithe." = "缺少编辑器资源。请重新构建或重新安装 Lithe。";
 "Editor tabs" = "编辑器标签栏";
 "Edits" = "编辑";
@@ -1317,6 +1331,7 @@
 "Enable for this project" = "在本项目启用";
 "Enable skill" = "启用技能";
 "Enabled" = "已启用";
+"Enabled by color scheme" = "配色方案已启用";
 "Enabled in Agent" = "Agent 已启用";
 "Enabled plugins can also use this project grant." = "已启用的插件也可使用此项目授权。";
 "End All" = "全部结束";
@@ -1515,6 +1530,7 @@
 "Follow the instructions you define below" = "遵循你在下方定义的指令";
 "Follows each remote's tag setting" = "按各远程的标签设置";
 "Font" = "字体";
+"Font ligatures" = "字体连字";
 "Font size" = "字体大小";
 "For example, notify" = "例如 notify";
 "For example, notify me when a turn ends" = "例如：一轮结束时提醒我";
@@ -1671,6 +1687,7 @@
 "Hide visualization" = "隐藏可视化";
 "Hide worktree repositories" = "隐藏工作树仓库";
 "High" = "高";
+"Highlight current line" = "高亮当前行";
 "Highlight words" = "高亮单词";
 "Hint" = "提示";
 "History" = "历史";
@@ -1791,6 +1808,7 @@
 "Instructions" = "指令";
 "Instructions saved." = "指令已保存。";
 "Integrate incoming changes into current branch (M)" = "将传入的更改合并到当前分支（M）";
+"IntelliJ IDEA" = "IntelliJ IDEA";
 "Interactive Rebase" = "交互式变基";
 "Interactive Rebase Aborted" = "交互式变基已中止";
 "Interactive Rebase Completed" = "交互式变基已完成";
@@ -1817,6 +1835,7 @@
 "Invalid shared instruction request." = "共享指令请求无效。";
 "Invert" = "反选";
 "It can read files, run commands and edit code after asking for permission." = "它可以在征得你的许可后读取文件、运行命令和修改代码。";
+"Italic comments" = "注释使用斜体";
 "Item %lld of %lld" = "第 %lld 项，共 %lld 项";
 "Its details and actions will appear here." = "工作树详情和可用操作会显示在这里。";
 "Its session was closed or could not be restored." = "其会话已关闭或无法恢复。";
@@ -1924,6 +1943,8 @@
 "Line" = "行";
 "Line Breakpoints" = "行断点";
 "Line breakpoint actions" = "行断点操作";
+"Line numbers" = "行号";
+"Line spacing" = "行间距";
 "Linear" = "Linear";
 "Lines kept for scrolling back in new terminal sessions." = "新建终端会话保留的可回滚行数。";
 "Linked this conversation to a pull request" = "已将此对话关联到拉取请求";
@@ -2919,6 +2940,7 @@
 "Registry website" = "Registry 网站";
 "Regular Expression" = "正则表达式";
 "Reinstall" = "重新安装";
+"Relative" = "相对行号";
 "Release Date" = "发布日期";
 "Release note" = "发布说明";
 "Release notes" = "发行说明";
@@ -2994,6 +3016,7 @@
 "Rename conversation" = "重命名会话";
 "Renamed" = "已重命名";
 "Rename…" = "重命名…";
+"Render whitespace" = "显示空白符";
 "Reopen Pull Request" = "重新打开拉取请求";
 "Reopen pull request" = "重新打开拉取请求";
 "Reopen pull request?" = "重新打开拉取请求？";
@@ -3252,6 +3275,7 @@
 "Saving writes to" = "保存将写入";
 "Scala Support" = "Scala 支持";
 "Scope" = "范围";
+"Scroll beyond last line" = "允许滚动超过末行";
 "Scroll to new Git output" = "滚动到最新 Git 输出";
 "Scrollback" = "回滚";
 "Search" = "搜索";
@@ -3336,6 +3360,7 @@
 "Selected directory" = "当前选择的目录";
 "Selected from disk. The publisher and repository have not been verified." = "从本地磁盘选择，尚未验证发布者与源码仓库。";
 "Selected runtime" = "已选择";
+"Selection" = "选中区域";
 "Self-update is only available when Lithe is running from a packaged Lithe.app." = "只有从打包后的 Lithe.app 运行时才支持自动覆盖更新。";
 "Send" = "发送";
 "Send a message to %@" = "向 %@ 发送消息";
@@ -3428,6 +3453,7 @@
 "Show conversation" = "显示对话";
 "Show file history" = "显示文件历史";
 "Show in Finder" = "在 Finder 中显示";
+"Show indent guides" = "显示缩进引导线";
 "Show indexed Spring MVC routes" = "显示已索引的 Spring MVC 路由";
 "Show its own page in a tool window" = "在工具窗口中显示插件自带的页面";
 "Show less" = "收起";
@@ -3505,10 +3531,14 @@
 "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them." = "智能检出会先贮藏你的更改，切换分支后再恢复。强制检出会直接切换并丢弃这些更改。";
 "Smart Step Into" = "智能步入";
 "Smart step into" = "智能步入";
+"Smooth" = "平滑";
+"Smooth scrolling" = "平滑滚动";
 "Soft Reset (Keep Changes Staged)" = "软重置（保留暂存更改）";
 "Soft Wraps" = "自动换行";
+"Soft wrap" = "自动换行";
 "Soft wrap is unavailable for very large files" = "文件过大，自动换行不可用";
 "Software Update" = "软件更新";
+"Solid" = "常亮";
 "Solidity Support" = "Solidity 支持";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Some dependencies are not shown." = "部分依赖未显示。";
@@ -3598,6 +3628,7 @@
 "Step out" = "单步跳出";
 "Step over" = "单步跳过";
 "Stepping by instruction" = "按指令单步";
+"Sticky scroll" = "固定显示作用域标题";
 "Stop" = "停止";
 "Stop %@" = "停止 %@";
 "Stop Camera" = "停止摄像头";
@@ -3658,6 +3689,7 @@
 "Sync needed" = "待同步";
 "Sync with Remote" = "同步远程";
 "Synchronize tags and remove local tags missing from the remote" = "同步标签并删除远程已不存在的本地标签";
+"Syntax highlighting" = "语法高亮";
 "System" = "跟随系统";
 "System Git" = "系统 Git";
 "System default" = "系统默认";
@@ -4144,6 +4176,7 @@
 "Total tokens: %@" = "总 token：%@";
 "Tracking %@" = "跟踪 %@";
 "Tracking Branch" = "跟踪的分支";
+"Trailing" = "行尾空白";
 "Transport" = "传输方式";
 "Tree conflict" = "树冲突";
 "Try Again" = "重试";
@@ -4186,6 +4219,7 @@
 "Uncommitted changes block this revert" = "未提交的更改阻止了本次回滚";
 "Uncommitted changes stay in this worktree and are not included in the pull request." = "未提交的更改会保留在当前工作树中，不会包含在拉取请求里。";
 "Uncommitted submodule changes" = "子模块有未提交的修改";
+"Underline" = "下划线";
 "Undo" = "撤销";
 "Undo Commit" = "撤销最近一次提交（保留更改）";
 "Undo Commit…" = "撤销最近一次提交（保留更改）…";
@@ -4327,6 +4361,7 @@
 "Usually the reversed domain name of your organization, such as com.example." = "通常是组织域名的反写，例如 com.example。";
 "VM arguments" = "VM 参数";
 "VM options" = "VM 选项";
+"VS Code" = "VS Code";
 "Valid" = "有效";
 "Valid values are saved as you type." = "值合法时立即保存。";
 "Validating the credential stored in Keychain…" = "正在验证钥匙串中保存的凭据…";
@@ -5748,6 +5783,41 @@
 "native.editedLldFiles" = "编辑了 %1$lld 个文件";
 "native.editor" = "编辑器";
 "native.editorAndLanguageServices" = "编辑器与语言服务";
+"native.editorAppearanceAbsolute" = "绝对行号";
+"native.editorAppearanceAppliesImmediatelyToSourceEditorsInAllProjects" = "立即应用于所有项目的源码编辑器。";
+"native.editorAppearanceBlink" = "闪烁";
+"native.editorAppearanceBlock" = "方块";
+"native.editorAppearanceBoundary" = "边界空白";
+"native.editorAppearanceBracketSchemeDisabled" = "配色方案已关闭";
+"native.editorAppearanceBracketSchemeEnabled" = "配色方案已启用";
+"native.editorAppearanceBracketSchemeInfo" = "括号颜色跟随所选编辑器配色方案。";
+"native.editorAppearanceColorizeBracketPairs" = "彩色配对括号";
+"native.editorAppearanceCursor" = "光标";
+"native.editorAppearanceCursorBlinking" = "光标闪烁";
+"native.editorAppearanceCursorStyle" = "光标样式";
+"native.editorAppearanceEditorColorScheme" = "编辑器配色方案";
+"native.editorAppearanceEditorColorsFollowLightAndDarkAppearanceIndependentlyOfTheInterfaceTheme" = "代码配色自动适配深浅外观，可独立于界面主题选择。";
+"native.editorAppearanceEditorDisplay" = "编辑器显示";
+"native.editorAppearanceFontLigatures" = "字体连字";
+"native.editorAppearanceHighlightCurrentLine" = "高亮当前行";
+"native.editorAppearanceIntelliJIDEA" = "IntelliJ IDEA";
+"native.editorAppearanceItalicComments" = "注释使用斜体";
+"native.editorAppearanceLineNumbers" = "行号";
+"native.editorAppearanceLineSpacing" = "行间距";
+"native.editorAppearanceRelative" = "相对行号";
+"native.editorAppearanceRenderWhitespace" = "显示空白符";
+"native.editorAppearanceScrollBeyondLastLine" = "允许滚动超过末行";
+"native.editorAppearanceSelection" = "选中区域";
+"native.editorAppearanceShowIndentGuides" = "显示缩进引导线";
+"native.editorAppearanceSmooth" = "平滑";
+"native.editorAppearanceSmoothScrolling" = "平滑滚动";
+"native.editorAppearanceSoftWrap" = "自动换行";
+"native.editorAppearanceSolid" = "常亮";
+"native.editorAppearanceStickyScroll" = "固定显示作用域标题";
+"native.editorAppearanceSyntaxHighlighting" = "语法高亮";
+"native.editorAppearanceTrailing" = "行尾空白";
+"native.editorAppearanceUnderline" = "下划线";
+"native.editorAppearanceVSCode" = "VS Code";
 "native.editorResourcesAreMissingRebuildOrReinstallLithe" = "缺少编辑器资源。请重新构建或重新安装 Lithe。";
 "native.edits" = "编辑";
 "native.effectiveFetchOptions" = "实际生效的 Fetch 选项";

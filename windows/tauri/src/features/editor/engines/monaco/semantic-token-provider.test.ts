@@ -58,8 +58,8 @@ test("flushes pending text before requesting colors and maps the shared Core fix
   });
   try {
     const result = (await h.provide()) as Monaco.languages.SemanticTokens;
-    // Server legend indices class=0/method=1 become Monaco class=2/method=13.
-    expect([...result.data]).toEqual([0, 6, 5, 2, 0, 2, 4, 3, 13, 0, 0, 7, 2, 13, 0]);
+    // Server legend indices class=0/method=1 become Monaco class=2/method=13; declaration survives as bit 2.
+    expect([...result.data]).toEqual([0, 6, 5, 2, 4, 2, 4, 3, 13, 0, 0, 7, 2, 13, 0]);
   } finally {
     unregister();
   }

@@ -108,6 +108,15 @@ try {
     assert.match(diagnostics(refused), /swiftpm-build-state is isolated.*cannot be reused/);
     await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
   });
+  await test("editor palettes and licenses cannot be copied from another checkout", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "editor-theme-assets");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes(".artifacts/editor/macos/"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");
