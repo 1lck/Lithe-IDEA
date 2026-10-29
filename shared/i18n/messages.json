@@ -84218,22 +84218,6 @@
       }
     },
     {
-      "id": "native.couldNotReadJavaBuildFileMetadataFor",
-      "description": "Native UI: Could not read Java build-file metadata for %@.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Could not read Java build-file metadata for %@.",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
       "id": "native.theBundledJdtLsManifestIsInvalidAt",
       "description": "Native UI: The bundled JDT LS manifest is invalid at %@.",
       "platforms": [

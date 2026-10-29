@@ -1843,8 +1843,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     struct JdtBuildFileObservation: Encodable, Equatable, Sendable {
         let path: String
-        let modifiedUnixMilliseconds: UInt64
-        let sizeBytes: UInt64
     }
 
     private struct JdtWorkspaceFingerprintRequest: Encodable {

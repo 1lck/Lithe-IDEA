@@ -8,11 +8,10 @@ use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, Syste
 use super::{
     client_change_document, client_close_document, client_feature_request_canonical,
     client_open_document, client_provider_document_feature_request_canonical, client_shutdown,
-    frame_message, parse_server_messages, ClientApplyServerMessageRequest,
-    ClientChangeDocumentRequest, ClientCloseDocumentRequest, ClientFeatureRequest,
-    ClientInitializeRequest, ClientOpenDocumentRequest, ClientShutdownRequest, FrameMessageRequest,
-    LspClientDiagnostic, LspClientDocument, LspClientState, LspDocumentContentChange, LspPosition,
-    LspRange, ParseServerMessagesRequest,
+    frame_message, parse_server_messages, ClientChangeDocumentRequest, ClientCloseDocumentRequest,
+    ClientFeatureRequest, ClientInitializeRequest, ClientOpenDocumentRequest,
+    ClientShutdownRequest, FrameMessageRequest, LspClientDiagnostic, LspClientDocument,
+    LspClientState, LspDocumentContentChange, LspPosition, LspRange, ParseServerMessagesRequest,
 };
 use crate::lsp::languages::java_entrypoints::{
     java_entrypoints_command, normalize_java_entrypoints,
@@ -1883,7 +1882,7 @@ impl RuntimeSession {
                 // Hosts commonly publish both a ranged edit and the resulting
                 // full text. Repeating that full text must not create another
                 // JDTLS reconciliation cycle or advance the semantic version.
-                if request.content_changes.is_empty() && document.text == request.text {
+                if request.content_changes.is_empty() && *document.text == *request.text {
                     return Ok(SyncDocumentResponse {
                         document_version: document.version.max(1),
                         changed: false,
@@ -1941,7 +1940,7 @@ impl RuntimeSession {
                         uri,
                         language_id: request.language_id,
                         version: 0,
-                        text: request.text,
+                        text: request.text.into(),
                     },
                 );
                 // Version zero remains an internal "not opened on the wire"
@@ -3090,24 +3089,28 @@ impl RuntimeSession {
             );
             return Ok(());
         }
-        let message = match &self.workspace_host {
-            Some(host) => super::remote_process::map_message(
-                host,
-                &message,
-                false,
-                pending_before
-                    .as_ref()
-                    .map(|pending| pending.method.as_str()),
-            )?,
-            None => message,
+        // Only a remote workspace rewrites the message; a local one keeps the
+        // value parsed above instead of parsing the same text again.
+        let value = match &self.workspace_host {
+            Some(host) => {
+                let mapped = super::remote_process::map_message(
+                    host,
+                    &message,
+                    false,
+                    pending_before
+                        .as_ref()
+                        .map(|pending| pending.method.as_str()),
+                )?;
+                serde_json::from_str(&mapped).map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::ParseFailed,
+                        "Invalid mapped LSP server JSON message.",
+                    )
+                    .with_details(error.to_string())
+                })?
+            }
+            None => value,
         };
-        let value: Value = serde_json::from_str(&message).map_err(|error| {
-            CoreError::new(
-                ErrorCode::ParseFailed,
-                "Invalid mapped LSP server JSON message.",
-            )
-            .with_details(error.to_string())
-        })?;
         let method = value.get("method").and_then(Value::as_str);
         let readiness = readiness_signal(&self.provider_id, method, value.get("params"));
         let java_import_progress = import_progress(&self.provider_id, method, value.get("params"));
@@ -3123,22 +3126,19 @@ impl RuntimeSession {
 
         let reduced = {
             let mut state = self.lock_state()?;
-            let message = if method == Some("textDocument/publishDiagnostics") {
+            let redirected = if method == Some("textDocument/publishDiagnostics") {
                 let state = &mut *state;
                 diagnostics_addressed_to_open_document(
                     &state.client.open_documents,
                     &mut state.linked_document_paths,
                     &value,
                 )
-                .unwrap_or(message)
             } else {
-                message
+                None
             };
             client_apply_server_message_for_plugin(
-                ClientApplyServerMessageRequest {
-                    state: state.client.clone(),
-                    message,
-                },
+                state.client.clone(),
+                redirected.as_ref().unwrap_or(&value),
                 self.plugin_id.is_some(),
             )?
         };
@@ -3373,7 +3373,7 @@ impl RuntimeSession {
                                     .document_uri
                                     .as_deref()
                                     .and_then(|uri| state.client.open_documents.get(uri))
-                                    .map(|document| document.text.as_str())
+                                    .map(|document| document.text.as_ref())
                                     .unwrap_or_default();
                                 let batch = JavaNavigationMarkerBatch::new(
                                     &raw_lenses,
@@ -5175,7 +5175,7 @@ fn diagnostics_addressed_to_open_document(
     open_documents: &BTreeMap<String, LspClientDocument>,
     linked: &mut LinkedDocumentPaths,
     message: &Value,
-) -> Option<String> {
+) -> Option<Value> {
     let published = message.get("params")?.get("uri")?.as_str()?;
     if open_documents.contains_key(published) {
         return None;
@@ -5192,7 +5192,7 @@ fn diagnostics_addressed_to_open_document(
         .map(|(uri, _)| uri.clone())?;
     let mut message = message.clone();
     message["params"]["uri"] = Value::String(document_uri);
-    Some(message.to_string())
+    Some(message)
 }
 
 /// The workspace URI that scopes Java entry-point discovery.
@@ -6449,7 +6449,7 @@ fn flush_queued_documents_locked(state: &mut SessionState) -> Result<Vec<String>
             state: state.client.clone(),
             uri: document.uri,
             language_id: document.language_id,
-            text: document.text,
+            text: document.text.to_string(),
         })?;
         state.client = response.state;
         messages.extend(response.messages);
@@ -8025,7 +8025,7 @@ mod tests {
         assert!(!snapshot.open_documents.contains_key(first_uri));
         assert_eq!(snapshot.open_documents[second_uri].version, 2);
         assert_eq!(
-            snapshot.open_documents[second_uri].text,
+            &*snapshot.open_documents[second_uri].text,
             "class Second { int value; }"
         );
     }
@@ -9425,7 +9425,7 @@ mod tests {
                 uri: uri.to_string(),
                 language_id: "go".to_string(),
                 version: 1,
-                text: String::new(),
+                text: "".into(),
             },
         )
     }

@@ -80,6 +80,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// While one is in flight the poll loop holds the events, so a reply
     /// never arrives before its operation is registered.
     private var sendsInFlight = 0
+    /// The event drain running off the main actor, if any. A send waits for it
+    /// before writing, so a drain never returns the reply to a request whose
+    /// operation is not registered yet.
+    private var drainInFlight: Task<[LanguageServerRuntimeEvent], Never>?
     private var stopWatchdog: SendWatchdog?
     /// Immediate setting updates are serialized per session so an older
     /// detached write cannot overtake a newer edit or cross a restart.
@@ -943,6 +947,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         >
     ) async -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
         sendsInFlight += 1
+        // A drain that started before this send must finish before the request
+        // is written; its events then cannot include this request's reply.
+        if let draining = drainInFlight { _ = await draining.value }
         let core = core
         let sending = Task.detached(priority: .userInitiated) { request(core) }
         let watchdog = SendWatchdog()
@@ -1182,6 +1189,22 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
 
     // MARK: - Event delivery
 
+    /// Drains Core's queued events off the main actor. The drain encodes and
+    /// decodes JSON and waits on the session lock that Core's reader holds while
+    /// it applies each server message, which during a project import is most of
+    /// the time; on the main actor that stalled typing and scrolling.
+    private func drainEvents(sessionID: String) async -> [LanguageServerRuntimeEvent] {
+        let core = core
+        let draining = Task.detached(priority: .userInitiated) {
+            core.pollLanguageServerEvents(sessionID: sessionID)
+        }
+        drainInFlight = draining
+        let events = await draining.value
+        // A cancelled poll loop may finish after its replacement started a drain.
+        if drainInFlight == draining { drainInFlight = nil }
+        return events
+    }
+
     private func startPolling() {
         pollTask?.cancel()
         // The task intentionally retains the session: it is what releases the
@@ -1192,7 +1215,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 guard let sessionID else { return }
                 // Core keeps the events until the requests being written are
                 // registered; see `sendsInFlight`.
-                let events = sendsInFlight > 0 ? [] : core.pollLanguageServerEvents(sessionID: sessionID)
+                let events = sendsInFlight > 0 ? [] : await drainEvents(sessionID: sessionID)
+                // The session may have been released or replaced meanwhile.
+                guard !Task.isCancelled, self.sessionID == sessionID else { return }
                 var reachedTerminalState = false
                 for event in events where handle(event) {
                     reachedTerminalState = true
