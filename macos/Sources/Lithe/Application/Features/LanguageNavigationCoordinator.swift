@@ -75,16 +75,7 @@ final class LanguageNavigationCoordinator: ObservableObject {
             return
         }
         let operationID = begin(providerID: providerID, kind: state.kind)
-        Task { @MainActor [weak self] in
-            // A local sources jar answers without the JDT LS decompile round trip.
-            if let text = await JavaSourceJarResolver.sourceText(for: location.url) {
-                guard let self, self.owns(operationID) else { return }
-                self.state = .idle
-                if recordsHistory { recordHistory(location) }
-                openVirtualDocument(location.url, text, location.displayPath)
-                setTarget(location)
-                return
-            }
+        let resolveThroughLanguageServer = { [weak self] in
             guard let self, self.owns(operationID) else { return }
             do {
                 try sessions.resolveVirtualDocument(providerID: providerID, uri: location.url) { [weak self] result in
@@ -107,6 +98,23 @@ final class LanguageNavigationCoordinator: ObservableObject {
                 onFailure?()
                 self.notify(error.localizedDescription)
             }
+        }
+        // Only library class URIs can have a local sources jar. Other virtual documents
+        // keep the synchronous language-server request.
+        guard JavaSourceJarResolver.SourceTarget(uri: location.url) != nil else {
+            resolveThroughLanguageServer()
+            return
+        }
+        Task { @MainActor [weak self] in
+            if let text = await JavaSourceJarResolver.sourceText(for: location.url) {
+                guard let self, self.owns(operationID) else { return }
+                self.state = .idle
+                if recordsHistory { recordHistory(location) }
+                openVirtualDocument(location.url, text, location.displayPath)
+                setTarget(location)
+                return
+            }
+            resolveThroughLanguageServer()
         }
     }
 
