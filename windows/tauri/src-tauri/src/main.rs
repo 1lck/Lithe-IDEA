@@ -4,6 +4,7 @@ mod agent;
 mod agent_clipboard;
 mod agent_provider_settings;
 mod ai_commit;
+mod blocking;
 mod core;
 mod date_time;
 mod debug;

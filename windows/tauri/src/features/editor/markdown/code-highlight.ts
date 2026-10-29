@@ -234,11 +234,10 @@ export function renderHighlightedCodeHtml(code: string, segments: CodeHighlightS
 
 export async function highlightMarkdownCodeBlocks(html: string): Promise<string> {
   const codeBlockRegex = /<pre><code class="language-([^"]+)">([\s\S]*?)<\/code><\/pre>/g;
-  const matches: { full: string; lang: string; code: string }[] = [];
+  const matches: { lang: string; code: string }[] = [];
 
   for (const match of html.matchAll(codeBlockRegex)) {
     matches.push({
-      full: match[0],
       lang: match[1],
       code: match[2],
     });
@@ -255,18 +254,18 @@ export async function highlightMarkdownCodeBlocks(html: string): Promise<string>
       const highlighted = renderHighlightedCodeHtml(rawCode, segments);
       const languageId = normalizeCodeFenceLanguage(match.lang);
       return {
-        full: match.full,
         replacement: `<pre><code class="language-${languageId}">${highlighted}</code></pre>`,
       };
     }),
   );
 
-  let result = html;
-
-  for (const match of highlightedMatches) {
-    if (!match) continue;
-    result = result.replace(match.full, match.replacement);
-  }
-
-  return result;
+  // Rebuild the document in one pass. Replacing each block with
+  // `String.replace` rescanned and copied the whole document per block, which
+  // took seconds for documents with a thousand code fences, and a string
+  // replacement expands `$&`-style patterns that code itself contains.
+  let index = 0;
+  return html.replace(
+    codeBlockRegex,
+    (full) => highlightedMatches[index++]?.replacement ?? full,
+  );
 }
