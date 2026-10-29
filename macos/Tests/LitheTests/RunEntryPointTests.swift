@@ -151,8 +151,8 @@ struct RunEntryPointTests {
     /// Run activates the execution module on demand, so it can reach a run
     /// feature before the workspace snapshot has been applied. Binding the
     /// workspace there is not enough: generation scans the file inventory the
-    /// run service holds, so identifying a provisional inventory would write a
-    /// `generated.json` that omits entry points the workspace contains.
+    /// run service holds, so identifying a provisional inventory would publish
+    /// a Run list that omits entry points the workspace contains.
     ///
     /// The snapshot is held until after Run is pressed, then released with a
     /// real Java entry point, so the test observes both halves of the contract.
@@ -178,7 +178,7 @@ struct RunEntryPointTests {
         let runFeature = try #require(model.runFeatureIfActive)
         await runFeature.generateRunConfigurations()
         #expect(runFeature.generationState == .projectNotReady)
-        #expect(!workspace.hasGeneratedConfiguration, "a partial inventory must not be written")
+        #expect(runFeature.configurationStatus != .ready, "a partial inventory must not be identified")
 
         operations.publish(workspace.snapshot)
         await model.workspaceFeature.refreshCurrent()
@@ -948,12 +948,6 @@ private struct JavaWorkspaceFixture {
         WorkspaceSnapshot(
             root: FileNode(url: root, isDirectory: true, children: []),
             files: [sourceURL]
-        )
-    }
-
-    var hasGeneratedConfiguration: Bool {
-        FileManager.default.fileExists(
-            atPath: root.appendingPathComponent(".lithe/run/generated.json").path
         )
     }
 

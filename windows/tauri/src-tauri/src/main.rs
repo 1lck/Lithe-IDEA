@@ -286,7 +286,6 @@ fn main() {
                             maven::maven_create_dependency_output,
                             maven::maven_remove_dependency_output,
                             run::run_list_java_sources,
-                            run::run_write_generated,
                             run::run_write_documents,
                             run::run_write_stdin,
                             run::maven_resolve_installation,

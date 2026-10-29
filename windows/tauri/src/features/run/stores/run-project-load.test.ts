@@ -106,15 +106,38 @@ test.each([
   }
 });
 
-test("missing documents keep regeneration recovery and skip the content scan", async () => {
-  const inspectRunConfiguration = mock(async () => ({ status: "missing" }));
+test.each(["missing", "ready"])("a project requiring detection is identified even with saved tasks: %s", async (status) => {
+  let requiresGeneration = true;
+  const inspectRunConfiguration = mock(async () => ({
+    status: requiresGeneration ? status : "ready",
+    requiresGeneration,
+  }));
   const resolveConfigurations = mock(async () => project(""));
-  const store = createRunStore("workspace-A", { inspectRunConfiguration, resolveConfigurations });
+  const listJavaSources = mock(async () => [] as string[]);
+  const generateRunConfiguration = mock(async () => {
+    requiresGeneration = false;
+    return {
+      generated: {},
+      toolchainRequirements: {},
+      entryCount: 1,
+    };
+  });
+  const store = createRunStore("workspace-A", {
+    inspectRunConfiguration,
+    resolveConfigurations,
+    listJavaSources,
+    generateRunConfiguration,
+  });
   await store.getState().actions.loadProject("D:/fixture/project");
   expect(inspectRunConfiguration).toHaveBeenCalledTimes(1);
-  expect(resolveConfigurations).not.toHaveBeenCalled();
-  expect(store.getState().status).toBe("missing");
-  expect(store.getState().recoveryAction).toBe("regenerate");
+  expect(generateRunConfiguration).toHaveBeenCalledTimes(1);
+  expect(resolveConfigurations).toHaveBeenCalledTimes(status === "ready" ? 2 : 1);
+  expect(store.getState().status).toBe("ready");
+  expect(store.getState().recoveryAction).toBe("none");
+  expect(store.getState().generationNotice).toBeNull();
+  expect(store.getState().isLoading).toBe(false);
+  await store.getState().actions.loadProject("D:/fixture/project");
+  expect(generateRunConfiguration).toHaveBeenCalledTimes(1);
 });
 
 test.each(["success", "failure", "superseded"])("identification waits for native fingerprint work: %s", async (outcome) => {
@@ -133,7 +156,6 @@ test.each(["success", "failure", "superseded"])("identification waits for native
     resolveConfigurations: async () => project(""),
     listJavaSources,
     generateRunConfiguration,
-    writeGeneratedRunDocuments: async () => {},
   });
   const loading = store.getState().actions.loadProject(root);
   let generation: Promise<void> | undefined;

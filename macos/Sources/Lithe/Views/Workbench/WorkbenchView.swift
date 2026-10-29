@@ -1541,8 +1541,8 @@ struct WorkbenchView: View {
     /// the first case can claim Run is unavailable until it completes.
     private var runConfigurationSetupMessage: String {
         model.runFeatureIfActive?.configurationStatus == .ready
-            ? L10n.string("Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.")
-            : L10n.string("Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.")
+            ? L10n.string("Lithe will look for services again. Project and local overrides will not be changed.")
+            : L10n.string("Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.")
     }
 
     private func continueAfterRunConfigurationGeneration() {

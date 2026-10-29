@@ -11,15 +11,6 @@ export function listJavaSources(root: string) {
   return invoke<string[]>("run_list_java_sources", { root });
 }
 
-export function writeGeneratedRunDocuments(args: {
-  root: string;
-  generated: unknown;
-  toolchainRequirements: unknown;
-  defaultRunConfiguration?: string;
-}) {
-  return invoke<void>("run_write_generated", { args });
-}
-
 export function writeRunDocuments(
   root: string,
   documents: Array<{ relativePath: string; contents: string }>,
