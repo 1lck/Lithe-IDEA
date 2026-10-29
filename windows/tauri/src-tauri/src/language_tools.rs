@@ -173,54 +173,59 @@ pub async fn uninstall_language_tools(app: AppHandle, language_id: String) -> Re
 /// `install_language_tools`. Missing tools are an expected state, not a host
 /// error, so no error is raised here.
 #[tauri::command]
-pub fn get_tool_path(
+pub async fn get_tool_path(
     app: AppHandle,
     language_id: String,
     tool_type: String,
     tools: Value,
 ) -> Result<Option<String>, String> {
-    let config = match requested_tool_config(&tools, &tool_type) {
-        Ok(config) => config,
-        Err(error) => return Err(error),
-    };
-    let Some(config) = config else {
-        return Ok(None);
-    };
-    if install_tasks()
-        .lock()
-        .map_err(|_| "Install state unavailable")?
-        .contains_key(&language_id)
-    {
-        return Ok(None);
-    }
-    let path_env = std::env::var_os("PATH");
-    if config
-        .required_executables
-        .iter()
-        .any(|name| find_system_tool(path_env.as_deref(), name).is_none())
-    {
-        return Ok(None);
-    }
-    let resolved = match config.runtime {
-        ToolRuntime::Bun => resolve_bun_tool_path(
-            &language_id,
-            &config,
-            &managed_tools_root(&app),
-            path_env.as_deref(),
-            std::env::var_os("USERPROFILE").as_deref(),
-        ),
-        ToolRuntime::System => find_system_tool(path_env.as_deref(), config.executable_name()),
-        // Automatic installation is separate from discovery: a user-provided
-        // language server remains usable even without a managed installer.
-        ToolRuntime::Node
-        | ToolRuntime::Python
-        | ToolRuntime::Go
-        | ToolRuntime::Rust
-        | ToolRuntime::Ruby
-        | ToolRuntime::R
-        | ToolRuntime::Binary => find_system_tool(path_env.as_deref(), config.executable_name()),
-    };
-    Ok(resolved.map(|path| normalize_path(&path)))
+    crate::blocking::run_blocking(move || {
+        let config = match requested_tool_config(&tools, &tool_type) {
+            Ok(config) => config,
+            Err(error) => return Err(error),
+        };
+        let Some(config) = config else {
+            return Ok(None);
+        };
+        if install_tasks()
+            .lock()
+            .map_err(|_| "Install state unavailable")?
+            .contains_key(&language_id)
+        {
+            return Ok(None);
+        }
+        let path_env = std::env::var_os("PATH");
+        if config
+            .required_executables
+            .iter()
+            .any(|name| find_system_tool(path_env.as_deref(), name).is_none())
+        {
+            return Ok(None);
+        }
+        let resolved = match config.runtime {
+            ToolRuntime::Bun => resolve_bun_tool_path(
+                &language_id,
+                &config,
+                &managed_tools_root(&app),
+                path_env.as_deref(),
+                std::env::var_os("USERPROFILE").as_deref(),
+            ),
+            ToolRuntime::System => find_system_tool(path_env.as_deref(), config.executable_name()),
+            // Automatic installation is separate from discovery: a user-provided
+            // language server remains usable even without a managed installer.
+            ToolRuntime::Node
+            | ToolRuntime::Python
+            | ToolRuntime::Go
+            | ToolRuntime::Rust
+            | ToolRuntime::Ruby
+            | ToolRuntime::R
+            | ToolRuntime::Binary => {
+                find_system_tool(path_env.as_deref(), config.executable_name())
+            }
+        };
+        Ok(resolved.map(|path| normalize_path(&path)))
+    })
+    .await
 }
 
 /// Installs the configured language tools and reports a per-tool status map.

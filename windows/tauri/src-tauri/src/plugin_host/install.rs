@@ -178,15 +178,18 @@ pub async fn declarative_plugins_confirm_disk_install(
 
 /// Abandons an installation review and removes its private snapshot.
 #[tauri::command]
-pub fn declarative_plugins_cancel_disk_install(
+pub async fn declarative_plugins_cancel_disk_install(
     app: AppHandle,
     session_id: String,
 ) -> Result<(), String> {
-    let snapshot = snapshot_path(&app, &session_id)?;
-    if snapshot.exists() {
-        std::fs::remove_dir_all(snapshot).map_err(|error| error.to_string())?;
-    }
-    Ok(())
+    crate::blocking::run_blocking(move || {
+        let snapshot = snapshot_path(&app, &session_id)?;
+        if snapshot.exists() {
+            std::fs::remove_dir_all(snapshot).map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    })
+    .await
 }
 
 fn snapshot_path(app: &AppHandle, session_id: &str) -> Result<PathBuf, String> {
