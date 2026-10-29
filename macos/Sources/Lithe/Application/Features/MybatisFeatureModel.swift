@@ -70,8 +70,7 @@ final class MybatisFeatureModel: ObservableObject {
         files: [URL],
         openDocuments: [EditorDocument]
     ) {
-        let ext = changedDocument.url.pathExtension.lowercased()
-        guard ext == "java" || ext == "xml" else { return }
+        guard editChangesIndex(changedDocument.url) else { return }
         reloadTask?.cancel()
         reloadTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
@@ -84,6 +83,23 @@ final class MybatisFeatureModel: ObservableObject {
                 files: files,
                 textOverrides: overrides
             )
+        }
+    }
+
+    /// Whether editing `url` can change the index. Mapper XML always can; a
+    /// Java file only when it holds a mapper interface the index already pairs.
+    /// Rebuilding for every other Java edit re-read the whole workspace and held
+    /// up completion on large projects. New mapper files arrive through the
+    /// project file list, which loads the index again.
+    func editChangesIndex(_ url: URL) -> Bool {
+        switch url.pathExtension.lowercased() {
+        case "xml":
+            return true
+        case "java":
+            let changed = url.standardizedFileURL
+            return statements.contains { $0.javaURL.standardizedFileURL == changed }
+        default:
+            return false
         }
     }
 
