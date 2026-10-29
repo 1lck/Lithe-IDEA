@@ -16,20 +16,45 @@ pub fn executable(selected: Option<&str>) -> Option<PathBuf> {
             })
             .collect(),
     };
-    candidates.into_iter().find(|path| {
-        let Ok(metadata) = path.metadata() else {
-            return false;
-        };
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    candidates
+        .into_iter()
+        .find(|path| {
+            let Ok(metadata) = path.metadata() else {
+                return false;
+            };
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+            }
+            #[cfg(not(unix))]
+            {
+                metadata.is_file()
+            }
+        })
+        .map(launch_path)
+}
+
+/// Some Windows hosts (disk-encryption or endpoint-security filters) make a Git started through a
+/// backslash path print nothing to a captured pipe, while the same executable started through a
+/// forward-slash path behaves normally. Windows accepts both separators, so launch with `/`.
+fn launch_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(text) = path.to_str() {
+            return PathBuf::from(forward_slash_path(text));
         }
-        #[cfg(not(unix))]
-        {
-            metadata.is_file()
-        }
-    })
+    }
+    path
+}
+
+/// Verbatim (`\\?\`) and UNC (`\\server`) paths keep their native form because `/` is not valid there.
+fn forward_slash_path(path: &str) -> String {
+    if path.starts_with(r"\\") {
+        path.to_owned()
+    } else {
+        path.replace('\\', "/")
+    }
 }
 
 /// Preserves inherited config entries and appends named invocation overrides.
@@ -105,6 +130,12 @@ pub fn version(
         .map_err(|_| std::io::Error::other("Git version is not UTF-8"))?
         .trim()
         .to_owned();
+    // An empty report is a broken probe, not an old Git; keep it out of the cache and name it.
+    if version.is_empty() {
+        return Err(std::io::Error::other(
+            "Git exited successfully but printed no version output",
+        ));
+    }
     let mut cache = cache.lock().unwrap_or_else(|poison| poison.into_inner());
     if cache.len() >= 16 {
         cache.clear();
@@ -122,6 +153,21 @@ mod tests {
         assert_eq!(inherited_count(Some("2")).unwrap(), 2);
         for value in ["", "-1", "bad", "4097", "18446744073709551615"] {
             assert!(inherited_count(Some(value)).is_err());
+        }
+    }
+
+    #[test]
+    fn launch_paths_use_forward_slashes_except_unc_and_verbatim() {
+        assert_eq!(
+            forward_slash_path(r"D:\Program Files\Git\cmd\git.exe"),
+            "D:/Program Files/Git/cmd/git.exe"
+        );
+        assert_eq!(
+            forward_slash_path("D:/Git/cmd/git.exe"),
+            "D:/Git/cmd/git.exe"
+        );
+        for native in [r"\\server\share\git.exe", r"\\?\D:\Git\cmd\git.exe"] {
+            assert_eq!(forward_slash_path(native), native);
         }
     }
 }
