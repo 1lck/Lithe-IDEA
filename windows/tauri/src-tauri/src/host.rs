@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
@@ -67,7 +67,10 @@ pub struct FileClipboardState {
 }
 
 #[derive(Default)]
-pub struct FileClipboard(Mutex<Option<FileClipboardState>>);
+pub struct FileClipboard(Mutex<Option<Arc<FileClipboardState>>>);
+
+// Serialize filesystem publication without holding the UI-facing clipboard lock.
+static CLIPBOARD_PASTE: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Serialize)]
 pub struct PastedEntry {
@@ -147,7 +150,7 @@ pub fn clipboard_set(
     *state
         .0
         .lock()
-        .map_err(|_| "File clipboard lock was poisoned")? = Some(clipboard.clone());
+        .map_err(|_| "File clipboard lock was poisoned")? = Some(Arc::new(clipboard.clone()));
     app.emit("file-clipboard-changed", &clipboard)
         .map_err(|error| error.to_string())?;
     // Return the recorded state so the calling window does not have to wait for
@@ -163,7 +166,7 @@ pub fn clipboard_get(
     state
         .0
         .lock()
-        .map(|value| value.clone())
+        .map(|value| value.as_deref().cloned())
         .map_err(|_| "File clipboard lock was poisoned".into())
 }
 
@@ -217,6 +220,9 @@ pub async fn clipboard_paste(
 }
 
 fn paste_clipboard(app: &AppHandle, target_directory: PathBuf) -> Result<Vec<PastedEntry>, String> {
+    let _paste = CLIPBOARD_PASTE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let state = app.state::<FileClipboard>();
     if !target_directory.is_dir() {
         return Err("Clipboard target must be an existing directory".into());
@@ -247,14 +253,32 @@ fn paste_clipboard(app: &AppHandle, target_directory: PathBuf) -> Result<Vec<Pas
         });
     }
     if matches!(clipboard.operation, ClipboardOperation::Cut) {
-        *state
+        let mut current = state
             .0
             .lock()
-            .map_err(|_| "File clipboard lock was poisoned")? = None;
-        app.emit("file-clipboard-cleared", ())
-            .map_err(|error| error.to_string())?;
+            .map_err(|_| "File clipboard lock was poisoned")?;
+        // A newer Copy/Cut can arrive while the filesystem move is in progress.
+        if clear_pasted_clipboard(&mut current, &clipboard) {
+            app.emit("file-clipboard-cleared", ())
+                .map_err(|error| error.to_string())?;
+        }
     }
     Ok(pasted)
+}
+
+fn clear_pasted_clipboard(
+    current: &mut Option<Arc<FileClipboardState>>,
+    pasted: &Arc<FileClipboardState>,
+) -> bool {
+    if current
+        .as_ref()
+        .is_some_and(|value| Arc::ptr_eq(value, pasted))
+    {
+        *current = None;
+        true
+    } else {
+        false
+    }
 }
 
 fn unique_destination(path: PathBuf) -> PathBuf {
@@ -405,6 +429,21 @@ mod tests {
         read_local_file_bounded_from_path, unique_destination, WINDOW_TASKBAR_ICON,
         WSL_DEFAULT_AUTOMOUNT_ROOT,
     };
+    #[test]
+    fn completing_an_old_cut_preserves_a_new_copy_even_with_identical_contents() {
+        let old = std::sync::Arc::new(super::FileClipboardState {
+            entries: vec![],
+            operation: super::ClipboardOperation::Cut,
+            source_sequence: None,
+        });
+        let newer = std::sync::Arc::new((*old).clone());
+        let mut current = Some(newer.clone());
+        assert!(!super::clear_pasted_clipboard(&mut current, &old));
+        assert!(std::sync::Arc::ptr_eq(current.as_ref().unwrap(), &newer));
+        assert!(super::clear_pasted_clipboard(&mut current, &newer));
+        assert!(current.is_none());
+    }
+
     use std::fs;
     use std::future::Future;
     use std::io::Read;

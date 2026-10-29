@@ -1225,6 +1225,7 @@ fn write_generated_documents(
     requirements: &Value,
     default_run_configuration: Option<&str>,
 ) -> Result<(), String> {
+    let _transaction = configuration_transaction();
     let root = existing_directory(root)?;
     let lithe_directory = root.join(".lithe");
     let run_directory = lithe_directory.join("run");
@@ -1287,6 +1288,16 @@ fn validate_write_target(root: &Path, target: &Path) -> Result<(), String> {
         return Err("Refusing to write outside the project directory.".into());
     }
     Ok(())
+}
+
+// Background saves share filenames and rollback snapshots across run and Maven settings.
+// Hold this guard for the whole transaction, never only the final rename.
+static CONFIGURATION_TRANSACTION: Mutex<()> = Mutex::new(());
+
+pub(crate) fn configuration_transaction() -> std::sync::MutexGuard<'static, ()> {
+    CONFIGURATION_TRANSACTION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
 pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
@@ -1384,6 +1395,7 @@ fn write_document_transaction<F>(
 where
     F: FnMut(&Path, &[u8]) -> Result<(), String>,
 {
+    let _transaction = configuration_transaction();
     let snapshots = documents
         .iter()
         .map(|(path, _)| {
@@ -2969,6 +2981,10 @@ mod tests {
         ];
         let mut writes = 0;
         let result = write_document_transaction(&documents, |path, contents| {
+            assert!(
+                CONFIGURATION_TRANSACTION.try_lock().is_err(),
+                "save and rollback must retain the transaction"
+            );
             writes += 1;
             if writes == 2 {
                 return Err("injected second write failure".into());
@@ -3002,6 +3018,10 @@ mod tests {
         ];
         let mut writes = 0;
         let result = write_document_transaction(&documents, |path, contents| {
+            assert!(
+                CONFIGURATION_TRANSACTION.try_lock().is_err(),
+                "save and rollback must retain the transaction"
+            );
             writes += 1;
             if writes == 3 {
                 return Err("injected third write failure".into());

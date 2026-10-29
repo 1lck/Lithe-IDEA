@@ -73,6 +73,7 @@ pub async fn maven_load_configuration(
     reactor_path: String,
 ) -> Result<MavenStoredConfiguration, String> {
     run_blocking(move || {
+        let _transaction = crate::run::configuration_transaction();
         let root = existing_directory(&root)?;
         let portable = read_optional::<MavenPortableConfiguration>(&portable_path(&root))?;
         let local =
@@ -89,6 +90,7 @@ pub async fn maven_write_configuration(
     args: WriteMavenConfigurationArgs,
 ) -> Result<(), String> {
     run_blocking(move || {
+        let _transaction = crate::run::configuration_transaction();
         let root = existing_directory(&args.root)?;
         validate_versions(
             args.configuration.portable.as_ref(),
