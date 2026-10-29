@@ -2174,6 +2174,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         /// Omitted while JDT has not answered; Core then keeps the previous
         /// generation's Java entries.
         let javaEntrypoints: JavaEntrypoints?
+        /// Application cache root where Core keeps the last detection for the
+        /// next session; the workspace is never written.
+        let cacheDirectory: String?
     }
     private struct RunConfigurationResolveRequest: Encodable {
         let root: String
@@ -2849,7 +2852,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         at rootURL: URL,
         paths: [String],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints? = nil
+        javaEntrypoints: JavaEntrypoints? = nil,
+        cacheDirectoryURL: URL? = nil
     ) -> Result<RunConfigurationGeneratePayload, CoreCallError> {
         executeResult(
             command: "runConfig.generate",
@@ -2857,7 +2861,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 root: rootURL.standardizedFileURL.path,
                 paths: paths,
                 modulePaths: modulePaths,
-                javaEntrypoints: javaEntrypoints
+                javaEntrypoints: javaEntrypoints,
+                cacheDirectory: cacheDirectoryURL?.path
             )
         )
     }

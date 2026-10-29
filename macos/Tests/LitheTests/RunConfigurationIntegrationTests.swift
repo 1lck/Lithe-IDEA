@@ -3265,8 +3265,6 @@ struct RunConfigurationIntegrationTests {
             at: root.appendingPathComponent(".lithe/run"),
             withIntermediateDirectories: true
         )
-        try Data(#"{"version":1,"configurations":[]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
         let store = MacRunConfigurationStore(
             core: RustCoreBridge(),
             storage: MacFileStorage(),
@@ -3341,13 +3339,17 @@ struct RunConfigurationIntegrationTests {
         )
         try Data("package com.example; class App { public static void main(String[] args) {} }".utf8)
             .write(to: root.appendingPathComponent("src/main/java/com/example/App.java"))
-        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/run"), withIntermediateDirectories: true)
-        try Data(#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
         let store = MacRunConfigurationStore(
             core: core,
             storage: MacFileStorage(),
             preferences: RunTestKeyValueStore()
+        )
+        // Core identifies Current File in memory; the workspace holds only user documents.
+        _ = try store.generate(
+            at: root,
+            files: [root.appendingPathComponent("src/main/java/com/example/App.java")],
+            modulePaths: [],
+            javaEntrypoints: nil
         )
 
         try store.saveOptions(
@@ -3386,14 +3388,16 @@ struct RunConfigurationIntegrationTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-service-toolchains-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/run"), withIntermediateDirectories: true)
-        try Data(#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(#"<project><artifactId>demo</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#.utf8)
+            .write(to: root.appendingPathComponent("pom.xml"))
         let store = MacRunConfigurationStore(
             core: core,
             storage: MacFileStorage(),
             preferences: RunTestKeyValueStore()
         )
+        // Core identifies the project in memory; the workspace holds only user documents.
+        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
         try store.saveOptions(
             RunOptions(
                 javaHomePath: "/test/jdk-21",
@@ -3401,13 +3405,13 @@ struct RunConfigurationIntegrationTests {
                 mavenExecutablePath: "/test/maven/bin/mvn",
                 mavenJavaHomePath: "/test/maven-jdk"
             ),
-            configurationID: "spring",
+            configurationID: "spring-boot.maven:demo",
             scope: .local,
             at: root
         )
 
         let resolved = try store.resolve(at: root, toolchainCandidates: [])
-        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring" }?.options)
+        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring-boot.maven:demo" }?.options)
         #expect(options.javaHomePath == "/test/jdk-21")
         #expect(options.mavenExecutablePath == "/test/maven/bin/mvn")
         #expect(options.mavenJavaHomePath == "/test/maven-jdk")
@@ -3429,13 +3433,15 @@ struct RunConfigurationIntegrationTests {
         }
         try Data("#!/bin/sh\n".utf8)
             .write(to: root.appendingPathComponent("toolchains/maven/bin/mvn"))
-        try Data(#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
+        try Data(#"<project><artifactId>demo</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#.utf8)
+            .write(to: root.appendingPathComponent("pom.xml"))
         let store = MacRunConfigurationStore(
             core: core,
             storage: MacFileStorage(),
             preferences: RunTestKeyValueStore()
         )
+        // Core identifies the project in memory; the workspace holds only user documents.
+        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
 
         try store.saveOptions(
             RunOptions(
@@ -3443,13 +3449,13 @@ struct RunConfigurationIntegrationTests {
                 mavenExecutablePath: root.appendingPathComponent("toolchains/maven/bin/mvn").path,
                 mavenJavaHomePath: root.appendingPathComponent("toolchains/maven-jdk").path
             ),
-            configurationID: "spring",
+            configurationID: "spring-boot.maven:demo",
             scope: .project,
             at: root
         )
 
         let resolved = try store.resolve(at: root, toolchainCandidates: [])
-        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring" }?.options)
+        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring-boot.maven:demo" }?.options)
         #expect(options.javaHomePath == "toolchains/jdk")
         #expect(options.mavenExecutablePath == "toolchains/maven/bin/mvn")
         #expect(options.mavenJavaHomePath == "toolchains/maven-jdk")
@@ -3466,8 +3472,9 @@ struct RunConfigurationIntegrationTests {
             at: root.appendingPathComponent(".lithe/run"),
             withIntermediateDirectories: true
         )
-        try Data(#"{"version":2,"configurations":[{"id":"go:api","name":"Go API","provider":"go.main","execution":"application","args":["run","./cmd/api"],"cwd":".","env":{"APP_ENV":"test"},"toolchains":{"runtime":"project-go"}}]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
+        // A saved team configuration; Core's detected layer is identified below.
+        try Data(#"{"version":2,"configurations":[{"id":"user:go-api","name":"Go API","provider":"go.main","execution":"application","args":["run","./cmd/api"],"cwd":".","env":{"APP_ENV":"test"},"toolchains":{"runtime":"project-go"}}]}"#.utf8)
+            .write(to: root.appendingPathComponent(".lithe/run/configurations.json"))
 
         let preferences = RunTestKeyValueStore()
         let store = MacRunConfigurationStore(
@@ -3490,8 +3497,9 @@ struct RunConfigurationIntegrationTests {
             runConfigurationOperations: store
         )
 
+        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
         await service.loadProject(at: root, files: [], mavenProject: nil)
-        let configuration = try #require(service.configurations.first { $0.id == "go:api" })
+        let configuration = try #require(service.configurations.first { $0.id == "user:go-api" })
         service.run(configuration: configuration, currentFileURL: nil)
 
         let request = try #require(process.requests.last)
@@ -3503,19 +3511,16 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func generationPermissionFailurePreservesExistingGeneratedConfiguration() throws {
+    func generationSucceedsWithoutWritingTheWorkspace() throws {
         let core = RustCoreBridge()
         guard core.isAvailable else { return }
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-generation-permission-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("lithe-generation-read-only-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
         let source = root.appendingPathComponent("src/App.java")
         try Data("class App { public static void main(String[] args) {} }".utf8).write(to: source)
         let storage = CountingFileStorage(root: root)
-        let generatedURL = root.appendingPathComponent(".lithe/run/generated.json")
-        let original = Data(#"{"version":1,"configurations":[]}"#.utf8)
-        storage.seed(original, at: generatedURL)
         storage.shouldFailWrites = true
         let store = MacRunConfigurationStore(
             core: core,
@@ -3523,10 +3528,11 @@ struct RunConfigurationIntegrationTests {
             preferences: RunTestKeyValueStore()
         )
 
-        #expect(throws: (any Error).self) {
-            try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: nil)
-        }
-        #expect(try storage.readData(from: generatedURL, options: []) == original)
+        let result = try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: nil)
+        #expect(result.entryCount == 0)
+        #expect(storage.writeCount == 0)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe").path))
+        #expect(store.inspect(at: root).status == .ready)
     }
 
     @Test
@@ -3596,10 +3602,6 @@ struct RunConfigurationIntegrationTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let storage = CountingFileStorage(root: root)
-        storage.seed(
-            Data(#"{"version":1,"configurations":[]}"#.utf8),
-            at: root.appendingPathComponent(".lithe/run/generated.json")
-        )
         let store = MacRunConfigurationStore(
             core: RustCoreBridge(),
             storage: storage,
@@ -4051,8 +4053,8 @@ struct RunConfigurationIntegrationTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let run = root.appendingPathComponent(".lithe/run")
         try FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
-        try Data(#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#.utf8)
-            .write(to: run.appendingPathComponent("generated.json"))
+        try Data(#"<project><artifactId>demo</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#.utf8)
+            .write(to: root.appendingPathComponent("pom.xml"))
         let oldLocal = Data(#"{"version":2,"configurations":[]}"#.utf8)
         let oldProject = Data(#"{"version":2,"configurations":[]}"#.utf8)
         let localURL = run.appendingPathComponent("local.json")
@@ -4068,12 +4070,13 @@ struct RunConfigurationIntegrationTests {
             storage: storage,
             preferences: RunTestKeyValueStore()
         )
+        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
 
         #expect(throws: (any Error).self) {
             try store.saveEditorChanges(
                 RunOptions(),
                 toolchain: ProjectToolchainSelection(javaHomePath: "/opt/jdk-21"),
-                configurationID: "spring",
+                configurationID: "spring-boot.maven:demo",
                 scope: .project,
                 at: root
             )

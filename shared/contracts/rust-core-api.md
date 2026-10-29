@@ -3071,8 +3071,10 @@ the response preserves the path text, uses one-based line and column values,
 and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
 
-`runConfig.selectJava` reads only the existing workspace
-`.lithe/toolchains/requirements.json` document. Its request contains optional
+`runConfig.selectJava` uses the toolchain requirements of the workspace's latest
+`runConfig.generate` in this process; before any generation it derives them from
+the project's own declarations (`pom.xml`, `.java-version`, the Maven wrapper).
+Its request contains optional
 `root`, `candidates` (`id`, probed `version`, numeric source `priority`), and
 `fallbackId`. IDs are opaque machine-local identities, never persisted or opened
 by this operation. Lower priority wins; equal-priority candidates use descending
@@ -3082,8 +3084,8 @@ When `project-jdk.minimumVersion` exists, selection first filters using the same
 Java version comparison as run-configuration diagnostics. The response is
 `{ id, warning }`: the compatible candidate, or the supplied usable fallback
 with an actionable warning if none qualifies. Missing requirements retain the
-platform's unconstrained choice; malformed/unsupported documents return the
-existing parse/version error. Explicit configured paths bypass automatic
+platform's unconstrained choice; a malformed or unsupported `requirements`
+snapshot returns the parse/version error. Explicit configured paths bypass automatic
 selection. The operation never generates requirements or probes executables.
 The cross-platform examples are in
 `shared/fixtures/run-configuration/automatic-java-selection.json`.
@@ -3138,24 +3140,33 @@ never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
 relative `modulePaths`, and optional schema-versioned `javaEntrypoints` from the
 current `lsp.request` result. When Java tooling is still preparing, omission
 retains the previous generated entrypoint facts instead of running a local
-scanner or replacing them with an empty list. It returns generated configuration
-and toolchain requirement documents for the platform adapter to write atomically. Maven root
+scanner or replacing them with an empty list. Those previous facts come from
+this process's last generation, else from the optional `cacheDirectory` (an
+application cache root where generation records its result under
+`run-configurations/`), else read-only from a `.lithe/run/generated.json` that
+older versions wrote. It returns the generated configuration and toolchain
+requirement documents and keeps them in memory as the workspace's detected
+layer for `inspect`, `resolve`, and `selectJava`; nothing is written into the
+workspace, and hosts identify a workspace again when `inspect` reports
+`status: "missing"`. Maven root
 discovery checks `pom.xml` along each supplied path's ancestor chain, so a
 reactor nested below the opened workspace does not depend on the platform
 including build descriptors in `paths`. Maven ownership is resolved per Java
 entry: standalone sources keep the JDK launch path, while entries from
 independent nested reactors retain their own reactor working directory and
 module selector. Generated fingerprints include both project inputs and the
-detector revision; either changing marks persisted output stale and requires
+detector revision; either changing marks the detected layer stale and requires
 regeneration.
 
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
 optional `localDocument`. When `localDocument` is present, Core uses that JSON
 object as the local layer instead of reading `.lithe/run/local.json`. It merges
 configurations by stable ID using this precedence:
-`local.json > configurations.json > generated.json`. Scalars and arrays are
+`local.json > configurations.json > detected layer`. Scalars and arrays are
 replaced by the higher layer, while toolchain maps merge by key. It returns
-effective configurations, their source, the team default, structured
+effective configurations, their source, the default (the team default from
+`.lithe/project.json`, else the first detected framework service, else the first
+detected entry other than Current File), structured
 diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
 states, the effective global `toolchain`, and the machine-local
 `localToolchains` document. Toolchain diagnostics carry the affected run

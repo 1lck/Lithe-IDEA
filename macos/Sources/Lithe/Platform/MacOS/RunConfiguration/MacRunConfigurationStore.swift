@@ -74,7 +74,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
     }
 
-    /// Explicit user action. Opening a project never calls this method implicitly.
+    /// Identifies the project's run entries. Core keeps the result in memory
+    /// and in the application cache; nothing is written into the workspace.
     func generate(
         at projectURL: URL,
         files: [URL],
@@ -92,9 +93,9 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             at: root,
             paths: paths,
             modulePaths: modulePaths,
-            javaEntrypoints: javaEntrypoints
+            javaEntrypoints: javaEntrypoints,
+            cacheDirectoryURL: storage.cacheDirectory()
         ).get()
-        try writeGenerated(result, at: root)
         return RunConfigurationGenerationResult(entryCount: result.entryCount)
     }
 
@@ -386,42 +387,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         preferences.set(true, forKey: markerKey)
     }
 
-    private func writeGenerated(_ result: RustCoreBridge.RunConfigurationGeneratePayload, at root: URL) throws {
-        let directory = root.appendingPathComponent(".lithe/run")
-        let requirementsDirectory = root.appendingPathComponent(".lithe/toolchains")
-        let generatedURL = directory.appendingPathComponent("generated.json")
-        let requirementsURL = requirementsDirectory.appendingPathComponent("requirements.json")
-        let ignoreURL = root.appendingPathComponent(".lithe/.gitignore")
-        let manifestURL = root.appendingPathComponent(".lithe/project.json")
-        do {
-            for url in [generatedURL, requirementsURL, ignoreURL, manifestURL] {
-                try validateWriteTarget(url, root: root)
-            }
-            try storage.createDirectory(at: directory, withIntermediateDirectories: true)
-            try storage.createDirectory(at: requirementsDirectory, withIntermediateDirectories: true)
-            let generatedData = try JSONEncoder.prettySorted.encode(result.generated)
-            let requirementsData = try JSONEncoder.prettySorted.encode(result.toolchainRequirements)
-            try atomicWrite(requirementsData, to: requirementsURL, root: root)
-            let ignore = "run/local.json\nrun/classes/\n**/*.tmp\n"
-            if !storage.fileExists(at: ignoreURL) { try atomicWrite(Data(ignore.utf8), to: ignoreURL, root: root) }
-            if !storage.fileExists(at: manifestURL) {
-                // A framework service is what the user most likely wants to
-                // start first, whichever framework the project uses.
-                let frameworkProviders = Set(MavenFrameworkKind.allCases.map(\.provider))
-                let defaultID = result.generated.configurations
-                    .first(where: { frameworkProviders.contains($0.provider) })?.id
-                    ?? result.generated.configurations.first?.id
-                var manifest: [String: Any] = ["version": 1]
-                if let defaultID { manifest["defaultRunConfiguration"] = defaultID }
-                try writeJSONObject(manifest, to: manifestURL, root: root)
-            }
-            // generated.json is the commit marker for a complete identification pass.
-            try atomicWrite(generatedData, to: generatedURL, root: root)
-        } catch {
-            throw MacRunConfigurationStoreError.writeFailed(error.localizedDescription)
-        }
-    }
-
     private func atomicWrite(_ data: Data, to url: URL, root: URL) throws {
         try validateWriteTarget(url, root: root)
         if storage.fileExists(at: url),
@@ -456,10 +421,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
 
     static func recoveryPath(in message: String) -> String? {
         [
-            ".lithe/run/generated.json",
             ".lithe/run/configurations.json",
             ".lithe/run/local.json",
-            ".lithe/toolchains/requirements.json",
             ".lithe/project.json"
         ].first(where: message.contains)
     }
@@ -514,13 +477,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         else { dictionary[key] = normalized }
     }
 
-    private func writeJSONObject(_ value: [String: Any], to url: URL, root: URL) throws {
-        try validateWriteTarget(url, root: root)
-        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .prettyPrinted])
-        try atomicWrite(data, to: url, root: root)
-    }
-
     private func ensureLocalRunIgnored(at root: URL) throws {
         let url = root.appendingPathComponent(".lithe/.gitignore")
         try validateWriteTarget(url, root: root)
@@ -533,8 +489,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             contents = text
         }
         // Preserve every existing line. Append only rules that are absent or
-        // overridden by a later user negation, so a file written by generation
-        // or already repaired stays byte-for-byte unchanged on repeated saves.
+        // overridden by a later user negation, so a file written by an older
+        // generation or already repaired stays byte-for-byte unchanged on repeated saves.
         let missing = Self.missingLocalRunIgnoreRules(in: contents)
         if missing.isEmpty { return }
         if !contents.isEmpty && !contents.hasSuffix("\n") { contents += "\n" }
@@ -545,7 +501,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
 
     /// Rules keeping machine-local run documents and build output out of Git.
     /// Each entry lists the spellings that satisfy it; the first one is appended.
-    /// Generation writes the unanchored spellings, so both must count as present.
+    /// Older versions' generation wrote the unanchored spellings, so both must count as present.
     private static let localRunIgnoreRules: [[String]] = [
         ["/run/local.json", "run/local.json"],
         ["/run/classes/", "run/classes/"],

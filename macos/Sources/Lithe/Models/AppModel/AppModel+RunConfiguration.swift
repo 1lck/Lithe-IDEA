@@ -83,14 +83,14 @@ extension AppModel {
     }
 
     /// Generate configurations only after the current workspace snapshot is ready.
-    func generateRunConfigurations() async {
+    func generateRunConfigurations(automatic: Bool = false) async {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
         guard isCurrentWorkspace(identity) else { return }
         guard runFeature.recoveryAction != .upgradeApplication else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
-            await generateFromJavaEntrypoints(runFeature, for: identity)
+            await generateFromJavaEntrypoints(runFeature, for: identity, automatic: automatic)
         case .waitingForSnapshot:
             runFeature.reportGenerationProjectNotReady()
         case .stale:
@@ -100,7 +100,7 @@ extension AppModel {
 
     func openRunConfiguration(relativePath: String?) {
         guard let workspaceURL else { return }
-        let url = workspaceURL.appendingPathComponent(relativePath ?? ".lithe/run/generated.json")
+        let url = workspaceURL.appendingPathComponent(relativePath ?? ".lithe/run/configurations.json")
         guard workspaceFeature.fileExists(at: url) else { return }
         openFile(url)
     }
@@ -164,6 +164,12 @@ extension AppModel {
             snapshotID: snapshotID
         )
         guard isCurrentWorkspace(identity) else { return }
+        // Detected entries live in Core's memory, not in the workspace, so a
+        // project this process has not identified yet is identified now.
+        if snapshotID != nil, execution.runFeature.configurationStatus == .missing {
+            await generateFromJavaEntrypoints(execution.runFeature, for: identity, automatic: true)
+            guard isCurrentWorkspace(identity) else { return }
+        }
         adoptSavedProjectToolchain(from: execution.runFeature, workspace: target)
         checkJavaEntrypointFreshness(execution.runFeature, for: identity, files: files)
         guard resumesDeferredRunAction else { return }

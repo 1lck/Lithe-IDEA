@@ -563,9 +563,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             refreshPortConflicts()
         }
         // Whether the existing configuration parses is `configurationStatus`, not
-        // this state. Keeping them apart is what lets a broken generated.json be
-        // regenerated: folding a parse failure in here would block generation,
-        // which is the only way to repair it.
+        // this state. Keeping them apart is what lets identification run after
+        // a failed one: folding that failure in here would block generation,
+        // which is the only way to recover from it.
         // Publish readiness only after configuration and toolchain selection commit.
         projectLoadState = snapshotID
             .map { .ready(workspace: workspace, snapshotID: $0) }
@@ -628,13 +628,16 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         }
     }
 
-    /// Regenerates `.lithe/run/generated.json`.
+    /// Identifies the project's run entries. Core keeps them in memory, not in
+    /// the workspace.
     ///
     /// `javaDiscovery` is what JDT answered just before; while it is pending,
     /// Core keeps the previous generation's Java entries so the list does not
-    /// empty during a cold start.
+    /// empty during a cold start. `automatic` marks identification Lithe starts
+    /// itself, which reports problems but not the entry count.
     package func generateRunConfigurations(
-        javaDiscovery: JavaEntrypointDiscovery = .notJava
+        javaDiscovery: JavaEntrypointDiscovery = .notJava,
+        automatic: Bool = false
     ) async {
         guard recoveryAction != .upgradeApplication else {
             generationState = .failed(L10n.string("Upgrade Lithe to use this run configuration version."))
@@ -705,7 +708,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                     checkFingerprint: false,
                     javaEntrypoints: nil
                 ).diagnostics + resolution.diagnostics
-                generationState = result.entryCount == 0 ? .noEntries : .succeeded(entryCount: result.entryCount)
+                generationState = result.entryCount == 0
+                    ? .noEntries
+                    : automatic ? .idle : .succeeded(entryCount: result.entryCount)
                 javaDiscoveryStatus = Self.javaDiscoveryStatus(
                     javaDiscovery,
                     // JDT's entries all generate as `java.main` configurations.

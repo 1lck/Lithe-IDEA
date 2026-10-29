@@ -430,10 +430,11 @@ package final class RunFeatureModel: ObservableObject {
     }
 
     package func generateRunConfigurations(
-        javaDiscovery: JavaEntrypointDiscovery = .notJava
+        javaDiscovery: JavaEntrypointDiscovery = .notJava,
+        automatic: Bool = false
     ) async {
         isGenerationConfirmationPresented = false
-        await service.generateRunConfigurations(javaDiscovery: javaDiscovery)
+        await service.generateRunConfigurations(javaDiscovery: javaDiscovery, automatic: automatic)
     }
 
     package func requestRunConfigurationGeneration(intent: RunConfigurationGenerationIntent = .identifyOnly) {

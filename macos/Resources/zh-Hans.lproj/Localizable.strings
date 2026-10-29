@@ -1546,7 +1546,6 @@
 "Full access" = "完全访问";
 "Gathering diagnostics…" = "正在收集诊断信息…";
 "General" = "通用";
-"Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved." = "生成 .lithe/run/generated.json 后即可使用运行和调试。现有项目配置和本机覆盖配置会被保留。";
 "Generate Preview" = "生成预览";
 "Generate a commit message from staged diffs" = "根据已暂存的 Diff 生成提交信息";
 "Generate a commit message from the selected diff" = "根据选中的 Diff 生成提交信息";
@@ -1711,6 +1710,7 @@
 "How uncommitted changes are put aside before switching branches or pulling." = "切换分支或拉取前，如何暂存未提交的更改。";
 "Identify Again" = "重新识别";
 "Identify and Generate" = "识别并生成";
+"Identify the project to enable Run and Debug. Existing project and local overrides will be preserved." = "识别项目后即可使用运行和调试。现有项目配置和本机覆盖配置会被保留。";
 "Identifying project…" = "正在识别项目…";
 "If Lithe crashes or is force quit, a small helper immediately ends its terminals and tools. Agent tasks and background services are kept until the next launch, so nothing important is ended without you. Agent tasks are always asked about, whatever you choose here." = "如果 Lithe 崩溃或被强制退出，一个小型辅助进程会立即结束它的终端和工具进程。Agent 任务和后台服务会保留到下次启动，避免在你不知情时结束重要的程序。无论这里如何选择，Agent 任务总是会询问。";
 "If reset, use" = "重置后使用";
@@ -1968,13 +1968,13 @@
 "Lithe is up to date at version %@." = "Lithe 已是最新版本 %@。";
 "Lithe looks for Codex and Claude configuration files on this Mac." = "Lithe 会在此 Mac 上查找 Codex 和 Claude 的本地配置文件。";
 "Lithe looks for ~/.codex/config.toml and ~/.codex/auth.json on this Mac." = "Lithe 会在此 Mac 上查找 ~/.codex/config.toml 和 ~/.codex/auth.json。";
-"Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed." = "使用运行和调试功能前，Lithe 需要识别项目并生成 .lithe/run/generated.json。项目配置和本机覆盖配置不会被修改。";
+"Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed." = "使用运行和调试功能前，Lithe 需要先识别项目。项目配置和本机覆盖配置不会被修改。";
 "Lithe publisher signature verified" = "已验证 Lithe 发布者签名";
 "Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes." = "Lithe 会读取你已在 Codex 与 Claude Code 配置中注册的服务器。保存时只改写发生变化的条目，备份存放在 Application Support 中，且不会覆盖在 Lithe 之外创建的条目。Agent 在会话启动时读取 MCP 配置，重启会话后生效。";
 "Lithe will clone the repository into %@." = "Lithe 会将仓库克隆到 %@。";
 "Lithe will clone the repository into (destinationDescription)." = "Lithe 会将仓库克隆到（目标文件夹）。";
 "Lithe will download the update and restart after replacing the current app." = "Lithe 将下载更新，替换当前应用后重新启动。";
-"Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed." = "Lithe 将重新查找服务并刷新 .lithe/run/generated.json。项目与本机的覆盖配置不会被修改。";
+"Lithe will look for services again. Project and local overrides will not be changed." = "Lithe 将重新查找服务。项目与本机的覆盖配置不会被修改。";
 "Lithe: fetch submodules" = "Lithe：获取子模块";
 "Lithe: fetch tags" = "Lithe：获取标签";
 "Lithe: prune stale branches" = "Lithe：清理失效的远程分支";
@@ -6052,7 +6052,6 @@
 "native.generateACommitMessageFromStagedDiffs" = "根据已暂存的 Diff 生成提交信息";
 "native.generateACommitMessageFromTheSelectedDiff" = "根据选中的 Diff 生成提交信息";
 "native.generateATitleAndDescriptionFromTheSelectedBranchChanges" = "根据所选分支的更改生成标题和描述";
-"native.generateLitheRunGeneratedJsonToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved" = "生成 .lithe/run/generated.json 后即可使用运行和调试。现有项目配置和本机覆盖配置会被保留。";
 "native.generatePreview" = "生成预览";
 "native.generateWithAI" = "AI 生成";
 "native.generated1RunnableProjectEntry" = "已生成 1 个可运行的项目入口。";
@@ -6215,6 +6214,7 @@
 "native.httpsGithubComOwnerRepository" = "https://github.com/owner/repository";
 "native.identifyAgain" = "重新识别";
 "native.identifyAndGenerate" = "识别并生成";
+"native.identifyTheProjectToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved" = "识别项目后即可使用运行和调试。现有项目配置和本机覆盖配置会被保留。";
 "native.identifyingProject" = "正在识别项目…";
 "native.if" = "条件：%1$@";
 "native.ifLitheCrashesOrIsForceQuitASmallHelperImmediatelyEndsItsTerminalsAndToolsAgenf47a67e797" = "如果 Lithe 崩溃或被强制退出，一个小型辅助进程会立即结束它的终端和工具进程。Agent 任务和后台服务会保留到下次启动，避免在你不知情时结束重要的程序。无论这里如何选择，Agent 任务总是会询问。";
@@ -6553,7 +6553,7 @@
 "native.litheLooksForCodexAndClaudeConfigurationFilesOnThisMac" = "Lithe 会在此 Mac 上查找 Codex 和 Claude 的本地配置文件。";
 "native.litheLooksForCodexConfigTomlAndCodexAuthJsonOnThisMac" = "Lithe 会在此 Mac 上查找 ~/.codex/config.toml 和 ~/.codex/auth.json。";
 "native.litheMCPWasRegisteredButCodexConfigTomlCouldNotBeAddedToGitSLocalExcludeList" = "Lithe MCP 已注册，但无法把 .codex/config.toml 加入 Git 的本地排除列表：%1$@";
-"native.litheNeedsToIdentifyTheProjectAndGenerateLitheRunGeneratedJsonBeforeRunAndDebu71dbeebe55" = "使用运行和调试功能前，Lithe 需要识别项目并生成 .lithe/run/generated.json。项目配置和本机覆盖配置不会被修改。";
+"native.litheNeedsToIdentifyTheProjectBeforeRunAndDebugAreAvailableProjectAndLocalOverridesWillNotBeChanged" = "使用运行和调试功能前，Lithe 需要先识别项目。项目配置和本机覆盖配置不会被修改。";
 "native.litheOfficial" = "Lithe 官方";
 "native.lithePruneStaleBranches" = "Lithe：清理失效的远程分支";
 "native.lithePublisherSignatureVerified" = "已验证 Lithe 发布者签名";
@@ -6563,7 +6563,7 @@
 "native.litheWillCloneTheRepositoryInto" = "Lithe 会将仓库克隆到 %1$@。";
 "native.litheWillCloneTheRepositoryIntoDestinationDescription" = "Lithe 会将仓库克隆到（目标文件夹）。";
 "native.litheWillDownloadTheUpdateAndRestartAfterReplacingTheCurrentApp" = "Lithe 将下载更新，替换当前应用后重新启动。";
-"native.litheWillLookForServicesAgainAndRefreshLitheRunGeneratedJsonProjectAndLocalOvec4eb77affa" = "Lithe 将重新查找服务并刷新 .lithe/run/generated.json。项目与本机的覆盖配置不会被修改。";
+"native.litheWillLookForServicesAgainProjectAndLocalOverridesWillNotBeChanged" = "Lithe 将重新查找服务。项目与本机的覆盖配置不会被修改。";
 "native.lld" = "%1$@ %2$lld";
 "native.lld.variant2" = "%1$@（%2$lld）";
 "native.lldAffectedCommitsLldCommitsCoreCreatesARecoveryReferenceBeforeStarting" = "%1$lld 笔受影响提交 → %2$lld 笔提交。开始前会创建恢复引用。";
