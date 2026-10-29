@@ -8,6 +8,104 @@ import Testing
 struct GitStatusObservationTests {
     @Test(arguments: [false, true])
     @MainActor
+    func realGitWorktreeRefreshAndStageAllExcludeIndependentNestedRepositories(linkedCheckout: Bool) async throws {
+        let fixture = try GitObservationFixture(label: "worktree-nested-repository")
+        let primary = fixture.url.appendingPathComponent("primary", isDirectory: true)
+        let linked = fixture.url.appendingPathComponent("linked", isDirectory: true)
+        try await fixture.initializeRepository(at: primary)
+        try await fixture.git(["config", "user.name", "Lithe Tests"], at: primary)
+        try await fixture.git(["config", "user.email", "tests@lithe.local"], at: primary)
+        try await fixture.git(["config", "commit.gpgsign", "false"], at: primary)
+        try await fixture.git(["config", "core.hooksPath", "/dev/null"], at: primary)
+        try await fixture.git(["worktree", "add", "-q", "-b", "nested-test", linked.path], at: primary)
+        let checkout = linkedCheckout ? linked : primary
+        let nested = checkout.appendingPathComponent("nested", isDirectory: true)
+        try await fixture.initializeRepository(at: nested)
+        try Data("nested staged edit\n".utf8).write(to: nested.appendingPathComponent("tracked.txt"))
+        try await fixture.git(["add", "tracked.txt"], at: nested)
+        let nestedHEAD = try await fixture.git(["rev-parse", "HEAD"], at: nested)
+        let nestedIndex = try await fixture.git(["ls-files", "--stage"], at: nested)
+        try Data("checkout edit\n".utf8).write(to: checkout.appendingPathComponent("tracked.txt"))
+        try Data("checkout addition\n".utf8).write(to: checkout.appendingPathComponent("new.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { primary }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == checkout })
+        let expectedPaths: Set<String> = ["tracked.txt", "new.txt"]
+        await feature.inspectWorktree(worktree)
+        #expect(Set(feature.gitWorktreeInspection?.changes.map(\.path) ?? []) == expectedPaths)
+        await feature.refreshWorktreeChanges(worktree)
+        #expect(Set(feature.gitWorktreeInspection?.changes.map(\.path) ?? []) == expectedPaths)
+        await feature.refreshWorktrees()
+        #expect(Set(feature.gitWorktreeInspection?.changes.map(\.path) ?? []) == expectedPaths)
+        let scoped = feature.commitFeature(for: worktree)
+        #expect(Set(scoped.gitChanges.map(\.path)) == expectedPaths)
+        // Worktrees' toolbar stages through the host; Commit's checkbox batch
+        // uses the scoped model. Neither entry point may add the nested root.
+        await feature.setWorktreeStaging(scoped.activeChangelistChanges, staged: true, in: worktree)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: checkout) == "new.txt\ntracked.txt")
+        #expect(try await !fixture.git(["ls-files", "--stage"], at: checkout).contains("160000"))
+        let staged = try #require(feature.gitWorktreeInspection?.changes)
+        await feature.setWorktreeStaging(staged, staged: false, in: worktree)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: checkout).isEmpty)
+        await scoped.refreshGit()
+        #expect(scoped.availableRepositoryRoots == [checkout])
+        #expect(Set(scoped.gitChanges.map(\.path)) == expectedPaths)
+        let stageAll = scoped.beginSetStaging(scoped.activeChangelistChanges, staged: true, includeWorkingTreeChanges: true)
+        await scoped.finishSetStaging(stageAll, staged: true)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: checkout) == "new.txt\ntracked.txt")
+        #expect(try await !fixture.git(["ls-files", "--stage"], at: checkout).contains("160000"))
+        #expect(await scoped.commitStagedChanges(message: "Keep nested repository independent", amend: false))
+        #expect(try await fixture.git(["log", "-1", "--format=%s"], at: checkout) == "Keep nested repository independent")
+        #expect(try await !fixture.git(["ls-tree", "-r", "HEAD"], at: checkout).contains("160000"))
+        #expect(!FileManager.default.fileExists(atPath: checkout.appendingPathComponent(".gitmodules").path))
+        #expect(try await fixture.git(["rev-parse", "HEAD"], at: nested) == nestedHEAD)
+        #expect(try await fixture.git(["ls-files", "--stage"], at: nested) == nestedIndex)
+        #expect(scoped.gitChanges.isEmpty && feature.gitWorktreeInspection?.changes.isEmpty == true)
+    }
+
+    @Test
+    @MainActor
+    func realGitWorktreeComposerCommitsOnlySelectedCheckout() async throws {
+        let fixture = try GitObservationFixture(label: "worktree-composer")
+        let primary = fixture.url.appendingPathComponent("primary", isDirectory: true)
+        let linked = fixture.url.appendingPathComponent("linked", isDirectory: true)
+        try await fixture.initializeRepository(at: primary)
+        try await fixture.git(["config", "user.name", "Lithe Tests"], at: primary)
+        try await fixture.git(["config", "user.email", "tests@lithe.local"], at: primary)
+        try await fixture.git(["config", "commit.gpgsign", "false"], at: primary)
+        try await fixture.git(["config", "core.hooksPath", "/dev/null"], at: primary)
+        try await fixture.git(["worktree", "add", "-q", "-b", "composer", linked.path], at: primary)
+        for root in [primary, linked] {
+            try Data("Changed in \(root.lastPathComponent)\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+            try await fixture.git(["add", "tracked.txt"], at: root)
+        }
+        let originalHEAD = try await fixture.git(["rev-parse", "HEAD"], at: primary)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { primary }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == linked })
+        await feature.inspectWorktree(worktree)
+        let scoped = feature.commitFeature(for: worktree)
+        #expect(scoped.activeChangelistChanges.contains { $0.isStaged })
+        #expect(await scoped.commitStagedChanges(message: "Selected checkout only", amend: false))
+        #expect(try await fixture.git(["rev-parse", "HEAD"], at: primary) == originalHEAD)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: primary) == "tracked.txt")
+        #expect(try await fixture.git(["rev-parse", "HEAD"], at: linked) != originalHEAD)
+        #expect(try await fixture.git(["log", "-1", "--format=%s"], at: linked) == "Selected checkout only")
+        #expect(try await fixture.git(["status", "--porcelain"], at: linked).isEmpty)
+        #expect(feature.gitRepositoryRoot == primary && scoped.gitChanges.isEmpty)
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
     func realGitRemovedFromIndexFileRefreshesWithoutCrashing(staged: Bool) async throws {
         // Exercise real Git -> Rust Core -> Swift feature refresh, using the
         // valid duplicate-path status that triggered issue #1033 on project open.

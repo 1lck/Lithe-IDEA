@@ -2,7 +2,7 @@ import Foundation
 
 extension GitFeatureModel {
     package var changelistEditingDisabled: Bool {
-        isCommitting || isStagingChanges || pendingSubmoduleCommitPlan != nil
+        isCommitting || isWorktreeCommitBlocked || isStagingChanges || pendingSubmoduleCommitPlan != nil
             || (workspaceCommitAttempt != nil && workspaceCommitAttempt?.succeeded != true)
             || changelistStorageFailed
     }

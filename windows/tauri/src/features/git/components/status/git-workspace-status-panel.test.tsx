@@ -93,6 +93,9 @@ const render = async (
     onFileSelect?: (path: string, staged: boolean) => void;
     onPreviewFile?: (path: string, staged: boolean) => void;
     stagingDisabled?: boolean;
+    repositoryPaths?: string[];
+    showChangelistGroups?: boolean;
+    collapsedSections?: ReadonlySet<string>;
   } = {},
 ) => {
   await act(async () =>
@@ -514,4 +517,65 @@ describe("untracked directory summaries", () => {
     expect(isUntrackedDirectoryExpanded("C:/workspace/A", "target/")).toBe(false);
     expect(collapsedFolders).toEqual([]);
   });
+});
+
+test("the repository row is bold and palette-colored while the ChangeList row is regular weight", async () => {
+  await render([file("A"), file("B", "other.ts")], undefined, {
+    repositoryPaths: ["C:/workspace/A", "C:/workspace/B"],
+  });
+  const repositoryRow = container.querySelector('[role=treeitem][title="C:/workspace/B"]')!;
+  expect(repositoryRow.querySelector(".font-semibold")?.textContent).toBe("B");
+  // Second repository in the workspace list gets the second palette color.
+  const icon = repositoryRow.querySelector<SVGElement>("svg.file-tree-node-icon");
+  expect(icon?.getAttribute("style")).toMatch(/color:\s*(#65a9ff|rgb\(101,\s*169,\s*255\))/i);
+  const changelist = container.querySelector('[data-git-status-section="changelist"]')!;
+  expect(changelist.textContent).toContain("Default ChangeList");
+  expect(changelist.querySelector(".font-semibold")).toBeNull();
+});
+
+test("choosing a diff source lives in View Options instead of a standalone toolbar button", async () => {
+  const globals = globalThis as { ResizeObserver?: unknown };
+  const previousResizeObserver = globals.ResizeObserver;
+  globals.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  try {
+    await render([file("A", "flat.ts")]);
+    expect(container.querySelector('button[aria-label="Choose diff source"]')).toBeNull();
+    const viewOptions = container.querySelector<HTMLElement>('[aria-label="View Options"]');
+    await act(async () => viewOptions!.click());
+    const items = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]"));
+    expect(items.some((item) => item.textContent?.includes("Choose diff source"))).toBe(true);
+  } finally {
+    globals.ResizeObserver = previousResizeObserver;
+  }
+});
+
+test("hiding ChangeList groups lists the files directly and ignores a remembered group collapse", async () => {
+  const section = "C:/" + "work" + "space/A:default:changelist";
+  await render([file("A", "one.ts"), file("A", "two.ts")], undefined, {
+    showChangelistGroups: false,
+    collapsedSections: new Set([section]),
+  });
+  expect(container.querySelector('[data-git-status-section="changelist"]')).toBeNull();
+  expect(container.textContent).not.toContain("Default ChangeList");
+  expect(container.textContent).toContain("one.ts");
+  expect(container.textContent).toContain("two.ts");
+});
+
+test("hiding ChangeList groups keeps the repository row and nests files under it", async () => {
+  await render([file("A", "one.ts"), file("B", "two.ts")], undefined, {
+    showChangelistGroups: false,
+  });
+  expect(container.querySelector('[data-git-status-section="changelist"]')).toBeNull();
+  expect(
+    container.querySelector('[role=treeitem][title="C:/' + "work" + 'space/A"]'),
+  ).not.toBeNull();
+  expect(
+    container.querySelector('[role=treeitem][title="C:/' + "work" + 'space/B"]'),
+  ).not.toBeNull();
+  expect(container.textContent).toContain("one.ts");
+  expect(container.textContent).toContain("two.ts");
 });

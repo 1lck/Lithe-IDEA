@@ -1,0 +1,32 @@
+{
+  "id": "lsp-control-center-performance",
+  "area": "语言支持",
+  "group": "语言服务",
+  "capability": "大型工作区的 LSP 设置页后台识别、快照缓存与可及时取消的页面等待",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/LSPProjectUsage.swift",
+      "macos/Sources/Lithe/Application/Features/LanguageToolingFeatureModel.swift",
+      "macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
+      "macos/Tests/LitheTests/LSPProjectUsageTests.swift",
+      "macos/Sources/Lithe/Views/Diagnostics/SettingsPageLatencyProbe.swift",
+      "macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift",
+      "macos/Tests/LitheTests/SettingsPageLatencyTraceTests.swift",
+      "macos/Tests/LitheTests/LitheSplitPaneCollapseTests.swift",
+      "macos/Tests/LitheTests/AppModelSettingsChangesTests.swift",
+      "macos/Tests/LitheTests/WorkspaceLanguageServerPreferencesTests.swift",
+      ".agents/notes/implemented/bug-fix/2026-10-28-lsp-project-usage-cancellation.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/editor/lsp"
+    ]
+  },
+  "owner": "LanguageToolingFeatureModel / LSP 设置页",
+  "verification": "2026-10-28 Review 修复在本机 Swift6.4/Xcode27.1 上通过51项定向Swift测试、7个suite，逐项HTML/JUnit计时已生成；其中原生挂载测试最慢1.332秒（两种语言合计）。取消回归以有界gate证明：旧扫描忽略取消且未释放时，新请求及旧消费方已完成；共享消费方、最后一方取消、reset、模型释放与热缓存复用均通过。完整SettingsView保持同一宿主，README→Go→Java→README四份快照自动更新，settingsChanges保持0；不可变输入绑定同一快照ID和文件数组。真实中英文AX加载名称在相反父locale下通过。另在已打包现有翻译/字体/图标的独立原生测试宿主通过5项补充测试，导出16张加载/提示/空状态/缩放截图；宿主前后584个文件和链接条目及内容哈希不变。现有30万URL算法与132.45ms窗口更新p95数据来自原PR测量，本次未重测性能，不代表显示器物理呈现。原提交59ea6353的Swift6.3.3/Xcode26.6 CI已通过Swift测试及ARM64打包；本次修复尚无该固定工具链CI结果，100ms目标及macOS13运行兼容性仍待验证，保持pending。"
+}

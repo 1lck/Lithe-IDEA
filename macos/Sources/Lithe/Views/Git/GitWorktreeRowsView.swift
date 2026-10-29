@@ -16,6 +16,7 @@ struct GitWorktreeRowsSnapshot: Equatable, Sendable {
 
     enum Row: Equatable, Sendable {
         case change(GitChange)
+        case changelist(id: String, name: String, changes: [GitChange], expanded: Bool)
         case commit(subject: String, author: String, date: String)
     }
 
@@ -151,6 +152,8 @@ struct GitWorktreeChangeInteraction {
     var onToggle: (GitChange) -> Void
     var onOpen: (GitChange) -> Void
     var menuItems: (GitChange) -> [LitheContextMenuItem]
+    var onToggleList: (([GitChange]) -> Void)? = nil
+    var onExpandList: ((String) -> Void)? = nil
 }
 
 final class GitWorktreeRowsNSView: NSControl {
@@ -172,6 +175,7 @@ final class GitWorktreeRowsNSView: NSControl {
     private var selection = GitChangeSelection()
     private var cursorID: String?
     private var hoveredIndex: Int?
+    private var hasChangelistHeaders = false
 
     override var isOpaque: Bool { false }
     override var isFlipped: Bool { true }
@@ -196,7 +200,30 @@ final class GitWorktreeRowsNSView: NSControl {
 
     override func accessibilityChildren() -> [Any]? {
         guard interaction != nil else { return super.accessibilityChildren() }
-        return changes.enumerated().map { index, change in
+        return snapshot.rows.enumerated().compactMap { index, content -> NSAccessibilityElement? in
+            if case let .changelist(id, name, changes, expanded) = content {
+                let header = GitWorktreeChangeAccessibilityElement()
+                header.setAccessibilityParent(self)
+                header.setAccessibilityRole(.row)
+                header.setAccessibilityLabel(name)
+                header.setAccessibilityFrameInParentSpace(rowRect(index))
+                header.setAccessibilityExpanded(expanded)
+                header.onPress = { [weak self] in self?.interaction?.onExpandList?(id) }
+                let checkbox = GitWorktreeChangeAccessibilityElement()
+                checkbox.setAccessibilityParent(header)
+                checkbox.setAccessibilityRole(.checkBox)
+                checkbox.setAccessibilityLabel(gitLocalizedFormat("Include in commit", locale: locale))
+                checkbox.setAccessibilityValue(listStagingState(changes).rawValue)
+                checkbox.setAccessibilityEnabled(interaction?.isEnabled == true && changes.contains(where: \.canToggleStaging))
+                checkbox.setAccessibilityFrameInParentSpace(listCheckboxRect(in: rowRect(index)).offsetBy(dx: 0, dy: -CGFloat(index) * rowHeight))
+                checkbox.onPress = { [weak self] in
+                    guard let self, self.interaction?.isEnabled == true else { return }
+                    self.interaction?.onToggleList?(changes)
+                }
+                header.setAccessibilityChildren([checkbox])
+                return header
+            }
+            guard case let .change(change) = content else { return nil }
             let row = GitWorktreeChangeAccessibilityElement()
             row.setAccessibilityParent(self)
             row.setAccessibilityRole(.row)
@@ -213,7 +240,7 @@ final class GitWorktreeRowsNSView: NSControl {
             checkbox.setAccessibilityLabel(gitLocalizedFormat("Include in commit", locale: locale))
             checkbox.setAccessibilityValue(snapshot.isStaged(change) ? 1 : 0)
             checkbox.setAccessibilityEnabled(interaction?.isEnabled == true && change.canToggleStaging)
-            checkbox.setAccessibilityFrameInParentSpace(Self.checkboxRect(in: rowRect(index)).offsetBy(dx: 0, dy: -CGFloat(index) * rowHeight))
+            checkbox.setAccessibilityFrameInParentSpace(changeCheckboxRect(in: rowRect(index)).offsetBy(dx: 0, dy: -CGFloat(index) * rowHeight))
             checkbox.onPress = { [weak self] in
                 guard let self, self.interaction?.isEnabled == true, change.canToggleStaging else { return }
                 self.interaction?.onToggle(change)
@@ -245,13 +272,23 @@ final class GitWorktreeRowsNSView: NSControl {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let rowIndex = point.y >= 0 ? Int(point.y / rowHeight) : -1
+        if interaction != nil, bounds.contains(point), snapshot.rows.indices.contains(rowIndex),
+           case let .changelist(id, _, changes, _) = snapshot.rows[rowIndex] {
+            window?.makeFirstResponder(self)
+            if listCheckboxRect(in: rowRect(rowIndex)).contains(point) {
+                if interaction?.isEnabled == true { interaction?.onToggleList?(changes) }
+            } else { interaction?.onExpandList?(id) }
+            return
+        }
         guard interaction != nil, let (index, change) = change(at: convert(event.locationInWindow, from: nil)) else {
             super.mouseDown(with: event)
             return
         }
         if event.modifierFlags.contains(.control) { _ = menu(for: event); return }
         window?.makeFirstResponder(self)
-        if Self.checkboxRect(in: rowRect(index)).contains(convert(event.locationInWindow, from: nil)) {
+        if changeCheckboxRect(in: rowRect(index)).contains(convert(event.locationInWindow, from: nil)) {
             if interaction?.isEnabled == true && change.canToggleStaging { interaction?.onToggle(change) }
             return
         }
@@ -277,12 +314,12 @@ final class GitWorktreeRowsNSView: NSControl {
         } else if let key = LitheTreeListNavigationKey(rawValue: event.keyCode),
                   case .select(let index) = LitheTreeListNavigation.resolve(key, current: current, rows: changes.map { _ in .init() }) {
             select(changes[index].id, shift: event.modifierFlags.contains(.shift))
-            scrollToVisible(rowRect(index))
+            scrollToVisible(rowRect(rowIndex(for: changes[index])))
         } else if event.keyCode == 115 || event.keyCode == 119 {
             let index = event.keyCode == 115 ? 0 : changes.count - 1
             guard changes.indices.contains(index) else { return }
             select(changes[index].id, shift: event.modifierFlags.contains(.shift))
-            scrollToVisible(rowRect(index))
+            scrollToVisible(rowRect(rowIndex(for: changes[index])))
         } else if let current, event.keyCode == 49 {
             if interaction?.isEnabled == true, changes[current].canToggleStaging { interaction?.onToggle(changes[current]) }
         } else if let current, event.keyCode == 36 || event.keyCode == 76 {
@@ -374,6 +411,7 @@ final class GitWorktreeRowsNSView: NSControl {
         guard self.snapshot != snapshot || self.rowHeight != rowHeight || self.locale != locale else { return false }
         self.locale = locale
         self.snapshot = snapshot
+        hasChangelistHeaders = snapshot.rows.contains { if case .changelist = $0 { return true }; return false }
         self.rowHeight = rowHeight
         selection.retain(changes.map(\.id))
         if let cursorID, !changes.contains(where: { $0.id == cursorID }) { self.cursorID = nil }
@@ -424,6 +462,8 @@ final class GitWorktreeRowsNSView: NSControl {
                 LitheTreeListAppearance.paint(rowRect, selected: selection.ids.contains(change.id),
                     focused: window?.isKeyWindow == true && window?.firstResponder === self, hovered: index == hoveredIndex)
                 drawChange(change, in: rowRect, style: style)
+            case let .changelist(_, name, changes, expanded):
+                drawChangelist(name, changes: changes, expanded: expanded, in: rowRect, style: style)
             case let .commit(subject, author, date):
                 drawCommit(
                     subject: subject,
@@ -454,7 +494,7 @@ final class GitWorktreeRowsNSView: NSControl {
         let content = LitheTreeListAppearance.highlightRect(rect).insetBy(dx: LitheTheme.Tree.horizontalInset, dy: 0)
         let stageWidth = ceil((stageText as NSString).size(withAttributes: [.font: style.bodyFont]).width)
         let stageX = max(content.minX, content.maxX - stageWidth)
-        let checkbox = Self.checkboxRect(in: rect)
+        let checkbox = changeCheckboxRect(in: rect)
         let path = LitheTreeCheckbox.assetPath(state: isStaged ? .on : .off,
             enabled: (interaction?.paintsAsEnabled ?? interaction?.isEnabled) == true && change.canToggleStaging, focused: false)
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -487,6 +527,44 @@ final class GitWorktreeRowsNSView: NSControl {
             lineBreakMode: .byTruncatingTail,
             alignment: .right
         )
+    }
+
+    private func rowIndex(for change: GitChange) -> Int {
+        snapshot.rows.firstIndex { if case .change(let row) = $0 { row.id == change.id } else { false } } ?? 0
+    }
+
+    private func listStagingState(_ changes: [GitChange]) -> NSControl.StateValue {
+        let selectable = changes.filter(\.canToggleStaging)
+        if !selectable.isEmpty, selectable.allSatisfy({ snapshot.isStaged($0) }) { return .on }
+        return selectable.contains { snapshot.isStaged($0) } ? .mixed : .off
+    }
+
+    private func listCheckboxRect(in rect: CGRect) -> CGRect {
+        Self.checkboxRect(in: rect).offsetBy(dx: LitheTheme.Tree.disclosureSlot, dy: 0)
+    }
+
+    private func changeCheckboxRect(in rect: CGRect) -> CGRect {
+        Self.checkboxRect(in: rect).offsetBy(dx: hasChangelistHeaders ? LitheTheme.Tree.disclosureSlot + LitheTheme.Tree.indent : 0, dy: 0)
+    }
+
+    private func drawChangelist(_ name: String, changes: [GitChange], expanded: Bool, in rect: CGRect, style: DrawingStyle) {
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let disclosure = expanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg"
+        let checkbox = listCheckboxRect(in: rect)
+        func drawIcon(_ path: String, in bounds: CGRect) {
+            let image = (dark ? LitheIcons.ideaImage(resourcePath: LitheIcons.darkIdeaAssetPath(for: path)) : nil)
+                ?? LitheIcons.ideaImage(resourcePath: path)
+            image?.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+        drawIcon(disclosure, in: CGRect(x: Self.checkboxRect(in: rect).minX, y: rect.midY - 8, width: 16, height: 16))
+        let path = LitheTreeCheckbox.assetPath(state: listStagingState(changes),
+            enabled: (interaction?.paintsAsEnabled ?? interaction?.isEnabled) == true && changes.contains(where: \.canToggleStaging),
+            focused: false)
+        drawIcon(path, in: checkbox)
+        let title = name + "  " + gitLocalizedFormat("%lld files", changes.reduce(0) { $0 + $1.fileCount }, locale: locale)
+        drawText(title, in: CGRect(x: checkbox.maxX + LitheTheme.Tree.iconTextGap, y: rect.minY,
+            width: max(0, rect.maxX - checkbox.maxX - 12), height: rect.height), font: style.bodyFont,
+            color: style.secondaryText, lineBreakMode: .byTruncatingTail)
     }
 
     private func drawCommit(
