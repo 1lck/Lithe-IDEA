@@ -262,6 +262,17 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   Economy mode rates are as low as 5% of official pricing. <a href="https://pateway.ai/?ch=68i69k">Sign up for trial credits</a>, earn free credits in periodic campaigns, and receive mutual referral bonuses of up to $150 USD.
 </p>
 
+<p align="center">
+  <a href="https://apinebula.ai/ref/8dhC67x0">
+    <img src="./docs/assets/sponsors/apinebula-banner.jpg" width="720" alt="APINEBULA">
+  </a>
+</p>
+<p align="center">
+  Thanks to APINEBULA for sponsoring this project!<br>
+  APINEBULA, an enterprise AI platform under Galaxy Video Bureau, provides access to Claude, GPT, Gemini, and other leading models through one API, with prices starting at 10% of standard rates. It supports high concurrency, formal contracts, corporate bank transfers, and invoicing for AI coding, agent development, and business integrations.<br>
+  <a href="https://apinebula.ai/ref/8dhC67x0">Register through this link</a> and enter promo code <strong>Lithe</strong> on your first top-up to get 10% off.
+</p>
+
 <a href="mailto:2188718831@qq.com">Want to be featured below?</a>
 
 <table>
@@ -273,6 +284,16 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
     <td>
       <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> provides API relay access to leading models through one key, with intelligent failover and dedicated Codex and Claude Code channels. Top up in RMB at a 1:1 rate with no transaction fees. New users receive a first-top-up discount and $1 in trial credit.
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://timicc.com">
+        <img src="./docs/assets/sponsors/timicc.png" width="64" alt="TIMI CC">
+      </a>
+    </td>
+    <td>
+      <a href="https://timicc.com"><strong>TIMI CC</strong></a> is an enterprise AI relay platform focused on stability and service quality, providing fast, reliable model access for leading AI coding tools such as Claude Code and Codex.
     </td>
   </tr>
   <tr>
@@ -293,6 +314,16 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
     <td>
       <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> provides Claude, GPT, Gemini, and DeepSeek access through one API key, with support for major AI coding tools. New users receive $5 in trial credit.
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9">
+        <img src="./docs/assets/sponsors/zeus.png" width="64" alt="Zeus">
+      </a>
+    </td>
+    <td>
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9"><strong>Zeus</strong></a> provides GPT, Claude, Grok, and GPT Image relay access at rates as low as 0.08×, with invoicing and corporate payment support.
     </td>
   </tr>
   <tr>
