@@ -166,11 +166,52 @@ pub fn run_proxy(options: &PersistentOptions) -> io::Result<()> {
     let stream = match UnixStream::connect(&paths.socket) {
         Ok(stream) => stream,
         Err(_) => {
-            start_daemon(options, &paths)?;
-            wait_for_socket(&paths.socket)?
+            // Serialize launchers, not just daemon ownership. Otherwise a losing
+            // daemon can miss the winning socket's whole lifetime and restart
+            // the session after its explicit shutdown.
+            let deadline = Instant::now() + DAEMON_START_TIMEOUT;
+            let _startup = startup_lock(&paths.lock.with_extension("start"), deadline)?;
+            match UnixStream::connect(&paths.socket) {
+                Ok(stream) => stream,
+                Err(_) => {
+                    start_daemon(options, &paths)?;
+                    wait_for_socket(&paths.socket, deadline)?
+                }
+            }
         }
     };
     relay(stream)
+}
+
+// Keep the inode after unlock: unlinking would let later launchers lock a
+// different file while an existing waiter still owns the old one.
+fn startup_lock(path: &Path, deadline: Instant) -> io::Result<File> {
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(path)?;
+    loop {
+        // SAFETY: flock operates on a descriptor owned by this process.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(lock);
+        }
+        let error = io::Error::last_os_error();
+        if !matches!(
+            error.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+        ) {
+            return Err(error);
+        }
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "another proxy did not finish starting the session",
+            ));
+        }
+        thread::sleep(DAEMON_START_POLL);
+    }
 }
 
 fn start_daemon(options: &PersistentOptions, paths: &Paths) -> io::Result<()> {
@@ -204,8 +245,7 @@ fn start_daemon(options: &PersistentOptions, paths: &Paths) -> io::Result<()> {
     command.spawn().map(|_| ())
 }
 
-fn wait_for_socket(socket: &Path) -> io::Result<UnixStream> {
-    let deadline = Instant::now() + DAEMON_START_TIMEOUT;
+fn wait_for_socket(socket: &Path, deadline: Instant) -> io::Result<UnixStream> {
     loop {
         match UnixStream::connect(socket) {
             Ok(stream) => return Ok(stream),
@@ -410,6 +450,25 @@ fn write_pid(mut lock: &File) -> io::Result<()> {
 #[cfg(test)]
 mod identity_tests {
     use super::*;
+
+    #[test]
+    fn startup_lock_is_exclusive_bounded_and_released_on_drop() {
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(&self.0);
+            }
+        }
+        let path = std::env::temp_dir().join(format!("lithe-startup-lock-{}", std::process::id()));
+        let _cleanup = Cleanup(path.clone());
+        let owner = startup_lock(&path, Instant::now()).unwrap();
+        assert_eq!(
+            startup_lock(&path, Instant::now()).unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        drop(owner);
+        let _next = startup_lock(&path, Instant::now()).unwrap();
+    }
 
     #[test]
     fn same_version_binary_rebuilds_cannot_reuse_a_daemon() {
