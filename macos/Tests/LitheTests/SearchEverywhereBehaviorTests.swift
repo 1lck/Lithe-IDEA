@@ -660,8 +660,11 @@ struct SearchEverywhereBehaviorTests {
         let previewField = try #require(descendants(content).compactMap { $0 as? NSTextField }
             .first { $0.stringValue == "preview" })
         // Reaching the provider cap adds a footer; it must not displace either pane.
-        let listFrame = scroll.convert(scroll.bounds, to: content)
+        // SwiftUI may extend the native scroll view beyond its clipping host
+        // to accommodate scroller chrome (17pt on CI). Assert the visible pane.
+        let listFrame = scroll.convert(scroll.visibleRect, to: content)
         let previewFrame = previewField.convert(previewField.bounds, to: content)
+        #expect(listFrame.width == content.bounds.width)
         #expect(listFrame.height >= 72)
         #expect(previewFrame.height > 0)
         #expect(content.bounds.contains(listFrame))
