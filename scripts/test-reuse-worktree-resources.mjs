@@ -77,6 +77,12 @@ try {
       assert.match(diagnostics(refused), new RegExp(`${id} is isolated.*cannot be reused`));
     }
     const state = registry.excludedResources.find(item => item.id === "remote-connection-state");
+    const servers = registry.excludedResources.find(item => item.id === "remote-server-artifacts");
+    assert.match(servers.identity, /lithe-remote's lithe-remote-server/);
+    assert.match(servers.identity, /--no-default-features --features server/);
+    const buildServers = await fs.readFile(path.join(scriptDirectory, "build-remote-servers.sh"), "utf8");
+    assert.match(buildServers, /-p lithe-remote --no-default-features --features server/);
+    assert.ok(buildServers.includes("rust/lithe-remote/Cargo.toml"));
     assert.ok(state.locations.some(location => location.includes("session-and-binary-hash")));
     const snapshots = registry.excludedResources.find(item => item.id === "remote-workspace-session-state");
     assert.match(snapshots.reason, /fs\.createRunDirectory/);

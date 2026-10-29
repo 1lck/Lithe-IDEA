@@ -116,8 +116,8 @@ pub(crate) fn invocation_plan(
     let root = decode::request_path(&request.root, "root")?;
     let platform = crate::remote::workspace::current()
         .map(|host| match host.connection.session.hello().host.os {
-            lithe_remote_protocol::methods::OperatingSystem::Linux => Platform::Linux,
-            lithe_remote_protocol::methods::OperatingSystem::Macos => Platform::Macos,
+            lithe_remote::protocol::methods::OperatingSystem::Linux => Platform::Linux,
+            lithe_remote::protocol::methods::OperatingSystem::Macos => Platform::Macos,
         })
         .unwrap_or(request.platform);
     let invocation = &build_system.invocation;

@@ -1,8 +1,8 @@
 //! Filesystem adapter for workspace engines, with no local fallback on remote errors.
 
 use super::workspace::{self, Host};
-use lithe_remote_client::session::ClientError;
-use lithe_remote_protocol::{methods, ErrorCode};
+use lithe_remote::client::session::ClientError;
+use lithe_remote::protocol::{methods, ErrorCode};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::io::{self, Read};

@@ -58,7 +58,10 @@ impl Scope {
                         "This command has no remote workspace adapter",
                     ));
                 }
-                if !valid_root(&workspace.local_root) || !valid_root(&workspace.remote_root) {
+                if !valid_root(&workspace.local_root)
+                    || workspace.local_root.file_name().is_none()
+                    || !valid_root(&workspace.remote_root)
+                {
                     return Err(CoreError::new(
                         ErrorCode::InvalidRequest,
                         "Workspace roots must be absolute without parent components",
@@ -102,7 +105,7 @@ pub(crate) fn is_remote() -> bool {
 }
 
 impl Host {
-    /// Maps only file URIs contained by this workspace, preserving URI escaping.
+    /// Maps schema-owned file URIs while preserving host identity and escaping.
     pub(crate) fn map_uri(&self, value: &str, outbound: bool) -> Option<String> {
         let uri = url::Url::parse(value).ok()?;
         if uri.scheme() != "file"
@@ -126,6 +129,9 @@ impl Host {
             .map(|uri| uri.to_string())
     }
     pub(crate) fn remote_path(&self, path: &Path) -> PathBuf {
+        if let Ok(suffix) = path.strip_prefix(self.host_paths_root()) {
+            return Path::new("/").join(suffix);
+        }
         if path == self.workspace.local_root {
             return self.workspace.remote_root.clone();
         }
@@ -140,7 +146,24 @@ impl Host {
         }
         path.strip_prefix(&self.workspace.remote_root)
             .map(|suffix| self.workspace.local_root.join(suffix))
-            .unwrap_or_else(|_| path.to_owned())
+            .unwrap_or_else(|_| {
+                path.strip_prefix("/")
+                    .map(|suffix| self.host_paths_root().join(suffix))
+                    .unwrap_or_else(|_| path.to_owned())
+            })
+    }
+
+    fn host_paths_root(&self) -> PathBuf {
+        // A sibling namespace cannot collide with files in the opened folder.
+        // Keep this projection in sync with RemoteWorkspaceBinding on macOS.
+        let mut name = self
+            .workspace
+            .local_root
+            .file_name()
+            .unwrap()
+            .to_os_string();
+        name.push(".lithe-remote-host");
+        self.workspace.local_root.with_file_name(name)
     }
 
     pub(super) fn identity(&self) -> &str {

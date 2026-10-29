@@ -4,7 +4,7 @@
 use super::sessions::{lookup, request_error};
 use super::workspace_host::request_cancellable;
 use crate::protocol::{cancellation, CoreError, ErrorCode};
-use lithe_remote_protocol::methods;
+use lithe_remote::protocol::methods;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::Read;
@@ -126,8 +126,8 @@ pub(crate) fn upload(request: Request) -> Result<Value, CoreError> {
             json!({"uploadId": id}),
             Duration::from_secs(2),
         ) {
-            if !matches!(&error, lithe_remote_client::session::ClientError::Remote(remote)
-                if remote.code == lithe_remote_protocol::ErrorCode::NotFound)
+            if !matches!(&error, lithe_remote::client::session::ClientError::Remote(remote)
+                if remote.code == lithe_remote::protocol::ErrorCode::NotFound)
             {
                 eprintln!("remote upload abort failed; connection staging will expire");
             }

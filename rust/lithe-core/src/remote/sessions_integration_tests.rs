@@ -28,7 +28,7 @@ impl HostFixture {
         let socket = client.try_clone().unwrap();
         let (finished, done) = mpsc::channel();
         let worker = std::thread::spawn(move || {
-            let result = lithe_remote_server::serve_stdio(server.try_clone().unwrap(), server);
+            let result = lithe_remote::server::serve_stdio(server.try_clone().unwrap(), server);
             let _ = finished.send(());
             result.unwrap();
         });
@@ -66,9 +66,13 @@ impl HostFixture {
     }
 
     fn request(&self, command: &str, payload: Value) -> Value {
+        self.request_at(&self.root.join("host"), command, payload)
+    }
+
+    fn request_at(&self, remote_root: &std::path::Path, command: &str, payload: Value) -> Value {
         let response: Value = serde_json::from_str(&crate::execute_json(&json!({
             "id": nonce(), "command": command, "timeoutMilliseconds": 30_000,
-            "remoteWorkspace": {"sessionId": self.id, "localRoot": self.root.join("placeholder"), "remoteRoot": self.root.join("host")},
+            "remoteWorkspace": {"sessionId": self.id, "localRoot": self.root.join("placeholder"), "remoteRoot": remote_root},
             "payload": payload,
         }).to_string())).unwrap();
         assert_eq!(response["ok"], true, "{command}: {response}");
@@ -335,6 +339,89 @@ fn real_remote_git_status_stage_commit_and_history_never_touch_the_placeholder()
 }
 
 #[test]
+fn remote_parent_repository_discovery_keeps_identity_for_status_and_stage() {
+    discovered_repository_keeps_host_identity(false);
+}
+
+#[test]
+fn remote_symlink_repository_discovery_keeps_identity_for_status_and_stage() {
+    discovered_repository_keeps_host_identity(true);
+}
+
+fn discovered_repository_keeps_host_identity(symlink: bool) {
+    let host = HostFixture::new();
+    host.git(&["init", "-q", "-b", "main"]);
+    let repository = host.root.join("host");
+    std::fs::write(repository.join("remote.txt"), "remote only\n").unwrap();
+    let remote_root = if symlink {
+        let link = host.root.join("opened-link");
+        std::os::unix::fs::symlink(&repository, &link).unwrap();
+        link
+    } else {
+        let child = repository.join("src");
+        std::fs::create_dir(&child).unwrap();
+        child
+    };
+    let placeholder = host.root.join("placeholder");
+    let host_paths = host.root.join("placeholder.lithe-remote-host");
+    let expected = host_paths.join(repository.strip_prefix("/").unwrap());
+    let discovered = host.request_at(
+        &remote_root,
+        "workspace.repositories",
+        json!({"root": placeholder}),
+    );
+    assert_eq!(discovered["repositories"], json!([{"path": expected}]));
+    let root = discovered["repositories"][0]["path"].as_str().unwrap();
+
+    // Simulate the bridge's next request using only the returned repository URL.
+    // A real local repository at that URL catches any placeholder fallback.
+    std::fs::create_dir_all(&expected).unwrap();
+    let local_git = |arguments: &[&str]| {
+        let response: Value = serde_json::from_str(&crate::execute_json(
+            &json!({
+                "id": nonce(), "command": "git.command", "timeoutMilliseconds": 10_000,
+                "payload": {"root": expected, "arguments": arguments}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"]["exitCode"], 0, "{response}");
+    };
+    local_git(&["init", "-q", "-b", "main"]);
+    std::fs::write(expected.join("local.txt"), "local sentinel\n").unwrap();
+    local_git(&["add", "local.txt"]);
+    let index = std::fs::read(expected.join(".git/index")).unwrap();
+    let routed = |command, payload| {
+        assert!(std::path::Path::new(root).starts_with(&host_paths));
+        host.request_at(&remote_root, command, payload)
+    };
+    let status = routed(
+        "git.status",
+        json!({"root": root, "repositoryRoots": [root]}),
+    );
+    assert_eq!(status["changes"][0]["path"], "remote.txt", "{status}");
+    let context = routed("git.watchContext", json!({"root": root}));
+    assert_eq!(context["repositoryRoot"], json!(expected));
+    assert_eq!(context["gitCommonDirectory"], json!(expected.join(".git")));
+    let staged = routed(
+        "git.write",
+        json!({"root": root, "operation": "stage", "paths": ["remote.txt"]}),
+    );
+    assert_eq!(staged["exitCode"], 0, "{staged}");
+    assert_eq!(
+        host.git(&["diff", "--cached", "--name-only"])["stdout"],
+        "remote.txt\n"
+    );
+    assert_eq!(std::fs::read(expected.join(".git/index")).unwrap(), index);
+    assert_eq!(
+        std::fs::read_to_string(expected.join("local.txt")).unwrap(),
+        "local sentinel\n"
+    );
+    assert_eq!(std::fs::read_dir(placeholder).unwrap().count(), 0);
+}
+
+#[test]
 fn remote_git_snapshot_selected_commit_and_unsaved_line_history_preserve_the_real_index() {
     let host = HostFixture::new();
     host.git(&["init", "-q", "-b", "main"]);
@@ -578,11 +665,11 @@ fn captured_host_process_preserves_binary_streams_and_cleans_up_limit_failures()
     )
     .unwrap();
     assert_eq!(
-        lithe_remote_protocol::methods::decode_bytes(output["stdout"].as_str().unwrap()).unwrap(),
+        lithe_remote::protocol::methods::decode_bytes(output["stdout"].as_str().unwrap()).unwrap(),
         b"a\0b"
     );
     assert_eq!(
-        lithe_remote_protocol::methods::decode_bytes(output["stderr"].as_str().unwrap()).unwrap(),
+        lithe_remote::protocol::methods::decode_bytes(output["stderr"].as_str().unwrap()).unwrap(),
         b"err"
     );
     assert_eq!(output["exitCode"], 7);
@@ -737,6 +824,21 @@ fn plugin_protocol_maps_owned_uris_without_rewriting_source_text() {
     let remote = url::Url::from_file_path(host.root.join("host/a space.java"))
         .unwrap()
         .to_string();
+    let external_path = host.root.join("outside/a space.java");
+    let external_uri = url::Url::from_file_path(&external_path)
+        .unwrap()
+        .to_string();
+    let external_local = owner.map_uri(&external_uri, false).unwrap();
+    assert_eq!(
+        url::Url::parse(&external_local)
+            .unwrap()
+            .to_file_path()
+            .unwrap(),
+        host.root
+            .join("placeholder.lithe-remote-host")
+            .join(external_path.strip_prefix("/").unwrap())
+    );
+    assert_eq!(owner.map_uri(&external_local, true), Some(external_uri));
     let value = json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": local,
         "text": format!("// {local}"), "languageId": "java", "version": 1}}});
     let mapped: Value = serde_json::from_str(

@@ -122,6 +122,7 @@ classify_path() {
             swift=true
             plugins=true
             rust_core=true
+            rust_remote=true
             windows=true
             windows_rust=true
             git_validation=true
@@ -265,11 +266,14 @@ classify_path() {
             windows=true
             windows_rust=true
             ;;
-        rust/lithe-remote-protocol/*|rust/lithe-remote-server/*|rust/lithe-remote-client/*)
-            # The remote workspace crates are not linked into a shipped product
-            # yet. Their Linux lane also exercises the server's Linux adapter,
-            # which macOS runners cannot.
+        rust/lithe-remote/*)
+            # Core links the client/protocol; the dedicated Linux lane also
+            # exercises host adapters that macOS runners cannot execute.
+            rust_core=true
             rust_remote=true
+            macos_release=true
+            windows=true
+            windows_rust=true
             ;;
         rust/*)
             # Unknown Rust workspace paths fail closed across all Rust-backed

@@ -53,6 +53,30 @@ launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
+### Remote workspace path identity
+
+Workspace-aware commands accept an optional top-level `remoteWorkspace` with
+`sessionId`, `localRoot` (the native placeholder), and `remoteRoot` (the host
+folder). Roots must be absolute without parent components; `localRoot` must
+have a final component. Without this context commands retain local behavior.
+Remote failures never trigger a local filesystem or process fallback.
+
+Paths below `remoteRoot` project below `localRoot`. Absolute host paths outside
+that folder, including containing Git repositories and canonical symlink
+targets, project below a virtual sibling named
+`<localRoot final component>.lithe-remote-host`, followed by the host path with
+its leading `/` removed. For example, opening `/srv/repo/src` as `/native/src`
+returns `/native/src.lithe-remote-host/srv/repo` for the containing repository.
+This namespace is not materialized or persisted as user data. The native
+registry recognizes both namespaces as the **same binding** and attaches its
+original context to subsequent requests (status, stage, watch, etc.). Core
+reverses both projections before accessing the host. Never infer a connection
+from a raw host absolute path or use `..` to escape the placeholder. Multiple
+hosts with the same host path retain distinct native identities; mixed local
+and remote roots or different bindings in one request remain unsupported.
+Only schema-owned path/URI fields are mapped; opaque argv and user text stay
+unchanged. This is a client/Core projection, not a remote-server wire change.
+
 The ACP Agent calls use an opaque handle for one agent process and connection
 per workspace and agent; one connection carries many conversation sessions.
 `lithe_agent_open_json` accepts `{ "agentId"?: string, "command"?: string,

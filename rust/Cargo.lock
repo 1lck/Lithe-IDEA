@@ -1480,9 +1480,7 @@ dependencies = [
  "lithe-agent-host",
  "lithe-git-host",
  "lithe-ide-host",
- "lithe-remote-client",
- "lithe-remote-protocol",
- "lithe-remote-server",
+ "lithe-remote",
  "quick-xml",
  "rand 0.8.7",
  "regex",
@@ -1529,31 +1527,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "lithe-remote-client"
-version = "0.1.0"
-dependencies = [
- "lithe-remote-protocol",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "lithe-remote-protocol"
+name = "lithe-remote"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "lithe-remote-server"
-version = "0.1.0"
-dependencies = [
  "libc",
- "lithe-remote-client",
- "lithe-remote-protocol",
  "serde",
  "serde_json",
  "sha2",

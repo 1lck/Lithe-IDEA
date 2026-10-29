@@ -3,7 +3,7 @@
 use super::{execution_events, execution_policy, GitProcessOutput};
 use crate::protocol::{CoreError, ErrorCode};
 use crate::remote::{workspace, workspace_host};
-use lithe_remote_protocol::methods::{self, EnvironmentSource, OutputStream, SpawnParams};
+use lithe_remote::protocol::methods::{self, EnvironmentSource, OutputStream, SpawnParams};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -252,8 +252,8 @@ fn remote_git_executable(
                         .with_details(error.to_string())
                 })?
             }
-            Err(lithe_remote_client::session::ClientError::Remote(error))
-                if error.code == lithe_remote_protocol::ErrorCode::NotFound =>
+            Err(lithe_remote::client::session::ClientError::Remote(error))
+                if error.code == lithe_remote::protocol::ErrorCode::NotFound =>
             {
                 continue
             }

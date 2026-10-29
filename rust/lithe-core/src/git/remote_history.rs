@@ -2,8 +2,8 @@
 
 use crate::protocol::{cancellation, CoreError, ErrorCode};
 use crate::remote::workspace::{self, Host};
-use lithe_remote_client::session::Event;
-use lithe_remote_protocol::methods::{self, OutputStream};
+use lithe_remote::client::session::Event;
+use lithe_remote::protocol::methods::{self, OutputStream};
 use serde_json::json;
 use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -190,7 +190,7 @@ impl Drop for RemoteHistory {
     }
 }
 
-fn failure(error: lithe_remote_client::session::ClientError) -> CoreError {
+fn failure(error: lithe_remote::client::session::ClientError) -> CoreError {
     CoreError::new(ErrorCode::ProcessFailed, "Remote Git history failed")
         .with_details(error.to_string())
 }

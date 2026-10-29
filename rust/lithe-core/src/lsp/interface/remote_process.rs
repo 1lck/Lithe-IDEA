@@ -6,8 +6,8 @@ use super::process::{LspProcessHandle, LspProcessSpec, LspProcessStreams};
 use crate::protocol::{cancellation, CoreError, ErrorCode};
 use crate::remote::sessions::{request_error, Connection};
 use crate::remote::workspace::Host;
-use lithe_remote_client::session::{ClientError, Event};
-use lithe_remote_protocol::methods::{self, EnvironmentSource, OutputStream, SpawnParams};
+use lithe_remote::client::session::{ClientError, Event};
+use lithe_remote::protocol::methods::{self, EnvironmentSource, OutputStream, SpawnParams};
 use serde_json::json;
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -310,7 +310,7 @@ impl RemoteProcess {
             CLEANUP_TIMEOUT,
         );
         if let Err(error) = result {
-            if !matches!(&error, ClientError::Remote(remote) if remote.code == lithe_remote_protocol::ErrorCode::UnknownResource)
+            if !matches!(&error, ClientError::Remote(remote) if remote.code == lithe_remote::protocol::ErrorCode::UnknownResource)
                 && !self.connection.session.is_closed()
             {
                 eprintln!("remote backend cleanup failed: {error}");
@@ -403,7 +403,7 @@ impl RemoteProcess {
                 match outcome {
                     Ok(_) => break,
                     Err(ClientError::Remote(error))
-                        if error.code == lithe_remote_protocol::ErrorCode::Busy =>
+                        if error.code == lithe_remote::protocol::ErrorCode::Busy =>
                     {
                         // A full host stdin queue retries only within this frame's deadline.
                         std::thread::park_timeout(

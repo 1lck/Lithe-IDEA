@@ -7,8 +7,8 @@
 use super::sessions::{lookup, request_error};
 use crate::git::execution_events;
 use crate::protocol::{cancellation, CoreError, ErrorCode};
-use lithe_remote_client::session::{ClientError, Event, RemoteSession};
-use lithe_remote_protocol::methods;
+use lithe_remote::client::session::{ClientError, Event, RemoteSession};
+use lithe_remote::protocol::methods;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
@@ -392,7 +392,7 @@ fn receive_events(
             }
         }
         if let Some(pending) = &writing {
-            match lithe_remote_client::session::PendingRequest::poll(pending, Duration::ZERO) {
+            match lithe_remote::client::session::PendingRequest::poll(pending, Duration::ZERO) {
                 Ok(Some(_)) => {
                     input = if write_count == 0 {
                         None
@@ -403,7 +403,7 @@ fn receive_events(
                 }
                 Ok(None) => {}
                 Err(ClientError::Remote(error))
-                    if error.code == lithe_remote_protocol::ErrorCode::Busy =>
+                    if error.code == lithe_remote::protocol::ErrorCode::Busy =>
                 {
                     writing = None
                 }
@@ -412,8 +412,8 @@ fn receive_events(
                 Err(ClientError::Remote(error))
                     if matches!(
                         error.code,
-                        lithe_remote_protocol::ErrorCode::UnknownResource
-                            | lithe_remote_protocol::ErrorCode::InvalidRequest
+                        lithe_remote::protocol::ErrorCode::UnknownResource
+                            | lithe_remote::protocol::ErrorCode::InvalidRequest
                     ) =>
                 {
                     input = None;

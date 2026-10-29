@@ -14,6 +14,22 @@ struct RemoteWorkspaceBinding: Sendable {
     let remoteRoot: String
     let sessionID: String
     let connectionID: UUID
+
+    /// Virtual sibling namespace for host paths outside the opened folder,
+    /// including parent repositories and canonical symlink targets. This must
+    /// match Rust's Host::host_paths_root; no files are materialized here.
+    var hostPathsRoot: URL {
+        root.standardizedFileURL.appendingPathExtension("lithe-remote-host")
+    }
+
+    func localURL(forRemotePath path: String) -> URL {
+        if path == remoteRoot { return root }
+        let prefix = remoteRoot.hasSuffix("/") ? remoteRoot : remoteRoot + "/"
+        if path.hasPrefix(prefix) {
+            return root.appendingPathComponent(String(path.dropFirst(prefix.count))).standardizedFileURL
+        }
+        return hostPathsRoot.appendingPathComponent(String(path.dropFirst())).standardizedFileURL
+    }
 }
 
 extension Notification.Name {
@@ -54,6 +70,11 @@ final class RemoteWorkspaceRegistry: @unchecked Sendable {
         let path = url.standardizedFileURL.path
         return lock.withLock {
             for (root, binding) in bindings.sorted(by: { $0.key.count > $1.key.count }) {
+                let hostRoot = binding.hostPathsRoot.path
+                if path == hostRoot { return (binding, "/") }
+                if path.hasPrefix(hostRoot + "/") {
+                    return (binding, String(path.dropFirst(hostRoot.count)))
+                }
                 if path == root { return (binding, binding.remoteRoot) }
                 let prefix = root.hasSuffix("/") ? root : root + "/"
                 guard path.hasPrefix(prefix) else { continue }

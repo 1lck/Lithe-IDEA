@@ -99,7 +99,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, aarch64-apple-darwin, x86_64-apple-darwin
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc
 
       - name: Restore Cargo dependencies
         uses: actions/cache@v6
@@ -112,7 +112,7 @@ jobs:
       - name: Check formatting, lints and remote server targets
         run: ./scripts/verify-remote-workspace.sh --static
 
-      - name: Test remote workspace crates
+      - name: Test remote workspace client, protocol and server
         run: ./scripts/verify-remote-workspace.sh --tests
 
       - name: Upload test timing report

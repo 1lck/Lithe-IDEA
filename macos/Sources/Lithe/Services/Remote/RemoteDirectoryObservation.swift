@@ -34,8 +34,7 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
             stop()
             let current = generation
             for root in configuration.physicalRoots {
-                // Git common directories may live outside the workspace. The
-                // Core Git engine already returns those as absolute host paths.
+                // Git common directories may use the binding's sibling namespace.
                 let remoteRoot = registry.resolve(root)?.remotePath ?? root.path
                 let transport = transport
                 let session = binding.sessionID
@@ -79,12 +78,7 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
                 batch.gitStateMayHaveChanged = overflow
                 var workspacePaths = Set<String>()
                 for path in paths {
-                    let hostRoot = binding.remoteRoot.hasSuffix("/") ? binding.remoteRoot : binding.remoteRoot + "/"
-                    let url: URL
-                    if path == binding.remoteRoot { url = binding.root }
-                    else if path.hasPrefix(hostRoot) {
-                        url = binding.root.appendingPathComponent(String(path.dropFirst(hostRoot.count))).standardizedFileURL
-                    } else { url = URL(fileURLWithPath: path).standardizedFileURL }
+                    let url = binding.localURL(forRemotePath: path)
                     if configuration.revalidatesIgnoredDirectory(url, isStructuralChange: true) {
                         batch.requiresFullRescan = true
                         batch.gitStateMayHaveChanged = true

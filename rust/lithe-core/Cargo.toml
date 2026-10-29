@@ -12,8 +12,7 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 lithe-git-host = { path = "../lithe-git-host" }
 lithe-agent-host = { path = "../lithe-agent-host" }
 lithe-ide-host = { path = "../lithe-ide-host" }
-lithe-remote-client = { path = "../lithe-remote-client" }
-lithe-remote-protocol = { path = "../lithe-remote-protocol" }
+lithe-remote = { path = "../lithe-remote", default-features = false, features = ["client"] }
 ammonia = "4.1.4"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
@@ -37,4 +36,4 @@ zip = { version = "2.4", default-features = false, features = ["deflate"] }
 url = "2.5"
 
 [target.'cfg(unix)'.dev-dependencies]
-lithe-remote-server = { path = "../lithe-remote-server" }
+lithe-remote = { path = "../lithe-remote", default-features = false, features = ["server"] }

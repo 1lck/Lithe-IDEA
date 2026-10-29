@@ -16,10 +16,10 @@
       "macos/Sources/Lithe/Platform/MacOS/Remote/MacRemotePluginPackageDeployer.swift",
       "macos/Sources/Lithe/Platform/MacOS/Remote/MacRemotePluginLaunchPreparer.swift",
       "macos/Tests/LitheTests/RemotePluginLaunchPreparerTests.swift",
-      "rust/lithe-remote-server/src/connection/tests.rs",
-      "rust/lithe-remote-server/src/run_directory.rs",
-      "rust/lithe-remote-server/tests/run_directories.rs",
-      "rust/lithe-remote-server/src/upload/tests.rs"
+      "rust/lithe-remote/src/server/connection/tests.rs",
+      "rust/lithe-remote/src/server/run_directory.rs",
+      "rust/lithe-remote/tests/run_directories.rs",
+      "rust/lithe-remote/src/server/upload/tests.rs"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"

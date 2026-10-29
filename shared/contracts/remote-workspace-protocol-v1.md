@@ -2,7 +2,7 @@
 
 The protocol between a Lithe client and `lithe-remote-server`, which runs at
 the end of a transport chain (SSH host, container, or a chain of both). The
-Rust types in `rust/lithe-remote-protocol/` are the reference
+Rust types in `rust/lithe-remote/src/protocol/` are the reference
 implementation; this document is the compatibility surface for other
 clients. Design rationale lives in
 `.agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md`.

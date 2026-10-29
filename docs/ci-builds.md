@@ -385,7 +385,8 @@ HTTP/SSE 响应体和 stdio 元数据限制为 2 MiB，原生文件由现有平�
 用户明确运行包命令可能产生的 npm/uv 缓存归上游运行时管理，不属于可跨工作树复用的 Lithe 构建资源。
 
 随 App 附带的远端工作区服务登记为 `remote-server-artifacts`。`scripts/build-remote-servers.sh`
-每次打包都用本工作树源码重新构建两个 Linux musl 静态版（约 25 秒），输出到
+每次打包都从 `rust/lithe-remote/` 用 `--no-default-features --features server`
+只构建 `lithe-remote-server` 可执行文件，不编译客户端；两个 Linux musl 静态版输出到
 `rust/target/remote-servers/`，再复制到 `Contents/Resources/RemoteServers/`；构建机需要
 `x86_64-unknown-linux-musl` 和 `aarch64-unknown-linux-musl` 两个 Rust 目标。清单只记录服务版本，
 不带工具链或源码身份，所以不跨工作树复用。运行时只读取这份副本并上传给 SSH 主机，

@@ -4298,7 +4298,8 @@ fn discover_containing_repository(root: &Path) -> Result<Option<PathBuf>, CoreEr
     if repository_root.is_empty() {
         return Ok(None);
     }
-    let path = canonicalize_or_original(Path::new(repository_root)).map_err(git_path_error)?;
+    // Discovery must not return an unprojected host path after an IO failure.
+    let path = canonicalize_simplified(Path::new(repository_root)).map_err(git_path_error)?;
     Ok(Some(path))
 }
 

@@ -3,9 +3,9 @@
 #![cfg(unix)]
 
 use super::*;
-use lithe_remote_client::ConnectOptions;
-use lithe_remote_protocol::frame::{read_frame, write_frame};
-use lithe_remote_protocol::{Message, PREAMBLE};
+use lithe_remote::client::ConnectOptions;
+use lithe_remote::protocol::frame::{read_frame, write_frame};
+use lithe_remote::protocol::{Message, PREAMBLE};
 use std::io::Write;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;

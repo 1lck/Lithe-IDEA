@@ -338,6 +338,52 @@ struct RemoteWorkspaceRoutingTests {
     }
 
     @Test
+    func externalRepositoryURLsKeepTheOriginalHostInSubsequentBridgeRequests() throws {
+        let (_, _, _, registry) = routing()
+        let binding = try #require(registry.binding(forRoot: root))
+        let parent = binding.localURL(forRemotePath: "/srv")
+        #expect(parent.path == root.path + ".lithe-remote-host/srv")
+        #expect(registry.resolve(parent)?.remotePath == "/srv")
+        #expect(registry.resolve(parent.appendingPathComponent("other.txt"))?.remotePath == "/srv/other.txt")
+        #expect(registry.resolve(binding.localURL(forRemotePath: "/"))?.remotePath == "/")
+        #expect(registry.resolve(URL(fileURLWithPath: "/srv")) == nil)
+        #expect(registry.resolve(URL(fileURLWithPath: root.path + ".lithe-remote-host-neighbor/srv")) == nil)
+        let bridge = RustCoreBridge(remoteWorkspaces: registry)
+        for command in ["git.status", "git.write"] {
+            let selected = try bridge.remoteWorkspace(for: command, payload: ["root": parent.path])
+            #expect(selected == RustCoreBridge.RemoteWorkspace(sessionId: "s", localRoot: root.path, remoteRoot: "/srv/app"))
+        }
+        let selected = try bridge.remoteWorkspace(for: "git.status", payload: ["repositoryRoots": [root.path, parent.path]])
+        #expect(selected?.sessionId == "s")
+        #expect(throws: RustCoreBridge.CoreCallError.self) {
+            try bridge.remoteWorkspace(for: "git.status", payload: ["repositoryRoots": [parent.path, "/srv"]])
+        }
+        _ = registry.unregister(root: root)
+        #expect(registry.resolve(parent) == nil)
+    }
+
+    @Test
+    func theSameExternalPathOnTwoHostsCannotShareABridgeRequest() throws {
+        let (_, _, _, registry) = routing()
+        let first = try #require(registry.binding(forRoot: root))
+        let second = RemoteWorkspaceBinding(root: URL(fileURLWithPath: "/fixture/other-host/app"),
+            remoteRoot: "/srv/app", sessionID: "other", connectionID: UUID())
+        registry.register(second)
+        let a = first.localURL(forRemotePath: "/srv/releases/repo")
+        let b = second.localURL(forRemotePath: "/srv/releases/repo")
+        #expect(a != b)
+        #expect(registry.resolve(a)?.binding.sessionID == "s")
+        #expect(registry.resolve(b)?.binding.sessionID == "other")
+        let bridge = RustCoreBridge(remoteWorkspaces: registry)
+        #expect(throws: RustCoreBridge.CoreCallError.self) {
+            try bridge.remoteWorkspace(for: "git.status", payload: ["repositoryRoots": [a.path, b.path]])
+        }
+        let selected = try bridge.remoteWorkspace(for: "git.write", payload: ["root": b.path])
+        #expect(selected?.sessionId == "other")
+        #expect(selected?.remoteRoot == "/srv/app")
+    }
+
+    @Test
     func remoteIndexLifecycleReachesTheHostAwareCoreAdapter() {
         final class IndexOperations: WorkspaceOperations, @unchecked Sendable {
             var calls: [String] = []

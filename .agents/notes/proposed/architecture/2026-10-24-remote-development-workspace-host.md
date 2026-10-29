@@ -26,20 +26,20 @@ Lithe 要支持“完整的远程开发”：项目放在 SSH 主机、Docker �
 本地 Lithe（界面、设置、钥匙串、本地历史）
         │  工作区后端接口（文件 / 进程 / 终端 / 监听 / 搜索 / 端口 / 插件后端）
         ├── 本地实现（现在的代码，迁移到接口之后）
-        └── 远程实现 ── lithe-remote-protocol ── 传输链 ── lithe-remote-server
+        └── 远程实现 ── lithe_remote::protocol ── 传输链 ── lithe-remote-server
                                                    ├─ 本机子进程（测试用）
                                                    ├─ ssh 主机
                                                    ├─ docker/podman exec 容器
                                                    └─ ssh 主机 → 主机上的容器
 ```
 
-三个 Rust crate，职责分开：
+一个 `lithe-remote` Rust crate，三个内部模块职责分开；构建 feature 与发布入口以已实现的远程工作区路由 Note 为准：
 
-| crate | 负责什么 | 不负责什么 |
+| 模块 | 负责什么 | 不负责什么 |
 | --- | --- | --- |
-| `rust/lithe-remote-protocol` | 帧格式、消息信封、方法名、参数类型、错误码 | 不做任何 I/O 决策 |
-| `rust/lithe-remote-server` | 远端的全部能力和 Linux/macOS 适配器 | 不知道自己是被 SSH 还是 Docker 启动的 |
-| `rust/lithe-remote-client` | 传输链拼命令、远端安装校验、会话收发 | 不实现文件或进程语义 |
+| `rust/lithe-remote/src/protocol` | 帧格式、消息信封、方法名、参数类型、错误码 | 不做任何 I/O 决策 |
+| `rust/lithe-remote/src/server` | 远端的全部能力和 Linux/macOS 适配器 | 不知道自己是被 SSH 还是 Docker 启动的 |
+| `rust/lithe-remote/src/client` | 传输链拼命令、远端安装校验、会话收发 | 不实现文件或进程语义 |
 
 ### 传输链只做“执行一条命令”
 
@@ -114,7 +114,7 @@ Linux 静态版用 Rust 自带的 `rust-lld` 链接，在 macOS 和 Linux 上都
 
 ### 平台适配器（Linux / macOS）
 
-所有平台差异都放在 `rust/lithe-remote-server/src/platform/` 里，并通过能力描述告诉客户端：
+所有平台差异都放在 `rust/lithe-remote/src/server/platform/` 里，并通过能力描述告诉客户端：
 
 | 差异 | Linux | macOS | 客户端看到的能力 |
 | --- | --- | --- | --- |
@@ -324,7 +324,7 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 
 ## 验收标准
 
-- `cargo test -p lithe-remote-protocol -p lithe-remote-client -p lithe-remote-server` 在 macOS 和 Linux 上通过。端到端测试经本机传输启动真实的服务二进制，按功能分成几个测试文件：
+- `cargo test -p lithe-remote --all-features` 在 macOS 和 Linux 上通过。端到端测试经本机传输启动真实的服务二进制，按功能分成几个测试文件：
   - 代码审查发现的问题都配了回归测试，并通过“临时撤掉修复、确认测试失败”验证过：复制到自身、半关闭请求的响应、断线后不丢不重的续传、空会话及时清理。常驻进程关闭期间重连的那个测试，在修复之前就失败过。
   - `tests/server.rs`：握手和能力描述、未握手前的请求和协议版本不匹配、原子写入和冲突检测、并发创建同一文件只有一个成功、断开时正在进行的写入完成且不留临时文件、对端停止读取时请求按时超时、分段读取大文件、穿过符号链接写入、目录操作的错误码、复制时保留链接和权限并拒绝复制到自身内部、复制文件到它自己（含链接和硬链接）被拒绝且文件完好、复制时跳过特殊文件、登录横幅被忽略、服务缺失时返回诊断信息、上传一次之后复用已校验的二进制。
   - `tests/processes.rs`：输出先于退出事件、标准输入转发、整个会话的进程一起结束、首进程退出后 kill 和断线清理仍能结束会话成员、正在使用的 id 不能复用、`--stdio` 会话断开后子进程被清理、登录环境包含 profile 导出的变量。
@@ -357,8 +357,8 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 
 ## 适用范围
 
-- `rust/lithe-remote-protocol/`
-- `rust/lithe-remote-server/`
-- `rust/lithe-remote-client/`
+- `rust/lithe-remote/src/protocol/`
+- `rust/lithe-remote/src/server/`
+- `rust/lithe-remote/src/client/`
 - `shared/contracts/remote-workspace-protocol-v1.md`
 - `.github/workflows/ci-remote.yml`

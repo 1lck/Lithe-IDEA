@@ -6,6 +6,35 @@ import Testing
 @Suite("Remote directory observation") @MainActor
 struct RemoteDirectoryObservationTests {
     @Test
+    func externalGitMetadataUsesHostPathsAndMapsEventsBackToTheSameNamespace() async throws {
+        let root = URL(fileURLWithPath: "/fixture/placeholder")
+        let registry = RemoteWorkspaceRegistry()
+        let binding = RemoteWorkspaceBinding(root: root, remoteRoot: "/srv/repo/src", sessionID: "one", connectionID: UUID())
+        registry.register(binding)
+        let repository = binding.localURL(forRemotePath: "/srv/repo")
+        let metadata = binding.localURL(forRemotePath: "/srv/repo/.git")
+        let host = WatchFixture()
+        let batches = WatchBatches()
+        let source = RemoteDirectoryObservation(
+            configuration: DirectoryWatchConfiguration(workspaceRoot: root, gitContext: GitWatchContext(
+                repositoryRoot: repository, gitDirectory: metadata, gitCommonDirectory: metadata)),
+            visibilityRules: FileVisibilityRules(hiddenDirectoryNames: [".git"], hiddenFilePatterns: []),
+            binding: binding, registry: registry, transport: host, onChange: batches.append
+        )
+        defer { source.stop(); host.finish() }
+        source.start()
+        #expect(await watchEventually { host.active == 2 })
+        #expect(host.requests.sorted() == ["one:/srv/repo", "one:/srv/repo/src"])
+        host.emit(.changed(paths: ["/srv/repo/.git/index"], overflow: false))
+        #expect(batches.values.last?.gitStateMayHaveChanged == true)
+        #expect(batches.values.last?.workspacePaths == [])
+        host.emit(.changed(paths: ["/srv/repo/src/main.rs"], overflow: false))
+        #expect(batches.values.last?.workspacePaths == [root.appendingPathComponent("main.rs").path])
+        source.stop()
+        #expect(await watchEventually { host.active == 0 })
+    }
+
+    @Test
     func hostEventsMapToWorkspaceURLsAndCancelledGenerationsCannotRefresh() async throws {
         let root = URL(fileURLWithPath: "/fixture/placeholder")
         let registry = RemoteWorkspaceRegistry()
@@ -74,25 +103,26 @@ private final class WatchFixture: RemoteWorkspaceTransport, @unchecked Sendable 
     private var runs = 0
     private var recorded: [String] = []
     private var callback: (@Sendable (RemoteWatchEvent) -> Void)?
-    private var continuation: AsyncStream<Void>.Continuation?
+    private var continuations: [UUID: AsyncStream<Void>.Continuation] = [:]
     var active: Int { lock.withLock { runs } }
     var requests: [String] { lock.withLock { recorded } }
 
     func watch(root: String, session: String, onEvent: @escaping @Sendable (RemoteWatchEvent) -> Void) async throws {
+        let id = UUID()
         let (stream, continuation) = AsyncStream<Void>.makeStream()
         lock.withLock {
             runs += 1
             recorded.append(session + ":" + root)
             callback = onEvent
-            self.continuation = continuation
+            continuations[id] = continuation
         }
-        defer { lock.withLock { runs -= 1; self.continuation = nil } }
+        defer { lock.withLock { runs -= 1; continuations[id] = nil } }
         var iterator = stream.makeAsyncIterator()
         _ = await iterator.next()
     }
 
     func emit(_ event: RemoteWatchEvent) { lock.withLock { callback }?(event) }
-    func finish() { lock.withLock { continuation }?.finish() }
+    func finish() { lock.withLock { Array(continuations.values) }.forEach { $0.finish() } }
     func listDirectory(_ path: String, session id: String) throws -> [RemoteDirectoryEntry] { [] }
     func readFile(_ path: String, session id: String) throws -> (data: Data, version: RemoteFileVersion) { throw CocoaError(.fileNoSuchFile) }
     func writeFile(_ data: Data, to path: String, expected: RemoteFileVersion?, session id: String) throws -> RemoteWriteOutcome { .conflict }
