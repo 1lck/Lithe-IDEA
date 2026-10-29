@@ -28,7 +28,6 @@
       "macos/Tests/LitheTests/PluginInstallationGuidancePresentationTests.swift",
       "docs/assets/java-installation-guidance/README.md",
       "macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift",
-      "shared/contracts/plugins/v1/fixtures/editor-navigation.plugin.json",
       "macos/Tests/LitheTests/JavaLanguageServerRuntimeTests.swift"
     ],
     "implementationStatus": "implemented",
