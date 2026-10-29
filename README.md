@@ -16,12 +16,12 @@
 
   <p>
     <a href="https://hellogithub.com/repository/1lck/Lithe-IDEA" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=633af067f07d4d16af010b9dc16c0b8d&amp;claim_uid=7NYd4yvRlGtqfgr" alt="Featured | HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54"></a>
-    <a href="https://atomgit.com/lithe_IDEA/Lithe-IDEA"><img src="https://atomgit.com/lithe_IDEA/Lithe-IDEA/star/new_badge.svg" alt="AtomGit G-Star" style="width: 250px; height: 54px;" width="250" height="54"></a>
     <a href="https://trendshift.io/repositories/124763?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-124763" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/124763" alt="1lck%2FLithe-IDEA | Trendshift" width="250" height="55"/></a>
+    <a href="https://atomgit.com/lithe_IDEA/Lithe-IDEA"><img src="https://atomgit.com/lithe_IDEA/Lithe-IDEA/star/new_badge.svg" alt="AtomGit G-Star" style="width: 250px; height: 54px;" width="250" height="54"></a>
   </p>
 
   <p>
-    <a href="https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/Lithe-IDEA/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="Latest release"></a>
+    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="Latest release"></a>
     <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="Total downloads"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
     <img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat&logo=windows&logoColor=white" alt="Windows x64">
@@ -65,7 +65,7 @@ The Lithe application typically uses about **300–400 MB of baseline memory** a
 
 ## If macOS says it cannot open `Lithe.app`
 
-If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest), then use one of these methods:
+If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest), then use one of these methods:
 
 <p align="center">
   <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS warning that Lithe.app cannot be opened">
@@ -109,50 +109,73 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 
 ## Product tour
 
-<p align="center">
-  <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="Double-Shift Search Everywhere">
-  <img src="./docs/assets/screenshots/git-diff-review.png" width="49%" alt="Side-by-side Git diff review">
-</p>
+Screenshots show the macOS app with Chinese annotations. Click an image to view it at full resolution.
+
+### Git, diffs, and worktrees
+
+Switch projects in one window, review diffs, prepare commits, and inspect and manage Git worktrees.
 
 <p align="center">
-  <img src="./docs/assets/screenshots/ai-commit-message.png" width="49%" alt="Generate commit messages with AI">
-  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="49%" alt="Automatic project detection and one-click run configuration">
+  <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git, diffs, and worktrees"></a>
+</p>
+
+### Search Everywhere and Markdown preview
+
+Double-Shift searches files, symbols, and actions. Edit Markdown alongside its preview and navigate with the table of contents.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="Search Everywhere and Markdown preview"></a>
 </p>
 
 <details>
 <summary>More screenshots</summary>
-<br>
+
+### Git history and branches
+
+Browse Git history with a branch list, commit graph, filters, and changed files.
 
 <p align="center">
-  <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F project-wide search and replace">
-  <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="Customize AI commit message formats">
+  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git history and branches"></a>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="Import AI provider settings from local tools">
-  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="Per-language service settings">
-</p>
+### HTML preview and run services
+
+Edit HTML alongside its preview and browse project entry points and service configurations in the Run panel.
 
 <p align="center">
-  <img src="./docs/assets/screenshots/markdown-mermaid-preview.png" width="49%" alt="Markdown Mermaid rendering and live preview">
-  <img src="./docs/assets/screenshots/markdown-rich-preview.png" width="49%" alt="Rich Markdown rendering and live preview">
+  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML preview and run services"></a>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/screenshots/memory-monitor-annotated.png" width="49%" alt="Low memory footprint and in-app memory monitoring">
-  <img src="./docs/assets/screenshots/memory-monitor.png" width="49%" alt="Application memory usage details">
-</p>
+### Plugin management and native debugging
+
+Manage language, build, and debugger plugins. The screenshot also shows LLDB disassembly and registers.
 
 <p align="center">
-  <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="Multi-line editor tabs">
+  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="Plugin management and native debugging"></a>
+</p>
+
+### AI chat and context
+
+Chat with an agent in the editor area, expand command output, and inspect context usage, file changes, and session statistics.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI chat and context"></a>
+</p>
+
+### Agent resources and MCP configuration
+
+Manage agent instructions, skills, hooks, and MCP configuration, and inspect runtime and token usage in chat.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-mcp-settings.png"><img src="./docs/assets/screenshots/agent-mcp-settings.png" width="100%" alt="Agent resources and MCP configuration"></a>
 </p>
 
 </details>
 
 ## Download and install
 
-- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest).
-- **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest).
+- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
+- **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
 
 Homebrew is the recommended installation and update method on macOS:
 
