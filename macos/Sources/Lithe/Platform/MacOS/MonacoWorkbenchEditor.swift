@@ -1569,7 +1569,10 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             } else {
                 let key = UUID().uuidString
                 completionLists[id] = (context, revision, key, [])
-                model.requestLanguageCompletions(for: document, line: line, utf16Column: column) { [weak self] items in
+                model.requestLanguageCompletionList(for: document, line: line, utf16Column: column,
+                    context: .init(triggerKind: body["triggerKind"] as? Int ?? 1,
+                                   triggerCharacter: body["triggerCharacter"] as? String)) { [weak self] list in
+                    let items = list.items
                     guard let self, self.revisions[id] == revision, self.isCurrent(context),
                           self.completionLists[id]?.key == key else { reply(["items": []], nil); return }
                     self.completionLists[id] = (context, revision, key, items)
@@ -1579,7 +1582,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                         value["completionIndex"] = index
                         return value
                     }
-                    reply(["items": values], nil)
+                    reply(["items": values, "isIncomplete": list.isIncomplete], nil)
                 }
             }
         case "definition":

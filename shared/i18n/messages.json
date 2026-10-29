@@ -90792,6 +90792,30 @@
           "arg1"
         ]
       }
+    },
+    {
+      "id": "lsp.completion.invalidTriggerKind",
+      "description": "Completion request validation from shared Core",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Invalid completion trigger kind",
+        "arguments": []
+      }
+    },
+    {
+      "id": "lsp.completion.missingTriggerCharacter",
+      "description": "Completion request validation from shared Core",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Completion trigger character is required",
+        "arguments": []
+      }
     }
   ]
 }

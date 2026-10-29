@@ -9515,7 +9515,9 @@
     "document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying": "未能完整保存共享文件。所有硬链接可能已包含部分修改。编辑器中的内容已保留，请检查文件后再重试。",
     "document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor": "此编辑器不支持打开这种文件类型",
     "document.fileAccess.updateAllHardLinks": "更新所有硬链接",
-    "document.fileAccess.savePermissionDenied": "无法保存 {arg1}：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。"
+    "document.fileAccess.savePermissionDenied": "无法保存 {arg1}：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。",
+    "lsp.completion.invalidTriggerKind": "补全请求的触发类型无效",
+    "lsp.completion.missingTriggerCharacter": "补全请求缺少有效的触发字符"
   },
   "overrides": {
     "macos": {

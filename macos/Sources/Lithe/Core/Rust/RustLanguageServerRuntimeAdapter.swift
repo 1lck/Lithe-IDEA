@@ -163,6 +163,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         newName: String?,
         range: LanguageServerRange?,
         diagnostics: [LanguageServerDiagnostic],
+        completionContext: LanguageServerCompletionContext?,
         completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
@@ -176,6 +177,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             newName: newName,
             range: range,
             diagnostics: diagnostics,
+            completionContext: completionContext,
             completionItem: completionItem,
             codeAction: codeAction,
             command: command
@@ -418,9 +420,19 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
     }
 
     private static func runtimeFailure(_ error: CoreCallError) -> LanguageServerRuntimeFailure {
-        LanguageServerRuntimeFailure(
+        // Only translate our own request validation; upstream diagnostics stay intact.
+        let message: String
+        switch (error.code, error.message) {
+        case ("invalid_request", "Invalid completion trigger kind"):
+            message = L10n.string("Invalid completion trigger kind")
+        case ("invalid_request", "Completion trigger character is required"):
+            message = L10n.string("Completion trigger character is required")
+        default:
+            message = error.message
+        }
+        return LanguageServerRuntimeFailure(
             code: error.code,
-            message: error.message,
+            message: message,
             details: error.details
         )
     }

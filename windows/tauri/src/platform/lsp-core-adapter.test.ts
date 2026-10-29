@@ -1559,6 +1559,20 @@ describe("Rust Core LSP adapter failures", () => {
     expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(3);
   });
 
+  test("preserves completion-list refresh metadata and trigger context", async () => {
+    scenario = "semantic-request";
+    const fixture = JSON.parse(readFileSync(new URL("../../../../shared/fixtures/lsp/completion-refresh-v1.json", import.meta.url), "utf8"));
+    const filePath = "C:/work/Main.java";
+    await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" });
+    for (const entry of fixture.cases) {
+      semanticRequestResult = { items: [], isIncomplete: entry.isIncomplete };
+      expect(await invokeLsp("lsp_get_completions", {
+        filePath, line: 0, character: 1, completionContext: entry.context,
+      })).toEqual(semanticRequestResult);
+      expect(requestPayload?.completionContext).toEqual(entry.context);
+    }
+  });
+
   test("routes semantic tokens through Core and preserves its negotiated legend and null results", async () => {
     scenario = "semantic-request";
     const fixture = JSON.parse(readFileSync(new URL("../../../../shared/fixtures/lsp/semantic-tokens-v1.json", import.meta.url), "utf8"));
@@ -1633,6 +1647,26 @@ describe("Rust Core LSP adapter failures", () => {
       await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "replacement" });
       releaseSemanticResult!();
       expect(await result).toBeNull();
+    } finally {
+      releaseSemanticResult!();
+      await result.catch(() => undefined);
+    }
+  });
+
+  test("discards completions from a replaced file attachment", async () => {
+    scenario = "semantic-request";
+    semanticRequestResult = { items: [{ label: "old" }], isIncomplete: true };
+    const filePath = "C:/work/Main.java";
+    const start = { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" };
+    await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "old" });
+    semanticResultGate = new Promise<void>((resolve) => { releaseSemanticResult = resolve; });
+    const requested = new Promise<void>((resolve) => { onSemanticRequest = resolve; });
+    const result = invokeLsp("lsp_get_completions", { filePath });
+    try {
+      await requested;
+      await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "replacement" });
+      releaseSemanticResult!();
+      expect(await result).toEqual({ items: [], isIncomplete: false });
     } finally {
       releaseSemanticResult!();
       await result.catch(() => undefined);

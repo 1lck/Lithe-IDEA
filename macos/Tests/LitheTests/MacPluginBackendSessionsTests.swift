@@ -344,7 +344,7 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     func requestLanguageServerOperation(
         sessionID _: String, operation _: LanguageServerOperation, fileURL _: URL?, virtualURI _: String?,
         position _: LanguageServerPosition?, newName _: String?, range _: LanguageServerRange?,
-        diagnostics _: [LanguageServerDiagnostic], completionItem _: LanguageServerCompletionItem?,
+        diagnostics _: [LanguageServerDiagnostic], completionContext: LanguageServerCompletionContext?, completionItem _: LanguageServerCompletionItem?,
         codeAction _: LanguageServerCodeAction?, command _: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
         .success(LanguageServerRuntimeOperation(operationID: "unused"))

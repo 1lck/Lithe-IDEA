@@ -830,6 +830,7 @@
 "Complete commit message" = "完整提交消息";
 "Complete sign-in in your browser. Your credentials are managed by Codex." = "请在浏览器中完成登录，凭据由 Codex 管理。";
 "Completed" = "已完成";
+"Completion trigger character is required" = "补全请求缺少有效的触发字符";
 "Completions" = "补全";
 "Compression is unavailable. Showing complete retained output." = "暂时无法压缩，正在显示完整保留的输出。";
 "Concise" = "简洁";
@@ -1821,6 +1822,7 @@
 "Invalid JVM performance output." = "JVM 性能输出无效。";
 "Invalid MCP tool configuration" = "MCP 工具配置无效";
 "Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”)." = "TOML 格式无效，请使用直引号（\"），不要使用智能引号（“ ”）。";
+"Invalid completion trigger kind" = "补全请求的触发类型无效";
 "Invalid plugin icon resource: %@" = "无效的插件图标资源：%@";
 "Invalid plugin web entry: %@" = "无效的插件网页入口：%@";
 "Invalid shared instruction request." = "共享指令请求无效。";
@@ -4616,6 +4618,8 @@
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "just now" = "刚刚";
 "local commit(s)" = "个本地提交";
+"lsp.completion.invalidTriggerKind" = "补全请求的触发类型无效";
+"lsp.completion.missingTriggerCharacter" = "补全请求缺少有效的触发字符";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS 无法准备更新磁盘映像，请手动下载版本后重试。";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS 无法准备更新磁盘映像。请打开 Release 页面手动安装。";
 "main Java" = "主代码";

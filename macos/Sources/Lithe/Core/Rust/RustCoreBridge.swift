@@ -2004,6 +2004,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let newName: String?
         let range: LspTextEditsRequest.TextEdit.Range?
         let diagnostics: [LspClientDiagnosticRequest]
+        let completionContext: LanguageServerCompletionContext?
         let completionItem: LspClientCompletionItemRequest?
         let codeAction: LspClientCodeActionRequest?
         let command: LspClientCommandRequest?
@@ -2018,6 +2019,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             newName: String? = nil,
             range: LspTextEditsRequest.TextEdit.Range? = nil,
             diagnostics: [LspClientDiagnosticRequest] = [],
+            completionContext: LanguageServerCompletionContext? = nil,
             completionItem: LspClientCompletionItemRequest? = nil,
             codeAction: LspClientCodeActionRequest? = nil,
             command: LspClientCommandRequest? = nil
@@ -2031,6 +2033,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             self.newName = newName
             self.range = range
             self.diagnostics = diagnostics
+            self.completionContext = completionContext
             self.completionItem = completionItem
             self.codeAction = codeAction
             self.command = command
@@ -3905,6 +3908,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         newName: String? = nil,
         range: LanguageServerRange? = nil,
         diagnostics: [LanguageServerDiagnostic] = [],
+        completionContext: LanguageServerCompletionContext? = nil,
         completionItem: LanguageServerCompletionItem? = nil,
         codeAction: LanguageServerCodeAction? = nil,
         command: LanguageServerCommand? = nil
@@ -3922,6 +3926,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 newName: newName,
                 range: range.map(Self.makeRangeRequest),
                 diagnostics: diagnostics.map(Self.makeDiagnosticRequest),
+                completionContext: completionContext,
                 completionItem: completionItem.map(Self.makeCompletionItemRequest),
                 codeAction: codeAction.map(Self.makeCodeActionRequest),
                 command: command.map(Self.makeCommandRequest)
