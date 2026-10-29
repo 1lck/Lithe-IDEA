@@ -11,4 +11,6 @@ struct GitWorktreeActions {
     var temporaryDirectory: (() -> URL)? = nil
     var showChange: ((GitChange) -> Void)? = nil
     var openFile: ((URL, String) -> Void)? = nil
+    var commitSession: ((GitWorktree) -> WorktreeCommitSession)? = nil
+    var showCommitSettings: () -> Void = {}
 }

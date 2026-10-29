@@ -142,7 +142,14 @@ package final class GitFeatureModel: ObservableObject {
     }
     @Published package private(set) var gitWorktreeLoadState = GitWorktreeLoadState.idle
     @Published package private(set) var gitWorktreeInspection: GitWorktreeInspection? {
-        didSet { gitWorktreeInspectionVersion = Self.nextGitWorktreeInspectionVersion() }
+        didSet {
+            gitWorktreeInspectionVersion = Self.nextGitWorktreeInspectionVersion()
+            if let inspection = gitWorktreeInspection, inspection.hasLoadedChanges,
+               let scoped = worktreeCommitFeatures[URL(fileURLWithPath: inspection.worktreeID).standardizedFileURL] {
+                scoped.gitChanges = inspection.changes
+                scoped.rememberChangelistRenames()
+            }
+        }
     }
     /// Constant-time key for completed worktree detail publications.
     package private(set) var gitWorktreeInspectionVersion = 0
@@ -409,9 +416,25 @@ package final class GitFeatureModel: ObservableObject {
             if oldValue.activeID != changelists.activeID || oldValue.assignments != changelists.assignments {
                 changelistSelectionGeneration = UUID()
             }
+            // The main checkout may also be open in Commit. Keep one metadata
+            // value for that same storage key, without sharing linked roots.
+            if let workspace = changelistWorkspace, let host = worktreeOperationHost, host.changelistWorkspace == workspace,
+               host.changelists != changelists { host.changelists = changelists }
+            for scoped in worktreeCommitFeatures.values where changelistWorkspace != nil && scoped.changelistWorkspace == changelistWorkspace {
+                if scoped.changelists != changelists { scoped.changelists = changelists }
+            }
         }
     }
-    @Published package internal(set) var changelistStorageFailed = false
+    @Published package internal(set) var changelistStorageFailed = false {
+        didSet {
+            guard let workspace = changelistWorkspace else { return }
+            if let host = worktreeOperationHost, host.changelistWorkspace == workspace,
+               host.changelistStorageFailed != changelistStorageFailed { host.changelistStorageFailed = changelistStorageFailed }
+            for scoped in worktreeCommitFeatures.values where scoped.changelistWorkspace == workspace {
+                if scoped.changelistStorageFailed != changelistStorageFailed { scoped.changelistStorageFailed = changelistStorageFailed }
+            }
+        }
+    }
     @Published package var includeChangelistParentReferences = true
     var workspaceURLProvider: (@MainActor () -> URL?)?
     private var isGitLogVisibleProvider: (@MainActor () -> Bool)?
@@ -421,6 +444,9 @@ package final class GitFeatureModel: ObservableObject {
     private var onGitOperationBegan: (@MainActor () -> Void)?
     private var onGitOperationEnded: (@MainActor () async -> Void)?
     private var acquireModuleLease: (@MainActor (String) -> ModuleLease)?
+    private weak var worktreeOperationHost: GitFeatureModel?
+    private var worktreeCommitFeatures: [URL: GitFeatureModel] = [:]
+    private var worktreeCommitSubscriptions: [URL: AnyCancellable] = [:]
     private static let gitHistoryPageSize = 100
     private var gitHistoryCursor: String?
     private var gitHistoryGeneration = UUID()
@@ -532,12 +558,49 @@ package final class GitFeatureModel: ObservableObject {
         acquireModuleLease = acquire
     }
 
+    /// Reuses the normal ChangeList/commit plan model, but binds it to exactly
+    /// one checkout. Discovery must not bring sibling or nested repositories
+    /// into a commit launched from Worktrees.
+    package func commitFeature(for worktree: GitWorktree) -> GitFeatureModel {
+        let root = worktree.url.standardizedFileURL
+        if let cached = worktreeCommitFeatures[root] { return cached }
+        let scoped = GitFeatureModel(service: service, changelistStorage: changelistStorage,
+            snapshotProvider: { [snapshotProvider] requested in
+                guard let snapshot = await snapshotProvider(requested, [root]),
+                      snapshot.repositoryRoot.standardizedFileURL == root else { return nil }
+                return snapshot
+            }, stashesProvider: { _ in [] }, operationStateProvider: operationStateProvider,
+            worktreesProvider: { _ in [] }, repositoryRootsProvider: { _ in [root] })
+        scoped.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { [weak self] in self?.notify?($0) }, onStateRefreshed: { [weak self] in
+                guard let self else { return }
+                if self.gitWorktreeInspection?.worktreeID == worktree.id {
+                    await self.refreshWorktreeChanges(worktree)
+                }
+            })
+        scoped.worktreeOperationHost = self
+        if changelistWorkspace == root {
+            scoped.changelists = changelists
+            scoped.changelistStorageFailed = changelistStorageFailed
+        }
+        scoped.gitRepositoryRoot = root
+        scoped.availableRepositoryRoots = [root]
+        scoped.currentBranch = worktree.branchName ?? "Detached HEAD"
+        if let inspection = gitWorktreeInspection, inspection.worktreeID == worktree.id, inspection.hasLoadedChanges {
+            scoped.gitChanges = inspection.changes
+        }
+        worktreeCommitFeatures[root] = scoped
+        worktreeCommitSubscriptions[root] = scoped.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        return scoped
+    }
+
     package var currentGitReference: GitReference? {
         gitReferences.first(where: \.isCurrent)
     }
 
     package var hasActiveModuleWork: Bool {
-        historyEditing.isBusy
+        worktreeCommitFeatures.values.contains { $0.hasActiveModuleWork }
+            || historyEditing.isBusy
             || repositorySetup.isBusy
             || identitySettings.isBusy
             || patchExchange.isBusy
@@ -561,6 +624,15 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        for feature in worktreeCommitFeatures.values {
+            // Retained editor tasks must not reopen the old checkout after a
+            // workspace switch, even though its original provider was constant.
+            feature.workspaceURLProvider = nil
+            feature.reset()
+            feature.worktreeOperationHost = nil
+        }
+        worktreeCommitFeatures = [:]
+        worktreeCommitSubscriptions = [:]
         closeAllRepositoryDiffSessions()
         repositorySetup.reset()
         identitySettings.reset()
@@ -790,6 +862,20 @@ package final class GitFeatureModel: ObservableObject {
                 gitLineChangeMarkers = [:]
                 lineChangeHunks = [:]
                 didChange = true
+            }
+            // The current checkout already has a confirmed status read. Keep its
+            // Worktrees detail in sync without reopening the loaded history window.
+            if observation.successfullyReadRepositoryRoots.contains(snapshot.repositoryRoot.standardizedFileURL),
+               let inspection = gitWorktreeInspection,
+               inspection.worktreeID == snapshot.repositoryRoot.path {
+                let currentChanges = activeRepositoryChanges.filter { !isListedUntrackedContent($0) }
+                if !inspection.hasLoadedChanges || inspection.changes != currentChanges {
+                    gitWorktreeInspection = GitWorktreeInspection(
+                        worktreeID: inspection.worktreeID, changes: currentChanges,
+                        commits: inspection.commits, hasMoreCommits: inspection.hasMoreCommits
+                    )
+                    worktreeChangesError = nil
+                }
             }
             reconcilePendingStagingStates(with: changes,
                 successfullyReadRepositoryRoots: observation.successfullyReadRepositoryRoots)
@@ -1225,6 +1311,9 @@ package final class GitFeatureModel: ObservableObject {
         title: String? = nil, plannedArguments: [String]? = nil,
         _ operation: () async -> T
     ) async -> T {
+        if let worktreeOperationHost {
+            return await worktreeOperationHost.withGitOperation(title: title, plannedArguments: plannedArguments, operation)
+        }
         if GitExecutionContext.current != nil { return await operation() }
         let lease = acquireModuleLease?("Git operation in progress")
         defer { lease?.release() }
@@ -1647,7 +1736,19 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
-    package var isStagingChanges: Bool { !pendingStagingStates.isEmpty }
+    package var isStagingChanges: Bool {
+        !pendingStagingStates.isEmpty || worktreeOperationHost?.pendingStagingStates.values.contains {
+            $0.repositoryRoot.standardizedFileURL == gitRepositoryRoot?.standardizedFileURL
+        } == true
+    }
+
+    package var isWorktreeCommitBlocked: Bool {
+        guard let host = worktreeOperationHost else { return worktreeCommitFeatures.values.contains { $0.isCommitting } }
+        guard host.gitWorktreeLoadState == .ready,
+              host.gitWorktrees.contains(where: { $0.url.standardizedFileURL == gitRepositoryRoot && !$0.isPrunable && !$0.isBare }) else { return true }
+        return host.isCommitting || host.isMutatingWorktreeChanges || host.isRefreshingWorktreeChanges
+            || host.isPerformingWorktreeOperation || host.worktreeCommitFeatures.values.contains { $0 !== self && $0.isCommitting }
+    }
 
     /// Staged state the user just asked for, by change ID, while Git is still applying it.
     package var pendingStagedStates: [GitChange.ID: Bool] { pendingStagingStates.mapValues(\.staged) }
@@ -1657,14 +1758,14 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func beginToggleStaging(_ change: GitChange) -> Bool? {
-        guard !isCommitting, !changelistStorageFailed, change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
+        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed, change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
         let staged = !change.isStaged
         pendingStagingStates[change.id] = (change.repositoryRoot.standardizedFileURL, staged)
         return staged
     }
 
     package func beginSetStaging(_ changes: [GitChange], staged: Bool, includeWorkingTreeChanges: Bool = false) -> [GitChange] {
-        guard !isCommitting, !changelistStorageFailed else { return [] }
+        guard !isCommitting, !isWorktreeCommitBlocked, !changelistStorageFailed else { return [] }
         let pendingChanges = changes.filter {
             $0.canToggleStaging && pendingStagingStates[$0.id] == nil
                 && ($0.isStaged != staged || (staged && includeWorkingTreeChanges && $0.hasWorkingTreeChange))
@@ -2621,6 +2722,13 @@ package final class GitFeatureModel: ObservableObject {
         if let worktrees {
             if gitWorktrees != worktrees { gitWorktrees = worktrees }
             gitWorktreeLoadState = .ready
+            // Linked checkout edits do not change `worktree list` or HEAD, so
+            // refreshing the registry alone cannot invalidate the detail task.
+            if let inspection = gitWorktreeInspection, inspection.hasLoadedChanges,
+               let worktree = worktrees.first(where: { $0.id == inspection.worktreeID }),
+               !worktree.isPrunable, !isMutatingWorktreeChanges, !isRefreshingWorktreeChanges {
+                await refreshWorktreeChanges(worktree)
+            }
         } else {
             gitWorktrees = []
             gitWorktreeLoadState = .failed("Could not load Git worktrees")
@@ -2717,6 +2825,8 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     private func mutateWorktreeChanges(_ changes: [GitChange], in worktree: GitWorktree, staged: Bool?) async {
+        guard worktreeCommitFeatures[worktree.url.standardizedFileURL]?.changelistStorageFailed != true,
+              !worktreeCommitFeatures.values.contains(where: { $0.isCommitting }) else { return }
         guard let repositoryRoot = gitRepositoryRoot, !Task.isCancelled,
               !isMutatingWorktreeChanges, !isRefreshingWorktreeChanges,
               !isPerformingWorktreeOperation, !isCommitting, !isStagingChanges,
@@ -2807,8 +2917,10 @@ package final class GitFeatureModel: ObservableObject {
             worktreeChangesError = L10n.string("Could not inspect this worktree")
             return
         }
-        gitWorktreeInspection = GitWorktreeInspection(worktreeID: current.worktreeID, changes: snapshot.changes,
-            commits: current.commits, hasMoreCommits: current.hasMoreCommits)
+        if !current.hasLoadedChanges || current.changes != snapshot.changes {
+            gitWorktreeInspection = GitWorktreeInspection(worktreeID: current.worktreeID, changes: snapshot.changes,
+                commits: current.commits, hasMoreCommits: current.hasMoreCommits)
+        }
         let confirmedRoots: Set<URL> = [worktree.url.standardizedFileURL]
         reconcilePendingStagingStates(with: snapshot.changes, successfullyReadRepositoryRoots: confirmedRoots)
         for session in allDiffSessions where session.selectedChange?.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL {

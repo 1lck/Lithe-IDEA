@@ -6,6 +6,43 @@ import Testing
 
 @Suite("Git status observation", .serialized)
 struct GitStatusObservationTests {
+    @Test
+    @MainActor
+    func realGitWorktreeComposerCommitsOnlySelectedCheckout() async throws {
+        let fixture = try GitObservationFixture(label: "worktree-composer")
+        let primary = fixture.url.appendingPathComponent("primary", isDirectory: true)
+        let linked = fixture.url.appendingPathComponent("linked", isDirectory: true)
+        try await fixture.initializeRepository(at: primary)
+        try await fixture.git(["config", "user.name", "Lithe Tests"], at: primary)
+        try await fixture.git(["config", "user.email", "tests@lithe.local"], at: primary)
+        try await fixture.git(["config", "commit.gpgsign", "false"], at: primary)
+        try await fixture.git(["config", "core.hooksPath", "/dev/null"], at: primary)
+        try await fixture.git(["worktree", "add", "-q", "-b", "composer", linked.path], at: primary)
+        for root in [primary, linked] {
+            try Data("Changed in \(root.lastPathComponent)\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+            try await fixture.git(["add", "tracked.txt"], at: root)
+        }
+        let originalHEAD = try await fixture.git(["rev-parse", "HEAD"], at: primary)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { primary }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == linked })
+        await feature.inspectWorktree(worktree)
+        let scoped = feature.commitFeature(for: worktree)
+        #expect(scoped.activeChangelistChanges.contains { $0.isStaged })
+        #expect(await scoped.commitStagedChanges(message: "Selected checkout only", amend: false))
+        #expect(try await fixture.git(["rev-parse", "HEAD"], at: primary) == originalHEAD)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: primary) == "tracked.txt")
+        #expect(try await fixture.git(["rev-parse", "HEAD"], at: linked) != originalHEAD)
+        #expect(try await fixture.git(["log", "-1", "--format=%s"], at: linked) == "Selected checkout only")
+        #expect(try await fixture.git(["status", "--porcelain"], at: linked).isEmpty)
+        #expect(feature.gitRepositoryRoot == primary && scoped.gitChanges.isEmpty)
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+    }
+
     @Test(arguments: [false, true])
     @MainActor
     func realGitRemovedFromIndexFileRefreshesWithoutCrashing(staged: Bool) async throws {

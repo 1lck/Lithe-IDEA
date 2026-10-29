@@ -18,13 +18,19 @@ extension GitFeatureModel: CommitWorkflowGit {
 @MainActor
 enum CommitWorkflowComposition {
     static func make(model: AppModel) -> CommitWorkflowCoordinator {
+        make(model: model, draft: model.commitDraftFeature,
+             activateGit: { [weak model] in await model?.activateGitModule() })
+    }
+
+    static func make(model: AppModel, draft: CommitDraftFeatureModel,
+                     activateGit: @escaping () async -> (any CommitWorkflowGit)?) -> CommitWorkflowCoordinator {
         let runtime = model.services.moduleRuntime
         let settings = model.settings
         let workspace = model.workspaceFeature
         let notification = model.notificationFeature
         return CommitWorkflowCoordinator(
-            draft: model.commitDraftFeature,
-            activateGit: { [weak model] in await model?.activateGitModule() },
+            draft: draft,
+            activateGit: activateGit,
             workspaceGeneration: { workspace.workspaceGeneration },
             generate: { [weak model] input in
                 model?.refreshAIConfigurations()
