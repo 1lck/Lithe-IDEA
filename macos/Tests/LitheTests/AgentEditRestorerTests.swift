@@ -222,7 +222,7 @@ struct AgentEditRestorerTests {
                 try FileManager.default.moveItem(at: source, to: recovered)
                 return recovered
             })
-            await #expect(throws: CocoaError.self) {
+            await #expect(throws: DocumentFileAccessError.symbolicLink) {
                 try await MacAgentEditRestorer(fileOperations: files).restore(creation(), in: workspace)
             }
             #expect(try FileManager.default.destinationOfSymbolicLink(atPath: url.path) == target.path)
