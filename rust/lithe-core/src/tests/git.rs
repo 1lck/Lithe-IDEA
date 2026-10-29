@@ -5032,7 +5032,9 @@ fn line_history_repository(label: &str) -> std::path::PathBuf {
             .output()
             .expect("git should be available")
     };
-    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["init", "-q", "--initial-branch=master"])
+        .status
+        .success());
     assert!(run(&["config", "core.autocrlf", "false"]).status.success());
     assert!(run(&["config", "user.name", "Tester"]).status.success());
     assert!(run(&["config", "user.email", "test@example.com"])
