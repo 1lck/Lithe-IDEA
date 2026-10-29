@@ -574,6 +574,16 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
         }
     }
 
+    func writeDocumentTextAsync(
+        _ text: String, to url: URL, expectedContent: String?, encoding: DocumentEncoding, expectedIdentity: String?,
+        hardLinkAuthorization: DocumentHardLinkAuthorization
+    ) async throws -> EncodedDocumentWriteResult {
+        // Consent names a local native object, never a remote transport write.
+        try remoteOnly(url)
+        return try await local.writeDocumentTextAsync(text, to: url, expectedContent: expectedContent,
+            encoding: encoding, expectedIdentity: expectedIdentity, hardLinkAuthorization: hardLinkAuthorization)
+    }
+
     private func remoteDetails(_ url: URL, encoding: DocumentEncoding?) throws -> DocumentReadDetails? {
         guard encoding == nil || encoding == .utf8 || encoding == .utf8Bom else {
             throw CocoaError(.fileReadInapplicableStringEncoding)
