@@ -39,10 +39,14 @@ extension AppModel {
         let items = await javaRunMarkerSource(sessions: sessions) { completion in
             try sessions.javaTestItems(fileURL: fileURL) { completion($0.map(\.items)) }
         } ?? []
+        let project = buildSystemsFeatureIfActive?.projectPath(containing: document.url)
+        let outcomes = (languageTestServiceIfActive?.testOutcomes ?? []).filter {
+            $0.project == nil || $0.project == project
+        }
         return services.javaMavenOperations.javaRunMarkers(
             mainMethods: methods,
             testItems: items,
-            testCases: languageTestServiceIfActive?.testOutcomes ?? []
+            testCases: outcomes
         ) ?? []
     }
 

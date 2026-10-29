@@ -8,6 +8,37 @@ import Testing
 @MainActor
 struct JavaTestDebugLaunchServiceTests {
     @Test
+    func stoppingOrReplacingRunPreparationRevokesIdenticalSelections() {
+        let state = JavaTestWorkflowState(notify: { _ in })
+        let first = state.beginRunPreparation()
+        let next = state.beginRunPreparation()
+        state.finishRunPreparation(first)
+        #expect(!state.isCurrentRunPreparation(first))
+        #expect(state.isCurrentRunPreparation(next))
+        state.cancelRunPreparation()
+        #expect(!state.isCurrentRunPreparation(next))
+    }
+
+    @Test
+    func cancelledDebugTestCannotPrepareAfterTheSaveFinishes() async throws {
+        let state = JavaTestWorkflowState(notify: { _ in })
+        let coordinator = JavaTestDebugWorkflowCoordinator(notify: { _ in })
+        let saving = TestGate(), release = TestGate()
+        var launches = 0
+        coordinator.start(request: JavaTestDebugRequest(fileURL: URL(fileURLWithPath: "/workspace/Test.java"), testIdentifier: nil), state: state,
+            prepareDirtyDocument: { saving.open(); return await release.waitUntilOpen(timeout: .seconds(2)) },
+            prepareLaunch: { launches += 1; throw CancellationError() }, startDebug: { _ in false }, errorMessage: { nil })
+        let task = try #require(state.debugLaunchTask)
+        defer { state.cancelDebugLaunch(); release.open() }
+        try #require(await saving.waitUntilOpen(timeout: .seconds(2)))
+        state.cancelDebugLaunch()
+        release.open()
+        await task.value
+        #expect(launches == 0)
+        #expect(state.resultServer == nil)
+    }
+
+    @Test
     func fileSelectionResolvesTargetStartsResultsAndBuildsSharedConfiguration() async throws {
         let root = URL(fileURLWithPath: "/workspace/java-tests", isDirectory: true)
         let source = root.appendingPathComponent(

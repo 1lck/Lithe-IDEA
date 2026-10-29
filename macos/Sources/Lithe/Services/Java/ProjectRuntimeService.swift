@@ -527,10 +527,6 @@ final class ProjectRuntimeService: ObservableObject {
         return runtimeLocator.isExecutable(at: url) ? url : nil
     }
 
-    package func mavenExecutable(for project: MavenProject, overridePath: String? = nil) -> URL? {
-        mavenExecutable(at: project.rootURL, overridePath: overridePath)
-    }
-
     func mavenExecutable(at rootURL: URL, overridePath: String? = nil) -> URL? {
         chooseMavenExecutable(at: rootURL, overridePath: overridePath).url
     }
@@ -580,11 +576,6 @@ final class ProjectRuntimeService: ObservableObject {
     func activeJavaRuntime() -> JavaRuntimeCandidate? {
         guard let home = javaHomeURL()?.path else { return nil }
         return javaRuntimes.first { $0.homePath == home }
-    }
-
-    func activeMavenRuntime(for project: MavenProject) -> MavenRuntimeCandidate? {
-        guard let executable = mavenExecutable(for: project)?.path else { return nil }
-        return mavenRuntimes.first { $0.executablePath == executable }
     }
 
     func loadRunConfigurationToolchainCandidates(

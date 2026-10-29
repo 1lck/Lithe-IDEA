@@ -292,7 +292,12 @@ struct LanguageTestsView: View {
     }
 
     private func presentedItems(for providerID: String) -> [LanguageTestItem] {
-        Self.presentedItems(discovered: service.itemsByProviderID[providerID] ?? [],
+        let discovered = (service.itemsByProviderID[providerID] ?? []).map { item in
+            var item = item
+            item.projectPath = item.fileURL.flatMap { model.buildSystemsFeatureIfActive?.projectPath(containing: $0) }
+            return item
+        }
+        return Self.presentedItems(discovered: discovered,
             results: service.results, resultProviderID: service.activePlan?.providerID, providerID: providerID)
     }
 
@@ -368,7 +373,7 @@ struct LanguageTestsView: View {
         for outcome in outcomes {
             guard let milliseconds = outcome.durationMillis, milliseconds >= 0 else { continue }
             let method = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
-            durations[outcome.className + "#" + method] = formatDuration(seconds: Double(milliseconds) / 1000)
+            durations[resultPrefix(outcome.project) + outcome.className + "#" + method] = formatDuration(seconds: Double(milliseconds) / 1000)
         }
 
         return durations
@@ -395,24 +400,26 @@ struct LanguageTestsView: View {
         var classOrder: [String] = []
         var classGroups: [String: [MavenTestCaseOutcome]] = [:]
         for outcome in outcomes {
-            if classGroups[outcome.className] == nil {
-                classOrder.append(outcome.className)
-            }
-            classGroups[outcome.className, default: []].append(outcome)
+            let key = resultPrefix(outcome.project) + outcome.className
+            if classGroups[key] == nil { classOrder.append(key) }
+            classGroups[key, default: []].append(outcome)
         }
 
         var items: [LanguageTestItem] = []
-        for fullClassName in classOrder {
+        for key in classOrder {
+            let methods = classGroups[key] ?? []
+            guard let first = methods.first else { continue }
+            let fullClassName = first.className
+            let prefix = resultPrefix(first.project)
             let shortClassName = fullClassName.split(separator: ".").last.map(String.init) ?? fullClassName
-            let methods = classGroups[fullClassName] ?? []
             let classNode = LanguageTestItem(
-                id: "testCase:\(providerID):\(fullClassName)",
+                id: "testCase:\(providerID):\(prefix)\(fullClassName)",
                 providerID: providerID,
-                label: shortClassName,
+                label: first.project.map { $0 + " / " + shortClassName } ?? shortClassName,
                 kind: .testCase,
                 fileURL: nil,
                 testIdentifier: fullClassName,
-                depth: 1
+                depth: 1, projectPath: first.project, buildReference: first.buildReference?.suiteReference
             )
             items.append(classNode)
 
@@ -420,13 +427,13 @@ struct LanguageTestsView: View {
                 let methodName = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
                 let methodID = "\(fullClassName)#\(methodName)"
                 let methodNode = LanguageTestItem(
-                    id: "testCase:\(providerID):\(methodID)",
+                    id: "testCase:\(providerID):\(prefix)\(methodID)",
                     providerID: providerID,
                     label: methodName,
                     kind: .testCase,
                     fileURL: nil,
                     testIdentifier: methodID,
-                    depth: 2
+                    depth: 2, projectPath: outcome.project, buildReference: outcome.buildReference
                 )
                 items.append(methodNode)
             }
@@ -434,16 +441,18 @@ struct LanguageTestsView: View {
         return items
     }
 
+    private static func resultPrefix(_ project: String?) -> String { project.map { $0 + "\u{0}" } ?? "" }
+
     static func resultKey(_ item: LanguageTestItem) -> String {
-        (item.testIdentifier ?? item.id).split(separator: "(", maxSplits: 1).first.map(String.init) ?? item.id
+        resultPrefix(item.projectPath) + ((item.testIdentifier ?? item.id).split(separator: "(", maxSplits: 1).first.map(String.init) ?? item.id)
     }
 
     static func resultStatuses(_ outcomes: [MavenTestCaseOutcome]) -> [String: String] {
         var grouped: [String: [String]] = [:]
         for outcome in outcomes {
             let method = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
-            grouped[outcome.className, default: []].append(outcome.status)
-            grouped[outcome.className + "#" + method, default: []].append(outcome.status)
+            grouped[resultPrefix(outcome.project) + outcome.className, default: []].append(outcome.status)
+            grouped[resultPrefix(outcome.project) + outcome.className + "#" + method, default: []].append(outcome.status)
         }
         return grouped.compactMapValues { statuses in
             if statuses.contains("error") { return "Error" }
@@ -779,7 +788,7 @@ struct LanguageTestsView: View {
         case .testCase:
             return .testCase(
                 identifier: item.testIdentifier ?? item.label,
-                fileURL: item.fileURL
+                fileURL: item.fileURL, buildReference: item.buildReference
             )
         }
     }

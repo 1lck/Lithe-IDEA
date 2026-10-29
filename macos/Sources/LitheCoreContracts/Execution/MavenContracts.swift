@@ -243,6 +243,8 @@ package struct MavenTestResults: Equatable, Sendable {
 ///
 /// Note: 设计见 .agents/notes/implemented/architecture/2026-09-22-editor-run-markers-and-test-outcomes.md
 package struct MavenTestCaseOutcome: Codable, Equatable, Sendable {
+    package let project: String?
+    package let buildReference: BuildTestReference?
     /// Binary class name, such as `demo.OrderTest$Refunds`.
     package let className: String
     package let method: String
@@ -252,7 +254,9 @@ package struct MavenTestCaseOutcome: Codable, Equatable, Sendable {
     package let invocations: Int
     package let durationMillis: Int?
 
-    package init(className: String, method: String, status: String, message: String? = nil, invocations: Int = 1, durationMillis: Int? = nil) {
+    package init(className: String, method: String, status: String, message: String? = nil, invocations: Int = 1, durationMillis: Int? = nil, project: String? = nil, buildReference: BuildTestReference? = nil) {
+        self.project = project
+        self.buildReference = buildReference
         self.className = className
         self.method = method
         self.status = status
@@ -390,35 +394,5 @@ package struct MavenOperationError: LocalizedError, Equatable, Sendable {
     package var errorDescription: String? {
         guard let details, !details.isEmpty else { return message }
         return message + ": " + details
-    }
-}
-
-package protocol MavenProjectOperations: Sendable {
-    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject?
-    func mavenLaunchPlan(
-        at rootURL: URL,
-        context: MavenLaunchContext,
-        module: String?,
-        goals: [String]
-    ) throws -> MavenLaunchPlan
-    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
-    func mavenTestResults(output: String, projectRoot: URL) -> MavenTestResults?
-    func mavenTestResults(
-        output: String,
-        projectRoot: URL,
-        reports: MavenTestReportRequest?
-    ) -> MavenTestResults?
-}
-
-extension MavenProjectOperations {
-    package func mavenTestResults(output _: String, projectRoot _: URL) -> MavenTestResults? { nil }
-
-    /// Operations without report support fall back to the text summary.
-    package func mavenTestResults(
-        output: String,
-        projectRoot: URL,
-        reports _: MavenTestReportRequest?
-    ) -> MavenTestResults? {
-        mavenTestResults(output: output, projectRoot: projectRoot)
     }
 }

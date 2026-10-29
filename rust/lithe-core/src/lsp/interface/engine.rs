@@ -2129,6 +2129,28 @@ impl RuntimeSession {
                 )
                 .with_details("plugin.build.unavailable"));
             }
+            if request.params.get("selectorKind").is_some()
+                || request.params.get("selectors").is_some()
+            {
+                if request.method != super::build_provider::TEST_METHOD {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Opaque selectors require a provider test request.",
+                    ));
+                }
+                if !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::TEST_SELECTORS_FEATURE)
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::NotSupported,
+                        "The provider did not negotiate opaque test selectors.",
+                    )
+                    .with_details("plugin.build.unavailable"));
+                }
+            }
             if request.params.get("testResults").is_some() {
                 if request.method != super::build_provider::TEST_METHOD
                     || request.params["testResults"] != json!(true)
@@ -11736,7 +11758,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [8, 7, 6, 5, 4, 3, 2, 1] })
+            json!({ "versions": [9, 8, 7, 6, 5, 4, 3, 2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -12279,7 +12301,7 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [8, 7, 6, 5, 4, 3, 2, 1] },
+                "litheBuild": { "versions": [9, 8, 7, 6, 5, 4, 3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })

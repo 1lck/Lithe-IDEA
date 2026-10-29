@@ -94,6 +94,43 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
         service.runTests(entryID, request: request, title: title)
     }
+    package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, workspace: URL) async throws {
+        try await service.prepareLanguageTestModels(selectorKind: selectorKind, reference: reference, workspace: workspace)
+    }
+    package func languageTestEntries(selectorKind: String, fileURL: URL?, workspace: URL) -> [BuildSystemEntry] {
+        service.languageTestEntries(selectorKind: selectorKind, fileURL: fileURL, workspace: workspace)
+    }
+    package func languageTestProject(in entry: BuildSystemEntry, fileURL: URL?, workspace: URL) -> BuildSelection? {
+        service.languageTestProject(in: entry, fileURL: fileURL, workspace: workspace)
+    }
+    package func performLanguageTests(_ entryID: String, request: BuildTestRequest, title: String,
+                                      output: @escaping @MainActor (String) -> Void,
+                              process: @escaping @MainActor (Int32?) -> Void = { _ in }) async throws -> LanguageTestBackendResult {
+        try await service.performLanguageTests(entryID, request: request, title: title, output: output, process: process)
+    }
+    package func performLanguageTests(selectorKind: String, fileURL: URL?, workspace: URL, title: String,
+                                      isCurrent: @escaping @MainActor () -> Bool,
+                              beforePreparing: @escaping @MainActor () async throws -> Void = {},
+                                      prepareSelectors: @escaping @MainActor () async throws -> [String],
+                                      output: @escaping @MainActor (String) -> Void,
+                              process: @escaping @MainActor (Int32?) -> Void = { _ in }) async throws -> LanguageTestBackendResult {
+        try await service.performLanguageTests(selectorKind: selectorKind, fileURL: fileURL, workspace: workspace,
+            title: title, isCurrent: isCurrent, beforePreparing: beforePreparing, prepareSelectors: prepareSelectors, output: output, process: process)
+    }
+    package func performLanguageTests(reference: BuildTestReference, workspace: URL, title: String,
+                                      isCurrent: @escaping @MainActor () -> Bool = { true },
+                                      beforePreparing: @escaping @MainActor () async throws -> Void = {},
+                                      output: @escaping @MainActor (String) -> Void,
+                                      process: @escaping @MainActor (Int32?) -> Void) async throws -> LanguageTestBackendResult {
+        try await service.performLanguageTests(reference: reference, workspace: workspace, title: title, isCurrent: isCurrent, beforePreparing: beforePreparing, output: output, process: process)
+    }
+    package func projectPath(containing fileURL: URL) -> String? {
+        guard let workspaceURL else { return nil }
+        return currentModels.flatMap(\.projects).filter {
+            let directory = workspaceURL.appendingPathComponent($0.path).standardizedFileURL.path
+            return fileURL.isFileURL && (fileURL.standardizedFileURL.path == directory || fileURL.standardizedFileURL.path.hasPrefix(directory + "/"))
+        }.sorted { $0.path.count > $1.path.count }.first?.path
+    }
     package func cancelDebugPreparation() { service.cancelDebugPreparation() }
 
     @discardableResult

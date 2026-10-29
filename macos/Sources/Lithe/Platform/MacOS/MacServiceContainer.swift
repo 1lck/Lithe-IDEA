@@ -572,14 +572,7 @@ final class MacServiceContainer {
                             registry: languagePackRegistry.testProviders,
                             executableResolver: executableResolver,
                             processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
-                            extensionRequiredLanguageIDs: testExtensionLanguageIDs,
-                            resultParser: { output, rootURL, reports in
-                                javaMavenOperations.mavenTestResults(
-                                    output: output,
-                                    projectRoot: rootURL,
-                                    reports: reports
-                                )
-                            }
+                            extensionRequiredLanguageIDs: testExtensionLanguageIDs
                         ),
                         buildSystems: buildSystems
                     )

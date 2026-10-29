@@ -29,7 +29,7 @@
       "properties": {
         "backend": { "description": "Required exactly when backend is present: the plugin's own process serving its web pages.", "enum": [1] },
         "buildModelInputs": {"description": "Optional public model sharing between already enabled workspace plugins; no installation, private function, or process authority. Required exactly when modelSharing or modelInputs is used. Consumers require buildProviders 6. Version 1 producers cannot also consume inputs.", "enum": [1]},
-        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs; version 7 non-sensitive native configuration sources; version 8 inline provider test reports.", "enum": [1, 2, 3, 4, 5, 6, 7, 8] },
+        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs; version 7 non-sensitive native configuration sources; version 8 inline provider test reports; version 9 opaque semantic test selectors.", "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9] },
         "buildSystems": { "description": "Declarative build detection, models, and command plans; v3 adds instance-scoped options; does not imply buildProviders support.", "enum": [1, 2, 3] },
         "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2] },
         "executableResolution": { "enum": [1, 2], "description": "Shared executable candidate ordering and strict selection." },
@@ -2670,6 +2670,11 @@
             "arguments"
           ],
           "properties": {
+            "selectorKinds": {
+              "type": "array", "maxItems": 16, "uniqueItems": true,
+              "description": "Public opaque semantic selector namespaces; provider tests and buildProviders 9 required.",
+              "items": {"type": "string", "maxLength": 120, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"}
+            },
             "discovery": {
               "type": "boolean",
               "description": "Opt in to lithe/build/discoverTests; requires provider test source and suite/case filters."

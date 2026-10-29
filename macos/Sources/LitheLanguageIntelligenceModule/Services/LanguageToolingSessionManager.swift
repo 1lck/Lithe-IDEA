@@ -912,6 +912,24 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     /// Discovers the Java test classes and methods in one source file for the
     /// native Tests tree. This reuses the same identifiers accepted by Debug.
+    /// JDT owns semantic identities and file membership. Build providers consume
+    /// these public fullName values unchanged; the host never derives a selector
+    /// from a filename, package declaration or method spelling.
+    package func javaBuildTestSelectors(fileURL: URL, identifier: String?, rootURL: URL) async throws -> [String] {
+        let items = try await resolvedJavaTestItems(fileURL: fileURL.standardizedFileURL, rootURL: rootURL.standardizedFileURL)
+        let selected: [JavaTestItem]
+        if let identifier {
+            selected = Self.flattenJavaTestItems(items).filter { $0.matches(identifier: identifier) }
+        } else {
+            selected = items
+        }
+        let values = Array(Set(selected.map(\.fullName).filter { !$0.isEmpty })).sorted()
+        guard !values.isEmpty, values.count <= 64, identifier == nil || values.count == 1 else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
+        }
+        return values
+    }
+
     package func discoverJavaTestItems(
         fileURL: URL,
         rootURL: URL

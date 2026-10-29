@@ -54,6 +54,7 @@ package struct BuildOperationSnapshot: Equatable, Sendable {
     package var state: BuildRunState
     package var exitCode: Int32?
     package var output: String
+    package var processID: Int32? = nil
 }
 
 /// One detected instance with what the host has loaded for it.
@@ -734,6 +735,43 @@ package final class BuildSystemService: ObservableObject {
     /// Runs the model command of a command-sourced instance. Other sources
     /// are read again by detection. `reason` tells a provider whether it
     /// may answer from its own snapshot.
+    /// Explicit execution readiness joins the service-owned model work. The
+    /// model remains shared if this caller stops; its native deadline still applies.
+    package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, workspace: URL) async throws {
+        guard workspace.standardizedFileURL == workspaceURL else { throw CancellationError() }
+        let workspaceGeneration = generation
+        let configurationRevision = providerConfigurationRevision
+        let sourcesRevision = fileRevision
+        let ids = entries.filter { entry in
+            if let reference { return entry.instance.pluginID == reference.pluginID && entry.instance.buildSystemID == reference.buildSystemID && entry.instance.root == reference.root }
+            return selectorKind.map(entry.declaration.testSelectorKinds.contains) ?? false
+        }.map(\.id)
+        if ids.isEmpty { return }
+        let (changes, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let observation = $entries.sink { _ in continuation.yield(()) }
+        defer { observation.cancel(); continuation.finish() }
+        for id in ids {
+            guard let entry = entry(id) else { throw CancellationError() }
+            if entry.modelState != .loading && (entry.modelState != .loaded || entry.isReloadRequired) { loadModel(id) }
+        }
+        for await _ in changes {
+            try Task.checkCancellation()
+            guard workspace.standardizedFileURL == workspaceURL, generation == workspaceGeneration,
+                  providerConfigurationRevision == configurationRevision, fileRevision == sourcesRevision else { throw CancellationError() }
+            var ready = true
+            for id in ids {
+                guard let entry = entry(id) else { throw CancellationError() }
+                if case .failed(let message) = entry.modelState { throw BuildSystemServiceError(message) }
+                if entry.modelState != .loaded || entry.isReloadRequired {
+                    guard modelTasks[id] != nil else { throw CancellationError() }
+                    ready = false
+                }
+            }
+            if ready { return }
+        }
+        throw CancellationError()
+    }
+
     package func loadModel(_ entryID: String, reason: BuildLoadReason = .initial) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         if preparingApplicationID != nil, runEntryID == entryID { stopRun() }
@@ -1955,10 +1993,13 @@ package final class BuildSystemService: ObservableObject {
         guard isValid() else { throw CancellationError() }
         let directory = outputDirectory(entry)
         let streamed = OutputCollector(limit: Self.decodedOutputLimit)
+        let target = Self.providerTarget(entry, workspaceURL: workspaceURL)
+        if isValid() { operation?.processID = providers.processID(for: target) }
         let result = try await providers.execute(
-            planned, on: Self.providerTarget(entry, workspaceURL: workspaceURL), timeout: .seconds(3600)
+            planned, on: target, timeout: .seconds(3600)
         ) { [weak self] progress in
             guard let self, isValid() else { return }
+            self.operation?.processID = providers.processID(for: target)
             if let text = progress.output {
                 streamed.append(text)
                 self.appendOutput(text, in: directory, owner: .run(run))

@@ -58,6 +58,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private var pollTask: Task<Void, Never>?
     private var state: LanguageServerSessionState = .stopped
     private var processID: Int32?
+    /// Native runtime identity, available only while this owned session runs.
+    package var processIdentifier: Int32? { isRunning ? processID : nil }
     /// Requests being written off the main actor. Core writes a request to
     /// the server's stdin synchronously, and a server that stopped reading
     /// blocks that write, so plugin requests are sent from a background task.

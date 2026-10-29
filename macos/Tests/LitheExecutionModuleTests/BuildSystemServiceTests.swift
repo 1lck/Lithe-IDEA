@@ -7,6 +7,83 @@ import Testing
 
 @MainActor
 struct BuildSystemServiceTests {
+    @Test(arguments: [false, true])
+    func languageTestHandoffSettlesReportsOrCancellationAndRetainsNativeProcessIdentity(cancel: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model: Self.model(name: "loaded"))])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/test")
+        planner.testPlanDeclaresResults = true
+        planner.inlineTestResults = true
+        let expected = try Self.testResults("failure", project: ".")
+        planner.decodedTestResults = expected
+        let providers = FakeBuildProviders()
+        providers.nativeProcessID = 412
+        let release = BuildTestGate(), finished = BuildTestGate()
+        providers.replyGate = release
+        providers.executionResult = BuildProviderExecutionResult(exitCode: 1, output: "test failure",
+            testResults: .object(["format": .string("litheTestResults"), "version": .integer(1), "tests": .array([])]))
+        let harness = Harness(planner: planner, providers: providers)
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        var result: Result<LanguageTestBackendResult, Error>?
+        var pids: [Int32] = []
+        let task = Task {
+            defer { finished.open() }
+            do { result = .success(try await harness.service.performLanguageTests(Self.instanceID, request: BuildTestRequest(), title: "Tests",
+                output: { _ in }, process: { if let pid = $0 { pids.append(pid) } })) }
+            catch { result = .failure(error) }
+        }
+        defer { task.cancel(); release.open(); harness.service.stop() }
+        try #require(await providers.requestStarted.waitUntilOpen())
+        if cancel { task.cancel() }
+        release.open()
+        try #require(await finished.waitUntilOpen())
+        await task.value
+        if cancel {
+            guard case .failure(let error) = result else { Issue.record("Cancellation must settle the native handoff"); return }
+            #expect(error is CancellationError)
+        } else {
+            let completed = try #require(result).get()
+            #expect(completed.exitCode == 1)
+            #expect(completed.reports == [expected])
+            #expect(pids.contains(412))
+            let reference = try #require(completed.references.values.first)
+            #expect(reference.projectID == "p")
+            #expect(reference.suite == "Suite")
+            let rerun = try await harness.service.performLanguageTests(reference: reference, workspace: Self.workspace,
+                title: "Rerun", output: { _ in }, process: { _ in })
+            #expect(rerun.reports == [expected])
+            let requests = providers.sent.count
+            harness.service.reset(workspaceURL: nil)
+            await #expect(throws: (any Error).self) {
+                try await harness.service.performLanguageTests(reference: reference, workspace: Self.workspace,
+                    title: "Revoked", output: { _ in }, process: { _ in })
+            }
+            #expect(providers.sent.count == requests)
+        }
+    }
+
+    @Test
+    func languageTestOwnershipUsesCurrentProjectBoundariesAndRevokesOldWorkspaces() async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"app","path":"app","name":"App"},{"id":"nested","path":"app/nested","name":"Nested"}]}"#)])
+        let harness = Harness(planner: planner, sources: [fixtureSource(testSelectorKinds: ["org.example.semantic"])])
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let source = Self.workspace.appendingPathComponent("app/nested/Test.java")
+        let entries = harness.service.languageTestEntries(selectorKind: "org.example.semantic", fileURL: source, workspace: Self.workspace)
+        let entry = try #require(entries.first)
+        #expect(harness.service.languageTestProject(in: entry, fileURL: source, workspace: Self.workspace)?.name == "Nested")
+        #expect(harness.service.languageTestEntries(selectorKind: "unclaimed", fileURL: source, workspace: Self.workspace).isEmpty)
+        #expect(harness.service.languageTestEntries(selectorKind: "org.example.semantic", fileURL: Self.workspace.appendingPathComponent("app-copy/Test.java"), workspace: Self.workspace).isEmpty)
+        harness.service.reset(workspaceURL: nil)
+        #expect(harness.service.languageTestEntries(selectorKind: "org.example.semantic", fileURL: source, workspace: Self.workspace).isEmpty)
+    }
+
     @Test
     func nativePreparationIdentityRejectsOptionsChangedAwayAndBackEvenWithoutModelSharing() async throws {
         let planner = FakeBuildPlanner()
@@ -2616,9 +2693,10 @@ struct BuildSystemServiceTests {
         """)
     }
 
-    private static func testResults(_ message: String) throws -> BuildTestResults {
-        try decode(BuildTestResults.self, """
-        {"tests": [{"suite": "Suite", "case": "case", "status": "failed", "message": "\(message)"}],
+    private static func testResults(_ message: String, project: String? = nil) throws -> BuildTestResults {
+        let field = project.map { "\"project\": \"\($0)\", " } ?? ""
+        return try decode(BuildTestResults.self, """
+        {"tests": [{\(field)"suite": "Suite", "case": "case", "status": "failed", "message": "\(message)"}],
          "summary": {"total": 1, "passed": 0, "failed": 1, "errors": 0, "skipped": 0},
          "success": false}
         """)
@@ -2806,14 +2884,14 @@ private func nativeEdits(_ snapshot: BuildNativeConfiguration) -> BuildNativeCon
     BuildNativeConfigurationEdits(sourceID: "user", revision: snapshot.sources[0].revision, values: ["localRepository": .string("/raw")])
 }
 
-private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false) -> BuildSystemPluginSource {
+private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false, testSelectorKinds: [String] = []) -> BuildSystemPluginSource {
     BuildSystemPluginSource(
         pluginID: pluginID,
         manifest: Data("{}".utf8),
         packageURL: URL(fileURLWithPath: "/plugins/\(pluginID)"),
         buildSystems: [DeclarativeBuildSystem(
             id: buildSystemID, displayName: "Fixture", modelSource: .command, tasks: [],
-            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration, providerTestReports: providerTestReports
+            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration, providerTestReports: providerTestReports, testSelectorKinds: testSelectorKinds
         )]
     )
 }
@@ -3701,6 +3779,8 @@ private final class FakeBuildProviders: BuildProviderRequesting {
         return reply
     }
 
+    var nativeProcessID: Int32?
+    func processID(for _: BuildProviderTarget) -> Int32? { nativeProcessID }
     var ignoresCancellation = false
     var executionResult = BuildProviderExecutionResult(exitCode: 0, output: "completed")
     var executionProgress: (@MainActor @Sendable (BuildProviderProgress) -> Void)?

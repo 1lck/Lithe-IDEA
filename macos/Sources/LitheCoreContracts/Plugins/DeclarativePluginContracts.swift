@@ -1257,6 +1257,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let fromTargets: Targets?
             }
             struct Test: Decodable {
+                let selectorKinds: [String]?
                 struct Results: Decodable { let decoder: String }
                 let scopes: [BuildScope]
                 let targetTags: [String]?
@@ -1331,7 +1332,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     providerRuns: run.filter { $0.source == "provider" }.map {
                         .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter)
                     }, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration,
-                    providerTestReports: test?.results?.decoder == "provider"
+                    providerTestReports: test?.results?.decoder == "provider",
+                    testSelectorKinds: test?.selectorKinds ?? []
                 )
             }
         }

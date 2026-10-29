@@ -21,7 +21,6 @@ package enum LanguageTestPlanError: LocalizedError, Equatable, Sendable {
 
 package struct StandardLanguageTestProvider: LanguageTestProvider {
     private enum StandardTestFramework: String {
-        case maven
         case gradle
         case go
         case pytest
@@ -47,7 +46,9 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
     /// contains a file whose name looks like a test. The legacy overload above
     /// remains permissive for callers that only have a file list.
     package func discoverTests(context: LanguageTestContext) -> [LanguageTestItem] {
-        guard framework(for: descriptor.id, context: context) != nil else { return [] }
+        guard descriptor.id == "java" || framework(for: descriptor.id, context: context) != nil else { return [] }
+        if descriptor.id == "java", !context.projectFiles.contains(where: { descriptor.handles(fileURL: $0) }),
+           context.projectFileNames.isDisjoint(with: ["build.gradle", "build.gradle.kts", "gradlew"]) { return [] }
         return makeTestItems(
             workspaceURL: context.workspaceURL,
             files: context.projectFiles
@@ -84,17 +85,12 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         context: LanguageTestContext
     ) throws -> LanguageTestPlan {
         let root = context.workspaceURL
+        guard scope.buildReference == nil else { throw LanguageTestPlanError.unsupportedProvider(descriptor.displayName) }
         guard let framework = framework(for: descriptor.id, context: context) else {
             throw LanguageTestPlanError.unsupportedProvider(descriptor.displayName)
         }
         let plan: SharedLaunchPlan
         switch framework {
-        case .maven:
-            plan = SharedLaunchPlan(
-                executable: .toolchain("project-maven"),
-                arguments: ["-Dstyle.color=always"] + javaArguments(scope: scope, root: root),
-                workingDirectory: "."
-            )
         case .gradle:
             plan = SharedLaunchPlan(
                 executable: .toolchain("project-gradle"),
@@ -150,10 +146,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
                 || names.contains("gradlew") {
                 return .gradle
             }
-            // Keep the old workspaceURL-only overload usable by treating an
-            // empty marker set as Maven, but never claim Maven for a real
-            // workspace that has no Maven/Gradle descriptor.
-            return names.isEmpty || names.contains("pom.xml") ? .maven : nil
+            return nil
         case "go":
             return context.projectFiles.isEmpty
                 || names.contains("go.mod")
@@ -197,17 +190,6 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         }
     }
 
-    private func javaArguments(scope: LanguageTestScope, root: URL) -> [String] {
-        switch scope {
-        case .workspace:
-            return ["test"]
-        case .file(let url):
-            return ["-Dtest=" + url.deletingPathExtension().lastPathComponent, "test"]
-        case .testCase(let identifier, _):
-            return ["-Dtest=" + normalizedJavaTestIdentifier(identifier), "test"]
-        }
-    }
-
     private func gradleArguments(scope: LanguageTestScope, root: URL) throws -> [String] {
         // Keep test workers in this invocation's owned process tree, including
         // when an unrelated reusable Gradle daemon is already running.
@@ -217,7 +199,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
             break
         case .file(let url):
             arguments.append(contentsOf: ["--tests", try gradleSelector(for: url, root: root)])
-        case .testCase(let identifier, _):
+        case .testCase(let identifier, _, _):
             arguments.append(contentsOf: [
                 "--tests",
                 normalizedJavaTestIdentifier(identifier).replacingOccurrences(of: "#", with: "."),
@@ -241,7 +223,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
             return ["test", "./..."]
         case .file(let url):
             return ["test", try packageArgument(for: url, root: root)]
-        case .testCase(let identifier, let fileURL):
+        case .testCase(let identifier, let fileURL, _):
             let package: String
             if let fileURL {
                 package = try packageArgument(for: fileURL, root: root)
@@ -261,7 +243,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
             break
         case .file(let url):
             arguments.append(try checkedRelativePath(url, root: root))
-        case .testCase(let identifier, let fileURL):
+        case .testCase(let identifier, let fileURL, _):
             if let fileURL {
                 arguments.append(try checkedRelativePath(fileURL, root: root) + "::" + identifier)
             } else {
@@ -285,7 +267,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
             break
         case .file(let url):
             arguments.append(try checkedRelativePath(url, root: root))
-        case .testCase(let identifier, let fileURL):
+        case .testCase(let identifier, let fileURL, _):
             if let fileURL { arguments.append(try checkedRelativePath(fileURL, root: root)) }
             switch framework {
             case .bun:
@@ -307,7 +289,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
                 return ["test", "--test", url.deletingPathExtension().lastPathComponent]
             }
             return ["test"]
-        case .testCase(let identifier, _):
+        case .testCase(let identifier, _, _):
             return ["test", identifier]
         }
     }
@@ -321,7 +303,7 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         switch scope {
         case .workspace: return "All \(descriptor.displayName) Tests"
         case .file(let url): return url.lastPathComponent
-        case .testCase(let identifier, _): return identifier
+        case .testCase(let identifier, _, _): return identifier
         }
     }
 

@@ -120,44 +120,6 @@ struct MavenRuntimeTests {
     }
 
     @Test
-    func nestedMavenRunConfigurationsUseWorkspaceRelativeModulePaths() {
-        let workspaceRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-nested-maven-run-\(UUID().uuidString)", isDirectory: true)
-        let mavenRoot = URL(
-            fileURLWithPath: workspaceRoot.path + "/projects/demo",
-            isDirectory: true
-        )
-        let moduleRoot = mavenRoot.appendingPathComponent("service", isDirectory: true)
-        let module = MavenModule(
-            relativePath: "service",
-            url: moduleRoot,
-            groupID: "com.example",
-            artifactID: "service-api",
-            version: "1.0",
-            packaging: "jar",
-            modules: []
-        )
-        let project = MavenProject(
-            rootURL: mavenRoot,
-            pomURL: mavenRoot.appendingPathComponent("pom.xml"),
-            groupID: "com.example",
-            artifactID: "demo",
-            version: "1.0",
-            packaging: "pom",
-            modules: [module],
-            profiles: [],
-            hasWrapper: false
-        )
-
-        let modules = RustJavaMavenOperations(core: RustCoreBridge()).workspaceMavenModules(
-            in: project,
-            relativeTo: workspaceRoot
-        )
-        #expect(modules.map { $0.path } == ["projects/demo/service"])
-        #expect(modules.map { $0.module.relativePath } == ["service"])
-    }
-
-    @Test
     func mavenLaunchPlanPayloadDecodesSharedCoreResponse() throws {
         let json = #"""
         {

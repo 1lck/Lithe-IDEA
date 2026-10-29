@@ -9,6 +9,93 @@ import Testing
 @MainActor
 struct ExecutionModuleTests {
     @Test
+    func backendTestsPreserveProjectIdentityAndRerunWithFreshFactsWithoutAHostProcess() async throws {
+        var processes = 0
+        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: {
+            processes += 1; return TestStreamingProcess()
+        })
+        defer { service.reset() }
+        let report = try JSONDecoder().decode(BuildTestResults.self, from: Data(#"{"tests":[{"project":"a","suite":"Same","case":"checks","status":"failed"},{"project":"b","suite":"Same","case":"checks","status":"passed"}],"summary":{"total":2,"passed":1,"failed":1,"errors":0,"skipped":0},"success":false}"#.utf8))
+        var requests = 0
+        service.runUsingBackend(providerID: "java", scope: .workspace, workspaceURL: URL(fileURLWithPath: "/workspace"), label: "Tests") { output, _ in
+            requests += 1
+            output("request \(requests)")
+            return LanguageTestBackendResult(exitCode: 1, reports: [report])
+        }
+        try await awaitTestValue(service.$state) { $0 == .failed(exitCode: 1) }
+        #expect(service.results?.testsRun == 2)
+        #expect(service.testOutcomes.map(\.project) == ["a", "b"])
+        #expect(service.canRerun)
+        #expect(service.rerun())
+        try await awaitTestValue(service.$state) { $0 == .failed(exitCode: 1) }
+        #expect(requests == 2)
+        #expect(service.output == "request 2")
+        #expect(service.testOutcomes.count == 2)
+        #expect(processes == 0)
+    }
+
+    @Test
+    func backendCoverageClearsRemovedClassMethodsButPreservesMethodSiblingsAndOtherProjects() async throws {
+        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        defer { service.reset() }
+        func run(_ tests: [[String: String]], coverage: [[String: String]]? = nil) async throws {
+            var json: [String: Any] = ["tests": tests, "summary": ["total": tests.count, "passed": tests.count, "failed": 0, "errors": 0, "skipped": 0], "success": true]
+            if let coverage { json["coverage"] = coverage }
+            let report = try JSONDecoder().decode(BuildTestResults.self, from: JSONSerialization.data(withJSONObject: json))
+            service.runUsingBackend(providerID: "java", scope: .workspace, workspaceURL: URL(fileURLWithPath: "/workspace"), label: "Tests") { _, _ in
+                LanguageTestBackendResult(exitCode: 0, reports: [report])
+            }
+            try await awaitTestValue(service.$state) { $0 == .passed }
+        }
+        func test(_ project: String, _ method: String) -> [String: String] {
+            ["project": project, "suite": "Same", "case": method, "status": "passed"]
+        }
+        try await run([test("a", "old"), test("a", "kept"), test("b", "old")])
+        try await run([test("a", "kept")], coverage: [["project": "a", "suite": "Same", "case": "kept"]])
+        #expect(service.testOutcomes.count == 3)
+        try await run([test("a", "new")], coverage: [["project": "a", "suite": "Same"]])
+        #expect(service.testOutcomes.map { ($0.project ?? "") + ":" + $0.method }.sorted() == ["a:new", "b:old"])
+        try await run([], coverage: [["project": "a", "suite": "Same"]])
+        #expect(service.testOutcomes.map(\.project) == ["b"])
+    }
+
+    @Test
+    func backendTestsIgnoreCancelledRequestsThatReturnAfterReplacement() async throws {
+        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        var observedProcesses: [Int32] = []
+        let observation = service.$processID.sink { if let pid = $0 { observedProcesses.append(pid) } }
+        defer { observation.cancel() }
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        let finished = AsyncStream<Void>.makeStream()
+        defer { service.reset(); entered.continuation.finish(); release.continuation.finish(); finished.continuation.finish() }
+        service.runUsingBackend(providerID: "java", scope: .workspace, workspaceURL: URL(fileURLWithPath: "/old"), label: "Old") { output, process in
+            entered.continuation.yield(())
+            for await _ in release.stream { break }
+            process(999)
+            output("late old output")
+            finished.continuation.yield(())
+            return LanguageTestBackendResult(exitCode: 3, reports: [])
+        }
+        try await awaitSignal(entered.stream)
+        service.stop()
+        #expect(service.state == .cancelled)
+        service.runUsingBackend(providerID: "java", scope: .workspace, workspaceURL: URL(fileURLWithPath: "/new"), label: "New") { output, process in
+            process(412)
+            output("new output")
+            return LanguageTestBackendResult(exitCode: 0, reports: [])
+        }
+        release.continuation.yield(())
+        try await awaitSignal(finished.stream)
+        try await awaitTestValue(service.$state) { $0 == .passed }
+        #expect(service.output == "new output")
+        #expect(service.errorMessage == nil)
+        #expect(observedProcesses.contains(412))
+        #expect(!observedProcesses.contains(999))
+        #expect(service.processID == nil)
+    }
+
+    @Test
     func projectLoadingUsesProviderFactsAndRevokesTheirProjectionWhenTheModelDisappears() async {
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let graph = makeTestGraph(runOperations: TestReadyRunConfigurationOperations())
@@ -1018,72 +1105,13 @@ struct ExecutionModuleTests {
         #expect(service.errorMessage == "go testing extension is not active.")
     }
 
-    @Test
-    func mavenTestsParseResultsAndRerunTheLastSelection() async throws {
-        let root = URL(fileURLWithPath: "/workspace/maven-tests", isDirectory: true)
-        let source = root.appendingPathComponent(
-            "src/test/java/com/example/CalculatorTest.java"
-        )
-        let pom = root.appendingPathComponent("pom.xml")
-        let firstProcess = TestStreamingProcess()
-        let secondProcess = TestStreamingProcess()
-        var factoryCall = 0
-        let parsedResults = MavenTestResults(
-            testsRun: 3,
-            failures: 1,
-            errors: 0,
-            skipped: 1,
-            passed: 1,
-            success: false,
-            failureDetails: []
-        )
-        let parser = TestResultParserRecorder(result: parsedResults)
-        let service = LanguageTestService(
-            executableResolver: TestExecutableResolver(),
-            processFactory: {
-                factoryCall += 1
-                return factoryCall == 1 ? firstProcess : secondProcess
-            },
-            resultParser: parser.parse,
-            now: { Date(timeIntervalSince1970: 1_700_000_000) }
-        )
-
-        #expect(service.run(
-            providerID: "java",
-            scope: .file(source),
-            workspaceURL: root,
-            projectFiles: [pom, source]
-        ))
-        #expect(firstProcess.startRequests.first?.arguments == ["-Dstyle.color=always", "-Dtest=CalculatorTest", "test"])
-        #expect(firstProcess.startRequests.first?.timeoutMilliseconds == 120_000)
-        defer { service.reset() }
-
-        firstProcess.onOutput?("Tests run: 3, Failures: 1, Errors: 0, Skipped: 1\n")
-        firstProcess.onTermination?(1)
-        try await awaitTestValue(service.$state, matching: { $0 == .failed(exitCode: 1) })
-        #expect(service.state == .failed(exitCode: 1))
-        #expect(service.results == parsedResults)
-        #expect(parser.calls == 1)
-        #expect(parser.output.contains("Tests run: 3"))
-        #expect(parser.reports == MavenTestReportRequest(
-            sourcePath: "src/test/java/com/example/CalculatorTest.java",
-            classes: [],
-            notBeforeMillis: 1_700_000_000_000
-        ))
-        #expect(!parser.ranOnMainThread)
-        #expect(service.canRerun)
-
-        #expect(service.rerun())
-        #expect(secondProcess.startRequests.first?.arguments == ["-Dstyle.color=always", "-Dtest=CalculatorTest", "test"])
-    }
-
     @Test func testProcessIdentityRejectsOldRunsAndClearsOnStop() async throws {
         let root = URL(fileURLWithPath: "/workspace/test-performance")
         let process = TestStreamingProcess()
         let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { process })
         defer { service.reset() }
         #expect(service.run(providerID: "java", scope: .workspace, workspaceURL: root,
-                            projectFiles: [root.appendingPathComponent("pom.xml")]))
+                            projectFiles: [root.appendingPathComponent("build.gradle")]))
         let firstID = try #require(service.runID)
         let firstEvent = try #require(process.onStateChange)
         firstEvent(ProcessLifecycleEvent(operationID: firstID.uuidString, state: .running,
@@ -1120,38 +1148,38 @@ struct ExecutionModuleTests {
         let files = [root.appendingPathComponent("pom.xml"), first, second,
             root.appendingPathComponent("package.json"), root.appendingPathComponent("sample.test.js"),
             root.appendingPathComponent("pyproject.toml"), root.appendingPathComponent("test_sample.py")]
-        let outcomes = [MavenTestCaseOutcome(className: "demo.FirstTest", method: "check", status: "passed")]
-        let results = MavenTestResults(testsRun: 1, failures: 0, errors: 0, skipped: 0, passed: 1,
-            success: true, failureDetails: [], testCases: outcomes)
-        let process = TestStreamingProcess()
-        let service = LanguageTestService(executableResolver: TestExecutableResolver(),
-            processFactory: { process }, resultParser: { _, _, _ in results })
+        let report = try JSONDecoder().decode(BuildTestResults.self, from: Data(#"{"tests":[{"suite":"demo.FirstTest","case":"check","status":"passed"}],"summary":{"total":1,"passed":1,"failed":0,"errors":0,"skipped":0},"success":true}"#.utf8))
+        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        func run(_ scope: LanguageTestScope) {
+            service.runUsingBackend(providerID: "java", scope: scope, workspaceURL: root, label: "Tests") { _, _ in
+                LanguageTestBackendResult(exitCode: 0, reports: [report])
+            }
+        }
         defer { service.reset() }
         service.discover(workspaceURL: root, files: files)
         let discovered = service.itemsByProviderID
         for provider in ["java", "node", "python"] {
             #expect(discovered[provider]?.contains { $0.kind == .workspace } == true)
         }
-        #expect(service.run(providerID: "java", scope: .testCase(identifier: "demo.FirstTest#check", fileURL: first),
-            workspaceURL: root, projectFiles: files))
-        process.onTermination?(0)
+        run(.testCase(identifier: "demo.FirstTest#check", fileURL: first))
         try await awaitTestValue(service.$state, matching: { $0 == .passed })
-        #expect(service.results == results)
-        #expect(service.testOutcomes == outcomes)
+        let outcomes = service.testOutcomes
+        #expect(service.results?.testsRun == 1)
+        #expect(outcomes.first?.className == "demo.FirstTest")
         if clearOnly { service.clearOutput() } else { service.closeRun() }
         #expect(service.results == nil)
         #expect(service.testOutcomes == outcomes, "Editor marker history must outlive the visible result")
         #expect(service.itemsByProviderID == discovered)
-        #expect(service.run(providerID: "java", scope: .file(second), workspaceURL: root, projectFiles: files))
+        run(.file(second))
         #expect(service.hasRun(providerID: "java", scope: .file(second)))
-        #expect(service.run(providerID: "java", scope: .workspace, workspaceURL: root, projectFiles: files))
+        run(.workspace)
         #expect(service.hasRun(providerID: "java", scope: .workspace))
     }
 
     @Test(arguments: [false, true])
     func closingTestRunPreservesDiscoveryAndAllowsNewRun(completed: Bool) async throws {
         let root = URL(fileURLWithPath: "/workspace/test-tab", isDirectory: true)
-        let files = [root.appendingPathComponent("pom.xml")]
+        let files = [root.appendingPathComponent("build.gradle")]
         let process = TestStreamingProcess()
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
@@ -1720,66 +1748,17 @@ struct ExecutionModuleTests {
         #expect(recorder.processes.count == 1)
     }
 
-    @Test
-    func mavenTestTimeoutIsPreservedWhenTerminationArrivesLate() async throws {
-        let root = URL(fileURLWithPath: "/workspace/maven-timeout", isDirectory: true)
-        let source = root.appendingPathComponent(
-            "src/test/java/com/example/CalculatorTest.java"
-        )
-        let process = TestStreamingProcess()
-        let service = LanguageTestService(
-            executableResolver: TestExecutableResolver(),
-            processFactory: { process },
-            resultParser: { _, _, _ in nil }
-        )
-
-        #expect(service.run(
-            providerID: "java",
-            scope: .file(source),
-            workspaceURL: root,
-            projectFiles: [root.appendingPathComponent("pom.xml"), source]
-        ))
-        let request = try #require(process.startRequests.first)
-        #expect(request.timeoutMilliseconds == 120_000)
-        defer { service.reset() }
-
-        process.onStateChange?(ProcessLifecycleEvent(
-            operationID: request.operationID,
-            state: .stopping,
-            exitCode: nil,
-            message: "Process timed out"
-        ))
-        try await awaitTestValue(service.$errorMessage, matching: { $0 != nil })
-        #expect(service.state == .running)
-        #expect(service.errorMessage == "Maven test run timed out after 120 seconds.")
-
-        process.onTermination?(0)
-        try await awaitTestValue(service.$state, matching: { $0 == .timedOut })
-        #expect(service.state == .timedOut)
-        #expect(!service.isRunning)
-    }
-
     @Test(arguments: [LanguageTestRunState.passed, .failed(exitCode: 7), .cancelled])
-    func nonMavenLanguageTestsDoNotParseMavenResults(expectedState: LanguageTestRunState) async throws {
+    func processLanguageTestsRemainIndependentFromProviderReports(expectedState: LanguageTestRunState) async throws {
         let root = URL(fileURLWithPath: "/workspace/gradle-tests", isDirectory: true)
         let source = root.appendingPathComponent(
             "src/test/java/com/example/CalculatorTest.java"
         )
         let buildFile = root.appendingPathComponent("build.gradle")
         let process = TestStreamingProcess()
-        let parser = TestResultParserRecorder(result: MavenTestResults(
-            testsRun: 1,
-            failures: 0,
-            errors: 0,
-            skipped: 0,
-            passed: 1,
-            success: true,
-            failureDetails: []
-        ))
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
-            processFactory: { process },
-            resultParser: parser.parse
+            processFactory: { process }
         )
 
         #expect(service.run(
@@ -1797,48 +1776,6 @@ struct ExecutionModuleTests {
         else { process.onTermination?(0) }
         try await awaitTestValue(service.$state, matching: { $0 == expectedState })
         #expect(service.state == expectedState)
-        #expect(service.results == nil)
-        #expect(parser.calls == 0)
-    }
-
-    @Test
-    func stoppingMavenTestsIgnoresLateTerminationEvents() async throws {
-        let root = URL(fileURLWithPath: "/workspace/maven-cancel", isDirectory: true)
-        let source = root.appendingPathComponent(
-            "src/test/java/com/example/CalculatorTest.java"
-        )
-        let process = TestStreamingProcess()
-        let service = LanguageTestService(
-            executableResolver: TestExecutableResolver(),
-            processFactory: { process },
-            resultParser: { _, _, _ in
-                MavenTestResults(
-                    testsRun: 1,
-                    failures: 0,
-                    errors: 0,
-                    skipped: 0,
-                    passed: 1,
-                    success: true,
-                    failureDetails: []
-                )
-            }
-        )
-
-        #expect(service.run(
-            providerID: "java",
-            scope: .file(source),
-            workspaceURL: root,
-            projectFiles: [root.appendingPathComponent("pom.xml"), source]
-        ))
-        service.stop()
-        #expect(service.state == .cancelled)
-        #expect(!process.isRunning)
-
-        process.onTermination?(0)
-        await Task.yield()
-        await Task.yield()
-
-        #expect(service.state == .cancelled)
         #expect(service.results == nil)
     }
 
@@ -2183,53 +2120,6 @@ private func awaitSignal(_ stream: AsyncStream<Void>, timeout: Duration = .secon
         return result
     }
     if !received { throw TestObservationError.deadlineExceeded }
-}
-
-private final class TestResultParserRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private let result: MavenTestResults?
-    private var recordedCalls = 0
-    private var recordedOutput = ""
-    private var recordedMainThread = false
-    private var recordedReports: MavenTestReportRequest?
-
-    init(result: MavenTestResults?) {
-        self.result = result
-    }
-
-    func parse(output: String, rootURL: URL, reports: MavenTestReportRequest?) -> MavenTestResults? {
-        lock.lock()
-        recordedCalls += 1
-        recordedOutput = output
-        recordedReports = reports
-        recordedMainThread = Thread.isMainThread
-        lock.unlock()
-        return result
-    }
-
-    var reports: MavenTestReportRequest? {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedReports
-    }
-
-    var calls: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedCalls
-    }
-
-    var output: String {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedOutput
-    }
-
-    var ranOnMainThread: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return recordedMainThread
-    }
 }
 
 @MainActor
@@ -2699,70 +2589,4 @@ private final class TestLanguageExecutionSession: LanguageExecutionSession {
     func sleep() async {}
     func shutdown() async {}
     func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
-}
-
-/// Editor Run markers read per-method outcomes from the reports a Maven test
-/// run wrote; these pure helpers decide which reports and which outcomes.
-struct MavenTestOutcomeTests {
-    private let root = URL(fileURLWithPath: "/work/app")
-
-    @Test
-    func testCaseRunNamesItsClassAndSourceFile() {
-        let request = LanguageTestService.mavenReportRequest(
-            scope: .testCase(
-                identifier: "demo.OrderTest$Refunds#refunds()",
-                fileURL: root.appendingPathComponent("service/src/test/java/demo/OrderTest.java")
-            ),
-            workspaceURL: root,
-            startedAt: Date(timeIntervalSince1970: 1_700_000_000)
-        )
-
-        #expect(request == MavenTestReportRequest(
-            sourcePath: "service/src/test/java/demo/OrderTest.java",
-            classes: ["demo.OrderTest$Refunds"],
-            notBeforeMillis: 1_700_000_000_000
-        ))
-    }
-
-    @Test
-    func methodRerunPreservesFailuresOfOtherMethodsAndNestedClasses() {
-        let className = "demo.OrderTest"
-        let previous = [
-            MavenTestCaseOutcome(className: className, method: "creates", status: "failed"),
-            MavenTestCaseOutcome(className: className, method: "deletes", status: "failed"),
-            MavenTestCaseOutcome(className: className + "$Nested", method: "creates", status: "failed"),
-        ]
-        let passed = MavenTestCaseOutcome(className: className, method: "creates", status: "passed")
-        let scope = LanguageTestScope.testCase(identifier: className + "#creates()", fileURL: root.appendingPathComponent("OrderTest.java"))
-        let method = LanguageTestService.mavenTestMethod(in: scope)
-        #expect(method == "creates")
-        #expect(LanguageTestService.mergedOutcomes(
-            previous, requestedClasses: [className], requestedMethod: method, recorded: [passed]
-        ) == [previous[1], previous[2], passed])
-        #expect(LanguageTestService.mavenTestMethod(in: .workspace) == nil)
-        #expect(LanguageTestService.mavenTestMethod(in: .testCase(identifier: className, fileURL: nil)) == nil)
-    }
-
-    @Test
-    func runReplacesOnlyTheOutcomesOfClassesItCovered() {
-        let previous = [
-            MavenTestCaseOutcome(className: "demo.OrderTest", method: "creates", status: "passed"),
-            MavenTestCaseOutcome(className: "demo.OrderTest$Refunds", method: "refunds", status: "passed"),
-            MavenTestCaseOutcome(className: "demo.OtherTest", method: "other", status: "failed"),
-        ]
-        let recorded = [
-            MavenTestCaseOutcome(className: "demo.OrderTest", method: "creates", status: "failed", message: "boom"),
-        ]
-
-        #expect(LanguageTestService.mergedOutcomes(
-            previous,
-            requestedClasses: ["demo.OrderTest"],
-            recorded: recorded
-        ) == [previous[2], recorded[0]])
-        #expect(LanguageTestService.mergedOutcomes(
-            previous,
-            requestedClasses: [],
-            recorded: recorded
-        ) == [previous[2], recorded[0]])
-    }
 }

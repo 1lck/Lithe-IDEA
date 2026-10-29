@@ -7,6 +7,30 @@ import Testing
 
 @MainActor
 struct LanguageIntelligenceModuleTests {
+    @Test(arguments: ["file", "method-handler", "missing"])
+    func buildTestSelectorsComeFromJdtAndRetainOpaqueFullNames(selection: String) async throws {
+        let root = URL(fileURLWithPath: "/workspace/semantic-tests")
+        let source = root.appendingPathComponent("custom-source/Unexpected.java")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: source))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        let task = Task { try await manager.javaBuildTestSelectors(fileURL: source,
+            identifier: selection == "file" ? nil : selection, rootURL: root) }
+        defer { task.cancel(); manager.stopAllLanguageServers() }
+        try await session.waitUntilStarted()
+        session.publish(.ready)
+        let request = try await session.waitForExecuteCommand()
+        #expect(request.command == "javaTestItems")
+        #expect(request.arguments == [.string(source.absoluteString)])
+        session.completeJavaTestItems(.success(JavaTestItems(items: [
+            JavaTestItem(id: "class", label: "Display class", fullName: "example.Actual$Nested", projectName: "module", kind: 0, level: 5,
+                children: [JavaTestItem(id: "method", label: "Display method", fullName: "example.Actual$Nested#works()", projectName: "module",
+                    kind: 0, level: 6, jdtHandler: "method-handler")])
+        ])))
+        if selection == "missing" { await #expect(throws: (any Error).self) { try await task.value } }
+        else { #expect(try await task.value == [selection == "file" ? "example.Actual$Nested" : "example.Actual$Nested#works()"] ) }
+    }
+
     @Test(arguments: ["Main.java", "main.go", "main.rs"])
     func sessionStartupChecksCurrentPreferenceForEachWorkspace(fileName: String) throws {
         let root = URL(fileURLWithPath: "/workspace/disabled-lsp", isDirectory: true)

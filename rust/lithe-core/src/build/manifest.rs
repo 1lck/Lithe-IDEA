@@ -714,6 +714,18 @@ pub(crate) enum WorkingDirectory {
     Root,
 }
 
+fn is_test_selector_kind(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 120
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+}
+
 /// How tests run and how their results are read.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -724,6 +736,9 @@ pub(crate) struct TestDeclaration {
     pub(crate) target_tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) filters: Vec<TestFilter>,
+    /// Public opaque selector namespaces interpreted only by the owning backend.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) selector_kinds: Vec<String>,
     /// Omitted for argv templates; provider sends a typed test request.
     #[serde(default, skip_serializing_if = "TaskSource::is_command")]
     pub(crate) source: TaskSource,
@@ -1421,6 +1436,17 @@ impl BuildSystemDeclaration {
                 "Provider-owned test reports require buildProviders 8.",
             ));
         }
+        if self
+            .test
+            .as_ref()
+            .is_some_and(|test| !test.selector_kinds.is_empty())
+            && context.build_providers_version < 9
+        {
+            return Err(invalid(
+                &field,
+                "Opaque test selectors require buildProviders 9.",
+            ));
+        }
         if provider_tests && context.build_providers_version < 3 {
             return Err(invalid(&field, "Provider tests require buildProviders 3."));
         }
@@ -2037,6 +2063,22 @@ impl BuildSystemDeclaration {
             &[Scope::Workspace, Scope::Project, Scope::Target],
         )?;
         check_target_tags(&mut test.target_tags, &test.scopes, &field)?;
+        let distinct_selector_kinds: BTreeSet<_> = test.selector_kinds.iter().collect();
+        if !test.selector_kinds.is_empty()
+            && (test.source != TaskSource::Provider
+                || test.selector_kinds.len() > 16
+                || distinct_selector_kinds.len() != test.selector_kinds.len()
+                || test
+                    .selector_kinds
+                    .iter()
+                    .any(|kind| !is_test_selector_kind(kind)))
+        {
+            return Err(invalid(
+                &field,
+                "Test selectorKinds require a provider and bounded identifiers.",
+            ));
+        }
+        test.selector_kinds.sort();
         test.filters.sort();
         test.filters.dedup();
         if test.discovery

@@ -128,6 +128,7 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public let modelInputs: [ModelInput]
     public let providerRuns: [ProviderRun]
     public let testDiscovery: Bool
+    public let testSelectorKinds: [String]
     /// Empty when the build system lists no dependencies.
     public let dependencyScopes: [BuildScope]
     /// The build system declares a provider launch. Installation verifies
@@ -139,7 +140,7 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public init(
         id: String, displayName: String, icon: PluginUIIcon? = nil, modelSource: ModelSource?,
         options: [Option] = [], tasks: [Task], testScopes: [BuildScope], testTargetTags: [String] = [],
-        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = [], sharesModel: Bool = false, modelInputs: [ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false
+        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = [], sharesModel: Bool = false, modelInputs: [ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false, testSelectorKinds: [String] = []
     ) {
         self.id = id; self.displayName = displayName; self.icon = icon; self.modelSource = modelSource
         self.options = options; self.tasks = tasks
@@ -148,6 +149,7 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
         self.nativeConfiguration = nativeConfiguration
         self.providerTestReports = providerTestReports
         self.testDiscovery = testDiscovery
+        self.testSelectorKinds = testSelectorKinds
         self.sharesModel = sharesModel; self.modelInputs = modelInputs
         self.providerRuns = providerRuns
     }
@@ -799,6 +801,8 @@ package protocol BuildRunLaunching: AnyObject {
 }
 
 package struct BuildTestRequest: Equatable, Sendable {
+    package let selectorKind: String?
+    package let selectors: [String]
     package let project: BuildSelection?
     package let target: BuildSelection?
     package let suite: String?
@@ -810,10 +814,12 @@ package struct BuildTestRequest: Equatable, Sendable {
 
     package init(
         project: BuildSelection? = nil, target: BuildSelection? = nil, suite: String? = nil,
-        testCase: String? = nil, userArguments: [String] = [], projects: [String] = []
+        testCase: String? = nil, userArguments: [String] = [], projects: [String] = [],
+        selectorKind: String? = nil, selectors: [String] = []
     ) {
         self.project = project; self.target = target; self.suite = suite; self.testCase = testCase
         self.userArguments = userArguments; self.projects = projects
+        self.selectorKind = selectorKind; self.selectors = selectors
     }
 }
 
@@ -942,6 +948,14 @@ package enum BuildCommandOutput: Equatable, Sendable {
 }
 
 package struct BuildTestResults: Equatable, Sendable, Decodable {
+    /// Completed backend scope, independent of opaque language selectors.
+    package struct Coverage: Equatable, Sendable, Decodable {
+        package let project: String
+        package let suite: String?
+        package let testCase: String?
+        private enum CodingKeys: String, CodingKey { case project, suite; case testCase = "case" }
+    }
+    package let coverage: [Coverage]?
     package struct TestCase: Equatable, Identifiable, Sendable, Decodable {
         package enum Status: String, Equatable, Sendable {
             case passed, failed, error, skipped
@@ -1215,6 +1229,8 @@ package struct BuildProviderTarget: Hashable, Sendable {
 /// to the host alone, over its own stdio channel.
 @MainActor
 package protocol BuildProviderRequesting: AnyObject {
+    /// Host-observed process root for owned worker sampling; never a backend-supplied PID.
+    func processID(for target: BuildProviderTarget) -> Int32?
     /// The provider's reply, still undecoded. Cancelling the task cancels
     /// the request in the process.
     func send(
@@ -1250,6 +1266,7 @@ package protocol BuildProviderRequesting: AnyObject {
 }
 
 package extension BuildProviderRequesting {
+    func processID(for _: BuildProviderTarget) -> Int32? { nil }
     func prepareDebug(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
                       progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue {
         throw PluginFunctionFailure(code: "plugin.build.unavailable", message: L10n.string("The build provider returned an invalid launch plan."))

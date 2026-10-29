@@ -121,6 +121,11 @@ pub(crate) struct TestPlanRequest {
     /// workspace run collects reports from each of them.
     #[serde(default)]
     pub(crate) projects: Vec<String>,
+    /// One declared public namespace; values remain opaque to Core.
+    #[serde(default)]
+    pub(crate) selector_kind: Option<String>,
+    #[serde(default)]
+    pub(crate) selectors: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -663,6 +668,24 @@ pub(crate) fn test_plan(
     } else {
         check_user_arguments(&request.user_arguments, &test.arguments)?;
     }
+    if let Some(kind) = &request.selector_kind {
+        if !test.selector_kinds.contains(kind)
+            || request.suite.is_some()
+            || request.case.is_some()
+            || request.selectors.len() > 64
+            || request.selectors.iter().any(|value| {
+                value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control)
+            })
+        {
+            return Err(invalid_selection(
+                "Unsupported, conflicting or invalid opaque test selectors.",
+            ));
+        }
+    } else if !request.selectors.is_empty() {
+        return Err(invalid_selection(
+            "Opaque test selectors need their declared namespace.",
+        ));
+    }
     check_test_text(&request.suite, "test suite")?;
     check_test_text(&request.case, "test case")?;
     for (requested, filter) in [
@@ -772,6 +795,11 @@ pub(crate) fn test_plan(
     if test.source == TaskSource::Provider {
         let mut params = Map::new();
         params.insert("userArguments".to_string(), json!(request.user_arguments));
+        if let Some(kind) = &request.selector_kind {
+            params.insert("selectorKind".to_string(), json!(kind));
+            params.insert("selectors".to_string(), json!(request.selectors));
+        }
+
         if matches!(test.results, Some(TestResultsSource::Provider)) {
             params.insert("testResults".to_string(), json!(true));
         }

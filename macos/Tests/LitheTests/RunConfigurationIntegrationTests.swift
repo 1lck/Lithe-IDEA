@@ -1055,9 +1055,9 @@ struct RunConfigurationIntegrationTests {
         #expect(pythonPlan.launchPlan.arguments == ["-m", "pytest", "tests/test_api.py::test_health"])
 
         let javaProvider = try #require(registry.provider(id: "java"))
-        let javaPlan = try javaProvider.testPlan(scope: .file(files[0]), workspaceURL: root)
-        #expect(javaPlan.launchPlan.toolchainID == "project-maven")
-        #expect(javaPlan.launchPlan.arguments == ["-Dstyle.color=always", "-Dtest=UserServiceTest", "test"])
+        #expect(throws: LanguageTestPlanError.unsupportedProvider(javaProvider.descriptor.displayName)) {
+            try javaProvider.testPlan(scope: .file(files[0]), workspaceURL: root)
+        }
 
         let gradleMethodPlan = try javaProvider.testPlan(
             scope: .testCase(
@@ -1073,7 +1073,8 @@ struct RunConfigurationIntegrationTests {
             "test", "--no-daemon", "--tests", "example.UserServiceTest.logsIn",
         ])
 
-        let mavenMethodPlan = try javaProvider.testPlan(
+        #expect(throws: LanguageTestPlanError.unsupportedProvider(javaProvider.descriptor.displayName)) {
+            try javaProvider.testPlan(
             scope: .testCase(
                 identifier: "example.UserServiceTest#logsIn()",
                 fileURL: files[0]
@@ -1083,9 +1084,7 @@ struct RunConfigurationIntegrationTests {
                 projectFiles: [root.appendingPathComponent("pom.xml"), files[0]]
             )
         )
-        #expect(mavenMethodPlan.launchPlan.arguments == [
-            "-Dstyle.color=always", "-Dtest=example.UserServiceTest#logsIn", "test",
-        ])
+        }
 
         let gradlePlan = try javaProvider.testPlan(
             scope: .workspace,
@@ -1136,10 +1135,11 @@ struct RunConfigurationIntegrationTests {
         let javaProvider = try #require(registry.provider(id: "java"))
         let nodeProvider = try #require(registry.provider(id: "node"))
 
+        // Every Java source is only inventory for JDT semantic discovery;
+        // a plain workspace still cannot acquire a Maven command plan.
         #expect(javaProvider.discoverTests(context: LanguageTestContext(
-            workspaceURL: root,
-            projectFiles: [javaFile]
-        )).isEmpty)
+            workspaceURL: root, projectFiles: [javaFile]
+        )).last?.fileURL == javaFile)
         #expect(nodeProvider.discoverTests(context: LanguageTestContext(
             workspaceURL: root,
             projectFiles: [nodeFile]
@@ -3188,7 +3188,7 @@ struct RunConfigurationIntegrationTests {
         )
 
         #expect(runtime.javaExecutableURL(overridePath: "/local/JDK 21")?.path == "/local/JDK 21/bin/java")
-        #expect(runtime.mavenExecutable(for: project, overridePath: "/local/Maven 3.9/bin/mvn")?.path == "/local/Maven 3.9/bin/mvn")
+        #expect(runtime.mavenExecutable(at: project.rootURL, overridePath: "/local/Maven 3.9/bin/mvn")?.path == "/local/Maven 3.9/bin/mvn")
         #expect(runtime.environment(for: .maven, javaHomeOverride: "/local/Maven JDK")["JAVA_HOME"] == "/local/Maven JDK")
     }
 
@@ -5394,8 +5394,6 @@ private final class RunTestKeyValueStore: KeyValueStore, @unchecked Sendable {
 }
 
 private struct RunTestJavaMavenOperations: JavaMavenOperations {
-    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? { nil }
-    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
     func codeVision(at rootURL: URL, targetPath: String, paths: [String]) -> [JavaCodeVisionValue] { [] }
     func className(source: String, simpleName: String) -> String? { nil }
     func sourceDefinition(source: String, declarationName: String, memberName: String?) -> (line: Int, utf16Column: Int)? { nil }

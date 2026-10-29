@@ -264,6 +264,7 @@ struct MacNativeBuildProviderIntegrationTests {
             let model = try operations.decodeModel(target, workspaceURL: workspace, root: context.root,
                 output: .providerResult(raw), options: context.options)
             #expect(Set(model.projects.map(\.name)) == ["reactor", "core", "app"])
+            #expect(try #require(sessions.processID(for: provider)) > 0)
             let project = try #require(model.projects.first { $0.name == "core" })
             let taskPlan = try operations.taskPlan(target, context: context,
                 request: BuildTaskRequest(task: "compile", project: BuildSelection(project: project)))
@@ -276,7 +277,7 @@ struct MacNativeBuildProviderIntegrationTests {
             #expect(built.output == progress.output)
             #expect(files.fileExists(atPath: workspace.appendingPathComponent("nested/core/target/classes/demo/core/Greeter.class").path))
             let testPlan = try operations.testPlan(target, context: context,
-                request: BuildTestRequest(project: BuildSelection(project: project), suite: "demo.core.GreeterTest", testCase: "greetsByName"))
+                request: BuildTestRequest(project: BuildSelection(project: project), selectorKind: "java.test.fullName", selectors: ["demo.core.GreeterTest#greetsByName()"]))
             guard case .provider(let test) = testPlan.execution else { throw NativeProviderIntegrationError.unexpectedCommand }
             let tested = try await sessions.execute(Self.withTool(test, maven: maven), on: provider, timeout: .seconds(20)) { _ in }
             #expect(tested.exitCode == 0)

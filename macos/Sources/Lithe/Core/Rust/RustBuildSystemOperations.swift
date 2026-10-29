@@ -494,6 +494,8 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let modelInputs: ToolingJSONValue?
         let project: BuildSelection?
         let target: BuildSelection?
+        let selectorKind: String?
+        let selectors: [String]?
         let suite: String?
         let `case`: String?
         let userArguments: [String]
@@ -507,6 +509,8 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             workspaceStateDirectory = context.workspaceStateDirectory?.path
             project = request.project
             target = request.target
+            selectorKind = request.selectorKind
+            selectors = request.selectorKind == nil ? nil : request.selectors
             suite = request.suite
             `case` = request.testCase
             userArguments = request.userArguments

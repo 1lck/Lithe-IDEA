@@ -117,6 +117,10 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         }
     }
 
+    func processID(for target: BuildProviderTarget) -> Int32? {
+        running[target]?.session?.processIdentifier
+    }
+
     func execute(
         _ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
         progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void

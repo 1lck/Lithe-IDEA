@@ -407,7 +407,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options | `1`, `2`, `3` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports, v9 opaque semantic test selectors | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
 | `executableResolution` | Shared executable candidate ordering and strict selection; v2 canonical project/subproject toolchain registry bindings | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
@@ -459,7 +459,7 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 
 The macOS host sends its capability table with validation, marketplace filtering
 and install review. It advertises `buildSystems: [1, 2, 3]` and
-`buildProviders: [1, 2, 3, 4, 5, 6, 7, 8]`; native Provider models, dependencies, tasks, tests and launch preparation
+`buildProviders: [1, 2, 3, 4, 5, 6, 7, 8, 9]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
 but admission must use the actual host table. Windows does not yet advertise
@@ -936,7 +936,7 @@ same invocation resolver; explicit invalid tool/runtime selection is a failure,
 never permission for independent discovery. It must reject stale project facts
 rather than guess a target.
 
-The host offers `litheBuild.versions: [8, 7, 6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
+The host offers `litheBuild.versions: [9, 8, 7, 6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
 and its progress notification to the two version 1 methods. A process that
 chooses version 1 cannot receive execution; unsupported negotiation fails
 explicitly. A plugin that needs this behavior declares capability version 2
@@ -1300,7 +1300,19 @@ optional workspace-relative `project` and source `path`, one-based `line`,
 most 10,000 cases and 8 MiB UTF-8 JSON. Paths remain inside the selected build
 root, durations are nonnegative safe integers, and messages are bounded. Core
 validates and aggregates by project/suite/case, so identical names in distinct
-projects remain distinct; it computes summary/success from the cases.
+projects remain distinct; it computes summary/success from the cases. Repeated
+case durations are summed only if every invocation has a duration and the total
+is a safe integer; otherwise the aggregate duration is omitted.
+
+An optional `coverage: [{ "project": "module", "suite"?: "Suite", "case"?: "method" }]`
+records completed scopes. A missing case covers the entire suite; a missing suite
+covers the project (and forbids case). Scopes use canonical workspace-relative
+projects inside the instance root, at most 10,000 entries, and bounded nonempty
+suite/case names. Core sorts and deduplicates them. Hosts may replace old outcomes
+within those scopes; without coverage they replace only the returned exact cases.
+Providers must not claim a complete suite when upstream filters or interruption
+could have limited execution. Opaque selectors are never parsed by hosts to infer
+coverage.
 
 The provider owns report discovery, freshness and upstream format semantics.
 It must preserve reports from failing executions and reject unreadable/oversized
@@ -2556,3 +2568,21 @@ Schema 1 loads the complete node set on refresh. Forms, lazy child data sources,
 multi-instance selectors, global function commands, native renderer factories
 and Windows rendering remain follow-up work under #1209; this subset does not
 claim completion of that whole issue.
+
+### Opaque semantic test selectors (buildProviders 9)
+
+Provider test declarations may advertise `selectorKinds`, up to 16 distinct public
+namespace identifiers (120 bytes each). These require `buildProviders: 9`. A test
+request may then carry `selectorKind` and `selectors` instead of `suite`/`case`.
+The namespace must be declared; at most 64 nonempty, control-free UTF-8 values of
+4096 bytes each are allowed. An empty list explicitly selects all tests within the
+request's normal project/workspace scope. Values remain opaque to the host and
+Core: only the owning language engine supplies semantic identities and the build
+backend translates them into its upstream runner's selection syntax. Providers
+must reject identities they cannot represent exactly, rather than widen execution.
+
+The wire session must explicitly negotiate version 9. Core and both SDKs reject
+these fields on older versions before dispatch; ignoring a filter is unsafe even
+when version 8 inline reports are supported. The operation identity, source/model
+and configuration validity, cancellation, progress, and inline report rules still
+apply. The shared example is `fixtures/build-provider-selectors.plugin.json`.
