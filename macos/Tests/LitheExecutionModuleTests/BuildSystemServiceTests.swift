@@ -7,6 +7,52 @@ import Testing
 
 @MainActor
 struct BuildSystemServiceTests {
+    @Test(arguments: ["success", "failed", "cancel", "configuration", "workspace"])
+    func languageResourcePreparationUsesCurrentSourceRoleAndRejectsFailedOrRevokedOperations(mode: String) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"}],"optionValues":{"features":["run-only","changed"]}}"#)])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        let release = BuildTestGate(), finished = BuildTestGate()
+        providers.replyGate = release
+        providers.executionResult = BuildProviderExecutionResult(exitCode: mode == "failed" ? 2 : 0, output: "resources")
+        let tasks = ["prepare.main", "prepare.test"].map { DeclarativeBuildSystem.Task(id: $0, displayName: $0,
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil) }
+        let harness = Harness(planner: planner, sources: [fixtureSource(tasks: tasks)], providers: providers)
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        var error: Error?
+        let task = Task {
+            defer { finished.open() }
+            do { try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent("app/spec/UnrelatedName.java"),
+                workspace: Self.workspace, mainTask: "prepare.main", testTask: "prepare.test",
+                optionOverrides: ["features": .array([.string("run-only")])],
+                tool: { _ in BuildProviderHints(toolExecutable: URL(fileURLWithPath: "/selected/tool"), toolEnvironment: ["JAVA_HOME": "/selected/jdk"]) },
+                isCurrent: { true }) }
+            catch let failure { error = failure }
+        }
+        defer { task.cancel(); release.open(); harness.service.stop() }
+        try #require(await providers.requestStarted.waitUntilOpen())
+        #expect(planner.taskRequests.last?.task == "prepare.test")
+        #expect(planner.taskRequests.last?.project?.path == "app")
+        #expect(planner.taskPlanContexts.last?.options["features"] == .array([.string("run-only")]))
+        #expect(harness.optionsStore.values["fixture"]?["features"] == nil)
+        if case .object(let params)? = providers.sent.last?.request.params {
+            #expect(params["tool"] == .object(["executable": .string("/selected/tool")]))
+        } else { Issue.record("Preparation must carry the selected build tool") }
+        if mode == "cancel" { task.cancel() }
+        if mode == "configuration" { harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("changed")])) }
+        if mode == "workspace" { harness.service.reset(workspaceURL: nil) }
+        release.open()
+        try #require(await finished.waitUntilOpen())
+        await task.value
+        #expect((error == nil) == (mode == "success"))
+        if ["cancel", "configuration", "workspace"].contains(mode) { #expect(error is CancellationError) }
+    }
+
     @Test(arguments: [false, true])
     func languageTestHandoffSettlesReportsOrCancellationAndRetainsNativeProcessIdentity(cancel: Bool) async throws {
         let planner = FakeBuildPlanner()
@@ -2884,13 +2930,13 @@ private func nativeEdits(_ snapshot: BuildNativeConfiguration) -> BuildNativeCon
     BuildNativeConfigurationEdits(sourceID: "user", revision: snapshot.sources[0].revision, values: ["localRepository": .string("/raw")])
 }
 
-private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false, testSelectorKinds: [String] = []) -> BuildSystemPluginSource {
+private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false, testSelectorKinds: [String] = [], tasks: [DeclarativeBuildSystem.Task] = []) -> BuildSystemPluginSource {
     BuildSystemPluginSource(
         pluginID: pluginID,
         manifest: Data("{}".utf8),
         packageURL: URL(fileURLWithPath: "/plugins/\(pluginID)"),
         buildSystems: [DeclarativeBuildSystem(
-            id: buildSystemID, displayName: "Fixture", modelSource: .command, tasks: [],
+            id: buildSystemID, displayName: "Fixture", modelSource: .command, tasks: tasks,
             testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration, providerTestReports: providerTestReports, testSelectorKinds: testSelectorKinds
         )]
     )
@@ -3124,6 +3170,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var decodedModelOutputs: [BuildCommandOutput] = []
         var diagnosticOutputs: [String] = []
         var taskPlanContexts: [BuildPlanContext] = []
+        var taskRequests: [BuildTaskRequest] = []
         var modelInputSources: [[BuildModelInputSource]] = []
         var modelPlanHints: [BuildProviderHints] = []
         var dependencyPlanHints: [BuildProviderHints] = []
@@ -3218,6 +3265,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         set { access { $0.testPlanDeclaresResults = newValue } }
     }
     var taskPlanContexts: [BuildPlanContext] { access { $0.taskPlanContexts } }
+    var taskRequests: [BuildTaskRequest] { access { $0.taskRequests } }
     /// The provider hints of every model and dependency plan, in order.
     var modelPlanHints: [BuildProviderHints] { access { $0.modelPlanHints } }
     var dependencyPlanHints: [BuildProviderHints] { access { $0.dependencyPlanHints } }
@@ -3366,7 +3414,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
 
     func taskPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTaskRequest) throws
         -> BuildOutputPlan {
-        access { $0.taskPlanContexts.append(context) }
+        access { $0.taskPlanContexts.append(context); $0.taskRequests.append(request) }
         if let request = providerRequest { return .provider(withInputs(request, context: context)) }
         return .process(plan([request.task, "with space"], output: nil))
     }

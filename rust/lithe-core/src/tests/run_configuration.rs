@@ -1211,6 +1211,29 @@ fn maven_test_source_main_uses_the_test_classpath() {
         }])
     );
 
+    // A current host receipt avoids both a second resource process and a
+    // legacy POM scan. Windows clients without the receipt retain the old plan.
+    fs::write(root.join("pom.xml"), "<broken>").unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/provider-prepared-java.json"
+    ))
+    .unwrap();
+    let prepared: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id":"provider-prepared-main", "command":"runConfig.createLaunchPlan", "payload":{
+                "root":root,"configurationId":"java-main:com.example.MainTests",
+                "javaLaunch":fixture["javaLaunch"]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(prepared["ok"], true, "{prepared}");
+    assert!(prepared["data"].get("preLaunchSteps").is_none());
+    assert_eq!(
+        prepared["data"]["arguments"],
+        fixture["expected"]["arguments"]
+    );
     fs::remove_dir_all(root).unwrap();
 }
 

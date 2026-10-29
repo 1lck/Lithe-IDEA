@@ -891,6 +891,21 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         run(configuration: configuration, currentFileURL: currentFileURL, javaLaunch: javaLaunch)
     }
 
+    /// Resolve a one-operation build tool through the same Run selection and
+    /// platform resolver as the application, without saving temporary overrides.
+    package func buildProviderHints(for configuration: RunConfiguration, toolchain: String, workingDirectory: String) throws -> BuildProviderHints {
+        guard let projectURL else { throw CancellationError() }
+        let context = try mavenContext(for: configuration)
+        let options = effectiveOptions(for: configuration, mavenContext: context)
+        let plan = SharedLaunchPlan(executable: .toolchain(toolchain), arguments: [],
+            workingDirectory: workingDirectory, environment: [:])
+        let resolved = try executableResolver.resolve(plan, projectURL: projectURL, options: options)
+        let environment = resolved.environment.filter { key, _ in
+            key == "JAVA_HOME" || key == "PATH" || options.environment[key] != nil
+        }
+        return BuildProviderHints(toolExecutable: resolved.executableURL, toolEnvironment: environment)
+    }
+
     /// A build provider has already prepared and Core has validated the launch.
     /// Reuse the native resolver/process/argument lease without a shadow run configuration.
     package func launchPreparedRun(_ preparation: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration? = nil) throws -> String {

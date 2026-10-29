@@ -68,6 +68,16 @@ final class RunWorkflowCoordinator {
     private var moduleOperation: Task<Void, Never>?
     private var moduleOperationID: UUID?
     var isModuleOperationStarting: Bool { moduleOperationID != nil }
+    private(set) var isRunActionStarting = false
+
+    /// Run owns activation/save/build/JDT waits from the original click. A new
+    /// action revokes the old task before any of its ignored waits can return.
+    func startRunAction(_ operation: @escaping @MainActor () async -> Void) {
+        cancelModuleOperation()
+        startModuleOperation(operation)
+        isRunActionStarting = true
+        onPendingActionChange()
+    }
 
     func startModuleOperation(_ operation: @escaping @MainActor () async -> Void) {
         guard moduleOperationID == nil else { return }
@@ -79,6 +89,7 @@ final class RunWorkflowCoordinator {
             guard let self, moduleOperationID == id else { return }
             moduleOperation = nil
             moduleOperationID = nil
+            isRunActionStarting = false
             onPendingActionChange()
         }
     }
@@ -88,6 +99,7 @@ final class RunWorkflowCoordinator {
         moduleOperation?.cancel()
         moduleOperation = nil
         moduleOperationID = nil
+        isRunActionStarting = false
         onPendingActionChange()
     }
 

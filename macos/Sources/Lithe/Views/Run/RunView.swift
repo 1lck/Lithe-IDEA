@@ -443,11 +443,9 @@ struct RunView: View {
                 }
 
                 Button {
-                    if let session = selectedModuleSession {
-                        feature.stopModule(session)
-                    } else {
-                        model.stopSelectedRun()
-                    }
+                    if model.isPreparingRun { model.stopSelectedRun() }
+                    else if let session = selectedModuleSession { feature.stopModule(session) }
+                    else { model.stopSelectedRun() }
                 } label: {
                     LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: 16,
                                   fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
@@ -567,6 +565,7 @@ struct RunView: View {
     }
 
     private var selectedSessionIsRunning: Bool {
+        if model.isPreparingRun { return true }
         guard !primaryOutputSelected else { return primaryRunMatchesSelection && feature.isRunning }
         return selectedModuleSession?.isRunning ?? false
     }

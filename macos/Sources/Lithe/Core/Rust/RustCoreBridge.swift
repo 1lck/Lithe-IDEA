@@ -2117,6 +2117,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let mainClass: String
             let classPaths: [String]
             let modulePaths: [String]
+            let buildPrepared: Bool
         }
         let root: String
         let configurationId: String
@@ -2760,7 +2761,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                     LaunchPlanRequest.JavaLaunch(
                         mainClass: $0.mainClass,
                         classPaths: $0.classPaths,
-                        modulePaths: $0.modulePaths
+                        modulePaths: $0.modulePaths,
+                        buildPrepared: $0.buildPrepared
                     )
                 },
                 debugPort: debugPort,

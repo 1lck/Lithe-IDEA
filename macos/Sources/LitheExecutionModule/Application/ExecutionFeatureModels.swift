@@ -154,6 +154,10 @@ package final class RunFeatureModel: ObservableObject {
     package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool { service.isProjectReady(for: workspace, snapshotID: snapshotID) }
     package func hasReadyInventory(for workspace: URL) -> Bool { service.hasReadyInventory(for: workspace) }
 
+    package func buildProviderHints(for configuration: RunConfiguration, toolchain: String, workingDirectory: String) throws -> BuildProviderHints {
+        try service.buildProviderHints(for: configuration, toolchain: toolchain, workingDirectory: workingDirectory)
+    }
+
     package func options(for configuration: RunConfiguration) -> RunOptions {
         service.options(for: configuration)
     }

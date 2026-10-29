@@ -3280,7 +3280,13 @@ framework arguments, including `-am` for selected reactor modules. A
 project-owned `java.main` caller, or a `spring-boot.maven` caller whose generated
 configuration records a Java entry source, instead supplies `javaLaunch` with
 the exact JDT LS-selected `mainClass` plus structured `classPaths` and
-`modulePaths`. Core then produces a direct `project-jdk` launch; it never
+`modulePaths`. An optional `javaLaunch.buildPrepared: true` is a host receipt
+that the current build provider resource task completed before JDT launch
+resolution. Core then omits its legacy Maven resource pre-launch step and does
+not inspect POMs for that step. The host must recheck workspace/configuration
+generation and cancellation before handing off the launch; it cannot reuse a
+receipt from another operation. Missing/false retains compatibility for current
+Windows callers. See `fixtures/run-configuration/provider-prepared-java.json`. Core then produces a direct `project-jdk` launch; it never
 projects those Java entry points into a reactor-wide Maven launch goal. A Spring
 Boot configuration without a resolved Java entry source retains its Maven-goal
 compatibility path. It

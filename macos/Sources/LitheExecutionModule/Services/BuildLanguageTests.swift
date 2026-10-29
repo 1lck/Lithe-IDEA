@@ -97,6 +97,59 @@ package extension BuildSystemService {
         return LanguageTestBackendResult(exitCode: exitCode, reports: reports, references: references)
     }
 
+    /// Runs a public preparation task selected from the current model's source role.
+    /// The language workflow names tasks, while the build backend owns their commands.
+    func prepareLanguageRun(fileURL: URL, workspace: URL, mainTask: String, testTask: String,
+                            optionOverrides: [String: ToolingJSONValue] = [:],
+                            tool: @MainActor (String) throws -> BuildProviderHints?,
+                            isCurrent: @escaping @MainActor () -> Bool) async throws {
+        let previous = operation?.id
+        try await prepareLanguageTestModels(taskIDs: [mainTask, testTask], workspace: workspace)
+        let revision = inputRevision
+        let path = fileURL.standardizedFileURL.path
+        let candidates = entries.filter { entry in
+            entry.modelState == .loaded && !entry.isReloadRequired
+                && entry.model?.projects.contains { project in
+                    let directory = workspace.appendingPathComponent(project.path).standardizedFileURL.path
+                    return path == directory || path.hasPrefix(directory + "/")
+                } == true
+        }.sorted { $0.instance.root.count > $1.instance.root.count }
+        guard isCurrent(), !Task.isCancelled, operation?.id == previous else { throw CancellationError() }
+        guard let entry = candidates.first, let project = languageTestProject(in: entry, fileURL: fileURL, workspace: workspace) else {
+            throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
+        }
+        let role = entry.model?.contentRoots.filter { root in
+            let directory = workspace.appendingPathComponent(root.path).standardizedFileURL.path
+            return path == directory || path.hasPrefix(directory + "/")
+        }.sorted { $0.path.count > $1.path.count }.first?.kind
+        let taskID = role == "testSource" || role == "generatedTestSource" ? testTask : mainTask
+        guard entry.declaration.tasks.contains(where: { $0.id == taskID && $0.scopes.contains(.project) }) else {
+            throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
+        }
+        let hints = try tool(entry.instance.root)
+        let (events, continuation) = AsyncStream.makeStream(of: BuildRunEnd.self)
+        let observation = runEnded.sink { continuation.yield($0) }
+        defer { observation.cancel(); continuation.finish() }
+        guard inputRevision == revision, isCurrent(), operation?.id == previous,
+              let id = runTask(entry.id, request: BuildTaskRequest(task: taskID, project: project,
+                optionOverrides: optionOverrides, tool: hints), title: entry.declaration.tasks.first(where: { $0.id == taskID })?.displayName ?? taskID)
+        else { throw CancellationError() }
+        defer { cancelRun(id) }
+        try await withTaskCancellationHandler {
+            for await ended in events where ended.runID == id {
+                try Task.checkCancellation()
+                guard isCurrent(), operation?.id == id, inputRevision == revision else { throw CancellationError() }
+                guard ended.exitCode == 0 else {
+                    if case .cancelled = ended.state { throw CancellationError() }
+                    if case .failed(let message) = ended.state { throw BuildSystemServiceError(message) }
+                    throw BuildSystemServiceError(L10n.string("The build provider returned an invalid launch plan."))
+                }
+                return
+            }
+            throw CancellationError()
+        } onCancel: { [weak self] in Task { @MainActor in self?.cancelRun(id) } }
+    }
+
     /// Report-only items need no guessed source association. Membership and
     /// backend availability are resolved from current declarations and models.
     func performLanguageTests(reference: BuildTestReference, workspace: URL, title: String,

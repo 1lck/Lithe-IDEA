@@ -97,6 +97,13 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, workspace: URL) async throws {
         try await service.prepareLanguageTestModels(selectorKind: selectorKind, reference: reference, workspace: workspace)
     }
+    package func prepareLanguageRun(fileURL: URL, workspace: URL, mainTask: String, testTask: String,
+                                    optionOverrides: [String: ToolingJSONValue] = [:],
+                                    tool: @MainActor (String) throws -> BuildProviderHints?,
+                                    isCurrent: @escaping @MainActor () -> Bool) async throws {
+        try await service.prepareLanguageRun(fileURL: fileURL, workspace: workspace, mainTask: mainTask,
+            testTask: testTask, optionOverrides: optionOverrides, tool: tool, isCurrent: isCurrent)
+    }
     package func languageTestEntries(selectorKind: String, fileURL: URL?, workspace: URL) -> [BuildSystemEntry] {
         service.languageTestEntries(selectorKind: selectorKind, fileURL: fileURL, workspace: workspace)
     }

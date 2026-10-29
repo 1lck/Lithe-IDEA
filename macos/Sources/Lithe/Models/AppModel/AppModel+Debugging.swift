@@ -506,7 +506,9 @@ extension AppModel {
         let configuration: DebugLaunchConfiguration
         let buildInputs: UInt64?
         do {
-            try await prepareBuildLanguageImport()
+            if let selectedConfiguration, selectedConfiguration.usesJavaProjectPreparation {
+                try await prepareJavaBuildResources(configuration: selectedConfiguration, fileURL: fileURL, identity: identity)
+            } else { try await prepareBuildLanguageImport() }
             buildInputs = buildSystemsFeatureIfActive?.inputRevision
             configuration = try await featureGraph.debugLaunchPreparation.prepare(
                 provider: provider,
@@ -517,6 +519,7 @@ extension AppModel {
                 portChecker: debugPortAvailabilityChecker,
                 resolveJavaTarget: { [weak self] in
                     guard let self else { return nil }
+                    let operation = self.buildSystemsFeatureIfActive?.operation?.id
                     let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                     let preparation = try await sessions.prepareJavaRunLaunchTarget(
                         fileURL: fileURL,
@@ -526,8 +529,12 @@ extension AppModel {
                         preparation,
                         identity: identity
                     )
-                    javaUpdateTarget = target
-                    return target
+                    guard !Task.isCancelled, self.isCurrentWorkspace(identity), self.buildSystemsFeatureIfActive?.operation?.id == operation else { throw CancellationError() }
+                    let prepared = JavaDebugLaunchTarget(mainClass: target.mainClass, projectName: target.projectName,
+                        modulePaths: target.modulePaths, classPaths: target.classPaths,
+                        buildPrepared: selectedConfiguration?.usesJavaProjectPreparation == true)
+                    javaUpdateTarget = prepared
+                    return prepared
                 }
             )
         } catch is CancellationError {

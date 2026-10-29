@@ -737,14 +737,14 @@ package final class BuildSystemService: ObservableObject {
     /// may answer from its own snapshot.
     /// Explicit execution readiness joins the service-owned model work. The
     /// model remains shared if this caller stops; its native deadline still applies.
-    package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, workspace: URL) async throws {
+    package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, taskIDs: Set<String> = [], workspace: URL) async throws {
         guard workspace.standardizedFileURL == workspaceURL else { throw CancellationError() }
         let workspaceGeneration = generation
         let configurationRevision = providerConfigurationRevision
         let sourcesRevision = fileRevision
         let ids = entries.filter { entry in
             if let reference { return entry.instance.pluginID == reference.pluginID && entry.instance.buildSystemID == reference.buildSystemID && entry.instance.root == reference.root }
-            return selectorKind.map(entry.declaration.testSelectorKinds.contains) ?? false
+            return selectorKind.map(entry.declaration.testSelectorKinds.contains) ?? entry.declaration.tasks.contains { taskIDs.contains($0.id) }
         }.map(\.id)
         if ids.isEmpty { return }
         let (changes, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
@@ -1097,11 +1097,20 @@ package final class BuildSystemService: ObservableObject {
     package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID) else { return nil }
         return startRun(entryID, title: title) { service, run in
-            let context = try service.planContext(entry, workspaceURL: workspaceURL)
+            let base = try service.planContext(entry, workspaceURL: workspaceURL)
+            let proposed = base.options.merging(request.optionOverrides) { _, override in override }
+            if !request.optionOverrides.isEmpty {
+                let resolution = try service.planner.resolveOptions(entry.target, options: proposed, modelValues: entry.model?.optionValues)
+                guard request.optionOverrides.allSatisfy({ key, value in
+                    !resolution.dropped.contains(key) && resolution.options.contains { $0.id == key && $0.value == value }
+                }) else { throw BuildSystemServiceError(L10n.string("The build option value is invalid. Inspect its current kind and choices.")) }
+            }
+            let context = BuildPlanContext(root: base.root, options: proposed, pluginDirectory: base.pluginDirectory,
+                workspaceStateDirectory: base.workspaceStateDirectory, modelInputs: base.modelInputs)
             let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
             let isValid = service.runValidity(plan, entry: entry, workspaceURL: workspaceURL, run: run)
             defer { if service.providerRunID == run.id { service.providerRunID = nil } }
-            let collected = try await service.runExecutionPlan(plan, entry: entry, workspaceURL: workspaceURL, run: run)
+            let collected = try await service.runExecutionPlan(plan, entry: entry, workspaceURL: workspaceURL, run: run, tool: request.tool)
             let diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
             // The decode runs after the command; a stop, replacement, or
             // workspace switch in between must not publish into the new state.
@@ -1960,36 +1969,37 @@ package final class BuildSystemService: ObservableObject {
     ) -> @MainActor @Sendable () -> Bool {
         let revision = providerConfigurationRevision
         let launchSettings = settings(entry.source.pluginID)
+        let baseline = optionFingerprint(entry, workspaceURL: workspaceURL)
         return { [weak self] in
             guard let self, self.isCurrent(run) else { return false }
             guard case .provider(let request) = plan else { return true }
             guard self.modelInputsAreCurrent(request), self.providerConfigurationRevision == revision,
                   self.settings(entry.source.pluginID) == launchSettings,
                   let current = self.entry(entry.id), current.source == entry.source else { return false }
-            return self.optionFingerprint(current, workspaceURL: workspaceURL) == request.optionFingerprint
+            return self.optionFingerprint(current, workspaceURL: workspaceURL) == baseline
         }
     }
 
     private func runExecutionPlan(
-        _ plan: BuildOutputPlan, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+        _ plan: BuildOutputPlan, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity, tool: BuildProviderHints? = nil
     ) async throws -> CollectedOutput {
         switch plan {
         case .process(let process):
             return try await runStreamedCommand(process, entry: entry, workspaceURL: workspaceURL, owner: .run(run))
         case .provider(let request):
-            return try await runProviderTask(request, entry: entry, workspaceURL: workspaceURL, run: run)
+            return try await runProviderTask(request, entry: entry, workspaceURL: workspaceURL, run: run, tool: tool)
         }
     }
 
     /// Provider tasks share model/dependency sessions, not plugin page sessions.
     /// Progress/results are bound to this run and its effective configuration.
     private func runProviderTask(
-        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity, tool: BuildProviderHints? = nil
     ) async throws -> CollectedOutput {
         guard let providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
         providerRunID = run.id
         let isValid = runValidity(.provider(request), entry: entry, workspaceURL: workspaceURL, run: run)
-        let planned = try await providerRequestWithTool(request, entry: entry, workspaceURL: workspaceURL, run: run)
+        let planned = try await providerRequestWithTool(request, entry: entry, workspaceURL: workspaceURL, run: run, override: tool)
         guard isValid() else { throw CancellationError() }
         let directory = outputDirectory(entry)
         let streamed = OutputCollector(limit: Self.decodedOutputLimit)
@@ -2018,8 +2028,21 @@ package final class BuildSystemService: ObservableObject {
     }
 
     private func providerRequestWithTool(
-        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity, override: BuildProviderHints? = nil
     ) async throws -> BuildProviderRequest {
+        if let override {
+            guard let executable = override.toolExecutable else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            var params = request.params
+            if case .object(var object) = params {
+                object["tool"] = .object(["executable": .string(executable.path)])
+                var environment = override.toolEnvironment.mapValues(ToolingJSONValue.string)
+                if case .object(let options)? = object["environment"] { environment.merge(options) { _, value in value } }
+                object["environment"] = .object(environment)
+                params = .object(object)
+            }
+            return BuildProviderRequest(method: request.method, params: params, optionFingerprint: request.optionFingerprint,
+                executesProjectCode: request.executesProjectCode, mayUseNetwork: request.mayUseNetwork)
+        }
         let tool = try await providerTool(entry, workspaceURL: workspaceURL, owner: .run(run))
         var params = request.params
         if let tool, case .object(var object) = params {

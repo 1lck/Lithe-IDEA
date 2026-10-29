@@ -233,17 +233,25 @@ public struct JavaDebugLaunchTarget: Hashable, Sendable {
     public let projectName: String?
     public let modulePaths: [String]
     public let classPaths: [String]
+    /// The host completed the current build provider preparation before JDT launch resolution.
+    public let buildPrepared: Bool
+
+    public init(mainClass: String, projectName: String?, modulePaths: [String] = [], classPaths: [String] = []) {
+        self.init(mainClass: mainClass, projectName: projectName, modulePaths: modulePaths, classPaths: classPaths, buildPrepared: false)
+    }
 
     public init(
         mainClass: String,
         projectName: String?,
         modulePaths: [String] = [],
-        classPaths: [String] = []
+        classPaths: [String] = [],
+        buildPrepared: Bool
     ) {
         self.mainClass = mainClass
         self.projectName = projectName
         self.modulePaths = modulePaths
         self.classPaths = classPaths
+        self.buildPrepared = buildPrepared
     }
 }
 

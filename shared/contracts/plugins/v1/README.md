@@ -2586,3 +2586,21 @@ these fields on older versions before dispatch; ignoring a filter is unsafe even
 when version 8 inline reports are supported. The operation identity, source/model
 and configuration validity, cancellation, progress, and inline report rules still
 apply. The shared example is `fixtures/build-provider-selectors.plugin.json`.
+
+### Java build preparation task convention
+
+A Java language workflow may request declared provider project tasks
+`java-prepare-run-main` and `java-prepare-run-test` through the existing
+`lithe/build/execute` method. They prepare respectively the project's main
+resources, or both main and test resources, before JDT resolves runtime paths.
+The current model's source roles choose the task and deepest owning project;
+filenames and POM contents are not host inputs. A missing task/provider fails
+explicitly. Task IDs are the public convention, not private function calls or
+command templates, and no new backend method is introduced.
+
+The build backend owns filtering, custom resource directories, profiles and
+reactor semantics. Hosts await successful completion, retain one operation
+identity through cancellation/configuration changes, and only then resolve and
+launch Java. Per-run option/tool overrides are ephemeral host inputs to the
+existing validated plan; they never mutate saved build defaults or claim that
+the persistent model reflects a different configuration.

@@ -726,13 +726,18 @@ package struct BuildTaskRequest: Equatable, Sendable {
     package let target: BuildSelection?
     package let modelTask: BuildSelection?
     package let userArguments: [String]
+    /// Per-operation values; never persisted or used to replace current model facts.
+    package let optionOverrides: [String: ToolingJSONValue]
+    package let tool: BuildProviderHints?
 
     package init(
         task: String, project: BuildSelection? = nil, target: BuildSelection? = nil,
-        modelTask: BuildSelection? = nil, userArguments: [String] = []
+        modelTask: BuildSelection? = nil, userArguments: [String] = [],
+        optionOverrides: [String: ToolingJSONValue] = [:], tool: BuildProviderHints? = nil
     ) {
         self.task = task; self.project = project; self.target = target
         self.modelTask = modelTask; self.userArguments = userArguments
+        self.optionOverrides = optionOverrides; self.tool = tool
     }
 }
 
