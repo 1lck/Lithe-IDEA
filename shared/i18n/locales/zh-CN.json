@@ -9047,7 +9047,6 @@
     "native.unableToSaveWorkspaceDependencyConfiguration": "无法保存工作区依赖配置：{arg1}",
     "native.theJavaSupportPluginDoesNotProvideReinstall": "Java 支持插件没有提供 {arg1}。请重新安装该插件。",
     "native.rustCoreWorkspaceFingerprintResolutionIsUnavailable": "Rust Core 的工作区指纹解析不可用。",
-    "native.couldNotReadJavaBuildFileMetadataFor": "无法读取 {arg1} 的 Java 构建文件元数据。",
     "native.theBundledJdtLsManifestIsInvalidAt": "{arg1} 处内置的 JDT LS 清单无效。",
     "native.theBundledJdtLsVersionCouldNotBe": "无法确定内置 JDT LS 的版本。",
     "native.theBundledJdtLsInstallationCouldNotBe": "无法确定内置 JDT LS 的安装位置。",

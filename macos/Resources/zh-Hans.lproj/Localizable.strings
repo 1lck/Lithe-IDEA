@@ -976,7 +976,6 @@
 "Could not prepare the run configuration: %@" = "无法准备运行配置：%@";
 "Could not read %@." = "无法读取 %@。";
 "Could not read %@: %@" = "无法读取 %@：%@";
-"Could not read Java build-file metadata for %@." = "无法读取 %@ 的 Java 构建文件元数据。";
 "Could not read the command line." = "无法读取命令行。";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "Could not read the selected built-in background." = "无法读取所选的内置背景。";
@@ -5421,7 +5420,6 @@
 "native.couldNotPrepareTheRunConfiguration" = "无法准备运行配置：%1$@";
 "native.couldNotRead" = "无法读取 %1$@：%2$@";
 "native.couldNotRead.variant2" = "无法读取 %1$@。";
-"native.couldNotReadJavaBuildFileMetadataFor" = "无法读取 %1$@ 的 Java 构建文件元数据。";
 "native.couldNotReadTheCommandLine" = "无法读取命令行。";
 "native.couldNotReadTheProjectFolderCheckThatItStillExistsAndThatLitheHasPermissionToAccessIt" = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "native.couldNotReadTheSelectedBuiltInBackground" = "无法读取所选的内置背景。";

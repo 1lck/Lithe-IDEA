@@ -4,20 +4,25 @@
     {
       "name": "sorts-and-deduplicates-platform-observations",
       "buildFiles": [
-        {
-          "path": "pom.xml",
-          "modifiedUnixMilliseconds": 1700000000000,
-          "sizeBytes": 42
-        },
-        {
-          "path": "build.gradle.kts",
-          "modifiedUnixMilliseconds": 1700000000500,
-          "sizeBytes": 84
-        }
+        { "path": "pom.xml" },
+        { "path": "build.gradle.kts" },
+        { "path": "pom.xml" }
       ],
       "directMavenModules": ["core", "api", "core"],
       "jdtlsVersion": "1.38.0",
-      "workspaceFingerprint": "build=build.gradle.kts@1700000000500:84,pom.xml@1700000000000:42|modules=api,core|jdtls=1.38.0"
+      "workspaceFingerprint": "build=build.gradle.kts,pom.xml|modules=api,core|jdtls=1.38.0"
+    },
+    {
+      "name": "gradle-wrapper-version-selects-the-state",
+      "buildFiles": [
+        { "path": "settings.gradle.kts" },
+        { "path": "build.gradle.kts" },
+        { "path": "gradle/wrapper/gradle-wrapper.properties" }
+      ],
+      "directMavenModules": [],
+      "gradleWrapperDistribution": "https://services.gradle.org/distributions/gradle-8.10-bin.zip",
+      "jdtlsVersion": "1.38.0",
+      "workspaceFingerprint": "build=build.gradle.kts,gradle/wrapper/gradle-wrapper.properties,settings.gradle.kts|modules=|jdtls=1.38.0|gradle=https://services.gradle.org/distributions/gradle-8.10-bin.zip"
     },
     {
       "name": "version-only-workspace",
