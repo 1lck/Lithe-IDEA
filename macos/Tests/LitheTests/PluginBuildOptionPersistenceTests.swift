@@ -12,6 +12,37 @@ import Testing
 @MainActor
 struct PluginBuildOptionPersistenceTests {
     @Test
+    func privateDefaultsReachPlansAndResetWithoutChangingTheTeamDocument() async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-private-build-defaults-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let source = try Self.source(workspace: workspace, instanceScoped: true)
+        let backing = OptionPreferenceStore()
+        let store = MacBuildOptionsStore(store: backing, storage: MacFileStorage())
+        var document = BuildProjectOptionsDocument()
+        var system = BuildProjectOptionsDocument.System()
+        system.instanceDefaults["settingsFile"] = .string("/fixture/team.xml")
+        system.instances["b"] = ["settingsFile": .string("/fixture/team-b.xml")]
+        document.systems["cargo"] = system
+        try store.saveProjectDocument(document, workspace: workspace, expecting: nil)
+        let bytes = try store.projectDocument(workspace).bytes
+        try store.setInstanceDefaults(["settingsFile": .string("/fixture/private.xml")], workspaceURL: workspace, buildSystemID: "cargo")
+        let runner = OptionCommandRecorder()
+        let service = Self.service(source: source, workspace: workspace, store: store, runner: runner)
+        defer { service.stop() }
+        _ = try await Self.refreshed(service) { service.reset(workspaceURL: workspace) }
+        #expect(service.entry("cargo:a")?.options.first { $0.id == "settingsFile" }?.value == .string("/fixture/private.xml"))
+        #expect(service.entry("cargo:b")?.options.first { $0.id == "settingsFile" }?.value == .string("/fixture/team-b.xml"))
+        #expect(Array(try await Self.run("cargo:a", service: service, runner: runner).suffix(2)) == ["--config", "/fixture/private.xml"])
+        _ = try service.configureOption("cargo:a", optionID: "settingsFile", value: .string(""))
+        #expect(try service.configureOption("cargo:a", optionID: "settingsFile", value: nil).value == .string("/fixture/private.xml"))
+        #expect(backing.instanceData.isEmpty)
+        try store.setInstanceDefaults(["settingsFile": .string("/fixture/team.xml")], workspaceURL: workspace, buildSystemID: "cargo")
+        _ = try await Self.refreshed(service) { service.detect() }
+        #expect(service.entry("cargo:a")?.options.first { $0.id == "settingsFile" }?.value == .string("/fixture/team.xml"))
+        #expect(try store.projectDocument(workspace).bytes == bytes)
+    }
+
+    @Test
     func sharedDefaultsStayInTheProjectWhileLocalEditsOnlyStoreDifferences() async throws {
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-shared-build-options-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -90,7 +121,7 @@ struct PluginBuildOptionPersistenceTests {
         #expect(throws: (any Error).self) { try store.options(workspaceURL: workspace, buildSystemID: "cargo") }
     }
 
-    @Test(arguments: ["", ".Instances", ".EmptyMultiSelect"])
+    @Test(arguments: ["", ".Instances", ".InstanceDefaults", ".EmptyMultiSelect"])
     func nonDataLocalPreferencesBlockDetectionWithoutReplacingTheirSource(suffix: String) async throws {
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-invalid-option-type-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspace) }

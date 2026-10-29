@@ -42,8 +42,9 @@ final class MacBuildOptionsStore: BuildOptionsStoring {
     func setInstanceOptions(_ options: [String: [String: ToolingJSONValue]], workspaceURL: URL, buildSystemID: String) throws {
         let key = Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID) + ".Instances"
         let shared = try projectDocument(workspaceURL).document.systems[buildSystemID] ?? BuildProjectOptionsDocument.System()
+        let defaults = try instanceDefaults(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         let nonempty = options.mapValues { $0 }.reduce(into: [String: [String: ToolingJSONValue]]()) { result, item in
-            let inherited = shared.instanceDefaults.merging(shared.instances[item.key] ?? [:]) { _, root in root }
+            let inherited = defaults.merging(shared.instances[item.key] ?? [:]) { _, root in root }
             let values = item.value.filter { inherited[$0.key] != $0.value }
             if !values.isEmpty { result[item.key] = values }
         }
@@ -51,7 +52,18 @@ final class MacBuildOptionsStore: BuildOptionsStoring {
     }
 
     func instanceDefaults(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue] {
-        try projectDocument(workspaceURL).document.systems[buildSystemID]?.instanceDefaults ?? [:]
+        let shared = try projectDocument(workspaceURL).document.systems[buildSystemID]?.instanceDefaults ?? [:]
+        let key = Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID) + ".InstanceDefaults"
+        return shared.merging(try read([String: ToolingJSONValue].self, key: key) ?? [:]) { _, local in local }
+    }
+
+    /// Machine-wide choices for this workspace remain local, including defaults
+    /// transferred from old runtime preferences before any reactor was selected.
+    func setInstanceDefaults(_ values: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String) throws {
+        let shared = try projectDocument(workspaceURL).document.systems[buildSystemID]?.instanceDefaults ?? [:]
+        let local = values.filter { shared[$0.key] != $0.value }
+        try write(local.isEmpty ? nil : local,
+                  key: Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID) + ".InstanceDefaults")
     }
 
     func savedChoices(workspaceURL: URL, buildSystemID: String) throws -> [String: [String]] {

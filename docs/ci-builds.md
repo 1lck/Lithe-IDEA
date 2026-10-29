@@ -825,13 +825,15 @@ CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker
 
 
 共享 Build 调用偏好 `.lithe/build/options.json` 是用户维护的工作区文件，本机差异位于
-平台偏好的 `BuildSystems.Options.*` / `.Instances`。这些内容没有构建产物 identity stamp，
+平台偏好的 `BuildSystems.Options.*` / `.Instances` / `.InstanceDefaults`。
+`.InstanceDefaults` 保留此工作区的本机默认值，供当前与之后出现的 reactor 继承，
+不把本机 settings/仓库路径写入团队文档；逐根保存的值优先于这些默认值。这些内容没有构建产物 identity stamp，
 不能作为资源从其他工作树复制、链接或发布；共享值随普通源文件流转，本机路径不转移。
 资源清单 `build-project-preferences` 与复用脚本直接拒绝它们。只有明确编辑或带原字节
 检查的一次性激活迁移可以写共享文件，普通检测和设置页读取不创建文件；不写 app 或插件
 安装目录，不改变签名与 Sparkle 增量基线。
 
-Maven 配置切换使用本机偏好的 `BuildSystems.Migrations.Maven.<workspace-digest>` 保存待迁移
+Maven 配置切换使用本机偏好的 `BuildSystems.Migrations.Maven.<workspace-digest>` 及 `.Runtime` 保存待迁移
 源文件的指纹。它只服务当前工作区的一次性恢复：目标全部读回、旧源按原字节移除后清理，
 部分写入后旧源被外部修改则停止自动删除。这个标记不保存原生 settings 文档，不可跨
 worktree 复用；由 `build-project-preferences` 排除项覆盖，不得作为下载缓存增加校验路由。

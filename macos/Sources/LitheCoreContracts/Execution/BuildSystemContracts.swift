@@ -630,7 +630,7 @@ package protocol BuildOptionsStoring: AnyObject {
     /// Independent values for options declared with scope=instance, keyed by root.
     func instanceOptions(workspaceURL: URL, buildSystemID: String) throws -> [String: [String: ToolingJSONValue]]
     func setInstanceOptions(_ options: [String: [String: ToolingJSONValue]], workspaceURL: URL, buildSystemID: String) throws
-    /// Team-owned defaults for every instance, overridden by that root's local values.
+    /// Workspace defaults, including machine-local differences, overridden by root values.
     func instanceDefaults(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue]
     /// Unselected user-defined choices, offered only by options that permit custom values.
     func savedChoices(workspaceURL: URL, buildSystemID: String) throws -> [String: [String]]

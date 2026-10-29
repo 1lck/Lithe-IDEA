@@ -373,6 +373,7 @@ Apache Surefire Report Parser 3.5.2 负责报告语义；读取同一份有界�
 依赖与有界的操作快照，许可证随包保留。验证包含真实模块编译、精确单方法、未知
 方法拒绝、自定义带空格目录中的失败用例、坏 XML/外部实体拒绝、取消与包字节不变。
 Java/Node SDK 的真实 Core 场景与计时报告通过；Maven 3.9.16 和最低支持的 3.6.3
-均通过报告及原生配置流程。本轮使用 JDK 26，Java 8 的新报告能力运行验证仍待 CI，
-不能借用阶段 C 旧提交的 Java 8 结果。该报告能力不代表旧 MavenService、Java
-运行/测试后端和 Windows 消费者迁移已完成。
+均通过报告及原生配置流程。[固定宿主和 SDK 的 Java 8 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40792694290)
+在当前 Maven 与 3.6.3 各完成 72 项检查，包含 Surefire/Failsafe、原生配置、取消
+和包字节不变；这份新提交证据独立于阶段 C 的旧结果。正式 SDK/插件发行、旧
+MavenService、Java 运行/测试后端和 Windows 消费者迁移仍未完成。

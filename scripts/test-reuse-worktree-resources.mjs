@@ -246,6 +246,8 @@ try {
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes(".lithe/build/options.json"));
     assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>"));
+    assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.InstanceDefaults"));
+    assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>.Runtime"));
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /build-project-preferences.*cannot be reused/);

@@ -38,7 +38,7 @@ struct MacLegacyMavenConfigurationMigration {
         receipt = receipt.filter { storage.fileExists(at: URL(fileURLWithPath: $0.key)) }
         guard portable != nil || !local.isEmpty else {
             try writeReceipt(receipt, key: receiptKey, expecting: receiptBytes)
-            return false
+            return try migrateRuntimePreferences(workspace: workspace, roots: roots)
         }
         let original = try options.projectDocument(workspace)
         var document = original.document
@@ -118,6 +118,62 @@ struct MacLegacyMavenConfigurationMigration {
         }
         for (url, _) in sources { receipt[url.path] = nil }
         try writeReceipt(receipt, key: receiptKey, expecting: pendingReceipt)
+        _ = try migrateRuntimePreferences(workspace: workspace, roots: roots)
+        return true
+    }
+
+    /// This is a separate saved source from the reactor files. Only its two
+    /// retired Maven fields are removed after the private default layer verifies.
+    private func migrateRuntimePreferences(workspace: URL, roots: [String]) throws -> Bool {
+        guard !roots.isEmpty else { return false }
+        let key = MacProjectRuntimeSettingsStore.preferencesKey(workspace)
+        guard let bytes = preferences.data(forKey: key) else {
+            guard preferences.object(forKey: key) == nil else { throw BuildOptionsStorageError.invalid }
+            return false
+        }
+        guard bytes.count <= 2 * 1024 * 1024,
+              var document = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else {
+            throw BuildOptionsStorageError.invalid
+        }
+        let fields = ["mavenSettingsPath": "settingsFile", "mavenLocalRepositoryPath": "localRepository"]
+        let receiptKey = "BuildSystems.Migrations.Maven." + MacPluginStateDirectories.workspaceDigest(workspace) + ".Runtime"
+        guard fields.keys.contains(where: { document[$0] != nil }) else {
+            // A verified cleanup can survive a failure removing its receipt.
+            // There is no remaining old Maven field to migrate or overwrite.
+            if preferences.object(forKey: receiptKey) != nil { preferences.set(nil, forKey: receiptKey) }
+            return false
+        }
+        var incoming: [String: ToolingJSONValue] = [:]
+        for (field, option) in fields {
+            guard let raw = document[field] else { continue }
+            guard let value = raw as? String, value.count <= 32768, !value.contains("\0") else {
+                throw BuildOptionsStorageError.invalid
+            }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { incoming[option] = .string(trimmed) }
+        }
+        let fingerprint = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        if let previous = preferences.object(forKey: receiptKey) {
+            guard previous as? String == fingerprint else { throw BuildOptionsStorageError.conflict }
+        }
+        var defaults = try options.instanceDefaults(workspaceURL: workspace, buildSystemID: "maven")
+        for (id, value) in incoming where defaults[id] == nil { defaults[id] = value }
+        guard preferences.data(forKey: key) == bytes else { throw BuildOptionsStorageError.conflict }
+        preferences.set(fingerprint, forKey: receiptKey)
+        guard preferences.string(forKey: receiptKey) == fingerprint else { throw BuildOptionsStorageError.write }
+        try options.setInstanceDefaults(defaults, workspaceURL: workspace, buildSystemID: "maven")
+        guard try options.instanceDefaults(workspaceURL: workspace, buildSystemID: "maven") == defaults else {
+            throw BuildOptionsStorageError.write
+        }
+        guard preferences.data(forKey: key) == bytes,
+              preferences.string(forKey: receiptKey) == fingerprint else { throw BuildOptionsStorageError.conflict }
+        for field in fields.keys { document.removeValue(forKey: field) }
+        let cleaned = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
+        guard cleaned.count <= 2 * 1024 * 1024 else { throw BuildOptionsStorageError.invalid }
+        preferences.set(cleaned, forKey: key)
+        guard preferences.data(forKey: key) == cleaned else { throw BuildOptionsStorageError.write }
+        preferences.set(nil, forKey: receiptKey)
+        guard preferences.object(forKey: receiptKey) == nil else { throw BuildOptionsStorageError.write }
         return true
     }
 

@@ -8,6 +8,122 @@ import Testing
 @MainActor
 struct LegacyMavenConfigurationMigrationTests {
     @Test
+    func runtimeMavenFieldsRemainPrivateDefaultsWhileExistingRootAndTeamChoicesWin() throws {
+        let context = try Context()
+        defer { context.clean() }
+        let key = MacProjectRuntimeSettingsStore.preferencesKey(context.workspace)
+        context.preferences.set(try JSONSerialization.data(withJSONObject: [
+            "mavenSettingsPath": "/fixture/old-user-settings.xml", "mavenLocalRepositoryPath": "/fixture/private-repository",
+            "javaHomePath": "/fixture/unrelated-jdk", "futurePreference": ["keep": true]
+        ]), forKey: key)
+        var document = BuildProjectOptionsDocument()
+        var maven = BuildProjectOptionsDocument.System()
+        maven.instanceDefaults["settingsFile"] = .string("/fixture/team-settings.xml")
+        document.systems["maven"] = maven
+        try context.options.saveProjectDocument(document, workspace: context.workspace, expecting: nil)
+        let sharedBytes = try context.options.projectDocument(context.workspace).bytes
+        try context.options.setInstanceOptions(["b": ["localRepository": .string("")]], workspaceURL: context.workspace, buildSystemID: "maven")
+        #expect(try context.migration().migrate(workspace: context.workspace, reactorRoots: ["a", "b"]))
+        let defaults = try context.options.instanceDefaults(workspaceURL: context.workspace, buildSystemID: "maven")
+        #expect(defaults == ["settingsFile": .string("/fixture/team-settings.xml"), "localRepository": .string("/fixture/private-repository")])
+        #expect(try context.options.instanceOptions(workspaceURL: context.workspace, buildSystemID: "maven")["b"]?["localRepository"] == .string(""))
+        #expect(try context.options.projectDocument(context.workspace).bytes == sharedBytes)
+        let saved = try #require(context.preferences.data(forKey: key))
+        let cleaned = try #require(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        #expect(cleaned["mavenSettingsPath"] == nil && cleaned["mavenLocalRepositoryPath"] == nil)
+        #expect(cleaned["javaHomePath"] as? String == "/fixture/unrelated-jdk")
+        #expect((cleaned["futurePreference"] as? [String: Bool])?["keep"] == true)
+        // Defaults continue to apply when another reactor appears after cutover.
+        #expect(!(try context.migration().migrate(workspace: context.workspace, reactorRoots: ["later"])))
+        #expect(try context.options.instanceDefaults(workspaceURL: context.workspace, buildSystemID: "maven") == defaults)
+        #expect(context.preferences.migrationReceipts.isEmpty)
+    }
+
+    @Test
+    func runtimeFieldsWaitForAReactorAndTheirFailedPublicationCanRetry() throws {
+        let context = try Context()
+        defer { context.clean() }
+        let key = MacProjectRuntimeSettingsStore.preferencesKey(context.workspace)
+        let bytes = try JSONSerialization.data(withJSONObject: ["mavenSettingsPath": "/fixture/settings.xml", "future": 1])
+        context.preferences.set(bytes, forKey: key)
+        #expect(!(try context.migration().migrate(workspace: context.workspace, reactorRoots: [])))
+        #expect(context.preferences.data(forKey: key) == bytes)
+        context.preferences.refuseDefaults = true
+        #expect(throws: (any Error).self) { try context.migration().migrate(workspace: context.workspace, reactorRoots: ["."]) }
+        #expect(context.preferences.data(forKey: key) == bytes)
+        #expect(!context.preferences.migrationReceipts.isEmpty)
+        context.preferences.refuseDefaults = false
+        #expect(try context.migration().migrate(workspace: context.workspace, reactorRoots: ["."]))
+        #expect(try context.options.instanceDefaults(workspaceURL: context.workspace, buildSystemID: "maven")["settingsFile"] == .string("/fixture/settings.xml"))
+        #expect(context.preferences.migrationReceipts.isEmpty)
+    }
+
+    @Test
+    func failedRuntimeSourceCleanupRetainsItsReceiptAndCanRetryAfterReadback() throws {
+        let context = try Context()
+        defer { context.clean() }
+        let key = MacProjectRuntimeSettingsStore.preferencesKey(context.workspace)
+        let bytes = try JSONSerialization.data(withJSONObject: ["mavenSettingsPath": "/fixture/settings.xml"])
+        context.preferences.set(bytes, forKey: key)
+        context.preferences.refuseRuntimeWrites = true
+        #expect(throws: (any Error).self) { try context.migration().migrate(workspace: context.workspace, reactorRoots: ["."]) }
+        #expect(context.preferences.data(forKey: key) == bytes)
+        #expect(try context.options.instanceDefaults(workspaceURL: context.workspace, buildSystemID: "maven")["settingsFile"] == .string("/fixture/settings.xml"))
+        #expect(!context.preferences.migrationReceipts.isEmpty)
+        context.preferences.refuseRuntimeWrites = false
+        #expect(try context.migration().migrate(workspace: context.workspace, reactorRoots: ["."]))
+        #expect(context.preferences.migrationReceipts.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func emptyRuntimeFieldsDoNotCreateOverridesOrReplaceExistingDefaults(existing: Bool) throws {
+        let context = try Context()
+        defer { context.clean() }
+        let key = MacProjectRuntimeSettingsStore.preferencesKey(context.workspace)
+        if existing {
+            try context.options.setInstanceDefaults(["settingsFile": .string("/fixture/already-saved.xml")], workspaceURL: context.workspace, buildSystemID: "maven")
+        }
+        context.preferences.set(try JSONSerialization.data(withJSONObject: ["mavenSettingsPath": "", "mavenLocalRepositoryPath": "   ", "future": true]), forKey: key)
+        #expect(try context.migration().migrate(workspace: context.workspace, reactorRoots: ["."]))
+        #expect(try context.options.instanceDefaults(workspaceURL: context.workspace, buildSystemID: "maven") == (existing ? ["settingsFile": .string("/fixture/already-saved.xml")] : [:]))
+        #expect(!context.storage.fileExists(at: context.workspace.appendingPathComponent(".lithe/build/options.json")))
+        #expect(!context.storage.fileExists(at: context.workspace.appendingPathComponent(".lithe/run/local.json")))
+        let saved = try #require(context.preferences.data(forKey: key))
+        let fields = try #require(JSONSerialization.jsonObject(with: saved) as? [String: Bool])
+        #expect(fields == ["future": true])
+        #expect(context.preferences.migrationReceipts.isEmpty)
+    }
+
+    @Test(arguments: ["wrong-type", "corrupt", "invalid-field", "source-change"])
+    func invalidOrChangedRuntimeFieldsRetainTheirSource(kind: String) throws {
+        let context = try Context()
+        defer { context.clean() }
+        let key = MacProjectRuntimeSettingsStore.preferencesKey(context.workspace)
+        let original = try JSONSerialization.data(withJSONObject: ["mavenSettingsPath": "/fixture/original.xml"])
+        let changed = try JSONSerialization.data(withJSONObject: ["mavenSettingsPath": "/fixture/external.xml"])
+        switch kind {
+        case "wrong-type": context.preferences.set("retain me", forKey: key)
+        case "corrupt": context.preferences.set(Data("{broken".utf8), forKey: key)
+        case "invalid-field": context.preferences.set(try JSONSerialization.data(withJSONObject: ["mavenSettingsPath": 12]), forKey: key)
+        default:
+            context.preferences.set(original, forKey: key)
+            context.preferences.beforeWrite = { writtenKey in
+                if writtenKey.hasSuffix(".InstanceDefaults") {
+                    context.preferences.beforeWrite = nil
+                    context.preferences.set(changed, forKey: key)
+                }
+            }
+        }
+        #expect(throws: (any Error).self) { try context.migration().migrate(workspace: context.workspace, reactorRoots: ["."]) }
+        if kind == "source-change" {
+            #expect(context.preferences.data(forKey: key) == changed)
+            #expect(throws: (any Error).self) { try context.migration().migrate(workspace: context.workspace, reactorRoots: ["."]) }
+            #expect(context.preferences.data(forKey: key) == changed)
+        } else if kind == "wrong-type" { #expect(context.preferences.object(forKey: key) as? String == "retain me") }
+        else { #expect(context.preferences.data(forKey: key) != nil) }
+    }
+
+    @Test
     func transfersTeamChoicesAndReactorLocalPathsWithoutReplacingCanonicalValues() throws {
         let context = try Context()
         defer { context.clean() }
@@ -181,12 +297,20 @@ struct LegacyMavenConfigurationMigrationTests {
 
 private final class MigrationPreferences: KeyValueStore {
     private var values: [String: Any] = [:]
+    var refuseDefaults = false
+    var refuseRuntimeWrites = false
+    var beforeWrite: ((String) -> Void)?
     var migrationReceipts: [String] { values.keys.filter { $0.hasPrefix("BuildSystems.Migrations.Maven.") } }
     func data(forKey key: String) -> Data? { values[key] as? Data }
     func object(forKey key: String) -> Any? { values[key] }
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
-    func set(_ value: Any?, forKey key: String) { values[key] = value }
+    func set(_ value: Any?, forKey key: String) {
+        beforeWrite?(key)
+        guard !refuseDefaults || !key.hasSuffix(".InstanceDefaults") else { return }
+        guard !refuseRuntimeWrites || !key.hasPrefix("lithe.project-runtime-settings.") else { return }
+        values[key] = value
+    }
 }
 
 private struct MigrationFileStorage: FileStorage {
