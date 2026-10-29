@@ -6,6 +6,43 @@ import Testing
 @MainActor
 @Suite("Split pane collapse")
 struct LitheSplitPaneCollapseTests {
+    @Test("A declared page size avoids content-driven intrinsic sizing while panes still follow window bounds",
+          arguments: [LitheSplitAxis.horizontal, .vertical])
+    func declaredPageSizePreservesPaneGeometry(axis: LitheSplitAxis) throws {
+        let surfaces = CollapseSurfaceRecorder()
+        let host = NSHostingView(rootView: LitheSplitPaneView(
+            axis: axis, placement: .leading, defaultSize: 220, minimum: 30, maximum: 400,
+            idealSize: CGSize(width: 900, height: 617),
+            sized: { CollapseSurface(name: "sidebar", recorder: surfaces) },
+            flexible: {
+                CollapseSurface(name: "content", recorder: surfaces)
+                    .frame(idealWidth: 1800, idealHeight: 2000)
+            }))
+        #expect(host.fittingSize == CGSize(width: 900, height: 617))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        for size in [CGSize(width: 1000, height: 700), CGSize(width: 1200, height: 800)] {
+            window.setContentSize(size)
+            host.layoutSubtreeIfNeeded()
+            let sidebar = try #require(surfaces.views["sidebar"]?.first)
+            let content = try #require(surfaces.views["content"]?.first)
+            if axis == .horizontal {
+                #expect(sidebar.bounds.width == 220)
+                #expect(content.bounds.width == size.width - 220 - SplitHandleView.thickness)
+                #expect(content.bounds.height == size.height)
+            } else {
+                #expect(sidebar.bounds.height == 220)
+                #expect(content.bounds.height == size.height - 220 - SplitHandleView.thickness)
+                #expect(content.bounds.width == size.width)
+            }
+        }
+        #expect(surfaces.views.values.allSatisfy { $0.count == 1 })
+    }
+
     @Test("Release holds the final size until the host returns its committed value",
           arguments: [LitheSplitAxis.horizontal, .vertical])
     func releaseWaitsForCommittedSize(axis: LitheSplitAxis) async throws {
