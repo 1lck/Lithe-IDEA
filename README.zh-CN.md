@@ -109,42 +109,75 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 ## 产品截图
 
-<p align="center">
-  <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="双击 Shift 全局搜索">
-  <img src="./docs/assets/screenshots/git-diff-review.png" width="49%" alt="Git 双栏 Diff 审查">
-</p>
+以下为 macOS 版截图，保留了中文功能标注。点击图片可查看原图细节。
+
+### Git、Diff 与工作树
+
+在同一窗口切换项目、审查 Diff、编写提交信息，并查看和管理 Git 工作树。
 
 <p align="center">
-  <img src="./docs/assets/screenshots/ai-commit-message.png" width="49%" alt="使用 AI 自动生成 Commit Message">
-  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="49%" alt="项目自动识别和一键运行配置">
+  <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git、Diff 与工作树"></a>
+</p>
+
+### AI 对话与上下文
+
+在编辑区中与 Agent 对话，展开命令执行记录，查看上下文用量、文件更改和会话统计。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI 对话与上下文"></a>
 </p>
 
 <details>
-<summary>更多截图</summary>
-<br>
+<summary>全局搜索与 Markdown 预览</summary>
+
+双击 Shift 搜索文件、符号和操作；Markdown 支持双栏编辑、预览和目录导航。
 
 <p align="center">
-  <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F 全局搜索和替换">
-  <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="自定义 AI Commit Message 格式">
+  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="全局搜索与 Markdown 预览"></a>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="从本机 AI 工具导入 API 配置">
-  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="按语言配置语言服务">
-</p>
+</details>
+
+<details>
+<summary>Git 历史与分支浏览</summary>
+
+结合分支列表、提交图、筛选器和变更文件浏览 Git 历史。
 
 <p align="center">
-  <img src="./docs/assets/screenshots/markdown-mermaid-preview.png" width="49%" alt="Markdown Mermaid 图表渲染和实时预览">
-  <img src="./docs/assets/screenshots/markdown-rich-preview.png" width="49%" alt="Markdown 多语法渲染和实时预览">
+  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git 历史与分支浏览"></a>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/screenshots/memory-monitor-annotated.png" width="49%" alt="低内存占用和应用内存监控">
-  <img src="./docs/assets/screenshots/memory-monitor.png" width="49%" alt="应用内存占用详情">
-</p>
+</details>
+
+<details>
+<summary>HTML 预览与运行服务</summary>
+
+并排编辑和预览 HTML，在运行面板中查看项目入口与服务配置。
 
 <p align="center">
-  <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="多行编辑器标签">
+  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML 预览与运行服务"></a>
+</p>
+
+</details>
+
+<details>
+<summary>插件管理与原生调试</summary>
+
+管理语言服务、构建和调试插件；图中同时展示 LLDB 反汇编与寄存器视图。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="插件管理与原生调试"></a>
+</p>
+
+</details>
+
+<details>
+<summary>Agent 资源与 MCP 配置</summary>
+
+集中管理 Agent 的指令、技能、Hooks 和 MCP 配置，在对话中查看运行耗时与 Token 用量。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-mcp-settings.png"><img src="./docs/assets/screenshots/agent-mcp-settings.png" width="100%" alt="Agent 资源与 MCP 配置"></a>
 </p>
 
 </details>
