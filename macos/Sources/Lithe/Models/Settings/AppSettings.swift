@@ -238,19 +238,23 @@ final class AppSettings: ObservableObject {
     }
 
     private func updateNetworkProxyPreferences() {
+        // The snapshot carries the stored values as entered; normalization
+        // and validation are owned by Rust Core (`network.proxyPolicy`).
         var configuration = networkProxyPreferences.snapshot
         configuration.mode = networkProxyMode
         configuration.type = networkProxyType
-        // Normalized once here so every reader sees the same trimmed values.
-        configuration.host = networkProxyHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        configuration.host = networkProxyHost
         configuration.port = networkProxyPort
-        configuration.username = networkProxyUsername.trimmingCharacters(in: .whitespacesAndNewlines)
-        configuration.exclusions = Self.parsedNetworkProxyExclusions(networkProxyExclusions)
+        configuration.username = networkProxyUsername
+        configuration.exclusions = networkProxyExclusions
         networkProxyPreferences.update(configuration)
     }
 
-    nonisolated static func parsedNetworkProxyExclusions(_ raw: [String]) -> [String] {
-        raw.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    /// The password a connectivity check should use: an explicit draft wins;
+    /// otherwise the saved Keychain password keeps an already working proxy
+    /// verifiable after the save cleared the field.
+    func effectiveNetworkProxyPassword(draft: String) -> String {
+        draft.isEmpty ? networkProxyPreferences.snapshot.password : draft
     }
 
     /// The password lives in the Keychain, never in defaults; callers merge
@@ -474,6 +478,10 @@ final class AppSettings: ObservableObject {
         repairImportedAgentProviders()
         AppThemeRuntime.shared.activate(colorTheme)
         updateGitExecutionPreferences()
+        // Property initialization does not fire didSet, so the snapshot the
+        // network layer reads must be synced explicitly once, here at the end
+        // of initialization — a reload must keep the saved policy effective.
+        updateNetworkProxyPreferences()
     }
 
     var terminalShellPath: String? {

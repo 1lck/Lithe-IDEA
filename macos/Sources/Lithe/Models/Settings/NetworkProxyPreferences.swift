@@ -39,8 +39,10 @@ enum NetworkProxyType: String, CaseIterable, Identifiable {
 }
 
 /// An immutable snapshot of the proxy settings the network layer reads.
-/// The password never passes through the settings store; the composition
-/// root loads it from the Keychain and pushes it into the snapshot separately.
+/// Values are carried as entered: normalization and validation live in Rust
+/// Core (`network.proxyPolicy`). The password never passes through the
+/// settings store; the composition root loads it from the Keychain and pushes
+/// it into the snapshot separately.
 struct NetworkProxyConfiguration: Equatable, Sendable {
     var mode: NetworkProxyMode = .system
     var type: NetworkProxyType = .http
@@ -48,16 +50,9 @@ struct NetworkProxyConfiguration: Equatable, Sendable {
     var port: Int = 0
     var username: String = ""
     var password: String = ""
-    /// Hosts that bypass the custom proxy, already split and trimmed.
+    /// Hosts that should bypass a custom proxy, one entry per element; the
+    /// settings page edits them as one comma-separated string.
     var exclusions: [String] = []
-
-    /// A custom proxy without a host and port keeps the system behavior
-    /// instead of silently breaking every request.
-    var isCustomConfigured: Bool {
-        mode == .custom
-            && !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && port > 0
-    }
 }
 
 /// Thread-safe holder for the live proxy configuration. Settings writes and

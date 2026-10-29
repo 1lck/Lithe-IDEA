@@ -975,6 +975,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
+| `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
@@ -2128,6 +2129,20 @@ implementations (`comment-toggle.ts`, `line-operations.ts`) and is expected
 to adopt the same contract in a follow-up change; the fixture pins the
 canonical behavior for that migration. Deterministic cases are pinned by
 `shared/fixtures/editor/line-edit-v1.json`.
+
+`network.proxyPolicy` normalizes the stored proxy settings into the policy a
+network stack must apply. It accepts `{ "mode": "system" | "direct" |
+"custom", "proxyType"?: "http" | "socks5", "host"?: string, "port"?: number,
+"username"?: string, "password"?: string, "exclusions"?: string[] }` (`port`
+must fit in 16 bits, otherwise the request is rejected with
+`invalid_request`) and returns `{ "policy": "system" | "direct" | "custom",
+"proxyType", "host", "port", "username", "password", "exclusions",
+"configured" }`. Hosts and usernames are trimmed, empty exclusion entries are
+dropped, and passwords keep every character. A custom server without a host
+or port normalizes to `policy: "system"` with `configured: false`; system and
+direct never carry credentials, so hosts can forward the plan to their network
+stack without a second credential-scoping decision. Deterministic cases are
+pinned by `shared/fixtures/network/proxy-policy-v1.json`.
 
 The `debug.*` commands are the shared Debug Adapter Protocol boundary. Rust
 owns DAP framing, request sequences, response correlation, initialization and

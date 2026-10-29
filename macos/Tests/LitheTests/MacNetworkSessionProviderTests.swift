@@ -1,52 +1,70 @@
+import CFNetwork
 import Foundation
 import Testing
 @testable import Lithe
 
-/// Protects the proxy policy mapping and session lifecycle: every mode must
-/// produce the documented CFNetwork dictionary (or none), sessions must be
-/// reused while the configuration stays put and rebuilt when it changes, and
-/// the authentication delegate must answer proxy challenges without looping.
+/// Protects the proxy policy mapping and session lifecycle: the normalized
+/// plan from Rust Core is the single source of truth, sessions are reused
+/// while the plan stays put and rebuilt when it changes, and the
+/// authentication delegate answers only the challenges of its own proxy
+/// without looping on wrong credentials.
 @Suite("Network session provider")
 struct MacNetworkSessionProviderTests {
-    private func configuration(
-        mode: NetworkProxyMode,
-        type: NetworkProxyType = .http,
+    private func plan(
+        policy: RustCoreBridge.NetworkProxyPolicyPlan.PolicyKind,
+        proxyType: RustCoreBridge.NetworkProxyPolicyPlan.ProxyType = .http,
         host: String = "",
         port: Int = 0,
         username: String = "",
         password: String = "",
-        exclusions: [String] = []
-    ) -> NetworkProxyConfiguration {
-        var configuration = NetworkProxyConfiguration()
-        configuration.mode = mode
-        configuration.type = type
-        configuration.host = host
-        configuration.port = port
-        configuration.username = username
-        configuration.password = password
-        configuration.exclusions = exclusions
-        return configuration
+        exclusions: [String] = [],
+        configured: Bool
+    ) -> RustCoreBridge.NetworkProxyPolicyPlan {
+        .init(
+            policy: policy,
+            proxyType: proxyType,
+            host: host,
+            port: port,
+            username: username,
+            password: password,
+            exclusions: exclusions,
+            configured: configured
+        )
+    }
+
+    private func provider(preferences: NetworkProxyPreferences, plan: RustCoreBridge.NetworkProxyPolicyPlan) -> MacNetworkSessionProvider {
+        MacNetworkSessionProvider(preferences: preferences, policyResolver: { _ in plan })
     }
 
     @Test
-    func systemModeLeavesProxyResolutionToTheSystem() {
-        let system = MacNetworkSessionProvider.proxyDictionary(for: configuration(mode: .system))
-        #expect(system == nil)
-        let unfinishedCustom = MacNetworkSessionProvider.proxyDictionary(for: configuration(mode: .custom))
-        #expect(unfinishedCustom == nil)
+    func systemPlanLeavesProxyResolutionToTheSystem() {
+        let dictionary = MacNetworkSessionProvider.proxyDictionary(
+            for: plan(policy: .system, configured: false)
+        )
+        #expect(dictionary == nil)
     }
 
     @Test
-    func directModeExplicitlyDisablesEveryProxy() {
-        let dictionary = MacNetworkSessionProvider.proxyDictionary(for: configuration(mode: .direct))
+    func directPlanExplicitlyDisablesEveryProxy() {
+        let dictionary = MacNetworkSessionProvider.proxyDictionary(
+            for: plan(policy: .direct, configured: true)
+        )
         #expect(dictionary?.isEmpty == true)
     }
 
     @Test
-    func httpModeCarriesBothPlainAndTunnelledTraffic() throws {
+    func unconfiguredCustomPlanKeepsSystemResolution() {
+        let dictionary = MacNetworkSessionProvider.proxyDictionary(
+            for: plan(policy: .custom, host: "proxy.example", port: 3128, configured: false)
+        )
+        #expect(dictionary == nil)
+    }
+
+    @Test
+    func httpPlanCarriesBothPlainAndTunnelledTraffic() throws {
         let dictionary = try #require(
             MacNetworkSessionProvider.proxyDictionary(
-                for: configuration(mode: .custom, type: .http, host: "127.0.0.1", port: 7890)
+                for: plan(policy: .custom, proxyType: .http, host: "127.0.0.1", port: 7890, configured: true)
             )
         )
         #expect(dictionary[kCFNetworkProxiesHTTPEnable as AnyHashable] as? Bool == true)
@@ -59,10 +77,10 @@ struct MacNetworkSessionProviderTests {
     }
 
     @Test
-    func socksModeUsesTheSOCKSDictionaryKeys() throws {
+    func socksPlanUsesTheSOCKSDictionaryKeys() throws {
         let dictionary = try #require(
             MacNetworkSessionProvider.proxyDictionary(
-                for: configuration(mode: .custom, type: .socks5, host: "proxy.example", port: 1080)
+                for: plan(policy: .custom, proxyType: .socks5, host: "proxy.example", port: 1080, configured: true)
             )
         )
         #expect(dictionary[kCFNetworkProxiesSOCKSEnable as AnyHashable] as? Bool == true)
@@ -75,10 +93,11 @@ struct MacNetworkSessionProviderTests {
     func credentialsAndExclusionsJoinTheDictionary() throws {
         let dictionary = try #require(
             MacNetworkSessionProvider.proxyDictionary(
-                for: configuration(
-                    mode: .custom, type: .http, host: "proxy.example", port: 3128,
+                for: plan(
+                    policy: .custom, proxyType: .http, host: "proxy.example", port: 3128,
                     username: "lithe", password: "secret",
-                    exclusions: ["127.0.0.1", "*.internal.example"]
+                    exclusions: ["127.0.0.1", "*.internal.example"],
+                    configured: true
                 )
             )
         )
@@ -87,103 +106,121 @@ struct MacNetworkSessionProviderTests {
         #expect(dictionary[kCFNetworkProxiesExceptionsList as AnyHashable] as? [String] == ["127.0.0.1", "*.internal.example"])
     }
 
-    @Test
-    func anUnconfiguredCustomHostFallsBackToSystemResolution() {
-        let emptyHost = MacNetworkSessionProvider.proxyDictionary(
-            for: configuration(mode: .custom, host: "  ", port: 7890)
-        )
-        #expect(emptyHost == nil)
-        let missingPort = MacNetworkSessionProvider.proxyDictionary(
-            for: configuration(mode: .custom, host: "proxy.example", port: 0)
-        )
-        #expect(missingPort == nil)
+    // A mutable plan holder the @Sendable resolver can read through: @Sendable
+    // closures capture values by copy, so tests mutate through the box.
+    private final class PlanBox: @unchecked Sendable {
+        var value: RustCoreBridge.NetworkProxyPolicyPlan
+        init(_ value: RustCoreBridge.NetworkProxyPolicyPlan) { self.value = value }
     }
 
     @Test
-    func sessionsAreReusedUntilTheConfigurationChanges() {
+    func sessionsAreReusedUntilThePlanChanges() {
         let preferences = NetworkProxyPreferences()
-        let provider = MacNetworkSessionProvider(preferences: preferences)
-        preferences.update(configuration(mode: .direct))
+        let current = PlanBox(plan(policy: .system, configured: false))
+        let provider = MacNetworkSessionProvider(preferences: preferences) { _ in current.value }
         let first = provider.currentSession()
         #expect(provider.currentSession() === first)
 
-        preferences.update(configuration(mode: .custom, type: .http, host: "proxy.example", port: 3128))
+        current.value = plan(policy: .custom, proxyType: .http, host: "proxy.example", port: 3128, configured: true)
         let second = provider.currentSession()
         #expect(second !== first)
 
-        // An identical configuration keeps the session built for it.
+        // An identical plan keeps the session built for it.
         #expect(provider.currentSession() === second)
     }
 
     @Test
     func providerSessionsCarryTheCurrentProxyPolicy() {
         let preferences = NetworkProxyPreferences()
-        let provider = MacNetworkSessionProvider(preferences: preferences)
-        preferences.update(configuration(mode: .direct))
+        let current = PlanBox(plan(policy: .direct, configured: true))
+        let provider = MacNetworkSessionProvider(preferences: preferences) { _ in current.value }
         #expect(provider.currentSession().configuration.connectionProxyDictionary?.isEmpty == true)
 
-        preferences.update(configuration(mode: .custom, type: .http, host: "proxy.example", port: 3128))
+        current.value = plan(policy: .custom, proxyType: .http, host: "proxy.example", port: 3128, configured: true)
         let dictionary = provider.currentSession().configuration.connectionProxyDictionary
         #expect(dictionary?[kCFNetworkProxiesHTTPEnable as AnyHashable] as? Bool == true)
 
-        preferences.update(configuration(mode: .system))
+        current.value = plan(policy: .system, configured: false)
         #expect(provider.currentSession().configuration.connectionProxyDictionary == nil)
     }
 
     @Test
     func applyPolicySharesOneImplementationWithCallerOwnedConfigurations() {
         let preferences = NetworkProxyPreferences()
-        let provider = MacNetworkSessionProvider(preferences: preferences)
-        preferences.update(configuration(mode: .custom, type: .http, host: "proxy.example", port: 3128))
+        let current = PlanBox(plan(policy: .custom, proxyType: .http, host: "proxy.example", port: 3128, configured: true))
+        let provider = MacNetworkSessionProvider(preferences: preferences) { _ in current.value }
 
         let rollbackConfiguration = URLSessionConfiguration.ephemeral
         provider.applyPolicy(to: rollbackConfiguration)
         #expect(rollbackConfiguration.connectionProxyDictionary?[kCFNetworkProxiesHTTPProxy as AnyHashable] as? String == "proxy.example")
 
-        preferences.update(configuration(mode: .system))
+        current.value = plan(policy: .system, configured: false)
         let untouched = URLSessionConfiguration.ephemeral
         provider.applyPolicy(to: untouched)
         #expect(untouched.connectionProxyDictionary == nil)
     }
 
-    @Test
-    func proxyChallengesUseTheCapturedCredentialsWithoutLooping() {
-        let delegate = MacProxySessionDelegate(username: "lithe", password: "secret")
+    // MARK: Credential scoping (review P1)
+
+    private func proxyChallenge(host: String, port: Int, previousFailureCount: Int = 0) -> URLAuthenticationChallenge {
         let space = URLProtectionSpace(
-            proxyHost: "proxy.example", port: 3128, type: "http",
+            proxyHost: host, port: port, type: "http",
             realm: nil, authenticationMethod: NSURLAuthenticationMethodHTTPBasic
         )
-        let challenge = URLAuthenticationChallenge(
-            protectionSpace: space, proposedCredential: nil, previousFailureCount: 0,
+        return URLAuthenticationChallenge(
+            protectionSpace: space, proposedCredential: nil, previousFailureCount: previousFailureCount,
             failureResponse: nil, error: nil, sender: NoopChallengeSender()
         )
+    }
+
+    private func disposition(
+        _ delegate: MacProxySessionDelegate,
+        for challenge: URLAuthenticationChallenge
+    ) -> URLSession.AuthChallengeDisposition {
         let inertSession = URLSession(configuration: .ephemeral)
         let task = inertSession.dataTask(with: URL(string: "https://github.com")!)
-        var disposition: URLSession.AuthChallengeDisposition?
-        var credential: URLCredential?
-        delegate.urlSession(inertSession, task: task, didReceive: challenge) {
-            disposition = $0
-            credential = $1
+        var observed: URLSession.AuthChallengeDisposition?
+        delegate.urlSession(inertSession, task: task, didReceive: challenge) { result, _ in
+            observed = result
         }
-        #expect(disposition == .useCredential)
-        #expect(credential?.user == "lithe")
-        #expect(credential?.password == "secret")
+        return observed ?? .performDefaultHandling
+    }
 
-        // A second failure must not retry the same credentials forever.
-        let repeated = URLAuthenticationChallenge(
-            protectionSpace: space, proposedCredential: nil, previousFailureCount: 1,
-            failureResponse: nil, error: nil, sender: NoopChallengeSender()
+    /// Regression for the review P1: stored credentials belong to one proxy.
+    /// A different system proxy challenging in the same process must never
+    /// receive them.
+    @Test
+    func credentialsOnlyReachTheirOwnProxy() {
+        let delegate = MacProxySessionDelegate(
+            expectedProxyHost: "proxy.example", expectedProxyPort: 3128,
+            username: "lithe", password: "secret"
         )
-        var repeatDisposition: URLSession.AuthChallengeDisposition?
-        delegate.urlSession(inertSession, task: task, didReceive: repeated) { result, _ in
-            repeatDisposition = result
-        }
-        #expect(repeatDisposition == .performDefaultHandling)
+        let own = disposition(delegate, for: proxyChallenge(host: "proxy.example", port: 3128))
+        #expect(own == .useCredential)
+
+        let otherHost = disposition(delegate, for: proxyChallenge(host: "other.example", port: 3128))
+        #expect(otherHost == .performDefaultHandling)
+
+        let otherPort = disposition(delegate, for: proxyChallenge(host: "proxy.example", port: 8080))
+        #expect(otherPort == .performDefaultHandling)
+    }
+
+    @Test
+    func wrongCredentialsFallBackAfterTheFirstFailure() {
+        let delegate = MacProxySessionDelegate(
+            expectedProxyHost: "proxy.example", expectedProxyPort: 3128,
+            username: "lithe", password: "secret"
+        )
+        let repeated = disposition(
+            delegate,
+            for: proxyChallenge(host: "proxy.example", port: 3128, previousFailureCount: 1)
+        )
+        #expect(repeated == .performDefaultHandling)
     }
 
     @Test
     func serverChallengesAndCredentialFreeSessionsKeepDefaultHandling() {
-        let anonymous = MacProxySessionDelegate(username: "", password: "")
+        let anonymous = MacProxySessionDelegate(credential: nil)
         let serverSpace = URLProtectionSpace(
             host: "github.com", port: 443, protocol: "https",
             realm: nil, authenticationMethod: NSURLAuthenticationMethodHTTPBasic
@@ -192,26 +229,32 @@ struct MacNetworkSessionProviderTests {
             protectionSpace: serverSpace, proposedCredential: nil, previousFailureCount: 0,
             failureResponse: nil, error: nil, sender: NoopChallengeSender()
         )
-        var disposition: URLSession.AuthChallengeDisposition?
-        anonymous.urlSession(
-            URLSession(configuration: .ephemeral),
-            task: URLSession(configuration: .ephemeral).dataTask(with: URL(string: "https://github.com")!),
-            didReceive: serverChallenge
-        ) { result, _ in
-            disposition = result
-        }
-        #expect(disposition == .performDefaultHandling)
+        let observed = disposition(anonymous, for: serverChallenge)
+        #expect(observed == .performDefaultHandling)
 
-        let authenticated = MacProxySessionDelegate(username: "lithe", password: "secret")
-        disposition = nil
-        authenticated.urlSession(
-            URLSession(configuration: .ephemeral),
-            task: URLSession(configuration: .ephemeral).dataTask(with: URL(string: "https://github.com")!),
-            didReceive: serverChallenge
-        ) { result, _ in
-            disposition = result
-        }
-        #expect(disposition == .performDefaultHandling)
+        let authenticated = MacProxySessionDelegate(
+            expectedProxyHost: "proxy.example", expectedProxyPort: 3128,
+            username: "lithe", password: "secret"
+        )
+        #expect(disposition(authenticated, for: serverChallenge) == .performDefaultHandling)
+    }
+
+    /// Regression for the review P1 companion: the provider must not even
+    /// attach a credential-answering delegate once the policy leaves custom
+    /// mode, so no challenge can pull the stored credentials.
+    @Test
+    func nonCustomPlansBuildSessionsWithoutACredentialDelegate() {
+        let preferences = NetworkProxyPreferences()
+        let current = PlanBox(plan(
+            policy: .custom, proxyType: .http, host: "proxy.example", port: 3128,
+            username: "lithe", password: "secret", configured: true
+        ))
+        let provider = MacNetworkSessionProvider(preferences: preferences) { _ in current.value }
+        _ = provider.currentSession()
+
+        current.value = plan(policy: .system, configured: false)
+        let systemSession = provider.currentSession()
+        #expect(systemSession.configuration.connectionProxyDictionary == nil)
     }
 }
 

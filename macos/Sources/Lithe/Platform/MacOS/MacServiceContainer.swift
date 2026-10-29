@@ -116,12 +116,19 @@ final class MacServiceContainer {
         // the rollback downloader outside this container shares the policy,
         // and every transport inside resolves sessions through it per request.
         let networkSessionProvider = providedNetworkSessionProvider
-            ?? MacNetworkSessionProvider(preferences: settings.networkProxyPreferences)
+            ?? MacNetworkSessionProvider(
+                preferences: settings.networkProxyPreferences,
+                policyResolver: { [rustCore] configuration in
+                    rustCore.networkProxyPolicy(from: configuration)
+                }
+            )
         let proxyPasswordStore = MacKeychainSecureStore(service: fileStorage.identity.keychainService("proxy"))
         if let storedProxyPassword = proxyPasswordStore.read(key: AppSettings.networkProxyPasswordKey) {
             settings.updateNetworkProxyPassword(storedProxyPassword)
         }
-        let proxyConnectionChecker = MacNetworkProxyTester()
+        let proxyConnectionChecker = MacNetworkProxyTester(policyResolver: { [rustCore] configuration in
+            rustCore.networkProxyPolicy(from: configuration)
+        })
         let workspaceLanguageServerPreferences = MacWorkspaceLanguageServerPreferencesStore(store: store)
         let directoryMarkStore = WorkspaceDirectoryMarkStore(store: store)
         let runConfigurationStore = MacRunConfigurationStore(

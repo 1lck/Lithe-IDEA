@@ -8,6 +8,15 @@ import LitheModuleAPI
 struct MacNetworkProxyTester: NetworkProxyChecking {
     private static let targetURL = URL(string: "https://github.com")!
     private static let timeout: TimeInterval = 10
+    /// Resolves the drafted candidate into the normalized policy, exactly as
+    /// the live session factory would.
+    private let policyResolver: @Sendable (NetworkProxyConfiguration) -> RustCoreBridge.NetworkProxyPolicyPlan?
+
+    init(
+        policyResolver: @escaping @Sendable (NetworkProxyConfiguration) -> RustCoreBridge.NetworkProxyPolicyPlan?
+    ) {
+        self.policyResolver = policyResolver
+    }
 
     func check(
         type: NetworkProxyType,
@@ -23,7 +32,15 @@ struct MacNetworkProxyTester: NetworkProxyChecking {
         configuration.port = port
         configuration.username = username
         configuration.password = password
-        guard configuration.isCustomConfigured, (1...65_535).contains(port) else {
+        // Validated before Core sees the request: an incomplete candidate is
+        // a user-input problem, not a policy that silently bypasses the proxy.
+        guard (1...65_535).contains(port), !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return NetworkProxyCheckOutcome(
+                succeeded: false, elapsedMilliseconds: 0,
+                detail: L10n.string("Enter a server address and a port between 1 and 65535 first.")
+            )
+        }
+        guard let plan = policyResolver(configuration), plan.policy == .custom else {
             return NetworkProxyCheckOutcome(
                 succeeded: false, elapsedMilliseconds: 0,
                 detail: L10n.string("Enter a server address and a port between 1 and 65535 first.")
@@ -31,10 +48,15 @@ struct MacNetworkProxyTester: NetworkProxyChecking {
         }
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.timeoutIntervalForRequest = Self.timeout
-        if let proxyDictionary = MacNetworkSessionProvider.proxyDictionary(for: configuration) {
+        if let proxyDictionary = MacNetworkSessionProvider.proxyDictionary(for: plan) {
             sessionConfiguration.connectionProxyDictionary = proxyDictionary
         }
-        let delegate = MacProxySessionDelegate(username: username, password: password)
+        let delegate = MacProxySessionDelegate(credential: .init(
+            host: plan.host,
+            port: plan.port,
+            username: plan.username,
+            password: plan.password
+        ))
         let session = URLSession(configuration: sessionConfiguration, delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
 

@@ -509,8 +509,14 @@ struct LitheApp: App {
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
         )
         // Created outside the service container so the update checker (which
-        // is not part of any project model) shares the proxy policy.
-        let networkSessionProvider = MacNetworkSessionProvider(preferences: settings.networkProxyPreferences)
+        // is not part of any project model) shares the proxy policy. The
+        // policy itself is normalized by Rust Core.
+        let networkSessionProvider = MacNetworkSessionProvider(
+            preferences: settings.networkProxyPreferences,
+            policyResolver: { [proxyPolicyBridge = RustCoreBridge()] configuration in
+                proxyPolicyBridge.networkProxyPolicy(from: configuration)
+            }
+        )
         let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter { [weak settings] in
             Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
         }

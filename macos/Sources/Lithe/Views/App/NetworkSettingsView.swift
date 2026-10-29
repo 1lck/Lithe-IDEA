@@ -186,7 +186,9 @@ struct NetworkSettingsView: View {
         settings.networkProxyExclusions = parsedExclusions
         if !password.isEmpty {
             saveMessage = model.saveNetworkProxyPassword(password)
-            password = ""
+            // Only forget the draft after a successful Keychain write, so a
+            // failed save keeps the input and the retry entry point.
+            if saveMessage == nil { password = "" }
         } else {
             saveMessage = nil
         }
@@ -213,13 +215,16 @@ struct NetworkSettingsView: View {
         }
         checkOutcome = nil
         checkInFlight = true
+        // An empty password field means "keep the saved password", so the
+        // check verifies the configuration a save would produce.
+        let effectivePassword = settings.effectiveNetworkProxyPassword(draft: password)
         Task {
             let outcome = await model.checkProxyConnection(
                 type: proxyType,
                 host: trimmedHost,
                 port: parsedPort,
                 username: username.trimmingCharacters(in: .whitespacesAndNewlines),
-                password: password
+                password: effectivePassword
             )
             checkOutcome = outcome
             checkInFlight = false
