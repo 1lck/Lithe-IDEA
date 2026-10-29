@@ -109,42 +109,75 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 
 ## Product tour
 
-<p align="center">
-  <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="Double-Shift Search Everywhere">
-  <img src="./docs/assets/screenshots/git-diff-review.png" width="49%" alt="Side-by-side Git diff review">
-</p>
+Screenshots show the macOS app with Chinese annotations. Click an image to view it at full resolution.
+
+### Git, diffs, and worktrees
+
+Switch projects in one window, review diffs, prepare commits, and inspect and manage Git worktrees.
 
 <p align="center">
-  <img src="./docs/assets/screenshots/ai-commit-message.png" width="49%" alt="Generate commit messages with AI">
-  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="49%" alt="Automatic project detection and one-click run configuration">
+  <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git, diffs, and worktrees"></a>
+</p>
+
+### AI chat and context
+
+Chat with an agent in the editor area, expand command output, and inspect context usage, file changes, and session statistics.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI chat and context"></a>
 </p>
 
 <details>
-<summary>More screenshots</summary>
-<br>
+<summary>Search Everywhere and Markdown preview</summary>
+
+Double-Shift searches files, symbols, and actions. Edit Markdown alongside its preview and navigate with the table of contents.
 
 <p align="center">
-  <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F project-wide search and replace">
-  <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="Customize AI commit message formats">
+  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="Search Everywhere and Markdown preview"></a>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="Import AI provider settings from local tools">
-  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="Per-language service settings">
-</p>
+</details>
+
+<details>
+<summary>Git history and branches</summary>
+
+Browse Git history with a branch list, commit graph, filters, and changed files.
 
 <p align="center">
-  <img src="./docs/assets/screenshots/markdown-mermaid-preview.png" width="49%" alt="Markdown Mermaid rendering and live preview">
-  <img src="./docs/assets/screenshots/markdown-rich-preview.png" width="49%" alt="Rich Markdown rendering and live preview">
+  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git history and branches"></a>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/screenshots/memory-monitor-annotated.png" width="49%" alt="Low memory footprint and in-app memory monitoring">
-  <img src="./docs/assets/screenshots/memory-monitor.png" width="49%" alt="Application memory usage details">
-</p>
+</details>
+
+<details>
+<summary>HTML preview and run services</summary>
+
+Edit HTML alongside its preview and browse project entry points and service configurations in the Run panel.
 
 <p align="center">
-  <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="Multi-line editor tabs">
+  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML preview and run services"></a>
+</p>
+
+</details>
+
+<details>
+<summary>Plugin management and native debugging</summary>
+
+Manage language, build, and debugger plugins. The screenshot also shows LLDB disassembly and registers.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="Plugin management and native debugging"></a>
+</p>
+
+</details>
+
+<details>
+<summary>Agent resources and MCP configuration</summary>
+
+Manage agent instructions, skills, hooks, and MCP configuration, and inspect runtime and token usage in chat.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-mcp-settings.png"><img src="./docs/assets/screenshots/agent-mcp-settings.png" width="100%" alt="Agent resources and MCP configuration"></a>
 </p>
 
 </details>
