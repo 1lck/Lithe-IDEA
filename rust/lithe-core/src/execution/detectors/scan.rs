@@ -8,49 +8,6 @@ use std::path::{Path, PathBuf};
 /// Detectors only care about manifests near the top of a project. Anything
 /// deeper is vendored code or build output that slipped past the prune list.
 const MAX_DEPTH: usize = 6;
-/// A ceiling on how many directories one project may contribute. Without it a
-/// pathological tree turns project open into an unbounded walk.
-const MAX_DIRECTORIES: usize = 4000;
-
-/// Directories that never contain a service worth offering, and whose contents
-/// are large enough that descending into them would dominate the walk.
-const PRUNED: &[&str] = &[
-    ".git",
-    ".worktree",
-    ".worktrees",
-    ".lithe",
-    ".idea",
-    ".vscode",
-    ".gradle",
-    ".venv",
-    "venv",
-    ".tox",
-    ".mypy_cache",
-    ".pytest_cache",
-    "__pycache__",
-    ".next",
-    ".nuxt",
-    ".svelte-kit",
-    ".terraform",
-    ".cargo",
-    ".stack-work",
-    ".bundle",
-    ".dart_tool",
-    ".build",
-    ".swiftpm",
-    "node_modules",
-    "bower_components",
-    "vendor",
-    "target",
-    "build",
-    "dist",
-    "out",
-    "obj",
-    "coverage",
-    "DerivedData",
-    "Pods",
-];
-
 /// One directory plus the file names directly inside it.
 ///
 /// Detectors read this instead of touching the filesystem, so checking "is there
@@ -141,56 +98,19 @@ impl DirectoryContext {
 /// Walks the project, pruning uninteresting subtrees *before* descending rather
 /// than filtering afterwards, so a `node_modules` tree is never read at all.
 pub fn scan(root: &Path) -> Result<Vec<DirectoryContext>, CoreError> {
-    let mut results = Vec::new();
-    let mut queue = vec![(root.to_path_buf(), 0usize)];
-    while let Some((directory, depth)) = queue.pop() {
-        if results.len() >= MAX_DIRECTORIES {
-            break;
-        }
-        let entries = match fs::read_dir(&directory) {
-            Ok(entries) => entries,
-            // Local detection has historically skipped unreadable subtrees.
-            // A remote transport/permission error must not publish an empty model.
-            Err(_) if !crate::remote::workspace::is_remote() => continue,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error.into()),
-        };
-        let mut files = BTreeSet::new();
-        let mut children = Vec::new();
-        for entry in entries.flatten() {
-            let Ok(kind) = entry.file_type() else {
-                continue;
-            };
-            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-                continue;
-            };
-            // `file_type` does not follow symlinks, so a link pointing at an
-            // ancestor is recorded as a file and never re-entered. That is what
-            // keeps this walk loop-free without tracking visited inodes.
-            if kind.is_dir() {
-                if depth < MAX_DEPTH && !pruned(&name) {
-                    children.push(entry.path());
-                }
-            } else {
-                files.insert(name);
-            }
-        }
-        results.push(DirectoryContext {
-            root: root.to_path_buf(),
-            relative: relative_path(root, &directory)?,
-            path: directory,
-            files,
-        });
-        for child in children {
-            queue.push((child, depth + 1));
-        }
-    }
-    results.sort_by(|left, right| left.relative.cmp(&right.relative));
-    Ok(results)
-}
-
-fn pruned(name: &str) -> bool {
-    PRUNED.iter().any(|value| value.eq_ignore_ascii_case(name))
+    let snapshot = super::super::workspace_scan::scan_run_workspace(root, Some(MAX_DEPTH))?;
+    snapshot
+        .directories
+        .into_iter()
+        .map(|directory| {
+            Ok(DirectoryContext {
+                root: root.to_owned(),
+                relative: relative_path(root, &directory.path)?,
+                path: directory.path,
+                files: directory.files,
+            })
+        })
+        .collect()
 }
 
 fn relative_path(root: &Path, directory: &Path) -> Result<String, CoreError> {

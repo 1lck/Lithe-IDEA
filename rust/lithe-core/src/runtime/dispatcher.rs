@@ -218,6 +218,28 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::language_server_launch_plan_command,
         ),
+        CoreCommand::DebugValidateAdapterEndpoint => {
+            match crate::debug::validate_adapter_endpoint(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugTransportPolicy => match crate::debug::transport_policy(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::DebugTransportHandle => {
+            match crate::debug::handle_transport_event(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugTransportRelease => {
+            match crate::debug::release_transport(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::DebugAdaptersStartArguments => plugin_response(
             id,
             parsed.payload,
@@ -267,9 +289,44 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::BuildTaskPlan => {
             plugin_response(id, parsed.payload, crate::build::build_task_plan_command)
         }
+        CoreCommand::BuildPrepareDebugPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_prepare_debug_plan_command,
+        ),
+        CoreCommand::BuildDecodeDebugPreparation => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_debug_preparation_command,
+        ),
+        CoreCommand::BuildResolveModelInputs => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_resolve_model_inputs_command,
+        ),
+        CoreCommand::BuildPrepareRunPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_prepare_run_plan_command,
+        ),
+        CoreCommand::BuildDecodeRunPreparation => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_run_preparation_command,
+        ),
         CoreCommand::BuildTestPlan => {
             plugin_response(id, parsed.payload, crate::build::build_test_plan_command)
         }
+        CoreCommand::BuildTestDiscoveryPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_test_discovery_plan_command,
+        ),
+        CoreCommand::BuildDecodeTestDiscovery => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_test_discovery_command,
+        ),
         CoreCommand::BuildDependencyPlan => plugin_response(
             id,
             parsed.payload,
@@ -495,6 +552,22 @@ fn execute(request: &str) -> CoreResponse {
                     serde_json::to_value(data).expect("snapshot should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceFilterChanges => {
+            match serde_json::from_value::<Vec<String>>(parsed.payload) {
+                Ok(paths) => CoreResponse::success(
+                    id,
+                    serde_json::json!(paths
+                        .into_iter()
+                        .filter(|path| crate::project::is_workspace_event_relevant(path))
+                        .collect::<Vec<_>>()),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid workspace event paths")
+                        .with_details(error.to_string()),
+                ),
             }
         }
         CoreCommand::WorkspaceListDirectories => {
@@ -806,6 +879,25 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::ExecutionResolveEnvironment => {
+            match serde_json::from_value::<crate::execution::LaunchEnvironmentRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::execution::resolve_launch_environment(request))
+                        .expect("environment encodes"),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid launch environment request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::ExecutionPlanLaunchCommand => {
             match serde_json::from_value::<crate::execution::LaunchCommandPlanRequest>(
                 parsed.payload,
@@ -1112,6 +1204,27 @@ fn execute(request: &str) -> CoreResponse {
                     id,
                     serde_json::to_value(data)
                         .expect("Debug function breakpoint update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugSetInstructionBreakpoints => {
+            match serde_json::from_value::<crate::debug::SetInstructionBreakpointsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug set-instruction-breakpoints request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::set_instruction_breakpoints)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug instruction breakpoint update should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

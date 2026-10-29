@@ -1426,7 +1426,7 @@ struct WorkbenchView: View {
                             .modifier(LitheToolWindowDragButtonStyle())
                             .environment(\.colorScheme, colorScheme)).nsImage
                     }, click: { openTool(tool) }, commit: { moveTool($0, target: $1) }, isEnabled: isToolAvailable(tool),
-                       isCurrentProject: { [weak projectSessions] in
+                       isCurrentProject: { [weak projectSessions = projectSessions] in
                            projectSessions?.activeSessionID(in: windowScope) == projectID
                        },
                        openInEditor: renderer?.openInEditor.map { open in { open(model) } }))

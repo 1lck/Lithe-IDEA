@@ -33,6 +33,17 @@ pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     "design-qa-artifacts",
     ".artifacts",
 ];
+/// Whether an ordinary workspace event belongs to visible project inputs.
+/// Callers first relativize to the most specific explicitly watched root; native
+/// event-loss flags always bypass this filter and request recovery.
+pub fn is_workspace_event_relevant(relative: &str) -> bool {
+    !relative.split(['/', '\\']).any(|component| {
+        BUILT_IN_HIDDEN_DIRECTORIES
+            .iter()
+            .any(|name| component.eq_ignore_ascii_case(name))
+    })
+}
+
 /// File names omitted from workspace snapshots, search, and related scans.
 const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store"];
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
@@ -1527,4 +1538,32 @@ pub(crate) fn is_plain_text(text: &str) -> bool {
 
 fn is_word_character(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '_' || character == '$'
+}
+
+#[cfg(test)]
+mod event_filter_tests {
+    use super::*;
+
+    #[test]
+    fn shared_workspace_change_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/workspace/change-filter-v1.json"
+        ))
+        .unwrap();
+        let paths: Vec<String> = serde_json::from_value(fixture["paths"].clone()).unwrap();
+        let retained: Vec<_> = paths
+            .iter()
+            .filter(|path| is_workspace_event_relevant(path))
+            .collect();
+        assert_eq!(serde_json::to_value(retained).unwrap(), fixture["expected"]);
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({
+                "id": "filter", "command": "workspace.filterChanges", "payload": paths
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"], fixture["expected"]);
+    }
 }

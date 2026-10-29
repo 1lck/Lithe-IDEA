@@ -20,3 +20,5 @@ pub(crate) use maven_dependency_tree::{
     dependencies, dependency_tree_arguments, validated_output_file, MavenDependenciesRequest,
 };
 pub(crate) use maven_test_reports::MavenTestReportsRequest;
+
+pub use files::is_workspace_event_relevant;

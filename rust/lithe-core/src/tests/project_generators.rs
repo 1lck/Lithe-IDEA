@@ -58,7 +58,7 @@ fn official_package_path() -> PathBuf {
 
 fn host() -> Value {
     json!({"languages": [1], "languageServers": [1, 2], "serverProcess": [1], "settings": [1, 2],
-           "buildSystems": [1], "projectGenerators": [1]})
+           "buildSystems": [1], "projectGenerators": [1], "packageTrust": [1]})
 }
 
 #[test]

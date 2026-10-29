@@ -110,6 +110,12 @@ public final class DebugAdapterSessionManager: ObservableObject {
         }
     }
 
+    /// An explicitly supplied DAP endpoint bypasses the provider's process/LSP
+    /// transport. The platform must validate it and obtain per-connection consent.
+    public var makeEndpointSession: (@MainActor (
+        DebugProviderDescriptor, DebugAdapterEndpoint, URL
+    ) throws -> (any DebugAdapterSession)?)?
+
     /// Read at every lookup: a host that registers debug adapters while it
     /// runs hands back the current set instead of the one it started with.
     private let providersSource: @MainActor () -> [DebugProviderDescriptor]
@@ -124,6 +130,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         let session: any DebugAdapterSession
         let activationToken: UUID
         let parentID: DebugSessionID?
+        let adapterEndpoint: DebugAdapterEndpoint?
         var targetTitle: String?
     }
 
@@ -165,14 +172,25 @@ public final class DebugAdapterSessionManager: ObservableObject {
     public var activeSessionIDs: Set<DebugSessionID> { Set(sessions.keys) }
 
     public func provider(for fileURL: URL) -> DebugProviderDescriptor? {
-        providersSource().first { $0.matches(fileURL) }
+        providersSource().first { $0.selectsByFile && $0.matches(fileURL) }
+    }
+
+    /// Reads current registrations even when an older session is still alive.
+    public func provider(id: String) -> DebugProviderDescriptor? {
+        providersSource().first { $0.id == id }
     }
 
     @discardableResult
-    public func activate(for fileURL: URL, rootURL: URL) throws -> any DebugAdapterSession {
-        let providerID = try descriptor(for: fileURL).id
+    public func activate(for fileURL: URL, rootURL: URL, adapterProviderID: String? = nil) throws -> any DebugAdapterSession {
+        let descriptor = try descriptor(for: fileURL, adapterProviderID: adapterProviderID)
+        return try activate(descriptor: descriptor, rootURL: rootURL)
+    }
+
+    private func activate(descriptor: DebugProviderDescriptor, rootURL: URL) throws -> any DebugAdapterSession {
+        let providerID = descriptor.id
         if let sessionID = activeSessionIDsByProvider[providerID],
            let managed = sessions[sessionID],
+           managed.adapterEndpoint == nil,
            managed.session.isRunning,
            managed.rootURL == rootURL.standardizedFileURL {
             return managed.session
@@ -180,21 +198,38 @@ public final class DebugAdapterSessionManager: ObservableObject {
         if activeSessionIDsByProvider[providerID] != nil {
             stop(providerID: providerID)
         }
-        return try activateNew(for: fileURL, rootURL: rootURL).session
+        return try activateNew(descriptor: descriptor, rootURL: rootURL).session
     }
 
     /// Creates a new independent session without replacing another session for
     /// the same provider. Existing provider-level APIs continue to use the
     /// latest session as their compatibility target.
     @discardableResult
-    public func activateNew(for fileURL: URL, rootURL: URL) throws -> DebugSessionHandle {
-        let descriptor = try descriptor(for: fileURL)
+    public func activateNew(
+        for fileURL: URL, rootURL: URL, adapterProviderID: String? = nil,
+        adapterEndpoint: DebugAdapterEndpoint? = nil
+    ) throws -> DebugSessionHandle {
+        try activateNew(descriptor: descriptor(for: fileURL, adapterProviderID: adapterProviderID),
+            rootURL: rootURL, adapterEndpoint: adapterEndpoint)
+    }
+
+    private func activateNew(
+        descriptor: DebugProviderDescriptor, rootURL: URL, adapterEndpoint: DebugAdapterEndpoint? = nil
+    ) throws -> DebugSessionHandle {
         let normalizedRoot = rootURL.standardizedFileURL
-        guard let session = makeSession(descriptor, normalizedRoot) else {
+        let candidate: (any DebugAdapterSession)?
+        if let adapterEndpoint {
+            // Never fall back to a local process if this host lacks TCP support.
+            candidate = try makeEndpointSession?(descriptor, adapterEndpoint, normalizedRoot)
+        } else {
+            candidate = makeSession(descriptor, normalizedRoot)
+        }
+        guard let session = candidate else {
             throw DebugProviderError.adapterUnavailable(descriptor.displayName)
         }
         let (sessionID, activationToken) = register(
-            session, descriptor: descriptor, rootURL: normalizedRoot, parentID: nil
+            session, descriptor: descriptor, rootURL: normalizedRoot, parentID: nil,
+            adapterEndpoint: adapterEndpoint
         )
         activeSessionIDsByProvider[descriptor.id] = sessionID
         roots[descriptor.id] = normalizedRoot
@@ -228,14 +263,25 @@ public final class DebugAdapterSessionManager: ObservableObject {
         rootURL: URL,
         configuration: DebugLaunchConfiguration
     ) throws -> any DebugAdapterControllingSession {
-        let session = try activate(for: fileURL, rootURL: rootURL)
+        if configuration.adapterEndpoint != nil {
+            return try launchNew(for: fileURL, rootURL: rootURL, configuration: configuration).session
+        }
+        let descriptor = try launchDescriptor(for: fileURL, configuration: configuration)
+        let session = try activate(descriptor: descriptor, rootURL: rootURL)
+        let sessionID = activeSessionIDsByProvider[descriptor.id]
         guard let controlling = session as? any DebugAdapterControllingSession else {
+            if let sessionID { stop(sessionID: sessionID) }
             throw DebugProviderError.capabilityUnavailable(
-                provider: provider(for: fileURL)?.displayName ?? fileURL.pathExtension,
+                provider: descriptor.displayName,
                 capability: "DAP launch control"
             )
         }
-        try controlling.launch(configuration)
+        do {
+            try controlling.launch(configuration)
+        } catch {
+            if let sessionID { stop(sessionID: sessionID) }
+            throw error
+        }
         return controlling
     }
 
@@ -246,11 +292,13 @@ public final class DebugAdapterSessionManager: ObservableObject {
         rootURL: URL,
         configuration: DebugLaunchConfiguration
     ) throws -> (id: DebugSessionID, session: any DebugAdapterControllingSession) {
-        let handle = try activateNew(for: fileURL, rootURL: rootURL)
+        let descriptor = try launchDescriptor(for: fileURL, configuration: configuration)
+        let handle = try activateNew(descriptor: descriptor, rootURL: rootURL,
+            adapterEndpoint: configuration.adapterEndpoint)
         guard let controlling = handle.session as? any DebugAdapterControllingSession else {
             stop(sessionID: handle.id)
             throw DebugProviderError.capabilityUnavailable(
-                provider: provider(for: fileURL)?.displayName ?? fileURL.pathExtension,
+                provider: descriptor.displayName,
                 capability: "DAP launch control"
             )
         }
@@ -265,29 +313,32 @@ public final class DebugAdapterSessionManager: ObservableObject {
     }
 
     public func setBreakpoints(_ breakpoints: [DebugSourceBreakpoint], in fileURL: URL) throws {
-        guard let descriptor = provider(for: fileURL) else {
+        // Two explicit adapters can debug the same language concurrently. Each
+        // receives source breakpoints, including those recorded before launch.
+        let matching = providersSource().filter { $0.matches(fileURL) }
+        guard !matching.isEmpty else {
             throw DebugProviderError.noProvider(
                 fileExtension: fileURL.pathExtension.lowercased()
             )
         }
-        var values = requestedBreakpoints[descriptor.id] ?? [:]
-        values[fileURL.standardizedFileURL] = breakpoints
-        requestedBreakpoints[descriptor.id] = values
+        for descriptor in matching {
+            var values = requestedBreakpoints[descriptor.id] ?? [:]
+            values[fileURL.standardizedFileURL] = breakpoints
+            requestedBreakpoints[descriptor.id] = values
+        }
+        let providerIDs = Set(matching.map(\.id))
         sessions.values
-            .filter { $0.descriptor.id == descriptor.id }
+            .filter { providerIDs.contains($0.descriptor.id) }
             .compactMap { $0.session as? any DebugAdapterControllingSession }
             .forEach { $0.setBreakpoints(breakpoints, in: fileURL) }
     }
 
     public func setExceptionBreakpoints(
         _ breakpoints: [DebugExceptionBreakpoint],
-        for fileURL: URL
+        for fileURL: URL,
+        adapterProviderID: String? = nil
     ) throws {
-        guard let descriptor = provider(for: fileURL) else {
-            throw DebugProviderError.noProvider(
-                fileExtension: fileURL.pathExtension.lowercased()
-            )
-        }
+        let descriptor = try descriptor(for: fileURL, adapterProviderID: adapterProviderID)
         requestedExceptionBreakpoints[descriptor.id] = breakpoints
         sessions.values
             .filter { $0.descriptor.id == descriptor.id }
@@ -297,13 +348,10 @@ public final class DebugAdapterSessionManager: ObservableObject {
 
     public func setFunctionBreakpoints(
         _ breakpoints: [DebugFunctionBreakpoint],
-        for fileURL: URL
+        for fileURL: URL,
+        adapterProviderID: String? = nil
     ) throws {
-        guard let descriptor = provider(for: fileURL) else {
-            throw DebugProviderError.noProvider(
-                fileExtension: fileURL.pathExtension.lowercased()
-            )
-        }
+        let descriptor = try descriptor(for: fileURL, adapterProviderID: adapterProviderID)
         requestedFunctionBreakpoints[descriptor.id] = breakpoints
         sessions.values
             .filter { $0.descriptor.id == descriptor.id }
@@ -313,18 +361,25 @@ public final class DebugAdapterSessionManager: ObservableObject {
 
     public func setDataBreakpoints(
         _ breakpoints: [DebugDataBreakpoint],
-        for fileURL: URL
+        for fileURL: URL,
+        adapterProviderID: String? = nil
     ) throws {
-        guard let descriptor = provider(for: fileURL) else {
-            throw DebugProviderError.noProvider(
-                fileExtension: fileURL.pathExtension.lowercased()
-            )
-        }
+        let descriptor = try descriptor(for: fileURL, adapterProviderID: adapterProviderID)
         requestedDataBreakpoints[descriptor.id] = breakpoints
         sessions.values
             .filter { $0.descriptor.id == descriptor.id }
             .compactMap { $0.session as? any DebugAdapterControllingSession }
             .forEach { $0.setDataBreakpoints(breakpoints) }
+    }
+
+    /// Instruction addresses belong to one running debuggee (ASLR moves them on the next
+    /// run), so they go to a single session and are never replayed to a later one.
+    public func setInstructionBreakpoints(
+        _ breakpoints: [DebugInstructionBreakpoint],
+        sessionID: DebugSessionID
+    ) {
+        (sessions[sessionID]?.session as? any DebugAdapterControllingSession)?
+            .setInstructionBreakpoints(breakpoints)
     }
 
     public func session(providerID: String) -> (any DebugAdapterControllingSession)? {
@@ -467,10 +522,26 @@ public final class DebugAdapterSessionManager: ObservableObject {
         }
     }
 
-    private func descriptor(for fileURL: URL) throws -> DebugProviderDescriptor {
+    private func descriptor(for fileURL: URL, adapterProviderID: String? = nil) throws -> DebugProviderDescriptor {
+        if let adapterProviderID {
+            guard let descriptor = provider(id: adapterProviderID) else {
+                throw DebugProviderError.adapterUnavailable(adapterProviderID)
+            }
+            return descriptor
+        }
         guard let descriptor = provider(for: fileURL) else {
             throw DebugProviderError.noProvider(
                 fileExtension: fileURL.pathExtension.lowercased()
+            )
+        }
+        return descriptor
+    }
+
+    private func launchDescriptor(for fileURL: URL, configuration: DebugLaunchConfiguration) throws -> DebugProviderDescriptor {
+        let descriptor = try descriptor(for: fileURL, adapterProviderID: configuration.adapterProviderID)
+        guard descriptor.requests.contains(configuration.request) else {
+            throw DebugProviderError.capabilityUnavailable(
+                provider: descriptor.displayName, capability: configuration.request.rawValue
             )
         }
         return descriptor
@@ -549,16 +620,11 @@ public final class DebugAdapterSessionManager: ObservableObject {
         _ session: any DebugAdapterSession,
         descriptor: DebugProviderDescriptor,
         rootURL: URL,
-        parentID: DebugSessionID?
+        parentID: DebugSessionID?,
+        adapterEndpoint: DebugAdapterEndpoint? = nil
     ) -> (DebugSessionID, UUID) {
         let sessionID = DebugSessionID()
         let activationToken = UUID()
-        configureCallbacks(
-            session,
-            sessionID: sessionID,
-            providerID: descriptor.id,
-            activationToken: activationToken
-        )
         sessions[sessionID] = ManagedSession(
             id: sessionID,
             descriptor: descriptor,
@@ -566,9 +632,16 @@ public final class DebugAdapterSessionManager: ObservableObject {
             session: session,
             activationToken: activationToken,
             parentID: parentID,
+            adapterEndpoint: adapterEndpoint,
             targetTitle: nil
         )
         sessionOrder.append(sessionID)
+        configureCallbacks(
+            session,
+            sessionID: sessionID,
+            providerID: descriptor.id,
+            activationToken: activationToken
+        )
         return (sessionID, activationToken)
     }
 
@@ -577,6 +650,12 @@ public final class DebugAdapterSessionManager: ObservableObject {
         sessionID: DebugSessionID
     ) {
         guard let session = session as? any DebugAdapterStartDebuggingSession else { return }
+        // External adapters can require provider-specific child endpoints.
+        // Do not advertise a local-process fallback as support for those children.
+        if sessions[sessionID]?.adapterEndpoint != nil, makeChildSession == nil {
+            session.onStartDebuggingRequest = nil
+            return
+        }
         session.onStartDebuggingRequest = { [weak self] request, completion in
             guard let self else {
                 completion(.failure(DebugAdapterProtocolError.stopped))

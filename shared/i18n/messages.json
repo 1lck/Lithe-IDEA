@@ -13984,17 +13984,29 @@
     },
     {
       "id": "git.diff.repositoryPreviewEmptyTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewEmptyTitle",
+      "description": "Shared repository comparison editor tab title",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Repository Diff",
+        "arguments": []
+      }
     },
     {
       "id": "git.diff.repositoryPreviewTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewTitle",
+      "description": "Shared repository comparison editor tab file title",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
+      "macos": {
+        "key": "Repository Diff: %@",
+        "arguments": [
+          "file"
+        ]
+      },
       "parameters": {
         "file": "string"
       }
@@ -19329,8 +19341,13 @@
       "id": "git.unifiedView",
       "description": "Windows UI: git.unifiedView",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Unified view",
+        "arguments": []
+      }
     },
     {
       "id": "git.unstageAllChanges",
@@ -39590,6 +39607,17 @@
       }
     },
     {
+      "id": "native.hideCommitDetails",
+      "description": "Native UI: Hide commit details",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide commit details",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.hideConfigurationList",
       "description": "Native UI: Hide configuration list",
       "platforms": [
@@ -57080,6 +57108,17 @@
       }
     },
     {
+      "id": "native.sideBySideView",
+      "description": "Native UI: Side-by-side view",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Side-by-side view",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.signInToCodex",
       "description": "Native UI: Sign in to Codex",
       "platforms": [
@@ -71592,6 +71631,34 @@
       ]
     },
     {
+      "id": "settings.mcp.error.expired",
+      "description": "Windows IDE MCP request error: expired",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.request",
+      "description": "Windows IDE MCP request error: request",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.transport",
+      "description": "Windows IDE MCP request error: transport",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.undelivered",
+      "description": "Windows IDE MCP request error: undelivered",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "settings.mcp.openProject",
       "description": "Windows UI: settings.mcp.openProject",
       "platforms": [
@@ -71601,6 +71668,27 @@
     {
       "id": "settings.mcp.plugins",
       "description": "Windows UI: settings.mcp.plugins",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.active",
+      "description": "Windows IDE MCP request status: active",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.failed",
+      "description": "Windows IDE MCP request status: failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.waiting",
+      "description": "Windows IDE MCP request status: waiting",
       "platforms": [
         "windows"
       ]
@@ -89186,6 +89274,996 @@
       },
       "parameters": {
         "arg1": "string"
+      }
+    },
+    {
+      "id": "debug.tcp.startupTimedOut",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter connection timed out.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.writeTimedOut",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter did not accept outgoing data in time.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.bufferFull",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter outgoing buffer is full.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.invalidEndpoint",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a valid debug adapter host and a port between 1 and 65535.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.declined",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter connection was not approved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.confirmTitle",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to an external debug adapter?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.confirmBody",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter at %@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "debug.tcp.menu",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to Debug Adapter…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.title",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to Debug Adapter",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.name",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "External Debug Adapter",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.help",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.request",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.arguments",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Adapter Arguments (JSON)",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.argumentsHelp",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter the launch or attach arguments required by this adapter, including its source path mappings if needed. These are separate from the DAP server's TCP address.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.invalidArguments",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a JSON object of adapter arguments no larger than 256 KiB.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.attachRequest",
+      "description": "External DAP request kind",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Attach Request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.launchRequest",
+      "description": "External DAP request kind",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Launch Request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.sessionActive",
+      "description": "External DAP connect sheet failures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop the current debug session before connecting to a debug adapter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.notStarted",
+      "description": "External DAP connect sheet failures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter connection could not be started.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.title",
+      "description": "Debug panel tab that shows machine instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disassembly",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.steppingByInstruction",
+      "description": "Badge shown while Step Over / Step Into move one machine instruction at a time",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stepping by instruction",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.loading",
+      "description": "Disassembly placeholder while instructions are being requested",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Loading instructions…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.selectFrame",
+      "description": "Disassembly placeholder when no frame is selected",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select a frame to see its instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.loadEarlier",
+      "description": "Disassembly button that requests instructions before the first row",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load earlier instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.loadLater",
+      "description": "Disassembly button that requests instructions after the last row",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load later instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.setBreakpoint",
+      "description": "Disassembly context menu: set a breakpoint on an instruction address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Set Instruction Breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.removeBreakpoint",
+      "description": "Disassembly context menu: remove the breakpoint on an instruction address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remove Instruction Breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.toggleBreakpoint",
+      "description": "Tooltip and accessibility label of the disassembly breakpoint gutter",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Toggle instruction breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.readMemoryAtAddress",
+      "description": "Disassembly context menu: show memory starting at the instruction address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read Memory at Address",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.readMemoryAtValue",
+      "description": "Variable context menu: show memory starting at the address held by the value",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read Memory at Value",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.copyAddress",
+      "description": "Context menu: copy an instruction or frame address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Address",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.copyInstruction",
+      "description": "Disassembly context menu: copy the instruction text",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Instruction",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.showDisassembly",
+      "description": "Stack frame context menu: open the disassembly for this frame",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show Disassembly",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.title",
+      "description": "Debug panel tab that shows a memory dump",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Memory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.addressOrExpression",
+      "description": "Placeholder of the memory address field",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Address or expression",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.addressOrExpressionLabel",
+      "description": "Accessibility label of the memory address field",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Memory address or expression",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.previousPage",
+      "description": "Memory dump: show the previous page of bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Previous page",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.nextPage",
+      "description": "Memory dump: show the next page of bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Next page",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.reading",
+      "description": "Memory placeholder while bytes are being requested",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reading memory…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.enterAddress",
+      "description": "Memory placeholder before any address was entered",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter an address, or a register or variable that holds one",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.notAnAddress",
+      "description": "Memory error when the entered expression does not evaluate to an address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The expression does not hold an address",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.unreadableBytes",
+      "description": "Memory dump note: the adapter could not read the trailing bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld bytes could not be read",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "debugger.registers.title",
+      "description": "Debug panel tab that shows the register scope",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Registers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.displayOptions",
+      "description": "Tooltip and accessibility label of the memory view display options menu",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Memory display options",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.numberBase",
+      "description": "Memory display options submenu: the number base values are shown in",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Number Base",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.valueSize",
+      "description": "Memory display options submenu: how many bytes make one value",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Value Size",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.bytesPerRow",
+      "description": "Memory display options submenu: how many bytes one row holds",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Bytes per Row",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.byteOrder",
+      "description": "Memory display options submenu: which byte of a value comes first",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Byte Order",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.littleEndian",
+      "description": "Memory display options: least significant byte first",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Little Endian",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.bigEndian",
+      "description": "Memory display options: most significant byte first",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Big Endian",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.hexadecimal",
+      "description": "Memory display options: show values in base 16",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hexadecimal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.unsignedDecimal",
+      "description": "Memory display options: show values as unsigned base 10 integers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unsigned Decimal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.signedDecimal",
+      "description": "Memory display options: show values as signed base 10 integers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Signed Decimal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.octal",
+      "description": "Memory display options: show values in base 8",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Octal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.binary",
+      "description": "Memory display options: show values in base 2",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Binary",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.floatingPoint",
+      "description": "Memory display options: show 4 or 8 byte values as IEEE floating point numbers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Floating Point",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.size.one",
+      "description": "Memory display options: one value is a single byte",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "1 byte",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.size.two",
+      "description": "Memory display options: one value is 2 bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "2 bytes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.size.four",
+      "description": "Memory display options: one value is 4 bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "4 bytes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.size.eight",
+      "description": "Memory display options: one value is 8 bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "8 bytes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.showTextColumn",
+      "description": "Memory display options: toggle the printable character column",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show Text Column",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.resetDisplay",
+      "description": "Memory display options: go back to hexadecimal bytes, 16 to a row",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reset Display Options",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.offsetsRelativeTo",
+      "description": "Memory view strip: the address that the row offsets are counted from",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Offsets relative to %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "debugger.memory.changedBytes",
+      "description": "Memory view strip: bytes that differ from before the last step",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld bytes changed",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "debugger.step.overInstruction",
+      "description": "Toolbar tooltip for step over while the disassembly is open and the adapter steps by instruction",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Step Over Instruction",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.step.intoInstruction",
+      "description": "Toolbar tooltip for step into while the disassembly is open and the adapter steps by instruction",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Step Into Instruction",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.stepsByLine",
+      "description": "Disassembly header note: the adapter cannot step by instruction, so stepping still moves by source line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This adapter cannot step by instruction; steps still move by line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugins.java.installNotice",
+      "description": "macOS Java Support independent distribution installation entry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugins.java.installTemplates",
+      "description": "macOS Java Support independent distribution installation entry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Install Java Support for Java, Maven and Spring templates…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.incompleteProjectScanTitle",
+      "description": "Run: incomplete workspace scan warning",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Project scan is incomplete",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.incompleteProjectScanMessage",
+      "description": "Run: incomplete workspace scan warning",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLanguageServerThisBuildSystemUsesIsNotAvailable",
+      "description": "Native UI: The language server this build system uses is not available. Open a file of the language and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server this build system uses is not available. Open a file of the language and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadModelBeforeWorkspaceTests",
+      "description": "Native UI: Load or reload the project model before running all tests, so subproject reports are collected.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load or reload the project model before running all tests, so subproject reports are collected.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discoverTests",
+      "description": "Native UI: Discover Tests",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discover Tests",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discoveredTests",
+      "description": "Native UI: Discovered Tests",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discovered Tests",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noTestsDiscovered",
+      "description": "Native UI: No tests discovered.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No tests discovered.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.invalidBuildProviderLaunchPlan",
+      "description": "Native UI: Invalid build provider launch plan",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build provider returned an invalid launch plan.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.saveProviderRunConfiguration",
+      "description": "Native UI: Save provider run configuration to .lithe/run/local.json",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save provider run configuration to .lithe/run/local.json",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.providerRunSavingUnavailable",
+      "description": "Native UI: Saving build provider run configurations is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saving build provider run configurations is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadProviderModelBeforeRun",
+      "description": "Native UI: Load the current build model and enable its provider before running this configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load the current build model and enable its provider before running this configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.providerRunSaveConflict",
+      "description": "Native UI: Provider run save conflict",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Run configuration changed while saving. Reload and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savedProviderRunUnavailable",
+      "description": "Native UI: Saved provider selection unavailable",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The saved provider run configuration is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.providerDebugUnavailable",
+      "description": "Native UI: Provider debug target unavailable",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.log.olderCommitsFailed",
+      "description": "Git history pagination failure; explicitly refresh because the failed Core cursor is consumed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not load older commits. Refresh history",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stageFiles",
+      "description": "Native UI: Stage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unstageFiles",
+      "description": "Native UI: Unstage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unstage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardChangesToSelectedFiles",
+      "description": "Native UI: Discard changes to selected files?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discard changes to selected files?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardWorktreeChangesWarning",
+      "description": "Native UI: This action cannot be undone by Lithe. Untracked files will be deleted.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This action cannot be undone by Lithe. Untracked files will be deleted.",
+        "arguments": []
       }
     },
     {

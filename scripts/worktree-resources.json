@@ -34,6 +34,17 @@
   ],
   "excludedResources": [
     {
+      "id": "swiftpm-build-state",
+      "reusable": false,
+      "locations": [
+        ".build/",
+        ".build/.lithe-swift-toolchain",
+        ".build/<triple>/.lithe-swift-toolchain"
+      ],
+      "identity": "Mutable worktree-owned SwiftPM products, resource bundles, build database and scratch-local compiler identity. The versioned full compiler stamp only controls local invalidation; it is not a sealed source/platform/architecture/SDK/toolchain identity for cross-worktree reuse.",
+      "reason": "Never copy or share this state at any worktree reuse stage. build-macos.sh cleans the actual selected scratch directory with swift package --scratch-path when its compiler stamp changes or is unknown, retaining that scratch's checkouts and downloaded artifacts. Legacy layouts keep the default scratch. Each architecture owns its stamp; failed cleanup cannot advance it. Rebuild resource bundles before signing instead of mixing old flat resources with new Contents layouts or disabling signatures. Only the separately validated SwiftPM download cache is reusable; installed app bundles remain read-only and the Sparkle delta baseline is unaffected. SwiftPM owns build-state lifetime and cleanup."
+    },
+    {
       "id": "agent-edit-and-paste-state",
       "reusable": false,
       "locations": [
@@ -125,10 +136,15 @@
         ".build/<triple>/<configuration>/OfficialPlugins",
         "<app-support>/Lithe/Plugins/<plugin-id>/",
         "Lithe.app/Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support/",
-        "<app-support>/Lithe/PluginState/<plugin-id>/"
+        "<app-support>/Lithe/PluginState/<plugin-id>/",
+        "dist/packages/<arch>/<plugin-id>/",
+        "dist/verify/<arch>/<plugin-id>/",
+        "dist/Lithe-Java-Support-<version>-darwin-<arch>.zip",
+        ".artifacts/java-plugin-distribution/",
+        "<test-temp>/lithe-package-verification.*/published-index.fixture.json"
       ],
-      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation",
-      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage."
+      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation. Independent release archives bind plugin version, darwin architecture, upstream input hashes, API/requires and final publisher signature; host-sealed bundled copies are a different origin, never a reusable package",
+      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage. Release verification extracts a separate copy and checks its publisher signature; delete per-run dist/verify and local integration output when no longer needed. Never transfer a sealed-origin exception to user-installed copies. Runtime installation versions stay read-only, preserving app signatures and Sparkle delta baselines. Distribution decisions read the current checkout index or explicit LITHE_OFFICIAL_PLUGIN_INDEX/--marketplace-index build input; synthetic packaging indexes are per-test fixtures, never reusable or publishable source indexes."
     },
     {
       "id": "language-tools",

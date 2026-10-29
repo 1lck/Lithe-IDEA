@@ -261,20 +261,23 @@ package final class RunFeatureModel: ObservableObject {
     package var lastRunFileURL: URL? { service.lastRunFileURL }
     package var lastConfiguration: RunConfiguration? { service.lastConfiguration }
     /// Project configurations share session identity across toolbar and log selection.
-    /// Current File alone uses the primary output stream.
+    /// Provider applications and Current File use the primary output stream.
     package var selectedProjectSessionID: String? {
         guard let configuration = selectedConfiguration, configuration.kind != .currentFile else { return nil }
         return configuration.id
     }
     package var isSelectedConfigurationRunning: Bool {
         guard let configuration = selectedConfiguration else { return false }
-        if configuration.kind != .currentFile {
+        if configuration.kind != .currentFile && configuration.buildProvider == nil {
             return moduleSessions.contains { $0.configurationID == configuration.id && $0.isRunning }
         }
         return isRunning && lastConfiguration?.id == configuration.id
     }
     package var isLoadingProject: Bool { service.isLoadingProject }
-    package var isRunning: Bool { service.isRunning }
+    package var isRunning: Bool { service.isRunning || service.isPreparingBuildRun }
+    package var hasBuildProviderRun: Bool { service.hasBuildProviderRun }
+    @discardableResult
+    package func saveBuildProviderConfiguration() -> Bool { service.saveBuildProviderConfiguration() }
     package var runningTitle: String? { service.runningTitle }
     package var output: String { service.output }
     package var lastExitCode: Int32? { service.lastExitCode }

@@ -396,3 +396,45 @@ fn host_capabilities_do_not_change_legacy_levels() {
         assert_eq!(plugin["availability"]["status"], expected, "{result}");
     }
 }
+
+/// Download availability must reject the new trust semantics before any
+/// archive is transferred, even when the host already runs every Java feature.
+#[test]
+fn publisher_bundled_versions_require_host_trust_support_before_download() {
+    let mut index = json_file(INDEX);
+    let entry = index["plugins"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|entry| entry["id"] == "io.example.elixir-tools")
+        .unwrap();
+    entry["versions"] = json!([{
+        "version":"3.0.0", "pluginAPIVersion":3, "releaseDate":"2026-10-25",
+        "requires":{"languages":1,"packageTrust":1},
+        "downloads":[{"platforms":["darwin-arm64"],
+            "downloadURL":"https://github.com/example/elixir-tools/releases/download/v3.0.0/elixir.zip",
+            "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]
+    }]);
+    // Reuse the fixture's repository so only capability availability varies.
+    let repository = entry["repository"].as_str().unwrap().to_string();
+    entry["versions"][0]["downloads"][0]["downloadURL"] =
+        json!(format!("{repository}/releases/download/v3.0.0/elixir.zip"));
+    for (capabilities, expected) in [
+        (json!({"languages":[1]}), "unsupported"),
+        (json!({"languages":[1],"packageTrust":[1]}), "available"),
+    ] {
+        let outcome = validate_for_host(
+            index.clone(),
+            "thirdParty",
+            "darwin-arm64",
+            Some(&capabilities),
+        );
+        let plugin = outcome["index"]["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == "io.example.elixir-tools")
+            .unwrap();
+        assert_eq!(plugin["availability"]["status"], expected, "{outcome}");
+    }
+}

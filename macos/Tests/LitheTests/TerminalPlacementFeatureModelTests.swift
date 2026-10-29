@@ -14,6 +14,20 @@ import Testing
 @MainActor
 struct TerminalPlacementFeatureModelTests {
     @Test
+    func backgroundRepositoryDiffDoesNotInterceptTerminalClose() {
+        let context = makeTerminalCloseContext()
+        defer { context.model.terminalFeature?.stopAllSessions() }
+        let diffID = context.model.beginRepositoryDiffRequest()
+        #expect(context.model.isRepositoryDiffSelected)
+        context.model.selectEditorTerminalSession(context.session)
+        #expect(!context.model.isRepositoryDiffSelected)
+        #expect(context.model.requestCloseActiveWorkbenchItem())
+        #expect(context.model.editorTabItems.contains(.repositoryDiff(diffID)))
+        #expect(!context.model.terminalSessions.contains { $0.id == context.session.id })
+        #expect(context.transport.stopCount == 1)
+    }
+
+    @Test
     func debugStandardInputNeverFallsBackToAnotherActiveSessionsTerminal() async throws {
         let runtime = ModuleRuntime()
         for id in [ModuleID.workspace, .languageIntelligence, .execution] {

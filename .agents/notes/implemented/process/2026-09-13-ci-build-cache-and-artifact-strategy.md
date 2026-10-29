@@ -169,6 +169,21 @@ SDK 27。升级工具链不改变应用的 Swift 5 语言模式、测试的 Swif
 scratch path；Xcode 26.6/Swift 6.3.3 继续使用原来的默认路径。插件构建同时
 兼容旧版的 `Modules/` 目录和新版直接放在产品目录中的模块文件。
 
+清理和编译器身份标记必须使用同一个实际 scratch 目录。旧实现只在 `.build/`
+记录一个全局编译器版本，会让分架构目录中的旧产物看似已验证；对默认根执行
+`swift package clean` 还可能删除嵌套 scratch 的 checkout，却没有保留其依赖的语义。
+现在 `.build/<triple>/.lithe-swift-toolchain` 分别管理新版布局，旧布局仍用默认根。
+标记包含清理策略版本和完整编译器身份（包括 `SWIFT_EXEC`）；未知或变化时带相同
+scratch 参数调用 SwiftPM 自己的 clean，保留该目录的 checkout 和下载物，清理成功后
+再记录身份。编译本身失败时保留标记，允许继续增量编译；清理失败时不记录成功。
+
+这个边界也保护签名资源包。曾实际复现 SwiftTerm 旧的根目录 `Shaders.metal` 与
+新版 `Contents/Resources/default.metallib` 混在同一个 bundle，codesign 拒绝
+`unsealed contents present in the bundle root`；在临时副本移除旧根资源后，原签名
+命令和严格校验均通过。正确做法是失效并重建所属 scratch 的构建产物，不是修改
+SwiftTerm 上游源码、清除整个下载缓存或关闭签名。标记不是跨工作树的完整性证明，
+资源复用入口明确拒绝 `swiftpm-build-state`，也不得修改已安装应用来修复本地构建。
+
 路径分类器先决定 PR 需要哪些验证。普通 `macos/Sources/` 改动由 Swift 测试
 负责完整编译，不再重复生成两个 DMG。资源、SwiftPM 图、Rust bridge、平台
 组合、打包脚本和工具链等改动只产出 Apple Silicon（`arm64`）包；Intel
@@ -412,6 +427,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `./scripts/test-macos.sh`
 - `./scripts/test-git-performance-baseline.sh`
 - `./scripts/build-macos.sh --configuration debug --triple arm64-apple-macosx`
+- `node --test scripts/build-macos.test.mjs scripts/test-reuse-worktree-resources.mjs`：离线工具替身验证 scratch 清理与编译参数一致、按架构失效、旧策略迁移、失败不误记成功、继续编译、默认布局和资源复用拒绝。
 - `./scripts/build-macos.sh --configuration debug --triple x86_64-apple-macosx`
 - `./scripts/build-official-plugins.sh --configuration debug --triple arm64-apple-macosx`
 - `./scripts/build-official-plugins.sh --configuration debug --triple x86_64-apple-macosx`
@@ -437,6 +453,10 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `scripts/windows-frontend-install.test.ts`
 - `scripts/test-classify-ci-changes.sh`
 - `scripts/build-macos.sh`
+- `scripts/build-macos.test.mjs`
+- `scripts/worktree-resources.json`
+- `scripts/reuse-worktree-resources.mjs`
+- `scripts/test-reuse-worktree-resources.mjs`
 - `scripts/build-official-plugins.sh`
 - `scripts/verify-rust-core.sh`
 - `scripts/MacOS13SDKCompatibility.h`

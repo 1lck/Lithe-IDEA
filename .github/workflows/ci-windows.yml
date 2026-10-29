@@ -290,6 +290,15 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-notifications.json -- src/features/notifications
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test MCP delivery and authorization lifecycle
+        shell: pwsh
+        run: |
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-mcp-lifecycle.json -- src/features/host-api/mcp-lifecycle.test.ts src/features/host-api/ide-capabilities.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The real Tauri event API must run without other suites' module mocks.
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-mcp-events.json -- src/features/host-api/mcp-events.integration.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test declarative plugin lifecycle and UI
         shell: pwsh
         timeout-minutes: 9
@@ -718,6 +727,16 @@ jobs:
         shell: pwsh
         timeout-minutes: 20
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust -SuiteTimeoutSeconds 1080
+
+      - name: Verify Windows MCP stdio protocol
+        if: needs.changes.outputs.rust_core == 'true'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          cargo build --locked --manifest-path rust/Cargo.toml -p lithe-ide-host --features mcp --bin lithe-mcp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/mcp-protocol.junit.xml scripts/test-ide-mcp.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Windows Rust host
         if: needs.changes.outputs.windows_rust == 'true'

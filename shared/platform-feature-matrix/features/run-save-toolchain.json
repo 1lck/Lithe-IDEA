@@ -12,7 +12,9 @@
       "macos/Sources/LitheExecutionModule/Services/RunService.swift",
       "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
       "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift",
-      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs"
+      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs",
+      "rust/lithe-core/src/execution/environment.rs",
+      "shared/fixtures/execution/launch-environment-v1.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -26,11 +28,13 @@
       "windows/tauri/src-tauri/src/run.rs",
       "windows/tauri/src/platform/lsp-core-adapter.ts",
       "windows/tauri/src/platform/lsp-core-adapter.test.ts",
-      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs"
+      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs",
+      "rust/lithe-core/src/execution/environment.rs",
+      "shared/fixtures/execution/launch-environment-v1.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Run",
-  "verification": "修改未保存文件后运行，验证同步、JDK/Maven 选择和版本不匹配诊断；Maven Java Main 与 Spring Boot 直启在 JDT 构建后、JVM 启动前执行 Maven 原生资源处理，覆盖模块依赖、Profile、settings、测试资源和自定义 cwd；资源处理失败或超过十分钟期限不得启动 JVM，超时提示“Pre-launch step timed out after 600 seconds.”。 Issue #379：分别从 Run 面板和编辑器启动 Maven 主源码及测试源码中的 main（含默认包 MainTests、自定义源码/测试输出目录、test scope 依赖与多模块），确认 JDT 自动选择 classpath/module-path，测试入口包含测试输出和依赖，主源码入口排除测试输出；Run、Debug 与服务更新路径校验采用相同的自动 scope。 运行配置与工具链完成解析后才发布快照就绪状态；重叠加载不得保存临时 Current File 选择，已完成加载后的用户选择须保留。 打开运行配置编辑对话框，确认标题栏显示运行时图标、类型与生效来源胶囊，保存范围和 Maven 测试项使用共享分段控件，项目环境入口整行可点击；保存范围、继承/覆盖说明和环境变量格式默认收进 ⓘ，路径输入、环境变量编辑器以及保存/取消按钮与设置页样式一致；窄窗口下内容仍可滚动且底部按钮可见。"
+  "verification": "修改未保存文件后运行，验证同步、JDK/Maven 选择和版本不匹配诊断；Maven Java Main 与 Spring Boot 直启在 JDT 构建后、JVM 启动前执行 Maven 原生资源处理，覆盖模块依赖、Profile、settings、测试资源和自定义 cwd；资源处理失败或超过十分钟期限不得启动 JVM，超时提示“Pre-launch step timed out after 600 seconds.”。 Issue #379：分别从 Run 面板和编辑器启动 Maven 主源码及测试源码中的 main（含默认包 MainTests、自定义源码/测试输出目录、test scope 依赖与多模块），确认 JDT 自动选择 classpath/module-path，测试入口包含测试输出和依赖，主源码入口排除测试输出；Run、Debug 与服务更新路径校验采用相同的自动 scope。 运行配置与工具链完成解析后才发布快照就绪状态；重叠加载不得保存临时 Current File 选择，已完成加载后的用户选择须保留。 打开运行配置编辑对话框，确认标题栏显示运行时图标、类型与生效来源胶囊，保存范围和 Maven 测试项使用共享分段控件，项目环境入口整行可点击；保存范围、继承/覆盖说明和环境变量格式默认收进 ⓘ，路径输入、环境变量编辑器以及保存/取消按钮与设置页样式一致；窄窗口下内容仍可滚动且底部按钮可见。 项目 JDK 为 8、Maven JDK 为 21 时，Maven goal 和资源前置步骤使用 21，Java 主程序使用 8；显式 JAVA_HOME 优先于选择，Windows 不同大小写环境键不产生冲突。"
 }

@@ -16,6 +16,7 @@ use super::outputs::{
     DecodeTestResultsRequest, SyncFingerprintRequest,
 };
 use super::plans::{self, OutputPlanRequest, TaskPlanRequest, TestPlanRequest};
+use super::test_discovery::{self, DecodeTestDiscoveryRequest};
 use crate::plugins::declarative::{
     decode_payload, outcome, validate_manifest_value, DeclarativePluginManifest, PluginRejection,
     Validation,
@@ -173,6 +174,54 @@ pub(crate) fn build_test_plan_command(payload: Value) -> Result<Value, CoreError
     )
 }
 
+/// `build.testDiscoveryPlan`: a typed request for provider-owned test discovery.
+pub(crate) fn build_test_discovery_plan_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.testDiscoveryPlan",
+        "plan",
+        |build_system, request: &OutputPlanRequest| {
+            plans::test_discovery_plan(build_system, request)
+        },
+    )
+}
+
+/// `build.decodeTestDiscovery`: validated, deterministic selectors for native UI.
+pub(crate) fn build_decode_test_discovery_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeTestDiscovery",
+        "discovery",
+        |build_system, request: &DecodeTestDiscoveryRequest| {
+            test_discovery::decode(build_system, request)
+        },
+    )
+}
+
+/// `build.prepareRunPlan`: validates a provider-owned target launch request.
+pub(crate) fn build_prepare_run_plan_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.prepareRunPlan",
+        "plan",
+        |build_system, request: &super::run_preparation::PrepareRunRequest| {
+            super::run_preparation::plan(build_system, request)
+        },
+    )
+}
+
+/// `build.decodeRunPreparation`: validates portable process launch data.
+pub(crate) fn build_decode_run_preparation_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeRunPreparation",
+        "launch",
+        |build_system, request: &super::run_preparation::DecodeRunPreparationRequest| {
+            super::run_preparation::decode(build_system, request)
+        },
+    )
+}
+
 /// `build.dependencyPlan`: the command that prints a project's dependencies.
 pub(crate) fn build_dependency_plan_command(payload: Value) -> Result<Value, CoreError> {
     with_build_system(
@@ -250,6 +299,42 @@ pub(crate) fn build_language_import_command(payload: Value) -> Result<Value, Cor
         "languageImport",
         |build_system, request: &LanguageImportRequest| {
             language_import::language_import(build_system, request)
+        },
+    )
+}
+
+/// `build.prepareDebugPlan`: a selected provider run's native debug preparation.
+pub(crate) fn build_prepare_debug_plan_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.prepareDebugPlan",
+        "plan",
+        |build, request: &super::run_preparation::PrepareRunRequest| {
+            super::debug_preparation::plan(build, request)
+        },
+    )
+}
+
+/// `build.decodeDebugPreparation`: validates portable native debug target facts.
+pub(crate) fn build_decode_debug_preparation_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeDebugPreparation",
+        "preparation",
+        |build, request: &super::debug_preparation::DecodeDebugPreparationRequest| {
+            super::debug_preparation::decode(build, request)
+        },
+    )
+}
+
+/// `build.resolveModelInputs`: filters optional public models for one consumer.
+pub(crate) fn build_resolve_model_inputs_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.resolveModelInputs",
+        "modelInputs",
+        |build, request: &super::model_inputs::ResolveRequest| {
+            super::model_inputs::resolve(build, request)
         },
     )
 }

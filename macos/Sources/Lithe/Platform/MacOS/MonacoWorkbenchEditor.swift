@@ -660,6 +660,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             debugSubscription = Publishers.CombineLatest3(feature.$breakpoints, feature.$selectedFrame, feature.$areBreakpointsMuted)
                 .combineLatest(feature.$state)
                 .combineLatest(feature.$variables, feature.$automaticVariables)
+                // The editor shows the frozen tree while a step reloads; follow the swap.
+                .combineLatest(feature.$isRefreshingVariables)
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak model] _ in
                     guard let self, let model else { return }

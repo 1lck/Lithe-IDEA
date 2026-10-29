@@ -39,6 +39,9 @@ struct RunView: View {
                 Text(message).font(.caption).textSelection(.enabled).padding(8)
             }
 
+            if feature.hasBuildProviderRun, let error = feature.configurationSaveError {
+                LitheBanner(status: .warning, layout: .editor) { Text(verbatim: error).textSelection(.enabled) }
+            }
             if !feature.portConflicts.isEmpty {
                 portConflictBanner
             }
@@ -47,9 +50,9 @@ struct RunView: View {
                 configurationNoticeBanner(notice)
             }
 
-            if feature.configurationStatus != .ready {
+            if feature.configurationStatus != .ready && !feature.hasBuildProviderRun {
                 configurationSetupView
-            } else if !hasRunnableConfigurations {
+            } else if !hasRunnableConfigurations || (feature.hasBuildProviderRun && selectedSessionID == nil) {
                 OutputTextView(
                     output: feature.output,
                     searchRoots: feature.sourceSearchRoots,
@@ -191,6 +194,13 @@ struct RunView: View {
     }
 
     private var configurationNotice: (title: String, message: String, systemImage: String)? {
+        if feature.configurationDiagnostics.contains(where: { $0.code == "incompleteProjectScan" }) {
+            return (
+                runText("Project scan is incomplete"),
+                runText("Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations."),
+                "exclamationmark.triangle.fill"
+            )
+        }
         if let diagnostic = feature.configurationDiagnostics.first(where: { $0.code == "staleFingerprint" }) {
             return (
                 runText("Run configurations may be out of date"),
@@ -328,11 +338,11 @@ struct RunView: View {
             LitheContextMenuItem.separator
             LitheContextMenuItem.action(
                 "Clear run output",
-                isEnabled: selectedSessionID == nil || selectedModuleSession != nil
+                isEnabled: (primaryOutputSelected && primaryRunMatchesSelection) || selectedModuleSession != nil
             ) {
                 if let session = selectedModuleSession {
                     feature.clearModuleOutput(session)
-                } else if selectedSessionID == nil {
+                } else if primaryOutputSelected && primaryRunMatchesSelection {
                     feature.clearOutput()
                 }
             }
@@ -421,6 +431,16 @@ struct RunView: View {
                 .help(selectedSessionHasRun ? "Restart run" : "Run configuration")
                 .accessibilityLabel(selectedSessionHasRun ? "Restart run" : "Run configuration")
                 .disabled(feature.isLoadingProject)
+
+                if feature.hasBuildProviderRun && primaryOutputSelected && primaryRunMatchesSelection {
+                    Button { feature.saveBuildProviderConfiguration() } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .buttonStyle(runActionButtonStyle)
+                    .help("Save provider run configuration to .lithe/run/local.json")
+                    .accessibilityLabel("Save provider run configuration to .lithe/run/local.json")
+                    .disabled(feature.isLoadingProject)
+                }
 
                 Button {
                     if let session = selectedModuleSession {
@@ -531,25 +551,34 @@ struct RunView: View {
         return runnableConfigurations.first(where: { $0.id == selectedSessionID })
     }
 
+    private var primaryRunMatchesSelection: Bool {
+        selectedRunnableConfiguration?.buildProvider == nil
+            || selectedRunnableConfiguration?.id == feature.lastConfiguration?.id
+    }
+
+    private var primaryOutputSelected: Bool {
+        selectedSessionID == nil || selectedRunnableConfiguration?.buildProvider != nil
+    }
+
     private var selectedSessionHasRun: Bool {
-        selectedSessionID == nil
-            ? feature.isRunning || feature.lastExitCode != nil
+        primaryOutputSelected
+            ? primaryRunMatchesSelection && (feature.isRunning || feature.lastExitCode != nil || feature.hasBuildProviderRun)
             : selectedModuleSession != nil
     }
 
     private var selectedSessionIsRunning: Bool {
-        guard selectedSessionID != nil else { return feature.isRunning }
+        guard !primaryOutputSelected else { return primaryRunMatchesSelection && feature.isRunning }
         return selectedModuleSession?.isRunning ?? false
     }
 
     private var selectedOutput: String {
-        guard selectedSessionID != nil else { return feature.output }
+        guard !primaryOutputSelected else { return primaryRunMatchesSelection ? feature.output : "" }
         return selectedModuleSession?.output ?? ""
     }
 
     @ViewBuilder
     private var selectedConfigurationContent: some View {
-        if let configuration = selectedRunnableConfiguration {
+        if let configuration = selectedRunnableConfiguration, configuration.buildProvider == nil {
             configurationContent(configuration)
         } else {
             OutputTextView(

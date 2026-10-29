@@ -42,7 +42,7 @@ pub(crate) struct BuildModel {
     pub(crate) truncated: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ModelProject {
     pub(crate) id: String,
@@ -56,7 +56,7 @@ pub(crate) struct ModelProject {
     pub(crate) properties: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ModelTarget {
     pub(crate) id: String,
@@ -92,7 +92,7 @@ pub(crate) struct ModelTask {
     pub(crate) properties: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ModelContentRoot {
     #[serde(rename = "projectID")]

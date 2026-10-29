@@ -1,6 +1,7 @@
 import Foundation
 import LitheApplicationKernel
 import LitheCoreContracts
+import LitheModuleAPI
 import LitheDebugModule
 import LitheLanguageIntelligenceModule
 import LitheModuleAPI
@@ -11,6 +12,94 @@ import Testing
 @MainActor
 struct PluginDebugAdapterTests {
     private struct ResolveFailure: Error, Equatable {}
+
+    @Test(arguments: ["valid", "not-executable", "withdrawn", "replaced", "program-alias", "instance-alias"])
+    func providerDebugHandoffRechecksFilesAndCurrentPackage(change: String) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-debug-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("workspace", isDirectory: true)
+        let instance = workspace.appendingPathComponent("app", isDirectory: true)
+        try FileManager.default.createDirectory(at: instance, withIntermediateDirectories: true)
+        let program = instance.appendingPathComponent("main")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: program)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: program.path)
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider-debug-preparation.plugin.json")
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: fixture))
+        let package = InstalledPluginPackage(descriptor: descriptor, installation: PluginInstallationRecord(
+            pluginID: descriptor.id, activeVersion: descriptor.pluginManifest.version, origin: .marketplace, status: .installed),
+            packageURL: root.appendingPathComponent("package", isDirectory: true))
+        let entry = try #require(PluginDebugAdapterEntry.qualifiedIndex(of: [package]).values.first)
+        let source = BuildSystemPluginSource(pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest, packageURL: package.packageURL, buildSystems: descriptor.buildSystems)
+        let plan = try JSONDecoder().decode(BuildDebugPreparation.self, from: Data(
+            #"{"root":"app","adapter":"native","program":"app/main","arguments":["a b","x#y"],"workingDirectory":"app","environment":{"MODE":"debug"}}"#.utf8))
+        let lookup = entry.provider(languages: [])
+        #expect(lookup.matches(URL(fileURLWithPath: "/workspace/main.c")))
+        #expect(!lookup.selectsByFile)
+        var current: PluginDebugAdapterEntry? = entry
+        switch change {
+        case "not-executable": try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: program.path)
+        case "withdrawn": current = nil
+        case "replaced":
+            let other = InstalledPluginPackage(descriptor: descriptor, installation: package.installation,
+                packageURL: root.appendingPathComponent("replacement", isDirectory: true))
+            current = PluginDebugAdapterEntry(plugin: other, adapter: entry.adapter)
+        case "program-alias", "instance-alias":
+            let other = workspace.appendingPathComponent("other", isDirectory: true)
+            try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+            let outside = other.appendingPathComponent("main")
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: outside)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outside.path)
+            if change == "program-alias" {
+                try FileManager.default.removeItem(at: program)
+                try FileManager.default.createSymbolicLink(at: program, withDestinationURL: outside)
+            } else {
+                let external = root.appendingPathComponent("external", isDirectory: true)
+                try FileManager.default.moveItem(at: instance, to: external)
+                try FileManager.default.createSymbolicLink(at: instance, withDestinationURL: external)
+            }
+        default: break
+        }
+        let resolver = MacBuildDebugLaunchResolver(planner: DeclarativePluginTestSupport.operations,
+            entry: { _ in current }, generation: { 7 })
+        if change == "valid" {
+            let launch = try resolver.resolve(source: source, preparation: plan, workspaceURL: workspace, title: "Main")
+            #expect(launch.adapterProviderID == entry.providerID)
+            #expect(launch.arguments["args"] == .array([.string("a b"), .string("x#y")]))
+            #expect(launch.arguments["env"] == .object(["MODE": .string("debug")]))
+            #expect(launch.arguments["program"] == .string(program.resolvingSymlinksInPath().path))
+        } else {
+            #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
+                try resolver.resolve(source: source, preparation: plan, workspaceURL: workspace, title: "Main")
+            }
+        }
+    }
+
+
+    @Test
+    func explicitHostIdentityCrossesTheRealCoreBridgeWithoutBecomingADAPArgument() throws {
+        let core = RustCoreBridge()
+        let id = "explicit-adapter-\(UUID().uuidString)"
+        _ = try core.createDebugSession(sessionID: id, adapterID: "example-dap", rootPath: "/workspace/example",
+            supportsRunInTerminalRequest: false, supportsStartDebuggingRequest: false,
+            disabledCapabilities: [], parentSessionID: nil)
+        defer { core.destroyDebugSession(sessionID: id) }
+        let body = Data(#"{"seq":1,"type":"response","request_seq":1,"command":"initialize","success":true,"body":{}}"#.utf8)
+        var reply = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
+        reply.append(body)
+        _ = try core.receiveDebugData(sessionID: id, data: reply)
+        let launch = try core.launchDebugSession(sessionID: id, operationID: "launch", configuration:
+            DebugLaunchConfiguration(name: "example", request: .launch,
+                arguments: ["program": .string("bin/example")], adapterProviderID: "dev.example.native/lldb"))
+        let frame = try #require(launch.outboundFrames.first)
+        let bytes = try #require(Data(base64Encoded: frame))
+        let separator = try #require(bytes.range(of: Data("\r\n\r\n".utf8)))
+        let message = try #require(JSONSerialization.jsonObject(with: bytes[separator.upperBound...]) as? [String: Any])
+        let arguments = try #require(message["arguments"] as? [String: Any])
+        #expect(message["command"] as? String == "launch")
+        #expect(arguments["program"] as? String == "bin/example")
+        #expect(arguments["adapterProviderID"] == nil)
+        #expect(message["adapterProviderID"] == nil)
+    }
 
     private static func process(_ executable: MacPluginLanguageServerLaunchResolver.BuildProviderProcess.Executable)
         -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch
@@ -47,6 +136,7 @@ struct PluginDebugAdapterTests {
             adapterID: "lldb",
             resolve: { _ in Self.process(.commands(["lldb-dap"])) },
             makeProcess: { Issue.record("No process starts for a missing command."); fatalError() },
+            core: RustCoreBridge(),
             findCommand: { _ in nil }
         )
         #expect(throws: MacPluginDebugAdapterTransport.TransportError.commandNotFound(adapterID: "lldb", commands: ["lldb-dap"])) {
@@ -60,7 +150,8 @@ struct PluginDebugAdapterTests {
         let transport = MacPluginDebugAdapterTransport(
             adapterID: "lldb",
             resolve: { _ in throw ResolveFailure() },
-            makeProcess: { Issue.record("No process starts when the plan is rejected."); fatalError() }
+            makeProcess: { Issue.record("No process starts when the plan is rejected."); fatalError() },
+            core: RustCoreBridge()
         )
         #expect(throws: ResolveFailure()) {
             try transport.start(rootURL: URL(fileURLWithPath: "/tmp/workspace", isDirectory: true))
@@ -273,6 +364,7 @@ struct PluginDebugAdapterTests {
             adapterID: "example",
             resolve: { _ in Self.hostedLaunch() },
             makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: RustCoreBridge(),
             startHostedPort: { languageID, command, rootURL in
                 probe.recordPortRequest(languageID: languageID, command: command, rootURL: rootURL)
                 return 4711
@@ -311,6 +403,7 @@ struct PluginDebugAdapterTests {
             adapterID: "example",
             resolve: { _ in Self.hostedLaunch() },
             makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: RustCoreBridge(),
             startHostedPort: { _, _, _ in throw Unavailable() },
             socketFactory: { host, port in
                 Issue.record("No socket opens without a port.")
@@ -338,7 +431,8 @@ struct PluginDebugAdapterTests {
         let transport = MacPluginDebugAdapterTransport(
             adapterID: "example",
             resolve: { _ in Self.hostedLaunch() },
-            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() }
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: RustCoreBridge()
         )
         defer { transport.stop() }
         transport.onErrorOutput = { probe.recordErrorOutput($0) }
@@ -429,7 +523,10 @@ private final class HostedAdapterSocket: DebugAdapterSocketConnection {
     private(set) var sent: [Data] = []
 
     func start() { startCount += 1 }
-    func send(_ data: Data) { sent.append(data) }
+    func send(_ data: Data, completion: @escaping @MainActor @Sendable (Result<Void, Error>) -> Void) {
+        sent.append(data)
+        completion(.success(()))
+    }
     func stop() { stopCount += 1 }
 }
 

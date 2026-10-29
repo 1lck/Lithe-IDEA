@@ -2,11 +2,12 @@
   "id": "plugin-debug-adapters",
   "area": "运行与调试",
   "group": "调试器",
-  "capability": "插件提供调试适配器：声明式 debugAdapters 经共享 Core 校验，宿主按已安装插件拉起适配器、启动与附加调试、调试控制台提示符与补全，安装、更新、启停、卸载免重启生效",
+  "capability": "插件提供调试适配器：声明式 debugAdapters 经共享 Core 校验，宿主按已安装插件拉起适配器、启动与附加调试、调试控制台提示符与补全，安装、更新、启停、卸载免重启生效；原生启动配置保留明确适配器身份，支持无源文件目标及同语言多适配器的会话路由；debugAdapters v2 绑定受限的目标参数与环境，并接收同包 Provider 原生调试准备",
   "macos": {
     "evidence": [
       "shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json",
       "shared/contracts/plugins/v1/fixtures/debug-adapter-language-server.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapter-remote-attach.plugin.json",
       "shared/contracts/plugins/v1/fixtures/debug-adapter-rejections.json",
       "rust/lithe-core/src/debug/adapters.rs",
       "macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift",
@@ -24,8 +25,14 @@
       "macos/Tests/LitheTests/PluginDebugAdapterTests.swift",
       "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift",
       "macos/Tests/LitheTests/DebugExecutableResolverTests.swift",
+      "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+      "shared/fixtures/debug/adapter-selection-v1.json",
+      "macos/Sources/LitheCoreContracts/Debug/DebugAdapterContracts.swift",
+      "macos/Sources/LitheCoreContracts/Debug/DebugProviderDescriptor.swift",
+      "rust/lithe-core/src/build/debug_preparation.rs",
+      "macos/Sources/Lithe/Platform/MacOS/Debug/MacBuildDebugLaunchResolver.swift",
       "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift",
-      "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift"
+      "macos/Tests/LitheTests/MacNativeProviderDebugIntegrationTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -34,11 +41,13 @@
     "evidence": [
       "rust/lithe-core/src/debug/adapters.rs",
       "shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter-language-server.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/debug-adapter-language-server.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapter-remote-attach.plugin.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
   "owner": "Debug",
-  "verification": "macOS：安装声明了 debugAdapters 的插件，在其语言文件上启动调试，确认适配器按声明的 stdio 传输由宿主拉起并命中断点；可执行文件缺失时显示插件设置里的安装提示而不是笼统错误；声明 tcpPort 或 tcpAnnounced 传输的适配器在启动进程前被拒绝并说明原因。声明 tcpLanguageServer 传输的适配器（调试服务随同一插件的语言服务器运行，如 Java Debug Server 之于 JDT LS）不由宿主拉起进程：宿主启动该插件声明的语言服务器，用 endpoint.command 向它要端口并连接 127.0.0.1，端口无效、语言服务器不属于该插件或不可用时会话以原因结束。从保存配置直接启动且未打开源码时也会激活、登记语言服务器并探测工具；停止调试取消端口命令而不停止共享语言服务器，拒绝工作区或会话替换后的旧端口。适配器只声明 attach，或 selectors 的 targetKinds 不含 file 时，不会被选作文件启动的调试器；Java 在迁入 Java Support 插件前仍使用宿主自带适配器。capabilities.disabled 中的能力在调试会话里不可用，并随 debug.createSession 传给 Core。会话进行中禁用、更新或卸载该插件，或在模块设置里停用它，只停止该插件拥有的会话，同语言其他插件的会话继续运行。启动后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。Windows：宿主尚未接入 debugAdapters，Core 校验通过不代表 Windows 能调试插件语言。"
+  "verification": "macOS：安装声明了 debugAdapters 的插件，在其语言文件上启动调试，确认适配器按声明的 stdio 传输由宿主拉起并命中断点；可执行文件缺失时显示插件设置里的安装提示而不是笼统错误；声明 tcpPort 或 tcpAnnounced 传输的适配器在启动进程前被拒绝并说明原因。声明 tcpLanguageServer 传输的适配器（调试服务随同一插件的语言服务器运行，如 Java Debug Server 之于 JDT LS）不由宿主拉起进程：宿主启动该插件声明的语言服务器，用 endpoint.command 向它要端口并连接 127.0.0.1，端口无效、语言服务器不属于该插件或不可用时会话以原因结束。从保存配置直接启动且未打开源码时也会激活、登记语言服务器并探测工具；停止调试取消端口命令而不停止共享语言服务器，拒绝工作区或会话替换后的旧端口。适配器只声明 attach，或 selectors 的 targetKinds 不含 file 时，不会被选作文件启动的调试器；Java 在迁入 Java Support 插件前仍使用宿主自带适配器。capabilities.disabled 中的能力在调试会话里不可用，并随 debug.createSession 传给 Core。会话进行中禁用、更新或卸载该插件，或在模块设置里停用它，只停止该插件拥有的会话，同语言其他插件的会话继续运行。启动后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。远程 attach 目前只有 Core 契约：attach 配置可声明 targetBindings.connection，Core 校验主机、端口与路径映射并按适配器自己的参数路径写入启动参数，非 localhost、127.0.0.0/8、::1 的端点返回 remote:true；macOS 宿主尚未接入 attach 与“附加到远程”对话框，因此本项暂不能在应用里验证远程附加，接入后补充：连接新的非回环端点前必须弹确认且默认不记住，附加结束只断开不结束远端程序。Windows：宿主尚未接入 debugAdapters，Core 校验通过不代表 Windows 能调试插件语言。 原生宿主路由回归：使用 shared/fixtures/debug/adapter-selection-v1.json 验证自动文件选择、明确身份、无源文件目标、空身份、已撤回身份和 launch/attach 不匹配；同语言多个适配器分别收到断点，重试保持身份，附加会话启动失败保留原会话。这里只验证宿主交接与受控会话，Provider 原生程序准备 RPC 有受控流程与真实 SDK 进程覆盖；真实适配器的完整工作流与 Windows 接入仍未验收。 真实原生调试集成：公开 Node SDK Provider 用 Clang 编译 C 程序，经生产 macOS 会话、Core 准备、Registry 明确身份、生产 stdio 传输和 LLDB 命中源码断点、读取 main 栈帧、保留空格参数后继续并退出码 0；包 SHA-256/权限不变，所有本次进程回收。测试显式选择 SDK/工具，完整 UI、正式发行与 Windows 尚未验收，verification 保持 pending。 与显式 DAP 端点同时使用时，先按当前 Registry 身份校验请求能力，再调用端点工厂；launch/attach 与默认/明确身份的组合回归覆盖不会回退到本地适配器，配置编码与步进变换保留两个字段。",
+  "notes": "普通 TCP 生命周期与用户显式 DAP 端点入口见 debug-tcp-transport；不放宽插件 tcpLanguageServer 回环约束，tcpPort/tcpAnnounced 托管模式仍拒绝。"
 }

@@ -254,7 +254,9 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         startPluginLanguageServer(
             pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
             environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
-            workspaceConfiguration: nil, initializeTimeout: initializeTimeout,
+            workspaceConfiguration: nil, hostServices: [], hostIntegrationLaunch: nil,
+            cacheDirectoryURL: nil, workspaceFingerprint: nil, mavenContext: nil, javaGradle: nil,
+            initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
         )
     }
@@ -268,6 +270,12 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         rootURL: URL,
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration: ToolingJSONValue?,
+        hostServices: [String],
+        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -282,6 +290,13 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             workingDirectoryURL: rootURL,
             initializationOptions: initializationOptions,
             workspaceConfiguration: workspaceConfiguration,
+            hostServices: hostServices,
+            runtimeExecutableURL: hostIntegrationLaunch?.runtimeExecutableURL,
+            jdtlsLaunchResources: hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources,
+            cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint,
+            mavenContext: mavenContext,
+            javaGradle: javaGradle,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout

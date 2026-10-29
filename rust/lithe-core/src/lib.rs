@@ -71,3 +71,17 @@ pub fn execute_json_with_events(
 pub fn git_askpass_main(prompt: &str) -> i32 {
     lithe_git_host::authentication::helper_main(prompt)
 }
+
+/// Shared classification for ordinary project watcher events after root resolution.
+pub use project::is_workspace_event_relevant;
+
+/// Connects an authorized native window to the local IDE broker's request notifications.
+/// The host retains the callback until close; receivers claim IDs through `ideHost.control`
+/// before invoking application actions. This adapter boundary has no UI dependencies.
+pub fn attach_ide_request_dispatcher(
+    host_id: &str,
+    owner: &str,
+    dispatcher: std::sync::Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>,
+) -> Result<(), String> {
+    lithe_ide_host::attach_dispatcher(host_id, owner, dispatcher)
+}

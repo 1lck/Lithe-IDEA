@@ -87,8 +87,17 @@ pub enum CoreCommand {
     PluginsDeclarativeLanguageServerLaunchPlan,
     /// Checks a debug start and returns the adapter's DAP arguments (`debug.adapters.startArguments`).
     DebugAdaptersStartArguments,
+    /// Validates an IDE-to-DAP TCP endpoint, not an attach target.
+    DebugValidateAdapterEndpoint,
     /// Says where to look for the program a launch debugs (`debug.adapters.executablePlan`).
     DebugAdaptersExecutablePlan,
+    /// Returns the default byte-stream deadlines and queue budgets (`debug.transport.policy`).
+    DebugTransportPolicy,
+    /// Applies one platform event to a byte-stream lifecycle and returns the effects to run
+    /// (`debug.transport.handle`).
+    DebugTransportHandle,
+    /// Forgets the lifecycle of a stopped byte stream (`debug.transport.release`).
+    DebugTransportRelease,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
     /// Merges a plugin's stored setting layers into effective values (`plugins.declarative.resolveSettings`).
@@ -109,6 +118,20 @@ pub enum CoreCommand {
     BuildTaskPlan,
     /// Expands a build test run and its result location (`build.testPlan`).
     BuildTestPlan,
+    /// Plans typed provider run preparation (`build.prepareRunPlan`).
+    BuildPrepareRunPlan,
+    /// Resolves optional public build inputs (`build.resolveModelInputs`).
+    BuildResolveModelInputs,
+    /// Plans native debug preparation (`build.prepareDebugPlan`).
+    BuildPrepareDebugPlan,
+    /// Validates native debug target facts (`build.decodeDebugPreparation`).
+    BuildDecodeDebugPreparation,
+    /// Validates prepared launch data (`build.decodeRunPreparation`).
+    BuildDecodeRunPreparation,
+    /// Plans provider-owned test discovery (`build.testDiscoveryPlan`).
+    BuildTestDiscoveryPlan,
+    /// Validates provider-owned test selectors (`build.decodeTestDiscovery`).
+    BuildDecodeTestDiscovery,
     /// Expands the command that prints a project's dependencies (`build.dependencyPlan`).
     BuildDependencyPlan,
     /// Normalizes a build model and derives its run entries (`build.decodeModel`).
@@ -163,6 +186,8 @@ pub enum CoreCommand {
     WorkspaceSnapshot,
     /// Lists the visible children of project directories (`workspace.listDirectories`).
     WorkspaceListDirectories,
+    /// Filter ordinary workspace-relative event paths using shared defaults.
+    WorkspaceFilterChanges,
     /// Finds Git repositories that belong to an opened workspace (`workspace.repositories`).
     WorkspaceRepositories,
     /// Builds or reuses the workspace search index (`workspace.searchIndex.warm`).
@@ -203,6 +228,8 @@ pub enum CoreCommand {
     MavenLaunchPlan,
     /// Shortens an oversized Java launch using a JDK argument file when needed.
     ExecutionPlanLaunchCommand,
+    /// Resolve environment precedence after platform tool discovery.
+    ExecutionResolveEnvironment,
     /// Decides how each Lithe-owned process ends (`processLifecycle.resolve`).
     ProcessLifecycleResolve,
     /// Classifies a process snapshot into lifecycle items (`processLifecycle.inventory`).
@@ -235,6 +262,8 @@ pub enum CoreCommand {
     DebugSetExceptionBreakpoints,
     /// Replaces named function breakpoints for one debug session (`debug.setFunctionBreakpoints`).
     DebugSetFunctionBreakpoints,
+    /// Replaces instruction (address) breakpoints for one debug session (`debug.setInstructionBreakpoints`).
+    DebugSetInstructionBreakpoints,
     /// Resolves one adapter-owned data breakpoint identity (`debug.dataBreakpointInfo`).
     DebugDataBreakpointInfo,
     /// Replaces data breakpoints for one debug session (`debug.setDataBreakpoints`).
@@ -526,7 +555,11 @@ impl CoreCommand {
                 Some(Self::PluginsDeclarativeLanguageServerLaunchPlan)
             }
             "debug.adapters.startArguments" => Some(Self::DebugAdaptersStartArguments),
+            "debug.validateAdapterEndpoint" => Some(Self::DebugValidateAdapterEndpoint),
             "debug.adapters.executablePlan" => Some(Self::DebugAdaptersExecutablePlan),
+            "debug.transport.policy" => Some(Self::DebugTransportPolicy),
+            "debug.transport.handle" => Some(Self::DebugTransportHandle),
+            "debug.transport.release" => Some(Self::DebugTransportRelease),
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
             }
@@ -541,6 +574,13 @@ impl CoreCommand {
             "build.modelPlan" => Some(Self::BuildModelPlan),
             "build.taskPlan" => Some(Self::BuildTaskPlan),
             "build.testPlan" => Some(Self::BuildTestPlan),
+            "build.prepareDebugPlan" => Some(Self::BuildPrepareDebugPlan),
+            "build.decodeDebugPreparation" => Some(Self::BuildDecodeDebugPreparation),
+            "build.resolveModelInputs" => Some(Self::BuildResolveModelInputs),
+            "build.prepareRunPlan" => Some(Self::BuildPrepareRunPlan),
+            "build.decodeRunPreparation" => Some(Self::BuildDecodeRunPreparation),
+            "build.testDiscoveryPlan" => Some(Self::BuildTestDiscoveryPlan),
+            "build.decodeTestDiscovery" => Some(Self::BuildDecodeTestDiscovery),
             "build.dependencyPlan" => Some(Self::BuildDependencyPlan),
             "build.decodeModel" => Some(Self::BuildDecodeModel),
             "build.decodeTestResults" => Some(Self::BuildDecodeTestResults),
@@ -567,6 +607,7 @@ impl CoreCommand {
             "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
             "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
+            "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
@@ -587,6 +628,7 @@ impl CoreCommand {
             "history.delete" => Some(Self::HistoryDelete),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
+            "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),
             "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "processLifecycle.resolve" => Some(Self::ProcessLifecycleResolve),
             "processLifecycle.inventory" => Some(Self::ProcessLifecycleInventory),
@@ -604,6 +646,7 @@ impl CoreCommand {
             "debug.setBreakpoints" => Some(Self::DebugSetBreakpoints),
             "debug.setExceptionBreakpoints" => Some(Self::DebugSetExceptionBreakpoints),
             "debug.setFunctionBreakpoints" => Some(Self::DebugSetFunctionBreakpoints),
+            "debug.setInstructionBreakpoints" => Some(Self::DebugSetInstructionBreakpoints),
             "debug.dataBreakpointInfo" => Some(Self::DebugDataBreakpointInfo),
             "debug.setDataBreakpoints" => Some(Self::DebugSetDataBreakpoints),
             "debug.setVariable" => Some(Self::DebugSetVariable),
@@ -826,6 +869,7 @@ mod tests {
             "debug.setBreakpoints",
             "debug.setExceptionBreakpoints",
             "debug.setFunctionBreakpoints",
+            "debug.setInstructionBreakpoints",
             "debug.dataBreakpointInfo",
             "debug.setDataBreakpoints",
             "debug.setVariable",
@@ -837,6 +881,9 @@ mod tests {
             "debug.startDebuggingResponse",
             "debug.disconnect",
             "debug.destroySession",
+            "debug.transport.policy",
+            "debug.transport.handle",
+            "debug.transport.release",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }

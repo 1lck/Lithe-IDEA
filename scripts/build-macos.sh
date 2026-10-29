@@ -63,7 +63,8 @@ if [[ -n "$RUST_TARGET" ]]; then
 fi
 RUST_LIBRARY="$(scripts/build-rust-core.sh "${RUST_BUILD_ARGS[@]}")"
 
-SWIFT_ARGS=(build --disable-sandbox)
+SWIFT_PACKAGE_ARGS=()
+SWIFT_CACHE_ROOT="$ROOT_DIR/.build"
 if [[ -n "$TRIPLE" ]]; then
     # Newer SwiftPM layouts put all --triple products below .build/out. Use a
     # per-architecture scratch path only for that layout; SwiftPM versions
@@ -71,9 +72,11 @@ if [[ -n "$TRIPLE" ]]; then
     SWIFT_LAYOUT_ARGS=(--configuration "$CONFIGURATION" --triple "$TRIPLE")
     SWIFT_BIN_PATH="$(swift build --show-bin-path "${SWIFT_LAYOUT_ARGS[@]}")"
     if [[ "$SWIFT_BIN_PATH" == */out/Products/* ]]; then
-        SWIFT_ARGS+=(--scratch-path "$ROOT_DIR/.build/$TRIPLE")
+        SWIFT_CACHE_ROOT="$ROOT_DIR/.build/$TRIPLE"
+        SWIFT_PACKAGE_ARGS+=(--scratch-path "$SWIFT_CACHE_ROOT")
     fi
 fi
+SWIFT_ARGS=(build --disable-sandbox "${SWIFT_PACKAGE_ARGS[@]}")
 SWIFT_ARGS+=("${SWIFT_CONFIGURATION_ARGS[@]}")
 SWIFT_ARGS+=(
     -Xcc -include
@@ -84,28 +87,28 @@ if [[ -n "$TRIPLE" ]]; then
 fi
 SWIFT_ARGS+=(-Xlinker -force_load -Xlinker "$RUST_LIBRARY")
 
-# SwiftPM can reuse binary modules produced by an incompatible compiler after
-# an Xcode/toolchain upgrade. Keep the full compiler identity, including its
-# build number, and let SwiftPM clean build products while retaining checkouts.
-SWIFT_TOOLCHAIN_VERSION="$(swift --version)"
+# Keep cleanup and its stamp in the same scratch directory as the build. A
+# global stamp can hide stale per-architecture products after a toolchain switch.
+# Version 2 also invalidates caches accepted by that older global-stamp policy.
+SWIFT_TOOLCHAIN_VERSION=$'lithe-swift-build-cache-v2\n'"$(swift --version)"
 if [[ -n "${SWIFT_EXEC:-}" ]]; then
     SWIFT_TOOLCHAIN_VERSION+=$'\n'"$("$SWIFT_EXEC" --version)"
 fi
-SWIFT_TOOLCHAIN_STAMP="$ROOT_DIR/.build/.lithe-swift-toolchain"
+SWIFT_TOOLCHAIN_STAMP="$SWIFT_CACHE_ROOT/.lithe-swift-toolchain"
 PREVIOUS_SWIFT_TOOLCHAIN_VERSION=""
 if [[ -f "$SWIFT_TOOLCHAIN_STAMP" ]]; then
     PREVIOUS_SWIFT_TOOLCHAIN_VERSION="$(<"$SWIFT_TOOLCHAIN_STAMP")"
 fi
-if [[ -d "$ROOT_DIR/.build" && "$PREVIOUS_SWIFT_TOOLCHAIN_VERSION" != "$SWIFT_TOOLCHAIN_VERSION" ]]; then
+if [[ -d "$SWIFT_CACHE_ROOT" && "$PREVIOUS_SWIFT_TOOLCHAIN_VERSION" != "$SWIFT_TOOLCHAIN_VERSION" ]]; then
     if [[ -n "$PREVIOUS_SWIFT_TOOLCHAIN_VERSION" ]]; then
         print -- "Swift compiler changed; cleaning incompatible SwiftPM build products."
     else
         # Existing caches predate this stamp, so their compiler is unknown.
         print -- "Swift compiler cache version is unknown; cleaning SwiftPM build products once."
     fi
-    swift package clean
+    swift package "${SWIFT_PACKAGE_ARGS[@]}" clean
 fi
-mkdir -p "$ROOT_DIR/.build"
+mkdir -p "$SWIFT_CACHE_ROOT"
 # Record only after cleaning succeeds; failed builds can safely resume with
 # this compiler without discarding their newly compiled modules.
 print -r -- "$SWIFT_TOOLCHAIN_VERSION" > "$SWIFT_TOOLCHAIN_STAMP"

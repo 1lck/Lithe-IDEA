@@ -508,7 +508,7 @@ struct LitheApp: App {
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
         )
-        let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter {
+        let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter { [weak settings] in
             Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
         }
         if !Self.redirectApplicationLogs(applicationLogWriter, to: settings.logDirectory),
@@ -615,7 +615,9 @@ struct LitheApp: App {
         }
     }
 
-    private static func appendApplicationLog(
+    // `App` makes this type main-actor isolated, but the writer is thread-safe and
+    // update diagnostics arrive from background tasks.
+    private nonisolated static func appendApplicationLog(
         _ writer: MacApplicationLogWriter,
         message: String
     ) {

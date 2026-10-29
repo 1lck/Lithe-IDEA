@@ -12,6 +12,35 @@ struct RunLaunchEnvironmentTests {
     private let projectURL = URL(fileURLWithPath: "/fixture-project", isDirectory: true)
 
     @Test
+    func sharedWorkspaceChangeFilterCrossesTheNativeBridge() throws {
+        struct Fixture: Decodable { let paths: [String]; let expected: [String] }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/workspace/change-filter-v1.json")))
+        let actual: [String] = try RustCoreBridge().executeResult(
+            command: "workspace.filterChanges", payload: fixture.paths
+        ).get()
+        #expect(actual == fixture.expected)
+    }
+
+    @Test
+    func sharedCoreLaunchEnvironmentRetainsSelectionAndExplicitOverrides() throws {
+        let core = RustCoreBridge()
+        let selected = try core.resolveLaunchEnvironment(
+            toolchain: "project-maven", selectedHome: "/fixture/jdk21",
+            inherited: ["JAVA_HOME": "/fixture/jdk8", "PATH": "/fixture/bin"], overrides: [:]
+        )
+        #expect(selected["JAVA_HOME"] == "/fixture/jdk21")
+        #expect(selected["PATH"] == "/fixture/bin")
+        let overridden = try core.resolveLaunchEnvironment(
+            toolchain: "project-maven", selectedHome: "/fixture/jdk21",
+            inherited: selected, overrides: ["JAVA_HOME": "/fixture/explicit"]
+        )
+        #expect(overridden["JAVA_HOME"] == "/fixture/explicit")
+    }
+
+    @Test
     func guiLaunchPathReachesTheDiscoveredNodeInterpreter() {
         let environment = RunLaunchEnvironment.augmenting(
             ["PATH": "/usr/bin:/bin"],

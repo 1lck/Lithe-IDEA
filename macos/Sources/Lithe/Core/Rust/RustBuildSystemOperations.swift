@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 /// Typed `build.*` operations. Rust Core owns detection, command expansion,
 /// and every decoder for both products; this adapter only translates
@@ -74,6 +75,15 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         return outcome.value.options
     }
 
+    func resolveModelInputs(_ target: BuildSystemTarget, revision: UInt64, sources: [BuildModelInputSource]) throws -> ToolingJSONValue {
+        struct Source: Encodable { let manifest: ToolingJSONValue; let instances: [BuildModelInputSource.Instance] }
+        struct Request: Encodable { let revision: UInt64; let sources: [Source] }
+        struct Reply: Decodable { let modelInputs: ToolingJSONValue }
+        let request = Request(revision: revision, sources: try sources.map { Source(manifest: try Self.json($0.manifest), instances: $0.instances) })
+        let outcome: Outcome<Reply> = try execute("build.resolveModelInputs", target: target, request: request)
+        return outcome.value.modelInputs
+    }
+
     func modelPlan(
         _ target: BuildSystemTarget,
         context: BuildPlanContext,
@@ -89,13 +99,13 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     }
 
     func taskPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTaskRequest) throws
-        -> BuildProcessPlan {
+        -> BuildOutputPlan {
         let outcome: Outcome<PlanResult> = try execute(
             "build.taskPlan",
             target: target,
             request: TaskRequest(context: context, request: request)
         )
-        return try outcome.value.plan.processPlan()
+        return try outcome.value.plan.outputPlan()
     }
 
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
@@ -106,7 +116,91 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             request: TestRequest(context: context, request: request)
         )
         let plan = outcome.value.plan
-        return BuildTestPlan(process: try plan.processPlan(), results: plan.results?.results)
+        return BuildTestPlan(execution: try plan.outputPlan(), results: plan.results?.results)
+    }
+
+    func testDiscoveryPlan(_ target: BuildSystemTarget, context: BuildPlanContext) throws -> BuildProviderRequest {
+        let outcome: Outcome<PlanResult> = try execute(
+            "build.testDiscoveryPlan", target: target,
+            request: OutputRequest(context: context, project: nil, outputFile: nil, hints: BuildProviderHints(reason: .refresh))
+        )
+        guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
+            throw DeclarativePluginRejection(code: "plugin.build.unavailable", message: "Expected a provider test discovery plan.")
+        }
+        return request
+    }
+
+    func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+        try preparationPlan(target, context: context, run: run, project: project, selectedTarget: selectedTarget,
+                            userArguments: userArguments, command: "build.prepareRunPlan")
+    }
+
+    func prepareDebugPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                          project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+        try preparationPlan(target, context: context, run: run, project: project, selectedTarget: selectedTarget,
+                            userArguments: userArguments, command: "build.prepareDebugPlan")
+    }
+
+    private func preparationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                                 project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String], command: String) throws -> BuildProviderRequest {
+        struct Request: Encodable {
+            let root: String
+            let pluginDirectory: String?
+            let workspaceStateDirectory: String?
+            let modelInputs: ToolingJSONValue?
+            let options: [String: ToolingJSONValue]
+            let run: String
+            let project: BuildSelection
+            let target: BuildSelection
+            let userArguments: [String]
+        }
+        let outcome: Outcome<PlanResult> = try execute(command, target: target,
+            request: Request(root: context.root, pluginDirectory: context.pluginDirectory?.path,
+                             workspaceStateDirectory: context.workspaceStateDirectory?.path, modelInputs: context.modelInputs, options: context.options, run: run,
+                             project: project, target: selectedTarget, userArguments: userArguments))
+        guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
+            throw DeclarativePluginRejection(code: "plugin.build.invalidOutput", message: L10n.string("The build provider returned an invalid launch plan."))
+        }
+        return request
+    }
+
+    func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
+                              result: ToolingJSONValue) throws -> BuildRunPreparation {
+        struct Request: Encodable { let workspaceRoot: String; let root: String; let result: ToolingJSONValue }
+        struct Reply: Decodable { let launch: BuildRunPreparation }
+        let outcome: Outcome<Reply> = try execute("build.decodeRunPreparation", target: target,
+            request: Request(workspaceRoot: workspaceURL.path, root: root, result: result))
+        return outcome.value.launch
+    }
+
+    func decodeDebugPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String, run: String,
+                                result: ToolingJSONValue) throws -> BuildDebugPreparation {
+        struct Request: Encodable { let workspaceRoot: String; let root: String; let run: String; let result: ToolingJSONValue }
+        struct Reply: Decodable { let preparation: BuildDebugPreparation }
+        let outcome: Outcome<Reply> = try execute("build.decodeDebugPreparation", target: target,
+            request: Request(workspaceRoot: workspaceURL.path, root: root, run: run, result: result))
+        return outcome.value.preparation
+    }
+
+    func decodeTestDiscovery(
+        _ target: BuildSystemTarget, context: BuildPlanContext, result: ToolingJSONValue
+    ) throws -> BuildTestDiscovery {
+        struct Request: Encodable {
+            let root: String
+            let options: [String: ToolingJSONValue]
+            let result: ToolingJSONValue
+            let pluginDirectory: String?
+            let workspaceStateDirectory: String?
+            let modelInputs: ToolingJSONValue?
+        }
+        struct Reply: Decodable { let discovery: BuildTestDiscovery }
+        let outcome: Outcome<Reply> = try execute(
+            "build.decodeTestDiscovery", target: target,
+            request: Request(root: context.root, options: context.options, result: result,
+                             pluginDirectory: context.pluginDirectory?.path, workspaceStateDirectory: context.workspaceStateDirectory?.path, modelInputs: context.modelInputs)
+        )
+        return outcome.value.discovery
     }
 
     func dependencyPlan(
@@ -312,6 +406,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let options: [String: ToolingJSONValue]
         let pluginDirectory: String?
         let workspaceStateDirectory: String?
+        let modelInputs: ToolingJSONValue?
         let project: BuildSelection?
         let outputFile: String?
         let refresh: Bool
@@ -322,6 +417,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         }
 
         init(context: BuildPlanContext, project: BuildSelection?, outputFile: URL?, hints: BuildProviderHints) {
+            modelInputs = context.modelInputs
             root = context.root
             options = context.options
             pluginDirectory = context.pluginDirectory?.path
@@ -338,6 +434,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let options: [String: ToolingJSONValue]
         let pluginDirectory: String?
         let workspaceStateDirectory: String?
+        let modelInputs: ToolingJSONValue?
         let task: String
         let project: BuildSelection?
         let target: BuildSelection?
@@ -345,6 +442,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let userArguments: [String]
 
         init(context: BuildPlanContext, request: BuildTaskRequest) {
+            modelInputs = context.modelInputs
             root = context.root
             options = context.options
             pluginDirectory = context.pluginDirectory?.path
@@ -362,6 +460,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let options: [String: ToolingJSONValue]
         let pluginDirectory: String?
         let workspaceStateDirectory: String?
+        let modelInputs: ToolingJSONValue?
         let project: BuildSelection?
         let target: BuildSelection?
         let suite: String?
@@ -370,6 +469,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let projects: [String]
 
         init(context: BuildPlanContext, request: BuildTestRequest) {
+            modelInputs = context.modelInputs
             root = context.root
             options = context.options
             pluginDirectory = context.pluginDirectory?.path

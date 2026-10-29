@@ -20,20 +20,16 @@ extension AppModel {
             closeAgentEditorTab(tab)
             return true
         }
-        if branchComparison != nil {
-            closeBranchComparison()
-            return true
-        }
         if isRepositoryDiffSelected {
-            closeGitCommitDiff()
-            return true
-        }
-        if selectedChange != nil {
-            gitFeatureIfActive?.closeWorkingTreeDiff()
+            closeRepositoryDiffTab()
             return true
         }
         if let session = activeEditorTerminalSession {
             requestCloseTerminalSession(session)
+            return true
+        }
+        if let media = activeMediaDocument {
+            closeMediaDocument(media)
             return true
         }
         if let document = activeDocument {
@@ -43,8 +39,8 @@ extension AppModel {
         guard let item = editorTabItems.last else { return false }
         switch item {
         case .agentConversation(let tab): closeAgentEditorTab(tab)
-        case .repositoryDiff:
-            closeGitCommitDiff()
+        case .repositoryDiff(let id):
+            closeRepositoryDiffTab(id)
         case .document(let documentID):
             guard let document = openDocuments.first(where: { $0.id == documentID }) else {
                 editorTabOrderFeature.remove(item)

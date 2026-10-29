@@ -563,7 +563,7 @@ private struct AgentConnectionView: View {
             reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
             onKeep: { changes in if let sessionID { feature.keepFileChanges(changes, in: sessionID) } },
             onRestore: { changes in
-                if let sessionID { await feature.restoreFileChanges(changes, in: sessionID, restore: onRestoreFile) }
+                if let sessionID { await feature.restoreFileChanges(changes, in: sessionID, restore: { try await onRestoreFile($0) }) }
             },
             activity: activity(includesEdits: false),
             onOpenFile: onOpenFile
@@ -747,7 +747,7 @@ private struct AgentConnectionView: View {
             onOpenFile: onOpenFile,
             onKeep: { changes in if let sessionID { feature.keepFileChanges(changes, in: sessionID) } },
             onRestore: { changes in
-                if let sessionID { await feature.restoreFileChanges(changes, in: sessionID, restore: onRestoreFile) }
+                if let sessionID { await feature.restoreFileChanges(changes, in: sessionID, restore: { try await onRestoreFile($0) }) }
             })
     }
 

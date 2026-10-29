@@ -197,6 +197,7 @@ final class MacServiceContainer {
         // debug. A language the host debugs itself keeps its own adapter.
         // Plugins that apply without a restart are in `livePlugins` instead.
         let registeredDebugAdapters = PluginDebugAdapterEntry.index(of: pluginStartup.registeredPlugins)
+        let registeredQualifiedDebugAdapters = PluginDebugAdapterEntry.qualifiedIndex(of: pluginStartup.registeredPlugins)
         let debugAdapterSessionsBox = DebugAdapterSessionsBox()
         let moduleEnablement = moduleStore
         let launchMode = moduleLaunchMode
@@ -230,12 +231,18 @@ final class MacServiceContainer {
             }
             return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
         }
-        let activeDebugAdapter: @MainActor (String) -> PluginDebugAdapterEntry? = { languageID in
-            if let entry = registeredDebugAdapters[languageID],
+        let qualifiedDebugAdapters: @MainActor () -> [String: PluginDebugAdapterEntry] = {
+            registeredQualifiedDebugAdapters.filter {
+                isLaunchRegisteredAdapterUsable($0.value.plugin.descriptor.id.rawValue)
+            }.merging(PluginDebugAdapterEntry.qualifiedIndex(of: liveSnapshotBox.snapshot.activePackages)) { _, live in live }
+        }
+        let activeDebugAdapter: @MainActor (String) -> PluginDebugAdapterEntry? = { providerID in
+            if providerID.contains("/") { return qualifiedDebugAdapters()[providerID] }
+            if let entry = registeredDebugAdapters[providerID],
                isLaunchRegisteredAdapterUsable(entry.plugin.descriptor.id.rawValue) {
                 return entry
             }
-            return liveSnapshotBox.snapshot.debugAdapters[languageID]
+            return liveSnapshotBox.snapshot.debugAdapters[providerID]
         }
         // A launch-registered plugin is not in the live registry, so turning its
         // debug module off reaches the running sessions through the module's
@@ -560,7 +567,24 @@ final class MacServiceContainer {
                     let executableResolver = providedRunExecutableResolver ?? RunExecutableResolver(
                         runtimeService: runtimeService,
                         toolchainRegistry: runToolchainRegistry,
-                        metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+                        metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner),
+                        environmentResolver: rustCore
+                    )
+                    let runService = RunService(
+                        runtime: runtimeService,
+                        process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
+                        processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
+                        fileAccess: MacRunFileAccess(storage: fileStorage),
+                        preferences: MacRunPreferenceStore(store: store),
+                        serverPortParser: javaMavenOperations,
+                        runConfigurationOperations: providedRunConfigurationOperations ?? runConfigurationStore,
+                        executableResolver: executableResolver,
+                        languageProviderCatalog: languagePackRegistry.catalog,
+                        languageRunProviders: languagePackRegistry.runProviders,
+                        extensionRequiredLanguageIDs: runExtensionLanguageIDs,
+                        languageSupports: installedLanguageSupports,
+                        dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
+                        javaLaunchArgumentPreparer: rustCore
                     )
                     let buildSystemPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.buildSystems.isEmpty }
                     let buildSystems = buildSystemPlugins.isEmpty ? nil : BuildSystemService(
@@ -582,6 +606,7 @@ final class MacServiceContainer {
                             local: MacBuildCommandRunner(processRegistry: processRegistry),
                             registry: remoteWorkspaces, host: remoteOperations),
                         providers: buildProviderSessions,
+                        runLauncher: runService,
                         settings: { pluginSettings.values(forPlugin: $0) },
                         sources: {
                             // Enablement is read on every detection, so turning a
@@ -610,22 +635,7 @@ final class MacServiceContainer {
                             configurationStore: MacMavenConfigurationStore(storage: fileStorage),
                             dependencyOutputs: MacMavenDependencyOutputStore()
                         ),
-                        run: RunService(
-                            runtime: runtimeService,
-                            process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
-                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
-                            fileAccess: MacRunFileAccess(storage: fileStorage),
-                            preferences: MacRunPreferenceStore(store: store),
-                            serverPortParser: javaMavenOperations,
-                            runConfigurationOperations: providedRunConfigurationOperations ?? runConfigurationStore,
-                            executableResolver: executableResolver,
-                            languageProviderCatalog: languagePackRegistry.catalog,
-                            languageRunProviders: languagePackRegistry.runProviders,
-                            extensionRequiredLanguageIDs: runExtensionLanguageIDs,
-                            languageSupports: installedLanguageSupports,
-                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
-                            javaLaunchArgumentPreparer: rustCore
-                        ),
+                        run: runService,
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,
                             registry: languagePackRegistry.testProviders,
@@ -689,7 +699,8 @@ final class MacServiceContainer {
                                         return try await capability.sessions.startJavaDebugServer(
                                             rootURL: rootURL
                                         )
-                                    }
+                                    },
+                                    core: rustCore
                                 ),
                                 core: rustCore,
                                 deadlineScheduler: MacDebugOperationDeadlineScheduler()
@@ -697,7 +708,13 @@ final class MacServiceContainer {
                         }
                     ]
                     let adapterSessions = DebugAdapterSessionManager(
-                        providersSource: { debugProviderCache.providers() },
+                        providersSource: {
+                            let languages = debugProviderCache.providers()
+                            let qualified = qualifiedDebugAdapters().sorted { $0.key < $1.key }.map {
+                                $0.value.provider(languages: languages)
+                            }
+                            return languages + qualified
+                        },
                         makeSession: { descriptor, _ in
                             if let factory = debugFactories[descriptor.id] { return factory() }
                             guard let entry = activeDebugAdapter(descriptor.id) else { return nil }
@@ -719,6 +736,7 @@ final class MacServiceContainer {
                                         )
                                     },
                                     makeProcess: { MacRawProcessSession() },
+                                    core: rustCore,
                                     findCommand: { commands in
                                         commands.lazy.compactMap { command in
                                             runtimeService.executableCandidates(command)
@@ -759,6 +777,41 @@ final class MacServiceContainer {
                             return session
                         }
                     )
+                    adapterSessions.makeEndpointSession = { descriptor, endpoint, _ in
+                        let entry = activeDebugAdapter(descriptor.id)
+                        guard descriptor.id == "java" || entry != nil else { return nil }
+                        let session = CoreDebugAdapterProtocolSession(
+                            adapterID: entry?.adapter.adapterID ?? "java",
+                            consoleCommands: entry?.adapter.consoleCommands ?? [],
+                            consoleCommandPrefix: entry?.adapter.consoleCommandPrefix,
+                            disabledCapabilities: entry?.adapter.disabledCapabilities ?? [],
+                            transport: try MacExternalDebugAdapterTransport.make(
+                                endpoint: endpoint,
+                                validate: { endpoint in
+                                    do {
+                                        return try rustCore.executeResult(
+                                            command: "debug.validateAdapterEndpoint", payload: endpoint
+                                        ).get()
+                                    } catch let error as RustCoreBridge.CoreCallError where error.code == "invalid_request" {
+                                        throw MacTCPDebugAdapterTransport.TransportError.invalidEndpoint
+                                    }
+                                },
+                                core: rustCore
+                            ),
+                            core: rustCore,
+                            deadlineScheduler: MacDebugOperationDeadlineScheduler(),
+                            // The session clock starts before the socket exists, so Core sizes
+                            // it to outlast the transport's connect budget and still leave a
+                            // full DAP handshake window; the transport deadline then reports a
+                            // slow connect as itself, not as a failed `initialize`.
+                            initializationTimeoutMilliseconds:
+                                try rustCore.debugTransportPolicy().initializationMilliseconds
+                        )
+                        if let entry {
+                            debugAdapterSessionsBox.record(session, pluginID: entry.plugin.descriptor.id.rawValue)
+                        }
+                        return session
+                    }
                     debugAdapterSessionsBox.manager = adapterSessions
                     let graph = DebugFeatureGraph(
                         adapterSessions: adapterSessions,
@@ -943,6 +996,11 @@ final class MacServiceContainer {
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
                 javaTestLaunchResolver: rustCore,
+                providerLaunch: { source, preparation, workspaceURL, title in
+                    try MacBuildDebugLaunchResolver(planner: declarativePluginOperations,
+                        entry: { qualifiedDebugAdapters()[$0] }, generation: { liveSnapshotBox.snapshot.generation })
+                        .resolve(source: source, preparation: preparation, workspaceURL: workspaceURL, title: title)
+                },
                 javaExecutablePath: { [runtimeService] runtime in
                     runtimeService.javaExecutableURL(forDebugging: runtime)?.path
                 },
@@ -976,7 +1034,8 @@ final class MacServiceContainer {
                     return DebugLaunchConfiguration(
                         name: documentURL.lastPathComponent,
                         request: .launch,
-                        arguments: arguments
+                        arguments: arguments,
+                        adapterProviderID: entry.providerID
                     )
                 }
             ),
