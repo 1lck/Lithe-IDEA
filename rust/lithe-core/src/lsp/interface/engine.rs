@@ -447,7 +447,9 @@ pub struct PluginHostResponse {
     #[serde(default)]
     pub result: Option<Value>,
     /// The host could not perform the service. Its message reaches the
-    /// backend, bounded; the code is always `plugin.host.failed`.
+    /// backend, bounded. Its code passes only when it is one a host may
+    /// report (`plugin_function::host_failure`); otherwise, and before
+    /// protocol version 3, it is `plugin.host.failed`.
     #[serde(default)]
     pub error: Option<PluginHostFailure>,
 }
@@ -457,6 +459,9 @@ pub struct PluginHostResponse {
 /// Why the host could not perform a forwarded host-service request.
 pub struct PluginHostFailure {
     pub message: String,
+    /// Stable `plugin.host.*` code of the failure, from protocol version 3.
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -476,6 +481,11 @@ pub struct PluginFunctionRequest {
     /// session's request timeout when absent.
     #[serde(default)]
     pub timeout_milliseconds: Option<u64>,
+    /// Workspace context `{ contextID, generation }` the call belongs to.
+    /// It reaches a backend that negotiated protocol version 3 or later as
+    /// `params.context`, and is dropped for an older backend.
+    #[serde(default)]
+    pub context: Option<Value>,
 }
 
 fn empty_object() -> Value {
@@ -2341,6 +2351,12 @@ impl RuntimeSession {
                 &wire_operation_id,
                 &request.params,
             )?;
+            let mut params = params;
+            super::plugin_function::attach_context(
+                &mut params,
+                state.client.plugin_function_version.unwrap_or(0),
+                request.context.as_ref(),
+            )?;
             let timeout = request
                 .timeout_milliseconds
                 .map(|milliseconds| {
@@ -2402,12 +2418,20 @@ impl RuntimeSession {
                     )
                 })?;
             match (response.result, response.error) {
-                (_, Some(failure)) => json_rpc_error_with_code(
-                    &backend_id,
-                    -32603,
-                    &super::plugin_function::bounded_host_message(&failure.message),
-                    super::plugin_function::codes::HOST_FAILED,
-                )?,
+                (_, Some(failure)) => {
+                    let version = state.client.plugin_function_version.unwrap_or(0);
+                    let (code, rpc_code) = if version >= super::plugin_function::CONTEXT_VERSION {
+                        super::plugin_function::host_failure(failure.code.as_deref())
+                    } else {
+                        (super::plugin_function::codes::HOST_FAILED, -32603)
+                    };
+                    json_rpc_error_with_code(
+                        &backend_id,
+                        rpc_code,
+                        &super::plugin_function::bounded_host_message(&failure.message),
+                        code,
+                    )?
+                }
                 (result, None) => json_rpc_result(&backend_id, result.unwrap_or(Value::Null))?,
             }
         };
@@ -3943,6 +3967,17 @@ impl RuntimeSession {
                         );
                     }
                 } else if event.kind == "notification"
+                    && self.plugin_id.is_some()
+                    && event.method.as_deref() == Some("$/cancelRequest")
+                    && cancel_host_request_locked(
+                        self,
+                        &mut state,
+                        event.result.as_ref(),
+                        &mut outbound,
+                    )?
+                {
+                    // The backend withdrew one of its own host requests.
+                } else if event.kind == "notification"
                     && !(suppress_structured_java_preparation_notification
                         && is_structured_import_notification(
                             &self.provider_id,
@@ -5016,10 +5051,9 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
     // know could never be forwarded.
     if !request.host_services.is_empty()
         && (request.plugin_id.is_none()
-            || request
-                .host_services
-                .iter()
-                .any(|service| service != super::plugin_function::HOST_SERVICE_CREDENTIALS))
+            || request.host_services.iter().any(|service| {
+                !super::plugin_function::GRANTABLE_HOST_SERVICES.contains(&service.as_str())
+            }))
     {
         return Err(invalid_field("hostServices"));
     }
@@ -5780,6 +5814,72 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
     );
 }
 
+/// Handles a backend's `$/cancelRequest` for one of its own pending host
+/// requests: the backend gets `plugin.host.cancelled` at once, so the
+/// pending slot frees without waiting for the host, and the host gets a
+/// `hostRequestCancelled` event naming the `hostRequestID` so it can stop
+/// the work. A later answer from the host for that ID is refused like any
+/// unknown ID. Returns false when the notification names no pending host
+/// request, so it is handled like any other notification.
+fn cancel_host_request_locked(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    params: Option<&Value>,
+    outbound: &mut Vec<String>,
+) -> Result<bool, CoreError> {
+    if state.client.plugin_function_version.unwrap_or(0) < super::plugin_function::CONTEXT_VERSION {
+        return Ok(false);
+    }
+    let Some(backend_id) = params.and_then(|params| params.get("id")) else {
+        return Ok(false);
+    };
+    let Some(host_request_id) = state
+        .host_requests
+        .iter()
+        .find(|(_, pending)| *pending == backend_id)
+        .map(|(host_request_id, _)| host_request_id.clone())
+    else {
+        return Ok(false);
+    };
+    let backend_id = state
+        .host_requests
+        .remove(&host_request_id)
+        .unwrap_or(Value::Null);
+    outbound.push(json_rpc_error_with_code(
+        &backend_id,
+        -32800,
+        "The plugin process cancelled this host-service request.",
+        super::plugin_function::codes::HOST_CANCELLED,
+    )?);
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "hostRequestCancelled".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(json!({ "hostRequestID": host_request_id })),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+    Ok(true)
+}
+
 /// Publishes the session's registered functions after a registry change.
 /// Publishes a backend's well-formed host-service request as `hostRequest`,
 /// or answers it at once when the session already has the most requests the
@@ -5792,11 +5892,16 @@ fn forward_host_request_locked(
 ) -> Result<Vec<String>, CoreError> {
     let backend_id = request.get("id").cloned().unwrap_or(Value::Null);
     if state.host_requests.len() >= super::plugin_function::MAX_PENDING_HOST_REQUESTS {
+        let version = state.client.plugin_function_version.unwrap_or(0);
         return Ok(vec![json_rpc_error_with_code(
             &backend_id,
             -32603,
             "Too many host-service requests are waiting for the host.",
-            super::plugin_function::codes::HOST_FAILED,
+            if version >= super::plugin_function::CONTEXT_VERSION {
+                super::plugin_function::codes::HOST_LIMIT_EXCEEDED
+            } else {
+                super::plugin_function::codes::HOST_FAILED
+            },
         )?]);
     }
     let host_request_id = format!("host-{}", state.next_host_request_id);
@@ -12104,6 +12209,7 @@ public class Main {
                     },
                     params: json!({ "project": "app" }),
                     timeout_milliseconds,
+                    context: None,
                 },
                 operation_id.clone(),
             )
@@ -12209,7 +12315,7 @@ public class Main {
             initialize["params"]["capabilities"]["experimental"],
             json!({
                 "litheBuild": { "versions": [6, 5, 4, 3, 2, 1] },
-                "litheFunctions": { "versions": [1, 2] },
+                "litheFunctions": { "versions": [1, 2, 3] },
                 "litheVcs": { "versions": [1] }
             })
         );
@@ -12991,7 +13097,10 @@ public class Main {
             wire["result"] = result;
         }
         if let Some(message) = error {
-            wire["error"] = json!({ "message": message });
+            wire["error"] = match message.split_once('|') {
+                Some((code, message)) => json!({ "message": message, "code": code }),
+                None => json!({ "message": message }),
+            };
         }
         let response: PluginHostResponse =
             serde_json::from_value(wire).expect("documented wire shape");
@@ -13096,6 +13205,140 @@ public class Main {
         assert_eq!(
             harness.session().lock_state().unwrap().host_requests.len(),
             limit
+        );
+    }
+
+    /// From version 3 Core answers capability discovery itself, listing
+    /// only the session's grants; the host never sees the request.
+    #[test]
+    fn capability_discovery_is_answered_by_core() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "caps",
+            "method": "lithe/host/getCapabilities"
+        }));
+        let reply = await_reply(&harness, "caps");
+        assert_eq!(reply["result"]["protocolVersion"], 3);
+        assert_eq!(reply["result"]["backendAuthority"], "local");
+        assert!(reply["result"]["services"]["workspace"].is_object());
+        assert!(reply["result"]["services"]["credentials"].is_null());
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "hostRequest"));
+    }
+
+    /// From version 3 a host failure's code reaches the backend when it is
+    /// one a host may report; an unknown code is `plugin.host.failed`.
+    #[test]
+    fn typed_host_failures_reach_a_version_3_backend() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        for (id, code, expected, rpc_code) in [
+            (
+                "a",
+                "plugin.host.contextExpired",
+                "plugin.host.contextExpired",
+                -32603,
+            ),
+            ("b", "plugin.function.unknown", "plugin.host.failed", -32603),
+        ] {
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": id,
+                "method": "lithe/host/workspace/getFolders",
+                "params": { "context": { "contextID": "w1", "generation": 1 } }
+            }));
+            let event = harness
+                .await_event(|event| event.kind == "hostRequest")
+                .clone();
+            let host_request_id = event.result.unwrap()["hostRequestID"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            harness.events.clear();
+            host_response(
+                &harness,
+                &host_request_id,
+                None,
+                Some(&format!("{code}|The workspace closed.")),
+            )
+            .expect("the host reports its failure");
+            let reply = await_reply(&harness, id);
+            assert_eq!(reply["error"]["data"]["code"], expected, "{code}");
+            assert_eq!(reply["error"]["code"], rpc_code, "{code}");
+        }
+    }
+
+    /// A backend that cancels its own host request is answered at once, the
+    /// host learns which request to stop, and its late answer is refused.
+    #[test]
+    fn a_backend_can_cancel_its_host_request() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "list",
+            "method": "lithe/host/workspace/listContexts"
+        }));
+        let host_request_id = harness
+            .await_event(|event| event.kind == "hostRequest")
+            .clone()
+            .result
+            .unwrap()["hostRequestID"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": "list" }
+        }));
+        let cancelled = harness
+            .await_event(|event| event.kind == "hostRequestCancelled")
+            .clone();
+        assert_eq!(
+            cancelled.result.unwrap()["hostRequestID"],
+            json!(host_request_id)
+        );
+        let reply = await_reply(&harness, "list");
+        assert_eq!(reply["error"]["data"]["code"], "plugin.host.cancelled");
+        assert!(host_response(&harness, &host_request_id, Some(json!({})), None).is_err());
+    }
+
+    /// A call's workspace context reaches a version 3 backend as
+    /// `params.context`, and a malformed reference never leaves Core.
+    #[test]
+    fn invocations_carry_the_workspace_context_from_version_3() {
+        let harness = plugin_backend(json!({
+            "litheFunctions": { "version": 3, "functions": [{ "id": "snapshot.refresh" }] }
+        }));
+        let call = |context: Value| {
+            let operation_id = harness.engine.next_operation_id();
+            harness.session().function_request(
+                PluginFunctionRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    function: super::super::plugin_function::FunctionReference {
+                        plugin_id: FUNCTION_PLUGIN.to_string(),
+                        function_id: "snapshot.refresh".to_string(),
+                    },
+                    params: json!({}),
+                    timeout_milliseconds: None,
+                    context: Some(context),
+                },
+                operation_id,
+            )
+        };
+        let error = call(json!({ "contextID": "w/1", "generation": 1 }))
+            .expect_err("a malformed context is refused");
+        assert_eq!(
+            error.details.as_deref(),
+            Some("plugin.function.invalidParams")
+        );
+        call(json!({ "contextID": "w1", "generation": 2 })).expect("sent");
+        let request_id = harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("the call should reach the backend");
+        assert_eq!(
+            harness.written_request(&request_id)["params"]["context"],
+            json!({ "contextID": "w1", "generation": 2 })
         );
     }
 }

@@ -22,9 +22,15 @@ const EXPERIMENTAL_KEY: &str = "litheFunctions";
 
 /// Plugin-function protocol versions this client speaks. Version 2 keeps
 /// every rule of version 1 and adds the host services of `host_request`.
-const SUPPORTED_VERSIONS: [u64; 2] = [1, 2];
+/// Version 3 keeps version 2 and adds `lithe/host/getCapabilities`,
+/// subscription disposal, workspace contexts, a workspace context on
+/// invocations, and typed host failure codes.
+const SUPPORTED_VERSIONS: [u64; 3] = [1, 2, 3];
 /// First protocol version that offers host services.
 const HOST_SERVICES_VERSION: u64 = 2;
+/// First protocol version whose invocations may carry a workspace context
+/// and whose host offers capability discovery and workspace contexts.
+pub(crate) const CONTEXT_VERSION: u64 = 3;
 
 /// Feature name recorded in the session's server capabilities once a backend
 /// answered a supported version with a valid function list.
@@ -54,9 +60,28 @@ pub(crate) const MAX_FUNCTION_TIMEOUT_MS: u64 = 60 * 60_000;
 
 /// Host service that keeps secrets for the plugin, private to its ID.
 pub(crate) const HOST_SERVICE_CREDENTIALS: &str = "credentials";
+/// Host service listing open workspace contexts and their folders, granted
+/// by `workspace.metadata` to a `backend` 2 process.
+pub(crate) const HOST_SERVICE_WORKSPACE: &str = "workspace";
+/// Capability discovery. Every plugin-owned session of version 3 has it;
+/// Core answers it without involving the host.
+const HOST_SERVICE_HOST: &str = "host";
+/// Ending subscriptions other services created. Every plugin-owned session
+/// of version 3 has it, because only the session that holds a subscription
+/// can name it.
+const HOST_SERVICE_SUBSCRIPTIONS: &str = "subscriptions";
+/// Services a launch plan may grant through `lsp.startServer.hostServices`.
+/// The implicit `host` and `subscriptions` services are never listed.
+pub(crate) const GRANTABLE_HOST_SERVICES: &[&str] =
+    &[HOST_SERVICE_CREDENTIALS, HOST_SERVICE_WORKSPACE];
 const CREDENTIALS_GET: &str = "lithe/host/credentials/get";
 const CREDENTIALS_SET: &str = "lithe/host/credentials/set";
 const CREDENTIALS_DELETE: &str = "lithe/host/credentials/delete";
+const GET_CAPABILITIES: &str = "lithe/host/getCapabilities";
+const SUBSCRIPTIONS_DISPOSE: &str = "lithe/host/subscriptions/dispose";
+const WORKSPACE_LIST_CONTEXTS: &str = "lithe/host/workspace/listContexts";
+const WORKSPACE_GET_CONTEXT: &str = "lithe/host/workspace/getContext";
+const WORKSPACE_GET_FOLDERS: &str = "lithe/host/workspace/getFolders";
 const MAX_CREDENTIAL_KEY_BYTES: usize = 128;
 /// Bound of one stored secret, in UTF-8 bytes; enough for a password, a
 /// token, or a private key, not for documents.
@@ -100,6 +125,24 @@ pub(crate) mod codes {
     /// The host could not perform the service, or too many requests of
     /// the session were already waiting for it.
     pub const HOST_FAILED: &str = "plugin.host.failed";
+    /// The request names a workspace context that was closed or replaced
+    /// by a newer generation.
+    pub const HOST_CONTEXT_EXPIRED: &str = "plugin.host.contextExpired";
+    /// The context's authority (for example a remote workspace) does not
+    /// implement the requested file or process operation. The host never
+    /// falls back to the local placeholder directory.
+    pub const HOST_AUTHORITY_UNSUPPORTED: &str = "plugin.host.authorityUnsupported";
+    /// A versioned write found a newer version than the one it names.
+    pub const HOST_VERSION_CONFLICT: &str = "plugin.host.versionConflict";
+    /// The request exceeds a host limit: size, count, or rate.
+    pub const HOST_LIMIT_EXCEEDED: &str = "plugin.host.limitExceeded";
+    /// The backend cancelled the request, or the host stopped it.
+    pub const HOST_CANCELLED: &str = "plugin.host.cancelled";
+    /// The host's own deadline for the operation passed.
+    pub const HOST_TIMEOUT: &str = "plugin.host.timeout";
+    /// A page's call or a host operation ended because the backend process
+    /// exited. Reported by hosts to pages, never sent to a backend.
+    pub const BACKEND_EXITED: &str = "plugin.backend.exited";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -346,7 +389,108 @@ pub(crate) struct HostRequestRefusal {
     pub message: &'static str,
 }
 
-/// The host service a backend request asks for, or why it is refused.
+/// Where an accepted `lithe/host/*` request goes.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum HostRoute {
+    /// To the host, as a `hostRequest` event of this service.
+    Forward(&'static str),
+    /// Answered by Core with this result; the host never sees the request.
+    Answer(Value),
+}
+
+/// How Core checks the params of one host method before the host sees them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostParams {
+    /// Absent, `null`, or `{}`.
+    Empty,
+    /// `{ key }`, or `{ key, secret }` when `with_secret`.
+    Credential { with_secret: bool },
+    /// `{ subscriptionID }`.
+    Subscription,
+    /// Exactly `{ context }`, a well-formed context reference.
+    Context,
+    /// Any object whose `context`, when present, is a well-formed
+    /// reference. The service checks the rest and answers
+    /// `plugin.host.invalidParams` itself; for methods whose params Core
+    /// cannot type without owning their domain.
+    // No row of version 3 uses it yet; the file, editor, and window services
+    // that follow add their rows with it.
+    #[allow(dead_code)]
+    Object,
+}
+
+/// One row of the host-method table.
+pub(crate) struct HostMethod {
+    pub method: &'static str,
+    /// Service whose grant admits the method.
+    pub service: &'static str,
+    /// First protocol version that defines the method.
+    pub since: u64,
+    pub params: HostParams,
+}
+
+/// Every backend-to-host method Core admits. A method missing here is
+/// `plugin.host.unavailable` whatever the host could do, so a new host
+/// service adds its rows here, its grant to `GRANTABLE_HOST_SERVICES` and
+/// the manifest permission, and its handler to the host's dispatcher.
+pub(crate) const HOST_METHODS: &[HostMethod] = &[
+    HostMethod {
+        method: CREDENTIALS_GET,
+        service: HOST_SERVICE_CREDENTIALS,
+        since: 2,
+        params: HostParams::Credential { with_secret: false },
+    },
+    HostMethod {
+        method: CREDENTIALS_SET,
+        service: HOST_SERVICE_CREDENTIALS,
+        since: 2,
+        params: HostParams::Credential { with_secret: true },
+    },
+    HostMethod {
+        method: CREDENTIALS_DELETE,
+        service: HOST_SERVICE_CREDENTIALS,
+        since: 2,
+        params: HostParams::Credential { with_secret: false },
+    },
+    HostMethod {
+        method: GET_CAPABILITIES,
+        service: HOST_SERVICE_HOST,
+        since: CONTEXT_VERSION,
+        params: HostParams::Empty,
+    },
+    HostMethod {
+        method: SUBSCRIPTIONS_DISPOSE,
+        service: HOST_SERVICE_SUBSCRIPTIONS,
+        since: CONTEXT_VERSION,
+        params: HostParams::Subscription,
+    },
+    HostMethod {
+        method: WORKSPACE_LIST_CONTEXTS,
+        service: HOST_SERVICE_WORKSPACE,
+        since: CONTEXT_VERSION,
+        params: HostParams::Empty,
+    },
+    HostMethod {
+        method: WORKSPACE_GET_CONTEXT,
+        service: HOST_SERVICE_WORKSPACE,
+        since: CONTEXT_VERSION,
+        params: HostParams::Context,
+    },
+    HostMethod {
+        method: WORKSPACE_GET_FOLDERS,
+        service: HOST_SERVICE_WORKSPACE,
+        since: CONTEXT_VERSION,
+        params: HostParams::Context,
+    },
+];
+
+/// Services every plugin-owned session of their version has without a
+/// permission: they reveal nothing beyond the session's own grants.
+fn is_implicit_service(service: &str) -> bool {
+    service == HOST_SERVICE_HOST || service == HOST_SERVICE_SUBSCRIPTIONS
+}
+
+/// Where a backend request for a host service goes, or why it is refused.
 /// `version` is the negotiated protocol version (0 when not negotiated) and
 /// `granted` the services the plugin's permissions grant the session. The
 /// params are checked here, so the host only ever sees a well-formed
@@ -356,65 +500,205 @@ pub(crate) fn host_request(
     params: Option<&Value>,
     version: u64,
     granted: &BTreeSet<String>,
-) -> Result<&'static str, HostRequestRefusal> {
-    let unavailable = HostRequestRefusal {
-        rpc_code: -32601,
-        code: codes::HOST_UNAVAILABLE,
-        message: "The host offers no such service to this plugin process.",
+) -> Result<HostRoute, HostRequestRefusal> {
+    let Some(entry) = HOST_METHODS
+        .iter()
+        .find(|entry| entry.method == method && version >= entry.since.max(HOST_SERVICES_VERSION))
+    else {
+        return Err(HostRequestRefusal {
+            rpc_code: -32601,
+            code: codes::HOST_UNAVAILABLE,
+            message: "The host offers no such service to this plugin process.",
+        });
     };
-    if version < HOST_SERVICES_VERSION {
-        return Err(unavailable);
-    }
-    let (service, with_secret) = match method {
-        CREDENTIALS_GET | CREDENTIALS_DELETE => (HOST_SERVICE_CREDENTIALS, false),
-        CREDENTIALS_SET => (HOST_SERVICE_CREDENTIALS, true),
-        _ => return Err(unavailable),
-    };
-    if !granted.contains(service) {
+    if !is_implicit_service(entry.service) && !granted.contains(entry.service) {
         return Err(HostRequestRefusal {
             rpc_code: -32601,
             code: codes::HOST_PERMISSION_DENIED,
             message: "The plugin does not declare the permission for this host service.",
         });
     }
+    check_host_params(entry.params, params)?;
+    if entry.method == GET_CAPABILITIES {
+        return Ok(HostRoute::Answer(capabilities_answer(version, granted)));
+    }
+    Ok(HostRoute::Forward(entry.service))
+}
+
+/// The answer to `lithe/host/getCapabilities`: the negotiated version, the
+/// services and methods this session may call, where the backend runs, and
+/// the bounds Core enforces. It lists only what the session is granted, so
+/// it reveals nothing about other plugins.
+pub(crate) fn capabilities_answer(version: u64, granted: &BTreeSet<String>) -> Value {
+    let mut services = serde_json::Map::new();
+    for entry in HOST_METHODS.iter().filter(|entry| {
+        version >= entry.since
+            && (is_implicit_service(entry.service) || granted.contains(entry.service))
+    }) {
+        let service = services
+            .entry(entry.service.to_string())
+            .or_insert_with(|| json!({ "methods": [] }));
+        if let Some(methods) = service["methods"].as_array_mut() {
+            methods.push(json!(entry.method));
+        }
+    }
+    json!({
+        "protocolVersion": version,
+        // The host starts every plugin backend on the machine that runs
+        // Lithe, also for remote workspaces.
+        "backendAuthority": "local",
+        "services": services,
+        "limits": {
+            "pendingHostRequests": MAX_PENDING_HOST_REQUESTS,
+            "functionResultBytes": MAX_RESULT_BYTES,
+            "messageBytes": MAX_MESSAGE_BYTES,
+        },
+    })
+}
+
+fn check_host_params(rule: HostParams, params: Option<&Value>) -> Result<(), HostRequestRefusal> {
     let invalid = |message| HostRequestRefusal {
         rpc_code: -32602,
         code: codes::HOST_INVALID_PARAMS,
         message,
     };
-    let params = params
-        .and_then(Value::as_object)
-        .ok_or(invalid("Params must be an object."))?;
-    let allowed: &[&str] = if with_secret {
-        &["key", "secret"]
-    } else {
-        &["key"]
+    let empty = serde_json::Map::new();
+    let params = match params {
+        None | Some(Value::Null) if rule == HostParams::Empty => &empty,
+        Some(Value::Object(params)) => params,
+        _ => return Err(invalid("Params must be an object.")),
+    };
+    let allowed: &[&str] = match rule {
+        HostParams::Empty => &[],
+        HostParams::Credential { with_secret: true } => &["key", "secret"],
+        HostParams::Credential { with_secret: false } => &["key"],
+        HostParams::Subscription => &["subscriptionID"],
+        HostParams::Context => &["context"],
+        HostParams::Object => {
+            return match params.get("context") {
+                Some(context) if !is_context_reference(context) => {
+                    Err(invalid(CONTEXT_REFERENCE_MESSAGE))
+                }
+                _ => Ok(()),
+            };
+        }
     };
     if params.keys().any(|key| !allowed.contains(&key.as_str())) {
         return Err(invalid("Params name a field this service does not define."));
     }
-    if !params
-        .get("key")
-        .and_then(Value::as_str)
-        .is_some_and(is_credential_key)
-    {
-        return Err(invalid(
-            "A credential key is 1-128 ASCII letters, digits, '.', '_', ':' or '-'.",
-        ));
+    match rule {
+        HostParams::Credential { with_secret } => {
+            if !params
+                .get("key")
+                .and_then(Value::as_str)
+                .is_some_and(is_credential_key)
+            {
+                return Err(invalid(
+                    "A credential key is 1-128 ASCII letters, digits, '.', '_', ':' or '-'.",
+                ));
+            }
+            if with_secret
+                && !params
+                    .get("secret")
+                    .and_then(Value::as_str)
+                    .is_some_and(|secret| secret.len() <= MAX_CREDENTIAL_SECRET_BYTES)
+            {
+                return Err(invalid("A secret is a string of at most 16 KiB."));
+            }
+        }
+        HostParams::Subscription => {
+            if !params
+                .get("subscriptionID")
+                .and_then(Value::as_str)
+                .is_some_and(is_credential_key)
+            {
+                return Err(invalid(
+                    "A subscription ID is 1-128 ASCII letters, digits, '.', '_', ':' or '-'.",
+                ));
+            }
+        }
+        HostParams::Context => {
+            if !params.get("context").is_some_and(is_context_reference) {
+                return Err(invalid(CONTEXT_REFERENCE_MESSAGE));
+            }
+        }
+        HostParams::Empty | HostParams::Object => {}
     }
-    if with_secret
-        && !params
-            .get("secret")
-            .and_then(Value::as_str)
-            .is_some_and(|secret| secret.len() <= MAX_CREDENTIAL_SECRET_BYTES)
-    {
-        return Err(invalid("A secret is a string of at most 16 KiB."));
-    }
-    Ok(service)
+    Ok(())
 }
 
-/// Key of a stored secret. The alphabet excludes path separators so a host
-/// may use the key in a store item name without escaping.
+const CONTEXT_REFERENCE_MESSAGE: &str =
+    "A context is { contextID, generation }: an ID of 1-128 ASCII letters, digits, '.', '_', ':' or '-', and a positive generation.";
+
+/// `{ contextID, generation }` naming one generation of one workspace
+/// context. Only the shape is checked here; whether it is still current is
+/// the host's answer (`plugin.host.contextExpired`).
+pub(crate) fn is_context_reference(value: &Value) -> bool {
+    let Some(reference) = value.as_object() else {
+        return false;
+    };
+    reference.len() == 2
+        && reference
+            .get("contextID")
+            .and_then(Value::as_str)
+            .is_some_and(is_credential_key)
+        && reference
+            .get("generation")
+            .and_then(Value::as_u64)
+            .is_some_and(|generation| generation >= 1)
+}
+
+/// Adds the workspace context the host named to the params of one
+/// `lithe/function/invoke`. A malformed reference is refused. A backend
+/// that negotiated a version without contexts receives the call unchanged,
+/// so a page works with an older backend exactly as before.
+pub(crate) fn attach_context(
+    invoke_params: &mut Value,
+    version: u64,
+    context: Option<&Value>,
+) -> Result<(), CoreError> {
+    let Some(context) = context else {
+        return Ok(());
+    };
+    if !is_context_reference(context) {
+        return Err(refusal(
+            ErrorCode::InvalidRequest,
+            "The workspace context reference is malformed.",
+            codes::INVALID_PARAMS,
+        ));
+    }
+    if version >= CONTEXT_VERSION {
+        if let Some(params) = invoke_params.as_object_mut() {
+            params.insert("context".to_string(), context.clone());
+        }
+    }
+    Ok(())
+}
+
+/// The code and JSON-RPC error code the backend receives when the host
+/// failed a forwarded request. Only the codes a host may report pass
+/// through; anything else, including none, is `plugin.host.failed`, so a
+/// host cannot impersonate Core's own refusals of other kinds.
+pub(crate) fn host_failure(code: Option<&str>) -> (&'static str, i64) {
+    match code {
+        Some(codes::HOST_UNAVAILABLE) => (codes::HOST_UNAVAILABLE, -32601),
+        Some(codes::HOST_PERMISSION_DENIED) => (codes::HOST_PERMISSION_DENIED, -32601),
+        Some(codes::HOST_INVALID_PARAMS) => (codes::HOST_INVALID_PARAMS, -32602),
+        Some(codes::HOST_CONTEXT_EXPIRED) => (codes::HOST_CONTEXT_EXPIRED, -32603),
+        Some(codes::HOST_AUTHORITY_UNSUPPORTED) => (codes::HOST_AUTHORITY_UNSUPPORTED, -32603),
+        Some(codes::HOST_VERSION_CONFLICT) => (codes::HOST_VERSION_CONFLICT, -32603),
+        Some(codes::HOST_LIMIT_EXCEEDED) => (codes::HOST_LIMIT_EXCEEDED, -32603),
+        Some(codes::HOST_CANCELLED) => (codes::HOST_CANCELLED, -32800),
+        Some(codes::HOST_TIMEOUT) => (codes::HOST_TIMEOUT, -32603),
+        // A backend exit is reported to pages, never to the backend itself.
+        Some(codes::BACKEND_EXITED) => (codes::HOST_FAILED, -32603),
+        _ => (codes::HOST_FAILED, -32603),
+    }
+}
+
+/// Key of a stored secret, also the alphabet of subscription and context
+/// IDs. It excludes path separators so a host may use the value in a store
+/// item or file name without escaping.
 fn is_credential_key(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_CREDENTIAL_KEY_BYTES
@@ -710,14 +994,94 @@ mod tests {
                 &granted,
             );
             let expected = &case["expected"];
-            match expected["forward"].as_str() {
-                Some(service) => assert_eq!(outcome, Ok(service), "{}", name(&case)),
+            if let Some(service) = expected["forward"].as_str() {
+                assert_eq!(
+                    outcome,
+                    Ok(HostRoute::Forward(
+                        HOST_METHODS
+                            .iter()
+                            .map(|entry| entry.service)
+                            .find(|known| *known == service)
+                            .expect("a known service")
+                    )),
+                    "{}",
+                    name(&case)
+                );
+                continue;
+            }
+            match expected.get("answer") {
+                Some(answer) => {
+                    assert_eq!(
+                        outcome,
+                        Ok(HostRoute::Answer(answer.clone())),
+                        "{}",
+                        name(&case)
+                    )
+                }
                 None => {
                     let refusal = outcome.expect_err(name(&case));
                     assert_eq!(refusal.code, expected["code"], "{}", name(&case));
                     assert_eq!(refusal.rpc_code, expected["rpcCode"], "{}", name(&case));
                 }
             }
+        }
+    }
+
+    #[test]
+    fn invocation_contexts_follow_the_fixture() {
+        for case in cases("invocationContexts") {
+            let mut params = case["params"].clone();
+            let outcome = attach_context(
+                &mut params,
+                case["version"].as_u64().unwrap(),
+                case.get("context"),
+            );
+            let expected = &case["expected"];
+            match expected["code"].as_str() {
+                Some(code) => assert_eq!(
+                    outcome.expect_err(name(&case)).details.as_deref(),
+                    Some(code),
+                    "{}",
+                    name(&case)
+                ),
+                None => {
+                    outcome.unwrap_or_else(|error| panic!("{}: {error:?}", name(&case)));
+                    assert_eq!(params, expected["params"], "{}", name(&case));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn host_failures_follow_the_fixture() {
+        for case in cases("hostFailures") {
+            let (code, rpc_code) = host_failure(case["code"].as_str());
+            assert_eq!(code, case["expected"]["code"], "{}", name(&case));
+            assert_eq!(rpc_code, case["expected"]["rpcCode"], "{}", name(&case));
+        }
+    }
+
+    /// Capability discovery lists only what the session may call.
+    #[test]
+    fn capabilities_list_only_granted_services() {
+        let granted = BTreeSet::from([HOST_SERVICE_WORKSPACE.to_string()]);
+        let answer = capabilities_answer(3, &granted);
+        let services = answer["services"].as_object().expect("services");
+        assert!(services.contains_key(HOST_SERVICE_WORKSPACE));
+        assert!(services.contains_key(HOST_SERVICE_HOST));
+        assert!(services.contains_key(HOST_SERVICE_SUBSCRIPTIONS));
+        assert!(!services.contains_key(HOST_SERVICE_CREDENTIALS));
+    }
+
+    /// Every grantable service has at least one method, so a grant never
+    /// admits nothing.
+    #[test]
+    fn grantable_services_have_methods() {
+        for service in GRANTABLE_HOST_SERVICES {
+            assert!(
+                HOST_METHODS.iter().any(|entry| entry.service == *service),
+                "{service}"
+            );
         }
     }
 

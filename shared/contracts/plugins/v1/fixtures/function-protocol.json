@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "protocol": "litheFunctions",
-  "offer": { "versions": [1, 2] },
+  "offer": { "versions": [1, 2, 3] },
   "negotiation": [
     {
       "name": "no answer leaves the protocol off",
@@ -42,8 +42,13 @@
       "expected": { "functions": ["query.run"], "version": 2 }
     },
     {
+      "name": "version 3 negotiates the same registry and adds contexts and capability discovery",
+      "capabilities": { "experimental": { "litheFunctions": { "version": 3, "functions": [{ "id": "query.run" }] } } },
+      "expected": { "functions": ["query.run"], "version": 3 }
+    },
+    {
       "name": "a version the host never offered is not negotiated",
-      "capabilities": { "experimental": { "litheFunctions": { "version": 3 } } },
+      "capabilities": { "experimental": { "litheFunctions": { "version": 4 } } },
       "expected": { "functions": null }
     },
     {
@@ -352,6 +357,194 @@
       "method": "lithe/host/credentials/get",
       "params": { "key": "connection.prod", "scope": "global" },
       "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "capability discovery needs version 3",
+      "version": 2,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/getCapabilities",
+      "expected": { "rpcCode": -32601, "code": "plugin.host.unavailable" }
+    },
+    {
+      "name": "Core answers capability discovery with only the session's grants",
+      "version": 3,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/getCapabilities",
+      "params": {},
+      "expected": {
+        "answer": {
+          "protocolVersion": 3,
+          "backendAuthority": "local",
+          "services": {
+            "host": { "methods": ["lithe/host/getCapabilities"] },
+            "subscriptions": { "methods": ["lithe/host/subscriptions/dispose"] },
+            "workspace": {
+              "methods": [
+                "lithe/host/workspace/listContexts",
+                "lithe/host/workspace/getContext",
+                "lithe/host/workspace/getFolders"
+              ]
+            }
+          },
+          "limits": { "pendingHostRequests": 16, "functionResultBytes": 1048576, "messageBytes": 1024 }
+        }
+      }
+    },
+    {
+      "name": "capability discovery takes no params",
+      "version": 3,
+      "hostServices": [],
+      "method": "lithe/host/getCapabilities",
+      "params": { "services": ["credentials"] },
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "listing workspace contexts is forwarded when workspace.metadata is granted",
+      "version": 3,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/workspace/listContexts",
+      "expected": { "forward": "workspace" }
+    },
+    {
+      "name": "workspace contexts need the workspace.metadata grant",
+      "version": 3,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/workspace/listContexts",
+      "params": {},
+      "expected": { "rpcCode": -32601, "code": "plugin.host.permissionDenied" }
+    },
+    {
+      "name": "workspace contexts need version 3 even when granted",
+      "version": 2,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/workspace/listContexts",
+      "params": {},
+      "expected": { "rpcCode": -32601, "code": "plugin.host.unavailable" }
+    },
+    {
+      "name": "a context's folders are asked for by context ID and generation",
+      "version": 3,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/workspace/getFolders",
+      "params": { "context": { "contextID": "w-3f2a", "generation": 2 } },
+      "expected": { "forward": "workspace" }
+    },
+    {
+      "name": "one context is asked for by context ID and generation",
+      "version": 3,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/workspace/getContext",
+      "params": { "context": { "contextID": "w-3f2a", "generation": 2 } },
+      "expected": { "forward": "workspace" }
+    },
+    {
+      "name": "a context without a generation is invalid",
+      "version": 3,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/workspace/getFolders",
+      "params": { "context": { "contextID": "w-3f2a" } },
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "a generation is positive",
+      "version": 3,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/workspace/getContext",
+      "params": { "context": { "contextID": "w-3f2a", "generation": 0 } },
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "a context ID outside the alphabet is invalid",
+      "version": 3,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/workspace/getContext",
+      "params": { "context": { "contextID": "../w", "generation": 1 } },
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "a context reference has no other fields",
+      "version": 3,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/workspace/getContext",
+      "params": { "context": { "contextID": "w-3f2a", "generation": 1, "path": "/tmp" } },
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "a subscription is disposed by its ID without any grant",
+      "version": 3,
+      "hostServices": [],
+      "method": "lithe/host/subscriptions/dispose",
+      "params": { "subscriptionID": "watch-1" },
+      "expected": { "forward": "subscriptions" }
+    },
+    {
+      "name": "disposing needs a subscription ID",
+      "version": 3,
+      "hostServices": [],
+      "method": "lithe/host/subscriptions/dispose",
+      "params": {},
+      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "credentials keep their version 2 rules in version 3",
+      "version": 3,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/get",
+      "params": { "key": "connection.prod" },
+      "expected": { "forward": "credentials" }
+    },
+    {
+      "name": "a method no version defines is unavailable",
+      "version": 3,
+      "hostServices": ["credentials", "workspace"],
+      "method": "lithe/host/process/run",
+      "params": {},
+      "expected": { "rpcCode": -32601, "code": "plugin.host.unavailable" }
     }
+  ],
+  "invocationContexts": [
+    {
+      "name": "a version 3 backend receives the call's context",
+      "version": 3,
+      "params": { "functionID": "query.run", "operationID": "7", "params": {} },
+      "context": { "contextID": "w-3f2a", "generation": 2 },
+      "expected": {
+        "params": { "functionID": "query.run", "operationID": "7", "params": {}, "context": { "contextID": "w-3f2a", "generation": 2 } }
+      }
+    },
+    {
+      "name": "an older backend receives the call unchanged",
+      "version": 2,
+      "params": { "functionID": "query.run", "operationID": "7", "params": {} },
+      "context": { "contextID": "w-3f2a", "generation": 2 },
+      "expected": { "params": { "functionID": "query.run", "operationID": "7", "params": {} } }
+    },
+    {
+      "name": "a call without a context is unchanged",
+      "version": 3,
+      "params": { "functionID": "query.run", "operationID": "7", "params": {} },
+      "expected": { "params": { "functionID": "query.run", "operationID": "7", "params": {} } }
+    },
+    {
+      "name": "a malformed context never leaves Core",
+      "version": 3,
+      "params": { "functionID": "query.run", "operationID": "7", "params": {} },
+      "context": { "contextID": "w-3f2a", "generation": -1 },
+      "expected": { "code": "plugin.function.invalidParams" }
+    }
+  ],
+  "hostFailures": [
+    { "name": "no code is a generic failure", "code": null, "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } },
+    { "name": "a closed or replaced context", "code": "plugin.host.contextExpired", "expected": { "code": "plugin.host.contextExpired", "rpcCode": -32603 } },
+    { "name": "a remote authority without the operation", "code": "plugin.host.authorityUnsupported", "expected": { "code": "plugin.host.authorityUnsupported", "rpcCode": -32603 } },
+    { "name": "a stale versioned edit", "code": "plugin.host.versionConflict", "expected": { "code": "plugin.host.versionConflict", "rpcCode": -32603 } },
+    { "name": "a host limit", "code": "plugin.host.limitExceeded", "expected": { "code": "plugin.host.limitExceeded", "rpcCode": -32603 } },
+    { "name": "the host stopped the request", "code": "plugin.host.cancelled", "expected": { "code": "plugin.host.cancelled", "rpcCode": -32800 } },
+    { "name": "the host's deadline passed", "code": "plugin.host.timeout", "expected": { "code": "plugin.host.timeout", "rpcCode": -32603 } },
+    { "name": "params the service itself refuses", "code": "plugin.host.invalidParams", "expected": { "code": "plugin.host.invalidParams", "rpcCode": -32602 } },
+    { "name": "the user withheld consent", "code": "plugin.host.permissionDenied", "expected": { "code": "plugin.host.permissionDenied", "rpcCode": -32601 } },
+    { "name": "a service the host turned off", "code": "plugin.host.unavailable", "expected": { "code": "plugin.host.unavailable", "rpcCode": -32601 } },
+    { "name": "a host cannot borrow a function code", "code": "plugin.function.unknown", "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } },
+    { "name": "a host cannot report a backend exit to the backend", "code": "plugin.backend.exited", "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } }
   ]
 }

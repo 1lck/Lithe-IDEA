@@ -565,20 +565,25 @@ pub(super) fn client_apply_server_message_for_plugin(
                 ) {
                     // The engine answers once the host has; the request
                     // carries the backend's own ID back to it.
-                    Ok(service) => events.push(LspClientEvent {
-                        kind: "hostRequest".to_string(),
-                        request_id: None,
-                        method: Some(method.to_string()),
-                        uri: None,
-                        version: None,
-                        diagnostics: None,
-                        result: Some(json!({
-                            "id": id,
-                            "service": service,
-                            "params": message.get("params").cloned().unwrap_or(Value::Null),
-                        })),
-                        error: None,
-                    }),
+                    Ok(plugin_function::HostRoute::Answer(result)) => {
+                        responses.push(json_rpc_result(id, result)?)
+                    }
+                    Ok(plugin_function::HostRoute::Forward(service)) => {
+                        events.push(LspClientEvent {
+                            kind: "hostRequest".to_string(),
+                            request_id: None,
+                            method: Some(method.to_string()),
+                            uri: None,
+                            version: None,
+                            diagnostics: None,
+                            result: Some(json!({
+                                "id": id,
+                                "service": service,
+                                "params": message.get("params").cloned().unwrap_or(Value::Null),
+                            })),
+                            error: None,
+                        })
+                    }
                     Err(refusal) => responses.push(json_rpc_error_with_code(
                         id,
                         refusal.rpc_code,
