@@ -1,3 +1,5 @@
+import { StandardKeyboardEvent } from "monaco-editor/esm/vs/base/browser/keyboardEvent.js";
+import { ContentHoverController } from "monaco-editor/esm/vs/editor/contrib/hover/browser/contentHoverController.js";
 import { LightBulbWidget } from "monaco-editor/esm/vs/editor/contrib/codeAction/browser/lightBulbWidget.js";
 import { runEditorCommand } from "@lithe/editor/editor-commands";
 import { ICommandService } from "monaco-editor/esm/vs/platform/commands/common/commands.js";
@@ -37,6 +39,9 @@ const withDeadline = async <T>(operation: Promise<T>, message: string): Promise<
 
 async function verify() {
   await ready;
+  const initialEditor = monacoEditor.getEditors()[0];
+  assert(!initialEditor.getAction("lithe.goToDefinition"), "definition navigation was registered while default-off");
+  window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false });
   const cases: { name: string; durationMs: number }[] = [];
   async function check(name: string, operation: () => Promise<void>) {
     await send({ type: "progress", name });
@@ -1748,6 +1753,379 @@ async function verify() {
       assert(model.getVersionId() === version && model.getValue() === text, "scroll synchronization mutated source or undo");
     } finally { await window.lithe.markdownScroll(null); await window.lithe.retain([]); }
   });
+  await check("Java first visible frame waits for import folding without exposing expanded lines", async () => {
+    const id = "first-frame-fold", text = "package demo;\n\nimport java.util.List;\nimport java.util.Map;\nclass Probe {}";
+    let release!: () => void, arrived!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const requested = new Promise<void>(resolve => { arrived = resolve; });
+    const provider = languages.registerFoldingRangeProvider("java", {
+      async provideFoldingRanges(model) {
+        if (model.getValue() !== text) return null;
+        arrived(); await gate;
+        return [{ start: 3, end: 4, kind: languages.FoldingRangeKind.Imports }];
+      },
+    });
+    let opening: Promise<unknown> | undefined;
+    try {
+      await send({ type: "open", id, text });
+      opening = window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+      await withDeadline(requested, "initial folding was not requested");
+      assert(getComputedStyle(editor.getContainerDomNode()).opacity === "0" && editor.getContainerDomNode().inert, "expanded imports leaked before initial folding");
+      release();
+      await withDeadline(opening!, "opening did not finish after folding");
+      assert(getComputedStyle(editor.getContainerDomNode()).opacity === "1" && !editor.getContainerDomNode().inert, "editor remained hidden after folding");
+      const folding = await (editor.getContribution("editor.contrib.folding") as any).getFoldingModel();
+      assert(folding.getRegionAtLine(3)?.isCollapsed, "first visible frame did not contain collapsed imports");
+    } finally { release(); await opening; provider.dispose(); await window.lithe.retain([]); }
+  });
+  await check("Java imports fold on first open and preserve manual expansion across tabs", async () => {
+    const id = "default-import-fold", text = "package demo;\n\nimport java.util.List;\nimport java.util.Map;\nimport static java.util.Collections.emptyList;\n\nclass Probe {\n  void run() {}\n}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const controller = editor.getContribution("editor.contrib.folding") as any;
+    try {
+      const folding = await withDeadline(controller.getFoldingModel(), "initial import folds did not finish") as any;
+      const imports = folding.getRegionAtLine(3);
+      assert(imports?.isCollapsed && imports.endLineNumber === 5, "imports were not folded on open");
+      assert(!folding.getRegionAtLine(7)?.isCollapsed, "class body was automatically folded");
+      await runEditorCommand(editor, { type: "unfoldAll" }, false);
+      assert(!imports.isCollapsed, "imports could not be expanded");
+      await send({ type: "open", id: "fold-other", text: "plain" });
+      await window.lithe.activate({ id: "fold-other", text: "plain", revision: 0, filename: "note.txt", readonly: false });
+      await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+      const restored = await withDeadline(controller.getFoldingModel(), "restored import folds did not finish") as any;
+      assert(!restored.getRegionAtLine(3)?.isCollapsed, "tab switch discarded manual expansion");
+      assert(editor.getModel()!.getValue() === text, "folding altered source text");
+    } finally { await window.lithe.retain([]); }
+  });
+  await check("macOS documentation hover uses shared popup chrome and IDEA delay", async () => {
+    const id = "popup-theme", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const controller = ContentHoverController.get(editor)!;
+    const previous = document.documentElement.style.cssText;
+    let observer: MutationObserver | undefined;
+    try {
+      assert(editor.getOption(monacoEditor.EditorOption.hover).delay === 500, "macOS hover delay differs from IDEA default");
+      for (const dark of [false, true]) {
+        controller.hideContentHover();
+        window.lithe.configure({ fontFamily: "monospace", fontSize: 13, wrap: false,
+          theme: { id: `popup-${dark}`, dark, colors: { background: "#00000000" }, popupStyles: {
+            background: dark ? "#28292C" : "#FFFFFF", foreground: dark ? "#D1D3D9" : "#000000",
+            border: dark ? "#43454A" : "#C9CCD2", radius: "10px", shadow: "0 14px 30px #00000088", font: "13px sans-serif",
+          } } });
+        const shown = new Promise<HTMLElement>(resolve => {
+          observer = new MutationObserver(() => {
+            const popup = document.querySelector<HTMLElement>(".monaco-hover");
+            if (popup?.textContent?.includes("Host hover") && popup.getBoundingClientRect().height > 0) resolve(popup);
+          });
+          observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+        });
+        controller.showContentHover(new Range(1, 7, 1, 12), 1, 2, false);
+        const popup = await withDeadline(shown, "documentation hover did not render");
+        observer!.disconnect(); observer = undefined;
+        const style = getComputedStyle(popup);
+        assert(style.backgroundColor === (dark ? "rgb(40, 41, 44)" : "rgb(255, 255, 255)"), "hover retained Monaco default background");
+        assert(style.borderRadius === "10px", "hover did not use shared popup radius");
+        assert(getComputedStyle(popup.parentElement!).boxShadow.includes("14px 30px"), "hover lost shared popup shadow");
+      }
+    } finally {
+      observer?.disconnect(); controller.hideContentHover();
+      document.documentElement.style.cssText = previous;
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("Command hover decorates the symbol, clears on release, and never navigates", async () => {
+    const id = "definition-hover", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const model = editor.getModel()!, version = model.getVersionId();
+    const controller = ContentHoverController.get(editor)!;
+    const originalShow = controller.showContentHover;
+    let startMode: number | undefined, scheduled!: () => void;
+    const hintScheduled = new Promise<void>(resolve => { scheduled = resolve; });
+    controller.showContentHover = function (...args) {
+      startMode = args[1];
+      originalShow.apply(this, args);
+      scheduled();
+    };
+    const before = (await send({ type: "definitionRequests" })).requests.length;
+    let listener: { dispose(): void } | undefined;
+    const links = () => model.getAllDecorations().filter(value => value.options.inlineClassName === "goto-definition-link");
+    try {
+      const highlighted = new Promise<void>(resolve => {
+        listener = model.onDidChangeDecorations(() => { if (links().length) resolve(); });
+      });
+      // Deliver Monaco's normalized input events to the real contribution. No
+      // frame delay is needed: model decorations are the observable boundary.
+      const input = editor as any;
+      input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+        target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+      await withDeadline(highlighted, "Command hover did not highlight the definition");
+      await withDeadline(hintScheduled, "Command hint was not scheduled after validation");
+      assert(startMode === 0, "Command hint bypassed Monaco's configured hover delay");
+      assert(!controller.isHoverVisible, "Command hint appeared immediately with the link feedback");
+      assert(links()[0].range.equalsRange(new Range(1, 7, 1, 12)), "link did not cover the whole identifier");
+      editor.render(true);
+      const link = editor.getDomNode()!.querySelector(".goto-definition-link");
+      assert(link && getComputedStyle(link).textDecorationLine.includes("underline") &&
+        getComputedStyle(link).cursor === "pointer", "definition link lost Monaco's underline/cursor style");
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      assert(links().length === 0, "releasing Command left a link decoration");
+      assert((await send({ type: "definitionRequests" })).requests.length === before,
+        "hover opened a definition/results panel");
+      assert(model.getVersionId() === version && model.getValue() === text, "hover changed the document");
+      const click = { event: { metaKey: true, leftButton: true, detail: 1 },
+        target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } };
+      input._onMouseDown.fire(click);
+      input._onMouseUp.fire(click);
+      // navigate drains the already synchronized edit chain before dispatch.
+      await Promise.resolve();
+      const requests = (await send({ type: "definitionRequests" })).requests;
+      assert(requests.length === before + 1 && requests[before].id === id && requests[before].column === 8,
+        "Command click did not dispatch exactly one navigation at the hovered symbol");
+
+    } finally { controller.showContentHover = originalShow; listener?.dispose(); await window.lithe.retain([]); }
+  });
+  await check("leaving a symbol cancels its delayed Command hint", async () => {
+    const id = "pending-command-hint", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const controller = ContentHoverController.get(editor)!, input = editor as any;
+    const originalShow = controller.showContentHover, originalHide = controller.hideContentHover;
+    let scheduled!: () => void, hideCount = 0;
+    const requested = new Promise<void>(resolve => { scheduled = resolve; });
+    controller.showContentHover = function (...args) { originalShow.apply(this, args); scheduled(); };
+    controller.hideContentHover = function () { hideCount++; originalHide.call(this); };
+    try {
+      input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+        target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+      await withDeadline(requested, "Command hint was not scheduled");
+      assert(!controller.isHoverVisible, "hint appeared before the dwell delay");
+      const before = hideCount;
+      input._onMouseLeave.fire({});
+      assert(hideCount > before, "leaving the editor did not cancel the pending hover operation");
+      assert(!editor.getDomNode()!.classList.contains("lithe-command-hover"), "pending hint retained its owner after leaving");
+    } finally {
+      controller.showContentHover = originalShow; controller.hideContentHover = originalHide;
+      controller.hideContentHover(); await window.lithe.retain([]);
+    }
+  });
+  await check("Command navigation ignores comments and strings using lexical state", async () => {
+    const id = "comment-navigation";
+    const text = 'class Probe {\n// formatOrder\n/* multiline\nformatOrder */\nString text = "formatOrder";\nvoid formatOrder() {}\n}';
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    await withDeadline(window.lithe.tokenizationReady(), "lexical state was not ready");
+    const model = editor.getModel()!, input = editor as any;
+    const before = (await send({ type: "definitionRequests" })).requests.length;
+    try {
+      for (const [line, column] of [[2, 5], [4, 3], [5, 18]]) {
+        const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT,
+          position: new Position(line, column), range: new Range(line, column, line, column + 1), detail: {} };
+        input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 }, target });
+        assert(!editor.getDomNode()!.classList.contains("lithe-definition-pointer"), "non-code word received a navigation pointer");
+        assert(!model.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"),
+          "non-code word received a navigation link");
+        const click = { event: { metaKey: true, leftButton: true, detail: 1 }, target };
+        input._onMouseDown.fire(click); input._onMouseUp.fire(click);
+      }
+      await Promise.resolve();
+      assert((await send({ type: "definitionRequests" })).requests.length === before, "Command click navigated from a comment/string");
+    } finally { await window.lithe.retain([]); }
+  });
+  await check("default Java link feedback preserves XML configuration and other language navigation", async () => {
+    try {
+      for (const filename of ["Mapper.xml", "application.properties", "application.yaml", "module.py"]) {
+        const id = "legacy-" + filename, text = filename.endsWith("xml") ? '<select id="findOrder" />' : "findOrder";
+        await send({ type: "open", id, text });
+        await window.lithe.activate({ id, text, revision: 0, filename, readonly: false });
+        const input = editor as any, column = filename.endsWith("xml") ? 14 : 3;
+        const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, column),
+          range: new Range(1, column, 1, column + 1), detail: {} };
+        const before = await send({ type: "definitionRequests" });
+        input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 }, target });
+        input._onMouseDown.fire({ event: { metaKey: true, leftButton: true, detail: 1,
+          preventDefault() {}, stopPropagation() {} }, target });
+        const action = editor.getAction("lithe.goToDefinition");
+        assert(action, "Java opt-out removed another provider's definition action: " + filename);
+        await action!.run();
+        const after = await send({ type: "definitionRequests" });
+        assert(after.requests.length === before.requests.length + 2, "click/F12 stopped reaching the host: " + filename);
+        assert(after.hoverRequests === before.hoverRequests, "legacy provider acquired unsolicited hover queries");
+      }
+    } finally {
+      await window.lithe.retain([]);
+    }
+  });
+  await check("Java links are enabled by default and query only during Command hover", async () => {
+    const id = "default-navigation", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const input = editor as any, root = editor.getDomNode()!;
+    const move = (metaKey: boolean) => input._onMouseMove.fire({ event: { metaKey, leftButton: false, detail: 0 },
+      target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+    try {
+      assert(!!editor.getAction("lithe.goToDefinition"), "default navigation action is missing");
+      const before = await send({ type: "definitionRequests" });
+      move(false);
+      assert((await send({ type: "definitionRequests" })).hoverRequests === before.hoverRequests, "ordinary movement queried definitions");
+      await send({ type: "holdDefinitionHover", hold: true });
+      move(true);
+      await withDeadline(send({ type: "waitDefinitionHover" }), 3000, "default hover request");
+      assert(root.classList.contains("lithe-definition-pointer"), "default Java hover has no pointer");
+      // Closing the document must revoke a held response and release its gestures.
+      await window.lithe.retain([]);
+      assert(!editor.getAction("lithe.goToDefinition"), "closed document retained its action");
+      await send({ type: "holdDefinitionHover", hold: false });
+      assert(!root.classList.contains("lithe-definition-pointer"), "closed document revived a late pointer");
+    } finally {
+      await send({ type: "holdDefinitionHover", hold: false });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("repeated document and split lifetimes release navigation listeners", async () => {
+    await window.lithe.retain([]);
+    const input = editor as any;
+    const listenerCounts = () => Object.fromEntries(Object.entries(input)
+      .filter(([key, value]: [string, any]) => key.startsWith("_on") && typeof value?._size === "number")
+      .map(([key, value]: [string, any]) => [key, value._size]));
+    const baseline = JSON.stringify(listenerCounts());
+    const models = monacoEditor.getModels().length, editors = monacoEditor.getEditors().length;
+    const originalAdd = window.addEventListener, originalRemove = window.removeEventListener;
+    const blurListeners = new Set<EventListenerOrEventListenerObject>();
+    window.addEventListener = function(type: any, listener: any, options: any) {
+      if (type === "blur") blurListeners.add(listener);
+      return originalAdd.call(this, type, listener, options);
+    } as typeof window.addEventListener;
+    window.removeEventListener = function(type: any, listener: any, options: any) {
+      if (type === "blur") blurListeners.delete(listener);
+      return originalRemove.call(this, type, listener, options);
+    } as typeof window.removeEventListener;
+    const container = document.createElement("div"); document.body.append(container);
+    try {
+      for (let cycle = 0; cycle < 20; cycle++) {
+        const id = `default-lifetime-${cycle}`, text = "class Probe {}";
+        await send({ type: "open", id, text });
+        await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+        await window.lithe.attachSurface("default-split", container, { id });
+        assert(monacoEditor.getEditors().every(view => !!view.getAction("lithe.goToDefinition")), "new split missed default navigation");
+        window.lithe.detachSurface("default-split");
+        await window.lithe.retain([]);
+        assert(blurListeners.size === 0, "closed views retained window listeners");
+        assert(JSON.stringify(listenerCounts()) === baseline, "document navigation listeners accumulated");
+        assert(monacoEditor.getModels().length === models && monacoEditor.getEditors().length === editors, "closed views retained models/editors");
+      }
+    } finally {
+      window.lithe.detachSurface("default-split"); await window.lithe.retain([]); container.remove();
+      window.addEventListener = originalAdd; window.removeEventListener = originalRemove;
+    }
+  });
+  await check("Command pointer stays stable during slow definition lookup and repaint", async () => {
+    const id = "slow-definition-hover", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const input = editor as any, root = editor.getDomNode()!;
+    const move = () => input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+      target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+    let observer: MutationObserver | undefined;
+    try {
+      await send({ type: "holdDefinitionHover", hold: true });
+      move(); editor.render(true);
+      const link = root.querySelector(".goto-definition-link");
+      assert(link && getComputedStyle(link).textDecorationLine.includes("underline"),
+        "candidate link feedback waited for the held native lookup");
+      assert(!ContentHoverController.get(editor)!.isHoverVisible, "candidate feedback bypassed popup dwell");
+      const line = root.querySelector(".view-line span")!;
+      assert(root.classList.contains("lithe-definition-pointer") && getComputedStyle(line).cursor === "pointer",
+        "slow semantic lookup left the candidate under an editing cursor");
+      for (let i = 0; i < 5; i++) {
+        move(); editor.render(true);
+        assert(getComputedStyle(root.querySelector(".view-line span")!).cursor === "pointer", "repaint/pixel movement reset the pointer");
+      }
+      await withDeadline(send({ type: "waitDefinitionHover" }), "definition request never reached the held host");
+      const rejected = new Promise<void>(resolve => {
+        observer = new MutationObserver(() => { if (!root.classList.contains("lithe-definition-pointer")) resolve(); });
+        observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+      });
+      await send({ type: "holdDefinitionHover", hold: false, available: false });
+      await withDeadline(rejected, "unavailable target did not restore normal cursor");
+      observer.disconnect(); observer = undefined;
+      assert(!editor.getModel()!.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"),
+        "unavailable candidate retained a link decoration");
+      move();
+      assert(!root.classList.contains("lithe-definition-pointer"), "negative result restarted the cursor flicker on pixel movement");
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      await send({ type: "holdDefinitionHover", hold: true });
+      move();
+      assert(root.classList.contains("lithe-definition-pointer"), "new gesture could not retry a transient miss");
+      await withDeadline(send({ type: "waitDefinitionHover" }), "retry never reached the held host");
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      await send({ type: "holdDefinitionHover", hold: false });
+      assert(!root.classList.contains("lithe-definition-pointer"), "late resolution restored a released pointer");
+    } finally {
+      observer?.disconnect();
+      await send({ type: "holdDefinitionHover", hold: false });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("hover lifecycle distinguishes Command hints from ordinary documentation", async () => {
+    const id = "hover-lifecycle", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const controller = ContentHoverController.get(editor)!, input = editor as any;
+    let observer: MutationObserver | undefined;
+    const move = () => input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+      target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+    let showAttempt = 0;
+    const show = async (command: boolean) => {
+      showAttempt++;
+      const visible = new Promise<void>(resolve => {
+        observer = new MutationObserver(() => { if (controller.isHoverVisible) resolve(); });
+        observer.observe(editor.getDomNode()!, { childList: true, subtree: true, attributes: true });
+      });
+      if (command) move(); else controller.showContentHover(new Range(1, 7, 1, 12), 1, 2, false);
+      try { await withDeadline(visible, `hover did not become visible (attempt ${showAttempt}, command ${command})`); }
+      finally { observer?.disconnect(); observer = undefined; }
+    };
+    try {
+      for (const close of [
+        () => input._onKeyUp.fire({ keyCode: 57, metaKey: false }),
+        () => input._onKeyDown.fire(new StandardKeyboardEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27 }))),
+        () => input._onDidScrollChange.fire({ scrollTopChanged: true }),
+        () => window.dispatchEvent(new Event("blur")),
+      ]) {
+        await show(true);
+        const contents = editor.getDomNode()!.querySelector(".monaco-hover .hover-contents")!;
+        assert(getComputedStyle(contents).padding === "6px 6px 5px", "Command hint lost IDEA insets");
+        const bounds = contents.getBoundingClientRect();
+        input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0,
+          posx: bounds.x + 2, posy: bounds.y + 2, browserEvent: { view: window } },
+          target: { type: monacoEditor.MouseTargetType.CONTENT_WIDGET, element: contents, detail: {} } });
+        assert(controller.isHoverVisible, "moving into the hint dismissed its clickable content");
+        close();
+        assert(!controller.isHoverVisible, "Command hint survived dismissal");
+        assert(!editor.getDomNode()!.classList.contains("lithe-command-hover"), "Command style leaked after close");
+      }
+      await show(false);
+      move();
+      await send({ type: "definitionRequests" });
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      assert(controller.isHoverVisible, "Command release closed pre-existing ordinary documentation");
+      window.dispatchEvent(new Event("blur"));
+      assert(!controller.isHoverVisible, "ordinary hover survived window deactivation");
+      move(); window.dispatchEvent(new Event("blur"));
+      await send({ type: "definitionRequests" });
+      assert(!controller.isHoverVisible, "cancelled Command resolution reopened the popup");
+      await show(true);
+      editor.executeEdits("hover-dismiss", [{ range: new Range(1, 15, 1, 15), text: " " }]);
+      assert(!controller.isHoverVisible, "editing left stale hover documentation");
+      await show(true);
+      editor.setModel(null);
+      assert(!controller.isHoverVisible, "switching models left hover documentation");
+    } finally { observer?.disconnect(); controller.hideContentHover(); await window.lithe.retain([]); }
+  });
   await check("definition navigation drains edits and routes the owning split document", async () => {
     const id = "definition-source", text = "class Probe {}";
     await send({ type: "open", id, text });
@@ -2364,6 +2742,34 @@ async function verify() {
         if (!model.isDisposed()) await window.lithe.freeze(id);
         await window.lithe.retain([]);
       }
+    }
+  });
+  await check("Java comment delimiters use the same color as their comment text", async () => {
+    const id = "comment-colors", text = '// text\n/* text */\n/** text */\nint value = 4 / 2;';
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "java", readonly: false });
+    try {
+      for (const dark of [false, true]) {
+        window.lithe.configure({ dark, fontFamily: "monospace", fontSize: 13, wrap: false });
+        await withDeadline(window.lithe.tokenizationReady(), "comment tokens did not become ready");
+        const model = editor.getModel()!;
+        for (const lineNumber of [1, 2, 3]) {
+          const tokens = (model as any).tokenization.getLineTokens(lineNumber);
+          const line = model.getLineContent(lineNumber);
+          const body = tokens.findTokenIndexAtOffset(line.indexOf("text"));
+          for (const offset of [0, ...(lineNumber > 1 ? [line.length - 2, line.length - 1] : [1])]) {
+            const delimiter = tokens.findTokenIndexAtOffset(offset);
+            assert(tokens.getForeground(delimiter) === tokens.getForeground(body), "comment delimiter has a different foreground");
+            assert(tokens.getStandardTokenType(delimiter) === 1, "comment delimiter was classified as ordinary punctuation");
+          }
+        }
+        const code = (model as any).tokenization.getLineTokens(4);
+        assert(code.getStandardTokenType(code.findTokenIndexAtOffset(model.getLineContent(4).indexOf("/"))) === 0,
+          "division operator became a comment");
+      }
+    } finally {
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+      await window.lithe.retain([]);
     }
   });
   await check("TextMate worker updates multiline state after Unicode edits and releases models", async () => {

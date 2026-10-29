@@ -6039,6 +6039,7 @@
     "native.showLocalHistory": "查看本地历史…",
     "native.showLongGraphEdges": "显示完整长连线",
     "native.showMinimap": "显示代码缩略图",
+    "native.javaKeywordNavigationFilter": "Java 关键字不查询定义",
     "native.showOrHideGitHistory": "显示或隐藏 Git 历史",
     "native.showOrHideJavaDiagnostics": "显示或隐藏 Java 诊断",
     "native.showOrHideLanguageDiagnostics": "显示或隐藏语言诊断",

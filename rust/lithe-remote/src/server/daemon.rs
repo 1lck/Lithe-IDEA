@@ -23,7 +23,7 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsE
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -166,14 +166,24 @@ pub fn run_proxy(options: &PersistentOptions) -> io::Result<()> {
     let stream = match UnixStream::connect(&paths.socket) {
         Ok(stream) => stream,
         Err(_) => {
-            start_daemon(options, &paths)?;
-            wait_for_socket(&paths.socket)?
+            let mut candidate = start_daemon(options, &paths)?;
+            let result = wait_for_socket(
+                &paths,
+                &mut candidate,
+                Instant::now() + DAEMON_START_TIMEOUT,
+            );
+            if result.is_err() {
+                // A failed startup must not leave a delayed daemon behind.
+                let _ = candidate.kill();
+                let _ = candidate.wait();
+            }
+            result?
         }
     };
     relay(stream)
 }
 
-fn start_daemon(options: &PersistentOptions, paths: &Paths) -> io::Result<()> {
+fn start_daemon(options: &PersistentOptions, paths: &Paths) -> io::Result<Child> {
     let log = OpenOptions::new()
         .create(true)
         .append(true)
@@ -199,15 +209,36 @@ fn start_daemon(options: &PersistentOptions, paths: &Paths) -> io::Result<()> {
             Ok(())
         });
     }
-    // The daemon is not waited for: it outlives this proxy and is adopted by
-    // init when the proxy exits.
-    command.spawn().map(|_| ())
+    // Retain the child until its startup decision is known. The winning
+    // daemon then outlives this proxy and is adopted by init.
+    command.spawn()
 }
 
-fn wait_for_socket(socket: &Path) -> io::Result<UnixStream> {
-    let deadline = Instant::now() + DAEMON_START_TIMEOUT;
+fn wait_for_socket(
+    paths: &Paths,
+    candidate: &mut Child,
+    deadline: Instant,
+) -> io::Result<UnixStream> {
     loop {
-        match UnixStream::connect(socket) {
+        // A concurrent proxy may already have published a socket. Do not
+        // attach until our candidate owns the lock or has exited: otherwise
+        // it can start a second daemon after that session shuts down.
+        let decided = candidate.try_wait()?.is_some()
+            || fs::read_to_string(&paths.lock)
+                .ok()
+                .and_then(|pid| pid.trim().parse::<u32>().ok())
+                == Some(candidate.id());
+        if !decided {
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "daemon startup did not finish",
+                ));
+            }
+            thread::sleep(DAEMON_START_POLL);
+            continue;
+        }
+        match UnixStream::connect(&paths.socket) {
             Ok(stream) => return Ok(stream),
             Err(error) if Instant::now() >= deadline => return Err(error),
             Err(_) => thread::sleep(DAEMON_START_POLL),
@@ -410,6 +441,51 @@ fn write_pid(mut lock: &File) -> io::Result<()> {
 #[cfg(test)]
 mod identity_tests {
     use super::*;
+
+    #[test]
+    fn pending_candidate_cannot_attach_to_another_daemons_socket() {
+        let root = PathBuf::from(SHORT_SOCKET_ROOT)
+            .join(format!("lithe-daemon-start-test-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        // Collect results before asserting so every error and assertion path
+        // reaps the gated child and removes the private test directory.
+        let result = (|| -> io::Result<_> {
+            let paths = Paths {
+                socket: root.join("socket"),
+                lock: root.join("lock"),
+                log: root.join("log"),
+            };
+            let listener = UnixListener::bind(&paths.socket)?;
+            listener.set_nonblocking(true)?;
+            let mut candidate = Command::new("/bin/cat")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .spawn()?;
+            let outcomes = (|| -> io::Result<_> {
+                fs::write(&paths.lock, "0")?;
+                // An elapsed deadline makes the pending-start check immediate,
+                // without relying on a scheduler delay or a real-time sleep.
+                let pending = wait_for_socket(&paths, &mut candidate, Instant::now());
+                let unsolicited = listener.accept();
+                fs::write(&paths.lock, candidate.id().to_string())?;
+                let owner = wait_for_socket(&paths, &mut candidate, Instant::now());
+                candidate.kill()?;
+                candidate.wait()?;
+                fs::write(&paths.lock, "0")?;
+                let exited = wait_for_socket(&paths, &mut candidate, Instant::now());
+                Ok((pending, unsolicited, owner, exited))
+            })();
+            let _ = candidate.kill();
+            let _ = candidate.wait();
+            outcomes
+        })();
+        fs::remove_dir_all(root).unwrap();
+        let (pending, unsolicited, owner, exited) = result.unwrap();
+        assert_eq!(pending.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        assert_eq!(unsolicited.unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        owner.unwrap();
+        exited.unwrap();
+    }
 
     #[test]
     fn same_version_binary_rebuilds_cannot_reuse_a_daemon() {

@@ -2183,6 +2183,7 @@
 "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget." = "模块日志达到 10 MiB 后轮转，保留 30 天。总预算为 100 MiB，性能日志另有限额 20 MiB。";
 "Module path" = "模块路径";
 "Module: %@ · Session: %@ · Minimum level: %@" = "模块：%@ · 会话：%@ · 最低级别：%@";
+"More" = "更多";
 "More Actions" = "更多操作";
 "More Agents…" = "更多 Agent…";
 "More Debug actions" = "更多调试操作";
@@ -3509,6 +3510,7 @@
 "Skip JDK and reflection code" = "跳过 JDK 和反射代码";
 "Skip Version" = "跳过此版本";
 "Skip constructors" = "跳过构造函数";
+"Skip definition lookups for Java keywords" = "Java 关键字不查询定义";
 "Skip static initializers" = "跳过静态初始化器";
 "Skip synthetic methods" = "跳过合成方法";
 "Skip tests" = "跳过测试";
@@ -6417,6 +6419,7 @@
 "native.javaEntriesAppearAfterTheJavaLanguageServiceListsRunnableClasses" = "Java 语言服务列出可运行的类之后，Java 入口才会出现。";
 "native.javaEntriesCouldNotBeRefreshed" = "无法刷新 Java 入口";
 "native.javaEntryPointFreshnessCheckFailed" = "Java 入口点时效性检查失败";
+"native.javaKeywordNavigationFilter" = "Java 关键字不查询定义";
 "native.javaMainMethodDiscoveryIsNotSupportedBy" = "此语言服务器不支持 Java main 方法发现。";
 "native.javaNavigationIsAvailableForJavaFiles" = "Java 导航仅适用于 .java 文件";
 "native.javaNavigationIsIdle" = "Java 导航空闲";
@@ -9152,6 +9155,7 @@
 "ui.delete" = "删除";
 "ui.done" = "完成";
 "ui.edit" = "编辑";
+"ui.more" = "更多";
 "ui.next" = "下一个";
 "ui.ok" = "好";
 "ui.open" = "打开";

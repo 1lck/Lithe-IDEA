@@ -31,11 +31,23 @@ struct MonacoWorkbenchThemeConfiguration: Equatable {
     let id: String
     let dark: Bool
     let colors: [String: String]
+    let popupStyles: [String: String]
 
     init(colorTheme: AppColorTheme, isDark: Bool, revealsWorkbenchBackground: Bool) {
         let palette = CodeEditorPalette(isDark: isDark, theme: colorTheme)
         id = "macos-\(colorTheme.rawValue)-\(isDark ? "dark" : "light")-\(revealsWorkbenchBackground ? "wallpaper" : "solid")"
         dark = isDark
+        func popupColor(_ token: LitheTheme.ResolvedColorToken) -> String {
+            Self.cssColor(LitheTheme.nsColor(token, theme: colorTheme, isDark: isDark))
+        }
+        // Same owner as lithePopupChrome; documentation is not a toolbar help tooltip.
+        popupStyles = [
+            "background": popupColor(.popupBackground), "foreground": popupColor(.primaryText),
+            "border": popupColor(.panelBorder), "link": popupColor(.link),
+            "radius": "\(LitheTheme.Metrics.popupCornerRadius)px",
+            "shadow": "0 \(LitheTheme.Metrics.popupShadowOffsetY)px \(LitheTheme.Metrics.popupShadowRadius)px \(popupColor(.popupShadow))",
+            "font": "13px \"\(LitheTheme.uiNSFont(size: 13).familyName ?? "sans-serif")\", sans-serif"
+        ]
         colors = [
             "background": revealsWorkbenchBackground ? "#00000000" : Self.cssColor(palette.background),
             "foreground": Self.cssColor(palette.text),
@@ -51,7 +63,7 @@ struct MonacoWorkbenchThemeConfiguration: Equatable {
     }
 
     var bridgePayload: [String: Any] {
-        ["id": id, "dark": dark, "colors": colors]
+        ["id": id, "dark": dark, "colors": colors, "popupStyles": popupStyles]
     }
 
     static func cssColor(_ color: NSColor) -> String {
@@ -74,6 +86,7 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
     let fontFamily: String
     let wrap: Bool
     let minimap: Bool
+    let javaKeywordNavigationFilter: Bool
     let theme: MonacoWorkbenchThemeConfiguration
 
     var bridgePayload: [String: Any] {
@@ -82,6 +95,7 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
             "fontFamily": fontFamily,
             "wrap": wrap,
             "minimap": minimap,
+            "javaKeywordNavigationFilter": javaKeywordNavigationFilter,
             "dark": theme.dark,
             "theme": theme.bridgePayload
         ]
@@ -143,6 +157,7 @@ private struct MonacoWorkbenchContent: View {
                     ),
                     wrap: settings.editorSoftWrapEnabled,
                     minimap: settings.editorMinimapEnabled,
+                    javaKeywordNavigationFilter: settings.javaKeywordNavigationFilterEnabled,
                     markers: diagnostics.diagnostics(for: document.url),
                     secondaryMarkers: secondaryDocument.map { diagnostics.diagnostics(for: $0.url) } ?? [],
                     softWrapControl: EditorSoftWrapToggleConfiguration(
@@ -173,6 +188,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
     let theme: MonacoWorkbenchThemeConfiguration
     let wrap: Bool
     let minimap: Bool
+    let javaKeywordNavigationFilter: Bool
     let markers: [EditorDiagnostic]
     let secondaryMarkers: [EditorDiagnostic]
     let softWrapControl: EditorSoftWrapToggleConfiguration
@@ -188,7 +204,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
         coordinator.session.detachView(ownerID: coordinator.ownerID)
     }
     func updateNSView(_ view: NSView, context: Context) {
-        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers, softWrapControl: softWrapControl)
+        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, javaKeywordNavigationFilter: javaKeywordNavigationFilter, markers: markers, secondaryMarkers: secondaryMarkers, softWrapControl: softWrapControl)
     }
 }
 
@@ -207,7 +223,7 @@ final class MonacoWorkbenchAssets: NSObject, WKURLSchemeHandler {
             let assetRoot: URL
             let assetPath: String
             if url.path.hasPrefix("/fonts/") {
-                guard let fontsRoot, url.pathExtension == "ttf" else { throw CocoaError(.fileReadNoPermission) }
+                guard let fontsRoot, ["ttf", "otf"].contains(url.pathExtension) else { throw CocoaError(.fileReadNoPermission) }
                 assetRoot = fontsRoot
                 assetPath = String(url.path.dropFirst("/fonts/".count))
             } else {
@@ -217,7 +233,7 @@ final class MonacoWorkbenchAssets: NSObject, WKURLSchemeHandler {
             let file = assetRoot.appendingPathComponent(assetPath).standardizedFileURL.resolvingSymlinksInPath()
             guard file.path.hasPrefix(assetRoot.path + "/") else { throw CocoaError(.fileReadNoPermission) }
             let data = try Data(contentsOf: file)
-            let types = ["html": "text/html", "js": "application/javascript", "css": "text/css", "ttf": "font/ttf"]
+            let types = ["html": "text/html", "js": "application/javascript", "css": "text/css", "ttf": "font/ttf", "otf": "font/otf"]
             task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": types[file.pathExtension] ?? "application/octet-stream"])!)
             task.didReceive(data); task.didFinish()
         } catch { task.didFailWithError(error) }
@@ -424,7 +440,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         selectMount()
     }
 
-    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic], softWrapControl: EditorSoftWrapToggleConfiguration? = nil) {
+    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, javaKeywordNavigationFilter: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic], softWrapControl: EditorSoftWrapToggleConfiguration? = nil) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
@@ -436,11 +452,11 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         ) }
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
-            self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers)
+            self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, javaKeywordNavigationFilter: javaKeywordNavigationFilter, markers: markers)
             self.presentMarkdownScroll(document: document, binding: markdownScrollPosition)
             if let secondaryDocument {
                 self.hasSecondaryView = true
-                self.present(document: secondaryDocument, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: secondaryMarkers, surface: "secondary")
+                self.present(document: secondaryDocument, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, javaKeywordNavigationFilter: javaKeywordNavigationFilter, markers: secondaryMarkers, surface: "secondary")
             } else if self.hasSecondaryView {
                 self.hasSecondaryView = false
                 self.activeIDs.removeValue(forKey: "secondary")
@@ -804,7 +820,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         }
     }
 
-    private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
+    private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, javaKeywordNavigationFilter: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
         let id = document.id.uuidString
         let groupDocuments: [EditorDocument]
@@ -901,6 +917,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             fontFamily: MacEditorFontCatalog.editorFontStack(fontFamily),
             wrap: wrap,
             minimap: minimap,
+            javaKeywordNavigationFilter: javaKeywordNavigationFilter,
             theme: theme
         )
         if lastConfiguration != configuration {
@@ -1114,6 +1131,23 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 binding.wrappedValue = position
             }
             reply(["ok": true], nil)
+        case "javaFolding":
+            guard let model, !failed, document.url.pathExtension.lowercased() == "java",
+                  let revision = body["revision"] as? Int, revision == revisions[id] else {
+                reply(["ranges": []], nil); return
+            }
+            let url = document.url, source = document.text
+            Task { @MainActor [weak self, weak document, weak model] in
+                guard let self, let document, let model, self.isCurrent(context) else { reply(["cancelled": true], nil); return }
+                // ponytail: reuse Core's lexical folds before Java startup; semantic LSP folds can replace this provider.
+                let structure = await model.javaStructure(source: source)
+                guard self.isCurrent(context), self.revisions[id] == revision, document.url == url else {
+                    reply(["cancelled": true], nil); return
+                }
+                reply(["ranges": (structure?.foldRegions ?? []).map {
+                    ["start": $0.startLine + 1, "end": $0.endLine + 1, "kind": $0.kind.rawValue] as [String: Any]
+                }], nil)
+            }
         case "javaNavigation":
             guard let model, !failed, document.url.pathExtension.lowercased() == "java",
                   let revision = body["revision"] as? Int, revision == revisions[id] else {
@@ -1580,6 +1614,22 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                         return value
                     }
                     reply(["items": values], nil)
+                }
+            }
+        case "definitionHover":
+            guard let model, !failed, body["revision"] as? Int == revisions[id],
+                  let line = body["line"] as? Int, line >= 0,
+                  let column = body["column"] as? Int, column >= 0 else {
+                reply(["available": false], nil); return
+            }
+            let revision = revisions[id]
+            model.requestDefinitionAvailability(for: document, line: line, utf16Column: column) { [weak self] result in
+                guard let self, self.isCurrent(context), self.revisions[id] == revision else {
+                    reply(["available": false], nil); return
+                }
+                switch result {
+                case .success(let available): reply(["available": available], nil)
+                case .failure(let error): reply(nil, error.localizedDescription)
                 }
             }
         case "definition":

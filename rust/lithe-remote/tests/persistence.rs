@@ -286,9 +286,14 @@ fn concurrent_connections_share_one_daemon() {
         .filter(|entry| entry.file_name().to_string_lossy().ends_with(".lock"))
         .count();
     assert_eq!(locks, 1);
-    assert!(daemon.pid().is_some());
+    let pid = daemon.pid().expect("running daemon");
     survivor.shutdown(STEP_TIMEOUT);
-    assert!(daemon.wait_until_stopped());
+    assert!(
+        daemon.wait_until_stopped(),
+        "daemon {pid} did not stop; current {:?}\n{}",
+        daemon.pid(),
+        daemon.log()
+    );
 }
 
 #[test]
