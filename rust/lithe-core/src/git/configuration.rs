@@ -338,7 +338,13 @@ pub(crate) fn dispatch(payload: Value, save: bool) -> Result<Value, CoreError> {
 /// can echo the effective Git before a project is open. The version probe is
 /// best effort: a binary that starts but cannot report a version still stays
 /// selected.
-pub(crate) fn locate_executable() -> Value {
+pub(crate) fn locate_executable() -> Result<Value, CoreError> {
+    if let Some(host) = crate::remote::workspace::current() {
+        let params =
+            super::remote_process::parameters(&host, "/", &["--version".into()], false, true, &[])?;
+        return Ok(json!({"executable": params.argv.first(),
+            "version": host.connection.git_tool.lock().unwrap_or_else(|error| error.into_inner()).as_ref().map(|(_, version)| version.clone())}));
+    }
     let selected = execution_policy::current().executable;
     let resolved = lithe_git_host::configuration::executable(selected.as_deref());
     let version = resolved.as_ref().and_then(|path| {
@@ -346,10 +352,10 @@ pub(crate) fn locate_executable() -> Value {
             .ok()
             .map(|version| version.trim().to_owned())
     });
-    json!({
+    Ok(json!({
         "executable": resolved.map(|path| path.to_string_lossy().into_owned()),
         "version": version,
-    })
+    }))
 }
 
 fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
@@ -386,14 +392,13 @@ fn inspect(root: &str, scope: &str) -> Result<Value, CoreError> {
             .unwrap_or_else(|| json!({"scope": "application", "origin": null}));
         fetch_sources.insert(field.into(), source);
     }
-    Ok(
-        json!({ "executable": lithe_git_host::configuration::executable(options.executable.as_deref()).map(|path| path.to_string_lossy().into_owned()),
+    let executable = locate_executable()?["executable"].clone();
+    Ok(json!({ "executable": executable,
         "version": String::from_utf8_lossy(&version).trim(), "scope": scope, "entries": entries, "fields": fields,
         "temporaryConfig": execution_policy::temporary_config(),
         "fetchSources": fetch_sources, "fetchOptions": effective_fetch.as_ref().ok(), "fetchError": effective_fetch.as_ref().err(),
         "credentialHelperEnabled": options.use_credential_helper,
-        "interactiveAuthentication": options.interactive }),
-    )
+        "interactiveAuthentication": options.interactive }))
 }
 
 #[cfg(test)]
@@ -410,7 +415,7 @@ mod tests {
             ..Default::default()
         };
         let _scope = execution_policy::Scope::begin(Some(options)).expect("valid policy");
-        let result = locate_executable();
+        let result = locate_executable().unwrap();
         assert!(result["executable"].is_null());
         assert!(result["version"].is_null());
     }

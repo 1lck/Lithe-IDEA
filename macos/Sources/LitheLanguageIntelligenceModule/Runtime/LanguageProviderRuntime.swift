@@ -22,6 +22,29 @@ package struct ResolvedLanguageServerLaunch: Equatable, Sendable {
     }
 }
 
+/// An asynchronous host adapter supplies a complete process and its lifetime
+/// before startup. Network work must finish before Core starts the process.
+package struct PreparedLanguageServerProcess: Sendable {
+    package let executableURL: URL
+    package let environment: [String: String]
+    package let launch: ResolvedLanguageServerLaunch
+    package let core: any LanguageServerRuntimeCore
+    package let release: @Sendable () async -> Void
+
+    package init(executableURL: URL, environment: [String: String], launch: ResolvedLanguageServerLaunch,
+                 core: any LanguageServerRuntimeCore, release: @escaping @Sendable () async -> Void) {
+        self.executableURL = executableURL
+        self.environment = environment
+        self.launch = launch
+        self.core = core
+        self.release = release
+    }
+}
+
+package typealias WorkspaceLanguageServerSessionFactory = @MainActor (
+    LanguageServerLaunchDescriptor, URL
+) -> (any LanguageServerSession)?
+
 /// Resolves a declarative launch for one workspace root. It runs when the
 /// session starts, because the workspace state directory depends on the root.
 package typealias LanguageServerLaunchResolver = @MainActor (
@@ -39,6 +62,7 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     private let hostIntegrationResolver: LanguageServerHostIntegrationResolver?
     private let languageServerLaunchResolver: LanguageServerLaunchResolver?
     private let languageServerCacheDirectory: URL?
+    private let workspaceSessionFactory: WorkspaceLanguageServerSessionFactory?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
     private var runtimeUnavailableMessage: String?
@@ -62,6 +86,7 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         hostIntegrationResolver: LanguageServerHostIntegrationResolver? = nil,
         languageServerLaunchResolver: LanguageServerLaunchResolver? = nil,
         languageServerCacheDirectory: URL? = nil,
+        workspaceSessionFactory: WorkspaceLanguageServerSessionFactory? = nil,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence
     ) {
@@ -73,6 +98,7 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         self.hostIntegrationResolver = hostIntegrationResolver
         self.languageServerLaunchResolver = languageServerLaunchResolver
         self.languageServerCacheDirectory = languageServerCacheDirectory
+        self.workspaceSessionFactory = workspaceSessionFactory
         self.processRegistry = processRegistry
         self.moduleID = moduleID
     }
@@ -142,6 +168,14 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         )
     }
 
+    package func makeLanguageServerSession(rootURL: URL) -> (any LanguageServerSession)? {
+        if languageServerCore.requiresBackgroundLanguageServerStart(rootURL: rootURL),
+           let workspaceSessionFactory, let languageServerLaunch {
+            return workspaceSessionFactory(languageServerLaunch, rootURL)
+        }
+        return makeLanguageServerSession()
+    }
+
 }
 
 @MainActor
@@ -152,6 +186,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
     private let hostIntegrationResolver: LanguageServerHostIntegrationResolver?
     private let languageServerLaunchResolver: LanguageServerLaunchResolver?
     private let languageServerCacheDirectory: URL?
+    private let workspaceSessionFactory: WorkspaceLanguageServerSessionFactory?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
 
@@ -162,6 +197,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
         hostIntegrationResolver: LanguageServerHostIntegrationResolver? = nil,
         languageServerLaunchResolver: LanguageServerLaunchResolver? = nil,
         languageServerCacheDirectory: URL? = nil,
+        workspaceSessionFactory: WorkspaceLanguageServerSessionFactory? = nil,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence
     ) {
@@ -171,6 +207,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
         self.hostIntegrationResolver = hostIntegrationResolver
         self.languageServerLaunchResolver = languageServerLaunchResolver
         self.languageServerCacheDirectory = languageServerCacheDirectory
+        self.workspaceSessionFactory = workspaceSessionFactory
         self.processRegistry = processRegistry
         self.moduleID = moduleID
     }
@@ -191,6 +228,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
             hostIntegrationResolver: hostIntegrationResolver,
             languageServerLaunchResolver: languageServerLaunchResolver,
             languageServerCacheDirectory: languageServerCacheDirectory,
+            workspaceSessionFactory: workspaceSessionFactory,
             processRegistry: processRegistry,
             moduleID: moduleID
         )
@@ -210,6 +248,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
             hostIntegrationResolver: hostIntegrationResolver,
             languageServerLaunchResolver: languageServerLaunchResolver,
             languageServerCacheDirectory: languageServerCacheDirectory,
+            workspaceSessionFactory: workspaceSessionFactory,
             processRegistry: processRegistry,
             moduleID: ownerModuleID
         )

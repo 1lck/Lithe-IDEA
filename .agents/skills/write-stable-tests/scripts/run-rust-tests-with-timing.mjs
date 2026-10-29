@@ -20,6 +20,8 @@ export function parseArguments(arguments_) {
   const options = {
     manifest: null,
     package: null,
+    features: null,
+    noDefaultFeatures: false,
     warnMs: 1000,
     maxMs: 15000,
     testBudgets: [],
@@ -32,6 +34,11 @@ export function parseArguments(arguments_) {
     const argument = arguments_[index];
     if (argument === "--manifest") options.manifest = arguments_[++index];
     else if (argument === "--package") options.package = arguments_[++index];
+    else if (argument === "--features") {
+      options.features = arguments_[++index];
+      if (!options.features || options.features.startsWith("--")) throw new Error("--features requires a feature list.");
+    }
+    else if (argument === "--no-default-features") options.noDefaultFeatures = true;
     else if (argument === "--warn-ms") options.warnMs = positiveInteger(arguments_[++index], "--warn-ms");
     else if (argument === "--max-ms") options.maxMs = positiveInteger(arguments_[++index], "--max-ms");
     else if (argument === "--test-budget") {
@@ -132,6 +139,8 @@ export async function run(
       runner: "rust",
       manifest: options.manifest,
       package: options.package,
+      features: options.features ?? null,
+      noDefaultFeatures: options.noDefaultFeatures ?? false,
       warnMs: options.warnMs,
       maxMs: options.maxMs,
       testBudgets: options.testBudgets ?? [],
@@ -158,6 +167,8 @@ export async function run(
       "--message-format=json",
     ];
     if (options.package) cargoArguments.push("--package", options.package);
+    if (options.features) cargoArguments.push("--features", options.features);
+    if (options.noDefaultFeatures) cargoArguments.push("--no-default-features");
 
     console.log(`Compiling Rust tests from ${options.manifest}`);
     const buildBudget = timeoutBudget("compilation", options.buildTimeoutMs);

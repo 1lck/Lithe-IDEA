@@ -87,6 +87,38 @@ struct TerminalModuleTests {
     }
 
     @Test
+    func workspaceShellDiscoveryRejectsStaleResultsAndDoesNotFallBackAfterFailure() async {
+        let first = URL(fileURLWithPath: "/fixture/first")
+        let second = URL(fileURLWithPath: "/fixture/second")
+        let gate = AsyncStream<Void>.makeStream()
+        var requested: [URL] = []
+        let feature = TerminalFeatureModel(terminalFactory: { TestTransport() }, shellDiscovery: { ["/local/shell"] },
+            workspaceShellDiscovery: { root in
+                requested.append(root)
+                if root == first {
+                    var iterator = gate.stream.makeAsyncIterator()
+                    _ = await iterator.next()
+                    // Deliberately return a value after cancellation: the
+                    // owning feature must reject the old host's completion.
+                    return ["/first/shell"]
+                }
+                throw NSError(domain: "ShellFixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "fixture disconnected"])
+            })
+        defer { feature.stopAllSessions(); gate.continuation.finish() }
+        feature.setShellWorkspace(first)
+        #expect(feature.availableShells.isEmpty)
+        #expect(await shellDiscoveryEventually { requested == [first] })
+        feature.setShellWorkspace(second)
+        #expect(await shellDiscoveryEventually { !feature.isDiscoveringShells })
+        #expect(requested == [first, second])
+        #expect(feature.availableShells.isEmpty)
+        #expect(feature.shellDiscoveryError == "fixture disconnected")
+        feature.setShellWorkspace(nil)
+        #expect(feature.availableShells == ["/local/shell"])
+        #expect(feature.shellDiscoveryError == nil)
+    }
+
+    @Test
     func managedProcessLaunchPreservesArgumentsEnvironmentAndProcessID() throws {
         let transport = TestTransport()
         let feature = TerminalFeatureModel(terminalFactory: { transport })
@@ -335,6 +367,16 @@ struct TerminalModuleTests {
         session.stop()
         #expect(endedCount == 0)
     }
+}
+
+@MainActor
+private func shellDiscoveryEventually(_ condition: @MainActor () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + .seconds(3)
+    while !condition() {
+        guard ContinuousClock.now < deadline else { return false }
+        await Task.yield()
+    }
+    return true
 }
 
 @MainActor

@@ -53,6 +53,30 @@ launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
+### Remote workspace path identity
+
+Workspace-aware commands accept an optional top-level `remoteWorkspace` with
+`sessionId`, `localRoot` (the native placeholder), and `remoteRoot` (the host
+folder). Roots must be absolute without parent components; `localRoot` must
+have a final component. Without this context commands retain local behavior.
+Remote failures never trigger a local filesystem or process fallback.
+
+Paths below `remoteRoot` project below `localRoot`. Absolute host paths outside
+that folder, including containing Git repositories and canonical symlink
+targets, project below a virtual sibling named
+`<localRoot final component>.lithe-remote-host`, followed by the host path with
+its leading `/` removed. For example, opening `/srv/repo/src` as `/native/src`
+returns `/native/src.lithe-remote-host/srv/repo` for the containing repository.
+This namespace is not materialized or persisted as user data. The native
+registry recognizes both namespaces as the **same binding** and attaches its
+original context to subsequent requests (status, stage, watch, etc.). Core
+reverses both projections before accessing the host. Never infer a connection
+from a raw host absolute path or use `..` to escape the placeholder. Multiple
+hosts with the same host path retain distinct native identities; mixed local
+and remote roots or different bindings in one request remain unsupported.
+Only schema-owned path/URI fields are mapped; opaque argv and user text stay
+unchanged. This is a client/Core projection, not a remote-server wire change.
+
 The ACP Agent calls use an opaque handle for one agent process and connection
 per workspace and agent; one connection carries many conversation sessions.
 `lithe_agent_open_json` accepts `{ "agentId"?: string, "command"?: string,
@@ -3781,6 +3805,13 @@ the remote server running. Requests over it take `sessionId`:
 | `remote.readDir` | `{ sessionId, path }` | the remote protocol's `fs.readDir` result |
 | `remote.readFile` | `{ sessionId, path }` | `{ data (base64), size, modifiedMs }`; files over 16 MiB are `not_supported` |
 | `remote.writeFile` | `{ sessionId, path, data, expected? }` | `{ status: "saved", size, modifiedMs }` or `{ status: "conflict" }` |
+| `remote.hostRequest` | `{ sessionId, method, params }` | the finite host method's result, including JSON `null` |
+| `remote.hostInfo` | `{ sessionId }` | the original connection's handshake `host`, including OS, architecture, home and features |
+| `remote.uploadFile` | `{ sessionId, sourcePath, path, sha256, mode }` | verified `{ size, sha256 }` |
+| `remote.runWatch` | `{ sessionId, params: { root, excludeNames? } }` | waits until root removal or cancellation; relays `watch.started`, `watch.changed`, `watch.error` |
+| `remote.runProcess` | `{ sessionId, params: { argv, cwd?, environment?, env?, pipeStdin? } }` | leader exit; relays `process.started`, `process.output`, `process.exit` |
+| `remote.runTerminal` | `{ sessionId, params: { argv?, cwd?, env?, columns, rows } }` | leader exit; relays `terminal.started`, `terminal.output`, `terminal.exit` |
+| `remote.captureProcess` | `{ sessionId, params, timeoutMilliseconds, maxOutputBytes }` | base64 `stdout`, `stderr`, nullable `exitCode` and `signal` |
 
 `remote.writeFile` replaces the file atomically on the host. With
 `expected` (`{ size, modifiedMs }` from the read) a changed file is a
@@ -3788,6 +3819,49 @@ the remote server running. Requests over it take `sessionId`:
 `workspace_not_found`, a denied one `permission_denied`. A broken connection
 fails with `connection_closed` and is forgotten, so the host reconnects; an
 unknown or closed `sessionId` is also `connection_closed`.
+
+`remote.hostRequest` accepts finite filesystem, environment and port queries,
+plus controls of existing processes and terminals. Creating a watch, process,
+terminal, walk or tunnel through that command is `invalid_request`; creation
+requires an owner that subscribes before sending the start request. Streamed
+Core events use `{ type: "remote", event, params }`. Resource IDs are allocated
+by Core and replace any caller-supplied ID. Startup output is bounded to 8 MiB.
+Cancellation, invalid event data and disconnect release the subscription and
+stop the host resource with a two-second cleanup deadline.
+That deadline bounds the client's wait, not ownership: when creation has not
+published yet, the host records teardown against the pending resource ID and
+the creating worker cleans it after publication. A rejected or timed-out close
+worker cannot turn an already accepted cancellation into an orphaned resource.
+
+Watch startup emits `watch.started` before buffered changes. The caller rescans
+on startup, `overflow`, or watch error; `ROOT_REMOVED` ends the call. Watch paths
+remain absolute host paths until the native adapter maps the owning workspace
+back to placeholder URLs. A limit error preserves the partially working watch
+and requests a rescan. Process capture requires a 1–30,000 ms deadline and
+1–8 MiB output budget, rejects open stdin, and owns cleanup on overflow/timeout.
+
+`remote.uploadFile` reads a native absolute regular file and streams it to the
+specified host using the optional `upload` feature. It verifies source size,
+chunk acknowledgements and the commit receipt; failure attempts an uncancelled
+abort with a two-second deadline. Each host call has a 30-second deadline, while
+the host imposes the five-minute staging lifetime. This command does not approve
+plugin code: the platform package adapter validates trust, version, manifest and
+target architecture before invoking it. Target publication never overwrites.
+Successful upload ownership transfers to the caller, which removes its run
+snapshot after the process has ended. The native source and installation remain
+read-only. See the staged upload limits in `remote-workspace-protocol-v1.md`.
+
+Plugin deployment requires both `upload` and `runDirectories` host features.
+Through `remote.hostRequest`, `fs.createRunDirectory` accepts a caller-generated
+`directoryId` and returns a fresh host `path`; `fs.releaseRunDirectory` accepts
+the same identity and is idempotent. Allocation may finish after Core cancellation,
+but the host owns it and orders a subsequent release after pending creation.
+The platform retains the original connection and the identity before allocation,
+releases after process destruction, and never falls back to unchecked `fs.remove`.
+Nonpersistent disconnect or session termination also collects full snapshots;
+persistent disconnect retains them until explicit release, shutdown or idle expiry.
+Forced server termination recovery remains unsupported, rather than risking
+deletion of inputs used by surviving processes.
 
 ### Git patch discovery and rebase amendment preconditions
 

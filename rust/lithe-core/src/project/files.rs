@@ -8,10 +8,10 @@ use crate::protocol::{
     ReplacementPreviewResponse, SearchMatch, SearchResponse, WorkspaceNode,
     WorkspaceSnapshotResponse,
 };
+use crate::remote::workspace_io as fs;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Default workspace exclusions, also used by Git discovery for generated directories.
@@ -1097,7 +1097,7 @@ pub(crate) fn is_nested_linked_worktree(directory: &Path) -> bool {
         return false;
     };
     let (Ok(main_worktree), Ok(directory)) =
-        (main_worktree.canonicalize(), directory.canonicalize())
+        (fs::canonicalize(main_worktree), fs::canonicalize(directory))
     else {
         return false;
     };
@@ -1131,7 +1131,7 @@ fn existing_root(value: &str) -> Result<PathBuf, CoreError> {
             "Workspace root must be a directory",
         ));
     }
-    path.canonicalize().map_err(CoreError::from)
+    fs::canonicalize(path).map_err(CoreError::from)
 }
 
 fn safe_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError> {
@@ -1143,7 +1143,7 @@ fn safe_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError> {
         ));
     }
     let path = root.join(relative);
-    let canonical = path.canonicalize().map_err(CoreError::from)?;
+    let canonical = fs::canonicalize(path).map_err(CoreError::from)?;
     if !canonical.starts_with(root) {
         return Err(CoreError::new(
             ErrorCode::PermissionDenied,
@@ -1164,12 +1164,12 @@ fn writable_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError
     let path = root.join(relative);
     if let Some(parent) = path.parent() {
         let mut existing_parent = parent;
-        while !existing_parent.exists() {
+        while !fs::try_exists(existing_parent)? {
             existing_parent = existing_parent.parent().ok_or_else(|| {
                 CoreError::new(ErrorCode::PermissionDenied, "Path is outside the workspace")
             })?;
         }
-        let canonical_parent = existing_parent.canonicalize().map_err(CoreError::from)?;
+        let canonical_parent = fs::canonicalize(existing_parent).map_err(CoreError::from)?;
         if !canonical_parent.starts_with(root) {
             return Err(CoreError::new(
                 ErrorCode::PermissionDenied,
@@ -1184,7 +1184,7 @@ fn writable_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError
                 "Path is outside the workspace",
             ));
         }
-        let canonical = path.canonicalize().map_err(CoreError::from)?;
+        let canonical = fs::canonicalize(&path).map_err(CoreError::from)?;
         if !canonical.starts_with(root) {
             return Err(CoreError::new(
                 ErrorCode::PermissionDenied,

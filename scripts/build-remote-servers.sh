@@ -32,12 +32,13 @@ for target in "${TARGETS[@]}"; do
     # The server is uploaded over slow links, so it is always an optimized build.
     env "$linker_variable=rust-lld" \
         cargo build --locked --release --manifest-path "$ROOT_DIR/rust/Cargo.toml" \
-        -p lithe-remote-server --target "$target" >&2
+        -p lithe-remote --no-default-features --features server \
+        --bin lithe-remote-server --target "$target" >&2
     mkdir -p "$OUTPUT_DIR/$target"
     cp "$ROOT_DIR/rust/target/$target/release/lithe-remote-server" "$OUTPUT_DIR/$target/lithe-remote-server"
 done
 
-version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$ROOT_DIR/rust/lithe-remote-server/Cargo.toml" | head -1)"
+version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$ROOT_DIR/rust/lithe-remote/Cargo.toml" | head -1)"
 if [[ -z "$version" ]]; then
     print -u2 -- "build-remote-servers: could not read the server version"
     exit 1

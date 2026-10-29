@@ -140,6 +140,14 @@ struct MacPluginLanguageServerLaunchResolver {
         return values
     }
 
+    func globalSettingValues(forPlugin pluginID: String) -> [String: ToolingJSONValue] {
+        settings.values(forPlugin: pluginID)
+    }
+
+    func projectSettingValues(forPlugin pluginID: String, workspaceRootURL: URL) -> [String: ToolingJSONValue] {
+        settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL)
+    }
+
     static var hostArchitecture: String {
         #if arch(arm64)
         "arm64"

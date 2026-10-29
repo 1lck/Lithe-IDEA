@@ -314,6 +314,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             payload: BuildPayload(
                 manifest: try Self.json(target.manifest),
                 buildSystemID: target.buildSystemID,
+                workspaceRoot: target.workspaceURL?.path,
                 request: request
             )
         )
@@ -368,6 +369,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     private struct BuildPayload<Request: Encodable>: Encodable {
         let manifest: ToolingJSONValue
         let buildSystemID: String
+        let workspaceRoot: String?
         let request: Request
     }
 

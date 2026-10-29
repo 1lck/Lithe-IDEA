@@ -3,8 +3,9 @@
 
 use super::configuration::{
     java_feature_version_parts, read_requirements, version_parts, version_satisfies,
+    ToolchainRequirementsDocument,
 };
-use crate::protocol::CoreError;
+use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -26,6 +27,9 @@ pub struct JavaSelectionCandidate {
 pub struct JavaSelectionRequest {
     /// Open workspace; absent means no project requirements.
     pub root: Option<PathBuf>,
+    /// Host-read snapshot for UI-safe selection; mutually exclusive with `root`.
+    /// The same document validation and selection policy apply to both sources.
+    pub requirements: Option<ToolchainRequirementsDocument>,
     /// Usable executable homes probed by the platform.
     pub candidates: Vec<JavaSelectionCandidate>,
     /// The platform's unconstrained choice; used when requirements are absent
@@ -61,12 +65,18 @@ pub fn compare_java_candidates(
 /// Reuses Core's requirement reader and version semantics without generating
 /// requirements, probing executables, or changing an explicit user selection.
 pub fn select_java(request: JavaSelectionRequest) -> Result<JavaSelection, CoreError> {
-    let document = request
+    if request.root.is_some() && request.requirements.is_some() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Java selection must use either a workspace or a requirements snapshot",
+        ));
+    }
+    let document = request.requirements.or(request
         .root
         .as_deref()
         .map(read_requirements)
         .transpose()?
-        .flatten();
+        .flatten());
     if let Some(document) = &document {
         super::configuration::validate_sidecar_version(document.version)?;
     }

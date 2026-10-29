@@ -402,8 +402,16 @@ async function main() {
       // Includes mcp-registry-metadata: responses have no copy stage; featured.json
       // and McpIcons follow Git source, never a downloaded/generated resource validator.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
-      // Includes remote-server-artifacts: packaging rebuilds them from this worktree's sources.
+      // Includes remote-server-artifacts: packaging rebuilds lithe-remote's
+      // server-only binary from this worktree; no validator or copy stage applies.
       // Includes remote-connection-state: SSH settings, keychain secrets and placeholder roots are user-owned.
+      // Includes remote-workspace-session-state: host Git scratch and connection
+      // discovery/index snapshots, copy staging, account Trash and watch subscriptions
+      // have execution/user ownership, never a build stamp or copy stage.
+      // Build/provider state, approved plugin-run snapshots, upload staging and
+      // native marketplace extraction also stay on that rejection route.
+      // Session-owned runDirectory identities survive persistent reconnects and
+      // expire with the session; they never authorize a resource-copy validator.
       // Includes plugin-disk-install-state: fileStorage temporary snapshots, install staging
       // and active/previous approvals are runtime-owned. Reject before resolving worktrees
       // or calling validatorArguments; a content digest is neither a build stamp nor consent.

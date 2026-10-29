@@ -116,8 +116,8 @@ modify_rust_code() { printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 2 
 modify_rust_test() { printf '%s\n' '#[test]' 'fn value_is_two() { assert_eq!(2, 2); }' > rust/lithe-core/tests/value.rs; }
 modify_rust_source_test() { printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(2, 2); }' > rust/lithe-core/src/lsp/tests.rs; }
 modify_remote_rust() {
-    mkdir -p rust/lithe-remote-server/src
-    printf '%s\n' '//! Remote server.' > rust/lithe-remote-server/src/lib.rs
+    mkdir -p rust/lithe-remote/src
+    printf '%s\n' '//! Remote workspace.' > rust/lithe-remote/src/lib.rs
 }
 modify_remote_workflow() {
     mkdir -p .github/workflows
@@ -219,9 +219,9 @@ assert_classification rust-test \
 assert_classification rust-source-test \
     "$(classification false false true false false false false false)" \
     modify_rust_source_test
-# Remote workspace crates select only their own Linux lane.
+# Remote workspace changes validate both Core consumers and host adapters.
 assert_classification remote-rust \
-    "$(classification false false false false false false false false false false pull_request true)" \
+    "$(classification false false true true true true false false false false pull_request true)" \
     modify_remote_rust
 assert_classification remote-workflow \
     "$(classification false false false false false false false false false false pull_request true)" \
@@ -328,7 +328,7 @@ assert_classification worktree-resource-registry \
     "$(classification true true true true true true false false)" \
     modify_worktree_resource_registry
 assert_classification test-stability-runner \
-    "$(classification true true true false true true false false true)" \
+    "$(classification true true true false true true false false true false pull_request true)" \
     modify_test_stability_runner
 modify_swift_version() { printf '%s\n' '6.3.3' > .swift-version; }
 modify_macos_toolchain_action() {
@@ -359,6 +359,9 @@ LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-keeps-linux-lanes \
     "$(classification false false false false false false true false)" \
     modify_rust_comment
+LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-remote-keeps-only-linux-lane \
+    "$(classification false false false false false false false false false false pull_request true)" \
+    modify_remote_rust
 # A rename classifies both endpoints instead of selecting every lane: the old
 # Rust source still selects Rust Core, packaging, and Windows Rust.
 modify_swift_and_rust() {
