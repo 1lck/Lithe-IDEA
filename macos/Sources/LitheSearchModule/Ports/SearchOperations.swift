@@ -30,6 +30,17 @@ public protocol SearchOperations: Sendable {
         kinds: Set<SearchResultKind>
     ) -> SearchEverywhereResults?
 
+    /// Receives bounded replacement snapshots while the request is running.
+    func searchEverywhere(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: SearchVisibilityRules,
+        includeGeneratedFileNames: Bool,
+        kinds: Set<SearchResultKind>,
+        onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
+    ) async -> SearchEverywhereResults?
+
     func previewReplacement(
         at rootURL: URL,
         query: String,
@@ -45,6 +56,25 @@ public protocol SearchOperations: Sendable {
 }
 
 public extension SearchOperations {
+    func searchEverywhere(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: SearchVisibilityRules,
+        includeGeneratedFileNames: Bool,
+        kinds: Set<SearchResultKind>,
+        onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
+    ) async -> SearchEverywhereResults? {
+        guard !Task.isCancelled else { return nil }
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: searchEverywhere(
+                    at: rootURL, query: query, options: options, visibilityRules: visibilityRules,
+                    includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds))
+            }
+        }
+    }
+
     func warmSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) {}
     func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: SearchVisibilityRules) {}
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) {}

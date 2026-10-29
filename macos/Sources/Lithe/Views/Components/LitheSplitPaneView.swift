@@ -132,7 +132,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
 
     @ViewBuilder
     private var sizedPane: some View {
-        let pane = sized.frame(maxWidth: .infinity, maxHeight: .infinity,
+        // A builder can emit zero or multiple views; the split still needs one child per pane.
+        let pane = VStack(spacing: 0) { sized }.frame(maxWidth: .infinity, maxHeight: .infinity,
             alignment: axis == .horizontal
                 ? (placement == .leading ? .leading : .trailing)
                 : (placement == .leading ? .top : .bottom))
@@ -145,10 +146,11 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
 
     @ViewBuilder
     private var flexiblePane: some View {
+        let pane = VStack(spacing: 0) { flexible }
         if axis == .horizontal {
-            flexible.frame(minWidth: flexibleMinimum, maxWidth: .infinity)
+            pane.frame(minWidth: flexibleMinimum, maxWidth: .infinity)
         } else {
-            flexible.frame(minHeight: flexibleMinimum, maxHeight: .infinity)
+            pane.frame(minHeight: flexibleMinimum, maxHeight: .infinity)
         }
     }
 

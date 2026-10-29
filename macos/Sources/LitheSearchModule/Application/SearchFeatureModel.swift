@@ -24,6 +24,7 @@ public final class SearchFeatureModel: ObservableObject {
     private var indexTask: Task<Void, Never>?
     private var indexTaskGeneration = 0
     private var everywhereSearchGeneration = 0
+    private var everywhereSearchTask: Task<Void, Never>?
     private var replacementPreviewGeneration = 0
 
     public var hasActiveModuleWork: Bool {
@@ -40,8 +41,7 @@ public final class SearchFeatureModel: ObservableObject {
         indexTask = nil
         searchResults = []
         isSearching = false
-        searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
-        isSearchingEverywhere = false
+        clearSearchEverywhere()
         projectReplacementFiles = []
         isLoadingProjectReplacement = false
     }
@@ -145,6 +145,8 @@ public final class SearchFeatureModel: ObservableObject {
 
     public func clearSearchEverywhere() {
         everywhereSearchGeneration += 1
+        everywhereSearchTask?.cancel()
+        everywhereSearchTask = nil
         searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
         isSearchingEverywhere = false
     }
@@ -157,38 +159,47 @@ public final class SearchFeatureModel: ObservableObject {
         kinds: Set<SearchResultKind> = [.file, .type, .symbol, .content],
         isCurrent: @escaping @MainActor () -> Bool
     ) async {
-        everywhereSearchGeneration += 1
+        clearSearchEverywhere()
         let generation = everywhereSearchGeneration
-        guard !kinds.isEmpty, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            clearSearchEverywhere()
-            return
-        }
-
+        guard !kinds.isEmpty, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         isSearchingEverywhere = true
-        await indexTask?.value
-        let operations = self.operations
-        let indexedResults = await Task.detached(priority: .userInitiated) {
-            operations.searchEverywhere(
-                at: workspaceURL,
-                query: query,
-                options: options,
-                visibilityRules: visibilityRules,
-                includeGeneratedFileNames: true,
-                kinds: kinds
-            ) ?? SearchEverywhereResults()
-        }.value
-
-        guard generation == everywhereSearchGeneration, isCurrent() else {
-            isSearchingEverywhere = false
-            return
+        defer {
+            if generation == everywhereSearchGeneration {
+                everywhereSearchTask = nil
+                isSearchingEverywhere = false
+            }
         }
-        searchEverywhereResults = SearchEverywhereResults(
-            fileMatches: indexedResults.fileMatches,
-            classMatches: indexedResults.classMatches,
-            symbolMatches: indexedResults.symbolMatches,
-            contentMatches: indexedResults.contentMatches
-        )
-        isSearchingEverywhere = false
+        await indexTask?.value
+        guard generation == everywhereSearchGeneration, !Task.isCancelled, isCurrent() else { return }
+        let operations = self.operations
+        // Core batches are replacement snapshots. A busy main actor needs only
+        // the newest snapshot, including the authoritative final response.
+        let (updates, continuation) = AsyncStream.makeStream(
+            of: SearchEverywhereResults.self, bufferingPolicy: .bufferingNewest(1))
+        let worker = Task {
+            defer { continuation.finish() }
+            if let results = await operations.searchEverywhere(
+                at: workspaceURL, query: query, options: options, visibilityRules: visibilityRules,
+                includeGeneratedFileNames: true, kinds: kinds,
+                onResults: { continuation.yield($0) }
+            ) {
+                continuation.yield(results)
+            }
+        }
+        everywhereSearchTask = worker
+        await withTaskCancellationHandler {
+            for await results in updates {
+                guard generation == everywhereSearchGeneration, !Task.isCancelled, isCurrent() else {
+                    worker.cancel()
+                    break
+                }
+                searchEverywhereResults = results
+            }
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+            continuation.finish()
+        }
     }
 
     /// File-name matches for a completion list. Unlike Search Everywhere this

@@ -97,6 +97,51 @@ struct SearchModuleTests {
         #expect(operations.completedOperations == ["warm", "invalidate", "update"])
     }
 
+    @Test
+    func partialResultsStayVisibleWhileSearchingAndOldCompletionCannotFinishANewerQuery() async throws {
+        let operations = StreamingSearchOperations()
+        defer { operations.firstFinish.signal(); operations.secondFinish.signal() }
+        let feature = SearchFeatureModel(operations: operations)
+        defer { feature.reset() }
+        let first = Task { await runSearch(feature, query: "first") }
+        defer { first.cancel() }
+        try #require(await waitUntil { feature.searchEverywhereResults.fileMatches.first?.preview == "first" })
+        #expect(feature.isSearchingEverywhere)
+        let second = Task { await runSearch(feature, query: "second") }
+        defer { second.cancel() }
+        try #require(await waitUntil { feature.searchEverywhereResults.fileMatches.first?.preview == "second" })
+        operations.firstFinish.signal()
+        await first.value
+        #expect(feature.isSearchingEverywhere, "An old completion must not hide the new query's progress")
+        #expect(feature.searchEverywhereResults.fileMatches.first?.preview == "second")
+        operations.secondFinish.signal()
+        await second.value
+        #expect(!feature.isSearchingEverywhere)
+        #expect(feature.searchEverywhereResults.fileMatches.first?.preview == "second-final")
+    }
+
+    @Test(arguments: [false, true])
+    func resetAndTaskCancellationRejectLateBatches(reset: Bool) async throws {
+        let operations = StreamingSearchOperations()
+        defer { operations.firstFinish.signal(); operations.secondFinish.signal() }
+        let feature = SearchFeatureModel(operations: operations)
+        defer { feature.reset() }
+        let request = Task { await runSearch(feature, query: "first") }
+        defer { request.cancel() }
+        try #require(await waitUntil { !feature.searchEverywhereResults.fileMatches.isEmpty })
+        if reset { feature.reset() } else { request.cancel() }
+        operations.firstFinish.signal()
+        await request.value
+        #expect(!feature.isSearchingEverywhere)
+        #expect(feature.searchEverywhereResults.fileMatches.first?.preview == (reset ? nil : "first"))
+    }
+
+    private func runSearch(_ feature: SearchFeatureModel, query: String) async {
+        await feature.searchEverywhere(at: URL(fileURLWithPath: "/test-workspace"), query: query,
+            options: .default, visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []),
+            isCurrent: { true })
+    }
+
     private func waitUntil(
         timeout: Duration = .seconds(2),
         condition: @MainActor () -> Bool
@@ -225,4 +270,35 @@ private final class AsyncTestSignal: @unchecked Sendable {
             return result
         }
     }
+}
+
+/// Deliberately returns late callbacks even after cancellation to exercise the
+/// feature's generation boundary independently of Core's cooperative cancellation.
+private final class StreamingSearchOperations: SearchOperations, @unchecked Sendable {
+    let firstFinish = DispatchSemaphore(value: 0)
+    let secondFinish = DispatchSemaphore(value: 0)
+
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions,
+        visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool,
+        kinds: Set<SearchResultKind>, onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
+    ) async -> SearchEverywhereResults? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                func results(_ text: String) -> SearchEverywhereResults {
+                    .init(fileMatches: [.init(url: rootURL.appendingPathComponent(text), line: nil, preview: text, kind: .file)])
+                }
+                onResults(results(query))
+                let gate = query == "first" ? firstFinish : secondFinish
+                #expect(gate.wait(timeout: .now() + 5) == .success)
+                // A fast source can outrun the main actor; the final response must win.
+                for index in 0..<300 { onResults(results("\(query)-late-\(index)")) }
+                continuation.resume(returning: results(query + "-final"))
+            }
+        }
+    }
+    func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>) -> SearchEverywhereResults? { nil }
+    func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
+    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
 }

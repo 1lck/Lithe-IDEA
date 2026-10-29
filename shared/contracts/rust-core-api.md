@@ -2037,6 +2037,29 @@ existing defaults. macOS forwards the selected workspace sources through these
 existing caps: Actions-only stays local, Text-only requests contents, Files and
 Agent completion request names, and Classes/Symbols share the symbol index.
 Search module activation does not eagerly build a content index.
+
+Observed `workspace.searchEverywhere` calls may emit
+`{ "type": "searchResults", "operationId": "…", "results": { "matches": […] } }`
+on the existing request event channel. Each event replaces the previous snapshot;
+never append its matches. File-name candidates are searched and published before
+building the content/symbol index. The first candidate is sent immediately;
+subsequent name/type/symbol candidates are merged for approximately 100 ms,
+with a flush at source boundaries. Each snapshot keeps the same ranked per-source
+and total caps as the final response, so a later better candidate may replace an
+earlier one. Content matches and Git ignore metadata arrive with the authoritative
+final response. A partial snapshot's absent `isIgnored` means unknown, not false.
+Callbacks remain request-scoped, use the existing cancellation registration, and
+finish before the final JSON returns. Calls without an observer retain the same
+complete response schema. Cold name-index enumeration and pending index update/
+invalidation barriers still precede candidates; this is not a 100 ms end-to-end
+latency guarantee.
+
+macOS consumes replaceable snapshots with a newest-only buffer, checks query
+generation and cancellation for every update, and keeps selection by result ID
+when ranking changes. Closing/resetting or replacing a query cancels its Core
+operation; late callbacks cannot overwrite the next query or its loading state.
+The input debounce remains 180 ms. Windows continues to consume the complete
+response; this change does not claim incremental Windows presentation.
 Basename matches rank above relative-path fallback matches, even when the query
 contains no slash (for example `src` matches `src/Foo.swift`). Path-only matches
 have `matchingDegree: -1` and no basename ranges; literal basename hits use degree

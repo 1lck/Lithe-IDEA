@@ -6,6 +6,41 @@ import Testing
 @MainActor
 @Suite("Split pane collapse")
 struct LitheSplitPaneCollapseTests {
+    @Test("Empty and multi-view pane builders retain separate pane bounds",
+          arguments: [0, 1, 2], [LitheSplitAxis.horizontal, .vertical])
+    func paneBuildersKeepSeparateBounds(childCount: Int, axis: LitheSplitAxis) throws {
+        let surfaces = CollapseSurfaceRecorder()
+        let host = NSHostingView(rootView: LitheSplitPaneView(
+            axis: axis, placement: .leading, defaultSize: 200, minimum: 72, maximum: 400,
+            flexibleMinimum: 100, sized: {
+                ForEach(0..<childCount, id: \.self) { index in
+                    CollapseSurface(name: "result-\(index)", recorder: surfaces)
+                }
+            }, flexible: {
+                CollapseSurface(name: "preview", recorder: surfaces)
+                Text("Preview footer").frame(height: 22)
+            }))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        let preview = try #require(surfaces.views["preview"]?.first)
+        let previewFrame = preview.convert(preview.bounds, to: host)
+        #expect(previewFrame.width > 0 && previewFrame.height > 0)
+        #expect(host.bounds.contains(previewFrame))
+        #expect((axis == .horizontal ? previewFrame.width : previewFrame.height) <= 395)
+        for index in 0..<childCount {
+            let result = try #require(surfaces.views["result-\(index)"]?.first)
+            let resultFrame = result.convert(result.bounds, to: host)
+            #expect(resultFrame.width > 0 && resultFrame.height > 0)
+            #expect(host.bounds.contains(resultFrame))
+            #expect(!resultFrame.intersects(previewFrame))
+        }
+    }
+
     @Test("Release holds the final size until the host returns its committed value",
           arguments: [LitheSplitAxis.horizontal, .vertical])
     func releaseWaitsForCommittedSize(axis: LitheSplitAxis) async throws {

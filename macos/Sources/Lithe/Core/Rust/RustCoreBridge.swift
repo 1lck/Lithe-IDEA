@@ -2558,9 +2558,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         fileMask: String = "",
         hiddenDirectoryNames: [String] = [],
         hiddenFilePatterns: [String] = [],
-        includeGeneratedFileNames: Bool = false
+        includeGeneratedFileNames: Bool = false,
+        operationID: String? = nil,
+        onEvent: (@Sendable (String) -> Void)? = nil
     ) -> SearchResponsePayload? {
-        execute(
+        let result: Result<SearchResponsePayload, CoreCallError> = executeResult(
             command: "workspace.searchEverywhere",
             payload: SearchRequest(
                 root: rootURL.standardizedFileURL.path,
@@ -2576,8 +2578,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns,
                 includeGeneratedFileNames: includeGeneratedFileNames
-            )
+            ),
+            operationID: operationID, onEvent: onEvent
         )
+        return try? result.get()
     }
 
     func previewReplacement(

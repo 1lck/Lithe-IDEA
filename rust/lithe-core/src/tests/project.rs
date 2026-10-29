@@ -1409,3 +1409,64 @@ fn document_lifecycle_matches_the_cross_platform_fixture() {
         );
     }
 }
+
+#[test]
+fn search_everywhere_streams_names_before_content_index_and_preserves_the_final_response() {
+    use std::sync::{Arc, Mutex};
+    let root = temporary_root("search-stream-names-first");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    let file = root.join("Name.java");
+    fs::write(&file, "class Before {}").unwrap();
+    let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let received = events.clone();
+    let request = serde_json::json!({ "command": "workspace.searchEverywhere", "operationId": "stream-search",
+        "timeoutMilliseconds": 5000, "payload": { "root": root, "query": "Name", "maxResults": 20,
+            "maxFileResults": 2, "maxSymbolResults": 2, "maxContentResults": 0 } }).to_string();
+    let response: Value = serde_json::from_str(&crate::execute_json_with_events(
+        &request,
+        Arc::new(move |raw| {
+            let event: Value = serde_json::from_str(raw).unwrap();
+            if event["type"] != "searchResults" {
+                return;
+            }
+            let mut events = received.lock().unwrap();
+            if events.is_empty() {
+                assert_eq!(event["results"]["matches"][0]["kind"], "file");
+                // If content was indexed first, this new class would be absent from the final response.
+                fs::write(&file, "class Name { void NameMethod() {} }").unwrap();
+            }
+            assert_eq!(event["operationId"], "stream-search");
+            events.push(event);
+        }),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert!(events.lock().unwrap().len() >= 2);
+    assert!(response["data"]["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["kind"] == "type"));
+    let synchronous: Value = serde_json::from_str(&execute_json(&request)).unwrap();
+    assert_eq!(response["data"], synchronous["data"]);
+
+    // A query replaced while the first batch is being delivered stops before later providers.
+    let cancelled: Value = serde_json::from_str(&crate::execute_json_with_events(
+        &request,
+        Arc::new(|raw| {
+            let event: Value = serde_json::from_str(raw).unwrap();
+            if event["type"] == "searchResults" {
+                assert!(crate::cancel_operation("stream-search"));
+            }
+        }),
+    ))
+    .unwrap();
+    assert_eq!(cancelled["error"]["code"], "cancelled", "{cancelled}");
+}

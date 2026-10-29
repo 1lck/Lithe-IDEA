@@ -55,6 +55,23 @@ Commit/Shelf 页签的留白以同一 Community revision 的 `IslandsUICustomiza
 
 ### Search Everywhere
 
+#1564 的增量搜索复用 Core 已有请求事件和取消机制：先扫描、发布文件名，再构建正文/符号索引。
+首次候选立即发送，后续名称/类/符号候选按约 100ms 合并，并在来源结束时刷新；每批是替换快照，
+先按原有匹配度排序再限制每来源与总条数，较晚的优质候选不会被早期截断丢弃。
+正文结果和 Git 忽略状态仍随最终响应到达；中间缺失的忽略状态保持未知。
+macOS 使用只保留最新快照的 AsyncStream，逐批核对查询代次、工作区/来源有效性和任务取消，
+旧任务结束不能清掉新任务的 loading；重置/关闭也撤销 Core 操作。
+复用 RustCoreCancellation 的 requestStarted 握手处理注册前取消，阻塞的 C 调用放到 GCD worker。
+列表及当前选择改按结果 ID 识别，追加更高排名结果不会把预览切到同序号的另一文件。
+保留 180ms 输入防抖和索引更新/失效屏障，冷名称索引仍须先完成轻量枚举；不宣称固定首屏延迟。
+不引入新的搜索线程池、缓存或任意等待关键来源的排序延迟。参考
+[ThrottlingListenerWrapper.java](https://github.com/JetBrains/intellij-community/blob/master/platform/lang-impl/src/com/intellij/ide/actions/searcheverywhere/ThrottlingListenerWrapper.java)
+的默认 100ms 合并窗口，但不复制 IDEA 不同贡献者的等待策略。
+Rust 模拟时间验证 99/100ms 边界、最终 flush 与较晚优质候选；实际桥接验证名称先于符号和取消。
+模块回归覆盖流式期间 loading、替换查询、reset、取消与突发快照的最终结果；原生深浅主题
+40/199/200 条结果同时核对分栏、首批可交互及追加结果后的选择/预览/滚动。
+Windows 仍消费最终响应，未实现或验收其流式展示。
+
 双 Shift 搜索窗口沿用 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`
 的 `SearchEverywhereUI.java`、`SENewUIHeaderView.kt`、`BigPopupUI.java`、
 `IslandsUICustomization.kt`、`IslandsTabPainter.kt` 与 `ManyIslandsDark/Light.theme.json`。
