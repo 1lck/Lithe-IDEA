@@ -695,7 +695,7 @@ source target, Java Debug Server builds the owning project and resolves its
 runtime classpath/module path, Core projects those structured paths into a
 direct JDK launch, and the Run host starts that one JVM. Maven still defines the
 project model, but Run never sends either target through a reactor-wide Java
-launch goal. A Spring Boot service without a resolved Java entry source retains
+launch goal. A user-authored or legacy Spring Boot service without a resolved Java entry source retains
 its Maven-goal compatibility path. Run and Debug share the Java preparation path
 so module selection, generated sources, test-source mains, and dependency paths
 do not drift.
