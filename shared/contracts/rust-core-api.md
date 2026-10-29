@@ -975,7 +975,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
-| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
+| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
@@ -1275,8 +1275,8 @@ the marker's directory) that exists and holds `HEAD`. A stale submodule or
 worktree pointer whose gitdir was removed is not listed, because status and
 reference loads for the whole workspace would otherwise fail for it. The default traversal
 skips dot-prefixed descendant directories and the built-in workspace hidden
-directory names (including `.build`, `node_modules`, `target`, `build`,
-`DerivedData`, `dist` and `coverage`). `.worktree` and `.worktrees` remain
+directory names (including `.build`, `node_modules`, `.venv`, `venv`, `__pycache__`,
+`target`, `build`, `DerivedData`, `dist` and `coverage`). `.worktree` and `.worktrees` remain
 traversable checkout containers; the same exclusions apply inside them.
 Traversal continues below eligible discovered repositories, including ordinary
 `vendor` source checkouts. An explicitly opened root and its containing repository
