@@ -12,7 +12,7 @@
 设置 `LITHE_MONACO_REVIEW_SCREENSHOTS=1` 后运行：
 
 ```sh
-./scripts/probe-macos-monaco.sh --workbench-tests
+./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter MonacoEditorContextMenuTests
 ```
 

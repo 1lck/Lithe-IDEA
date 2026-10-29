@@ -1,0 +1,56 @@
+[package]
+name = "lithe-remote"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Protocol, client transports and host server for Lithe remote workspaces"
+publish = false
+autotests = false
+
+[features]
+default = ["client"]
+client = ["dep:sha2"]
+# Host adapters must not become desktop client dependencies. Linux releases
+# target musl so the same static executable works in minimal containers.
+server = ["dep:libc", "dep:sha2", "dep:trash"]
+
+[dependencies]
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = { version = "0.10", optional = true }
+libc = { version = "0.2", optional = true }
+trash = { version = "5.2.6", default-features = false, features = ["chrono"], optional = true }
+
+[[bin]]
+name = "lithe-remote-server"
+path = "src/bin/lithe-remote-server.rs"
+required-features = ["server"]
+
+[[test]]
+name = "server"
+required-features = ["client", "server"]
+
+[[test]]
+name = "processes"
+required-features = ["client", "server"]
+
+[[test]]
+name = "watch_and_walk"
+required-features = ["client", "server"]
+
+[[test]]
+name = "terminals"
+required-features = ["client", "server"]
+
+[[test]]
+name = "run_directories"
+required-features = ["client", "server"]
+
+[[test]]
+name = "tunnels"
+required-features = ["client", "server"]
+
+[[test]]
+name = "persistence"
+required-features = ["client", "server"]

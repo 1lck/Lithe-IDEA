@@ -6,7 +6,7 @@ than under the macOS plugin tree.
 
 ## PHP Support 独立包
 
-在仓库根目录运行 `bun scripts/build-windows-php-plugin.ts`，得到
+在仓库根目录运行 `bun scripts/windows/build/build-windows-php-plugin.ts`，得到
 `.artifacts/windows-plugins/lithe.php-1.0.0.lithe-extension`。Windows CI 的
 `windows-php-plugin` artifact 也提供同一格式的包。应用构建不包含这份实现。
 

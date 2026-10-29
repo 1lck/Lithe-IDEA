@@ -57,8 +57,8 @@
 - `swift test --filter javaDependencySnapshotReadsResolvedJdtClasspathsWithoutBuilding`
 - `swift test --filter 'dependencyBrowserRequiresExplicitLanguageRegistration|runConfigurationsDoNotInjectDependencySources|genericProviderUsesRunServiceIdentityAndPaths|dependencyPathConfigurationDecodesPartialJson'`
 - `swift test --filter DependencyPathSelectionTests`
-- `./scripts/verify-agent-notes.sh`
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 
 ## 适用范围

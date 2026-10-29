@@ -220,7 +220,7 @@ body 都会重建，比较它会让所有行每帧都重建）。现在把它从
 
 ## 验证
 
-- `node scripts/verify-agent-notes.mjs`：本笔记格式与路径校验统一走这个入口。
+- `node scripts/agent-notes/verify-agent-notes.mjs`：本笔记格式与路径校验统一走这个入口。
 - `macos/Tests/LitheGitModuleTests/GitModuleTests.swift` 新增测试：
   - `linkedWorktreeDetectionUsesPathComponentBoundaries`（含 `op-platform` vs `op-platform-extra`
     边界）；
@@ -250,8 +250,8 @@ body 都会重建，比较它会让所有行每帧都重建）。现在把它从
   `git_write` 覆盖），macOS 侧只做接线，不新增 Rust 改动。
 - git 控件本地化词条（含新增的两个开关文案）纳入
   `macos/Tests/LitheTests/AppLocalizationTests.swift` 的英 / 中对照校验。
-- 完整 macOS 编译与测试需要在 macOS 上运行：`./scripts/test-macos.sh`。
-- `./scripts/verify-service-boundaries.sh`。
+- 完整 macOS 编译与测试需要在 macOS 上运行：`./scripts/macos/test/test-macos.sh`。
+- `./scripts/architecture/verify-service-boundaries.sh`。
 - **限制**：本次改动没有 macOS 工具链可用，Swift 代码和 UI 均未在本机编译或手工验证；
   上述 Swift 测试由 macOS CI 执行。UI（仓库分组、工作树开关、跨仓库选中、仓库配色、新增
   菜单项）未手工验证。

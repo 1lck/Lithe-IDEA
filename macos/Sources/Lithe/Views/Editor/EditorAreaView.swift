@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import LitheCoreContracts
 import LitheGitModule
+import LitheModuleAPI
 import LitheTerminalModule
 
 private let editorTabCoordinateSpaceName = editorWorkspaceCoordinateSpaceName
@@ -139,35 +140,13 @@ struct EditorAreaView: View {
         let _ = LitheSignpost.bodyEvaluated("EditorAreaView")
         ZStack(alignment: .top) {
             Group {
-                if groupID == nil, let feature = model.gitFeatureIfActive,
-                          let comparison = feature.branchComparison {
-                    BranchComparisonView(
-                        feature: feature,
-                        comparison: comparison,
-                        onRefresh: { [weak model] in
-                            if let target = comparison.targetReference {
-                                await model?.showComparison(from: comparison.reference, to: target)
-                            } else {
-                                await model?.showComparisonWithWorkingTree(for: comparison.reference)
-                            }
-                        },
-                        fontFamily: settings.editorFontFamily
-                    )
-                } else if groupID == nil, let feature = model.gitFeatureIfActive,
-                          let selectedChange = feature.selectedChange {
-                    RepositoryDiffView(feature: feature, change: selectedChange,
-                        onClose: { feature.closeWorkingTreeDiff() },
-                        onOpenFile: { model.openFile(selectedChange.url) },
-                        fontFamily: settings.editorFontFamily)
-                } else {
-                    VStack(spacing: 0) {
-                        if model.editorTabItems.isEmpty {
-                            emptyState
-                        } else {
-                            if groupID == nil {
-                                EditorGroupContainer(feature: model.editorTabOrderFeature, drag: drag)
-                            } else { editorWorkspace }
-                        }
+                VStack(spacing: 0) {
+                    if model.editorTabItems.isEmpty {
+                        emptyState
+                    } else if groupID == nil {
+                        EditorGroupContainer(feature: model.editorTabOrderFeature, drag: drag)
+                    } else {
+                        editorWorkspace
                     }
                 }
             }
@@ -187,7 +166,12 @@ struct EditorAreaView: View {
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
         .background { if groupID == nil { GoToLineDialogPresenter() } }
-        .background(LitheToolWindowActivityTracker(isActive: $editorIsActive))
+        .background(LitheToolWindowActivityTracker(isActive: $editorIsActive, onPointerActivity: { inside in
+            if inside { focusRepositoryDiffPaneIfNeeded() }
+        }))
+        .onChange(of: editorIsActive) { active in
+            if active { focusRepositoryDiffPaneIfNeeded() }
+        }
         .onAppear { if groupID == nil, let activeItem { model.editorTabOrderFeature.focus(activeItem) } }
         .onChange(of: activeItem) { item in
             if groupID == nil, model.isImplementationChooserVisible { model.closeLanguageNavigationResults() }
@@ -218,7 +202,7 @@ struct EditorAreaView: View {
 
     private var activeItem: EditorTabItem? {
         if let tab = model.focusedAgentEditorTab { return .agentConversation(tab) }
-        if model.isRepositoryDiffSelected { return .repositoryDiff }
+        if let id = model.selectedRepositoryDiffID { return .repositoryDiff(id) }
         return model.activeEditorTerminalSession.map { .terminal($0.id) }
             ?? model.activeMediaDocument.map { .media($0.id) }
             ?? model.activeDocument.map { .document($0.id) }
@@ -242,7 +226,15 @@ struct EditorAreaView: View {
         guard case .terminal(let id) = paneItem else { return nil }
         return model.terminalSessions.first { $0.id == id }
     }
-    private var paneDiffSelected: Bool { paneItem == .repositoryDiff }
+    private var paneDiffID: UUID? {
+        guard case .repositoryDiff(let id) = paneItem else { return nil }
+        return id
+    }
+    private var paneDiffSelected: Bool { paneDiffID != nil }
+    private func focusRepositoryDiffPaneIfNeeded() {
+        guard groupID != nil, let id = paneDiffID, model.selectedRepositoryDiffID != id else { return }
+        model.selectRepositoryDiffTab(id)
+    }
     private func selectPaneItem(_ item: EditorTabItem) {
         model.selectEditorTab(item)
         if case .terminal(let id) = item, let session = model.terminalSessions.first(where: { $0.id == id }) { session.focus() }
@@ -374,8 +366,8 @@ struct EditorAreaView: View {
                 switch item {
                 case .agentConversation(let tab):
                     agentConversationTab(tab)
-                case .repositoryDiff:
-                    repositoryDiffTab
+                case .repositoryDiff(let id):
+                    repositoryDiffTab(id)
                 case .document(let documentID):
                     if let index = documentIndices[documentID] {
                         editorTab(model.openDocuments[index], at: index)
@@ -443,10 +435,10 @@ struct EditorAreaView: View {
         .zIndex(tabDragState.draggedItem == item ? 1 : 0)
     }
 
-    private var repositoryDiffTab: some View {
-        let selected = paneDiffSelected
-        let title = model.selectedGitCommitDiffContext.map { "Repository Diff: " + $0.url.lastPathComponent }
-            ?? "Repository Diff"
+    private func repositoryDiffTab(_ id: UUID) -> some View {
+        let item = EditorTabItem.repositoryDiff(id)
+        let selected = paneDiffID == id
+        let title = repositoryDiffTitle(id)
         return HStack(spacing: 0) {
             HStack(spacing: 7) {
                 LitheIDEAIcon(resourcePath: "expui/vcs/diff.svg", size: 16, preservesOriginalColors: true)
@@ -455,22 +447,22 @@ struct EditorAreaView: View {
             .padding(.leading, 8)
             .frame(height: 28)
             .contentShape(Rectangle())
-            .onTapGesture { model.selectRepositoryDiffTab() }
+            .onTapGesture { model.selectRepositoryDiffTab(id) }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(title)
             .accessibilityAddTraits(.isButton)
-            .accessibilityAction { model.selectRepositoryDiffTab() }
-            LitheToolWindowTabCloseButton { model.closeGitCommitDiff() }
-                .opacity(selected || hoveredTabItem == .repositoryDiff ? 1 : 0)
-                .allowsHitTesting(selected || hoveredTabItem == .repositoryDiff)
+            .accessibilityAction { model.selectRepositoryDiffTab(id) }
+            LitheToolWindowTabCloseButton { model.closeRepositoryDiffTab(id) }
+                .opacity(selected || hoveredTabItem == item ? 1 : 0)
+                .allowsHitTesting(selected || hoveredTabItem == item)
         }
         .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
         .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
         .padding(.horizontal, 4).padding(.vertical, 4)
-        .onHover { updateHoveredTab(.repositoryDiff, isHovering: $0) }
+        .onHover { updateHoveredTab(item, isHovering: $0) }
         .help(title)
-        .background { editorTabFrameReader(for: .repositoryDiff) }
-        .zIndex(tabDragState.draggedItem == .repositoryDiff ? 1 : 0)
+        .background { editorTabFrameReader(for: item) }
+        .zIndex(tabDragState.draggedItem == item ? 1 : 0)
     }
 
     private func editorTab(_ document: EditorDocument, at index: Int) -> some View {
@@ -791,8 +783,8 @@ struct EditorAreaView: View {
     private func closeEditorTab(_ item: EditorTabItem) {
         switch item {
         case .agentConversation(let tab): model.closeAgentEditorTab(tab)
-        case .repositoryDiff:
-            model.closeGitCommitDiff()
+        case .repositoryDiff(let id):
+            model.closeRepositoryDiffTab(id)
         case .document(let documentID):
             guard let document = model.openDocuments.first(where: { $0.id == documentID }) else { return }
             model.requestCloseDocument(document)
@@ -851,9 +843,9 @@ struct EditorAreaView: View {
                 Image(systemName: "terminal").font(LitheTheme.uiFont(size: 11, weight: .medium))
                 EditorTerminalTabTitle(session: session, fallbackTitle: model.terminalTitle(for: session))
             }
-        case .repositoryDiff:
+        case .repositoryDiff(let id):
             LitheIDEAIcon(resourcePath: "expui/vcs/diff.svg", size: 16, preservesOriginalColors: true)
-            Text(model.selectedGitCommitDiffContext.map { "Repository Diff: " + $0.url.lastPathComponent } ?? "Repository Diff")
+            Text(repositoryDiffTitle(id))
         }
     }
 
@@ -1153,37 +1145,54 @@ struct EditorAreaView: View {
                 })
             LitheToolWindowHeaderDivider()
 
-            if case .agentConversation(let tab) = paneItem {
-                if tab == model.focusedAgentEditorTab {
-                    AgentConversationView(model: model, isEditor: true)
-                } else {
-                    // The Agent shows one conversation at a time: a pane whose tab is
-                    // not the focused one offers to bring its conversation back.
-                    AgentInactiveConversationPane(model: model, tab: tab)
+            ZStack {
+                // Keep tab-local native scroll/search state alive while another tab is
+                // selected. Ownership ends on close; hidden panes never accept input.
+                ForEach(paneItems.compactMap { item -> UUID? in
+                    guard case .repositoryDiff(let id) = item else { return nil }
+                    return id
+                }, id: \.self) { id in
+                    repositoryDiffContent(id)
+                        .opacity(paneDiffID == id ? 1 : 0)
+                        .disabled(paneDiffID != id)
+                        .allowsHitTesting(paneDiffID == id)
+                        .accessibilityHidden(paneDiffID != id)
                 }
-            } else if paneDiffSelected {
-                if let feature = model.gitFeatureIfActive, let context = feature.selectedGitCommitDiffContext {
-                    RepositoryDiffView(feature: feature, context: context,
-                        onClose: { model.closeGitCommitDiff() },
-                        onOpenFile: { model.openFile(context.url) },
-                        onOpenCommitDiff: { file in
-                            if context.commit.hash.hasPrefix("saved:"),
-                               let snapshot = feature.savedDiffSnapshot, let version = feature.savedDiffVersion {
-                                model.showSavedChangesDiff(snapshot, version: version, file: file)
-                            } else {
-                                model.showGitCommitDiff(for: file)
-                            }
-                        },
-                        fontFamily: settings.editorFontFamily)
-                } else {
-                    Text("Select a changed file in Git Log")
-                        .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.secondaryText)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if case .agentConversation(let tab) = paneItem {
+                    if tab == model.focusedAgentEditorTab {
+                        AgentConversationView(model: model, isEditor: true)
+                    } else {
+                        AgentInactiveConversationPane(model: model, tab: tab)
+                    }
+                } else if !paneDiffSelected {
+                    VStack(spacing: 0) {
+                        externalConflictBanner
+                        activeEditor
+                    }
                 }
-            } else {
-                externalConflictBanner
-                activeEditor
             }
+        }
+    }
+
+    private func repositoryDiffTitle(_ id: UUID) -> String {
+        guard let session = model.gitFeatureIfActive?.repositoryDiffSessions[id] else { return L10n.string("Repository Diff") }
+        if let comparison = session.branchComparison {
+            let target = comparison.targetReference?.shortName ?? L10n.string("Working Tree")
+            return L10n.string("Diff: \(comparison.reference.shortName) with \(target)")
+        }
+        if let context = session.selectedGitCommitDiffContext {
+            return L10n.string("Repository Diff: \(context.url.lastPathComponent)") + " (" + context.commit.shortHash + ")"
+        }
+        return session.selectedChange.map { L10n.string("Repository Diff: \($0.url.lastPathComponent)") }
+            ?? L10n.string("Repository Diff")
+    }
+
+    @ViewBuilder
+    private func repositoryDiffContent(_ id: UUID) -> some View {
+        if let feature = model.gitFeatureIfActive, let session = feature.repositoryDiffSessions[id] {
+            RepositoryDiffSessionView(feature: feature, session: session, fontFamily: settings.editorFontFamily)
+        } else {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

@@ -111,7 +111,7 @@ pnpm 在 /opt/homebrew/bin，node 在 fnm 的默认别名目录
   项目 wrapper 不把仓库根放进 PATH、已有目录去重且保持顺序、显式 PATH 保持优先级、
   缺失 PATH 时使用注入的系统默认值、显式空 PATH 不使用默认值、resolver 对
   `.command` 与 `.toolchain("project-node")` 的接线，以及基础进程环境不被改写。
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - 失败形态的手工复现：`env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/env node --version`
   返回 `env: node: No such file or directory`；把 node 目录加进 `PATH` 后恢复。
   发行包上的 GUI 端到端运行未在本机复验。

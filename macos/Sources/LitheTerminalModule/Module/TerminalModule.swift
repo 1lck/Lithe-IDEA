@@ -14,22 +14,30 @@ public final class TerminalModule: LitheModule {
 
     public let manifest = moduleManifest
     private let terminalFactory: @MainActor () -> any TerminalTransport
+    private let workspaceTerminalFactory: (@MainActor (URL) -> any TerminalTransport)?
     private let shellDiscovery: @MainActor () -> [String]
+    private let workspaceShellDiscovery: (@MainActor (URL) async throws -> [String]?)?
     private var capability: TerminalModuleCapability?
 
     public init(
         terminalFactory: @escaping @MainActor () -> any TerminalTransport,
-        shellDiscovery: @escaping @MainActor () -> [String] = { [] }
+        workspaceTerminalFactory: (@MainActor (URL) -> any TerminalTransport)? = nil,
+        shellDiscovery: @escaping @MainActor () -> [String] = { [] },
+        workspaceShellDiscovery: (@MainActor (URL) async throws -> [String]?)? = nil
     ) {
         self.terminalFactory = terminalFactory
+        self.workspaceTerminalFactory = workspaceTerminalFactory
         self.shellDiscovery = shellDiscovery
+        self.workspaceShellDiscovery = workspaceShellDiscovery
     }
 
     public func activate(context: ModuleContext) async throws {
         guard capability == nil else { return }
         let feature = TerminalFeatureModel(
             terminalFactory: terminalFactory,
-            shellDiscovery: shellDiscovery
+            workspaceTerminalFactory: workspaceTerminalFactory,
+            shellDiscovery: shellDiscovery,
+            workspaceShellDiscovery: workspaceShellDiscovery
         )
         let resource = TerminalSessionResource(feature: feature)
         context.resources.register(resource)
@@ -37,7 +45,7 @@ public final class TerminalModule: LitheModule {
     }
 
     public func prepareForSleep() async throws {
-        guard capability?.feature.terminalSessions.allSatisfy({ !$0.isRunning }) != false else {
+        guard capability?.feature.hasActiveSessions != true else {
             throw TerminalModuleSleepError.runningSession
         }
     }
@@ -73,6 +81,6 @@ private final class TerminalSessionResource: ModuleResource {
     let feature: TerminalFeatureModel
     init(feature: TerminalFeatureModel) { self.feature = feature }
     var moduleResourceKind: String { "terminal-sessions" }
-    var isModuleResourceActive: Bool { feature.terminalSessions.contains(where: \.isRunning) }
+    var isModuleResourceActive: Bool { feature.hasActiveSessions }
     func stopModuleResource() async { await feature.stopAllSessionsAndWait() }
 }

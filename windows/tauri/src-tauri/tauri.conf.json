@@ -4,9 +4,9 @@
   "version": "0.3.0",
   "identifier": "app.lithe.windows",
   "build": {
-    "beforeDevCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/prepare-conpty.ps1 -BestEffort && node ../../scripts/build-windows-ide-mcp.mjs && bun run dev",
+    "beforeDevCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/windows/prepare/prepare-conpty.ps1 -BestEffort && node ../../scripts/ide-mcp/build-windows-ide-mcp.mjs && bun run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "node ../../scripts/build-windows-ide-mcp.mjs && bun run build",
+    "beforeBuildCommand": "node ../../scripts/ide-mcp/build-windows-ide-mcp.mjs && bun run build",
     "frontendDist": "../dist"
   },
   "app": {

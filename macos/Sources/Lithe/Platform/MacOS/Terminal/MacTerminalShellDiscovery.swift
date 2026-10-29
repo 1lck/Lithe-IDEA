@@ -36,7 +36,8 @@ enum MacTerminalShellDiscovery {
 
     static func candidates(
         environment: [String: String],
-        registeredShells: String
+        registeredShells: String,
+        searchDefaults: [String]? = nil
     ) -> [String] {
         var candidates = [environment["SHELL"]].compactMap { $0 }
         candidates += registeredShells.split(whereSeparator: \.isNewline).compactMap { line in
@@ -45,7 +46,7 @@ enum MacTerminalShellDiscovery {
             return path.isEmpty ? nil : path
         }
         let searchDirectories = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-            + standardSearchDirectories
+            + (searchDefaults ?? standardSearchDirectories)
         for directory in searchDirectories where directory.hasPrefix("/") {
             candidates += shellNames.map { URL(fileURLWithPath: directory).appendingPathComponent($0).path }
         }

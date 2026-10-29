@@ -259,7 +259,7 @@ Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保�
   `serviceSessionRunsItsPreLaunchStepFromTheReactorBeforeLaunching`、
   `serviceSessionPreLaunchFailureLeavesTheServiceFailed`、
   `stoppingAServiceCancelsItsRunningPreLaunchStep` 与
-  `servicePreLaunchDeadlineFailsTheSessionAndNamesTheDeadline`；运行 `./scripts/test-macos.sh`。
+  `servicePreLaunchDeadlineFailsTheSessionAndNamesTheDeadline`；运行 `./scripts/macos/test/test-macos.sh`。
 - Windows 前置进程的失败、期限和窗口关闭：`cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml run::tests::prelaunch`。
 - Windows Run 的顺序与取消：`run-prelaunch.test.ts`、`run-host-api.test.ts`；用 Windows Frontend 稳定性计时入口运行。
 
@@ -267,7 +267,7 @@ Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保�
   覆盖门禁、串行、合并、取消和超时阶段；engine 测试
   `java_builds_wait_for_project_updates_and_never_overlap`、
   `a_timed_out_java_build_keeps_its_slot_until_jdt_answers` 用脚本化 JDT 验证
-  线上顺序。完整校验运行 `./scripts/verify-rust-core.sh`。
+  线上顺序。完整校验运行 `./scripts/rust-core/verify-rust-core.sh`。
 - Rust：Java Main 与已解析入口的 Spring Boot 服务启动计划必须是 `project-jdk`，
   参数不含 `-am`、Exec 插件或 Maven goal，并保留 JDT 返回的
   classpath/module-path。

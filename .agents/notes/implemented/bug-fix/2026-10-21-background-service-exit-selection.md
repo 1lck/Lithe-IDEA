@@ -32,10 +32,10 @@ Issue #1344 的截图中，Java 的长启动参数被原生复选框裁剪。原
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'BackgroundResourceSelectionViewTests|ProcessExitCoordinatorTests'`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 回归检查长命令换行、列表高度和滚动到最后一项、按资源身份多选、批量选择、记住选项及深浅外观。组件测试不代替完整产品退出和启动残留清扫的实机验收。
 

@@ -7,6 +7,7 @@ import LitheTerminalModule
 /// SwiftTerm's default link handler opens URLs in the system. Lithe needs the
 /// link event so workspace-relative paths can open in its own editor instead.
 final class LitheTerminalView: LocalProcessTerminalView {
+    var hasRemoteProcess = false
     static let focusDidChange = Notification.Name("LitheTerminalView.focusDidChange")
     var onOpenLink: ((String, [String: String]) -> Void)?
     var onProcessOutput: ((Data) -> Void)?
@@ -219,7 +220,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
         let payload = MacTerminalBackgroundReporting.osc11Payload(for: nativeBackgroundColor)
         guard payload != lastReportedBackgroundPayload else { return }
         lastReportedBackgroundPayload = payload
-        guard process.running,
+        guard process.running || hasRemoteProcess,
               let notification = MacTerminalBackgroundReporting.changeNotification(
                 for: nativeBackgroundColor,
                 isSubscribed: backgroundChangeNotifications.isSubscribed

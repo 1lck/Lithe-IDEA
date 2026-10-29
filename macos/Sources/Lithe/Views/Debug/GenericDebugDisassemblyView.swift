@@ -35,8 +35,6 @@ struct GenericDebugDisassemblyView: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var disassembly: GenericDebugDisassemblyModel
     let readMemory: (String) -> Void
-    /// The instruction pointer the list was last centred on.
-    @State private var centeredAddress: String?
 
     private enum Item: Identifiable {
         case symbol(id: String, name: String)
@@ -74,6 +72,18 @@ struct GenericDebugDisassemblyView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if !disassembly.rows.isEmpty,
+               let failure = disassembly.loadFailure, let direction = disassembly.failedDirection {
+                HStack {
+                    Text(verbatim: failure).foregroundStyle(LitheTheme.error).lineLimit(1)
+                    Button("Retry") { disassembly.loadMore(direction) }
+                        .buttonStyle(.litheNoPress)
+                }
+                .font(LitheTheme.uiFont(size: 12))
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: Self.rowHeight)
+            }
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -142,55 +152,52 @@ struct GenericDebugDisassemblyView: View {
         let width = characterWidth
         let addressColumn = CGFloat(disassembly.rows.map(\.address.count).max() ?? 0) * width
         let bytesColumn = CGFloat(disassembly.rows.compactMap { $0.instructionBytes?.count }.max() ?? 0) * width
-        return ScrollViewReader { proxy in
+        let visibleItems = items
+        let ids = visibleItems.map(\.id)
+        let font = LitheTheme.editorFont(size: Self.fontSize)
+        // Rows only ever append, but this runs on every body pass: lay out just the
+        // longest candidates (the editor font is monospaced) instead of every row.
+        var widestRow: (instruction: String, location: String?)?
+        var widestRowLength = -1
+        var longestSymbol: String?
+        for row in disassembly.rows {
+            let location = sourceLocation(row)
+            let length = row.instruction.count + (location?.count ?? 0)
+            if length > widestRowLength {
+                widestRowLength = length
+                widestRow = (row.instruction, location)
+            }
+            if let symbol = row.symbol, symbol.count > (longestSymbol?.count ?? -1) { longestSymbol = symbol }
+        }
+        let textWidth = widestRow.map { row in
+            (row.instruction as NSString).size(withAttributes: [.font: font]).width
+                + (row.location.map { ($0 as NSString).size(withAttributes: [.font: font]).width + 10 } ?? 0)
+        } ?? 0
+        let symbolWidth = longestSymbol.map { (($0 + ":") as NSString).size(withAttributes: [.font: font]).width } ?? 0
+        let contentWidth = Self.gutterWidth + 20 + max(symbolWidth,
+            addressColumn + 10 + (bytesColumn > 0 ? bytesColumn + 10 : 0) + textWidth)
+        return GeometryReader { viewport in
             ScrollView([.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    loadMoreButton(.before)
-                    ForEach(items) { item in
+                    ForEach(visibleItems) { item in
                         switch item {
                         case .symbol(_, let name):
                             symbolRow(name)
                         case .instruction(let instruction):
-                            instructionRow(
-                                instruction, addressColumn: addressColumn, bytesColumn: bytesColumn
-                            )
+                            instructionRow(instruction, addressColumn: addressColumn, bytesColumn: bytesColumn)
                         }
                     }
-                    loadMoreButton(.after)
                 }
-            }
-            .onAppear { scrollToCurrent(proxy, centered: true) }
-            // Stepping inside the listing moves the arrow, so the list only scrolls as far as
-            // it takes to keep the arrow on screen instead of recentring on every step.
-            .onChange(of: disassembly.currentAddress) { _ in scrollToCurrent(proxy, centered: false) }
-            // A fresh listing is centred once; loading earlier or later instructions changes the
-            // first row too but must leave the view where it is.
-            .onChange(of: disassembly.rows.first?.address) { _ in
-                if centeredAddress != disassembly.currentAddress { scrollToCurrent(proxy, centered: true) }
+                .frame(width: max(viewport.size.width, ceil(contentWidth)), alignment: .leading)
+                .background(DebugDisassemblyViewport(
+                    ids: ids,
+                    currentID: disassembly.rows.first(where: { disassembly.isCurrent($0) })?.address,
+                    rowHeight: Self.rowHeight,
+                    loadMore: { disassembly.loadMore($0, automatically: true) }
+                ))
+                .litheScrollViewChrome()
             }
         }
-    }
-
-    private func scrollToCurrent(_ proxy: ScrollViewProxy, centered: Bool) {
-        guard let current = disassembly.rows.first(where: { disassembly.isCurrent($0) }) else { return }
-        centeredAddress = disassembly.currentAddress
-        proxy.scrollTo(current.address, anchor: centered ? .center : nil)
-    }
-
-    private func loadMoreButton(_ direction: GenericDebugDisassemblyModel.Direction) -> some View {
-        Button {
-            disassembly.loadMore(direction)
-        } label: {
-            Text(direction == .before ? "Load earlier instructions" : "Load later instructions")
-                .font(LitheTheme.uiFont(size: 12))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .padding(.horizontal, 10)
-                .frame(height: Self.rowHeight)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .disabled(disassembly.isLoading)
     }
 
     private func symbolRow(_ name: String) -> some View {
@@ -303,6 +310,155 @@ struct GenericDebugDisassemblyView: View {
     private func copy(_ value: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
+    }
+}
+
+/// Native clip observation keeps high-frequency scrolling out of the feature model. Reveals
+/// change only Y; a prepended page retains the old first row's exact viewport offset.
+private struct DebugDisassemblyViewport: NSViewRepresentable {
+    let ids: [String]
+    let currentID: String?
+    let rowHeight: CGFloat
+    let loadMore: (GenericDebugDisassemblyModel.Direction) -> Void
+
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) {
+        view.listingUpdatePending = ids != view.appliedIDs
+        view.ids = ids
+        view.currentID = currentID
+        view.rowHeight = rowHeight
+        view.loadMore = loadMore
+        view.scheduleUpdate()
+    }
+    static func dismantleNSView(_ view: Probe, coordinator: ()) { view.detach(); view.loadMore = nil }
+
+    final class Probe: NSView {
+        var ids: [String] = []
+        var currentID: String?
+        var rowHeight: CGFloat = 20
+        var loadMore: ((GenericDebugDisassemblyModel.Direction) -> Void)?
+        private weak var scroll: NSScrollView?
+        private var observation: NSObjectProtocol?
+        private var wheelMonitor: Any?
+        fileprivate var appliedIDs: [String] = []
+        var listingUpdatePending = false
+        private var appliedCurrentID: String?
+        private var previousY: CGFloat = 0
+        private var adjusting = false
+        private var scheduled = false
+        private var pagingScheduled = false
+
+        deinit {
+            if let observation { NotificationCenter.default.removeObserver(observation) }
+            if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
+        }
+
+        func detach() {
+            if let observation { NotificationCenter.default.removeObserver(observation) }
+            observation = nil
+            if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
+            wheelMonitor = nil
+            scroll = nil
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { detach() } else { scheduleUpdate() }
+        }
+        override func layout() { super.layout(); scheduleUpdate() }
+
+        func scheduleUpdate() {
+            guard !scheduled else { return }
+            scheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.scheduled = false
+                self.applyUpdate()
+            }
+        }
+
+        private func applyUpdate() {
+            guard window != nil, let enclosing = enclosingScrollView else { return }
+            if scroll !== enclosing {
+                if let observation { NotificationCenter.default.removeObserver(observation) }
+                scroll = enclosing
+                enclosing.contentView.postsBoundsChangedNotifications = true
+                observation = NotificationCenter.default.addObserver(
+                    forName: NSView.boundsDidChangeNotification, object: enclosing.contentView, queue: .main
+                ) { [weak self] _ in self?.didScroll() }
+                if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
+                wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                    guard let self, let scroll = self.scroll, event.window === self.window,
+                          !self.listingUpdatePending,
+                          scroll.bounds.contains(scroll.convert(event.locationInWindow, from: nil)) else { return event }
+                    // At a mapping boundary the clip cannot move. Wheel intent must still
+                    // request a page, including when the adapter returned a short first page.
+                    let viewport = scroll.contentView.bounds
+                    let margin = self.rowHeight * 8
+                    if event.scrollingDeltaY > 0, viewport.minY <= margin { self.request(.before) }
+                    else if event.scrollingDeltaY < 0,
+                            viewport.maxY >= CGFloat(self.ids.count) * self.rowHeight - margin { self.request(.after) }
+                    return event
+                }
+            }
+            guard let scroll, let document = scroll.documentView else { return }
+            adjusting = true
+            defer { adjusting = false }
+            scroll.layoutSubtreeIfNeeded()
+            var origin = scroll.contentView.bounds.origin
+            let height = scroll.contentView.bounds.height
+            let listingChanged = ids != appliedIDs
+            var replaced = false
+            if listingChanged {
+                let indices = Dictionary(ids.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
+                let sharedAnchor = appliedIDs.enumerated().first { indices[$0.element] != nil }
+                replaced = sharedAnchor == nil
+                if let anchor = sharedAnchor, let index = indices[anchor.element] {
+                    // A leading symbol heading may disappear when the previous page has the
+                    // same symbol; anchor a shared row, not necessarily the old first heading.
+                    origin.y = previousY + CGFloat(index - anchor.offset) * rowHeight
+                }
+            }
+            if replaced || currentID != appliedCurrentID,
+               let currentID, let index = ids.firstIndex(of: currentID) {
+                let y = CGFloat(index) * rowHeight
+                if replaced { origin.y = y - (height - rowHeight) / 2 }
+                else if y < origin.y { origin.y = y }
+                else if y + rowHeight > origin.y + height { origin.y = y + rowHeight - height }
+            }
+            origin.x = min(max(0, origin.x), max(0, document.bounds.width - scroll.contentView.bounds.width))
+            origin.y = min(max(0, origin.y), max(0, document.bounds.height - height))
+            scroll.contentView.scroll(to: origin)
+            scroll.reflectScrolledClipView(scroll.contentView)
+            previousY = scroll.contentView.bounds.minY
+            appliedIDs = ids
+            listingUpdatePending = false
+            appliedCurrentID = currentID
+        }
+
+        private func didScroll() {
+            guard !adjusting, !listingUpdatePending, let scroll, window != nil else { return }
+            let viewport = scroll.contentView.bounds
+            let delta = viewport.minY - previousY
+            previousY = viewport.minY
+            let margin = rowHeight * 8
+            if delta < 0, viewport.minY <= margin {
+                request(.before)
+            } else if delta > 0, viewport.maxY >= CGFloat(ids.count) * rowHeight - margin {
+                request(.after)
+            }
+        }
+
+        private func request(_ direction: GenericDebugDisassemblyModel.Direction) {
+            guard !pagingScheduled else { return }
+            pagingScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pagingScheduled = false
+                guard self.window != nil else { return }
+                self.loadMore?(direction)
+            }
+        }
     }
 }
 

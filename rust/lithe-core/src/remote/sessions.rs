@@ -1,7 +1,7 @@
 //! Long-lived remote connections.
 //!
 //! `remote.connect` starts one OpenSSH process that probes the host, installs
-//! the server when needed and starts it (see `lithe_remote_client::launch`),
+//! the server when needed and starts it (see `lithe_remote::client::launch`),
 //! so the user authenticates once. The connection then stays open in this
 //! registry until `remote.disconnect`; requests such as `remote.readDir` use
 //! it by id. OpenSSH runs in its own process tree, which closing a connection
@@ -11,10 +11,10 @@ use super::{classify, diagnostics, ssh_hop, ProbeStatus, ProbedHost, SshConnecti
 use crate::git::execution_events;
 use crate::protocol::{CoreError, ErrorCode};
 use lithe_git_host::ProcessTree;
-use lithe_remote_client::launch::{launch, launch_command, LaunchError, Launched};
-use lithe_remote_client::session::{ClientError, ConnectOptions};
-use lithe_remote_client::{Hop, RemoteSession, ServerArtifact, ServerTarget, TransportChain};
-use lithe_remote_protocol::methods;
+use lithe_remote::client::launch::{launch, launch_command, LaunchError, Launched};
+use lithe_remote::client::session::{ClientError, ConnectOptions};
+use lithe_remote::client::{Hop, RemoteSession, ServerArtifact, ServerTarget, TransportChain};
+use lithe_remote::protocol::methods;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
@@ -87,11 +87,25 @@ pub(crate) struct ConnectResult {
     diagnostics: String,
 }
 
-struct Connection {
-    session: RemoteSession,
-    child: Mutex<Child>,
-    tree: ProcessTree,
+pub(crate) struct Connection {
+    pub(crate) session: RemoteSession,
+    pub(crate) git_tool: Mutex<Option<(String, String)>>,
+    transport: ConnectionTransport,
 }
+
+/// Owns the native transport independently of the framed workspace session.
+enum ConnectionTransport {
+    Ssh {
+        child: Mutex<Child>,
+        tree: ProcessTree,
+    },
+    #[cfg(test)]
+    InProcess,
+}
+
+#[cfg(all(test, unix))]
+#[path = "sessions_integration_tests.rs"]
+mod integration_tests;
 
 impl Connection {
     fn close(&self) {
@@ -100,13 +114,18 @@ impl Connection {
             serde_json::Value::Null,
             EXIT_GRACE,
         );
-        let _ = self.tree.terminate(EXIT_GRACE);
-        let mut child = self
-            .child
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _ = child.kill();
-        let _ = child.wait();
+        match &self.transport {
+            ConnectionTransport::Ssh { child, tree } => {
+                let _ = tree.terminate(EXIT_GRACE);
+                let mut child = child
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            #[cfg(test)]
+            ConnectionTransport::InProcess => {}
+        }
     }
 }
 
@@ -138,7 +157,7 @@ fn registry() -> &'static Mutex<HashMap<String, Arc<Connection>>> {
     CONNECTIONS.get_or_init(Mutex::default)
 }
 
-fn lookup(id: &str) -> Result<Arc<Connection>, CoreError> {
+pub(super) fn lookup(id: &str) -> Result<Arc<Connection>, CoreError> {
     registry()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -434,8 +453,11 @@ pub(super) fn connect_with(
             id.clone(),
             Arc::new(Connection {
                 session,
-                child: Mutex::new(child),
-                tree,
+                git_tool: Mutex::new(None),
+                transport: ConnectionTransport::Ssh {
+                    child: Mutex::new(child),
+                    tree,
+                },
             }),
         );
     Ok(ConnectResult {
@@ -544,7 +566,7 @@ pub(crate) fn write_file(request: WriteFileRequest) -> Result<serde_json::Value,
         )
         .with_details(error.to_string())
     })?;
-    let options = lithe_remote_client::api::WriteOptions {
+    let options = lithe_remote::client::api::WriteOptions {
         expected: request.expected,
         overwrite: false,
         create_parents: false,
@@ -579,8 +601,8 @@ pub(crate) fn write_file(request: WriteFileRequest) -> Result<serde_json::Value,
         Err(ClientError::Remote(error))
             if matches!(
                 error.code,
-                lithe_remote_protocol::ErrorCode::Conflict
-                    | lithe_remote_protocol::ErrorCode::AlreadyExists
+                lithe_remote::protocol::ErrorCode::Conflict
+                    | lithe_remote::protocol::ErrorCode::AlreadyExists
             ) =>
         {
             Ok(serde_json::json!({ "status": "conflict" }))
@@ -624,7 +646,13 @@ pub(crate) fn close_all() -> usize {
 
 /// Closes the registered connections in parallel.
 pub(super) fn close_registered() -> usize {
-    let connections: Vec<Arc<Connection>> = registry()
+    close_registry(registry())
+}
+
+/// Drains the owned registry, allowing isolated lifecycle tests without closing
+/// unrelated sessions concurrently exercising the application registry.
+pub(super) fn close_registry(connections: &Mutex<HashMap<String, Arc<Connection>>>) -> usize {
+    let connections: Vec<Arc<Connection>> = connections
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .drain()
@@ -641,15 +669,17 @@ pub(super) fn close_registered() -> usize {
     count
 }
 
-fn request_error(session_id: &str, error: ClientError) -> CoreError {
+/// Translates host transport failures without losing their stable remote category.
+pub(crate) fn request_error(session_id: &str, error: ClientError) -> CoreError {
     match error {
         ClientError::Remote(error) => {
             let code = match error.code {
-                lithe_remote_protocol::ErrorCode::NotFound => ErrorCode::WorkspaceNotFound,
-                lithe_remote_protocol::ErrorCode::PermissionDenied => ErrorCode::PermissionDenied,
+                lithe_remote::protocol::ErrorCode::NotFound => ErrorCode::WorkspaceNotFound,
+                lithe_remote::protocol::ErrorCode::PermissionDenied => ErrorCode::PermissionDenied,
                 _ => ErrorCode::ProcessFailed,
             };
             CoreError::new(code, error.message)
+                .with_details(serde_json::json!({"remoteCode": error.code}).to_string())
         }
         ClientError::Timeout => CoreError::new(
             ErrorCode::TimedOut,

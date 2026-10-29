@@ -8,7 +8,8 @@ struct McpDiscoveryView: View {
     let add: (McpServerDraft) -> Void
     @State private var query = ""
     @State private var request = 0
-    @State private var loadMore = false
+    @State private var pageRequest = 0
+    @State private var retrying = false
     @State private var route = McpRegistryRoute.system
 
     var body: some View {
@@ -52,9 +53,9 @@ struct McpDiscoveryView: View {
                             Text("Showing available matches.").font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
                         }
                         Spacer(minLength: 0)
-                        Button("Retry") { search() }.buttonStyle(LitheActionButtonStyle())
+                        Button("Retry") { search(retry: true) }.buttonStyle(LitheActionButtonStyle())
                         if feature.canRetryDirectly {
-                            Button("Retry directly") { route = .direct; search() }
+                            Button("Retry directly") { route = .direct; search(retry: true) }
                                 .buttonStyle(LitheActionButtonStyle())
                         }
                     }
@@ -68,15 +69,21 @@ struct McpDiscoveryView: View {
                     .foregroundStyle(LitheTheme.secondaryText).padding(.vertical, 20)
             }
             McpRegistryCardsView(entries: feature.entries, add: add)
-            if feature.nextCursor != nil {
-                Button("Load more") { loadMore = true; request += 1 }
-                    .buttonStyle(LitheActionButtonStyle()).disabled(feature.isLoading)
-            }
+            LitheScrollLoadTrigger(
+                continuationID: feature.nextCursor.map { "\(request):\($0)" },
+                isEnabled: !feature.isLoading && feature.error == nil,
+                load: { pageRequest += 1 }
+            )
+            .frame(height: 1)
         }
-        .task(id: request) { await feature.search(query, loadMore: loadMore, route: route) }
+        .task(id: request) {
+            if retrying { await feature.retry(route: route) }
+            else { await feature.search(query, route: route) }
+        }
+        .task(id: pageRequest) { if pageRequest > 0 { await feature.loadNextPage() } }
     }
 
-    private func search() { loadMore = false; request += 1 }
+    private func search(retry: Bool = false) { retrying = retry; request += 1 }
 }
 
 struct McpRegistryCardsView: View {

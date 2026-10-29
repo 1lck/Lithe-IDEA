@@ -13,5 +13,5 @@
 生成：
 
 ```bash
-./scripts/create-git-graph-fixture.sh
+./scripts/git-graph/create-git-graph-fixture.sh
 ```

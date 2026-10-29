@@ -90,11 +90,11 @@ Search Everywhere 的 macOS 预设保留双击 Shift 和 `⇧⌘O` 两个默认�
 
 ## 验证
 
-- `./scripts/test-macos.sh`
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/macos/test/test-macos.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - `macos/Tests/LitheTests/KeyboardShortcutTests.swift`
 - `macos/Tests/LitheTests/AppLocalizationTests.swift`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 测试覆盖命令目录唯一性和默认冲突、绑定编码往返、用户覆盖持久化、禁用和
 恢复、损坏载荷回退、过滤、冲突拒绝、监听器更新以及录制期间暂停分发。

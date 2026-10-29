@@ -3080,16 +3080,19 @@ pub(super) fn read_requirements(
         .join(".lithe")
         .join("toolchains")
         .join("requirements.json");
-    if !path.exists() {
-        return Ok(None);
-    }
-    let text = fs::read_to_string(path).map_err(|error| {
-        CoreError::new(
-            ErrorCode::PermissionDenied,
-            "Could not read toolchain requirements: .lithe/toolchains/requirements.json",
-        )
-        .with_details(error.to_string())
-    })?;
+    let text = match crate::remote::workspace_io::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err({
+                CoreError::new(
+                    ErrorCode::PermissionDenied,
+                    "Could not read toolchain requirements: .lithe/toolchains/requirements.json",
+                )
+                .with_details(error.to_string())
+            })
+        }
+    };
     serde_json::from_str(&text).map(Some).map_err(|e| {
         CoreError::new(
             ErrorCode::ParseFailed,
@@ -3416,7 +3419,9 @@ fn project_inputs(
                 continue;
             }
             crate::protocol::cancellation::check()?;
-            match fs::read(&path) {
+            // The scan lists files through the workspace adapter, so content reads
+            // must use the same adapter or remote projects look permanently unreadable.
+            match crate::remote::workspace_io::read(&path) {
                 Ok(bytes) => {
                     result
                         .inputs
@@ -3511,7 +3516,7 @@ fn declared_node_version(root: &Path) -> Option<String> {
     highest_version(
         project_manifest_paths(root, &["package.json"])
             .into_iter()
-            .filter_map(|path| fs::read_to_string(path).ok())
+            .filter_map(|path| crate::remote::workspace_io::read_to_string(path).ok())
             .filter_map(|text| serde_json::from_str::<Value>(&text).ok())
             .filter_map(|document| {
                 document

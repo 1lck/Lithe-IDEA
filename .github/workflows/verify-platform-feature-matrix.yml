@@ -32,10 +32,10 @@ jobs:
           node-version: 20
 
       - name: Test matrix tooling
-        run: node --test scripts/test-platform-feature-matrix.mjs
+        run: node --test scripts/platform-feature-matrix/test-platform-feature-matrix.mjs
 
       - name: Verify source data
-        run: ./scripts/verify-platform-feature-matrix.sh
+        run: ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 
       - name: Require matrix updates for platform changes
         if: github.event_name == 'pull_request'
@@ -43,10 +43,10 @@ jobs:
           MATRIX_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           MATRIX_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MATRIX_UPDATE_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'matrix-exempt') }}
-        run: ./scripts/verify-platform-feature-matrix-change.sh
+        run: ./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh
 
       - name: Generate matrix views
-        run: node scripts/generate-platform-feature-matrix.mjs
+        run: node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs
 
       - name: Upload matrix views
         id: matrix

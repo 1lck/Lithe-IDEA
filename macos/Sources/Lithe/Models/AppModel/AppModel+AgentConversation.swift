@@ -150,8 +150,6 @@ extension AppModel {
     }
 
     private func focusAgentEditorTab(_ tab: UUID) {
-        selectedChange = nil
-        closeBranchComparison()
         editorTabOrderFeature.repositoryDiffSelected = false
         editorTabOrderFeature.focus(.agentConversation(tab))
         workbenchFeature.setVisibility(.agent, isVisible: true)

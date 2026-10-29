@@ -47,8 +47,8 @@
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`
-- `./scripts/build-windows.ps1 -Configuration Release`
-- `node scripts/verify-agent-notes.mjs`
+- `./scripts/windows/build/build-windows.ps1 -Configuration Release`
+- `node scripts/agent-notes/verify-agent-notes.mjs`
 - `windows/tauri/src/ui/dropdown.test.tsx` 用独立的布局尺寸与动画尺寸替身验证焦点重新渲染、
   普通坐标、锚点移动和内容变高，不依赖真实动画等待。
 - 在 Windows WebView2 中对靠近底部的文件反复右键，按下菜单项后比较位置，再松开确认操作完成。

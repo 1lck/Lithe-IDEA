@@ -6,49 +6,80 @@ import SwiftUI
 
 // Note: 统一 VCS 模型见 .agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md
 
-/// Revisions of a root, or of one file in it, a page at a time. Each row
+/// Revisions of a root, or of one file in it, loaded as the user scrolls. Each row
 /// expands to the full message and the paths the revision changed.
 struct VcsHistoryListView: View {
     @ObservedObject var feature: VcsProvidersFeatureModel
     let rootID: String
     /// Root-relative file; nil lists the whole root.
     let path: String?
-    @State private var entries: [VcsHistoryEntry] = []
-    @State private var nextCursor: String?
-    @State private var isLoading = false
-    @State private var failure: String?
+    @StateObject private var history = VcsHistoryListModel()
+    @State private var appliedContext: HistoryContext?
+    @State private var request = 0
+    @State private var automaticRequest = false
     @State private var expanded: Set<String> = []
 
     var body: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(entries) { entry in
+                ForEach(history.entries) { entry in
                     row(entry)
                     Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 }
-                if let failure {
+                if let failure = history.failure {
                     LitheBanner(status: .error, layout: .editor) {
                         Text(verbatim: failure).lineLimit(6).textSelection(.enabled)
-                        Button(L10n.string("Retry")) { Task { await load() } }
+                        Button(L10n.string("Retry")) { automaticRequest = false; request += 1 }
                     }
-                } else if isLoading {
-                    ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(12)
-                } else if nextCursor != nil {
-                    Button(L10n.string("Load More")) { Task { await load() } }
-                        .buttonStyle(.link)
-                        .frame(maxWidth: .infinity)
-                        .padding(12)
-                } else if entries.isEmpty {
+                } else if !history.isLoading && history.entries.isEmpty {
                     Text("No revisions")
                         .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(maxWidth: .infinity)
                         .padding(20)
                 }
+                // Keep the footer's geometry while a continuation arrives;
+                // removing its spinner row would move the bottom viewport.
+                ZStack {
+                    if history.isLoading { ProgressView().controlSize(.small) }
+                    LitheScrollLoadTrigger(continuationID: history.nextCursor,
+                        isEnabled: !history.isLoading && history.failure == nil,
+                        load: { automaticRequest = true; request += 1 })
+                }
+                .frame(height: LitheTheme.Tree.rowHeight * 2)
             }
         }
         .litheWorkbenchSurface(LitheTheme.sidebar)
-        .task { await load() }
+        .task(id: LoadIdentity(context: historyContext, request: request)) {
+            let context = historyContext
+            let isNewContext = appliedContext != context
+            if isNewContext {
+                history.reset()
+                expanded = []
+                appliedContext = context
+            }
+            await history.load(automatically: !isNewContext && automaticRequest) { cursor in
+                if let path = context.path {
+                    try await feature.fileHistory(path, in: context.rootID, cursor: cursor)
+                } else {
+                    try await feature.history(in: context.rootID, cursor: cursor)
+                }
+            }
+        }
+        .onDisappear { history.reset(); appliedContext = nil }
+    }
+
+    private struct HistoryContext: Hashable {
+        let workspaceURL: URL?
+        let rootID: String
+        let path: String?
+    }
+    private struct LoadIdentity: Hashable {
+        let context: HistoryContext
+        let request: Int
+    }
+    private var historyContext: HistoryContext {
+        HistoryContext(workspaceURL: feature.workspaceURL, rootID: rootID, path: path)
     }
 
     private func row(_ entry: VcsHistoryEntry) -> some View {
@@ -107,26 +138,6 @@ struct VcsHistoryListView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
-    }
-
-    private func load() async {
-        guard !isLoading else { return }
-        isLoading = true
-        failure = nil
-        defer { isLoading = false }
-        do {
-            let page = if let path {
-                try await feature.fileHistory(path, in: rootID, cursor: nextCursor)
-            } else {
-                try await feature.history(in: rootID, cursor: nextCursor)
-            }
-            let known = Set(entries.map(\.id))
-            entries += page.entries.filter { !known.contains($0.id) }
-            nextCursor = page.nextCursor
-        } catch is CancellationError {
-        } catch {
-            failure = VcsProvidersFeatureModel.message(for: error)
-        }
     }
 
     /// Providers send ISO 8601; anything else is shown as sent.

@@ -126,10 +126,10 @@
 
 ```bash
 cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
-./scripts/verify-shared-contracts.sh
+./scripts/architecture/verify-shared-contracts.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'ProjectGenerationTests|PluginManagerTests'
-./scripts/verify-official-plugins.sh
-./scripts/verify-platform-feature-matrix.sh
+./scripts/plugins/verify-official-plugins.sh
+./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
 ## 适用范围

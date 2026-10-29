@@ -13,7 +13,7 @@
       "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
       "rust/lithe-ide-host/src/lib.rs",
       "macos/Sources/Lithe/Views/App/SettingsView.swift",
-      "scripts/test-ide-mcp.mjs"
+      "scripts/ide-mcp/test-ide-mcp.mjs"
     ]
   },
   "windows": {

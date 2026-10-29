@@ -210,10 +210,10 @@ IDEA 的编辑器字体组合框确实有这个开关，功能上更完整。本
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter SettingsSearchVocabularyTests`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter SearchableSettingsSelectTests`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentActivityPresentationTests`
-- `./scripts/test-macos.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/macos/test/test-macos.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 关于缺字回退与提示，`EditorFontFamilyTests` 覆盖：网页字体栈把打包字族放在所选字族之后且以
 `monospace` 结尾、打包字族自身不重复；原生用户字族带以打包字体描述符开头的级联表、打包字族不带；

@@ -191,6 +191,20 @@ impl Invocation {
         })
     }
     pub(super) fn started(&self, root: &str, arguments: &[String]) {
+        let executable = lithe_git_host::configuration::executable(
+            super::execution_policy::current().executable.as_deref(),
+        )
+        .map(|path| path.to_string_lossy().into_owned());
+        self.started_on_host(root, arguments, executable);
+    }
+
+    /// Reports the executable actually selected by a workspace host.
+    pub(super) fn started_on_host(
+        &self,
+        root: &str,
+        arguments: &[String],
+        executable: Option<String>,
+    ) {
         let config = super::execution_policy::command_index(arguments)
             .is_some_and(|index| arguments[index] == "config");
         let safe_config = arguments
@@ -244,10 +258,7 @@ impl Invocation {
             &self.operation_id,
             Kind::Started {
                 source: super::execution_policy::current().source,
-                executable: lithe_git_host::configuration::executable(
-                    super::execution_policy::current().executable.as_deref(),
-                )
-                .map(|path| path.to_string_lossy().into_owned()),
+                executable,
                 temporary_config,
                 display_arguments,
                 global_arguments,

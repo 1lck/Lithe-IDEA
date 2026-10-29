@@ -69,11 +69,11 @@ lldb 社区插件把 `program` 写成 `/Users/.../lldb-demo/main`：
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml debug_executable_plan`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml debug_start_arguments`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml debug_adapter`
-- `./scripts/test-macos.sh --filter DebugExecutableResolverTests`
-- `./scripts/verify-shared-contracts.sh`
-- `node scripts/generate-i18n.mjs --check`
-- `node scripts/verify-app-language-localization.mjs`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/macos/test/test-macos.sh --filter DebugExecutableResolverTests`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `node scripts/i18n/generate-i18n.mjs --check`
+- `node scripts/i18n/verify-app-language-localization.mjs`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 

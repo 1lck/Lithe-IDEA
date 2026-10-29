@@ -3,7 +3,7 @@ import Foundation
 // Note: SSH 连接配置与测试连接见 .agents/notes/implemented/feature/2026-10-24-remote-ssh-connections.md
 
 /// Finds the remote workspace servers packaged in
-/// `Contents/Resources/RemoteServers` by `scripts/build-remote-servers.sh`.
+/// `Contents/Resources/RemoteServers` by `scripts/remote/build-remote-servers.sh`.
 /// The directory is part of the signed, Sparkle-updated bundle: it is only
 /// read, and the binaries are streamed to hosts from it unchanged.
 enum MacRemoteServerBundleLocator {

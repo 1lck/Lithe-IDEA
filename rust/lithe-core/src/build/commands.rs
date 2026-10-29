@@ -33,6 +33,9 @@ struct BuildPayload<T> {
     manifest: Value,
     #[serde(rename = "buildSystemID")]
     build_system_id: String,
+    /// Routing identity for plans that otherwise contain only relative paths.
+    #[serde(default, rename = "workspaceRoot")]
+    _workspace_root: Option<String>,
     request: T,
 }
 

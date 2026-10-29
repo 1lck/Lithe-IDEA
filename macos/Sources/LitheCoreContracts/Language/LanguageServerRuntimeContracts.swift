@@ -358,6 +358,9 @@ package struct JavaLanguageImportConfiguration: Equatable, Sendable {
 }
 
 package protocol LanguageServerRuntimeCore: Sendable {
+    /// Network-backed startup must run off the main actor. This is resolved
+    /// from the workspace owner, before any process is created.
+    func requiresBackgroundLanguageServerStart(rootURL: URL) -> Bool
     func startLanguageServer(
         providerID: String,
         executableURL: URL,
@@ -557,6 +560,8 @@ package protocol LanguageServerRuntimeCore: Sendable {
 }
 
 package extension LanguageServerRuntimeCore {
+    func requiresBackgroundLanguageServerStart(rootURL _: URL) -> Bool { false }
+
     func startLanguageServer(
         providerID: String, executableURL: URL, arguments: [String], environment: [String: String],
         rootURL: URL, workingDirectoryURL: URL, initializationOptions: ToolingJSONValue?,

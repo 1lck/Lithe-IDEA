@@ -82,7 +82,9 @@ package final class GitExecutionJournal: @unchecked Sendable {
             }
             if hidden.remove(operationID) != nil { return wasRunning }
             guard let context = contexts[operationID] else {
-                guard let error = event.error, let root = requestRoots[operationID] ?? root else { return wasRunning }
+                // A request cancelled before any command ran (a newer request superseded it) is not a failure.
+                guard let error = event.error, !error.isCancellation,
+                      let root = requestRoots[operationID] ?? root else { return wasRunning }
                 retain([GitConsoleEntry(workingDirectory: root, arguments: [], output: "", exitCode: -1,
                     state: .unconfirmed, operationErrorMessage: [error.message, error.details].compactMap { $0 }.joined(separator: "\n"))])
                 return true

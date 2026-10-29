@@ -187,6 +187,11 @@ enum MacRuntimeDiscovery {
             arguments: ["-version"], dependencies: [home.appendingPathComponent("release")],
             accepts: { firstCapture(pattern: #"version\s+\"([^\"]+)\""#, in: $0) != nil }
         )
+        return javaRuntime(home: home, output: output)
+    }
+
+    /// Local and remote probes share the upstream version/banner parser.
+    static func javaRuntime(home: URL, output: String) -> JavaRuntimeCandidate? {
         guard let version = firstCapture(pattern: #"version\s+\"([^\"]+)\""#, in: output) else {
             return nil
         }

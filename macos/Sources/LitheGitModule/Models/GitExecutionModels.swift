@@ -39,6 +39,9 @@ package struct GitExecutionEvent: Decodable, Sendable {
         package let code: String
         package let message: String
         package var details: String?
+
+        /// A request that a newer request or the user superseded. It is not a Git failure.
+        package var isCancellation: Bool { code == "cancelled" }
     }
 }
 
@@ -155,9 +158,10 @@ package final class GitExecutionContext: @unchecked Sendable {
                 if let index = records.lastIndex(where: { $0.id == requestInvocationID }) {
                     records[index].error = message
                     dirty = true
-                } else if let root = requestRoot {
+                } else if let root = requestRoot, !error.isCancellation {
                     // A context can span several Core requests. Keep a preflight
                     // failure separate from an earlier request's executed command.
+                    // A cancellation before any command ran has nothing to report.
                     appendRecord(Record(invocationID: -1, root: root, arguments: [],
                         source: source, state: .unconfirmed, exitCode: -1, error: message))
                 }

@@ -108,6 +108,11 @@ fn execute(request: &str) -> CoreResponse {
     if let Err(error) = crate::protocol::cancellation::check() {
         return CoreResponse::failure(id, error);
     }
+    let _workspace =
+        match crate::remote::workspace::Scope::begin(parsed.remote_workspace, &parsed.command) {
+            Ok(scope) => scope,
+            Err(error) => return CoreResponse::failure(id, error),
+        };
     let _git_policy = match crate::git::execution_policy::Scope::begin(parsed.git_execution) {
         Ok(scope) => scope,
         Err(error) => return CoreResponse::failure(id, error),
@@ -2549,9 +2554,10 @@ fn execute(request: &str) -> CoreResponse {
                 ),
             }
         }
-        CoreCommand::GitExecutable => {
-            CoreResponse::success(id, git::configuration::locate_executable())
-        }
+        CoreCommand::GitExecutable => match git::configuration::locate_executable() {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
         CoreCommand::RemoteProbe => {
             match serde_json::from_value::<crate::remote::ProbeRequest>(parsed.payload) {
                 Ok(request) => match crate::remote::probe(request) {
@@ -2629,6 +2635,63 @@ fn execute(request: &str) -> CoreResponse {
                     CoreError::new(ErrorCode::InvalidRequest, "Invalid remote file request")
                         .with_details(error.to_string()),
                 ),
+            }
+        }
+        CoreCommand::RemoteCaptureProcess => {
+            match serde_json::from_value(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid host capture request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::remote::workspace_host::capture_process)
+            {
+                Ok(value) => CoreResponse::success(id, value),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RemoteHostRequest
+        | CoreCommand::RemoteRunProcess
+        | CoreCommand::RemoteRunWatch
+        | CoreCommand::RemoteRunTerminal => {
+            let operation = match command {
+                CoreCommand::RemoteHostRequest => crate::remote::workspace_host::request,
+                CoreCommand::RemoteRunProcess => crate::remote::workspace_host::run_process,
+                CoreCommand::RemoteRunWatch => crate::remote::workspace_host::run_watch,
+                _ => crate::remote::workspace_host::run_terminal,
+            };
+            match serde_json::from_value(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid workspace host request")
+                        .with_details(error.to_string())
+                })
+                .and_then(operation)
+            {
+                Ok(value) => CoreResponse::success(id, value),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RemoteUploadFile => {
+            match serde_json::from_value(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid upload request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::remote::upload::upload)
+            {
+                Ok(value) => CoreResponse::success(id, value),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RemoteHostInfo => {
+            match parsed
+                .payload
+                .get("sessionId")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Missing host session"))
+                .and_then(crate::remote::upload::host_info)
+            {
+                Ok(value) => CoreResponse::success(id, value),
+                Err(error) => CoreResponse::failure(id, error),
             }
         }
         CoreCommand::RemoteDisconnect => {
