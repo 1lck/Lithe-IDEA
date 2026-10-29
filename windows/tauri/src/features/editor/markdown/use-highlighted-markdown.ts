@@ -6,6 +6,7 @@ import { parseMarkdown, type ParseMarkdownOptions } from "./parser";
 export function useHighlightedMarkdown(
   content: string | null | undefined,
   options?: ParseMarkdownOptions,
+  highlight: (html: string) => Promise<string> = highlightMarkdownCodeBlocks,
 ) {
   const { t } = useTranslation();
   const frontMatter = options?.frontMatter;
@@ -27,7 +28,7 @@ export function useHighlightedMarkdown(
     // twice per edit; only an empty preview shows it first.
     setHtml((current) => current || parsedHtml);
 
-    void highlightMarkdownCodeBlocks(parsedHtml).then(
+    void highlight(parsedHtml).then(
       (highlightedHtml) => {
         if (!cancelled) {
           setHtml(highlightedHtml);
@@ -43,7 +44,7 @@ export function useHighlightedMarkdown(
     return () => {
       cancelled = true;
     };
-  }, [parsedHtml]);
+  }, [parsedHtml, highlight]);
 
   return html;
 }
