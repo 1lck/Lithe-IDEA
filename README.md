@@ -119,6 +119,41 @@ Switch projects in one window, review diffs, prepare commits, and inspect and ma
   <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git, diffs, and worktrees"></a>
 </p>
 
+### Search Everywhere and Markdown preview
+
+Double-Shift searches files, symbols, and actions. Edit Markdown alongside its preview and navigate with the table of contents.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="Search Everywhere and Markdown preview"></a>
+</p>
+
+<details>
+<summary>More screenshots</summary>
+
+### Git history and branches
+
+Browse Git history with a branch list, commit graph, filters, and changed files.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git history and branches"></a>
+</p>
+
+### HTML preview and run services
+
+Edit HTML alongside its preview and browse project entry points and service configurations in the Run panel.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML preview and run services"></a>
+</p>
+
+### Plugin management and native debugging
+
+Manage language, build, and debugger plugins. The screenshot also shows LLDB disassembly and registers.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="Plugin management and native debugging"></a>
+</p>
+
 ### AI chat and context
 
 Chat with an agent in the editor area, expand command output, and inspect context usage, file changes, and session statistics.
@@ -127,52 +162,7 @@ Chat with an agent in the editor area, expand command output, and inspect contex
   <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI chat and context"></a>
 </p>
 
-<details>
-<summary>Search Everywhere and Markdown preview</summary>
-
-Double-Shift searches files, symbols, and actions. Edit Markdown alongside its preview and navigate with the table of contents.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="Search Everywhere and Markdown preview"></a>
-</p>
-
-</details>
-
-<details>
-<summary>Git history and branches</summary>
-
-Browse Git history with a branch list, commit graph, filters, and changed files.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git history and branches"></a>
-</p>
-
-</details>
-
-<details>
-<summary>HTML preview and run services</summary>
-
-Edit HTML alongside its preview and browse project entry points and service configurations in the Run panel.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML preview and run services"></a>
-</p>
-
-</details>
-
-<details>
-<summary>Plugin management and native debugging</summary>
-
-Manage language, build, and debugger plugins. The screenshot also shows LLDB disassembly and registers.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="Plugin management and native debugging"></a>
-</p>
-
-</details>
-
-<details>
-<summary>Agent resources and MCP configuration</summary>
+### Agent resources and MCP configuration
 
 Manage agent instructions, skills, hooks, and MCP configuration, and inspect runtime and token usage in chat.
 
