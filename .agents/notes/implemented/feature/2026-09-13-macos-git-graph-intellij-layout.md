@@ -271,11 +271,23 @@ Diff、打开文件、定位与复制路径。空格切换当前项暂存，Retu
 例如，选中 linked 工作树时只传入 linked 这一项仓库绑定；不要把工作区发现的
 所有仓库原样交给这个提交区。缺失、可清理或裸仓库不允许从该入口提交。
 
+状态扫描的排除集合与提交绑定集合必须分开。首次检查、手动刷新、工作树列表
+自动刷新及独立提交模型刷新，都在所选 checkout 内发现仓库，把发现结果交给
+既有 Core 状态过滤；linked 路径在打开的工作区之外时也一样。提交模型的
+`availableRepositoryRoots` 仍只有所选根，目录展开同样携带状态排除集合。
+例如，父根下独立的 `nested/` 仓库不应成为父根的未跟踪行；不要为了单根提交
+把状态扫描也缩成 `[root]`，否则全部暂存会意外生成没有 `.gitmodules` 的
+gitlink（Git 索引中 mode-160000 的仓库引用）。已跟踪的 gitlink 仍由 Core
+原有规则保留，不由界面猜测子模块语义。代价是状态读取前需要一次仓库发现。
+
 提交说明草稿按工作树和工作区会话分别保留，切换详情标签或工作树不会串草稿。
 认证、取消和模块保活仍由父 Git 模型持有；主提交区与工作树提交互斥，同一根的
 ChangeList 值与存储故障状态同步，linked 根单独存储。工作区重置同时使旧提交模型
 失效，旧编辑器任务不能重新打开原路径。代价是在当前工作区会话内缓存访问过的
 工作树提交模型和草稿；不增加新的 Git 提交实现或运行时资源目录。
+互斥必须在模型写入口检查，既覆盖复选框和批量暂存，也覆盖 Diff 的直接文件与
+区块暂存/取消暂存。工作树提交在准备计划时已经持锁，不能只看父模型自身的
+`isCommitting`；否则仍打开的 Diff 会在计划已读取后修改同一个索引。
 
 所有写操作由 `GitFeatureModel` 调用已有 Git service，沿用提交页的暂存、
 取消暂存和回滚语义，不另外拼命令，也不隐式切换活动仓库。执行前核对
@@ -522,6 +534,12 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
   提交范围只包含选中根、ChangeList 独立与主根同步、存储故障和重置隔离。
   `GitStatusObservationTests.realGitWorktreeComposerCommitsOnlySelectedCheckout` 使用
   真实 Git 与 Core 提交 linked 改动，断言主仓库 HEAD 和暂存文件不变。
+  `realGitWorktreeRefreshAndStageAllExcludeIndependentNestedRepositories` 分别在主根
+  与工作区外 linked 根放置独立嵌套仓库，检查首次读取、显式/自动刷新、独立模型
+  刷新、全部暂存及提交不产生意外 gitlink，且嵌套仓库 HEAD/索引不变。
+  `worktreeCommitPreparationBlocksDirectDiffIndexMutations` 用有界 gate 暂停准备好的
+  提交计划，验证父 Diff 的文件与区块暂存/取消暂存不调用 service，释放后提交成功，
+  写入口恢复可用。
   这些测试不替代完整工作台中拖动、确认弹窗及真实推送的人工验收。
 - `DebugModuleTests` 另覆盖上下两个方向的缩页、单条邻居失败后的边缘验证、
   无效补位指令、真实错误保留和验证期间失效；本机 `lldb-dap` 21 的独立 C

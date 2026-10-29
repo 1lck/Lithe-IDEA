@@ -401,6 +401,64 @@ struct GitModuleTests {
     }
 
     @Test
+    func worktreeCommitPreparationBlocksDirectDiffIndexMutations() async throws {
+        let worktree = makeTestWorktree(path: "/workspace/A", branch: "main")
+        let change = GitChange(repositoryRoot: worktree.url, path: "tracked.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: "M")
+        let hunk = DiffHunk(id: "h1", header: "@@ -1 +1 @@", patch: "confirmed patch")
+        let state = try #require(workspacePreparation().session.states["A/B"])
+        let plan = GitWorkspaceCommitPlan(repositories: [GitWorkspaceRepositoryBinding(id: ".", root: worktree.path)],
+            message: "commit", amend: false, push: false, includeParentReferences: true, isRetry: false,
+            orderedIds: ["."], propagatedRelations: [], dependencyRelations: [], states: [".": state],
+            committedIds: [], pendingPushIds: [])
+        let session = GitWorkspaceCommitSession(plan: plan, states: [".": state], results: [:], blocked: [],
+            cursor: 0, commandFailed: false, finished: false, succeeded: false, canRetry: true)
+        let preparation = GitWorkspaceCommitPreparation(session: session, reviewChanged: false, requiresConfirmation: false)
+        var completed = session
+        completed.finished = true; completed.succeeded = true; completed.canRetry = false; completed.cursor = 1
+        completed.results = [".": GitWorkspaceRepositoryResult(committed: true, pushed: false, status: "committed", detail: "")]
+        let prepared = GitModuleTestGate(), releasePreparation = GitModuleTestGate()
+        let probe = WorkspaceCommitProbe(preparations: [preparation], steps: [completed],
+            prepareStarted: prepared, prepareRelease: releasePreparation)
+        let mutations = WorktreeChangesProbe(root: worktree.url, changes: [change])
+        let patches = PushMessageRecorder()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: worktree.url, branch: "main", changes: [change]),
+            repositoryRoots: [worktree.url], applyPatchHandler: { _, _, mode in
+                patches.record(mode)
+                return GitProcessResult(output: "", exitCode: 0)
+            }, stageHandler: { mutations.mutate($0, action: "stage") },
+            unstageHandler: { mutations.mutate($0, action: "unstage") }, workspaceCommitProbe: probe)),
+            worktreesProvider: { _ in [worktree] })
+        feature.configure(workspaceURLProvider: { worktree.url }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let scoped = feature.commitFeature(for: worktree)
+        var succeeded = false
+        let commit = Task { succeeded = await scoped.commitStagedChanges(message: "commit", amend: false) }
+        defer { releasePreparation.open(); commit.cancel(); feature.reset() }
+        try #require(await prepared.waitUntilOpen(), "Scoped commit did not reach its prepared-plan gate")
+        #expect(scoped.isCommitting && !feature.isCommitting && feature.isWorktreeCommitBlocked)
+        #expect(probe.requests.first?.repositories == [GitWorkspaceRepositoryBinding(id: ".", root: worktree.path)])
+        await feature.stageChange(change)
+        await feature.unstageChange(change)
+        await feature.stageDiffHunk(hunk, in: change)
+        await feature.unstageDiffHunk(hunk, in: change)
+        #expect(mutations.calls.isEmpty)
+        #expect(patches.values.isEmpty)
+        releasePreparation.open()
+        try #require(await waitForGitTaskCompletion(commit))
+        #expect(succeeded && probe.stepCount == 1 && !feature.isWorktreeCommitBlocked)
+        await feature.stageChange(change)
+        await feature.unstageChange(change)
+        await feature.stageDiffHunk(hunk, in: change)
+        await feature.unstageDiffHunk(hunk, in: change)
+        #expect(mutations.calls.map(\.action) == ["stage", "unstage"])
+        #expect(patches.values == ["stage", "unstage"])
+    }
+
+    @Test
     func worktreeChangesStageUnstageDiscardUseSelectedCheckoutAndPreserveHistory() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let worktree = makeTestWorktree(path: "/linked", branch: "feature/linked")
@@ -6114,16 +6172,24 @@ private final class WorkspaceCommitProbe: @unchecked Sendable {
     private var recordedSteps = 0
     private let started: GitModuleTestGate?
     private let release: GitModuleTestGate?
+    private let prepareStarted: GitModuleTestGate?
+    private let prepareRelease: GitModuleTestGate?
     init(preparations: [GitWorkspaceCommitPreparation] = [], steps: [GitWorkspaceCommitSession] = [],
-        started: GitModuleTestGate? = nil, release: GitModuleTestGate? = nil) {
+        started: GitModuleTestGate? = nil, release: GitModuleTestGate? = nil,
+        prepareStarted: GitModuleTestGate? = nil, prepareRelease: GitModuleTestGate? = nil) {
         self.preparations = preparations; self.steps = steps
         self.started = started; self.release = release
+        self.prepareStarted = prepareStarted; self.prepareRelease = prepareRelease
     }
     func prepare(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         recordedRequests.append(request)
-        guard !preparations.isEmpty else { return .failure(GitWorkspaceCommitFailure("No scripted preparation")) }
-        return .success(preparations.removeFirst())
+        let preparation = preparations.isEmpty ? nil : preparations.removeFirst()
+        lock.unlock()
+        prepareStarted?.open()
+        guard prepareRelease?.waitSynchronously() ?? true else { return .failure(GitWorkspaceCommitFailure("Preparation gate timed out")) }
+        guard let preparation else { return .failure(GitWorkspaceCommitFailure("No scripted preparation")) }
+        return .success(preparation)
     }
     func step() -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure> {
         started?.open()

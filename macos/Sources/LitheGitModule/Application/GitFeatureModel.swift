@@ -565,12 +565,23 @@ package final class GitFeatureModel: ObservableObject {
         let root = worktree.url.standardizedFileURL
         if let cached = worktreeCommitFeatures[root] { return cached }
         let scoped = GitFeatureModel(service: service, changelistStorage: changelistStorage,
-            snapshotProvider: { [snapshotProvider] requested in
-                guard let snapshot = await snapshotProvider(requested, [root]),
+            snapshotProvider: { [snapshotProvider, repositoryRootsProvider] requested in
+                guard requested.standardizedFileURL == root else { return nil }
+                // Discovered roots exclude nested repositories from status; they
+                // must not become bindings in this checkout's commit plan.
+                let statusRoots = await repositoryRootsProvider(root)
+                guard !Task.isCancelled,
+                      let snapshot = await snapshotProvider(requested, statusRoots),
                       snapshot.repositoryRoot.standardizedFileURL == root else { return nil }
                 return snapshot
             }, stashesProvider: { _ in [] }, operationStateProvider: operationStateProvider,
-            worktreesProvider: { _ in [] }, repositoryRootsProvider: { _ in [root] })
+            worktreesProvider: { _ in [] }, repositoryRootsProvider: { _ in [root] },
+            untrackedDirectoryChildrenProvider: { [untrackedDirectoryChildrenProvider, repositoryRootsProvider] directory in
+                guard directory.repositoryRoot.standardizedFileURL == root else { return nil }
+                let statusRoots = await repositoryRootsProvider(root)
+                guard !Task.isCancelled else { return nil }
+                return await untrackedDirectoryChildrenProvider(directory, statusRoots)
+            })
         scoped.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
             notify: { [weak self] in self?.notify?($0) }, onStateRefreshed: { [weak self] in
                 guard let self else { return }
@@ -1574,7 +1585,7 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func stageChange(_ selectedChange: GitChange) async {
-        guard !isCommitting, selectedChange.canToggleStaging else { return }
+        guard !isCommitting, !isWorktreeCommitBlocked, selectedChange.canToggleStaging else { return }
         let result = await withGitOperation { await service.stage(selectedChange) }
         showResult(result, success: "Staged \(selectedChange.path)")
         await refreshAfterChangeMutation([selectedChange])
@@ -1586,19 +1597,21 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func unstageChange(_ selectedChange: GitChange) async {
-        guard !isCommitting else { return }
+        guard !isCommitting, !isWorktreeCommitBlocked else { return }
         let result = await withGitOperation { await service.unstage(selectedChange) }
         showResult(result, success: "Unstaged \(selectedChange.path)")
         await refreshAfterChangeMutation([selectedChange])
     }
 
     package func stageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
+        guard !isCommitting, !isWorktreeCommitBlocked else { return }
         let result = await withGitOperation { await service.stage(hunk: hunk, of: change) }
         showResult(result, success: "Staged a change block in \(change.path)")
         await refreshAfterChangeMutation([change])
     }
 
     package func unstageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
+        guard !isCommitting, !isWorktreeCommitBlocked else { return }
         let result = await withGitOperation { await service.unstage(hunk: hunk, of: change) }
         showResult(result, success: "Unstaged a change block in \(change.path)")
         await refreshAfterChangeMutation([change])
@@ -2901,6 +2914,14 @@ package final class GitFeatureModel: ObservableObject {
         await refreshGit()
     }
 
+    private func worktreeSnapshot(for root: URL) async -> GitSnapshot? {
+        // A linked checkout outside the open workspace may have its own nested
+        // repositories. Discover exclusions there without changing commit scope.
+        let statusRoots = await repositoryRootsProvider(root)
+        guard !Task.isCancelled else { return nil }
+        return await service.snapshot(for: root, repositoryRoots: statusRoots)
+    }
+
     /// Refresh status only: preserve the loaded history window and its cursor.
     package func refreshWorktreeChanges(_ worktree: GitWorktree, clearingError: Bool = true) async {
         guard !worktree.isPrunable, gitWorktreeInspection?.worktreeID == worktree.id else { return }
@@ -2910,7 +2931,7 @@ package final class GitFeatureModel: ObservableObject {
         let root = gitRepositoryRoot
         isRefreshingWorktreeChanges = true
         defer { if generation == worktreeChangesRequestGeneration { isRefreshingWorktreeChanges = false } }
-        let snapshot = await service.snapshot(for: worktree.url)
+        let snapshot = await worktreeSnapshot(for: worktree.url)
         guard generation == worktreeChangesRequestGeneration, gitRepositoryRoot == root,
               let current = gitWorktreeInspection, current.worktreeID == worktree.id, !Task.isCancelled else { return }
         guard let snapshot, snapshot.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL else {
@@ -2966,7 +2987,7 @@ package final class GitFeatureModel: ObservableObject {
         // from the worktree status scan so a slow or unreadable index cannot
         // keep the commit list behind the loading state.
         async let history = service.history(at: worktree.url, reference: reference, limit: 30)
-        async let snapshot = service.snapshot(for: worktree.url)
+        async let snapshot = worktreeSnapshot(for: worktree.url)
 
         let resolvedHistory = await history
         guard generation == worktreeInspectionRequestGeneration, !Task.isCancelled else {
