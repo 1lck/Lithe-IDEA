@@ -149,9 +149,12 @@ impl PluginHostState {
 
 /// Rescans bundled and installed packages and replaces the cached catalog.
 #[tauri::command]
-pub fn declarative_plugins_rescan(app: AppHandle) -> Result<usize, String> {
-    app.state::<PluginHostState>()
-        .refresh(|| scan::build_catalog(&app))
+pub async fn declarative_plugins_rescan(app: AppHandle) -> Result<usize, String> {
+    crate::blocking::run_blocking(move || {
+        app.state::<PluginHostState>()
+            .refresh(|| scan::build_catalog(&app))
+    })
+    .await
 }
 
 /// Returns the cached scan result. Call `declarative_plugins_rescan` first;
