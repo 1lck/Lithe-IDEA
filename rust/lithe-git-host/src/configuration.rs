@@ -170,4 +170,21 @@ mod tests {
             assert_eq!(forward_slash_path(native), native);
         }
     }
+
+    // Regression: a backslash launch path makes some Windows hosts capture empty Git output, so the
+    // resolved executable must reach the process spawner with forward slashes.
+    #[cfg(windows)]
+    #[test]
+    fn selected_executable_is_resolved_with_forward_slashes() {
+        let file = std::env::temp_dir().join(format!(
+            "lithe-git-host-launch-path-{}.exe",
+            std::process::id()
+        ));
+        std::fs::write(&file, b"").unwrap();
+        let resolved = executable(file.to_str());
+        std::fs::remove_file(&file).unwrap();
+        let resolved = resolved.unwrap().to_string_lossy().into_owned();
+        assert!(!resolved.contains('\\'), "{resolved}");
+        assert!(resolved.ends_with(".exe"), "{resolved}");
+    }
 }
