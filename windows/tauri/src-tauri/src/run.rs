@@ -21,6 +21,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::blocking::run_blocking;
+
 mod launch_arguments;
 
 const MAVEN_LAUNCHERS: &[&str] = &["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"];
@@ -521,14 +523,22 @@ pub struct PreLaunchOutcome {
 }
 
 #[tauri::command]
-pub fn run_list_java_sources(root: PathBuf) -> Result<Vec<String>, String> {
-    let root = existing_directory(&root)?;
+pub async fn run_list_java_sources(root: PathBuf) -> Result<Vec<String>, String> {
+    run_blocking(move || list_java_sources(&root)).await
+}
+
+fn list_java_sources(root: &Path) -> Result<Vec<String>, String> {
+    let root = existing_directory(root)?;
     lithe_core::execution::list_run_java_sources(&root, MAX_JAVA_SOURCES)
         .map_err(|error| error.message)
 }
 
 #[tauri::command]
-pub fn run_write_documents(args: WriteDocumentsArgs) -> Result<(), String> {
+pub async fn run_write_documents(args: WriteDocumentsArgs) -> Result<(), String> {
+    run_blocking(move || write_run_documents(args)).await
+}
+
+fn write_run_documents(args: WriteDocumentsArgs) -> Result<(), String> {
     let root = existing_directory(&args.root)?;
     if args.documents.is_empty() || args.documents.len() > 3 {
         return Err("A run configuration save must contain one to three documents.".into());
@@ -551,20 +561,24 @@ pub fn run_write_documents(args: WriteDocumentsArgs) -> Result<(), String> {
     write_document_transaction(&prepared, atomic_write)
 }
 
+/// Probing runs `mvn -version` and `java -version` on every candidate.
 #[tauri::command]
-pub fn run_discover_toolchains(
+pub async fn run_discover_toolchains(
     root: PathBuf,
     java_home_path: Option<String>,
     maven_executable_path: Option<String>,
     runtime_executable_paths: Option<HashMap<String, String>>,
 ) -> Result<DiscoveredToolchains, String> {
-    let project_root = existing_directory(&root).ok();
-    Ok(discover_toolchains_with_overrides(
-        project_root.as_deref(),
-        java_home_path.as_deref(),
-        maven_executable_path.as_deref(),
-        runtime_executable_paths.as_ref(),
-    ))
+    run_blocking(move || {
+        let project_root = existing_directory(&root).ok();
+        Ok(discover_toolchains_with_overrides(
+            project_root.as_deref(),
+            java_home_path.as_deref(),
+            maven_executable_path.as_deref(),
+            runtime_executable_paths.as_ref(),
+        ))
+    })
+    .await
 }
 
 /// Resolves the Maven this workspace would run without launching any process.
@@ -577,9 +591,18 @@ pub fn run_discover_toolchains(
 /// Candidate order matches `resolve_maven_executable`, so project import and
 /// builds agree on one Maven.
 #[tauri::command]
-pub fn maven_resolve_installation(root: PathBuf, override_path: Option<String>) -> Option<String> {
-    let root = existing_directory(&root).ok()?;
-    maven_executable_without_probing(&root, override_path.as_deref())
+pub async fn maven_resolve_installation(
+    root: PathBuf,
+    override_path: Option<String>,
+) -> Option<String> {
+    run_blocking(move || {
+        Ok(existing_directory(&root)
+            .ok()
+            .and_then(|root| maven_executable_without_probing(&root, override_path.as_deref())))
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 fn maven_executable_without_probing(root: &Path, override_path: Option<&str>) -> Option<String> {
@@ -634,7 +657,11 @@ fn is_maven_wrapper(path: &Path) -> bool {
 }
 
 #[tauri::command]
-pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
+pub async fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
+    run_blocking(move || resolve_launch(args)).await
+}
+
+fn resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
     let root = existing_directory(&args.root)?;
     let working_directory = resolve_working_directory(&root, &args.working_directory)?;
     let java_home = resolve_java_home(&root, &args.java_home_path)?;
@@ -1170,6 +1197,7 @@ pub fn cleanup_legacy_appdata(app: &AppHandle) {
     }
 }
 
+
 fn workspace_relative(root: &Path, path: &Path) -> Option<String> {
     path.strip_prefix(root)
         .ok()
@@ -1202,6 +1230,16 @@ fn validate_write_target(root: &Path, target: &Path) -> Result<(), String> {
         return Err("Refusing to write outside the project directory.".into());
     }
     Ok(())
+}
+
+// Background saves share filenames and rollback snapshots across run and Maven settings.
+// Hold this guard for the whole transaction, never only the final rename.
+static CONFIGURATION_TRANSACTION: Mutex<()> = Mutex::new(());
+
+pub(crate) fn configuration_transaction() -> std::sync::MutexGuard<'static, ()> {
+    CONFIGURATION_TRANSACTION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
 pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
@@ -1299,6 +1337,7 @@ fn write_document_transaction<F>(
 where
     F: FnMut(&Path, &[u8]) -> Result<(), String>,
 {
+    let _transaction = configuration_transaction();
     let snapshots = documents
         .iter()
         .map(|(path, _)| {
@@ -2840,6 +2879,10 @@ mod tests {
         ];
         let mut writes = 0;
         let result = write_document_transaction(&documents, |path, contents| {
+            assert!(
+                CONFIGURATION_TRANSACTION.try_lock().is_err(),
+                "save and rollback must retain the transaction"
+            );
             writes += 1;
             if writes == 2 {
                 return Err("injected second write failure".into());
@@ -2873,6 +2916,10 @@ mod tests {
         ];
         let mut writes = 0;
         let result = write_document_transaction(&documents, |path, contents| {
+            assert!(
+                CONFIGURATION_TRANSACTION.try_lock().is_err(),
+                "save and rollback must retain the transaction"
+            );
             writes += 1;
             if writes == 3 {
                 return Err("injected third write failure".into());
@@ -3172,7 +3219,7 @@ mod tests {
         fs::create_dir_all(root.join("target/classes")).unwrap();
         fs::write(root.join("src/main/java/App.java"), "class App {}").unwrap();
         fs::write(root.join("target/classes/Skip.java"), "class Skip {}").unwrap();
-        let paths = run_list_java_sources(root.clone()).expect("list");
+        let paths = list_java_sources(&root).expect("list");
         assert_eq!(paths, vec!["src/main/java/App.java"]);
         fs::remove_dir_all(root).ok();
     }
@@ -3274,7 +3321,7 @@ mod tests {
         }
         let maven = root.join("mvn.cmd");
         fs::write(&maven, b"fixture").unwrap();
-        let resolved = run_resolve_launch(ResolveLaunchArgs {
+        let resolved = resolve_launch(ResolveLaunchArgs {
             root: root.clone(),
             executable: LaunchExecutable {
                 toolchain: Some("project-maven".into()),

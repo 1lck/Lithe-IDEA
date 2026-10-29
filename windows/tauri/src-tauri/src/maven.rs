@@ -9,6 +9,7 @@
 //! is cleared at startup, so a crash cannot leave trees behind or feed an old
 //! tree to a later session.
 
+use crate::blocking::run_blocking;
 use crate::run::{atomic_write, resolve_java_home, resolve_maven_executable};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -66,33 +67,42 @@ pub struct WriteMavenConfigurationArgs {
 }
 
 #[tauri::command]
-pub fn maven_load_configuration(
+pub async fn maven_load_configuration(
     app: AppHandle,
     root: PathBuf,
     reactor_path: String,
 ) -> Result<MavenStoredConfiguration, String> {
-    let root = existing_directory(&root)?;
-    let portable = read_optional::<MavenPortableConfiguration>(&portable_path(&root))?;
-    let local = read_optional::<MavenLocalConfiguration>(&local_path(&app, &root, &reactor_path)?)?;
-    validate_versions(portable.as_ref(), local.as_ref())?;
-    Ok(MavenStoredConfiguration { portable, local })
+    run_blocking(move || {
+        let _transaction = crate::run::configuration_transaction();
+        let root = existing_directory(&root)?;
+        let portable = read_optional::<MavenPortableConfiguration>(&portable_path(&root))?;
+        let local =
+            read_optional::<MavenLocalConfiguration>(&local_path(&app, &root, &reactor_path)?)?;
+        validate_versions(portable.as_ref(), local.as_ref())?;
+        Ok(MavenStoredConfiguration { portable, local })
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn maven_write_configuration(
+pub async fn maven_write_configuration(
     app: AppHandle,
     args: WriteMavenConfigurationArgs,
 ) -> Result<(), String> {
-    let root = existing_directory(&args.root)?;
-    validate_versions(
-        args.configuration.portable.as_ref(),
-        args.configuration.local.as_ref(),
-    )?;
-    write_optional(&portable_path(&root), args.configuration.portable.as_ref())?;
-    write_optional(
-        &local_path(&app, &root, &args.reactor_path)?,
-        args.configuration.local.as_ref(),
-    )
+    run_blocking(move || {
+        let _transaction = crate::run::configuration_transaction();
+        let root = existing_directory(&args.root)?;
+        validate_versions(
+            args.configuration.portable.as_ref(),
+            args.configuration.local.as_ref(),
+        )?;
+        write_optional(&portable_path(&root), args.configuration.portable.as_ref())?;
+        write_optional(
+            &local_path(&app, &root, &args.reactor_path)?,
+            args.configuration.local.as_ref(),
+        )
+    })
+    .await
 }
 
 /// Arguments for resolving the configuration a Maven launch would use. Every

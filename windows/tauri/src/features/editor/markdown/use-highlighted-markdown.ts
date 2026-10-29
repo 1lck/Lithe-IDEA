@@ -6,6 +6,7 @@ import { parseMarkdown, type ParseMarkdownOptions } from "./parser";
 export function useHighlightedMarkdown(
   content: string | null | undefined,
   options?: ParseMarkdownOptions,
+  highlight: (html: string) => Promise<string> = highlightMarkdownCodeBlocks,
 ) {
   const { t } = useTranslation();
   const frontMatter = options?.frontMatter;
@@ -18,21 +19,32 @@ export function useHighlightedMarkdown(
   useEffect(() => {
     let cancelled = false;
 
-    setHtml(parsedHtml);
     if (!parsedHtml) {
+      setHtml(parsedHtml);
       return undefined;
     }
+    // Keep the current preview until the edited document is highlighted too.
+    // Showing the plain HTML in between rebuilt and laid out the whole preview
+    // twice per edit; only an empty preview shows it first.
+    setHtml((current) => current || parsedHtml);
 
-    void highlightMarkdownCodeBlocks(parsedHtml).then((highlightedHtml) => {
-      if (!cancelled) {
-        setHtml(highlightedHtml);
-      }
-    });
+    void highlight(parsedHtml).then(
+      (highlightedHtml) => {
+        if (!cancelled) {
+          setHtml(highlightedHtml);
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setHtml(parsedHtml);
+        }
+      },
+    );
 
     return () => {
       cancelled = true;
     };
-  }, [parsedHtml]);
+  }, [parsedHtml, highlight]);
 
   return html;
 }

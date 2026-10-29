@@ -58,6 +58,7 @@ let semanticResultGate: Promise<void> | undefined;
 let releaseSemanticResult: (() => void) | undefined;
 let onSemanticRequest: (() => void) | undefined;
 let semanticRefreshOnReady = false;
+let eventsAroundReady: { before: unknown[]; after: unknown[] } = { before: [], after: [] };
 let releaseInitialization: (() => void) | undefined;
 
 /** A queued semantic outcome that Core reports as a structured request error. */
@@ -273,8 +274,10 @@ const executeCore = mock(
             id: request.id,
             ok: true as const,
             data: { events: [
+              ...eventsAroundReady.before,
               ...readyEvents(sessionId),
               ...(semanticRefreshOnReady ? [{ type: "semanticTokensRefresh", sessionId }] : []),
+              ...eventsAroundReady.after,
             ] },
           };
         }
@@ -463,6 +466,7 @@ describe("Rust Core LSP adapter failures", () => {
     releaseSemanticResult = undefined;
     onSemanticRequest = undefined;
     semanticRefreshOnReady = false;
+    eventsAroundReady = { before: [], after: [] };
     releaseInitialization = undefined;
     releaseRuntimeReady = undefined;
     emit.mockClear();
@@ -1574,6 +1578,45 @@ describe("Rust Core LSP adapter failures", () => {
     semanticRefreshOnReady = true;
     await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath: "C:/work/Main.java", languageId: "java", serverPath: "java-lsp" });
     expect(emit).toHaveBeenCalledWith("lsp://semantic-tokens-refresh", { sessionId: "java-session", workspacePath: "C:/work" });
+  });
+
+  test("forwards one Core drain of diagnostics as one batch with the newest set per document", async () => {
+    scenario = "semantic-request";
+    const published = (uri: string, version: number, message: string) => ({
+      type: "diagnostics",
+      sessionId: "java-session",
+      uri,
+      version,
+      diagnostics: [{ range: { start: { line: 0, utf16Column: 2 } }, message }],
+    });
+    eventsAroundReady = {
+      before: [published("file:///C:/work/Early.java", 1, "early")],
+      after: [
+        published("file:///C:/work/Main.java", 1, "first"),
+        published("file:///C:/work/Other.java", 1, "other"),
+        published("file:///C:/work/Main.java", 2, "second"),
+      ],
+    };
+    await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath: "C:/work/Main.java", languageId: "java", serverPath: "java-lsp" });
+
+    const forwarded = (emit.mock.calls as unknown as [string, unknown][]).filter(([event]) =>
+      event === "lsp://diagnostics" || event === "lsp://language-lifecycle");
+    // Diagnostics that arrived before the session became ready stay ahead of
+    // that lifecycle event; the rest of the drain follows as a single batch.
+    expect(forwarded.map(([event]) => event)).toEqual([
+      "lsp://diagnostics",
+      "lsp://language-lifecycle",
+      "lsp://diagnostics",
+    ]);
+    expect(forwarded[0][1]).toEqual({
+      publications: [{ uri: "file:///C:/work/Early.java", version: 1, diagnostics: [{ range: { start: { line: 0, character: 2 } }, message: "early" }] }],
+    });
+    expect(forwarded[2][1]).toEqual({
+      publications: [
+        { uri: "file:///C:/work/Main.java", version: 2, diagnostics: [{ range: { start: { line: 0, character: 2 } }, message: "second" }] },
+        { uri: "file:///C:/work/Other.java", version: 1, diagnostics: [{ range: { start: { line: 0, character: 2 } }, message: "other" }] },
+      ],
+    });
   });
 
   test("discards semantic colors from a replaced file attachment", async () => {
