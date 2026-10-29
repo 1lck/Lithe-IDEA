@@ -70,7 +70,7 @@ HTTP 请求不带 ACP 会话 ID。请求开始时，如果恰好只有一个未�
 - 写入时机：轮次结束（正常完成、请求失败、断连收尾）以及轮次结束后才到达的迟到调用；运行中的轮次只在结束后计入，记录与上次相同时不重复写。
 - 不重复计数：`beginLoad` 本来就会丢弃内存里的轮次和调用重新开始，基线又已包含它们，所以同一会话反复加载不会叠加。保存失败或没有工作区时，退回只统计本次连接。
 - 所有权与位置：存储端口 `AgentSessionStatisticsPersisting`（LitheCoreContracts），格式由对话模块拥有；macOS 适配器 `MacAgentSessionStatisticsPersistence` 存进平台偏好 `lithe.agent-statistics.v1.<SHA256(工作区路径+Agent ID)>`，和历史元数据同一处。每个工作区+Agent 一份文档，最多保留最近更新的 200 个会话，最旧的先淘汰；文档损坏时当作空，下次写入覆盖。
-- 运行时只读边界：只写用户偏好，不写 app bundle、安装目录或 Agent 自己的文件，不影响代码签名和 Sparkle delta；它是用户状态，不是构建资源，不进 `scripts/worktree-resources.json`。
+- 运行时只读边界：只写用户偏好，不写 app bundle、安装目录或 Agent 自己的文件，不影响代码签名和 Sparkle delta；它是用户状态，不是构建资源，不进 `scripts/resources/worktree-resources.json`。
 - 上下文占用：保存最近一次真实 `usage_update` 及确认的模型选项，不把累计计费量当占用。加载完成后只恢复模型一致的报告，界面不加来源后缀，内部仍记录历史来源；回放新报告优先，包括无效/未知报告。运行中的更新随轮次结束保存，空闲时迟到的报告立即保存；模型切换单独清除已保存快照，不提前保存运行中计数。零使用量是有效报告，未上报是未知，旧版记录仍可读取但不能补出占用。
 - 不保存：每轮明细（逐轮耗时标签）只属于本次连接，历史回放不编造耗时。Lithe 之外创建、未曾收到并保存实际报告的会话没有本地上下文快照；固定 Codex 适配器可经原生恢复通知补齐，其他 Agent 仍等待自己的上报。该原生兼容路径不经过模型调用代理，也不依赖 API Key。
 - Agent 没有提供删除会话的接口，Lithe 只能隐藏，因此记录靠数量上限回收，而不是随删除清理。
@@ -132,10 +132,10 @@ Claude Code 会在会话开始时自己发一次“起标题”请求（系统�
 ## 验证
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-agent-host model_`：压缩/分片与字节级透传、预热不计数、完整/增量上下文、未知前序降级、超限及连接清理；三种协议的 SSE/非流式解析、格式漂移降级、上下文分配、代理透传（含 API Key 头与响应字节不变）、令牌路径隔离、上游不可达，以及会话归属与 `modelCall` 事件形状。
-- `./scripts/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentSessionSelectorLayoutTests|WorkbenchHoverTooltipTests"`：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、重新加载后按已保存合计继续累加且不重复计数、辅助请求不抵消缺失 usage、只有辅助请求时的 Token 显示与持久化、旧统计文档兼容、损坏文档与 200 条上限、ACP 用量的缓存口径判断，以及悬停卡片布局。
-- `node --test scripts/test-codex-config-relay.mjs`：订阅路由证明、未知/受限/失败/迟到账户结果不得开启观察，账户变更关闭连接。
+- `./scripts/macos/test/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentSessionSelectorLayoutTests|WorkbenchHoverTooltipTests"`：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、重新加载后按已保存合计继续累加且不重复计数、辅助请求不抵消缺失 usage、只有辅助请求时的 Token 显示与持久化、旧统计文档兼容、损坏文档与 200 条上限、ACP 用量的缓存口径判断，以及悬停卡片布局。
+- `node --test scripts/agent/test-codex-config-relay.mjs`：订阅路由证明、未知/受限/失败/迟到账户结果不得开启观察，账户变更关闭连接。
 - 原生订阅集成测试（显式设置 LITHE_CODEX_OBSERVATION_CLI 后运行忽略测试）：隔离 CODEX_HOME、假凭据、本地假账户与模型服务，经过真实原生中继完成两轮 WebSocket 请求，确认预热排除、用量与上下文构成；不调用真实模型。
-- `./scripts/verify-runtime-bundle-immutability.sh`：代理不向安装目录写入任何内容。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：代理不向安装目录写入任何内容。
 
 ## 适用范围
 

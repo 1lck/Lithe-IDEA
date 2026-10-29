@@ -1,9 +1,11 @@
+//! Resolves native Git metadata ownership for nested repositories and linked workspaces.
+
 use lithe_core::execute_json;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::Command;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 struct GitFixture {
     root: PathBuf,
@@ -30,29 +32,37 @@ impl Drop for GitFixture {
     }
 }
 
-fn git(directory: &Path, arguments: &[&str]) -> Output {
-    Command::new("git")
-        .args(arguments)
-        .current_dir(directory)
-        .output()
-        .expect("git should be available")
+fn git(directory: &Path, arguments: &[&str]) -> Vec<u8> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let output = lithe_git_host::run(
+        Command::new("git").args(arguments).current_dir(directory),
+        None,
+        || Instant::now() >= deadline,
+        || {},
+        |_, _| {},
+    );
+    assert!(
+        output.failure.is_none() && output.status.is_some_and(|status| status.success()),
+        "git {} failed: {:?}; stderr: {}",
+        arguments.join(" "),
+        output.failure,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.stdout
 }
 
 fn require_git(directory: &Path, arguments: &[&str]) {
-    let output = git(directory, arguments);
-    assert!(
-        output.status.success(),
-        "git {} failed: {}",
-        arguments.join(" "),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    git(directory, arguments);
 }
 
 fn initialize_repository(root: &Path) {
     fs::create_dir_all(root).expect("repository should be creatable");
-    require_git(root, &["init", "-q"]);
-    require_git(root, &["config", "user.email", "tests@lithe.local"]);
-    require_git(root, &["config", "user.name", "Lithe Tests"]);
+    require_git(root, &["init", "-q", "-b", "main"]);
+    // Keep identity/signing fixture-local without two extra native processes per repository.
+    let config = root.join(".git/config");
+    let mut contents = fs::read_to_string(&config).expect("Git configuration should exist");
+    contents.push_str("\n[user]\n\temail = tests@lithe.local\n\tname = Lithe Tests\n[commit]\n\tgpgsign = false\n");
+    fs::write(config, contents).expect("fixture identity should be writable");
     fs::write(root.join("tracked.txt"), "initial\n").expect("tracked fixture should be writable");
     require_git(root, &["add", "tracked.txt"]);
     require_git(root, &["commit", "-q", "-m", "initial"]);
@@ -60,13 +70,7 @@ fn initialize_repository(root: &Path) {
 
 fn absolute_git_path(root: &Path, arguments: &[&str]) -> String {
     let output = git(root, arguments);
-    assert!(
-        output.status.success(),
-        "git {} failed: {}",
-        arguments.join(" "),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let path = String::from_utf8(output.stdout)
+    let path = String::from_utf8(output)
         .expect("Git path should be UTF-8")
         .trim()
         .to_string();
@@ -88,6 +92,7 @@ fn watch_context(root: &Path) -> Value {
     let request = json!({
         "id": "git-watch-context",
         "command": "git.watchContext",
+        "timeoutMilliseconds": 5000,
         "payload": { "root": root }
     });
     serde_json::from_str(&execute_json(

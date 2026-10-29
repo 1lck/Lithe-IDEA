@@ -18,6 +18,7 @@ macOS 与 Windows 都提供原生列表界面，提交范围的检查由同一�
 
 - 双端的普通批量暂存与提交范围说明放在 ChangeList 选择器的悬停提示中，不常驻占用文件列表高度；Windows 配置不可用等实际错误仍以 `alert` 显示。缩减说明只改变呈现，不改变暂存与提交范围校验。
 - 列表名称、当前选择和文件归属属于本地界面状态；Windows 沿用 Zustand 状态库与 WebView 存储适配器，macOS 通过 Git 模块的存储接口注入偏好存储适配器。两端仅将用户分组投影成允许或排除路径，Core 独占提交是否安全的判断。按工作区路径隔离列表；文件归属同时包含所属仓库根和仓库相对路径，工作树和同名文件不串组。
+- macOS Worktrees 的更改页复用同一列表管理及范围检查，但模型固定在选中工作树的唯一根目录，不发现同级或嵌套仓库。主工作区根也出现在 Worktrees 时，两处共享该存储键的列表值和故障状态；linked 工作树使用独立键。主提交与工作树提交互斥，提交在途不允许另一处修改同根列表或启动批量暂存；详情标签切换保留各自草稿，工作区重置使旧模型失效。
 - Windows 每个工作区使用独立的持久化键；每次动作重新读取并只写目标工作区，禁止用窗口内存中的整个工作区表覆盖共享存储。旧版整表按工作区读取，第一次保存写入新键，旧键保留为迁移备份；新键损坏不能回退到旧快照。存储事件和窗口重新获得焦点时刷新当前工作区，刷新监听由视图创建并在卸载时移除。
 - 默认列表接收未分配的新路径。用户选择的当前列表限定本次批量暂存和提交范围；新建列表不会自动搬入已有文件。支持创建、重命名、删除确认，以及右键将多选文件移动到其它列表，Windows 的目录菜单同时支持移动目录内文件。macOS 按仓库、列表分组展示文件，原未跟踪文件保留各行的新增状态。
 - 勾选仍是真实 Git index（暂存区）状态。单文件和分组勾选可以操作对应文件；仓库级和顶部批量按钮只影响当前列表。提交说明生成和文件数量只使用当前列表的已暂存文件。macOS 在读取差异前保存分组选择版本和当前暂存路径集合，读取完成和 AI 返回时都重新核对；切换分组（包括切走再切回）或修改文件归属后丢弃旧结果。
@@ -44,6 +45,7 @@ macOS 与 Windows 都提供原生列表界面，提交范围的检查由同一�
 当前列表提交前，用户需要取消其它列表的暂存勾选；Lithe 不自动整理索引。列表删除后，原文件归入默认列表，确认提示明确告知其可能被默认列表的批量暂存包含。
 Windows 元数据存于现有 WebView 用户数据中以 `git-local-changelists-workspace-v1:` 开头的工作区键，旧的 `git-local-changelists-v1` 整表只作为迁移读取来源；macOS 通过 `MacGitChangelistStorage` 保存到用户偏好的 `lithe.git.local-changelists.v1:` 工作区键，由 Git 模块通过接口读写；生命周期跨重启，仅保存在本机，不写入仓库、app bundle 或安装目录，不影响签名和 Sparkle delta。
 本次不新增下载、解压、构建缓存或可复用资源目录；这些可变用户偏好不能作为 worktree 构建资源复制或共享。
+Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitParentReferences`，默认都开启，只出现在 Windows，macOS 没有对应设置。关闭 `showGitChangelists` 会隐藏 ChangeList 选择器、新建/重命名/删除按钮和变更树里的列表分组节点，并把所有变更视为默认列表：当前列表、“其它列表已暂存”的提交保护和 `pathScope` 都按空分配计算，因此不再缩小提交范围。已保存的分配不会被删除，重新开启后继续生效；关闭期间存储不可用的提示也不再阻止提交。关闭 `showGitParentReferences` 只隐藏栏里的“更新父仓库引用”勾选，提交时按默认值开启处理，不会因为看不到选项而让引用更新悄悄关闭。提交确认面板里的父仓库引用开关不受这两个设置影响。
 未传 `pathScope` 的旧客户端保留原提交行为。两端目标系统上的原生界面、构建及安装包验收仍待运行验证；代码存在不等于功能矩阵的 verified。
 
 ## 验证
@@ -53,7 +55,7 @@ Windows 元数据存于现有 WebView 用户数据中以 `git-local-changelists-
 - `macos/Tests/LitheTests/MacGitChangelistStorageTests.swift`：偏好持久化、工作区隔离、损坏数据保留和写入失败。
 - `macos/Tests/LitheTests/CommitWorkflowChangelistTests.swift`：用有界测试闸门控制差异读取和 AI 返回，在选择变化后阻止旧说明回填或弹出替换确认。
 - `macos/Tests/LitheTests/GitChangeSectionsCacheTests.swift`：移动文件后缓存重新分组并保留所有列表可见。
-- `./scripts/test-macos.sh` 与 macOS 稳定性计时入口需在固定的 Swift 6.3.3 工具链运行。
+- `./scripts/macos/test/test-macos.sh` 与 macOS 稳定性计时入口需在固定的 Swift 6.3.3 工具链运行。
 
 - `windows/tauri/src/features/git/stores/git-changelists.store.test.ts`：两个已初始化实例交错保存后第三个实例重载、旧格式迁移、加载前禁用保护、干净路径保留、工作区/仓库/工作树隔离、重命名、损坏与保存失败、共享范围夹具。
 - `windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx`：批量暂存保护与单分组勾选。
@@ -62,7 +64,7 @@ Windows 元数据存于现有 WebView 用户数据中以 `git-local-changelists-
 - `rust/lithe-core/src/tests/git_workspace_commit.rs`：真实 Git 拦截范围外暂存、不改变索引和工作树、保留部分暂存、刷新前重命名。
 - `shared/fixtures/git/local-changelist-scope-v1.json`：前端范围生成与共享 Core 使用相同样例。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --platform all`。
-- `./scripts/verify-windows-boundaries.sh`、`./scripts/verify-shared-contracts.sh`、`./scripts/verify-runtime-bundle-immutability.sh`、`./scripts/verify-agent-notes.sh`、`./scripts/verify-platform-feature-matrix.sh`。
+- `./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 ## 适用范围
 
@@ -78,6 +80,8 @@ Windows 元数据存于现有 WebView 用户数据中以 `git-local-changelists-
 - `windows/tauri/src/features/git/components/git-changelist-bar.tsx`
 - `windows/tauri/src/features/git/components/status/git-status-panel.tsx`
 - `windows/tauri/src/features/git/components/git-commit-panel.tsx`
+- `windows/tauri/src/features/settings/components/tabs/git-settings.tsx`
+- `windows/tauri/src/features/git/components/git-view.tsx`
 - `rust/lithe-core/src/git/workspace_commit/path_scope.rs`
 - `rust/lithe-core/src/git/commit_state.rs`
 - `shared/contracts/rust-core-api.md`

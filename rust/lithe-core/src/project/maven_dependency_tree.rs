@@ -19,8 +19,8 @@ use crate::protocol::{
     CoreError, ErrorCode, MavenDependenciesResponse, MavenDependencyResolutionResponse,
     MavenDependencyResponse,
 };
+use crate::remote::workspace_io::File;
 use serde::Deserialize;
-use std::fs::File;
 use std::io::{BufRead, BufReader, ErrorKind, Read};
 use std::path::Path;
 

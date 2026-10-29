@@ -48,6 +48,7 @@ import {
   type PathTreeNode,
 } from "@/features/sidebar/lib/path-tree";
 import { getBaseName, joinPath } from "@/utils/path-helpers";
+import { normalizeRepositoryPath } from "../../api/git-repository-path";
 import { createStash } from "../../api/git-stash-api";
 import {
   addPathsToGitignore,
@@ -85,6 +86,7 @@ import { GitFileItem } from "./git-status-file-item";
 import { IDEA_CHECKBOX_CLASS_NAME } from "../../utils/idea-control-styles";
 import { useGitStatusExpandableHint } from "./use-git-status-expandable-hint";
 import { useTreeContentWidth } from "../../hooks/use-tree-content-width";
+import { buildGitRepositoryColorMap } from "../../utils/git-repository-colors";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 
 interface GitStatusPanelProps {
@@ -94,9 +96,13 @@ interface GitStatusPanelProps {
   changelists?: LocalChangelists;
   onMoveToChangelist?: (files: GitFile[], id: string) => void;
   changelistsDisabled?: boolean;
+  /** Settings `showGitChangelists`: renders each ChangeList as a group node, or omits the nodes. */
+  showChangelistGroups?: boolean;
   stagingDisabled?: boolean;
   files: GitFile[];
   repositoryCount?: number;
+  /** Full workspace repository list; colors follow its order, as on macOS. */
+  repositoryPaths?: string[];
   collapsedFolders: ReadonlySet<string>;
   onCollapsedFoldersChange: (folders: Set<string>) => void;
   collapsedSections: ReadonlySet<string>;
@@ -247,9 +253,11 @@ const GitStatusPanel = ({
   changelists,
   onMoveToChangelist,
   changelistsDisabled = false,
+  showChangelistGroups = true,
   stagingDisabled = false,
   files,
   repositoryCount = 1,
+  repositoryPaths,
   collapsedFolders,
   onCollapsedFoldersChange,
   collapsedSections,
@@ -274,10 +282,8 @@ const GitStatusPanel = ({
   const fileTreePresentation = useFileTreePresentation();
   const deleteFile = useFileSystemStore((state) => state.deleteFile);
   const contextMenu = useDropdownMenu<ContextMenuState>();
-  const diffMenuAnchorRef = useRef<HTMLDivElement>(null);
   const statusViewportRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isDiffMenuOpen, setIsDiffMenuOpen] = useState(false);
   const [isViewOptionsOpen, setIsViewOptionsOpen] = useState(false);
   const viewOptionsAnchorRef = useRef<HTMLDivElement>(null);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
@@ -349,6 +355,10 @@ const GitStatusPanel = ({
     visibleFiles,
     displayFileByPath,
   } = useMemo(() => buildGitStatusPresentation(displayFiles), [displayFiles]);
+  const repositoryColorByKey = useMemo(
+    () => buildGitRepositoryColorMap(repositoryPaths ?? []),
+    [repositoryPaths],
+  );
   const repositoryGroups = useMemo(
     () => groupGitFilesByRepository(visibleFiles, repoPath),
     [visibleFiles, repoPath],
@@ -483,14 +493,18 @@ const GitStatusPanel = ({
       fileCount: number,
       tree: GitFolderTree | null,
       groupedFiles: Record<GitStatusGroup, GitFile[]>,
+      childDepth: number,
     ) => {
       if (fileCount === 0) return;
-      rows.push({ kind: "section", key: `${section}:header`, section, count: fileCount });
-      if (collapsedSections.has(section)) return;
+      // Without ChangeList groups there is no group header to collapse; a collapse
+      // remembered from before the groups were hidden must not hide the files.
+      if (showChangelistGroups) {
+        rows.push({ kind: "section", key: `${section}:header`, section, count: fileCount });
+        if (collapsedSections.has(section)) return;
+      }
 
       if (gitChangesFolderView && tree) {
-        for (const node of tree.nodes)
-          appendTreeNode(node, GIT_STATUS_SECTION_CHILD_DEPTH, section);
+        for (const node of tree.nodes) appendTreeNode(node, childDepth, section);
         return;
       }
 
@@ -500,16 +514,24 @@ const GitStatusPanel = ({
           key: `${section}:${file.status}:${file.staged ? "staged" : "unstaged"}:${file.path}`,
           section,
           file,
-          depth: GIT_STATUS_SECTION_CHILD_DEPTH,
+          depth: childDepth,
           showDirectory: true,
           reserveDisclosureSpace: true,
         });
       }
     };
 
+    const showsRepositoryRows = repositoryCount > 1 || repositoryGroups.length > 1;
+    // Files sit one level under their ChangeList group; with no group they sit under
+    // the repository row, or at the root when there is no repository row either.
+    const childDepth = showChangelistGroups
+      ? GIT_STATUS_SECTION_CHILD_DEPTH
+      : showsRepositoryRows
+        ? 1
+        : 0;
     for (const group of repositoryGroups) {
       const key = `repository:${group.repoPath}`;
-      if (repositoryCount > 1 || repositoryGroups.length > 1) {
+      if (showsRepositoryRows) {
         rows.push({
           kind: "repository",
           key,
@@ -519,7 +541,7 @@ const GitStatusPanel = ({
         if (collapsedSections.has(key)) continue;
       }
       for (const section of sections.filter((section) => section.repoPath === group.repoPath)) {
-        appendSection(section.id, section.files.length, section.tree, section.grouped);
+        appendSection(section.id, section.files.length, section.tree, section.grouped, childDepth);
       }
     }
     return rows;
@@ -531,6 +553,7 @@ const GitStatusPanel = ({
     repositoryGroups,
     repositoryCount,
     sections,
+    showChangelistGroups,
   ]);
 
   const hasVisibleFiles = visibleFiles.length > 0;
@@ -1017,7 +1040,8 @@ const GitStatusPanel = ({
         onToggle={() => toggleSectionCollapsed(section)}
         onDoubleClick={() => toggleSectionCollapsed(section)}
         variant="idea"
-        label={<span className="font-semibold">{title}</span>}
+        // macOS draws only the repository row bold; the ChangeList row is regular weight.
+        label={<span>{title}</span>}
         // IntelliJ appends the grey "N files" count right after the node name.
         description={t("git.diffFileCount", { count, plural: count === 1 ? "" : "s" })}
         leadingAction={
@@ -1291,7 +1315,12 @@ const GitStatusPanel = ({
           variant="idea"
           label={<span className="font-semibold">{name}</span>}
           description={row.count}
-          leading={<FolderOpen className="file-tree-node-icon text-subtle-foreground" />}
+          leading={
+            <FolderOpen
+              className="file-tree-node-icon text-subtle-foreground"
+              style={{ color: repositoryColorByKey.get(normalizeRepositoryPath(row.repoPath)) }}
+            />
+          }
           className="h-full py-0.5"
           style={{ height: fileTreePresentation.rowHeight }}
           title={row.repoPath}
@@ -1495,13 +1524,11 @@ const GitStatusPanel = ({
   const contextMenuRepositories = groupGitFilesByRepository(contextMenuFiles, repoPath);
   const openScopedDiff = useCallback(
     (scope: GitStatusDiffScope) => {
-      setIsDiffMenuOpen(false);
       onViewDiff?.(scope);
     },
     [onViewDiff],
   );
   const openDiffPicker = useCallback((handler: (() => void) | undefined) => {
-    setIsDiffMenuOpen(false);
     handler?.();
   }, []);
   const diffMenuItems = useMemo<MenuItem[]>(
@@ -1622,27 +1649,6 @@ const GitStatusPanel = ({
         >
           <Eye />
         </SidebarHeaderIconButton>
-        <div ref={diffMenuAnchorRef} className="flex shrink-0">
-          <SidebarHeaderIconButton
-            onClick={() => setIsDiffMenuOpen((open) => !open)}
-            disabled={isLoading}
-            active={isDiffMenuOpen}
-            tooltip={t("git.chooseDiffSource")}
-            aria-label={t("git.chooseDiffSource")}
-            aria-haspopup="menu"
-            aria-expanded={isDiffMenuOpen}
-          >
-            <GitDiff />
-          </SidebarHeaderIconButton>
-        </div>
-        <Dropdown
-          isOpen={isDiffMenuOpen}
-          anchorRef={diffMenuAnchorRef}
-          anchorAlign="start"
-          onClose={() => setIsDiffMenuOpen(false)}
-          items={diffMenuItems}
-          className="min-w-37.5"
-        />
         <div ref={viewOptionsAnchorRef} className="flex shrink-0">
           <SidebarHeaderIconButton
             onClick={() => setIsViewOptionsOpen((open) => !open)}
@@ -1683,6 +1689,15 @@ const GitStatusPanel = ({
               },
             })),
             { id: "sep-actions", label: "", separator: true, onClick: () => {} },
+            // macOS has no standalone diff-source toolbar button, so the choice lives here.
+            {
+              id: "diff-source",
+              label: t("git.chooseDiffSource"),
+              icon: <GitDiff />,
+              disabled: isLoading,
+              onClick: () => {},
+              children: diffMenuItems,
+            },
             {
               id: "unstage",
               label: t(changelists ? "git.changelists.unstageActive" : "git.unstageAllChanges"),

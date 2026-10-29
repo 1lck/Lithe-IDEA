@@ -225,9 +225,9 @@ re-entry 统一走 `WorkflowActionPorts.swift` 协议。
 
 ## 验证
 
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-rust-core.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/rust-core/verify-rust-core.sh`
 
 `verify-service-boundaries.sh` 会拒绝 Core/Services 中的平台 import 和
 具体适配器引用、View 对 workflow service 的直接依赖、`AppModel` 中的
@@ -244,4 +244,4 @@ diff、working-tree diff、worktrees、branch switcher）对聚合对象的反�
 - `macos/Sources/Lithe/Core/Ports/`
 - `macos/Sources/Lithe/Core/Rust/`
 - `macos/Sources/Lithe/Platform/MacOS/`
-- `scripts/verify-service-boundaries.sh`
+- `scripts/architecture/verify-service-boundaries.sh`

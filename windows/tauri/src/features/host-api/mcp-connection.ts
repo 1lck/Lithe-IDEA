@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@/platform/tauri-core";
+import { openIdeConnection, ideRequestTime } from "@/platform/ide-request-events";
 import { hostControl, IdeCapabilities, type IdePermissions } from "./ide-capabilities";
 
 import { McpConnectionManager, type McpConnectionState } from "./mcp-lifecycle";
@@ -14,8 +15,8 @@ const manager = new McpConnectionManager(
       new IdeCapabilities(workspaceID, root, permissions),
     paths: () => invoke("ide_host_paths"),
     control: hostControl,
-    schedule: (callback) => setTimeout(callback, 200),
-    cancel: (timer) => clearTimeout(timer),
+    now: ideRequestTime,
+    open: openIdeConnection,
   },
   (state) => useMcpConnections.setState(state),
 );

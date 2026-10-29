@@ -206,6 +206,8 @@ export const defaultSettings: Settings = {
   autoRefreshGitStatus: true,
   showUntrackedFiles: true,
   showStagedFirst: true,
+  showGitChangelists: true,
+  showGitParentReferences: true,
   gitDefaultDiffView: "unified",
   openDiffOnClick: true,
   showGitStatusInFileTree: true,

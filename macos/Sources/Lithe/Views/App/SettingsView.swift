@@ -108,6 +108,9 @@ struct SettingsView: View {
                 minimum: Self.categoryMinimumWidth,
                 maximum: Self.categoryMaximumWidth,
                 flexibleMinimum: Self.contentMinimumWidth,
+                // The footer is 50pt plus its 1pt divider. Settings pages scroll
+                // inside this known minimum instead of sizing the window.
+                idealSize: CGSize(width: 900, height: 617),
 
                 onCommit: { categorySidebarWidth = Double($0) },
                 sized: { categories },
@@ -124,6 +127,7 @@ struct SettingsView: View {
                 .ignoresSafeArea()
         }
         .onAppear {
+            SettingsPageLatencyTrace.installIfEnabled()
             expandGroup(containing: viewState.selection)
             syncVisibilityDrafts()
             model.refreshAIConfigurations()
@@ -201,13 +205,17 @@ struct SettingsView: View {
     }
 
     private var categoryNodes: [LitheTreeListNode] {
-        SettingsSidebarItem.layout.flatMap { item -> [LitheTreeListNode] in
+        // Plugin discovery can inspect settings and executables. Share one
+        // current result among all groups in this sidebar construction.
+        let contributedPages = filteredContributedPages
+        let categories = filteredCategories
+        return SettingsSidebarItem.layout.flatMap { item -> [LitheTreeListNode] in
             switch item {
             case .page(let category):
-                return filteredCategories.contains(category) ? [categoryNode(category)] : []
+                return categories.contains(category) ? [categoryNode(category)] : []
             case .group(let group):
-                let visible = group.categories.filter { filteredCategories.contains($0) }
-                let pages = filteredContributedPages.filter { $0.group == group }
+                let visible = group.categories.filter { categories.contains($0) }
+                let pages = contributedPages.filter { $0.group == group }
                 guard !visible.isEmpty || !pages.isEmpty else { return [] }
                 return [LitheTreeListNode(id: "group:" + group.rawValue,
                     isExpanded: expandedSidebarGroups.contains(group.rawValue) || !viewState.searchQuery.isEmpty,
@@ -263,6 +271,7 @@ struct SettingsView: View {
 
     private func categoryNode(_ category: SettingsCategory, nested: Bool = false) -> LitheTreeListNode {
         LitheTreeListNode(id: "page:" + category.id, onSelect: {
+            SettingsPageLatencyTrace.selected(category.id)
             isSearchFocused = false; viewState.contributedPageID = nil; viewState.selection = category
         }) {
             HStack(spacing: 8) {

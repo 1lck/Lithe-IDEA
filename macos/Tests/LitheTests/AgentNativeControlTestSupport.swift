@@ -26,6 +26,21 @@ enum AgentNativeControlTestSupport {
         throw MissingControl()
     }
 
+    /// Whether the product control reports itself as usable, after it has published a frame.
+    static func isEnabled(_ identifier: String, in view: NSView) async throws -> Bool {
+        _ = try await frame(of: identifier, in: view)
+        let application = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        application.accessibilitySetValue(true, forAttribute: attribute)
+        defer { application.accessibilitySetValue(previous, forAttribute: attribute) }
+        guard let control = elements(in: view).first(where: { $0.accessibilityIdentifier?() == identifier }) else {
+            Issue.record("The native control \(identifier) disappeared before its state was read")
+            throw MissingControl()
+        }
+        return control.isAccessibilityEnabled?() ?? true
+    }
+
     private struct MissingControl: Error {}
 
     private static func elements(in element: Any) -> [AnyObject] {

@@ -4,6 +4,7 @@ import LitheGitModule
 
 struct GitChangelistBar: View {
     @ObservedObject var feature: GitFeatureModel
+    var showsParentReferences = true
     @Environment(\.locale) private var locale
     @State private var editing = false
     @State private var editingID: String?
@@ -52,9 +53,11 @@ struct GitChangelistBar: View {
                     .accessibilityLabel("Delete ChangeList")
             }
             .disabled(feature.changelistEditingDisabled)
-            Toggle("Update parent repository references", isOn: $feature.includeChangelistParentReferences)
-                .toggleStyle(.checkbox).font(.caption)
-                .disabled(feature.changelistEditingDisabled)
+            if showsParentReferences {
+                Toggle("Update parent repository references", isOn: $feature.includeChangelistParentReferences)
+                    .toggleStyle(.checkbox).font(.caption)
+                    .disabled(feature.changelistEditingDisabled)
+            }
             if let error = feature.changelistCommitError {
                 Text(LocalizedStringKey(error)).font(.caption).foregroundStyle(LitheTheme.warning)
             }

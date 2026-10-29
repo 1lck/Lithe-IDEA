@@ -152,13 +152,13 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 
 ## 验证
 
-- `./scripts/verify-shared-contracts.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib native_ui_validates_version_ownership_actions_and_budgets`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginNativeUI|PluginWeb|WorkbenchContributionHostTests'`
 - `LITHE_PLUGIN_SDK_ROOT=<lithe-plugin-docs/sdk/node> node --test macos/Tests/Fixtures/native-ui-lab/native-ui-lab.test.mjs`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
 ## 适用范围
 

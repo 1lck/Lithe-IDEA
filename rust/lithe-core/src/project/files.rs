@@ -8,10 +8,10 @@ use crate::protocol::{
     ReplacementPreviewResponse, SearchMatch, SearchResponse, WorkspaceNode,
     WorkspaceSnapshotResponse,
 };
+use crate::remote::workspace_io as fs;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Default workspace exclusions, also used by Git discovery for generated directories.
@@ -33,6 +33,17 @@ pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     "design-qa-artifacts",
     ".artifacts",
 ];
+/// Whether an ordinary workspace event belongs to visible project inputs.
+/// Callers first relativize to the most specific explicitly watched root; native
+/// event-loss flags always bypass this filter and request recovery.
+pub fn is_workspace_event_relevant(relative: &str) -> bool {
+    !relative.split(['/', '\\']).any(|component| {
+        BUILT_IN_HIDDEN_DIRECTORIES
+            .iter()
+            .any(|name| component.eq_ignore_ascii_case(name))
+    })
+}
+
 /// File names omitted from workspace snapshots, search, and related scans.
 const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store"];
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
@@ -1086,7 +1097,7 @@ pub(crate) fn is_nested_linked_worktree(directory: &Path) -> bool {
         return false;
     };
     let (Ok(main_worktree), Ok(directory)) =
-        (main_worktree.canonicalize(), directory.canonicalize())
+        (fs::canonicalize(main_worktree), fs::canonicalize(directory))
     else {
         return false;
     };
@@ -1120,7 +1131,7 @@ fn existing_root(value: &str) -> Result<PathBuf, CoreError> {
             "Workspace root must be a directory",
         ));
     }
-    path.canonicalize().map_err(CoreError::from)
+    fs::canonicalize(path).map_err(CoreError::from)
 }
 
 fn safe_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError> {
@@ -1132,7 +1143,7 @@ fn safe_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError> {
         ));
     }
     let path = root.join(relative);
-    let canonical = path.canonicalize().map_err(CoreError::from)?;
+    let canonical = fs::canonicalize(path).map_err(CoreError::from)?;
     if !canonical.starts_with(root) {
         return Err(CoreError::new(
             ErrorCode::PermissionDenied,
@@ -1153,12 +1164,12 @@ fn writable_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError
     let path = root.join(relative);
     if let Some(parent) = path.parent() {
         let mut existing_parent = parent;
-        while !existing_parent.exists() {
+        while !fs::try_exists(existing_parent)? {
             existing_parent = existing_parent.parent().ok_or_else(|| {
                 CoreError::new(ErrorCode::PermissionDenied, "Path is outside the workspace")
             })?;
         }
-        let canonical_parent = existing_parent.canonicalize().map_err(CoreError::from)?;
+        let canonical_parent = fs::canonicalize(existing_parent).map_err(CoreError::from)?;
         if !canonical_parent.starts_with(root) {
             return Err(CoreError::new(
                 ErrorCode::PermissionDenied,
@@ -1173,7 +1184,7 @@ fn writable_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError
                 "Path is outside the workspace",
             ));
         }
-        let canonical = path.canonicalize().map_err(CoreError::from)?;
+        let canonical = fs::canonicalize(&path).map_err(CoreError::from)?;
         if !canonical.starts_with(root) {
             return Err(CoreError::new(
                 ErrorCode::PermissionDenied,
@@ -1527,4 +1538,32 @@ pub(crate) fn is_plain_text(text: &str) -> bool {
 
 fn is_word_character(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '_' || character == '$'
+}
+
+#[cfg(test)]
+mod event_filter_tests {
+    use super::*;
+
+    #[test]
+    fn shared_workspace_change_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/workspace/change-filter-v1.json"
+        ))
+        .unwrap();
+        let paths: Vec<String> = serde_json::from_value(fixture["paths"].clone()).unwrap();
+        let retained: Vec<_> = paths
+            .iter()
+            .filter(|path| is_workspace_event_relevant(path))
+            .collect();
+        assert_eq!(serde_json::to_value(retained).unwrap(), fixture["expected"]);
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({
+                "id": "filter", "command": "workspace.filterChanges", "payload": paths
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"], fixture["expected"]);
+    }
 }

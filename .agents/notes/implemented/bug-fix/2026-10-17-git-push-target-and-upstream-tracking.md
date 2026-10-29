@@ -58,7 +58,7 @@ macOS 的界面（推送弹窗与提交并推送审阅单）已接入，但**尚
 - `macos/Tests/LitheTests/GitPushDialogPresentationTests.swift` 覆盖弹窗状态：异名上游在选择前不可推送、选择绑定到看到的目的地并在目的地变化时作废、推送发出的恰是审阅的预览与选择、被拒绝后重新加载并显示原因、没有新提交的发布分支仍可推送、无内容时不可推送、选中提交会加载其改动文件。
 - `macos/Tests/LitheGitModuleTests/GitModuleTests.swift` 覆盖：预览与审阅后的推送经服务层透传，推送失败显示原因并清除忙碌状态；“提交并推送”在 Core 不要求确认时也先停在审阅单、不执行任何步骤；异名问题阻止继续、答案随请求与后续确认一起发给 Core、问题被再次提出时旧答案作废；`pushTargets` 与 `pushTargetQuestions` 的线格式往返。
 - `AppLocalizationTests.pushDestinationUsesTheRequestedLanguage` 覆盖弹窗新增文案的中英文。
-- 运行 `scripts/verify-platform-feature-matrix.sh`、`scripts/verify-agent-notes.sh`、`cargo test --manifest-path rust/lithe-core/Cargo.toml --test git_push` 与 `--lib git`。macOS 通过 `scripts/test-macos.sh --no-parallel --filter` 运行了上述相关套件（Rust Core 已链接）；完整套件在本机并行运行时有与本变更无关的超时类用例失败，未作为通过依据。Windows 真机界面未在本次变更中运行。
+- 运行 `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/agent-notes/verify-agent-notes.sh`、`cargo test --manifest-path rust/lithe-core/Cargo.toml --test git_push` 与 `--lib git`。macOS 通过 `scripts/macos/test/test-macos.sh --no-parallel --filter` 运行了上述相关套件（Rust Core 已链接）；完整套件在本机并行运行时有与本变更无关的超时类用例失败，未作为通过依据。Windows 真机界面未在本次变更中运行。
 
 ## 适用范围
 

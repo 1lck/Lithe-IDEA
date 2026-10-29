@@ -12,6 +12,35 @@ struct RunLaunchEnvironmentTests {
     private let projectURL = URL(fileURLWithPath: "/fixture-project", isDirectory: true)
 
     @Test
+    func sharedWorkspaceChangeFilterCrossesTheNativeBridge() throws {
+        struct Fixture: Decodable { let paths: [String]; let expected: [String] }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/workspace/change-filter-v1.json")))
+        let actual: [String] = try RustCoreBridge().executeResult(
+            command: "workspace.filterChanges", payload: fixture.paths
+        ).get()
+        #expect(actual == fixture.expected)
+    }
+
+    @Test
+    func sharedCoreLaunchEnvironmentRetainsSelectionAndExplicitOverrides() throws {
+        let core = RustCoreBridge()
+        let selected = try core.resolveLaunchEnvironment(
+            toolchain: "project-maven", selectedHome: "/fixture/jdk21",
+            inherited: ["JAVA_HOME": "/fixture/jdk8", "PATH": "/fixture/bin"], overrides: [:]
+        )
+        #expect(selected["JAVA_HOME"] == "/fixture/jdk21")
+        #expect(selected["PATH"] == "/fixture/bin")
+        let overridden = try core.resolveLaunchEnvironment(
+            toolchain: "project-maven", selectedHome: "/fixture/jdk21",
+            inherited: selected, overrides: ["JAVA_HOME": "/fixture/explicit"]
+        )
+        #expect(overridden["JAVA_HOME"] == "/fixture/explicit")
+    }
+
+    @Test
     func guiLaunchPathReachesTheDiscoveredNodeInterpreter() {
         let environment = RunLaunchEnvironment.augmenting(
             ["PATH": "/usr/bin:/bin"],
@@ -107,16 +136,20 @@ struct RunLaunchEnvironmentTests {
         #expect(environment["PATH"] == "/custom/node/bin:/usr/bin:/bin:/fixture-node/bin:/opt/homebrew/bin")
     }
 
-    @Test
-    func missingPathIsCreatedFromTheSystemAndResolvedDirectories() {
+    @Test(arguments: [nil, "", "/explicit/bin"] as [String?])
+    func missingPathUsesOnlyTheInjectedSystemDefault(path: String?) {
+        var original = ["HOME": "/Users/fixture"]
+        original["PATH"] = path
         let environment = RunLaunchEnvironment.augmenting(
-            ["HOME": "/Users/fixture"],
+            original,
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/pnpm"),
             nodeCandidates: [],
-            projectURL: projectURL
+            projectURL: projectURL,
+            defaultSearchPath: "/fixture-system/bin:/fixture-system/sbin"
         )
 
-        #expect(environment["PATH"] == "/usr/bin:/bin:/opt/homebrew/bin")
+        let prefix = path == nil ? "/fixture-system/bin:/fixture-system/sbin:" : (path == "" ? "" : path! + ":")
+        #expect(environment["PATH"] == prefix + "/opt/homebrew/bin")
         #expect(environment["HOME"] == "/Users/fixture")
     }
 
@@ -156,12 +189,12 @@ struct RunLaunchEnvironmentTests {
         #expect(resolved.environment["PATH"] == "\(tools.path):/usr/bin:/bin:/fixture-node/bin")
     }
 
-    @Test
+    @Test(arguments: [false, true])
     @MainActor
-    func resolverAppliesTheInterpreterDirectoryToNodeToolchains() throws {
+    func resolverAppliesTheInterpreterDirectoryToNodeToolchains(missingPath: Bool) throws {
         let service = ProjectRuntimeService(
             runtimeLocator: RunLaunchPathRuntimeLocator(
-                environmentValues: ["PATH": "/usr/bin:/bin"],
+                environmentValues: missingPath ? [:] : ["PATH": "/usr/bin:/bin"],
                 executablePath: "/unused"
             ),
             store: RunLaunchPathStore(),
@@ -177,7 +210,9 @@ struct RunLaunchEnvironmentTests {
             .resolve(plan, projectURL: projectURL, options: RunOptions())
 
         #expect(resolved.executableURL.path == "/fixture-node/bin/node")
-        #expect(resolved.environment["PATH"] == "/usr/bin:/bin:/fixture-node/bin")
+        #expect(resolved.environment["PATH"] == (missingPath ? "/fixture-system/bin" : "/usr/bin:/bin") + ":/fixture-node/bin")
+        #expect(service.processEnvironment()["PATH"] == (missingPath ? nil : "/usr/bin:/bin"),
+            "Run fallback must not change the environment of terminals or language servers")
     }
 }
 
@@ -186,6 +221,7 @@ private struct RunLaunchPathRuntimeLocator: RuntimeLocator {
     let executablePath: String
 
     func environment() -> [String: String] { environmentValues }
+    func defaultExecutableSearchPath() -> String? { "/fixture-system/bin" }
     func discover() -> RuntimeDiscoveryResult {
         RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
     }

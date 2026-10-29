@@ -34,7 +34,7 @@ struct DesktopIsolationTests {
     // macOS 27 returns NULL from it even for .optionAll and with Screen Recording
     // granted, so there this one check is skipped and reported, while ordering
     // and drawing above still run. CI runs it on macOS 26 whenever the isolation
-    // code changes (scripts/classify-ci-changes.sh). Issue #1278.
+    // code changes (scripts/ci/common/classify-ci-changes.sh). Issue #1278.
     @Test(.enabled(if: windowServerListsWindows(), "WindowServer provides no window list on this macOS version (#1278)"))
     func windowServerPublishesTheIsolatedAlpha() async throws {
         let fixture = presentRedWindow()

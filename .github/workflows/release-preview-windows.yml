@@ -131,7 +131,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          ./scripts/validate-windows-build-caches.ps1 `
+          ./scripts/windows/prepare/validate-windows-build-caches.ps1 `
             -CargoDownloadsOutcome "${{ steps.cargo-download-cache.outcome }}" `
             -CargoBuildOutcome "${{ steps.cargo-build-cache.outcome }}" `
             -CargoBuildHit "${{ steps.cargo-build-cache.outputs.cache-hit }}" `
@@ -183,7 +183,7 @@ jobs:
           } else {
             Write-Output "Packaging an unsigned Windows preview installer."
           }
-          ./scripts/package-windows.ps1 @packageArgs
+          ./scripts/windows/package/package-windows.ps1 @packageArgs
 
       - name: Verify installer checksum
         shell: pwsh

@@ -4255,6 +4255,15 @@ fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
                     .as_bool()
                     .unwrap()
             );
+            // A host-read snapshot uses identical semantics without reopening
+            // a remote document from a UI-thread selection call.
+            let snapshot: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+                "id":"snapshot", "command":"runConfig.selectJava", "payload":{
+                    "requirements": document, "candidates": candidates, "fallbackId": case["fallbackId"]
+                }
+            }).to_string())).unwrap();
+            assert_eq!(snapshot["ok"], true, "{snapshot}");
+            assert_eq!(snapshot["data"], response["data"]);
         }
         assert_eq!(
             fs::read_to_string(&requirements).unwrap(),
@@ -4279,4 +4288,204 @@ fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
             assert_eq!(response["data"]["id"], "env");
         }
     }
+}
+
+#[test]
+fn java_selection_rejects_ambiguous_or_invalid_host_snapshots() {
+    for payload in [
+        serde_json::json!({"root":"/unused","requirements":{"version":1,"toolchains":{}},"candidates":[]}),
+        serde_json::json!({"requirements":{"version":999,"toolchains":{}},"candidates":[]}),
+        serde_json::json!({"requirements":{"toolchains":{}},"candidates":[]}),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"snapshot","command":"runConfig.selectJava","payload":payload
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+    }
+}
+
+#[test]
+fn shared_run_scan_excludes_caches_and_keeps_hidden_sources() {
+    let root = temporary_root("shared-run-scan");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    fs::create_dir_all(&root).unwrap();
+    let _cleanup = Cleanup(root.clone());
+    for path in [
+        ".sources/Main.java",
+        "src/Main.java",
+        ".pytest_cache/Bad.java",
+        "node_modules/Bad.java",
+        "target/Bad.java",
+    ] {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, "class Main {}").unwrap();
+    }
+    let paths = crate::execution::list_run_java_sources(&root, 100).unwrap();
+    assert_eq!(paths, vec![".sources/Main.java", "src/Main.java"]);
+    let call = |command, payload| -> Value {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "scan", "command": command, "payload": payload
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    let generated = call(
+        "runConfig.generate",
+        serde_json::json!({"root": root, "paths": paths}),
+    );
+    let inputs = generated["generated"]["generator"]["inputs"]
+        .as_object()
+        .unwrap();
+    assert!(inputs.contains_key(".sources/Main.java"));
+    assert!(!inputs.keys().any(|path| path.contains("Bad.java")));
+    let mut document = generated["generated"].clone();
+    // A persisted incomplete baseline cannot certify freshness or infer deletion,
+    // even after the previously inaccessible directory becomes readable again.
+    document["generator"]["unreadablePaths"] = serde_json::json!(["blocked"]);
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(root.join(".lithe/run/generated.json"), document.to_string()).unwrap();
+    for full in [false, true] {
+        let inspected = call(
+            "runConfig.inspect",
+            serde_json::json!({"root": root, "checkFingerprint": full}),
+        );
+        assert_eq!(inspected["status"], "ready");
+        assert!(inspected["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "incompleteProjectScan"));
+        assert!(!inspected["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "staleFingerprint"));
+    }
+}
+
+/// Saving a selector never stores an executable, generates a model, or loses local defaults.
+#[test]
+fn build_provider_configurations_persist_before_generation_and_reuse_identity() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/build-provider.json"
+    ))
+    .unwrap();
+    let root = temporary_root("saved-build-provider");
+    fs::create_dir_all(root.join("app")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    let local = root.join(".lithe/run/local.json");
+    fs::write(&local, fixture["unrelated"].to_string()).unwrap();
+    let call = |command: &str, payload: Value| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"saved-provider","command":command,"payload":payload})
+                .to_string(),
+        ))
+        .unwrap()
+    };
+    let save = |reference: Value| {
+        call(
+            "runConfig.createUserConfiguration",
+            serde_json::json!({"root":root,"scope":"local","type":"buildProvider","name":fixture["name"],"build":reference}),
+        )
+    };
+    let saved = save(fixture["reference"].clone());
+    assert_eq!(saved["ok"], true, "{saved}");
+    let mut document: Value =
+        serde_json::from_str(saved["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(document["toolchain"], fixture["unrelated"]["toolchain"]);
+    assert_eq!(
+        document["configurations"][0]["extensions"]["build"],
+        fixture["reference"]
+    );
+    assert!(document["configurations"][0].get("command").is_none());
+    // The Core mutation is read-only until the platform atomically commits it.
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&local).unwrap()).unwrap(),
+        fixture["unrelated"]
+    );
+    document["configurations"][0]["extensions"]["annotations"] =
+        serde_json::json!({"label":"keep user metadata"});
+    fs::write(&local, document.to_string()).unwrap();
+    let inspected = call(
+        "runConfig.inspect",
+        serde_json::json!({"root":root,"checkFingerprint":false}),
+    );
+    assert_eq!(
+        inspected["data"]["status"], fixture["expected"]["inspectionStatus"],
+        "{inspected}"
+    );
+    let resolved = call(
+        "runConfig.resolve",
+        serde_json::json!({"root":root,"toolchainCandidates":[]}),
+    );
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    assert_eq!(
+        resolved["data"]["configurations"].as_array().unwrap().len(),
+        1
+    );
+    assert!(!root.join(".lithe/run/generated.json").exists());
+    let mut changed = fixture["reference"].clone();
+    changed["userArguments"] = serde_json::json!(["new argument"]);
+    let updated = save(changed);
+    assert_eq!(updated["data"]["id"], saved["data"]["id"]);
+    let updated_doc: Value =
+        serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(updated_doc["configurations"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        updated_doc["configurations"][0]["extensions"]["annotations"],
+        serde_json::json!({"label":"keep user metadata"})
+    );
+    for (field, value) in [
+        ("root", serde_json::json!("../escape")),
+        ("root", serde_json::json!("/outside")),
+        ("root", serde_json::json!("app\\bad")),
+        ("projectID", serde_json::json!("")),
+        ("userArguments", serde_json::json!(["bad\u{0}"])),
+        ("userArguments", serde_json::json!(vec!["a"; 65])),
+        ("command", serde_json::json!("java")),
+    ] {
+        let mut invalid = fixture["reference"].clone();
+        invalid[field] = value;
+        assert_eq!(save(invalid)["ok"], false, "{field}");
+    }
+    let mut omitted_arguments = document.clone();
+    omitted_arguments["configurations"][0]["extensions"]["build"]
+        .as_object_mut()
+        .unwrap()
+        .remove("userArguments");
+    fs::write(&local, omitted_arguments.to_string()).unwrap();
+    let normalized = call("runConfig.resolve", serde_json::json!({"root":root}));
+    assert_eq!(normalized["ok"], true, "{normalized}");
+    assert_eq!(
+        normalized["data"]["configurations"][0]["extensions"]["build"]["userArguments"],
+        serde_json::json!([])
+    );
+    let mut invalid = document.clone();
+    invalid["configurations"][0]["command"] = serde_json::json!("java");
+    fs::write(&local, invalid.to_string()).unwrap();
+    assert_eq!(
+        call("runConfig.resolve", serde_json::json!({"root":root}))["ok"],
+        false
+    );
 }

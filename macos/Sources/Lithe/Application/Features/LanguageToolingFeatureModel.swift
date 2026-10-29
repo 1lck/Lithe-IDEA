@@ -13,6 +13,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
     @Published private(set) var catalogSnapshot: LanguageProviderCatalogSnapshot
     @Published private(set) var disabledProviderIDs: Set<String> = []
     @Published private(set) var projectPreparation: ProjectPreparationSnapshot?
+    let projectUsage = LSPProjectUsageModel()
     private var preparationObservation: AnyCancellable?
     private(set) var startupFailures: [String: String] = [:]
 
@@ -64,13 +65,48 @@ final class LanguageToolingFeatureModel: ObservableObject {
         startupFailures.removeAll()
     }
 
+    func projectUsageRequest(workspaceURL: URL?, snapshotID: UUID?) -> LSPProjectUsageRequest {
+        let providers = catalog.descriptors
+            .filter { $0.capabilities.contains(.languageServer) && $0.languageServerLaunch != nil }
+            .map {
+                LSPProjectUsageRequest.Rule(target: .provider($0.id), fileExtensions: $0.fileExtensions,
+                                            fileNames: $0.fileNames, fileNamePrefixes: $0.fileNamePrefixes)
+            }
+        let plugins = OfficialPluginCatalog.entries.map {
+            LSPProjectUsageRequest.Rule(target: .plugin($0.id.rawValue), fileExtensions: Set($0.fileExtensions),
+                                       fileNames: Set($0.projectFileNames))
+        }
+        return LSPProjectUsageRequest(workspaceURL: workspaceURL, snapshotID: snapshotID, rules: providers + plugins)
+    }
+
+    func projectUsageInput(workspaceURL: URL?, snapshot: WorkspaceSnapshot?) -> LSPProjectUsageInput {
+        LSPProjectUsageInput(
+            request: projectUsageRequest(workspaceURL: workspaceURL, snapshotID: snapshot?.id),
+            files: snapshot?.files ?? []
+        )
+    }
+
     func reloadCatalog(for workspaceURL: URL?) {
+        // Runtime/index resets also call resetWorkspaceState while Settings is
+        // still visible. Only a workspace boundary invalidates the usage cache;
+        // otherwise an unchanged .task(id:) would not reload the cleared value.
+        projectUsage.reset()
         self.workspaceURL = workspaceURL?.standardizedFileURL
         // Restore preferences before workspace restoration can activate documents
         // or prewarm Java. Runtime resets must not erase explicit user choices.
         disabledProviderIDs = self.workspaceURL.map { preferences.disabledProviderIDs(for: $0) } ?? []
         resetWorkspaceState()
         let snapshot = catalogSource.load(workspaceURL: workspaceURL)
+        catalogSnapshot = snapshot
+        catalog = snapshot.catalog
+        sessionsProvider()?.updateCatalog(snapshot.catalog)
+    }
+
+    /// Reloads the catalog after the installed plugins changed, keeping the
+    /// workspace's preferences and the state of servers that are still running.
+    func refreshCatalog() {
+        let snapshot = catalogSource.load(workspaceURL: workspaceURL)
+        guard snapshot.catalog.descriptors != catalog.descriptors else { return }
         catalogSnapshot = snapshot
         catalog = snapshot.catalog
         sessionsProvider()?.updateCatalog(snapshot.catalog)

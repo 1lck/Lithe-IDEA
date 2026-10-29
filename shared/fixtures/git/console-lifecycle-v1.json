@@ -241,6 +241,96 @@
       ]
     },
     {
+      "name": "cancelled requests without a command leave no failure row",
+      "steps": [
+        {
+          "event": {
+            "operationId": "superseded",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "superseded",
+            "type": "requestFinished",
+            "error": {
+              "code": "cancelled",
+              "message": "Operation was cancelled"
+            }
+          },
+          "commands": [],
+          "running": [],
+          "errors": [],
+          "roots": [],
+          "states": []
+        }
+      ]
+    },
+    {
+      "name": "a cancelled request keeps the command it had started",
+      "steps": [
+        {
+          "event": {
+            "operationId": "interrupted",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository"
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "interrupted",
+            "type": "started",
+            "invocationId": 1,
+            "workingDirectory": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ]
+          },
+          "commands": [
+            [
+              "fetch",
+              "origin"
+            ]
+          ],
+          "running": [
+            "interrupted"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "interrupted",
+            "type": "requestFinished",
+            "error": {
+              "code": "cancelled",
+              "message": "Operation was cancelled"
+            }
+          },
+          "commands": [
+            [
+              "fetch",
+              "origin"
+            ]
+          ],
+          "running": [],
+          "errors": [
+            "Operation was cancelled"
+          ],
+          "roots": [
+            "/workspace/repository"
+          ],
+          "states": [
+            "unconfirmed"
+          ]
+        }
+      ]
+    },
+    {
       "name": "cleared preflight failures remain hidden",
       "steps": [
         {

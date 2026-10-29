@@ -179,7 +179,7 @@ struct CommitAreaView: View {
     private var canCommit: Bool {
         feature.changelistCommitError == nil && !feature.changelistEditingDisabled && !stagedChanges.isEmpty &&
             !draft.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !feature.isCommitting && !feature.isStagingChanges && feature.pendingSubmoduleCommitPlan == nil && !feature.canRetryWorkspaceCommit
+            !feature.isCommitting && !feature.isStagingChanges && !feature.isWorktreeCommitBlocked && feature.pendingSubmoduleCommitPlan == nil && !feature.canRetryWorkspaceCommit
     }
 
 }

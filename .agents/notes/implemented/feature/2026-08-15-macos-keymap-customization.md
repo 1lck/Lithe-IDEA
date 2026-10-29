@@ -100,12 +100,12 @@ AppKit 重新获得焦点，若内容恰为 `/` 则把插入点放到 `/` 后，
 
 ## 验证
 
-- `./scripts/test-macos.sh`
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/macos/test/test-macos.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - `macos/Tests/LitheTests/KeyboardShortcutTests.swift`
 - `macos/Tests/LitheTests/AppLocalizationTests.swift`
 - `macos/Tests/LitheTests/SearchEverywhereQueryModeTests.swift`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 原生验证步骤：从编辑器、侧栏及第二个项目窗口按 `⇧⌘A`，确认输入聚焦，
 输入 `/run` 过滤操作，Return 只执行一次，Escape 关闭，重开无旧文本；弹窗

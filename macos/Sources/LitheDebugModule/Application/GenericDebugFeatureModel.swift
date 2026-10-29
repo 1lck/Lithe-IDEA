@@ -121,6 +121,20 @@ private struct GenericDebugVariablePageItemFingerprint: Hashable, Sendable {
     let variablesReference: Int
 }
 
+/// The variable tree of the previous stop, kept on screen while the next stop's tree is read.
+///
+/// A step must not blank the Variables panel, so the tree being replaced is frozen here and the
+/// panel keeps reading it until the new one (including every re-expanded node) has fully arrived.
+/// Expansion is carried over by variable *name path* (`["self", "items"]`) because DAP ids
+/// (`variablesReference` and the ids derived from it) are only valid for one stop.
+private struct GenericDebugVariableSnapshot {
+    let variables: [DebugVariable]
+    let children: [String: [DebugVariable]]
+    let expanded: Set<String>
+    let pageStates: [String: GenericDebugVariablePageState]
+    let expandedPaths: Set<[String]>
+}
+
 private struct GenericDebugStartRequest: Equatable, Sendable {
     let fileURL: URL
     let rootURL: URL
@@ -230,6 +244,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var serviceUpdateFailed = false
     @Published public private(set) var updatingServiceSessionID: DebugSessionID?
     private var javaUpdateTargets: [DebugSessionID: JavaDebugLaunchTarget] = [:]
+    /// Sessions whose cleanup already ran, so re-entrant state callbacks cannot repeat it.
+    private var forgottenSessionIDs: Set<DebugSessionID> = []
 
     public func registerJavaUpdateTarget(_ target: JavaDebugLaunchTarget) {
         guard let id = activeSessionID else { return }
@@ -294,7 +310,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if startAdditional(fileURL: request.fileURL, rootURL: request.rootURL,
                      configuration: DebugLaunchConfiguration(
                         name: request.configuration.name, request: request.configuration.request,
-                        arguments: arguments, steppingFilters: request.configuration.steppingFilters)) {
+                        arguments: arguments, steppingFilters: request.configuration.steppingFilters,
+                        adapterProviderID: request.configuration.adapterProviderID,
+                        adapterEndpoint: request.configuration.adapterEndpoint)) {
                 registerJavaUpdateTarget(target)
             }
         } catch {
@@ -305,10 +323,20 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     @Published public private(set) var providerID: String?
-    @Published public private(set) var activeSessionID: DebugSessionID?
+    @Published public private(set) var activeSessionID: DebugSessionID? {
+        didSet {
+            // Instruction addresses belong to one debuggee, so the view follows the session.
+            if oldValue != activeSessionID { disassembly.activate(sessionID: activeSessionID) }
+        }
+    }
     @Published public private(set) var sessionSummaries: [DebugSessionSummary] = []
     @Published public private(set) var targetTitle: String?
-    @Published public private(set) var state: DebugAdapterState = .idle
+    @Published public private(set) var state: DebugAdapterState = .idle {
+        didSet {
+            // Suggestions come from a paused adapter, so they go when it resumes.
+            if state != .paused { consolePrompt.dismiss() }
+        }
+    }
     /// The complete console value used by diagnostics and session snapshots.
     /// UI consumers observe `outputPresentation` so chatty processes do not
     /// invalidate the whole Debug view for every transport chunk.
@@ -352,6 +380,30 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// Prevents overlapping execution requests while the adapter is still
     /// acknowledging the previous step/continue operation.
     @Published public private(set) var isExecutionRequestPending = false
+    /// True while the variable tree of the previous stop is being replaced after a step. The old
+    /// tree stays visible; the JSON view and expansion gestures wait for the swap.
+    @Published public private(set) var isRefreshingVariables = false
+
+    /// A step is in flight, so the previous stop's panels stay on screen and are replaced in
+    /// place by the next stop instead of being blanked and rebuilt.
+    private var retainsInspectionForStep = false
+    /// The previous stop's tree while the live tree below is being rebuilt behind it.
+    private var staleVariables: GenericDebugVariableSnapshot? {
+        didSet {
+            let refreshing = staleVariables != nil
+            if isRefreshingVariables != refreshing { isRefreshingVariables = refreshing }
+        }
+    }
+    /// Name path of every variable of the tree being rebuilt, to match it against the
+    /// expansion of the tree it replaces.
+    private var refreshedVariablePaths: [String: [String]] = [:]
+    /// The automatic-variable results still belong to the previous stop and are updated in place.
+    private var automaticResultsArePreviousStop = false
+    /// The debuggee is running after a step and the panels still show the stop it left. The
+    /// view may dim them; they must not be edited or expanded because the adapter cannot answer.
+    public var isInspectionStale: Bool { canRetainInspection && state == .running }
+    /// Session switches and restarts empty the call stack, which also ends any pending retention.
+    private var canRetainInspection: Bool { retainsInspectionForStep && !stackFrames.isEmpty }
 
     /// Delivers the selected stopped frame to the host editor for source
     /// navigation. The Debug module does not own editor presentation.
@@ -392,6 +444,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private var activeFileURL: URL?
     private var lastStartRequest: GenericDebugStartRequest?
     private var sessionSnapshots: [DebugSessionID: GenericDebugSessionSnapshot] = [:]
+    /// Suggestion popup state for the Debug Console prompt.
+    public let consolePrompt = DebugConsolePromptModel()
+    /// Disassembly, instruction breakpoints and memory for the selected frame.
+    public let disassembly = GenericDebugDisassemblyModel()
+    private var consoleCompletionGeneration = 0
     private var consoleHistoryBySession: [DebugSessionID: [String]] = [:]
     private var consoleHistoryCursorBySession: [DebugSessionID: Int] = [:]
     private var consoleHistoryDraftBySession: [DebugSessionID: String] = [:]
@@ -419,6 +476,17 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         self.breakpointRelocator = breakpointRelocator
         self.steppingFilterResolver = steppingFilterResolver
         self.steppingFilterPersistence = steppingFilterPersistence
+        consolePrompt.provider = { [weak self] text, caret, completion in
+            self?.requestConsoleCompletions(text: text, caret: caret, completion: completion)
+        }
+        disassembly.environment = GenericDebugDisassemblyModel.Environment(
+            session: { [weak self] in self?.activeSession },
+            capabilities: { [weak self] in self?.capabilities ?? .unknown },
+            selectedFrameID: { [weak self] in self?.selectedFrameID },
+            breakpointsChanged: { [weak self] sessionID, breakpoints in
+                self?.sessions.setInstructionBreakpoints(breakpoints, sessionID: sessionID)
+            }
+        )
         sessionSummaries = sessions.sessionSummaries
         sessions.onSessionStateChange = { [weak self] sessionID, providerID, state in
             guard let self else { return }
@@ -426,16 +494,20 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if self.sessionSummaries != summaries {
                 self.sessionSummaries = summaries
             }
-            if self.activeSessionID == sessionID {
+            if self.activeSessionID == sessionID, !summaries.contains(where: { $0.id == sessionID }) {
+                // The manager already closed this session (its parent ended).
+                self.reconcileRemovedSessions()
+            } else if self.activeSessionID == sessionID {
                 self.providerID = providerID
                 self.state = state
                 if state != .paused {
                     self.isExecutionRequestPending = false
                 }
                 if state == .running {
-                    self.clearStoppedInspection()
+                    self.suspendOrClearStoppedInspection()
                 }
                 if state == .terminated || state == .failed {
+                    self.clearStoppedInspection()
                     self.outputPresentation.flush()
                 }
                 self.saveActiveSessionSnapshot()
@@ -446,6 +518,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                     state: state
                 )
             }
+            self.reconcileRemovedSessions()
         }
         sessions.onSessionEvent = { [weak self] sessionID, providerID, event in
             guard let self else { return }
@@ -515,7 +588,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     public var presentedVariables: [DebugVariable] {
         var knownNames = Set<String>()
         var result: [DebugVariable] = []
-        for variable in variables + automaticVariables {
+        for variable in displayedRootVariables + automaticVariables {
             guard knownNames.insert(variable.name).inserted else { continue }
             result.append(variable)
         }
@@ -640,10 +713,61 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             stop()
             return
         }
+        let children = sessions.childSessionIDs(of: sessionID)
         sessions.stop(sessionID: sessionID)
-        sessionSnapshots[sessionID] = nil
+        for stoppedID in children.reversed() + [sessionID] { forgetStoppedSession(stoppedID) }
         sessionSummaries = sessions.sessionSummaries
+        // Stopping a parent may close the child the user was looking at.
+        reconcileRemovedSessions()
+    }
+
+    private func forgetStoppedSession(_ sessionID: DebugSessionID) {
+        guard forgottenSessionIDs.insert(sessionID).inserted else { return }
+        javaUpdateTargets[sessionID] = nil
+        sessionSnapshots[sessionID] = nil
+        disassembly.forget(sessionID: sessionID)
         onSessionStopped?(sessionID)
+    }
+
+    /// Selects the most recent remaining session after the active one went away.
+    /// Returns false when no session is left.
+    @discardableResult
+    private func selectReplacementSession() -> Bool {
+        sessionSummaries = sessions.sessionSummaries
+        guard let replacement = sessionSummaries.last,
+              sessions.select(sessionID: replacement.id) else { return false }
+        activeSessionID = replacement.id
+        providerID = replacement.providerID
+        onSessionSelectionChanged?(replacement.id)
+        publishConsoleHistory(for: replacement.id)
+        restoreSessionSnapshot(replacement.id, summary: replacement)
+        resetInspectionState()
+        if state == .paused {
+            let generation = inspectionGeneration
+            loadStoppedContext(
+                threadID: nil,
+                generation: generation,
+                shouldLoadExceptionInfo: false
+            )
+        }
+        return true
+    }
+
+    /// Releases per-session state for sessions the manager closed on its own, such as the
+    /// children of a parent that ended, and moves selection off a session that is gone.
+    private func reconcileRemovedSessions() {
+        let live = Set(sessions.sessionSummaries.map(\.id))
+        for gone in sessionSnapshots.keys where !live.contains(gone) && gone != activeSessionID {
+            forgetStoppedSession(gone)
+        }
+        sessionSummaries = sessions.sessionSummaries
+        guard let activeSessionID, !live.contains(activeSessionID) else { return }
+        forgetStoppedSession(activeSessionID)
+        if !selectReplacementSession() {
+            // Nothing is left: clear the active session first so stop() only resets the view state.
+            self.activeSessionID = nil
+            stop()
+        }
     }
 
     private func startSession(
@@ -660,7 +784,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         serviceUpdateFailed = false
         lastStartRequest = request
         activeFileURL = request.fileURL
-        providerID = sessionsProviderID(for: fileURL)
+        providerID = configuration.adapterProviderID ?? sessionsProviderID(for: fileURL)
         targetTitle = configuration.name
         replaceOutput(with: "")
         debuggeeOutputNormalizer.reset()
@@ -681,7 +805,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedFrameID = nil
         stoppedFrame = nil
         selectedFrame = nil
-        for index in breakpoints.indices where sessionsProviderID(for: breakpoints[index].fileURL) == providerID {
+        for index in breakpoints.indices where providerHandles(breakpoints[index].fileURL, providerID: providerID) {
             breakpoints[index].verified = false
             breakpoints[index].message = nil
             breakpoints[index].resolvedLine = nil
@@ -689,7 +813,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         do {
             try synchronizeRequestedBreakpoints(for: providerID)
             if !dataBreakpoints.isEmpty {
-                try sessions.setDataBreakpoints(coreDataBreakpoints, for: request.fileURL)
+                try sessions.setDataBreakpoints(coreDataBreakpoints, for: request.fileURL, adapterProviderID: providerID)
             }
             let effectiveConfiguration: DebugLaunchConfiguration
             if providerID == "java", let javaSteppingFilters {
@@ -736,32 +860,20 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         outputPresentation.flush()
         if let activeFileURL {
             dataBreakpoints.removeAll { !$0.canPersist }
-            try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL)
+            try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL, adapterProviderID: providerID)
         }
         if let activeSessionID {
+            let children = sessions.childSessionIDs(of: activeSessionID)
             sessions.stop(sessionID: activeSessionID)
-            sessionSnapshots[activeSessionID] = nil
-            onSessionStopped?(activeSessionID)
+            for childID in children.reversed() { forgetStoppedSession(childID) }
+            forgetStoppedSession(activeSessionID)
+            sessionSummaries = sessions.sessionSummaries
+            // The state callback fired while stopping may already have selected a
+            // replacement or reset the view; do not repeat that work.
+            guard self.activeSessionID == activeSessionID else { return }
         }
         sessionSummaries = sessions.sessionSummaries
-        if let replacement = sessionSummaries.last,
-           sessions.select(sessionID: replacement.id) {
-            activeSessionID = replacement.id
-            providerID = replacement.providerID
-            onSessionSelectionChanged?(replacement.id)
-            publishConsoleHistory(for: replacement.id)
-            restoreSessionSnapshot(replacement.id, summary: replacement)
-            resetInspectionState()
-            if state == .paused {
-                let generation = inspectionGeneration
-                loadStoppedContext(
-                    threadID: nil,
-                    generation: generation,
-                    shouldLoadExceptionInfo: false
-                )
-            }
-            return
-        }
+        if selectReplacementSession() { return }
         activeSessionID = nil
         onSessionSelectionChanged?(nil)
         consoleHistory = []
@@ -789,6 +901,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func reset() {
         javaUpdateTargets.removeAll()
+        forgottenSessionIDs.removeAll()
         serviceUpdateMessage = nil
         serviceUpdateFailed = false
         invalidateInspectionRequests()
@@ -1195,7 +1308,15 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             command == .stepBack || command == .goto {
             isExecutionRequestPending = true
         }
-        session.execute(command, threadID: selectedThreadID)
+        // Only a step lands on a nearby stop worth updating in place; continue, pause, restart
+        // and stop can end anywhere, so they keep the full reset.
+        retainsInspectionForStep = command == .next || command == .stepIn
+            || command == .stepOut || command == .stepBack
+        if disassembly.stepsByInstruction, command == .next || command == .stepIn {
+            session.execute(command, threadID: selectedThreadID, granularity: .instruction)
+        } else {
+            session.execute(command, threadID: selectedThreadID)
+        }
     }
 
     public func updateJavaSteppingFilters(_ filters: DebugSteppingFilters) {
@@ -1240,6 +1361,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 || (command == .pause && state == .running),
               let session = activeSession else { return }
         isExecutionRequestPending = true
+        retainsInspectionForStep = false
         session.execute(
             command,
             threadID: thread.id,
@@ -1266,6 +1388,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func smartStepInto(_ target: DebugStepInTarget) {
         guard let selectedThreadID, let session = activeSession else { return }
+        retainsInspectionForStep = true
         session.execute(.stepIn, threadID: selectedThreadID, targetID: target.id)
     }
 
@@ -1293,6 +1416,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func runToCursor(_ target: DebugGotoTarget) {
         guard let selectedThreadID, let session = activeSession else { return }
+        retainsInspectionForStep = false
         session.execute(.goto, threadID: selectedThreadID, targetID: target.id)
     }
 
@@ -1316,6 +1440,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedThreadID = thread.id
         selectedFrameID = nil
         selectedFrame = nil
+        disassembly.invalidate()
         stackFrames = []
         areFilteredStackFramesExpanded = false
         scopes = []
@@ -1349,15 +1474,28 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectFrame(frame, generation: generation)
     }
 
-    private func selectFrame(_ frame: DebugStackFrame, generation: Int) {
+    /// `preserving` is a step landing: scopes, variables, watches and automatic values of the previous
+    /// stop stay visible and are swapped for the new stop's values as they arrive.
+    private func selectFrame(_ frame: DebugStackFrame, generation: Int, preserving: Bool = false) {
+        let previousScopeName = preserving ? scopes.first(where: { $0.id == selectedScopeID })?.name : nil
         selectedFrameID = frame.id
         selectedFrame = frame
-        scopes = []
-        selectedScopeID = nil
-        resetVariableTree()
-        resetAutomaticVariables()
-        invalidateWatchResults()
+        if preserving {
+            if onAutomaticVariableInspectionRequest == nil {
+                resetAutomaticVariables()
+            } else {
+                automaticExpressionFrameID = nil
+                automaticResultsArePreviousStop = true
+            }
+        } else {
+            scopes = []
+            selectedScopeID = nil
+            resetVariableTree()
+            resetAutomaticVariables()
+            invalidateWatchResults()
+        }
         publishStoppedLocation(frame)
+        disassembly.frameSelected(frame, preservingView: preserving)
         onAutomaticVariableInspectionRequest?(frame)
         refreshWatches()
         guard let session = activeSession else { return }
@@ -1368,12 +1506,15 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             switch result {
             case .success(let scopes):
                 self.scopes = scopes
-                if let scope = scopes.first(where: { !$0.expensive }) ?? scopes.first {
-                    self.selectScope(scope, frameID: frame.id, generation: generation)
+                let kept = previousScopeName.flatMap { name in scopes.first(where: { $0.name == name }) }
+                if let scope = kept ?? scopes.first(where: { !$0.expensive }) ?? scopes.first {
+                    self.selectScope(scope, frameID: frame.id, generation: generation, preserving: preserving)
                 } else {
                     self.resetVariableTree()
                 }
-            case .failure(let error): self.record(error)
+            case .failure(let error):
+                self.record(error)
+                if preserving { self.abandonPreservedInspection() }
             }
         }
     }
@@ -1384,7 +1525,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectScope(scope, frameID: frameID, generation: inspectionGeneration)
     }
 
-    private func selectScope(_ scope: DebugScope, frameID: Int, generation: Int) {
+    private func selectScope(_ scope: DebugScope, frameID: Int, generation: Int, preserving: Bool = false) {
         guard selectedFrameID == frameID, inspectionGeneration == generation else { return }
         selectedScopeID = scope.id
         loadVariables(
@@ -1392,7 +1533,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             namedVariables: scope.namedVariables,
             indexedVariables: scope.indexedVariables,
             frameID: frameID,
-            generation: generation
+            generation: generation,
+            preserving: preserving
         )
     }
 
@@ -1426,8 +1568,15 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
         automaticExpressionFrameID = frameID
         automaticExpressionOrder = orderedExpressions
-        automaticExpressionResults = [:]
-        automaticVariables = []
+        if automaticResultsArePreviousStop {
+            // A step keeps the values of the line it left until each expression is evaluated again.
+            automaticResultsArePreviousStop = false
+            automaticExpressionResults = automaticExpressionResults.filter { orderedExpressions.contains($0.key) }
+            publishAutomaticVariables(orderedExpressions)
+        } else {
+            automaticExpressionResults = [:]
+            automaticVariables = []
+        }
         guard !orderedExpressions.isEmpty else { return }
 
         let generation = inspectionGeneration
@@ -1492,6 +1641,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 } else {
                     // Source-driven evaluation is speculative. Invalid
                     // candidates should not flood the user's Debug Console.
+                    self.automaticExpressionResults.removeValue(forKey: expression)
                     self.publishAutomaticVariables(orderedExpressions)
                 }
             }
@@ -1509,9 +1659,19 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         namedVariables: Int,
         indexedVariables: Int,
         frameID: Int?,
-        generation: Int
+        generation: Int,
+        preserving: Bool = false
     ) {
-        resetVariableTree()
+        if preserving {
+            // The tree being replaced keeps being displayed (and its expansion is remembered by
+            // name path) until the new one has fully arrived behind it.
+            let carried = staleVariables ?? captureVariableTree()
+            clearLiveVariableTree()
+            refreshedVariablePaths = [:]
+            staleVariables = carried
+        } else {
+            resetVariableTree()
+        }
         variablePageStates[Self.rootVariablePageID] = makeVariablePageState(
             reference: reference,
             namedVariables: namedVariables,
@@ -1523,11 +1683,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             generation: generation,
             expandsParent: false
         )
+        commitVariableRefreshIfSettled()
     }
 
     /// Reads the selected paused scope without changing tree expansion or executing target code.
     public func variableJSONSnapshot() async throws -> String {
-        guard state == .paused, let session = activeSession else { throw CancellationError() }
+        guard state == .paused, staleVariables == nil, let session = activeSession else {
+            throw CancellationError()
+        }
         let generation = inspectionGeneration
         let sessionID = activeSessionID
         let frameID = selectedFrameID
@@ -1544,7 +1707,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func toggleVariableExpansion(_ variable: DebugVariable) {
-        guard variable.isExpandable else { return }
+        guard variable.isExpandable, !isVariableTreeBusy else { return }
         if expandedVariableIDs.contains(variable.id) {
             expandedVariableIDs.remove(variable.id)
             return
@@ -1569,6 +1732,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func loadMoreVariables(parentVariableID: String?) {
+        guard !isVariableTreeBusy else { return }
         requestVariablePage(
             parentVariableID: parentVariableID,
             frameID: selectedFrameID,
@@ -1578,23 +1742,27 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func isVariablePageLoading(parentVariableID: String?) -> Bool {
-        loadingVariablePageIDs.contains(variablePageID(parentVariableID))
+        staleVariables == nil && loadingVariablePageIDs.contains(variablePageID(parentVariableID))
     }
 
     public func children(of variable: DebugVariable) -> [DebugVariable] {
-        variableChildren[variable.id] ?? []
+        displayedChildren(of: variable.id) ?? []
     }
 
     public func isVariableExpanded(_ variable: DebugVariable) -> Bool {
-        expandedVariableIDs.contains(variable.id)
+        isDisplayedExpanded(variable.id)
     }
 
     public func isVariableLoading(_ variable: DebugVariable) -> Bool {
-        loadingVariableIDs.contains(variable.id)
+        staleVariables == nil && loadingVariableIDs.contains(variable.id)
     }
+
+    /// The tree on screen belongs to a stop the debuggee has already left, or is being replaced.
+    private var isVariableTreeBusy: Bool { staleVariables != nil || isInspectionStale }
 
     public func setVariable(_ variable: DebugVariable, value: String) {
         guard state == .paused,
+              !isVariableTreeBusy,
               capabilities.supportsSetVariable,
               let containerReference = variable.containerReference,
               let session = activeSession else { return }
@@ -1674,6 +1842,75 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             case .success(let variable):
                 self?.append("\(value) = \(variable.value)\n")
             case .failure(let error): self?.record(error)
+            }
+        }
+    }
+
+    /// Runs one line typed into the Debug Console. A paused session evaluates it in the
+    /// adapter's repl, so debugger commands work as they do in a gdb or lldb prompt.
+    /// Returns false when the line was not accepted, so the caller keeps the draft.
+    public func submitConsoleInput(_ line: String) -> Bool {
+        let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return true }
+        guard state == .paused, let session = activeSession else { return false }
+        recordConsoleExpression(value)
+        append("> \(value)\n")
+        session.evaluateInConsole(value, frameID: selectedFrameID) { [weak self] result in
+            switch result {
+            case .success(let variable):
+                let text = variable.value
+                guard !text.isEmpty else { return }
+                self?.append(text.hasSuffix("\n") ? text : text + "\n")
+            case .failure(let error):
+                self?.append(error.localizedDescription + "\n")
+            }
+        }
+        return true
+    }
+
+    /// Suggestions for the Debug Console line `text` with the caret at `caret`
+    /// (UTF-16 offset from 0). Merges what the adapter proposes with the commands its
+    /// plugin declared, so an adapter without a completions request still completes.
+    /// Calls back on the main actor; a reply made stale by a newer request is dropped.
+    public func requestConsoleCompletions(
+        text: String,
+        caret: Int,
+        completion: @escaping ([DebugConsoleCompletion.Suggestion]) -> Void
+    ) {
+        consoleCompletionGeneration += 1
+        let generation = consoleCompletionGeneration
+        guard state == .paused, let session = activeSession,
+              !text.trimmingCharacters(in: .whitespaces).isEmpty else {
+            completion([])
+            return
+        }
+        let declared = session.consoleCommands
+        func finish(_ items: [DebugCompletionItem]) {
+            guard consoleCompletionGeneration == generation else { return }
+            completion(DebugConsoleCompletion.suggestions(
+                text: text,
+                caret: caret,
+                adapterItems: items,
+                declared: declared
+            ))
+        }
+        guard session.capabilities.supportsCompletionsRequest else {
+            finish([])
+            return
+        }
+        // An adapter that reads a bare word as an expression is asked about the line as a
+        // debugger command, and its answer is moved back onto what the user typed.
+        let request = DebugConsoleCompletion.adapterRequest(
+            text: text,
+            caret: caret,
+            commandPrefix: session.consoleCommandPrefix
+        )
+        session.requestCompletions(request.text, column: request.caret, frameID: selectedFrameID) { result in
+            // A failed request still leaves the declared commands to offer.
+            if case .success(let items) = result {
+                finish(DebugConsoleCompletion.restoring(items, shift: request.shift))
+            } else {
+                finish([])
             }
         }
     }
@@ -1773,6 +2010,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedFrameID = nil
         stoppedFrame = nil
         selectedFrame = nil
+        disassembly.invalidate()
         threads = []
         stoppedThreadIDs = []
         stackFrames = []
@@ -1785,8 +2023,25 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     private func clearStoppedInspection() {
+        retainsInspectionForStep = false
         invalidateInspectionRequests()
         resetInspectionState()
+    }
+
+    /// A step resumed the debuggee: the panels keep showing the stop it left (the view dims them)
+    /// until the next stop replaces their contents in place. Anything else clears them.
+    private func suspendOrClearStoppedInspection() {
+        guard canRetainInspection else {
+            clearStoppedInspection()
+            return
+        }
+        // Freeze at resume, not when scopes arrive: old references must stay read-only
+        // throughout the threads -> stack -> scopes refresh, including its paused interval.
+        if staleVariables == nil { staleVariables = captureVariableTree() }
+        // Answers still in flight belong to the stop being left and must not land in the new one.
+        invalidateInspectionRequests()
+        if !loadingVariablePageIDs.isEmpty { loadingVariablePageIDs = [] }
+        if !loadingVariableIDs.isEmpty { loadingVariableIDs = [] }
     }
 
     private func saveActiveSessionSnapshot() {
@@ -1943,8 +2198,17 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
     }
 
+    /// Whether an installed debug provider handles this file.
+    public func hasDebugProvider(for fileURL: URL) -> Bool {
+        sessions.provider(for: fileURL) != nil
+    }
+
     private func sessionsProviderID(for fileURL: URL) -> String? {
         sessions.provider(for: fileURL)?.id
+    }
+
+    private func providerHandles(_ fileURL: URL, providerID: String?) -> Bool {
+        providerID.flatMap { sessions.provider(id: $0) }?.matches(fileURL) == true
     }
 
     private func consume(_ event: DebugAdapterEvent) {
@@ -1960,6 +2224,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         case .stopped(let reason, let threadID, let description):
             outputPresentation.flush()
             isExecutionRequestPending = false
+            // A step lands a few instructions or lines away, so the panels keep the previous
+            // stop and are replaced in place as each answer arrives instead of blanking first.
+            let preserving = canRetainInspection
+            if preserving, staleVariables == nil { staleVariables = captureVariableTree() }
             let generation = beginInspectionTransition()
             if let threadID {
                 stoppedThreadIDs.insert(threadID)
@@ -1968,23 +2236,29 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             }
             stoppedReason = description ?? reason
             exceptionInfo = nil
-            selectedThreadID = threadID
-            selectedFrameID = nil
-            selectedFrame = nil
-            threads = []
-            stackFrames = []
-            areFilteredStackFramesExpanded = false
-            scopes = []
-            resetVariableTree()
-            resetAutomaticVariables()
-            invalidateWatchResults()
+            if preserving {
+                selectedThreadID = threadID ?? selectedThreadID
+            } else {
+                selectedThreadID = threadID
+                selectedFrameID = nil
+                selectedFrame = nil
+                disassembly.invalidate()
+                threads = []
+                stackFrames = []
+                areFilteredStackFramesExpanded = false
+                scopes = []
+                resetVariableTree()
+                resetAutomaticVariables()
+                invalidateWatchResults()
+            }
             if reason == "exception", let threadID {
                 loadExceptionInfo(threadID: threadID, generation: generation)
             }
             loadStoppedContext(
                 threadID: threadID,
                 generation: generation,
-                shouldLoadExceptionInfo: reason == "exception" && threadID == nil
+                shouldLoadExceptionInfo: reason == "exception" && threadID == nil,
+                preserving: preserving
             )
         case .continued(let threadID):
             isExecutionRequestPending = false
@@ -1993,13 +2267,21 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             } else {
                 stoppedThreadIDs = []
             }
-            clearStoppedInspection()
+            suspendOrClearStoppedInspection()
         case .terminated(let exitCode):
             isExecutionRequestPending = false
             clearStoppedInspection()
             if let exitCode { append("Debug session exited with code \(exitCode).\n") }
             outputPresentation.flush()
         case .breakpoint(let resolved):
+            if let reference = resolved.instructionReference {
+                disassembly.resolveBreakpoint(
+                    reference: reference,
+                    verified: resolved.verified,
+                    message: resolved.message
+                )
+                return
+            }
             if let dataID = resolved.dataID,
                let index = dataBreakpoints.firstIndex(where: { $0.dataID == dataID }) {
                 dataBreakpoints[index].verified = resolved.verified
@@ -2023,10 +2305,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
     }
 
+    /// `preserving` keeps the previous stop's panels on screen until each answer replaces them.
     private func loadStoppedContext(
         threadID: Int?,
         generation: Int,
-        shouldLoadExceptionInfo: Bool
+        shouldLoadExceptionInfo: Bool,
+        preserving: Bool = false
     ) {
         guard let session = activeSession else { return }
         session.requestThreads { [weak self] result in
@@ -2045,18 +2329,30 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                             generation: generation
                         )
                     }
-                    self.loadStoppedStack(threadID: selectedThreadID, generation: generation)
+                    self.loadStoppedStack(
+                        threadID: selectedThreadID,
+                        generation: generation,
+                        preserving: preserving
+                    )
+                } else if preserving {
+                    self.abandonPreservedInspection()
                 }
             case .failure(let error):
                 self.record(error)
                 if let threadID {
-                    self.loadStoppedStack(threadID: threadID, generation: generation)
+                    self.loadStoppedStack(
+                        threadID: threadID,
+                        generation: generation,
+                        preserving: preserving
+                    )
+                } else if preserving {
+                    self.abandonPreservedInspection()
                 }
             }
         }
     }
 
-    private func loadStoppedStack(threadID: Int, generation: Int) {
+    private func loadStoppedStack(threadID: Int, generation: Int, preserving: Bool = false) {
         activeSession?.requestStackTrace(threadID: threadID) { [weak self] result in
             guard let self,
                   self.inspectionGeneration == generation,
@@ -2068,14 +2364,22 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 let preferredFrame = self.preferredStoppedFrame(in: frames)
                 self.selectedFrameID = preferredFrame?.id
                 if let frame = preferredFrame {
-                    self.selectFrame(frame, generation: generation)
+                    self.selectFrame(frame, generation: generation, preserving: preserving)
                 } else {
                     self.selectedFrame = nil
+                    if preserving { self.abandonPreservedInspection() }
                 }
             case .failure(let error):
                 self.record(error)
+                if preserving { self.abandonPreservedInspection() }
             }
         }
+    }
+
+    /// The new stop has nothing to replace the kept panels with, so they must not outlive it.
+    private func abandonPreservedInspection() {
+        guard state == .paused else { return }
+        clearStoppedInspection()
     }
 
     /// Prefer a source-backed, unfiltered frame after a stop so Java's
@@ -2104,6 +2408,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     private func beginInspectionTransition() -> Int {
         inspectionGeneration &+= 1
+        disassembly.suspendRequests()
         activeSession?.cancelPendingOperations()
         return inspectionGeneration
     }
@@ -2279,7 +2584,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private func synchronizeRequestedBreakpoints(for providerID: String?) throws {
         guard let providerID else { return }
         for fileURL in requestedBreakpointsByFile.keys.sorted(by: { $0.path < $1.path })
-        where sessionsProviderID(for: fileURL) == providerID {
+        where providerHandles(fileURL, providerID: providerID) {
             try sessions.setBreakpoints(effectiveBreakpoints(for: fileURL), in: fileURL)
         }
     }
@@ -2321,7 +2626,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                         condition: $0.condition
                     )
                 },
-                for: activeFileURL
+                for: activeFileURL,
+                adapterProviderID: providerID
             )
         } catch {
             record(error)
@@ -2340,7 +2646,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                         hitCondition: $0.hitCondition
                     )
                 },
-                for: activeFileURL
+                for: activeFileURL,
+                adapterProviderID: providerID
             )
         } catch {
             record(error)
@@ -2363,7 +2670,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private func synchronizeDataBreakpoints() {
         guard let activeFileURL else { return }
         do {
-            try sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL)
+            try sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL, adapterProviderID: providerID)
         } catch {
             record(error)
         }
@@ -2437,7 +2744,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             }
             switch result {
             case .success(let values):
-                self.mergeVariablePage(
+                let additions = self.mergeVariablePage(
                     values,
                     parentVariableID: parentVariableID,
                     requestedFilter: segment.filter,
@@ -2447,24 +2754,101 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 if expandsParent, let parentVariableID {
                     self.expandedVariableIDs.insert(parentVariableID)
                 }
+                self.restoreVariableExpansion(of: additions, parentVariableID: parentVariableID)
             case .failure(let error):
                 self.record(error)
             }
+            self.commitVariableRefreshIfSettled()
         }
     }
 
+    /// Re-expands the nodes of the tree being replaced that the new stop still has, matched by
+    /// name path because DAP variable ids do not outlive their stop.
+    private func restoreVariableExpansion(of additions: [DebugVariable], parentVariableID: String?) {
+        guard let stale = staleVariables else { return }
+        let parentPath = parentVariableID.flatMap { refreshedVariablePaths[$0] } ?? []
+        for variable in additions {
+            let path = parentPath + [variable.name]
+            refreshedVariablePaths[variable.id] = path
+            guard stale.expandedPaths.contains(path),
+                  variable.isExpandable,
+                  variableChildren[variable.id] == nil,
+                  !loadingVariableIDs.contains(variable.id) else { continue }
+            loadingVariableIDs.insert(variable.id)
+            variablePageStates[variable.id] = makeVariablePageState(
+                reference: variable.variablesReference,
+                namedVariables: variable.namedVariables,
+                indexedVariables: variable.indexedVariables
+            )
+            requestVariablePage(
+                parentVariableID: variable.id,
+                frameID: selectedFrameID,
+                generation: inspectionGeneration,
+                expandsParent: true
+            )
+        }
+    }
+
+    /// Swaps the rebuilt tree in once every page it needed has arrived (or failed).
+    private func commitVariableRefreshIfSettled() {
+        guard staleVariables != nil, loadingVariablePageIDs.isEmpty else { return }
+        staleVariables = nil
+        refreshedVariablePaths = [:]
+    }
+
+    private func captureVariableTree() -> GenericDebugVariableSnapshot {
+        var expandedPaths = Set<[String]>()
+        var visited = Set<String>()
+        func walk(_ values: [DebugVariable], prefix: [String]) {
+            for variable in values where expandedVariableIDs.contains(variable.id) {
+                guard visited.insert(variable.id).inserted else { continue }
+                let path = prefix + [variable.name]
+                expandedPaths.insert(path)
+                walk(variableChildren[variable.id] ?? [], prefix: path)
+            }
+        }
+        walk(variables, prefix: [])
+        return GenericDebugVariableSnapshot(
+            variables: variables,
+            children: variableChildren,
+            expanded: expandedVariableIDs,
+            pageStates: variablePageStates,
+            expandedPaths: expandedPaths
+        )
+    }
+
+    private var displayedRootVariables: [DebugVariable] {
+        staleVariables?.variables ?? variables
+    }
+
+    private func displayedChildren(of variableID: String) -> [DebugVariable]? {
+        if let staleVariables { return staleVariables.children[variableID] }
+        return variableChildren[variableID]
+    }
+
+    private func isDisplayedExpanded(_ variableID: String) -> Bool {
+        if let staleVariables { return staleVariables.expanded.contains(variableID) }
+        return expandedVariableIDs.contains(variableID)
+    }
+
+    private func displayedPageState(_ pageID: String) -> GenericDebugVariablePageState? {
+        if let staleVariables { return staleVariables.pageStates[pageID] }
+        return variablePageStates[pageID]
+    }
+
+    @discardableResult
     private func mergeVariablePage(
         _ page: [DebugVariable],
         parentVariableID: String?,
         requestedFilter: DebugVariableFilter?,
         requestedStart: Int,
         requestedCount: Int
-    ) {
+    ) -> [DebugVariable] {
         let pageID = variablePageID(parentVariableID)
         guard var state = variablePageStates[pageID],
               let currentSegment = state.segments.first,
               currentSegment.filter == requestedFilter,
-              currentSegment.nextStart == requestedStart else { return }
+              currentSegment.nextStart == requestedStart else { return [] }
 
         let pageFingerprint = page.map {
             GenericDebugVariablePageItemFingerprint(
@@ -2477,7 +2861,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
         if !page.isEmpty, !state.loadedPageFingerprints.insert(pageFingerprint).inserted {
             variablePageStates.removeValue(forKey: pageID)
-            return
+            return []
         }
 
         let existing = parentVariableID.map { variableChildren[$0] ?? [] } ?? variables
@@ -2509,6 +2893,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         } else {
             variablePageStates[pageID] = state
         }
+        return additions
     }
 
     private func variablePageID(_ parentVariableID: String?) -> String {
@@ -2516,6 +2901,13 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     private func resetVariableTree() {
+        clearLiveVariableTree()
+        staleVariables = nil
+        refreshedVariablePaths = [:]
+    }
+
+    /// Empties the tree being built without touching the previous stop's tree still on screen.
+    private func clearLiveVariableTree() {
         variables = []
         variableChildren = [:]
         expandedVariableIDs = []
@@ -2529,6 +2921,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         automaticExpressionOrder = []
         automaticExpressionResults = [:]
         automaticExpressionFrameID = nil
+        automaticResultsArePreviousStop = false
     }
 
     private func replaceVariable(_ replacement: DebugVariable) {
@@ -2569,7 +2962,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             let repeatsAncestor = ancestorVariableIDs.contains(variable.id)
                 || (variable.variablesReference != 0
                     && ancestorVariableReferences.contains(variable.variablesReference))
-            if expandedVariableIDs.contains(variable.id), !repeatsAncestor {
+            if isDisplayedExpanded(variable.id), !repeatsAncestor {
                 var nextAncestorIDs = ancestorVariableIDs
                 nextAncestorIDs.insert(variable.id)
                 var nextAncestorReferences = ancestorVariableReferences
@@ -2577,7 +2970,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                     nextAncestorReferences.insert(variable.variablesReference)
                 }
                 appendVisibleVariables(
-                    variableChildren[variable.id] ?? [],
+                    displayedChildren(of: variable.id) ?? [],
                     parentPath: path,
                     depth: depth + 1,
                     to: &rows,
@@ -2601,7 +2994,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         to rows: inout [GenericDebugVariableRow]
     ) {
         let pageID = variablePageID(parentVariableID)
-        guard let pageState = variablePageStates[pageID],
+        guard let pageState = displayedPageState(pageID),
               !pageState.segments.isEmpty else { return }
         rows.append(GenericDebugVariableRow(
             id: "\(parentPath)/load-more",

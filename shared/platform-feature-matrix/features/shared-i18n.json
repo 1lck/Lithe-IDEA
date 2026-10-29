@@ -8,13 +8,13 @@
     "verificationStatus": "pending",
     "evidence": [
       "shared/i18n",
-      "scripts/generate-i18n.mjs",
-      "scripts/package-macos-localizations.sh",
+      "scripts/i18n/generate-i18n.mjs",
+      "scripts/macos/package/package-macos-localizations.sh",
       "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift",
       "macos/Tests/LitheTests/SharedI18nTests.swift",
       "macos/Tests/LitheTests/LocalizationPackagingTests.swift",
       "macos/Sources/LitheModuleAPI/Localization/InterfaceLanguage.swift",
-      "scripts/verify-app-language-localization.mjs"
+      "scripts/i18n/verify-app-language-localization.mjs"
     ]
   },
   "windows": {
@@ -29,6 +29,6 @@
     ]
   },
   "owner": "Settings",
-  "verification": "运行 node scripts/generate-i18n.mjs --check 与 node --test --test-timeout=60000 scripts/test-i18n.mjs，验证重复 key、参数、覆盖率、平台范围与过期输出拒绝；临时增加 ja-JP，确认生成语言选项、Swift 枚举和原生打包列表并按显式链回退。macOS 运行 SharedI18nTests、AppLocalizationTests、LocalizationPackagingTests，检查语义 key 与旧 key、原生格式化和打包源字节不变；运行 verify-runtime-bundle-immutability.sh。两端真实产品切换中英文，检查通用操作、语言设置、文件数量、Finder/File Explorer 文案、其他模块页面与关闭重开后的语言；默认值与保存标识保持。Windows 在 WebView2 实机验收，前端自动化不替代原生检查。 另在系统语言与应用语言不一致时（如系统中文、应用英文，反之亦然）检查设置窗口标题、错误提示、弹窗和 Java 调试页，确认均按应用语言显示；运行 node scripts/verify-app-language-localization.mjs。",
+  "verification": "运行 node scripts/i18n/generate-i18n.mjs --check 与 node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs，验证重复 key、参数、覆盖率、平台范围与过期输出拒绝；临时增加 ja-JP，确认生成语言选项、Swift 枚举和原生打包列表并按显式链回退。macOS 运行 SharedI18nTests、AppLocalizationTests、LocalizationPackagingTests，检查语义 key 与旧 key、原生格式化和打包源字节不变；运行 verify-runtime-bundle-immutability.sh。两端真实产品切换中英文，检查通用操作、语言设置、文件数量、Finder/File Explorer 文案、其他模块页面与关闭重开后的语言；默认值与保存标识保持。Windows 在 WebView2 实机验收，前端自动化不替代原生检查。 另在系统语言与应用语言不一致时（如系统中文、应用英文，反之亦然）检查设置窗口标题、错误提示、弹窗和 Java 调试页，确认均按应用语言显示；运行 node scripts/i18n/verify-app-language-localization.mjs。",
   "notes": "全部自有语言资源已迁入shared/i18n，删除Windows旧字典并迁出95处原生页面双语表达式。未把上游消息、用户内容或搜索同义词当作翻译改写；原先缺译的文案保留英文回退，无运行时语言包。 本地证据：macOS原生资源与日志页中英文深浅渲染通过；Windows VM生成器、53项前端回归、完整类型检查与生产前端构建通过。全工作台手工巡检及Windows原生安装包尚未验证，故整机verificationStatus仍为pending。 已同步preview 3a8e94d08新增的293条原生词条与122条Windows词条（含Hook字典），共享源共9078条；原生en 2174条、zh-Hans 3926条和Windows每语言5089条基线逐项比对一致。 视图之外的 macOS 文案（错误、弹窗、状态）统一经 L10n.string 按应用语言取词，不再随系统语言；verify-app-language-localization.mjs 拒绝裸 String(localized:)、缺词条的 key 与 errorDescription/NSAlert 裸英文，并要求 SwiftUI 文案字面量在共享词条中存在（Issue #1494）。系统语言与应用语言不一致的真实界面尚未逐页验收。"
 }

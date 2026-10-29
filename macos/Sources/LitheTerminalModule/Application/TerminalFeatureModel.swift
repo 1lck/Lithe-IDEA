@@ -8,26 +8,78 @@ public final class TerminalFeatureModel: ObservableObject {
     @Published public private(set) var activeTerminalSessionID: UUID?
 
     @Published public private(set) var availableShells: [String] = []
+    @Published public private(set) var isDiscoveringShells = false
+    @Published public private(set) var shellDiscoveryError: String?
 
     private let terminalFactory: () -> any TerminalTransport
+    private let workspaceTerminalFactory: ((URL) -> any TerminalTransport)?
     private let shellDiscovery: () -> [String]
+    private let workspaceShellDiscovery: ((URL) async throws -> [String]?)?
+    private var shellWorkspace: URL?
+    private var shellDiscoveryTask: Task<Void, Never>?
+    private var shellDiscoveryGeneration = UUID()
+    private var pendingProcessSessions: [UUID: TerminalSession] = [:]
 
     public init(
         terminalFactory: @escaping () -> any TerminalTransport,
-        shellDiscovery: @escaping () -> [String] = { [] }
+        workspaceTerminalFactory: ((URL) -> any TerminalTransport)? = nil,
+        shellDiscovery: @escaping () -> [String] = { [] },
+        workspaceShellDiscovery: ((URL) async throws -> [String]?)? = nil
     ) {
         self.terminalFactory = terminalFactory
+        self.workspaceTerminalFactory = workspaceTerminalFactory
         self.shellDiscovery = shellDiscovery
+        self.workspaceShellDiscovery = workspaceShellDiscovery
         refreshAvailableShells()
     }
 
     public func refreshAvailableShells() {
-        availableShells = shellDiscovery()
+        shellDiscoveryTask?.cancel()
+        let generation = UUID()
+        shellDiscoveryGeneration = generation
+        shellDiscoveryError = nil
+        guard let root = shellWorkspace, let discover = workspaceShellDiscovery else {
+            isDiscoveringShells = false
+            availableShells = shellDiscovery()
+            return
+        }
+        // Clear the previous host before starting I/O; stale results must never
+        // offer a local executable in a remote workspace's shell menu.
+        availableShells = []
+        isDiscoveringShells = true
+        shellDiscoveryTask = Task { [weak self] in
+            do {
+                let shells = try await discover(root)
+                guard let self, !Task.isCancelled, shellDiscoveryGeneration == generation else { return }
+                availableShells = shells ?? shellDiscovery()
+                isDiscoveringShells = false
+                shellDiscoveryTask = nil
+            } catch {
+                guard let self, !Task.isCancelled, shellDiscoveryGeneration == generation else { return }
+                shellDiscoveryError = error.localizedDescription
+                isDiscoveringShells = false
+                shellDiscoveryTask = nil
+            }
+        }
+    }
+
+    /// Binds discovery to the window's workspace, independently of which
+    /// terminal tab is selected or whether a terminal has been created yet.
+    public func setShellWorkspace(_ root: URL?) {
+        let root = root?.standardizedFileURL
+        guard shellWorkspace != root else { return }
+        shellWorkspace = root
+        if workspaceShellDiscovery != nil { refreshAvailableShells() }
     }
 
     public var activeTerminalSession: TerminalSession? {
         guard let activeTerminalSessionID else { return terminalSessions.first }
         return terminalSessions.first { $0.id == activeTerminalSessionID }
+    }
+
+    /// A launch awaiting host acknowledgement still owns a process resource.
+    public var hasActiveSessions: Bool {
+        !pendingProcessSessions.isEmpty || terminalSessions.contains { $0.isRunning || $0.startedAt != nil && $0.endedAt == nil }
     }
 
     public func terminalTitle(for session: TerminalSession) -> String {
@@ -51,7 +103,8 @@ public final class TerminalFeatureModel: ObservableObject {
         preferredToolTabTitle: String? = nil,
         showsWorkbenchBackground: Bool = false
     ) -> TerminalSession {
-        let transport = terminalFactory()
+        setShellWorkspace(workspaceURL)
+        let transport = workspaceTerminalFactory?(workspaceURL) ?? terminalFactory()
         transport.configureInitialSurface(showsWorkbenchBackground: showsWorkbenchBackground)
         let session = TerminalSession(transport: transport, preferredToolTabTitle: preferredToolTabTitle)
         session.start(in: workspaceURL, shellPath: shellPath)
@@ -66,11 +119,31 @@ public final class TerminalFeatureModel: ObservableObject {
         showsWorkbenchBackground: Bool = false,
         onOutput: ((String) -> Void)? = nil
     ) throws -> (session: TerminalSession, processID: Int32) {
-        let transport = terminalFactory()
+        let transport = workspaceTerminalFactory?(URL(fileURLWithPath: launch.workingDirectory)) ?? terminalFactory()
         transport.configureInitialSurface(showsWorkbenchBackground: showsWorkbenchBackground)
         let session = TerminalSession(transport: transport)
         session.onOutput = onOutput
         let processID = try session.startProcess(launch)
+        terminalSessions.append(session)
+        activeTerminalSessionID = session.id
+        return (session, processID)
+    }
+
+    /// Uses workspace identity for host selection even when a debugger supplies
+    /// an absolute working directory on that host.
+    public func createProcessSessionAsync(
+        _ launch: TerminalProcessLaunch,
+        workspaceURL: URL,
+        showsWorkbenchBackground: Bool = false,
+        onOutput: ((String) -> Void)? = nil
+    ) async throws -> (session: TerminalSession, processID: Int32) {
+        let transport = workspaceTerminalFactory?(workspaceURL) ?? terminalFactory()
+        transport.configureInitialSurface(showsWorkbenchBackground: showsWorkbenchBackground)
+        let session = TerminalSession(transport: transport)
+        session.onOutput = onOutput
+        pendingProcessSessions[session.id] = session
+        defer { pendingProcessSessions[session.id] = nil }
+        let processID = try await session.startProcessAsync(launch)
         terminalSessions.append(session)
         activeTerminalSessionID = session.id
         return (session, processID)
@@ -110,6 +183,9 @@ public final class TerminalFeatureModel: ObservableObject {
     }
 
     public func stopAllSessions() {
+        cancelShellDiscovery()
+        pendingProcessSessions.values.forEach { $0.stop() }
+        pendingProcessSessions.removeAll()
         terminalSessions.forEach { $0.stop() }
         terminalSessions.removeAll()
         activeTerminalSessionID = nil
@@ -117,7 +193,10 @@ public final class TerminalFeatureModel: ObservableObject {
 
     /// Stops every session and waits until their process sessions are gone.
     public func stopAllSessionsAndWait() async {
-        let sessions = terminalSessions
+        let discovery = shellDiscoveryTask
+        cancelShellDiscovery()
+        let sessions = terminalSessions + pendingProcessSessions.values
+        pendingProcessSessions.removeAll()
         terminalSessions.removeAll()
         activeTerminalSessionID = nil
         // Started together so the bounded grace periods overlap.
@@ -125,5 +204,15 @@ public final class TerminalFeatureModel: ObservableObject {
             Task { @MainActor in await session.stopAndWait() }
         }
         for stop in stops { await stop.value }
+        await discovery?.value
     }
+
+    private func cancelShellDiscovery() {
+        shellDiscoveryGeneration = UUID()
+        shellDiscoveryTask?.cancel()
+        shellDiscoveryTask = nil
+        isDiscoveringShells = false
+    }
+
+    deinit { shellDiscoveryTask?.cancel() }
 }

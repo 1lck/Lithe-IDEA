@@ -358,6 +358,9 @@ package struct JavaLanguageImportConfiguration: Equatable, Sendable {
 }
 
 package protocol LanguageServerRuntimeCore: Sendable {
+    /// Network-backed startup must run off the main actor. This is resolved
+    /// from the workspace owner, before any process is created.
+    func requiresBackgroundLanguageServerStart(rootURL: URL) -> Bool
     func startLanguageServer(
         providerID: String,
         executableURL: URL,
@@ -502,6 +505,12 @@ package protocol LanguageServerRuntimeCore: Sendable {
         rootURL: URL,
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration: ToolingJSONValue?,
+        hostServices: [String],
+        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -551,6 +560,8 @@ package protocol LanguageServerRuntimeCore: Sendable {
 }
 
 package extension LanguageServerRuntimeCore {
+    func requiresBackgroundLanguageServerStart(rootURL _: URL) -> Bool { false }
+
     func startLanguageServer(
         providerID: String, executableURL: URL, arguments: [String], environment: [String: String],
         rootURL: URL, workingDirectoryURL: URL, initializationOptions: ToolingJSONValue?,
@@ -712,13 +723,33 @@ package extension LanguageServerRuntimeCore {
         rootURL: URL,
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration _: ToolingJSONValue?,
+        hostServices: [String],
+        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        startPluginLanguageServer(
+        if let hostIntegrationLaunch, hostServices.isEmpty {
+            return startLanguageServer(
+                providerID: providerID, executableURL: executableURL, arguments: arguments,
+                environment: environment, rootURL: rootURL, workingDirectoryURL: rootURL,
+                initializationOptions: initializationOptions,
+                runtimeExecutableURL: hostIntegrationLaunch.runtimeExecutableURL,
+                jdtlsLaunchResources: hostIntegrationLaunch.coreLaunch?.jdtlsLaunchResources,
+                cacheDirectoryURL: cacheDirectoryURL, workspaceFingerprint: workspaceFingerprint,
+                mavenContext: mavenContext, javaGradle: javaGradle,
+                initializeTimeout: initializeTimeout, requestTimeout: requestTimeout,
+                shutdownTimeout: shutdownTimeout
+            )
+        }
+        return startPluginLanguageServer(
             pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
             environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            hostServices: hostServices,
             initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
         )
     }

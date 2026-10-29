@@ -29,6 +29,9 @@ pub(crate) const LANGUAGES: &str = "languages";
 pub(crate) const LANGUAGE_SERVERS: &str = "languageServers";
 /// The launch fields language servers and own build providers share.
 pub(crate) const SERVER_PROCESS: &str = "serverProcess";
+/// `vendor.bundledSignatureRequirement`: origin-scoped host-seal trust for a
+/// package whose independently installed versions require a publisher signature.
+pub(crate) const PACKAGE_TRUST: &str = "packageTrust";
 /// `executionProviders[]`: run and test templates.
 pub(crate) const EXECUTION_PROVIDERS: &str = "executionProviders";
 /// `settings[]`. Version 2 adds scopes, effects, settings pages, and the
@@ -41,6 +44,8 @@ pub(crate) const UI: &str = "ui";
 pub(crate) const BUILD_SYSTEMS: &str = "buildSystems";
 /// `buildSystems[].provider`, whether it owns or shares a language server process.
 pub(crate) const BUILD_PROVIDERS: &str = "buildProviders";
+/// Optional public model snapshots between enabled build providers.
+pub(crate) const BUILD_MODEL_INPUTS: &str = "buildModelInputs";
 /// `vcsProviders[]`: version control systems implemented by a plugin
 /// process; see `crate::vcs`.
 pub(crate) const VCS_PROVIDERS: &str = "vcsProviders";
@@ -52,6 +57,13 @@ pub(crate) const BACKEND: &str = "backend";
 /// `projectGenerators[]`: entries of the New Project window.
 pub(crate) const PROJECT_GENERATORS: &str = "projectGenerators";
 
+/// `debugAdapters[]`: debug adapters implemented by a plugin process; see
+/// `crate::debug::adapters`. Plugin API level 4.
+pub(crate) const DEBUG_ADAPTERS: &str = "debugAdapters";
+
+/// First plugin API level that may require `debugAdapters` or `serverProcess` 2.
+pub(crate) const DEBUG_ADAPTERS_API_VERSION: u32 = 4;
+
 /// Shared executable candidate order and strict explicit selection.
 pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 
@@ -59,14 +71,17 @@ pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 /// capability keeps the meaning its section had at API level 2.
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BACKEND, &[1]),
-    (BUILD_PROVIDERS, &[1]),
+    (BUILD_MODEL_INPUTS, &[1]),
+    (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6]),
     (BUILD_SYSTEMS, &[1, 2]),
+    (DEBUG_ADAPTERS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),
     (EXECUTABLE_RESOLUTION, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1]),
+    (PACKAGE_TRUST, &[1]),
     (PROJECT_GENERATORS, &[1]),
-    (SERVER_PROCESS, &[1]),
+    (SERVER_PROCESS, &[1, 2]),
     (SETTINGS, &[1, 2]),
     (UI, &[1, 2, 3]),
     (VCS_PROVIDERS, &[1]),
@@ -103,6 +118,20 @@ pub(crate) fn check_manifest_requires(manifest: &Value, api_version: u64) -> Val
         ));
     };
     let requires = parse_requires(requires, "requires", "plugin.manifest.invalid")?;
+    // Capabilities introduced at level 4 must not leak into level 3 manifests,
+    // whose hosts were told that level 3 means exactly what it did before.
+    if api_version < u64::from(DEBUG_ADAPTERS_API_VERSION) {
+        if let Some((capability, version)) = requires
+            .iter()
+            .find(|(capability, version)| requires_api_4(capability, **version))
+        {
+            return Err(PluginRejection::at(
+                "plugin.api.unsupported",
+                format!("requires.{capability}"),
+                format!("Plugin capability {capability} {version} requires pluginAPIVersion 4."),
+            ));
+        }
+    }
     match requires
         .iter()
         .find(|(capability, version)| !core_supports(capability, **version))
@@ -218,6 +247,11 @@ fn first_unhosted<'a>(
                     .is_some_and(|versions| versions.contains(version))
         })
         .map(|(capability, version)| (capability.as_str(), *version))
+}
+
+/// Capability versions first available at plugin API level 4.
+fn requires_api_4(capability: &str, version: u32) -> bool {
+    capability == DEBUG_ADAPTERS || (capability == SERVER_PROCESS && version >= 2)
 }
 
 fn core_supports(capability: &str, version: u32) -> bool {

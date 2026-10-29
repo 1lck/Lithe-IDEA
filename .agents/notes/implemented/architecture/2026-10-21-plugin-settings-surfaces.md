@@ -54,6 +54,12 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 
 这两个位置都不在 app bundle 内，不影响代码签名和 Sparkle 增量更新。
 
+### Windows 后台保存的事务边界
+
+Windows 将设置文件操作移到后台线程后，必须对完整的读取、修改、发布或删除过程加互斥。当前使用进程级设置事务锁，连指向同一工作区的不同路径写法也不会绕开保护；写入使用独立临时文件，并在成功和失败时回收。正确做法是持锁后重新读取最新值、只修改目标设置，再发布；不能只锁最后一次 rename，否则两个窗口仍会互相覆盖字段。该锁只协调本次应用进程，不宣称解决外部编辑器同时改写文件的冲突。
+
+锁住所有插件设置会让不同文件的写入也串行，但设置保存频率低且不再阻塞界面线程；相比按路径维护锁表，不需要长期保留路径身份或处理别名。位置仍是用户数据和工作区，临时文件跟随一次事务，不写入安装目录，不影响代码签名或 Sparkle delta。
+
 ### 4. 生效方式由清单声明，宿主照做
 
 | `effect` | 宿主改完后做什么 |
@@ -162,12 +168,14 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 
 ## 验证
 
+- Windows `plugin_host::settings::transaction_tests` 覆盖两个后台编辑保留各自字段、读取到前一次提交以及临时文件回收；既有 `settings_tests` 覆盖删除最后一个值、保留其他插件及损坏文件不被重置。
+
 - `cargo test -p lithe-core --lib settings_v2`：清单校验、分层合并与 `workspaceConfiguration` 展开。
 - `cargo test -p lithe-core --lib plugin_configuration`：会话按 section 应答、更新推送、宿主会话拒绝更新。
-- `./scripts/test-macos.sh --filter PluginSettingsTests`：项目层存储、作用域规则、页面注册、配置展开。
-- `./scripts/test-macos.sh --filter SettingsSidebarLayoutTests`：静态页面仍各归一个分组。
-- `./scripts/test-macos.sh --filter PluginSettingsLayoutTests`：480、640、900 点宽的深浅主题下，路径输入框和完整选择按钮都在容器内，按钮可调用选择器并写入所选路径。
-- `./scripts/test-macos.sh --filter PluginDetailLayoutTests`：实际 Java 插件表单在深浅主题中往返缩放，详情边界始终跟随分隔条，窄面板下右侧设置可经原生横向滚动到达。
+- `./scripts/macos/test/test-macos.sh --filter PluginSettingsTests`：项目层存储、作用域规则、页面注册、配置展开。
+- `./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests`：静态页面仍各归一个分组。
+- `./scripts/macos/test/test-macos.sh --filter PluginSettingsLayoutTests`：480、640、900 点宽的深浅主题下，路径输入框和完整选择按钮都在容器内，按钮可调用选择器并写入所选路径。
+- `./scripts/macos/test/test-macos.sh --filter PluginDetailLayoutTests`：实际 Java 插件表单在深浅主题中往返缩放，详情边界始终跟随分隔条，窄面板下右侧设置可经原生横向滚动到达。
 - 共享夹具：`shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json`。
 
 ## 适用范围

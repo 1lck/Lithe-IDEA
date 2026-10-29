@@ -182,10 +182,10 @@
 
 ## 验证
 
-- `./scripts/test-macos.sh --filter "MacDatabasePluginMigrationTests|MacPluginBackendSessionsTests|WorkbenchNotificationTests"`：迁移的内容、格式、只执行一次、不覆盖插件自有状态、密码迁移失败的处理；磁盘安装、其他来源和其他仓库地址的同 ID 包得不到旧数据，之后从 Lithe Store 安装仍会迁移；迁移先于后端启动并拿到安装记录；带动作的通知和一次性安装提示。
-- `./scripts/verify-module-boundaries.sh` 与 `./scripts/verify-shared-contracts.sh`：内置模块列表和共享模块样例中不再有数据库模块。
-- `bash scripts/test-classify-ci-changes.sh` 与 `node --test scripts/ci-workflow-gates.test.mjs`：CI 分流不再有数据库通道。
-- `./scripts/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
+- `./scripts/macos/test/test-macos.sh --filter "MacDatabasePluginMigrationTests|MacPluginBackendSessionsTests|WorkbenchNotificationTests"`：迁移的内容、格式、只执行一次、不覆盖插件自有状态、密码迁移失败的处理；磁盘安装、其他来源和其他仓库地址的同 ID 包得不到旧数据，之后从 Lithe Store 安装仍会迁移；迁移先于后端启动并拿到安装记录；带动作的通知和一次性安装提示。
+- `./scripts/architecture/verify-module-boundaries.sh` 与 `./scripts/architecture/verify-shared-contracts.sh`：内置模块列表和共享模块样例中不再有数据库模块。
+- `bash scripts/ci/common/test-classify-ci-changes.sh` 与 `node --test scripts/ci/common/ci-workflow-gates.test.mjs`：CI 分流不再有数据库通道。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
 - 2026-10-24 手工验收（macOS 开发版身份 `app.lithe.desktop.dev`，与正式版偏好和 Keychain 隔离）：写入旧模块的连接、文件夹、历史和密码后启动，出现一次性通知，经“打开插件市场”从 Lithe Store 安装 Database 0.1.0，重启后打开工具窗口，连接全部可见；插件状态与凭据按“六、老用户迁移”的规则落地。验收数据随后全部清除。
 - 插件仓库的 `node scripts/e2e.mjs`：用 Lithe 的 Rust Core 启动打包好的插件后端，回答凭据请求，走完 SQLite 连接的全部页面函数，并确认安装包未被改写、状态目录只有 `connections.json` 和 `sql-history.json`。
 

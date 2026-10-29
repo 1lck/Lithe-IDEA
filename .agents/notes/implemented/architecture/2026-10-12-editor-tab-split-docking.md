@@ -6,6 +6,7 @@
 
 用户把标签拖到编辑区边缘后，工作台将该标签移入新的编辑分组；每组有自己的标签和选中内容。
 文档、媒体和终端仍由原功能对象维护，分屏不复制文件或重新创建会话。
+Git 的工作区、工作树、目录、分支、历史提交和 Stash/Shelf 比较各自使用独立的普通 Diff 标签，不再覆盖其他比较或绕过标签栏。
 空编辑区只展示已接入的全局搜索、项目内查找及当前快捷键，不展示尚未实现的最近文件和导航栏操作。
 
 ## 问题
@@ -24,6 +25,33 @@
 分隔器继续使用 `LitheSplitPaneView`，尺寸变化留在局部视图，只在释放后提交比例。
 分组是当前项目会话状态，本次不增加重启恢复编辑分屏或跨窗口传输。
 与数据库 PR #17 集成后，数据库标签继续使用其共享工作区和查询状态，统一保留在同一个编辑分组，只允许组内重排；不能直接开放跨组移动，否则两个分组会显示同一数据库上下文。数据库工具窗口及 Services 工具窗口仍支持停靠分组。
+
+### Git Diff 也属于普通编辑标签
+
+所有仓库比较入口通过 `AppModel` 的共享标签动作进入 `EditorTabItem.repositoryDiff(UUID)`。
+同一个仓库、文件和版本组合再次打开时切回已有标签；不同文件、不同提交以及不同类型的比较可以并存。
+工作区文件身份不包含暂存状态，暂存或后台刷新不会额外产生标签。仓库路径参与身份，避免嵌套仓库同名文件互相覆盖。
+
+每个标签由 `GitRepositoryDiffSession` 单独拥有比较内容、加载状态、文件列表、空白符选项和请求代次。
+`GitFeatureModel` 仍共享 Git 服务、监听和写入工作流，不为标签复制整套功能模型。
+异步读取只回写捕获的会话，关闭一个标签只使该会话失效，不取消其他标签，也不在结果到达时抢焦点。
+Git Log 的当前提交选择与已打开的历史比较分开，上一文件/下一文件使用比较会话自己的提交文件快照。
+
+状态刷新对已打开的工作区比较遵守三条规则。第一，只有本次刷新真正读取过状态的仓库才能证明文件已干净：
+链接工作树的标签不在工作区快照里，它的缺席什么也说明不了，标签保留内容，由该工作树自己的状态读取
+（`refreshWorktreeChanges`）决定是否关闭。第二，内容没变就不触碰会话：每次给 `@Published` 属性赋值都会
+重绘并丢掉滚动位置，所以改用 `GitRepositoryDiffSession.updateDocument` 比较后再发布；与 HEAD 的比较只有
+行、没有补丁文本，不能只比较补丁。第三，目录比较刷新就地更新，保留已有行直到新行不同，不清空也不闪现加载态。
+保存更改（Stash/Shelf）比较在打开标签前就校验快照属于当前仓库并包含该版本与文件，无效请求不留下空标签。
+
+编辑分组按标签 ID 呈现自己的会话，不读取全局当前比较来绘制另一个分组。
+同组切换时保留仍打开的 Diff 内容宿主，保留搜索、显示方式及原生滚动状态；隐藏宿主不接受点击或辅助功能访问。
+标签移动、重排和分屏继续走普通编辑分组；关闭时释放会话、缓冲区与内容宿主，工作区退出关闭全部比较。
+整文件和块级写入显式使用当前显示的更改对象，不能在非活动分组操作时误写全局选中的另一文件。
+关闭按钮、设置菜单和关闭当前项共用按 ID 的关闭动作，后台 Diff 不截获普通文件的关闭命令。
+
+正确做法：打开 A.swift 的工作区 Diff，再打开 B.swift 和 A.swift 的历史提交 Diff，三个标签同时保留；把两个标签分屏后分别浏览。
+不要这样做：只给标签分配 UUID，却让它们都读写 `GitFeatureModel.diffRows`，或为每个标签创建新的 Git 监听和仓库服务。
 
 依据 IDEA Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`：
 
@@ -48,11 +76,13 @@ Esc、来源卸载和取消均清理面板；无效落点不改布局。焦点�
 - 继续使用旧 `secondaryDocument` 右键分栏：无法提供每组标签、底部分屏和组间移动，因此替换这一呈现入口。
 - 直接引入 IDEA Swing 停靠容器：与 SwiftUI/AppKit 技术栈不同。本次复用其检测、预览及释放提交规则，原生布局仍走现有容器。
 - 用 SwiftUI 位移移动整张标签：会受标签栏裁剪且参与连续布局；保留现有原生浮动预览。
+- 一个可复用的 Diff 预览标签：不能同时对照多个文件与版本，用户明确要求多标签，因此拆分比较会话而不是复用一个缓冲区。
+- 每标签复制整个 Git 功能模型：会重复仓库监听、服务和写入状态；只拆分比较内容和加载生命周期。
 
 ## 后果
 
 收益是编辑区可以独立选择不同文件，并连续拆分或把标签移回另一组。
-代价是活动文件与每组显示内容必须区分；当前树不承担跨窗口传输或重启恢复。
+代价是打开的 Diff 保留各自缓冲区和原生内容宿主，资源随打开标签数增长，关闭即释放；活动文件与每组显示内容必须区分；当前树不承担跨窗口传输或重启恢复。
 代价是每个已访问且仍打开的文档保留一个 WebView，资源随此类文档数量增长；关闭文档后随文档持有的同步回调一起释放，缓存只持弱引用。当前不序列化 Monaco 私有撤销栈，也不制造另一套撤销模型；大量标签的资源预算若不足，后续应采用共享 Monaco 工作台编辑器网格。视口变小时滚动位置允许 Monaco 按可见范围正常限制。
 Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两端视觉验收仍在矩阵中保留 pending。
 
@@ -60,11 +90,12 @@ Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两�
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter EditorTabOrderFeatureModelTests`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - 原生事件检查右侧、底部半区、释放提交、Esc 取消、重排、关闭与焦点；实机预览另检查真实字体资源、代码输入、灰色浮动标签及分隔器调整。
+- `EditorTabOrderFeatureModelTests` 对工作区、目录、分支/引用、历史、保存更改、冲突与行标记入口在深浅主题下挂载原生编辑分组，检查普通标签、切换保留、分屏与共享关闭；`GitModuleTests` 检查独立会话并发加载、关闭一个会话、刷新及迟到结果隔离。组件验证不替代完整产品与 Windows 实机验收。
 
 ## 适用范围
 

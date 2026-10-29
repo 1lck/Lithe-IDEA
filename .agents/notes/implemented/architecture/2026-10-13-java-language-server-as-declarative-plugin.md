@@ -4,17 +4,21 @@
 
 ## 先说结论
 
-Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全、诊断和跳转）不再是 Lithe.app 里写死的一部分，而是官方插件 Java Support（`dev.lithe.plugin.java-support`）。插件包拥有 JDT LS、Lombok、调试和测试扩展，以及它运行所用的 JDK；`plugin.json` 声明这些文件在包内的位置和启动方式。这个插件随应用发行、默认启用，用户可以卸载和恢复。
+Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全、诊断和跳转）不再是 Lithe.app 里写死的一部分，而是官方插件 Java Support（`dev.lithe.plugin.java-support`）。插件包拥有 JDT LS、Lombok、调试和测试扩展，以及它运行所用的 JDK；`plugin.json` 声明这些文件在包内的位置和启动方式。过渡期随应用发行、默认启用，用户可以卸载和恢复；完整双架构官方下载上架后默认应用省去资源，迁移与安装引导由[后续分发决策](2026-10-25-java-plugin-distribution-foundation.md)规定。
 
 宿主不再知道 JDT LS 或 JDK 放在哪里。它只做两件事：按插件的声明启动语言服务器；为声明了 `jdt` 宿主集成（由宿主实现、插件按名字启用的一段专用逻辑）的服务器启用 Java 的工程模型、`jdt://` 虚拟文档、测试和调试支持。
 
 对日常开发的直接影响：需要某个插件专属的资源时，在该插件的清单里声明；不要在宿主的通用代码里按语言或工具的名字加分支。
 
+### 当前边界与后续迁移
+
+本笔记记录资源声明式插件化的已实现状态；`hostIntegration: jdt` 及宿主 Java Run/Test/Debug 是这个中间状态的事实，不是长期保留要求。[#1495 的领域迁移提案](../../proposed/architecture/2026-10-26-maven-java-domain-plugin-migration.md) 已列出生产调用、上游所有者、数据和删除条件。后续应在通用能力与全部消费者切换后删除 JDT 宿主专属实现；此前不能仅因资源已进插件就宣称领域迁移完成，也不能提前删除仍被调用的功能。
+
 ## 问题
 
 迁移之前 JDT LS 和声明式插件契约有三处不一致：
 
-1. **资源在 app 里**。`scripts/package-app.sh` 把 JDT LS 和 JDK 拷到 `Contents/Resources/LanguageServers`，宿主扫描这个写死的目录来找 launcher、配置目录、Lombok 和扩展 jar。JDT LS 升级必须跟着 Lithe 发版，不写 Java 的用户也要带着这约 400 MB。
+1. **资源在 app 里**。`scripts/macos/package/package-app.sh` 把 JDT LS 和 JDK 拷到 `Contents/Resources/LanguageServers`，宿主扫描这个写死的目录来找 launcher、配置目录、Lombok 和扩展 jar。JDT LS 升级必须跟着 Lithe 发版，不写 Java 的用户也要带着这约 400 MB。
 2. **契约表达不了它的启动方式**。API 1 只能声明“包内一个可执行文件加静态参数”，运行时只有 `go` 和 `node`。PHP 插件为此在包里放了启动脚本。
 3. **宿主里有按语言 ID 的特判**。组合根里有多处 `descriptor.id == "java"`，工具发现里有专门找内置 `jdtls` 的分支。
 
@@ -63,6 +67,10 @@ JDK 也一样：`ProjectRuntimeService` 不再问“app 内置的 JDK 在哪”�
 
 新增一个集成时，只需要新增一个实现协议的类型并在注册处加一行；Rust Core 的契约校验仍然决定哪些 ID 可以被声明。
 
+插件身份与宿主集成必须同时传入 Core（#1523）：`StdioLanguageServerSession` 的插件启动入口携带 `hostIntegrationLaunch`、平台缓存目录、工作区指纹、Maven/Gradle 上下文，以及插件配置和 host services。不能因为存在 `pluginID` 就退回只传可执行文件和静态参数的入口，否则 JDT 会把 Equinox jar 当包装脚本，缺少 `-configuration`，随后退出并在发行目录写日志。继续复用 Core 的 `prepare_jdt_configuration_area`，从包内只读配置生成宿主缓存中的可写副本；没有新增资源目录或缓存所有者，也不改变应用签名和增量更新的发行基线。
+
+同一工作区的服务连续三次启动失败后，自动同步直接返回已有失败，直到显式停止/重启或切换工作区；进入 ready 后清零。这保留短暂故障后的重试，但阻止每次编辑器同步重新创建 JVM。这里选择有限尝试而非增加定时器和无限退避；代价是持续失败需要用户修复环境后重新启动服务。
+
 ### 4. 运行、测试、调试由插件声明后交还宿主
 
 插件一旦声明某个语言，宿主就认为这个语言的进程类能力归插件所有：能力目录（`PluginLanguageProviderCatalogSource`）去掉运行、测试、调试标记，语言包注册表（`LanguagePackRegistry`）不再创建内置的测试提供方，运行和测试服务要求必须有插件的执行模块。这条规则是为 PHP、Go 这类整套由插件提供的语言定的，目的是插件缺失或停用时宿主不偷偷退回内置工具。
@@ -100,13 +108,13 @@ dev.lithe.plugin.java-support/
 └── runtime/<arch>/             # JDK，每个架构一份
 ```
 
-组装逻辑放在插件自己的目录：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由 `scripts/build-official-plugins.sh` 调用。`plugin.json` 精确写出入口 jar 的文件名，升级 JDT LS 后文件名对不上会在组装时失败，而不是等到用户打开 Java 文件。
+组装逻辑放在插件自己的目录：`Plugins/mac/Official/JavaSupport/assemble-package.sh`，由 `scripts/plugins/build-official-plugins.sh` 调用。`plugin.json` 精确写出入口 jar 的文件名，升级 JDT LS 后文件名对不上会在组装时失败，而不是等到用户打开 Java 文件。
 
 `LitheOfficialPluginVerifier` 的规则随之调整：Mach-O 原生代码只允许出现在清单 `packagedRuntime` 声明的顶层目录内；包内任何位置都不允许符号链接。
 
-### 5. 随应用发行、默认启用、可卸载
+### 5. 过渡期内置与独立安装
 
-- **随应用发行**：Java 是主场景，首次启动必须离线可用，所以包在 `Lithe.app/Contents/Resources/OfficialPlugins/` 下，信任方式是 `sameTeamAsHost`（由应用自身的代码签名封住）。
+- **过渡期随应用发行**：原设计为 Java 保持首次启动离线可用，过渡包在 `Lithe.app/Contents/Resources/OfficialPlugins/` 下，清单主签名要求为 `publisherPackage`，内置副本通过 `bundledSignatureRequirement: sameTeamAsHost` 依靠应用自身的代码签名；只有真实位于宿主 bundle 内且来源为 bundled 的副本能用这个例外。按来源校验与独立发布基础见[后续决策](2026-10-25-java-plugin-distribution-foundation.md)。
 - **默认启用**：随应用发行的包替代的是内置功能，它的模块默认开启；下载安装的插件，模块清单默认值仍是关闭，但用户在确认窗口里确认的首次安装（插件市场、社区源、磁盘包）会把它的模块记为启用，重启后直接生效，与 IntelliJ IDEA 安装即启用一致；更新和重装不改用户已有的启用选择。否则构建插件装好后 Build 工具窗口不出现，用户会以为界面没有注入。
 - **卸载**：app bundle 运行时只读，包本身删不掉。卸载记录在用户目录的 `<app-support>/Lithe/Plugins/.removed-bundled-plugins.json`，宿主重启后不再注册这个插件，并在那次启动时删除它的语言服务器状态（卸载后到重启前，语言服务器仍在运行并写入该目录，所以不在点击时删除；重启前恢复则不会丢失索引）。插件管理里仍然列出它并提供“恢复”。
 - **卸载时 JDT 状态的清理**：JDT LS 的工作区索引（`<cache>/Lithe/language-servers/jdtls/`）和 Equinox 配置区（`jdtls-configuration/`）在宿主缓存里，不在插件自己的 `PluginState/<plugin-id>/` 下，插件包管理器删不到。所以由 `jdt` 集成自己清理：启动时 `pluginsDidLoad` 拿到扫描结果，如果没有任何“未卸载”的已安装插件声明 `jdt` 集成，就在后台删除这两个目录（不碰同目录下其他语言服务器的缓存）。扫描本身失败（拿不到已安装列表）、或插件已安装但启动时被拒绝，都不算卸载，状态保留。这样宿主既不用写死 Java Support 的插件 ID，也不需要把缓存搬进插件状态目录。
@@ -115,7 +123,7 @@ dev.lithe.plugin.java-support/
 ### 正确做法
 
 - 语言服务器依赖特定运行时：把运行时放进插件包并声明 `packagedRuntime`。只有“用户机器上任意够新的版本都行”时才用宿主发现加 `minimumVersion`。
-- 某个服务器需要宿主代码配合：做成具名宿主集成，集成要读的文件由插件在 `resources` 里声明。
+- 现有服务器需要宿主代码配合时，按已声明的具名集成及 `resources` 解析文件；这不授权继续扩展语言专属宿主分支。新增或迁移领域能力按 #1495 的通用契约与后端边界处理。
 - 插件只提供语言服务器、运行/测试/调试仍用宿主内置实现：在 `hostIntegration.capabilities` 里逐项声明。迁移一个语言到插件后，必须在打包出的应用里实际点一次工具栏运行、调试和测试面板；只跑集成测试发现不了能力目录里丢掉的标记。
 - 插件专属的构建步骤：放在插件目录的 `assemble-package.sh` 里。
 
@@ -170,25 +178,27 @@ dev.lithe.plugin.java-support/
 - Rust 引擎里仍按提供方 ID `java` 启用 JDT 适配；Java 的运行、测试和调试仍是宿主内置实现，尚未成为扩展点，由插件通过 `hostIntegration.capabilities` 声明后启用。
 - Windows 仍把 JDT LS 和 JDK 放在安装目录里，没有接入这份契约。
 
-尚未完成、需要单独提案的部分：把 `jdt://` 虚拟文档等协议扩展改成清单里的声明式特性；Debug、Run/Test 扩展点；Java Support 改为从市场下载；Windows 接入。
+尚未完成、需要继续推进的部分：把 `jdt://` 虚拟文档等协议扩展改成清单里的声明式特性；Debug、Run/Test 扩展点；Java Support 的正式市场下载与迁移；Windows 接入。独立分发已具备来源签名校验和双架构发布基础，但自动发布暂停，计划见[独立分发提案](../../proposed/architecture/2026-10-24-java-support-independent-distribution.md)。
 
 ## 验证
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib plugins`：API 2 的合法与非法清单、启动计划标准答案、运行时版本判定，以及仓库里的官方 `plugin.json`。
-- `./scripts/verify-official-plugins.sh`：组装三个官方包并校验入口、自带运行时、符号链接和原生代码的位置。
+- `./scripts/plugins/verify-official-plugins.sh`：组装三个官方包并校验入口、自带运行时、符号链接和原生代码的位置。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|JavaLanguageServerRuntimeTests|MacJdtWorkspaceStateTests|MacJdtHostIntegrationStateTests|LanguageToolEnvironmentTests'`：按声明定位资源、路径固定在包内、版本过滤、默认启用、移除与恢复；卸载后 JDT 的索引和 Equinox 配置区被删除（扫描失败或插件被拒绝时保留）；运行时启动的服务器 `PATH` 上先找到宿主选中的运行时。
-- `LITHE_RUN_JAVA_DEBUG_INTEGRATION=1 ./scripts/test-macos.sh --filter RealJavaDebugIntegrationTests`：从组装好的插件包启动真实的 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。
-- `./scripts/test-macos.sh --filter '(LanguageProviderCatalogSourceTests|RunWorkflowCoordinatorTests|RunConfigurationIntegrationTests)'`：用仓库里的官方 Java 清单验证能力目录保留运行、测试、调试；未声明的插件得不到任何宿主能力；注册表只为声明的能力创建内置工具；声明了 `run` 的语言不要求执行模块。
-- `./scripts/verify-macos-package.sh`：打出的应用里 Java Support 的文件齐全，且不存在 `Contents/Resources/LanguageServers`。
-- `./scripts/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
+- `LITHE_RUN_JAVA_DEBUG_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealJavaDebugIntegrationTests`：从组装好的插件包启动真实的 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。
+- `./scripts/macos/test/test-macos.sh --filter '(LanguageProviderCatalogSourceTests|RunWorkflowCoordinatorTests|RunConfigurationIntegrationTests)'`：用仓库里的官方 Java 清单验证能力目录保留运行、测试、调试；未声明的插件得不到任何宿主能力；注册表只为声明的能力创建内置工具；声明了 `run` 的语言不要求执行模块。
+- `./scripts/macos/verify/verify-macos-package.sh`：打出的应用里 Java Support 的文件齐全，且不存在 `Contents/Resources/LanguageServers`。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
+
+生产启动适配的回归使用 `RustLanguageServerLaunchTests`，直接从 `RustCoreBridge.startPluginLanguageServer` 经 C ABI 启动本地标准输入输出协议夹具；不经过协议默认回退。它用函数所属插件校验、credentials 请求与响应、通用插件配置查询、Java 启动参数、缓存配置副本和工作区指纹日志验证实际接线。夹具使用 macOS 开发工具已有的 Python，不依赖真实 JVM 或联网；Core 会话负责子进程，测试始终停止并销毁会话，再移除临时资源。运行命令：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter RustLanguageServerLaunchTests`。
 
 ## 适用范围
 
 - `shared/contracts/plugins/v1/`
 - `rust/lithe-core/src/plugins/declarative.rs`
 - `Plugins/mac/Official/JavaSupport/`
-- `scripts/build-official-plugins.sh`
-- `scripts/package-app.sh`
+- `scripts/plugins/build-official-plugins.sh`
+- `scripts/macos/package/package-app.sh`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/HostIntegrations/`
 - `macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift`

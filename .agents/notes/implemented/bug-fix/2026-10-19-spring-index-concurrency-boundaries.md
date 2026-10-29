@@ -127,9 +127,9 @@
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/features/spring/hooks/use-spring-index.test.tsx`
   覆盖持续编辑只产生一次在途加一次补充刷新、卸载取消在途请求、主动取消不写失败
   状态、非本 hook 发起的取消不会停在 `loading`。
-- `./scripts/verify-rust-core.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
+- `./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
 ## 适用范围
 

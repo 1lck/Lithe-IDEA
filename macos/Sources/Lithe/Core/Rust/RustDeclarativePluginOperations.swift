@@ -156,6 +156,79 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         ))
     }
 
+    func debugAdapterLaunchPlan(
+        manifest: Data,
+        adapterID: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        try launchPlan(LaunchPlanPayload(
+            manifest: try Self.json(manifest),
+            languageID: nil,
+            buildSystemID: nil,
+            debugAdapterID: adapterID,
+            request: LaunchRequest(request)
+        ))
+    }
+
+    func debugStartArguments(
+        manifest: Data,
+        adapterID: String,
+        request: DeclarativeDebugStartRequest
+    ) throws -> [String: ToolingJSONValue] {
+        let outcome: Outcome<DebugStartArgumentsResult> = try execute(
+            "debug.adapters.startArguments",
+            payload: DebugStartArgumentsPayload(
+                manifest: try Self.json(manifest),
+                adapterID: adapterID,
+                request: request.request.rawValue,
+                facts: .init(
+                    registration: .init(
+                        generation: request.registrationGeneration,
+                        currentGeneration: request.currentRegistrationGeneration
+                    ),
+                    target: .init(
+                        kind: request.targetKind,
+                        path: request.path,
+                        processID: request.processID,
+                        workingDirectory: request.workingDirectory,
+                        executable: request.executable,
+                        arguments: request.arguments, environment: request.environment
+                    )
+                )
+            )
+        )
+        return outcome.value.arguments
+    }
+
+    func debugExecutablePlan(
+        manifest: Data,
+        adapterID: String,
+        settings: [String: ToolingJSONValue],
+        projectSettings: [String: ToolingJSONValue],
+        workspace: String?,
+        targetPath: String?
+    ) throws -> DeclarativeDebugExecutablePlan? {
+        let outcome: Outcome<DebugExecutablePlanResult> = try execute(
+            "debug.adapters.executablePlan",
+            payload: DebugExecutablePlanPayload(
+                manifest: try Self.json(manifest),
+                adapterID: adapterID,
+                settings: settings,
+                projectSettings: projectSettings,
+                workspace: workspace,
+                targetPath: targetPath
+            )
+        )
+        guard let plan = outcome.value.plan else { return nil }
+        return DeclarativeDebugExecutablePlan(
+            settingID: plan.setting,
+            configured: plan.configured.map {
+                .init(path: $0.path, source: PluginSettingSource(rawValue: $0.source) ?? .default)
+            },
+            candidates: plan.candidates
+        )
+    }
+
     private func launchPlan(_ payload: LaunchPlanPayload) throws -> DeclarativeLanguageServerLaunchPlan {
         let outcome: Outcome<LaunchPlanResult> = try execute(
             "plugins.declarative.languageServerLaunchPlan",
@@ -205,6 +278,23 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             )
         }
         result.backend = plan.backend.map { .init(hostServices: $0.hostServices) }
+        result.debugAdapter = plan.debugAdapter.map {
+            .init(
+                id: $0.id,
+                providerID: $0.providerID,
+                displayName: $0.displayName,
+                adapterID: $0.adapterID,
+                requests: $0.requests,
+                languageIDs: $0.selectors.flatMap { $0.languageIDs ?? [] },
+                transport: $0.transport,
+                languageServerEndpoint: $0.endpoint.flatMap { endpoint in
+                    guard let languageID = endpoint.languageID, let command = endpoint.command else {
+                        return nil
+                    }
+                    return .init(languageID: languageID, command: command)
+                }
+            )
+        }
         return result
     }
 
@@ -416,6 +506,46 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let buildProvider: BuildProvider?
         let vcsProvider: VcsProvider?
         let backend: Backend?
+        let debugAdapter: DebugAdapter?
+
+        struct DebugAdapter: Decodable {
+            struct Selector: Decodable {
+                let languageIDs: [String]?
+            }
+
+            let id: String
+            let providerID: String
+            let displayName: String
+            let adapterID: String
+            let requests: [String]
+            let selectors: [Selector]
+            let transport: String
+            let endpoint: Endpoint?
+
+            /// Only the fields of `tcpLanguageServer` are read; the other
+            /// transports' endpoint fields stay with the Core.
+            struct Endpoint: Decodable {
+                let languageID: String?
+                let command: String?
+            }
+
+            init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                id = try values.decode(String.self, forKey: .id)
+                providerID = try values.decode(String.self, forKey: .providerID)
+                displayName = try values.decode(String.self, forKey: .displayName)
+                adapterID = try values.decode(String.self, forKey: .adapterID)
+                requests = try values.decode([String].self, forKey: .requests)
+                selectors = try values.decodeIfPresent([Selector].self, forKey: .selectors) ?? []
+                // Stdio when a plan carries none.
+                transport = try values.decodeIfPresent(String.self, forKey: .transport) ?? "stdio"
+                endpoint = try values.decodeIfPresent(Endpoint.self, forKey: .endpoint)
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case id, providerID, displayName, adapterID, requests, selectors, transport, endpoint
+            }
+        }
 
         struct Backend: Decodable {
             let hostServices: [String]
@@ -467,9 +597,66 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let languageID: String?
         let buildSystemID: String?
         var vcsProviderID: String? = nil
+        var debugAdapterID: String? = nil
         /// Selects the plugin backend; omitted for every other process.
         var backend: Bool? = nil
         let request: LaunchRequest
+    }
+
+    private struct DebugStartArgumentsPayload: Encodable {
+        struct Facts: Encodable {
+            struct Registration: Encodable {
+                let generation: Int
+                let currentGeneration: Int
+            }
+
+            struct Target: Encodable {
+                let kind: String
+                let path: String?
+                let processID: Int?
+                let workingDirectory: String?
+                let executable: String?
+                let arguments: [String]?
+                let environment: [String: String]?
+            }
+
+            let registration: Registration
+            let target: Target
+        }
+
+        let manifest: ToolingJSONValue
+        let adapterID: String
+        let request: String
+        let facts: Facts
+    }
+
+    private struct DebugStartArgumentsResult: Decodable {
+        let arguments: [String: ToolingJSONValue]
+    }
+
+    private struct DebugExecutablePlanPayload: Encodable {
+        let manifest: ToolingJSONValue
+        let adapterID: String
+        let settings: [String: ToolingJSONValue]
+        let projectSettings: [String: ToolingJSONValue]
+        let workspace: String?
+        let targetPath: String?
+    }
+
+    private struct DebugExecutablePlanResult: Decodable {
+        struct Plan: Decodable {
+            struct Configured: Decodable {
+                let path: String
+                let source: String
+            }
+
+            let setting: String
+            let configured: Configured?
+            let candidates: [String]
+        }
+
+        /// Null when the adapter declares no executable lookup.
+        let plan: Plan?
     }
 
     private struct LaunchPlanResult: Decodable {

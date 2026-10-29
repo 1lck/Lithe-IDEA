@@ -234,6 +234,7 @@ struct GitGraphScrollView: NSViewRepresentable {
     var isFocused = true
     var navigationHash: String? = nil
     var navigationID: UUID? = nil
+    var loadMoreFailed = false
 
     @Environment(\.controlActiveState) private var controlActiveState
 
@@ -263,7 +264,8 @@ struct GitGraphScrollView: NSViewRepresentable {
             actions: actions,
             onLoadMore: onLoadMore,
             selectedHashes: selectedHashes,
-            isFocused: isFocused && controlActiveState == .key
+            isFocused: isFocused && controlActiveState == .key,
+            loadMoreFailed: loadMoreFailed
         )
         return scrollView
     }
@@ -277,7 +279,8 @@ struct GitGraphScrollView: NSViewRepresentable {
         actions: GitGraphRowActions,
         onLoadMore: @escaping () -> Void,
         selectedHashes: Set<String>? = nil,
-        isFocused: Bool = true
+        isFocused: Bool = true,
+        loadMoreFailed: Bool = false
     ) -> NSScrollView {
         let scrollView = GitGraphScrollNSView()
         scrollView.drawsBackground = false
@@ -299,7 +302,8 @@ struct GitGraphScrollView: NSViewRepresentable {
             actions: actions,
             onLoadMore: onLoadMore,
             selectedHashes: selectedHashes,
-            isFocused: isFocused
+            isFocused: isFocused,
+            loadMoreFailed: loadMoreFailed
         )
         documentView.autoresizingMask = [.width]
         scrollView.documentView = documentView
@@ -307,10 +311,16 @@ struct GitGraphScrollView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        updateScrollView(nsView, locale: context.environment.locale,
+                         effectiveFocus: isFocused && controlActiveState == .key)
+    }
+
+    func updateScrollView(_ nsView: NSScrollView, locale: Locale, effectiveFocus: Bool) {
         guard let documentView = nsView.documentView as? GitGraphScrollDocumentView else { return }
         let previousOrigin = nsView.contentView.bounds.origin
+        let anchor = documentView.scrollAnchor(at: previousOrigin.y)
         let selectionChanged = documentView.update(
-            locale: context.environment.locale,
+            locale: locale,
             presentation: presentation,
             selectedHash: selectedHash,
             showCommitDecorations: showCommitDecorations,
@@ -319,7 +329,8 @@ struct GitGraphScrollView: NSViewRepresentable {
             actions: actions,
             onLoadMore: onLoadMore,
             selectedHashes: selectedHashes,
-            isFocused: isFocused && controlActiveState == .key
+            isFocused: effectiveFocus,
+            loadMoreFailed: loadMoreFailed
         )
         let width = max(nsView.contentView.bounds.width, 1)
         documentView.updateLayout(width: width, viewportHeight: nsView.contentView.bounds.height)
@@ -346,7 +357,7 @@ struct GitGraphScrollView: NSViewRepresentable {
             // as Load more, clamped by the new document bounds.
             nsView.layoutSubtreeIfNeeded()
             nsView.contentView.setBoundsOrigin(Self.preservedScrollOrigin(
-                previous: previousOrigin,
+                previous: CGPoint(x: previousOrigin.x, y: documentView.scrollOffset(for: anchor) ?? previousOrigin.y),
                 documentHeight: documentView.bounds.height,
                 viewportHeight: nsView.contentView.bounds.height
             ))
@@ -355,6 +366,12 @@ struct GitGraphScrollView: NSViewRepresentable {
 }
 
 final class GitGraphScrollNSView: NSScrollView {
+    override func reflectScrolledClipView(_ clipView: NSClipView) {
+        super.reflectScrolledClipView(clipView)
+        (documentView as? GitGraphScrollDocumentView)?.refreshHover()
+        (documentView as? GitGraphScrollDocumentView)?.scheduleAutomaticLoading()
+    }
+
     override func keyDown(with event: NSEvent) {
         // NSScrollView otherwise consumes Up/Down as scrolling instead of
         // commit selection, including Shift range selection.
@@ -370,6 +387,7 @@ final class GitGraphScrollNSView: NSScrollView {
         super.layout()
         guard let document = documentView as? GitGraphScrollDocumentView else { return }
         document.updateLayout(width: contentView.bounds.width, viewportHeight: contentView.bounds.height)
+        document.scheduleAutomaticLoading()
     }
 }
 
@@ -379,6 +397,9 @@ final class GitGraphScrollDocumentView: NSView {
     private let loadMoreButton = NSButton()
     private var loadMoreTarget: GitGraphLoadMoreButtonTarget?
     private var canLoadMore = false
+    private var loadMoreFailed = false
+    private var automaticLoadingScheduled = false
+    private var requestedPageEdge: String?
     private var isLoadingMore = false
     private var hasMissingParents = false
     private var locale = Locale.current
@@ -394,6 +415,17 @@ final class GitGraphScrollDocumentView: NSView {
     private let rowHeight = GitGraphGeometry.rowHeight
 
     override var isFlipped: Bool { true }
+
+    func scrollAnchor(at offset: CGFloat) -> (hash: String, inset: CGFloat)? {
+        let index = max(0, Int(floor(offset / rowHeight)))
+        guard rows.indices.contains(index) else { return nil }
+        return (rows[index].commit.hash, offset - CGFloat(index) * rowHeight)
+    }
+
+    func scrollOffset(for anchor: (hash: String, inset: CGFloat)?) -> CGFloat? {
+        guard let anchor, let index = rows.firstIndex(where: { $0.commit.hash == anchor.hash }) else { return nil }
+        return CGFloat(index) * rowHeight + anchor.inset
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -424,7 +456,8 @@ final class GitGraphScrollDocumentView: NSView {
         actions: GitGraphRowActions,
         onLoadMore: @escaping () -> Void,
         selectedHashes: Set<String>? = nil,
-        isFocused: Bool = true
+        isFocused: Bool = true,
+        loadMoreFailed: Bool = false
     ) -> Bool {
         let localeChanged = self.locale != locale
         self.locale = locale
@@ -436,7 +469,7 @@ final class GitGraphScrollDocumentView: NSView {
         let missingParentsChanged = hasMissingParents != presentation.hasMissingParents
         let showDecorationsChanged = self.showCommitDecorations != showCommitDecorations
         let loadMoreStateChanged = self.canLoadMore != canLoadMore
-        let loadingStateChanged = self.isLoadingMore != isLoadingMore
+        let loadingStateChanged = self.isLoadingMore != isLoadingMore || self.loadMoreFailed != loadMoreFailed
 
         self.selectedHash = selectedHash
         graphWidth = nextGraphWidth
@@ -446,12 +479,20 @@ final class GitGraphScrollDocumentView: NSView {
         routingSnapshot = presentation.routingSnapshot
         self.showCommitDecorations = showCommitDecorations
         self.canLoadMore = canLoadMore
+        let loadingFinished = self.isLoadingMore && !isLoadingMore
         self.isLoadingMore = isLoadingMore
+        self.loadMoreFailed = loadMoreFailed
+        if rows.last?.commit.hash != requestedPageEdge || loadMoreStateChanged || loadingFinished {
+            requestedPageEdge = nil
+        }
         self.onLoadMore = onLoadMore
         if !didConfigureLoadMoreButton || loadMoreStateChanged || loadingStateChanged || localeChanged {
-            loadMoreButton.title = isLoadingMore
-                ? gitLocalizedFormat("Loading commits…", locale: locale)
-                : gitLocalizedFormat("Load more commits", locale: locale)
+            // The footer row is reserved whenever older history exists, so it always says
+            // what it is for: idle it offers the next page instead of leaving a blank band.
+            loadMoreButton.title = gitLocalizedFormat(
+                loadMoreFailed ? "Could not load older commits. Refresh history"
+                    : isLoadingMore ? "Loading commits…" : "Load more commits",
+                locale: locale)
             loadMoreButton.isHidden = !canLoadMore
             loadMoreButton.isEnabled = !isLoadingMore
             didConfigureLoadMoreButton = true
@@ -489,7 +530,34 @@ final class GitGraphScrollDocumentView: NSView {
             needsLayout = true
             needsDisplay = true
         }
+        scheduleAutomaticLoading()
         return selectionChanged
+    }
+
+    /// One request per rendered page, even before SwiftUI publishes the loading state.
+    /// Appends retain the native clip origin; no per-pixel state reaches the workbench.
+    /// Scrolling moves rows under a stationary pointer without a mouse event.
+    func refreshHover() { commitRowsView.refreshHoverFromPointer() }
+
+    func scheduleAutomaticLoading() {
+        guard !automaticLoadingScheduled else { return }
+        automaticLoadingScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.automaticLoadingScheduled = false
+            guard self.window != nil, !self.isHiddenOrHasHiddenAncestor,
+                  self.canLoadMore, !self.isLoadingMore, !self.loadMoreFailed,
+                  let scroll = self.enclosingScrollView, scroll.contentView.bounds.height > 0,
+                  scroll.contentView.bounds.maxY >= CGFloat(self.rows.count) * self.rowHeight - 240,
+                  let edge = self.rows.last?.commit.hash, self.requestedPageEdge != edge else { return }
+            self.requestedPageEdge = edge
+            self.onLoadMore?()
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { scheduleAutomaticLoading() }
     }
 
     func updateLayout(width: CGFloat, viewportHeight: CGFloat) {
@@ -608,7 +676,7 @@ final class GitGraphScrollDocumentView: NSView {
             }
             element.setAccessibilityChildren(arrows)
             return element
-        } + (canLoadMore ? [loadMoreButton] : [])
+        } + (!loadMoreButton.isHidden ? [loadMoreButton] : [])
     }
 
     private var presentationRowCount: Int {
@@ -681,6 +749,7 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
         self.rowHeight = rowHeight
         self.actions = actions
         needsDisplay = true
+        refreshHoverFromPointer()
     }
 
     func isSelected(_ hash: String) -> Bool { selectedHashes?.contains(hash) ?? (selectedHash == hash) }
@@ -752,8 +821,22 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
-        let next = rows.indices.contains(index) ? index : nil
+        setHoveredIndex(rowIndex(atWindowLocation: event.locationInWindow))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHoveredIndex(nil)
+    }
+
+    /// The row under the pointer, or nil when the pointer is outside the visible rows.
+    private func rowIndex(atWindowLocation location: NSPoint) -> Int? {
+        let point = convert(location, from: nil)
+        guard visibleRect.contains(point) else { return nil }
+        let index = Int(floor(point.y / rowHeight))
+        return rows.indices.contains(index) ? index : nil
+    }
+
+    private func setHoveredIndex(_ next: Int?) {
         guard hoveredIndex != next else { return }
         let previous = hoveredIndex
         hoveredIndex = next
@@ -765,11 +848,26 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
         }
     }
 
-    override func mouseExited(with event: NSEvent) {
-        guard let previous = hoveredIndex else { return }
-        hoveredIndex = nil
-        setNeedsDisplay(NSRect(x: 0, y: CGFloat(previous) * rowHeight, width: bounds.width, height: rowHeight))
+    /// Pointer position in window coordinates. Tests place the pointer here, because a synthetic
+    /// event cannot move the real one.
+    var pointerLocationInWindow: (() -> NSPoint?)?
+
+    /// Re-resolves the hovered row from where the pointer is now. `mouseMoved` does not fire when
+    /// the rows scroll or change under a stationary pointer, which left the grey hover band on the
+    /// old row index, a different commit than the one under the pointer.
+    func refreshHoverFromPointer() {
+        let location: NSPoint?
+        if let pointerLocationInWindow {
+            location = pointerLocationInWindow()
+        } else if let window, window.isKeyWindow {
+            location = window.mouseLocationOutsideOfEventStream
+        } else {
+            location = nil
+        }
+        setHoveredIndex(location.flatMap(rowIndex(atWindowLocation:)))
     }
+
+    var hoveredRowIndex: Int? { hoveredIndex }
 
     override func draw(_ dirtyRect: NSRect) {
         guard !rows.isEmpty, let style = resolvedDrawingStyle() else { return }

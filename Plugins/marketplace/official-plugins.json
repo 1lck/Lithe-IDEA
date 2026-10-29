@@ -1,5 +1,26 @@
 {
   "schemaVersion": 1,
   "description": "Official plugins released through their own tag series and listed in index.json. A plugin is released when its packageDirectory changes and its plugin.json version has no tag yet; changing the directory without a new version fails CI.",
-  "plugins": []
+  "plugins": [
+    {
+      "id": "dev.lithe.plugin.java-support",
+      "releaseEnabled": false,
+      "bundledUntilPublishedVersion": "1.1.0",
+      "tagPrefix": "plugin-java-support-v",
+      "packageDirectory": "Plugins/mac/Official/JavaSupport",
+      "inputPaths": ["third_party/jdtls/manifest.json", "third_party/jdk/manifest.json", "scripts/macos/prepare/prepare-jdtls.sh", "scripts/macos/prepare/prepare-jdk.sh", "scripts/plugins/build-official-plugins.sh"],
+      "assets": [
+        {"assetName": "Lithe-Java-Support-{version}-darwin-arm64.zip", "platforms": ["darwin-arm64"], "arch": "arm64"},
+        {"assetName": "Lithe-Java-Support-{version}-darwin-x64.zip", "platforms": ["darwin-x64"], "arch": "x86_64"}
+      ],
+      "index": {
+        "name": "Java Support",
+        "author": "Lithe",
+        "repository": "https://github.com/1lck/Lithe-IDEA",
+        "description": "Java language support with JDT LS, Lombok, debug and test extensions, a language-server JDK, and project generators.",
+        "tags": ["java", "language"],
+        "license": "Multiple; see bundled third-party licenses"
+      }
+    }
+  ]
 }

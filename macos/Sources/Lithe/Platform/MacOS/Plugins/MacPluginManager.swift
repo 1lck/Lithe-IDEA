@@ -15,6 +15,10 @@ final class MacPluginManager: PluginManaging {
     /// enablement changes apply immediately; anything installed later needs
     /// a restart to join the module graph.
     private let registeredPluginIDs: Set<PluginID>
+    /// Plugins the host applies at runtime, without a restart. A plugin lives
+    /// there only when every contribution has a runtime backend
+    /// (`canActivateWithoutRestart`) and the module graph never held it.
+    private let livePlugins: MacLivePluginRegistry?
     private let hostVersion: PluginVersion
     private let allowsLocalDevelopmentPackages: Bool
     /// Release pages before their package is replaced or their owner is disabled.
@@ -32,8 +36,12 @@ final class MacPluginManager: PluginManaging {
     /// Rust Core's expansion of a manifest's `workspaceConfiguration` with
     /// the given global and project values.
     private let expandWorkspaceConfiguration: WorkspaceConfigurationExpansion
+    /// Looks for the program a plugin's debug adapter launches, for the settings
+    /// that name it. nil when the adapter declares no lookup.
+    private let lookUpDebugExecutable: DebugExecutableLookupHandler
     private var installedPlugins: [PluginID: InstalledPluginPackage]
     var settingsProjectRootURL: URL?
+    var settingsActiveFileURL: URL?
     private var restartRequiredPluginIDs: Set<PluginID> = []
     private(set) var issues: [PluginManagementIssue]
 
@@ -52,9 +60,13 @@ final class MacPluginManager: PluginManaging {
         enableWebPages: @escaping (PluginID) -> Void = { _ in },
         beforePackageReplacement: ((PluginID) -> Void)? = nil,
         reviewPrograms: @escaping (_ manifest: Data, _ id: PluginID, _ version: PluginVersion) throws -> [PluginProgram] = { _, _, _ in [] },
-        expandWorkspaceConfiguration: @escaping WorkspaceConfigurationExpansion = { _, _, _, _ in nil }
+        expandWorkspaceConfiguration: @escaping WorkspaceConfigurationExpansion = { _, _, _, _ in nil },
+        lookUpDebugExecutable: @escaping DebugExecutableLookupHandler = { _, _, _, _ in nil },
+        livePlugins: MacLivePluginRegistry? = nil
     ) {
+        self.livePlugins = livePlugins
         self.reviewPrograms = reviewPrograms
+        self.lookUpDebugExecutable = lookUpDebugExecutable
         self.expandWorkspaceConfiguration = expandWorkspaceConfiguration
         self.packageStore = packageStore
         self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
@@ -99,6 +111,7 @@ final class MacPluginManager: PluginManaging {
                     previousVersion: $0.installation.previousVersion
                 )
                 .withContributions(Self.contributions(of: $0.descriptor))
+                .withSettingDiscoveries(settingDiscoveries(of: $0))
             }
         let builtIn = managedBuiltInPlugins.map {
             snapshot(
@@ -147,11 +160,13 @@ final class MacPluginManager: PluginManaging {
         }
 
         // Declarative plugins run no code in this process, so a registered
-        // plugin is enabled or disabled live. Only a plugin installed after
-        // launch waits for the next module graph.
-        if manifest.entrypoint.kind == .declarative, !registeredPluginIDs.contains(pluginID) {
+        // plugin is enabled or disabled live. A plugin installed after launch
+        // waits for the next module graph unless the host applies it at runtime.
+        let isLive = installedPlugins[pluginID].map { appliesLive($0.descriptor) } ?? false
+        if manifest.entrypoint.kind == .declarative, !registeredPluginIDs.contains(pluginID), !isLive {
             restartRequiredPluginIDs.insert(pluginID)
         }
+        if isLive { livePlugins?.enablementDidChange() }
         if enabled && !restartRequiredPluginIDs.contains(pluginID) { enableWebPages(pluginID) }
     }
 
@@ -163,33 +178,31 @@ final class MacPluginManager: PluginManaging {
         guard origin == .marketplace || origin == .community else {
             throw PluginManagerError.unsupportedInstallationOrigin(origin)
         }
-        let installed = try packageStore.installPackage(
-            from: packageURL,
-            deferActivationUntilRestart: true,
-            // Reinstalling the active version repairs a damaged or retired
-            // package; a new version is installed beside the current one.
-            replaceExisting: true,
-            origin: origin,
-            marketplace: provenance,
-            beforeReplacingPackage: beforePackageReplacement
-        )
-        enableFirstInstallation(of: installed.manifest)
-        restartRequiredPluginIDs.insert(installed.manifest.id)
-        try refreshInstalledPlugins()
+        try install(candidate: packageURL) { [packageStore, beforePackageReplacement] deferActivation in
+            try packageStore.installPackage(
+                from: packageURL,
+                deferActivationUntilRestart: deferActivation,
+                // Reinstalling the active version repairs a damaged or retired
+                // package; a new version is installed beside the current one.
+                replaceExisting: true,
+                origin: origin,
+                marketplace: provenance,
+                beforeReplacingPackage: beforePackageReplacement
+            )
+        }
     }
 
     func installDiskPackage(at packageURL: URL, provenance: PluginDiskProvenance) throws {
-        let installed = try packageStore.installPackage(
-            from: packageURL,
-            deferActivationUntilRestart: true,
-            replaceExisting: true,
-            origin: .community,
-            disk: provenance,
-            beforeReplacingPackage: beforePackageReplacement
-        )
-        enableFirstInstallation(of: installed.manifest)
-        restartRequiredPluginIDs.insert(installed.manifest.id)
-        try refreshInstalledPlugins()
+        try install(candidate: packageURL) { [packageStore, beforePackageReplacement] deferActivation in
+            try packageStore.installPackage(
+                from: packageURL,
+                deferActivationUntilRestart: deferActivation,
+                replaceExisting: true,
+                origin: .community,
+                disk: provenance,
+                beforeReplacingPackage: beforePackageReplacement
+            )
+        }
     }
 
     func installPackage(at packageURL: URL) throws {
@@ -202,23 +215,42 @@ final class MacPluginManager: PluginManaging {
                 at: packageURL,
                 manifest: manifest
             )
-        let installed = try packageStore.installPackage(
-            from: packageURL,
-            deferActivationUntilRestart: true,
-            replaceExisting: isDevelopmentPackage,
-            origin: isDevelopmentPackage ? .localDevelopment : .marketplace,
-            beforeReplacingPackage: beforePackageReplacement
-        )
-        enableFirstInstallation(of: installed.manifest)
-        restartRequiredPluginIDs.insert(installed.manifest.id)
+        try install(candidate: packageURL) { [packageStore, beforePackageReplacement] deferActivation in
+            try packageStore.installPackage(
+                from: packageURL,
+                deferActivationUntilRestart: deferActivation,
+                replaceExisting: isDevelopmentPackage,
+                origin: isDevelopmentPackage ? .localDevelopment : .marketplace,
+                beforeReplacingPackage: beforePackageReplacement
+            )
+        }
+    }
+
+    /// Installs a package that passed its own checks. A package the host can
+    /// apply at runtime is active as soon as it is installed; any other waits
+    /// for the next launch, so its files must not be read as active before.
+    private func install(
+        candidate packageURL: URL,
+        _ perform: (_ deferActivationUntilRestart: Bool) throws -> InstalledPluginPackage
+    ) throws {
+        let isLive = appliesLive(try packageStore.inspectPackage(at: packageURL))
+        let installed = try perform(!isLive)
+        defer { rescanLivePlugins(for: installed.manifest.id, appliesLive: isLive) }
+        preserveEnablementAfterInstallation(of: installed.manifest)
+        if !isLive { restartRequiredPluginIDs.insert(installed.manifest.id) }
         try refreshInstalledPlugins()
     }
 
     func rollback(_ pluginID: PluginID) throws {
-        _ = try packageStore.rollback(
-            pluginID, deferActivationUntilRestart: true, beforeReplacingPackage: beforePackageReplacement
+        // The version being restored is only known once it is read, so a live
+        // plugin rolls back in place and the result decides about a restart.
+        let wasLive = livePlugins?.snapshot.entries[pluginID] != nil
+        let restored = try packageStore.rollback(
+            pluginID, deferActivationUntilRestart: !wasLive, beforeReplacingPackage: beforePackageReplacement
         )
-        restartRequiredPluginIDs.insert(pluginID)
+        let isLive = wasLive && appliesLive(restored.descriptor)
+        defer { rescanLivePlugins(for: pluginID, appliesLive: isLive) }
+        if !isLive { restartRequiredPluginIDs.insert(pluginID) }
         try refreshInstalledPlugins()
     }
 
@@ -228,6 +260,9 @@ final class MacPluginManager: PluginManaging {
                 throw PluginManagerError.unknownPlugin(pluginID)
             }
             beforePackageReplacement(pluginID)
+            if OfficialPluginCatalog.entry(for: pluginID)?.bundledSignatureRequirement == .sameTeamAsHost {
+                try packageStore.setBundledPluginRemoved(pluginID, removed: true)
+            }
             try packageStore.stageInvalidPackageUninstall(pluginID)
             restartRequiredPluginIDs.insert(pluginID)
             issues.removeAll { $0.pluginID == pluginID }
@@ -239,6 +274,10 @@ final class MacPluginManager: PluginManaging {
         }
         guard !installed.manifest.modules.contains(where: { $0.manifest.isRequired }) else {
             throw PluginManagerError.requiredPluginCannotBeUninstalled(pluginID)
+        }
+        if appliesLive(installed.descriptor) {
+            try uninstallLivePlugin(installed)
+            return
         }
         if registeredPluginIDs.contains(pluginID) {
             // Stopping the modules is not the user turning them off. Language
@@ -257,9 +296,34 @@ final class MacPluginManager: PluginManaging {
             // The package itself lives in the read-only app bundle.
             try packageStore.setBundledPluginRemoved(pluginID, removed: true)
         } else {
+            // An installed update can shadow a sealed copy in a transition
+            // host. Uninstalling it must not resurrect that copy at restart.
+            if installed.manifest.vendor.bundledSignatureRequirement == .sameTeamAsHost {
+                try packageStore.setBundledPluginRemoved(pluginID, removed: true)
+            }
             try packageStore.stageUninstall(pluginID)
         }
         restartRequiredPluginIDs.insert(pluginID)
+        try refreshInstalledPlugins()
+    }
+
+    /// A live plugin has no module in the running graph and nothing keeps its
+    /// files in use, so removal happens now instead of at the next launch.
+    private func uninstallLivePlugin(_ installed: InstalledPluginPackage) throws {
+        let pluginID = installed.manifest.id
+        // As for any removed plugin, only an explicit "off" outlives it.
+        for declaration in installed.manifest.modules
+        where configurationStore.enabledState(for: declaration.manifest.id) != false {
+            configurationStore.clearEnabledState(for: declaration.manifest.id)
+        }
+        invalidateWebPages(pluginID)
+        beforePackageReplacement(pluginID)
+        defer { rescanLivePlugins(for: pluginID, appliesLive: true) }
+        if installed.installation.origin == .bundled {
+            try packageStore.setBundledPluginRemoved(pluginID, removed: true)
+        } else {
+            try packageStore.uninstall(pluginID)
+        }
         try refreshInstalledPlugins()
     }
 
@@ -269,16 +333,50 @@ final class MacPluginManager: PluginManaging {
             throw PluginManagerError.unknownPlugin(pluginID)
         }
         try packageStore.setBundledPluginRemoved(pluginID, removed: false)
-        // Its modules join the module graph at the next launch.
-        restartRequiredPluginIDs.insert(pluginID)
+        // A live plugin is registered again right away; any other plugin's
+        // modules join the module graph at the next launch.
+        let isLive = appliesLive(installed.descriptor)
+        defer { rescanLivePlugins(for: pluginID, appliesLive: isLive) }
+        if !isLive { restartRequiredPluginIDs.insert(pluginID) }
         try refreshInstalledPlugins()
+    }
+
+    /// Whether a change to this package takes effect without a restart.
+    private func appliesLive(_ descriptor: DeclarativePluginDescriptor) -> Bool {
+        livePlugins != nil
+            && descriptor.canActivateWithoutRestart
+            && !registeredPluginIDs.contains(descriptor.id)
+    }
+
+    /// The registry follows the packages on disk, so a change to a plugin it
+    /// holds, or may now hold, needs a rescan, which also reaches the other
+    /// windows.
+    private func rescanLivePlugins(for pluginID: PluginID, appliesLive: Bool) {
+        guard let livePlugins, appliesLive || livePlugins.snapshot.entries[pluginID] != nil else { return }
+        livePlugins.packagesDidChange()
     }
 
     /// The user confirmed this installation, so its modules start enabled at
     /// the next launch. Module defaults stay off for packages that appear
     /// without that confirmation, and an update keeps the user's choice.
-    private func enableFirstInstallation(of manifest: PluginManifest) {
-        guard installedPlugins[manifest.id] == nil, !registeredPluginIDs.contains(manifest.id) else { return }
+    private func preserveEnablementAfterInstallation(of manifest: PluginManifest) {
+        if let existing = installedPlugins[manifest.id] {
+            // Bundled modules default on, while the same downloaded declaration
+            // defaults off. Materialize the old default only after installation
+            // succeeds. Explicit disabled choices and settings stay untouched.
+            if existing.installation.origin == .bundled {
+                let oldModules = Dictionary(uniqueKeysWithValues: existing.manifest.modules.map { ($0.manifest.id, $0.manifest) })
+                for declaration in manifest.modules where configurationStore.enabledState(for: declaration.manifest.id) == nil {
+                    // Only modules the old package owned have a choice to
+                    // migrate. New modules keep their declaration's default.
+                    guard let previous = oldModules[declaration.manifest.id] else { continue }
+                    let enabled = existing.installation.status == .removed || previous.defaultState == .enabled
+                    configurationStore.setEnabledState(enabled, for: declaration.manifest.id)
+                }
+            }
+            return
+        }
+        guard !registeredPluginIDs.contains(manifest.id) else { return }
         // Language module IDs are shared across plugin IDs. A package rejected
         // for an ownership collision at restart must not first enable its owner.
         // Reserve disabled/removed packages too, and keep the running graph's
@@ -417,6 +515,32 @@ final class MacPluginManager: PluginManaging {
         }
     }
 
+    /// What the host finds for each setting that names a debug program, by
+    /// setting ID. A plugin that is not installed has nothing to look for.
+    private func settingDiscoveries(of package: InstalledPluginPackage) -> [String: DebugExecutableLookup] {
+        guard package.installation.status == .installed else { return [:] }
+        var discoveries: [String: DebugExecutableLookup] = [:]
+        for adapter in package.descriptor.debugAdapters {
+            guard let settingID = adapter.launchExecutableSettingID, discoveries[settingID] == nil,
+                  let lookup = lookUpDebugExecutable(
+                    package,
+                    adapter.id,
+                    settingsProjectRootURL,
+                    settingsActiveFileURL?.standardizedFileURL.path
+                  )
+            else { continue }
+            discoveries[settingID] = lookup
+        }
+        return discoveries
+    }
+
+    typealias DebugExecutableLookupHandler = (
+        _ plugin: InstalledPluginPackage,
+        _ adapterID: String,
+        _ workspaceRootURL: URL?,
+        _ targetPath: String?
+    ) -> DebugExecutableLookup?
+
     private static func contributions(of descriptor: DeclarativePluginDescriptor) -> PluginSettingsContributions {
         PluginSettingsContributions(
             languages: descriptor.languages,
@@ -487,13 +611,13 @@ enum PluginManagerError: Error, Equatable, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unknownPlugin(let id): L10n.string("Plugin \(id) is not installed.")
+        case .unknownPlugin(let id): L10n.string("Plugin \(id.rawValue) is not installed.")
         case .unsupportedInstallationOrigin(let origin): L10n.string("Marketplace packages cannot be installed as \(origin.rawValue).")
-        case .requiredPluginCannotBeDisabled(let id): L10n.string("Required plugin \(id) cannot be disabled.")
-        case .requiredPluginCannotBeUninstalled(let id): L10n.string("Required plugin \(id) cannot be uninstalled.")
-        case .unknownSetting(let id, let setting): L10n.string("Plugin \(id) has no setting \(setting).")
-        case .settingValueRejected(let id, let setting): L10n.string("The value is not allowed for setting \(setting) of plugin \(id).")
-        case .projectSettingUnavailable(let id, let setting): L10n.string("Setting \(setting) of plugin \(id) cannot be set for this project.")
+        case .requiredPluginCannotBeDisabled(let id): L10n.string("Required plugin \(id.rawValue) cannot be disabled.")
+        case .requiredPluginCannotBeUninstalled(let id): L10n.string("Required plugin \(id.rawValue) cannot be uninstalled.")
+        case .unknownSetting(let id, let setting): L10n.string("Plugin \(id.rawValue) has no setting \(setting).")
+        case .settingValueRejected(let id, let setting): L10n.string("The value is not allowed for setting \(setting) of plugin \(id.rawValue).")
+        case .projectSettingUnavailable(let id, let setting): L10n.string("Setting \(setting) of plugin \(id.rawValue) cannot be set for this project.")
         }
     }
 }

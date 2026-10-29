@@ -4,6 +4,7 @@ mod agent;
 mod agent_clipboard;
 mod agent_provider_settings;
 mod ai_commit;
+mod blocking;
 mod core;
 mod date_time;
 mod debug;
@@ -164,6 +165,7 @@ fn main() {
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
+                terminal::close_window_terminals(window.app_handle(), window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
                 window_title::remove_window(window.app_handle(), window.label());
                 if let Some(watcher) = window.try_state::<Arc<DocumentWatcher>>() {

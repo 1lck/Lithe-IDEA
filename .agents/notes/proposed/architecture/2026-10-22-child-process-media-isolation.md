@@ -123,7 +123,7 @@ HTML 预览和插件页已经有统一的默认拒绝门，但它只管网页。
 - 行为不回归：被包装进程的 pid 与登记的一致，进程组、会话、信号转发和退出码不变；终端里登录 shell 的 `argv[0]`、shell integration、前台作业识别不变；项目在 Documents 下时 `git`、`java`、`node`、`mvn` 仍能用 Lithe 已有的文件夹授权；终端里 `afplay` 仍能出声。
 - 终端里 `ffmpeg` 一类的采集命令失败（今天本来也失败，不算回归）。
 - 豁免的三个进程（`MacProcessSupervisor`、`MacApplicationRelauncher`、`MacStableRollback`）不套策略，并且在源码扫描里有登记。
-- 运行时只读边界：包装用到的任何随包文件都在构建阶段生成，`./scripts/verify-runtime-bundle-immutability.sh` 通过。
+- 运行时只读边界：包装用到的任何随包文件都在构建阶段生成，`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 通过。
 - 用途说明和隔离在同一个 PR 里；补用途说明前先告知维护者并等确认；功能矩阵标明仅 macOS。
 
 ## 风险

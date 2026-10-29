@@ -24,13 +24,13 @@ variable is set.
 List the matrix:
 
 ```sh
-scripts/measure-macos-performance-baseline.sh --list
+scripts/macos/perf/measure-macos-performance-baseline.sh --list
 ```
 
 Run three Release startup sessions for a scenario and fixture:
 
 ```sh
-scripts/measure-macos-performance-baseline.sh \
+scripts/macos/perf/measure-macos-performance-baseline.sh \
   --scenario T \
   --fixture 500KiB \
   --runs 3
@@ -40,7 +40,7 @@ For the interactive scenarios, keep the process alive while carrying out the
 actions in the table:
 
 ```sh
-scripts/measure-macos-performance-baseline.sh \
+scripts/macos/perf/measure-macos-performance-baseline.sh \
   --scenario D \
   --fixture 500KiB \
   --runs 3 \

@@ -8,6 +8,685 @@ import Testing
 @MainActor
 struct GitModuleTests {
     @Test
+    func independentDiffSessionsKeepBuffersAndRejectClosedReads() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let firstChange = GitChange(repositoryRoot: root, path: "first.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let secondChange = GitChange(repositoryRoot: root, path: "second.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let probe = RepositoryDiffDocumentProbe(blockedCall: 1)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()),
+            diffDocumentProvider: { _, _ in await probe.read() })
+        let first = feature.repositoryDiffSession(id: UUID())
+        let second = feature.repositoryDiffSession(id: UUID())
+        let pending = Task { await feature.selectChange(firstChange, session: first) }
+        defer { probe.release.open(); pending.cancel(); feature.reset() }
+        try #require(await probe.started.waitUntilOpen(), "First tab did not reach its read gate")
+        await feature.selectChange(secondChange, session: second)
+        #expect(second.selectedChange == secondChange && second.selectedDiffPatch == "fresh")
+        #expect(first.isLoadingDiff && first.selectedDiffPatch.isEmpty)
+        feature.activateRepositoryDiffSession(second.id)
+        second.gitDiffWhitespaceMode = .ignoreAllWhitespace
+        #expect(first.gitDiffWhitespaceMode == .doNotIgnore)
+        feature.closeRepositoryDiffSession(first.id)
+        probe.release.open()
+        try #require(await waitForGitTaskCompletion(pending))
+        #expect(first.isClosed && first.diffRows.isEmpty && !first.isLoadingDiff)
+        #expect(second.selectedChange == secondChange && second.diffRows.first?.rightText == "fresh")
+        #expect(feature.hasActiveModuleWork, "An open tab must keep its Git module alive")
+        feature.closeRepositoryDiffSession(second.id)
+        #expect(!feature.hasActiveModuleWork)
+    }
+
+    @Test
+    func independentSavedDiffSessionsSurviveHistorySelectionAndOtherTabClose() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let file = GitCommitFile(status: "M", path: "same.txt")
+        let snapshot = GitSavedChangesSnapshot(id: "stash", repositoryRoot: root, files: ["one", "two"].map {
+            GitSavedPatchFile(file: file, version: $0, base: "base",
+                patch: "diff --git a/same.txt b/same.txt\n--- a/same.txt\n+++ b/same.txt\n@@ -1 +1 @@\n-old\n+\($0)\n")
+        })
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []))))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let first = feature.repositoryDiffSession(id: UUID()), second = feature.repositoryDiffSession(id: UUID())
+        feature.showSavedChangesDiff(snapshot, version: "one", file: file, session: first)
+        feature.showSavedChangesDiff(snapshot, version: "two", file: file, session: second)
+        feature.activateRepositoryDiffSession(first.id)
+        feature.previewGitCommitSelection(makeTestCommit(hash: "other", subject: "Other"))
+        #expect(first.selectedGitCommitFile == file && second.selectedGitCommitFile == file)
+        #expect(first.selectedGitCommitDiffContext?.id != second.selectedGitCommitDiffContext?.id)
+        #expect(first.diffRows.contains { $0.rightText == "one" })
+        #expect(second.diffRows.contains { $0.rightText == "two" })
+        feature.closeRepositoryDiffSession(first.id)
+        #expect(second.diffRows.contains { $0.rightText == "two" })
+    }
+
+    @Test
+    func savedDiffRejectsAnotherRepositoryAndUnknownFileWithoutTouchingTheSession() async {
+        let root = URL(fileURLWithPath: "/workspace"), other = URL(fileURLWithPath: "/other")
+        let file = GitCommitFile(status: "M", path: "same.txt")
+        func snapshot(in repository: URL) -> GitSavedChangesSnapshot {
+            GitSavedChangesSnapshot(id: "stash", repositoryRoot: repository, files: [
+                GitSavedPatchFile(file: file, version: "one", base: "base",
+                    patch: "diff --git a/same.txt b/same.txt\n--- a/same.txt\n+++ b/same.txt\n@@ -1 +1 @@\n-old\n+one\n")
+            ])
+        }
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []))))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let session = feature.repositoryDiffSession(id: UUID())
+
+        feature.showSavedChangesDiff(snapshot(in: other), version: "one", file: file, session: session)
+        feature.showSavedChangesDiff(snapshot(in: root), version: "missing", file: file, session: session)
+        #expect(session.savedDiffSnapshot == nil && session.selectedGitCommitFile == nil && session.diffRows.isEmpty)
+
+        feature.showSavedChangesDiff(snapshot(in: root), version: "one", file: file, session: session)
+        #expect(session.selectedGitCommitFile == file && session.diffRows.contains { $0.rightText == "one" })
+    }
+
+    @Test
+    func workspaceRefreshKeepsLinkedWorktreeDiffItDoesNotObserveUntilItsOwnReadConfirmsClean() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let other = makeTestWorktree(path: "/other", branch: "other")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [change])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(snapshotHandler: { probe.snapshot($0) })),
+            worktreesProvider: { _ in [worktree, other] },
+            diffDocumentProvider: { _, _ in DiffDocument(patch: "linked diff", rows: [], hunks: []) })
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        let session = feature.repositoryDiffSession(id: UUID())
+        await feature.selectChange(change, session: session)
+        #expect(session.selectedChange == change)
+
+        // The workspace snapshot never lists a linked checkout, and the Worktrees
+        // panel now shows another one, so neither source can vouch for this file.
+        await feature.inspectWorktree(other)
+        await feature.refreshGit()
+        #expect(session.selectedChange == change)
+        #expect(session.selectedDiffPatch == "linked diff")
+
+        // A status read of the linked checkout itself is what proves it clean.
+        await feature.inspectWorktree(worktree)
+        _ = probe.mutate(change, action: "discard")
+        await feature.refreshWorktreeChanges(worktree)
+        #expect(session.selectedChange == nil && session.selectedDiffPatch.isEmpty)
+    }
+
+    @Test
+    func unchangedWorkingDiffRefreshLeavesTheSessionUntouchedAndChangedRowsStillPublish() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(repositoryRoot: root, path: "file.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let source = MutableDiffDocumentSource(text: "before")
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]))),
+            diffDocumentProvider: { _, _ in source.document() })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.selectChange(change)
+        let session = feature.activeRepositoryDiffSession
+        var publications = 0
+        let observation = session.objectWillChange.sink { publications += 1 }
+        defer { observation.cancel() }
+
+        await feature.refreshGit()
+        #expect(publications == 0, "Equal content must not redraw the diff or reset its scroll position")
+        #expect(session.diffRows.first?.rightText == "before")
+
+        source.set(text: "after")
+        await feature.refreshGit()
+        #expect(publications > 0)
+        #expect(session.selectedDiffPatch == "after" && session.diffRows.first?.rightText == "after")
+    }
+
+    @Test
+    func directoryDiffRefreshKeepsRowsVisibleAndOnlyPublishesRealChanges() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let changes = ["one.txt", "two.txt"].map {
+            GitChange(repositoryRoot: root, path: "dir/\($0)", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let source = MutableDiffDocumentSource(text: "before", includesPatch: false)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: changes),
+            comparisonRowsRead: { source.document() })))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let session = feature.repositoryDiffSession(id: UUID())
+        await feature.showDirectoryDiff(at: root.appendingPathComponent("dir"), session: session)
+        #expect(session.diffRows.map(\.rightText) == ["before", "before"] && !session.isLoadingDiff)
+        var publications = 0
+        let observation = session.objectWillChange.sink { publications += 1 }
+        defer { observation.cancel() }
+
+        await feature.refreshGit()
+        #expect(publications == 0, "A refresh must not blank the rows or flash the loading state")
+        #expect(session.diffRows.map(\.rightText) == ["before", "before"])
+
+        source.set(text: "after")
+        await feature.refreshGit()
+        #expect(session.diffRows.map(\.rightText) == ["after", "after"] && !session.isLoadingDiff)
+        #expect(session.directoryURL != nil)
+    }
+
+    @Test(arguments: [false, true])
+    func closedWorkingDiffCannotOverwriteSameFileReopenedDuringRead(refresh: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(repositoryRoot: root, path: "file.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let probe = RepositoryDiffDocumentProbe(blockedCall: refresh ? 2 : 1)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]))),
+            diffDocumentProvider: { _, _ in await probe.read() })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        if refresh { await feature.selectChange(change) }
+        let pending = Task { @MainActor in
+            if refresh { await feature.refreshGit() } else { await feature.selectChange(change) }
+        }
+        defer { probe.release.open(); pending.cancel(); feature.reset() }
+        try #require(await probe.started.waitUntilOpen(), "Diff read did not reach its gate")
+        feature.closeRepositoryDiff()
+        await feature.selectChange(change)
+        #expect(feature.selectedDiffPatch == "fresh")
+        probe.release.open()
+        try #require(await waitForGitTaskCompletion(pending))
+        #expect(feature.selectedChange == change && feature.selectedDiffPatch == "fresh")
+        #expect(feature.diffRows.first?.rightText == "fresh" && !feature.isLoadingDiff)
+        // Closing an unrelated comparison must not cancel this variant's loading owner.
+        feature.closeBranchComparison()
+        #expect(feature.selectedDiffPatch == "fresh")
+    }
+
+    @Test(arguments: 0..<8)
+    func closedBranchDiffRejectsLateComparisonAndRows(scenario: Int) async throws {
+        let typed = scenario & 1 != 0, blockRows = scenario & 2 != 0, reset = scenario & 4 != 0
+        let root = URL(fileURLWithPath: "/workspace")
+        let source = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+            isCurrent: true, upstreamShortName: nil)
+        let target = GitReference(fullName: "refs/heads/topic", shortName: "topic", kind: .local,
+            isCurrent: false, upstreamShortName: nil)
+        let comparison = GitBranchComparison(reference: source, files: [GitBranchComparisonFile(status: "M", path: "file.txt")])
+        let started = GitModuleTestGate(), release = GitModuleTestGate()
+        let operations = TestGitOperations(snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            comparisonRead: {
+                if !blockRows { started.open(); _ = release.waitSynchronously() }
+                return comparison
+            }, comparisonRowsRead: {
+                if blockRows { started.open(); _ = release.waitSynchronously() }
+                return DiffDocument(rows: [DiffRow(oldLine: 1, newLine: 1, left: "old", right: "stale", kind: .changed)], hunks: [])
+            })
+        let feature = GitFeatureModel(service: GitService(operations: operations))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        let pending = Task { @MainActor in
+            if typed { await feature.showComparison(from: source, to: target) }
+            else { await feature.showComparisonWithWorkingTree(for: source) }
+        }
+        defer { release.open(); pending.cancel(); feature.reset() }
+        try #require(await started.waitUntilOpen(), "Branch Diff read did not reach its gate")
+        if reset { feature.reset() } else { feature.closeRepositoryDiff() }
+        release.open()
+        try #require(await waitForGitTaskCompletion(pending))
+        #expect(feature.branchComparison == nil && feature.branchComparisonRows.isEmpty)
+        #expect(feature.selectedBranchComparisonFile == nil && !feature.isLoadingBranchComparison)
+        #expect(!feature.hasActiveModuleWork)
+    }
+
+    @Test
+    func worktreeRegistryRefreshUpdatesLinkedStatusWithoutReopeningHistory() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [])
+        let commits = (0..<80).map { makeTestCommit(hash: "worktree-\($0)", subject: "Commit \($0)") }
+        let pages = WorktreeHistoryPageProbe(pages: [GitHistoryPage(commits: commits, nextCursor: "older", hasMore: true)])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { probe.snapshot($0) },
+            historyValue: GitHistorySnapshot(references: [], commits: Array(commits.prefix(30)), hasMore: true),
+            worktreeHistoryProbe: pages)), worktreesProvider: { _ in [worktree] })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset(); pages.releaseAll() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        await feature.inspectWorktree(worktree)
+        await feature.loadMoreWorktreeHistory(for: worktree)
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+
+        // Editing a file does not change the registry record or HEAD task identity.
+        probe.replaceChanges([change])
+        await feature.refreshWorktrees()
+        #expect(feature.gitWorktreeInspection?.changes == [change])
+        #expect(feature.gitWorktreeInspection?.commits == commits)
+        #expect(feature.gitWorktreeInspection?.hasMoreCommits == true)
+        #expect(pages.requests.count == 1 && pages.closed.isEmpty)
+        let version = feature.gitWorktreeInspectionVersion
+        await feature.refreshWorktrees()
+        #expect(feature.gitWorktreeInspectionVersion == version, "Unchanged status must retain presentation identity")
+
+        probe.failSnapshots()
+        await feature.refreshWorktrees()
+        #expect(feature.gitWorktreeInspection?.changes == [change], "An unreadable index must not masquerade as clean")
+        #expect(feature.worktreeChangesError != nil)
+        #expect(feature.gitWorktreeInspection?.commits == commits)
+    }
+
+    @Test
+    func workspaceRefreshUpdatesCurrentWorktreeStatusWithoutReopeningHistory() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = GitWorktree(path: root.path, head: "head", branch: "refs/heads/main", isCurrent: true,
+            isPrimary: true, isBare: false, isDetached: false, isLocked: false, lockReason: nil,
+            isPrunable: false, pruneReason: nil)
+        let change = GitChange(repositoryRoot: root, path: "file.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let snapshots = UntrackedDirectorySnapshots(GitSnapshot(repositoryRoot: root, branch: "main", changes: []))
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { _ in await snapshots.current() },
+            worktreesProvider: { _ in [worktree] }, repositoryRootsProvider: { _ in [root] })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.inspectWorktree(worktree)
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+        await snapshots.replace(with: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]))
+        await feature.refreshGit()
+        #expect(feature.gitWorktreeInspection?.changes == [change])
+        let version = feature.gitWorktreeInspectionVersion
+        await feature.refreshGit()
+        #expect(feature.gitWorktreeInspectionVersion == version)
+        await snapshots.replace(with: GitSnapshot(repositoryRoot: root, branch: "main", changes: []))
+        await feature.refreshGit()
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+        #expect(feature.gitWorktreeInspection?.hasLoadedChanges == true)
+    }
+
+    @Test
+    func worktreeCommitFeatureKeepsChangeListsAndCommitScopeInsideSelectedCheckout() async throws {
+        let primary = makeTestWorktree(path: "/workspace", branch: "main")
+        let linked = makeTestWorktree(path: "/workspace/.worktrees/linked", branch: "feature/linked")
+        let nested = linked.url.appendingPathComponent("nested")
+        let change = GitChange(repositoryRoot: linked.url, path: "config.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: " ")
+        let primaryChange = GitChange(repositoryRoot: primary.url, path: "main.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: " ")
+        let probe = WorkspaceCommitProbe()
+        let storage = ChangelistStorageProbe()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotsByRoot: [primary.path: GitSnapshot(repositoryRoot: primary.url, branch: "main", changes: [primaryChange]),
+                linked.path: GitSnapshot(repositoryRoot: linked.url, branch: "feature/linked", changes: [change])],
+            repositoryRoots: [primary.url, linked.url, nested], workspaceCommitProbe: probe)),
+            changelistStorage: storage, worktreesProvider: { _ in [primary, linked] })
+        feature.configure(workspaceURLProvider: { primary.url }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        await feature.inspectWorktree(linked)
+        let scoped = feature.commitFeature(for: linked)
+        #expect(feature.commitFeature(for: linked) === scoped)
+        #expect(scoped.gitRepositoryRoot == linked.url && scoped.availableRepositoryRoots == [linked.url])
+        #expect(scoped.gitChanges == [change] && feature.gitRepositoryRoot == primary.url)
+        #expect(scoped.saveChangelistName("Local config") == nil)
+        let list = try #require(scoped.changelists.lists.last?.id)
+        scoped.moveChanges([change, primaryChange], toChangelist: list)
+        #expect(scoped.changelists.listID(for: change) == list)
+        #expect(scoped.changelists.listID(for: primaryChange) == GitLocalChangelists.defaultID)
+        #expect(scoped.changelistCommitError != nil)
+        #expect(await !scoped.commitStagedChanges(message: "wrong list", amend: false))
+        #expect(probe.requests.isEmpty)
+        scoped.activateChangelist(list)
+        #expect(await !scoped.commitAndPushStagedChanges(message: "linked only", amend: true))
+        let request = try #require(probe.requests.first)
+        #expect(request.repositories == [GitWorkspaceRepositoryBinding(id: ".", root: linked.path)])
+        #expect(request.message == "linked only" && request.amend && request.push)
+        #expect(request.pathScope?.include == true && request.pathScope?.paths["."] == [change.path])
+        #expect(storage.states[linked.url]?.activeID == list)
+        #expect(feature.changelists.lists.count == 1)
+        await scoped.refreshGit()
+        #expect(scoped.availableRepositoryRoots == [linked.url] && scoped.gitChanges == [change])
+        #expect(feature.gitRepositoryRoot == primary.url)
+    }
+
+    @Test
+    func worktreeCommitFeatureSharesMainCheckoutMetadataAndResetInvalidatesSessions() async throws {
+        let worktree = makeTestWorktree(path: "/workspace", branch: "main")
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: worktree.url, branch: "main", changes: []), repositoryRoots: [worktree.url])),
+            changelistStorage: ChangelistStorageProbe(), worktreesProvider: { _ in [worktree] })
+        feature.configure(workspaceURLProvider: { worktree.url }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let scoped = feature.commitFeature(for: worktree)
+        #expect(scoped.saveChangelistName("Shared") == nil)
+        #expect(feature.changelists == scoped.changelists)
+        #expect(feature.saveChangelistName("From sidebar") == nil)
+        #expect(scoped.changelists == feature.changelists)
+        scoped.changelistStorageFailed = true
+        #expect(feature.changelistStorageFailed && feature.changelistEditingDisabled)
+        feature.changelistStorageFailed = false
+        #expect(!scoped.changelistStorageFailed)
+        scoped.isCommitting = true
+        #expect(feature.changelistEditingDisabled)
+        #expect(feature.beginSetStaging(feature.gitChanges, staged: true).isEmpty)
+        scoped.isCommitting = false
+        let sharedLists = feature.changelists
+        feature.reset()
+        #expect(scoped.gitRepositoryRoot == nil && scoped.gitChanges.isEmpty)
+        #expect(scoped.changelists == GitLocalChangelists() && sharedLists.lists.count == 3)
+        await scoped.refreshGit()
+        #expect(scoped.gitRepositoryRoot == nil, "An editor retained across workspace switches cannot reopen the old checkout")
+        #expect(feature.commitFeature(for: worktree) !== scoped)
+    }
+
+    @Test
+    func worktreeCommitPreparationBlocksDirectDiffIndexMutations() async throws {
+        let worktree = makeTestWorktree(path: "/workspace/A", branch: "main")
+        let change = GitChange(repositoryRoot: worktree.url, path: "tracked.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: "M")
+        let hunk = DiffHunk(id: "h1", header: "@@ -1 +1 @@", patch: "confirmed patch")
+        let state = try #require(workspacePreparation().session.states["A/B"])
+        let plan = GitWorkspaceCommitPlan(repositories: [GitWorkspaceRepositoryBinding(id: ".", root: worktree.path)],
+            message: "commit", amend: false, push: false, includeParentReferences: true, isRetry: false,
+            orderedIds: ["."], propagatedRelations: [], dependencyRelations: [], states: [".": state],
+            committedIds: [], pendingPushIds: [])
+        let session = GitWorkspaceCommitSession(plan: plan, states: [".": state], results: [:], blocked: [],
+            cursor: 0, commandFailed: false, finished: false, succeeded: false, canRetry: true)
+        let preparation = GitWorkspaceCommitPreparation(session: session, reviewChanged: false, requiresConfirmation: false)
+        var completed = session
+        completed.finished = true; completed.succeeded = true; completed.canRetry = false; completed.cursor = 1
+        completed.results = [".": GitWorkspaceRepositoryResult(committed: true, pushed: false, status: "committed", detail: "")]
+        let prepared = GitModuleTestGate(), releasePreparation = GitModuleTestGate()
+        let probe = WorkspaceCommitProbe(preparations: [preparation], steps: [completed],
+            prepareStarted: prepared, prepareRelease: releasePreparation)
+        let mutations = WorktreeChangesProbe(root: worktree.url, changes: [change])
+        let patches = PushMessageRecorder()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: worktree.url, branch: "main", changes: [change]),
+            repositoryRoots: [worktree.url], applyPatchHandler: { _, _, mode in
+                patches.record(mode)
+                return GitProcessResult(output: "", exitCode: 0)
+            }, stageHandler: { mutations.mutate($0, action: "stage") },
+            unstageHandler: { mutations.mutate($0, action: "unstage") }, workspaceCommitProbe: probe)),
+            worktreesProvider: { _ in [worktree] })
+        feature.configure(workspaceURLProvider: { worktree.url }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let scoped = feature.commitFeature(for: worktree)
+        var succeeded = false
+        let commit = Task { succeeded = await scoped.commitStagedChanges(message: "commit", amend: false) }
+        defer { releasePreparation.open(); commit.cancel(); feature.reset() }
+        try #require(await prepared.waitUntilOpen(), "Scoped commit did not reach its prepared-plan gate")
+        #expect(scoped.isCommitting && !feature.isCommitting && feature.isWorktreeCommitBlocked)
+        #expect(probe.requests.first?.repositories == [GitWorkspaceRepositoryBinding(id: ".", root: worktree.path)])
+        await feature.stageChange(change)
+        await feature.unstageChange(change)
+        await feature.stageDiffHunk(hunk, in: change)
+        await feature.unstageDiffHunk(hunk, in: change)
+        #expect(mutations.calls.isEmpty)
+        #expect(patches.values.isEmpty)
+        releasePreparation.open()
+        try #require(await waitForGitTaskCompletion(commit))
+        #expect(succeeded && probe.stepCount == 1 && !feature.isWorktreeCommitBlocked)
+        await feature.stageChange(change)
+        await feature.unstageChange(change)
+        await feature.stageDiffHunk(hunk, in: change)
+        await feature.unstageDiffHunk(hunk, in: change)
+        #expect(mutations.calls.map(\.action) == ["stage", "unstage"])
+        #expect(patches.values == ["stage", "unstage"])
+    }
+
+    @Test
+    func worktreeChangesStageUnstageDiscardUseSelectedCheckoutAndPreserveHistory() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "feature/linked")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil, indexStatus: "M", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [change])
+        let commits = (0..<80).map { makeTestCommit(hash: "worktree-\($0)", subject: "Commit \($0)") }
+        let pages = WorktreeHistoryPageProbe(pages: [GitHistoryPage(commits: commits, nextCursor: "older", hasMore: true)])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { probe.snapshot($0) },
+            historyValue: GitHistorySnapshot(references: [], commits: Array(commits.prefix(30)), hasMore: true),
+            worktreeHistoryProbe: pages, discardHandler: { probe.mutate($0, action: "discard") },
+            stageHandler: { probe.mutate($0, action: "stage") }, unstageHandler: { probe.mutate($0, action: "unstage") })),
+            worktreesProvider: { _ in [worktree] }, diffDocumentProvider: { _, _ in DiffDocument(patch: "linked diff", rows: [], hunks: []) })
+        defer { feature.reset(); pages.releaseAll() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        await feature.inspectWorktree(worktree)
+        await feature.loadMoreWorktreeHistory(for: worktree)
+        await feature.selectChange(change)
+        // Add includes the remaining edits in a partially staged file.
+        await feature.setWorktreeStaging([change], staged: true, in: worktree)
+        let staged = try #require(feature.gitWorktreeInspection?.changes.first)
+        #expect(staged.isStaged && !staged.hasWorkingTreeChange)
+        #expect(feature.selectedChange == staged)
+        #expect(feature.selectedDiffPatch == "linked diff")
+        await feature.setWorktreeStaging([staged], staged: false, in: worktree)
+        let unstaged = try #require(feature.gitWorktreeInspection?.changes.first)
+        #expect(!unstaged.isStaged && unstaged.hasWorkingTreeChange)
+        await feature.discardWorktreeChanges([unstaged], in: worktree)
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+        #expect(feature.selectedChange == nil)
+        #expect(feature.gitRepositoryRoot == root)
+        #expect(feature.gitWorktreeInspection?.commits == commits)
+        #expect(feature.gitWorktreeInspection?.hasMoreCommits == true)
+        #expect(pages.closed.isEmpty && pages.requests.count == 1)
+        #expect(probe.calls.map(\.action) == ["stage", "unstage", "discard"])
+        #expect(probe.calls.allSatisfy { $0.change.repositoryRoot == worktree.url })
+        #expect(!feature.isMutatingWorktreeChanges && !feature.isRefreshingWorktreeChanges)
+    }
+
+    @Test
+    func worktreeChangesRejectForeignStaleAndProtectedTargets() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let foreign = GitChange(repositoryRoot: root, path: "same.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let current = GitChange(repositoryRoot: worktree.url, path: "same.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let stale = GitChange(repositoryRoot: worktree.url, path: "same.txt", originalPath: nil, indexStatus: "M", workTreeStatus: "M")
+        let protected = GitChange(repositoryRoot: worktree.url, path: "module", originalPath: nil, indexStatus: " ", workTreeStatus: "M", canToggleStaging: false)
+        let probe = WorktreeChangesProbe(root: root, changes: [current, protected])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(snapshotHandler: { probe.snapshot($0) },
+            discardHandler: { probe.mutate($0, action: "discard") }, stageHandler: { probe.mutate($0, action: "stage") })),
+            worktreesProvider: { _ in [worktree] })
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        await feature.setWorktreeStaging([foreign, stale, protected], staged: true, in: worktree)
+        await feature.discardWorktreeChanges([foreign, stale], in: worktree)
+        #expect(probe.calls.isEmpty)
+        await feature.setWorktreeStaging([current], staged: true, in: worktree)
+        await feature.discardWorktreeChanges([current], in: worktree)
+        #expect(probe.calls.map(\.action) == ["stage"])
+        #expect(feature.gitWorktreeInspection?.changes.contains(protected) == true)
+    }
+
+    @Test
+    func worktreeChangesFailureStopsBatchAndRefreshFailureRetainsRows() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let changes = ["first.txt", "second.txt"].map {
+            GitChange(repositoryRoot: worktree.url, path: $0, originalPath: nil, indexStatus: "?", workTreeStatus: "?")
+        }
+        let probe = WorktreeChangesProbe(root: root, changes: changes)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(snapshotHandler: { probe.snapshot($0) },
+            discardHandler: { probe.mutate($0, action: "discard", succeeds: false) })),
+            worktreesProvider: { _ in [worktree] })
+        defer { feature.reset() }
+        var messages: [String] = []
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { messages.append($0) }, onStateRefreshed: {})
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        await feature.discardWorktreeChanges(changes, in: worktree)
+        #expect(probe.calls.map(\.change.path) == ["first.txt"])
+        #expect(feature.worktreeChangesError == "operation failed")
+        #expect(messages.contains("operation failed"))
+        #expect(feature.gitWorktreeInspection?.changes == changes)
+        probe.failSnapshots()
+        await feature.refreshWorktreeChanges(worktree)
+        #expect(feature.gitWorktreeInspection?.changes == changes)
+        #expect(feature.worktreeChangesError != nil)
+        #expect(!feature.isRefreshingWorktreeChanges)
+    }
+
+    @Test
+    func worktreeChangesDeduplicateInFlightMutationAndCannotOverwriteNewSelection() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let other = makeTestWorktree(path: "/other", branch: "other")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [change])
+        let started = GitModuleTestGate(), release = GitModuleTestGate()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(snapshotHandler: { probe.snapshot($0) },
+            stageHandler: { change in
+                started.open()
+                guard release.waitSynchronously() else { return nil }
+                return probe.mutate(change, action: "stage")
+            })), worktreesProvider: { _ in [worktree, other] })
+        defer { release.open(); feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        let task = Task { await feature.setWorktreeStaging([change], staged: true, in: worktree) }
+        defer { task.cancel(); release.open() }
+        try #require(await started.waitUntilOpen())
+        #expect(feature.isMutatingWorktreeChanges)
+        await feature.setWorktreeStaging([change], staged: true, in: worktree)
+        await feature.inspectWorktree(other)
+        release.open()
+        try #require(await waitForGitTaskCompletion(task))
+        #expect(probe.calls.count == 1)
+        #expect(feature.gitWorktreeInspection?.worktreeID == other.id)
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+        #expect(!feature.isMutatingWorktreeChanges)
+    }
+
+    @Test(arguments: [true, false])
+    func worktreeStagingShowsTheRequestedStateAtOnceAndSettlesToWhatGitDid(succeeds: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [change])
+        let started = GitModuleTestGate(), release = GitModuleTestGate()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(snapshotHandler: { probe.snapshot($0) },
+            stageHandler: { change in
+                started.open()
+                guard release.waitSynchronously() else { return nil }
+                return probe.mutate(change, action: "stage", succeeds: succeeds)
+            })), worktreesProvider: { _ in [worktree] })
+        defer { release.open(); feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        let task = Task { await feature.setWorktreeStaging([change], staged: true, in: worktree) }
+        defer { task.cancel(); release.open() }
+        try #require(await started.waitUntilOpen())
+        // Git has not answered yet: the row already reads as staged, though the status has not changed.
+        #expect(feature.pendingStagedStates == [change.id: true])
+        #expect(feature.effectiveStagingState(for: change))
+        #expect(feature.gitWorktreeInspection?.changes.first?.isStaged == false)
+        release.open()
+        try #require(await waitForGitTaskCompletion(task))
+        #expect(feature.pendingStagedStates.isEmpty && !feature.isStagingChanges)
+        #expect(feature.gitWorktreeInspection?.changes.first?.isStaged == succeeds)
+    }
+
+    @Test
+    func worktreeChangesAreIdleOnceTheirStatusIsReadWithoutWaitingForTheProjectRefresh() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [change])
+        let staged = GitModuleTestGate(), projectRefreshEntered = GitModuleTestGate(), releaseProjectRefresh = GitModuleTestGate()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { url in
+                // After the stage, hold the project-wide status read that refreshGit() performs last.
+                if url == root, staged.waitSynchronously(timeout: 0) {
+                    projectRefreshEntered.open()
+                    _ = releaseProjectRefresh.waitSynchronously()
+                }
+                return probe.snapshot(url)
+            },
+            stageHandler: { change in
+                defer { staged.open() }
+                return probe.mutate(change, action: "stage")
+            })), worktreesProvider: { _ in [worktree] })
+        defer { releaseProjectRefresh.open(); feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        let task = Task { await feature.setWorktreeStaging([change], staged: true, in: worktree) }
+        defer { task.cancel(); releaseProjectRefresh.open() }
+        try #require(await projectRefreshEntered.waitUntilOpen())
+        // The worktree's own status is already confirmed, so its rows accept the next click.
+        #expect(feature.gitWorktreeInspection?.changes.first?.isStaged == true)
+        #expect(!feature.isMutatingWorktreeChanges && !feature.isRefreshingWorktreeChanges)
+        #expect(feature.pendingStagedStates.isEmpty && !feature.isStagingChanges)
+        releaseProjectRefresh.open()
+        try #require(await waitForGitTaskCompletion(task))
+    }
+
+    @Test(arguments: [false, true])
+    func worktreeChangesCancellationOrResetStopsBatchAndRejectsLateFailure(reset: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let changes = ["first.txt", "second.txt"].map {
+            GitChange(repositoryRoot: worktree.url, path: $0, originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let probe = WorktreeChangesProbe(root: root, changes: changes)
+        let started = GitModuleTestGate(), release = GitModuleTestGate()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(snapshotHandler: { probe.snapshot($0) },
+            stageHandler: { change in
+                started.open()
+                guard release.waitSynchronously() else { return nil }
+                return probe.mutate(change, action: "stage", succeeds: false)
+            })), worktreesProvider: { _ in [worktree] })
+        var messages: [String] = []
+        func configure() {
+            feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                              notify: { messages.append($0) }, onStateRefreshed: {})
+        }
+        defer { release.open(); feature.reset() }
+        configure()
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        let task = Task { await feature.setWorktreeStaging(changes, staged: true, in: worktree) }
+        defer { task.cancel(); release.open() }
+        try #require(await started.waitUntilOpen())
+        if reset {
+            feature.reset()
+            configure()
+            await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        } else {
+            task.cancel()
+        }
+        release.open()
+        try #require(await waitForGitTaskCompletion(task))
+        #expect(probe.calls.map(\.change.path) == ["first.txt"])
+        #expect(feature.gitWorktreeInspection?.changes == changes)
+        #expect(feature.worktreeChangesError == nil && messages.isEmpty)
+        #expect(!feature.isMutatingWorktreeChanges && !feature.isRefreshingWorktreeChanges)
+    }
+
+    @Test
     func gitLogFileSelectionReplacesSavedDiffEvenForTheSamePath() async {
         let root = URL(fileURLWithPath: "/workspace")
         let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
@@ -1608,6 +2287,9 @@ struct GitModuleTests {
         await refresh.value
         #expect(!probe.didTimeOut)
         #expect(featureModel.gitRepositoryReferences.map(\.repositoryRoot) == [firstRoot, secondRoot])
+        #expect(probe.requestedRoots.filter { $0 == firstRoot }.count == 1,
+                "The active repository must reuse the same reference snapshot as the visible log")
+        #expect(probe.requestedRoots.filter { $0 == secondRoot }.count == 1)
     }
 
     @Test
@@ -1803,6 +2485,117 @@ struct GitModuleTests {
 
         #expect(feature.gitCommits.map(\.hash) == ["hash-0", "hash-1", "hash-2"])
         #expect(!feature.canLoadMoreGitHistory)
+    }
+
+    @Test
+    func backgroundRefreshRetainsDeepHistoryAndSelectionWhileExternalCommitsStillAppear() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commits = (0..<300).map { makeTestCommit(hash: "commit-\($0)", subject: "Commit \($0)") }
+        let controller = GitPagingRefreshController(commits: commits)
+        let clean = GitSnapshot(repositoryRoot: root, branch: "main", changes: [])
+        let dirty = GitSnapshot(repositoryRoot: root, branch: "main", changes: [
+            GitChange(repositoryRoot: root, path: "tracked.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        ])
+        let snapshots = GitStatusSnapshotSequence(values: [root: [clean, dirty, dirty, dirty]])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: clean,
+            historyPageRequestHandler: { reference, cursor, limit in
+                controller.page(reference: reference, cursor: cursor, limit: limit)
+            }
+        )), snapshotProvider: { await snapshots.next(for: $0) })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                          notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.loadMoreGitHistory()
+        await feature.selectGitCommit(commits[199])
+        let version = feature.gitCommitsVersion
+        let requestCount = controller.visibleLimits.count
+        await feature.refreshGit()
+        #expect(controller.visibleLimits.count == requestCount, "A file-status edit must not restart history")
+        #expect(feature.gitCommitsVersion == version)
+        #expect(feature.gitCommits == Array(commits.prefix(200)))
+
+        var publishedCounts: [Int] = []
+        let observation = feature.$gitCommits.sink { publishedCounts.append($0.count) }
+        defer { observation.cancel() }
+        await feature.refreshGitFromMetadataChange()
+        #expect(feature.gitCommitsVersion == version, "Unchanged metadata must not invalidate the graph projection")
+        #expect(feature.selectedGitCommit?.hash == commits[199].hash)
+        #expect(feature.canLoadMoreGitHistory)
+
+        let newHead = makeTestCommit(hash: "external-head", subject: "External commit")
+        controller.prepend(newHead)
+        await feature.refreshGitFromMetadataChange()
+        #expect(feature.gitCommits.first == newHead, "A clean status cannot hide an external commit")
+        #expect(feature.gitCommits == [newHead] + Array(commits.prefix(200)))
+        #expect(feature.selectedGitCommit?.hash == commits[199].hash, "New heads must not evict the selected loaded tail")
+        #expect(publishedCounts == [200, 201], "Background refresh publishes the complete window atomically")
+        #expect(controller.visibleLimits == [100, 100, 200, 200, 1])
+        await feature.loadMoreGitHistory()
+        #expect(feature.gitCommits == [newHead] + commits)
+    }
+
+    @Test
+    func continuousHistoryPagingStopsOnDuplicatePagesAndRefreshesAfterFailure() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commit = GitCommit(hash: "one", shortHash: "one", parentHashes: [], authorName: "Test",
+                               authorEmail: "", date: "", subject: "One", decorations: "")
+        for fails in [false, true] {
+            var pages = ["": GitHistoryPage(commits: [commit], nextCursor: "next", hasMore: true)]
+            if !fails { pages["next"] = GitHistoryPage(commits: [commit, commit], nextCursor: "stuck", hasMore: true) }
+            let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []), historyPageValues: pages)))
+            feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                              notify: { _ in }, onStateRefreshed: {})
+            defer { feature.reset() }
+            await feature.refreshGit()
+            #expect(feature.canLoadMoreGitHistory)
+            await feature.loadMoreGitHistory()
+            #expect(feature.gitCommits.map(\.hash) == ["one"])
+            #expect(!feature.isLoadingMoreGitHistory)
+            #expect(feature.gitHistoryPageFailed == fails)
+            #expect(feature.canLoadMoreGitHistory == fails)
+            // Explicit retry opens a new first-page cursor; no-progress stays exhausted.
+            await feature.loadMoreGitHistory()
+            #expect(!feature.gitHistoryPageFailed)
+            #expect(feature.canLoadMoreGitHistory == fails)
+            #expect(feature.gitCommits.map(\.hash) == ["one"])
+        }
+    }
+
+    @Test
+    func historyPageRetryKeepsTheLoadedWindowAndSelection() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commits = (0..<300).map { makeTestCommit(hash: "commit-\($0)", subject: "Commit \($0)") }
+        let controller = GitPagingRefreshController(commits: commits)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            historyPageRequestHandler: { reference, cursor, limit in
+                controller.page(reference: reference, cursor: cursor, limit: limit)
+            }
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                          notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.loadMoreGitHistory()
+        await feature.selectGitCommit(commits[150])
+        #expect(feature.gitCommits == Array(commits.prefix(200)))
+
+        controller.setFailsContinuations(true)
+        await feature.loadMoreGitHistory()
+        #expect(feature.gitHistoryPageFailed)
+        #expect(feature.gitCommits == Array(commits.prefix(200)))
+
+        controller.setFailsContinuations(false)
+        await feature.loadMoreGitHistory()
+        #expect(!feature.gitHistoryPageFailed)
+        #expect(feature.gitCommits == Array(commits.prefix(200)), "Retry must not shrink the list to the first page")
+        #expect(feature.selectedGitCommit?.hash == commits[150].hash, "Retry must not move the selection")
+        #expect(feature.canLoadMoreGitHistory)
+        await feature.loadMoreGitHistory()
+        #expect(feature.gitCommits == commits)
     }
 
     @Test
@@ -3465,6 +4258,129 @@ struct GitModuleTests {
     }
 
     @Test
+    func worktreeHistoryAppendsBoundedCursorPagesAndStopsOnNoProgress() async {
+        let worktree = makeTestWorktree(path: "/workspace-feature", branch: "feature/history")
+        let commits = (0..<160).map { makeTestCommit(hash: "commit-\($0)", subject: "Commit \($0)") }
+        let initial = GitHistorySnapshot(references: [], commits: Array(commits.prefix(30)), hasMore: true)
+        let probe = WorktreeHistoryPageProbe(pages: [
+            GitHistoryPage(commits: Array(commits.prefix(80)), nextCursor: "older-80", hasMore: true),
+            GitHistoryPage(commits: Array(commits[79..<130]), nextCursor: "older-130", hasMore: true),
+            GitHistoryPage(commits: [commits[129], commits[129]], nextCursor: "no-progress", hasMore: true)
+        ])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            historyValue: initial, worktreeHistoryProbe: probe)))
+        defer { feature.reset(); probe.releaseAll() }
+        await feature.inspectWorktree(worktree)
+        #expect(probe.requests.isEmpty, "Inspection must not eagerly warm a second history window")
+        for _ in 0..<4 { await feature.loadMoreWorktreeHistory(for: worktree, automatically: true) }
+        #expect(probe.requests.map(\.cursor) == [nil, "older-80", "older-130"])
+        #expect(probe.requests.map(\.limit) == [80, 50, 50])
+        #expect(probe.requests.allSatisfy { $0.reference?.fullName == worktree.branch })
+        #expect(feature.gitWorktreeInspection?.commits == Array(commits.prefix(130)))
+        #expect(feature.gitWorktreeInspection?.hasMoreCommits == false)
+        #expect(probe.closed == ["no-progress"])
+    }
+
+    @Test
+    func worktreeHistoryClampsTheFinalCursorPageToTheLoadedWindowLimit() async {
+        let worktree = makeTestWorktree(path: "/workspace-feature", branch: "feature/history")
+        let commits = (0..<5_000).map { makeTestCommit(hash: "commit-\($0)", subject: "Commit \($0)") }
+        let probe = WorktreeHistoryPageProbe(pages: [
+            GitHistoryPage(commits: Array(commits.prefix(4_990)), nextCursor: "last-page", hasMore: true),
+            GitHistoryPage(commits: Array(commits.suffix(10)), nextCursor: "beyond-budget", hasMore: true)
+        ])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            historyValue: GitHistorySnapshot(references: [], commits: Array(commits.prefix(4_940)), hasMore: true),
+            worktreeHistoryProbe: probe)))
+        defer { feature.reset(); probe.releaseAll() }
+        await feature.inspectWorktree(worktree)
+        for _ in 0..<3 { await feature.loadMoreWorktreeHistory(for: worktree, automatically: true) }
+        #expect(probe.requests.map(\.limit) == [4_990, 10])
+        #expect(feature.gitWorktreeInspection?.commits.count == 5_000)
+        #expect(feature.gitWorktreeInspection?.hasMoreCommits == false)
+        #expect(probe.closed == ["beyond-budget"])
+    }
+
+    @Test
+    func worktreeHistoryFailurePausesUntilExplicitRetryAndClosesCursor() async {
+        let worktree = makeTestWorktree(path: "/workspace-feature", branch: "feature/history")
+        let commits = (0..<4).map { makeTestCommit(hash: "commit-\($0)", subject: "Commit \($0)") }
+        let probe = WorktreeHistoryPageProbe(pages: [nil,
+            GitHistoryPage(commits: [commits[0], commits[1], commits[1]], nextCursor: "retry-page", hasMore: true)])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            historyValue: GitHistorySnapshot(references: [], commits: [commits[0]], hasMore: true),
+            worktreeHistoryProbe: probe)))
+        defer { feature.reset(); probe.releaseAll() }
+        await feature.inspectWorktree(worktree)
+        await feature.loadMoreWorktreeHistory(for: worktree, automatically: true)
+        #expect(feature.worktreeHistoryPageFailed)
+        #expect(feature.gitWorktreeInspection?.commits == [commits[0]])
+        await feature.loadMoreWorktreeHistory(for: worktree, automatically: true)
+        #expect(probe.requests.count == 1)
+        await feature.loadMoreWorktreeHistory(for: worktree)
+        #expect(!feature.worktreeHistoryPageFailed)
+        #expect(feature.gitWorktreeInspection?.commits == Array(commits.prefix(2)))
+        #expect(probe.requests.map(\.cursor) == [nil, nil], "A consumed failed cursor cannot be retried")
+        feature.cancelWorktreeHistoryLoading()
+        #expect(probe.closed == ["retry-page"])
+        #expect(!feature.isLoadingMoreWorktreeHistory)
+    }
+
+    @Test
+    func worktreeHistoryDeduplicatesInflightAndRejectsCancelledSelection() async throws {
+        let old = makeTestWorktree(path: "/workspace-old", branch: "feature/old")
+        let new = makeTestWorktree(path: "/workspace-new", branch: "feature/new")
+        let commit = makeTestCommit(hash: "initial", subject: "Initial")
+        let probe = WorktreeHistoryPageProbe(pages: [
+            GitHistoryPage(commits: [commit, makeTestCommit(hash: "stale", subject: "Stale")],
+                           nextCursor: "stale-cursor", hasMore: true)
+        ], blockedIndices: [0])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            historyValue: GitHistorySnapshot(references: [], commits: [commit], hasMore: true),
+            worktreeHistoryProbe: probe)))
+        defer { feature.reset(); probe.releaseAll() }
+        await feature.inspectWorktree(old)
+        let task = Task { @MainActor in await feature.loadMoreWorktreeHistory(for: old, automatically: true) }
+        defer { task.cancel(); probe.releaseAll() }
+        try #require(await probe.started.waitUntilOpen())
+        await feature.loadMoreWorktreeHistory(for: old, automatically: true)
+        #expect(probe.requests.count == 1)
+        await feature.inspectWorktree(new)
+        #expect(probe.cancelled.count == 1)
+        probe.releaseAll()
+        try #require(await waitForGitTaskCompletion(task))
+        #expect(feature.gitWorktreeInspection?.worktreeID == new.id)
+        #expect(feature.gitWorktreeInspection?.commits == [commit])
+        #expect(probe.closed == ["stale-cursor"])
+        #expect(!feature.isLoadingMoreWorktreeHistory)
+        #expect(!probe.timedOut)
+    }
+
+    @Test
+    func worktreeHistoryAppendPreservesPendingChangesScan() async throws {
+        let worktree = makeTestWorktree(path: "/workspace-feature", branch: "feature/history")
+        let commits = (0..<3).map { makeTestCommit(hash: "commit-\($0)", subject: "Commit \($0)") }
+        let change = GitChange(repositoryRoot: worktree.url, path: "App.swift", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let snapshotGate = GitModuleTestGate()
+        let probe = WorktreeHistoryPageProbe(pages: [GitHistoryPage(commits: commits, nextCursor: nil, hasMore: false)])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: worktree.url, branch: "feature/history", changes: [change]),
+            historyValue: GitHistorySnapshot(references: [], commits: [commits[0]], hasMore: true),
+            worktreeHistoryProbe: probe, snapshotGate: snapshotGate)))
+        let task = Task { @MainActor in await feature.inspectWorktree(worktree) }
+        defer { task.cancel(); snapshotGate.open(); probe.releaseAll(); feature.reset() }
+        try #require(await waitForGitWorktreeInspection(feature) != nil)
+        await feature.loadMoreWorktreeHistory(for: worktree, automatically: true)
+        #expect(feature.gitWorktreeInspection?.hasLoadedChanges == false)
+        snapshotGate.open()
+        try #require(await waitForGitTaskCompletion(task))
+        #expect(feature.gitWorktreeInspection?.commits == commits)
+        #expect(feature.gitWorktreeInspection?.changes == [change])
+        #expect(feature.gitWorktreeInspection?.hasLoadedChanges == true)
+    }
+
+    @Test
     func staleWorktreeInspectionCannotClearNewLoadingState() async throws {
         let oldWorktree = makeTestWorktree(path: "/workspace-old", branch: "feature/old")
         let newWorktree = makeTestWorktree(path: "/workspace-new", branch: "feature/new")
@@ -3983,6 +4899,29 @@ private final class GitHistoryMutationController: @unchecked Sendable {
     }
 }
 
+private final class GitPagingRefreshController: @unchecked Sendable {
+    private let lock = NSLock()
+    private var commits: [GitCommit]
+    private var limits: [Int] = []
+    private var failsContinuations = false
+    init(commits: [GitCommit]) { self.commits = commits }
+    var visibleLimits: [Int] { lock.withLock { limits } }
+    func prepend(_ commit: GitCommit) { lock.withLock { commits.insert(commit, at: 0) } }
+    /// Makes every request that continues from a cursor fail, like a consumed Core cursor.
+    func setFailsContinuations(_ fails: Bool) { lock.withLock { failsContinuations = fails } }
+    func page(reference: GitReference?, cursor: String?, limit: Int) -> GitHistoryPage? {
+        lock.withLock {
+            if failsContinuations, cursor != nil { return nil }
+            if reference != nil { limits.append(limit) }
+            let offset = cursor.flatMap(Int.init) ?? 0
+            let page = Array(commits.dropFirst(offset).prefix(limit))
+            let end = offset + page.count
+            return GitHistoryPage(commits: page, nextCursor: end < commits.count ? String(end) : nil,
+                                  hasMore: end < commits.count)
+        }
+    }
+}
+
 private func makeTestWorktree(path: String, branch: String) -> GitWorktree {
     GitWorktree(
         path: path,
@@ -3997,6 +4936,40 @@ private func makeTestWorktree(path: String, branch: String) -> GitWorktree {
         isPrunable: false,
         pruneReason: nil
     )
+}
+
+/// A diff document whose content a test can change between refreshes.
+private final class MutableDiffDocumentSource: @unchecked Sendable {
+    private let lock = NSLock()
+    private let includesPatch: Bool
+    private var text: String
+    /// `includesPatch: false` mirrors comparisons against HEAD, which carry rows only.
+    init(text: String, includesPatch: Bool = true) { self.text = text; self.includesPatch = includesPatch }
+    func set(text: String) { lock.withLock { self.text = text } }
+    func document() -> DiffDocument {
+        let text = lock.withLock { self.text }
+        return DiffDocument(patch: includesPatch ? text : "",
+            rows: [DiffRow(oldLine: 1, newLine: 1, left: "old", right: text, kind: .changed)], hunks: [])
+    }
+}
+
+private actor RepositoryDiffDocumentProbe {
+    private let blockedCall: Int
+    private var calls = 0
+    nonisolated let started = GitModuleTestGate()
+    nonisolated let release = GitModuleTestGate()
+    init(blockedCall: Int) { self.blockedCall = blockedCall }
+    func read() async -> DiffDocument {
+        calls += 1
+        let blocked = calls == blockedCall
+        if blocked {
+            started.open()
+            #expect(await release.waitUntilOpen(), "Blocked Diff read was not released")
+        }
+        let text = blocked ? "stale" : "fresh"
+        return DiffDocument(patch: text,
+            rows: [DiffRow(oldLine: 1, newLine: 1, left: "old", right: text, kind: .changed)], hunks: [])
+    }
 }
 
 private final class GitModuleTestGate: @unchecked Sendable {
@@ -4071,6 +5044,47 @@ private final class GitModuleTestGate: @unchecked Sendable {
         condition.unlock()
         timeoutTask?.cancel()
         waiter?.resume(returning: result)
+    }
+}
+
+private final class WorktreeHistoryPageProbe: @unchecked Sendable {
+    struct Request {
+        let reference: GitReference?
+        let cursor: String?
+        let limit: Int
+    }
+    private let lock = NSLock()
+    private let pages: [GitHistoryPage?]
+    private let blockedIndices: Set<Int>
+    let started = GitModuleTestGate()
+    private let release = GitModuleTestGate()
+    private var recorded: [Request] = []
+    private var closedValues: [String] = []
+    private var cancelledValues: [String] = []
+    private var didTimeOut = false
+    init(pages: [GitHistoryPage?], blockedIndices: Set<Int> = []) {
+        self.pages = pages
+        self.blockedIndices = blockedIndices
+    }
+    var requests: [Request] { lock.withLock { recorded } }
+    var closed: [String] { lock.withLock { closedValues } }
+    var cancelled: [String] { lock.withLock { cancelledValues } }
+    var timedOut: Bool { lock.withLock { didTimeOut } }
+    func close(_ cursor: String) { lock.withLock { closedValues.append(cursor) } }
+    func cancel(_ operationID: String) { lock.withLock { cancelledValues.append(operationID) } }
+    func releaseAll() { release.open() }
+    func page(reference: GitReference?, cursor: String?, limit: Int) -> GitHistoryPage? {
+        let index = lock.withLock {
+            let index = recorded.count
+            recorded.append(Request(reference: reference, cursor: cursor, limit: limit))
+            return index
+        }
+        started.open()
+        if blockedIndices.contains(index), !release.waitSynchronously() {
+            lock.withLock { didTimeOut = true }
+            return nil
+        }
+        return pages.indices.contains(index) ? pages[index] : nil
     }
 }
 
@@ -4586,14 +5600,17 @@ private final class GitReferencesLoadProbe: @unchecked Sendable {
     private let blockedRootPath: String
     private var blockedCalls = 0
     private var timedOut = false
+    private var roots: [URL] = []
 
     init(blocking root: URL) {
         blockedRootPath = root.standardizedFileURL.path
     }
 
     var didTimeOut: Bool { lock.withLock { timedOut } }
+    var requestedRoots: [URL] { lock.withLock { roots } }
 
     func references(at rootURL: URL, resolved: GitReferenceSnapshot?) -> GitReferenceSnapshot? {
+        lock.withLock { roots.append(rootURL) }
         guard rootURL.standardizedFileURL.path == blockedRootPath else { return resolved }
         let shouldBlock = lock.withLock {
             blockedCalls += 1
@@ -4683,12 +5700,49 @@ private final class GitRepositoryHistoryProbe: @unchecked Sendable {
     }
 }
 
+private final class WorktreeChangesProbe: @unchecked Sendable {
+    struct Call { let action: String; let change: GitChange }
+    private let lock = NSLock()
+    private let root: URL
+    private var changes: [GitChange]
+    private var recorded: [Call] = []
+    private var snapshotsFail = false
+    init(root: URL, changes: [GitChange]) { self.root = root; self.changes = changes }
+    var calls: [Call] { lock.withLock { recorded } }
+    func replaceChanges(_ changes: [GitChange]) { lock.withLock { self.changes = changes } }
+    func failSnapshots() { lock.withLock { snapshotsFail = true } }
+    func snapshot(_ target: URL) -> GitSnapshot? {
+        lock.withLock {
+            guard !snapshotsFail else { return nil }
+            return GitSnapshot(repositoryRoot: target, branch: "main",
+                changes: target == root ? [] : changes.filter { $0.repositoryRoot == target })
+        }
+    }
+    func mutate(_ change: GitChange, action: String, succeeds: Bool = true) -> GitProcessResult {
+        lock.withLock {
+            recorded.append(Call(action: action, change: change))
+            if succeeds {
+                changes = changes.compactMap { current in
+                    guard current.id == change.id else { return current }
+                    if action == "discard" { return nil }
+                    return GitChange(repositoryRoot: current.repositoryRoot, path: current.path, originalPath: current.originalPath,
+                        indexStatus: action == "stage" ? "M" : " ", workTreeStatus: action == "stage" ? " " : "M")
+                }
+            }
+            return GitProcessResult(arguments: [action, "--", change.path], output: succeeds ? "" : "operation failed", exitCode: succeeds ? 0 : 1)
+        }
+    }
+}
+
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
+    private let snapshotHandler: (@Sendable (URL) -> GitSnapshot?)?
     private let snapshotsByRoot: [String: GitSnapshot]
     private let repositoryRoots: [URL]?
     private let comparisonValue: GitBranchComparison?
     private let typedComparisonValue: GitBranchComparison?
+    private let comparisonRead: (@Sendable () -> GitBranchComparison?)?
+    private let comparisonRowsRead: (@Sendable () -> DiffDocument?)?
     private let filesValue: [GitCommitFile]?
     private let untrackedDiffDocumentValue: DiffDocument?
     private let comparisonDiffDocumentValue: DiffDocument?
@@ -4697,18 +5751,22 @@ private struct TestGitOperations: GitOperations {
     private let referencesValue: GitReferenceSnapshot?
     private let referencesByRoot: [String: GitReferenceSnapshot]?
     private let referencesProbe: GitReferencesLoadProbe?
+    private let historyPageRequestHandler: (@Sendable (GitReference?, String?, Int) -> GitHistoryPage?)?
     private let historyPageValues: [String: GitHistoryPage]?
     private let historyPageHandler: (@Sendable () -> GitHistoryPage?)?
     private let historyPageByReferenceHandler: (@Sendable (GitReference?, String?) -> GitHistoryPage?)?
     private let repositoryHistoryProbe: GitRepositoryHistoryProbe?
     private let graphHistoryProbe: GitGraphHistoryProbe?
     private let historyController: GitHistoryLoadController?
+    private let worktreeHistoryProbe: WorktreeHistoryPageProbe?
     private let snapshotGate: GitModuleTestGate?
     private let discardHandler: (@Sendable (GitChange) -> GitProcessResult?)?
     private let discardAllHandler: (@Sendable (GitChange) -> GitProcessResult?)?
     private let diffPatchHandler: (@Sendable ([String], Bool) -> String?)?
     private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
     private let stageResult: GitProcessResult?
+    private let stageHandler: (@Sendable (GitChange) -> GitProcessResult?)?
+    private let unstageHandler: (@Sendable (GitChange) -> GitProcessResult?)?
     private let commitResult: GitProcessResult?
     private let commitCallRecorder: CommitCallRecorder?
     private let stageCallRecorder: StageCallRecorder?
@@ -4737,19 +5795,24 @@ private struct TestGitOperations: GitOperations {
     init(
         snapshotValue: GitSnapshot? = nil,
         snapshotsByRoot: [String: GitSnapshot] = [:],
+        snapshotHandler: (@Sendable (URL) -> GitSnapshot?)? = nil,
         repositoryRoots: [URL]? = nil,
         comparisonValue: GitBranchComparison? = nil,
         typedComparisonValue: GitBranchComparison? = nil,
+        comparisonRead: (@Sendable () -> GitBranchComparison?)? = nil,
+        comparisonRowsRead: (@Sendable () -> DiffDocument?)? = nil,
         historyValue: GitHistorySnapshot? = nil,
         referencesValue: GitReferenceSnapshot? = nil,
         referencesByRoot: [String: GitReferenceSnapshot]? = nil,
         referencesProbe: GitReferencesLoadProbe? = nil,
+        historyPageRequestHandler: (@Sendable (GitReference?, String?, Int) -> GitHistoryPage?)? = nil,
         historyPageValues: [String: GitHistoryPage]? = nil,
         historyPageHandler: (@Sendable () -> GitHistoryPage?)? = nil,
         historyPageByReferenceHandler: (@Sendable (GitReference?, String?) -> GitHistoryPage?)? = nil,
         repositoryHistoryProbe: GitRepositoryHistoryProbe? = nil,
         graphHistoryProbe: GitGraphHistoryProbe? = nil,
         historyController: GitHistoryLoadController? = nil,
+        worktreeHistoryProbe: WorktreeHistoryPageProbe? = nil,
         filesValue: [GitCommitFile]? = nil,
         untrackedDiffDocumentValue: DiffDocument? = nil,
         comparisonDiffDocumentValue: DiffDocument? = nil,
@@ -4760,6 +5823,8 @@ private struct TestGitOperations: GitOperations {
         diffPatchHandler: (@Sendable ([String], Bool) -> String?)? = nil,
         applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
         stageResult: GitProcessResult? = nil,
+        stageHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
+        unstageHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
         commitResult: GitProcessResult? = nil,
         commitCallRecorder: CommitCallRecorder? = nil,
         stageCallRecorder: StageCallRecorder? = nil,
@@ -4786,20 +5851,25 @@ private struct TestGitOperations: GitOperations {
         pushReviewedHandler: (@Sendable (GitReference, GitPushPreview, GitPushTargetChoice?) -> GitProcessResult?)? = nil
     ) {
         self.snapshotValue = snapshotValue
+        self.snapshotHandler = snapshotHandler
         self.snapshotsByRoot = snapshotsByRoot
         self.repositoryRoots = repositoryRoots
         self.comparisonValue = comparisonValue
         self.typedComparisonValue = typedComparisonValue
+        self.comparisonRead = comparisonRead
+        self.comparisonRowsRead = comparisonRowsRead
         self.historyValue = historyValue
         self.referencesValue = referencesValue
         self.referencesByRoot = referencesByRoot
         self.referencesProbe = referencesProbe
+        self.historyPageRequestHandler = historyPageRequestHandler
         self.historyPageValues = historyPageValues
         self.historyPageHandler = historyPageHandler
         self.historyPageByReferenceHandler = historyPageByReferenceHandler
         self.repositoryHistoryProbe = repositoryHistoryProbe
         self.graphHistoryProbe = graphHistoryProbe
         self.historyController = historyController
+        self.worktreeHistoryProbe = worktreeHistoryProbe
         self.filesValue = filesValue
         self.untrackedDiffDocumentValue = untrackedDiffDocumentValue
         self.comparisonDiffDocumentValue = comparisonDiffDocumentValue
@@ -4810,6 +5880,8 @@ private struct TestGitOperations: GitOperations {
         self.diffPatchHandler = diffPatchHandler
         self.applyPatchHandler = applyPatchHandler
         self.stageResult = stageResult
+        self.stageHandler = stageHandler
+        self.unstageHandler = unstageHandler
         self.commitResult = commitResult
         self.commitCallRecorder = commitCallRecorder
         self.stageCallRecorder = stageCallRecorder
@@ -4868,6 +5940,7 @@ private struct TestGitOperations: GitOperations {
 
     func snapshot(at rootURL: URL) -> GitSnapshot? {
         _ = snapshotGate?.waitSynchronously()
+        if let snapshotHandler { return snapshotHandler(rootURL) }
         if let snapshot = snapshotsByRoot[rootURL.standardizedFileURL.path] {
             return snapshot
         }
@@ -4885,8 +5958,8 @@ private struct TestGitOperations: GitOperations {
         diffPatchHandler?(pathspecs, staged)
     }
     func commitDiffDocument(at rootURL: URL, commit: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
-    func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
-    func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { typedComparisonDiffDocumentValue }
+    func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonRowsRead?() ?? comparisonDiffDocumentValue }
+    func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonRowsRead?() ?? typedComparisonDiffDocumentValue }
     func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? {
         applyPatchHandler?(patch, rootURL, mode)
     }
@@ -4921,6 +5994,10 @@ private struct TestGitOperations: GitOperations {
         limit: Int,
         operationID: String
     ) -> GitHistoryPage? {
+        if let historyPageRequestHandler { return historyPageRequestHandler(reference, cursor, limit) }
+        if let worktreeHistoryProbe {
+            return worktreeHistoryProbe.page(reference: reference, cursor: cursor, limit: limit)
+        }
         if let repositoryHistoryProbe {
             return repositoryHistoryProbe.page(at: rootURL, reference: reference)
         }
@@ -4943,13 +6020,15 @@ private struct TestGitOperations: GitOperations {
         )
     }
     func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool {
+        worktreeHistoryProbe?.close(cursor)
         repositoryHistoryProbe?.close(at: rootURL, cursor: cursor)
         graphHistoryProbe?.close(cursor: cursor)
-        return graphHistoryProbe != nil || repositoryHistoryProbe != nil
+        return graphHistoryProbe != nil || repositoryHistoryProbe != nil || worktreeHistoryProbe != nil
     }
     func cancel(operationID: String) -> Bool {
+        worktreeHistoryProbe?.cancel(operationID)
         graphHistoryProbe?.cancel(operationID: operationID)
-        return graphHistoryProbe != nil
+        return graphHistoryProbe != nil || worktreeHistoryProbe != nil
     }
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
         filesRecorder?.recordCall()
@@ -4959,15 +6038,15 @@ private struct TestGitOperations: GitOperations {
         return filesValue
     }
     func commit(at rootURL: URL, hash: String) -> GitCommit? { nil }
-    func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? { comparisonValue }
-    func comparison(from reference: GitReference, to target: GitReference, at rootURL: URL) -> GitBranchComparison? { typedComparisonValue }
+    func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? { comparisonRead?() ?? comparisonValue }
+    func comparison(from reference: GitReference, to target: GitReference, at rootURL: URL) -> GitBranchComparison? { comparisonRead?() ?? typedComparisonValue }
     func stashes(at rootURL: URL) -> [GitStash]? { nil }
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? { nil }
     func stage(_ change: GitChange) -> GitProcessResult? {
         stageCallRecorder?.record(change)
-        return stageResult
+        return stageHandler?(change) ?? stageResult
     }
-    func unstage(_ change: GitChange) -> GitProcessResult? { nil }
+    func unstage(_ change: GitChange) -> GitProcessResult? { unstageHandler?(change) }
     func discard(_ change: GitChange) -> GitProcessResult? { discardHandler?(change) }
     func discardAll(_ change: GitChange) -> GitProcessResult? { discardAllHandler?(change) }
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
@@ -5093,16 +6172,24 @@ private final class WorkspaceCommitProbe: @unchecked Sendable {
     private var recordedSteps = 0
     private let started: GitModuleTestGate?
     private let release: GitModuleTestGate?
+    private let prepareStarted: GitModuleTestGate?
+    private let prepareRelease: GitModuleTestGate?
     init(preparations: [GitWorkspaceCommitPreparation] = [], steps: [GitWorkspaceCommitSession] = [],
-        started: GitModuleTestGate? = nil, release: GitModuleTestGate? = nil) {
+        started: GitModuleTestGate? = nil, release: GitModuleTestGate? = nil,
+        prepareStarted: GitModuleTestGate? = nil, prepareRelease: GitModuleTestGate? = nil) {
         self.preparations = preparations; self.steps = steps
         self.started = started; self.release = release
+        self.prepareStarted = prepareStarted; self.prepareRelease = prepareRelease
     }
     func prepare(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         recordedRequests.append(request)
-        guard !preparations.isEmpty else { return .failure(GitWorkspaceCommitFailure("No scripted preparation")) }
-        return .success(preparations.removeFirst())
+        let preparation = preparations.isEmpty ? nil : preparations.removeFirst()
+        lock.unlock()
+        prepareStarted?.open()
+        guard prepareRelease?.waitSynchronously() ?? true else { return .failure(GitWorkspaceCommitFailure("Preparation gate timed out")) }
+        guard let preparation else { return .failure(GitWorkspaceCommitFailure("No scripted preparation")) }
+        return .success(preparation)
     }
     func step() -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure> {
         started?.open()

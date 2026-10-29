@@ -107,7 +107,7 @@ struct GitWorktreeListScrollView: NSViewRepresentable, LitheTreeListNativeRender
     }
 }
 
-final class GitWorktreeListNSView: NSView {
+final class GitWorktreeListNSView: NSControl {
     private var locale = Locale.current
     private var items: [GitWorktreeListItem] = []
     private var selectedWorktreeID: String?
@@ -116,12 +116,14 @@ final class GitWorktreeListNSView: NSView {
     private var onContextMenuAction: ((GitWorktreeListAction, GitWorktreeListItem) -> Void)?
     private var drawingStyle: DrawingStyle?
     private var hoveredIndex: Int?
+    private var hoveredPoint: CGPoint?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        allowsExpansionToolTips = true
         focusRingType = .none
         setAccessibilityRole(.list)
         setAccessibilityLabel(gitLocalizedFormat("Worktrees", locale: locale))
@@ -150,6 +152,10 @@ final class GitWorktreeListNSView: NSView {
         self.onContextMenuAction = onContextMenuAction
         setAccessibilityLabel(gitLocalizedFormat("Worktrees", locale: locale))
         setAccessibilityValue(gitLocalizedFormat("%lld worktrees", items.count, locale: locale))
+        if dataChanged {
+            hoveredIndex = nil
+            hoveredPoint = nil
+        }
         if dataChanged || selectionChanged || operationStateChanged { needsDisplay = true }
         return dataChanged || selectionChanged || operationStateChanged
     }
@@ -187,8 +193,19 @@ final class GitWorktreeListNSView: NSView {
         ))
     }
 
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
     override func mouseMoved(with event: NSEvent) {
-        let index = rowIndex(at: convert(event.locationInWindow, from: nil))
+        super.mouseMoved(with: event)
+        updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    private func updateHover(at point: CGPoint) {
+        hoveredPoint = point
+        let index = rowIndex(at: point)
         guard hoveredIndex != index else { return }
         if let hoveredIndex { setNeedsDisplay(rowRect(for: hoveredIndex)) }
         hoveredIndex = index
@@ -196,6 +213,8 @@ final class GitWorktreeListNSView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hoveredPoint = nil
         guard hoveredIndex != nil else { return }
         if let hoveredIndex { setNeedsDisplay(rowRect(for: hoveredIndex)) }
         hoveredIndex = nil
@@ -304,9 +323,36 @@ final class GitWorktreeListNSView: NSView {
                 rect, selected: isSelected,
                 focused: window?.isKeyWindow == true && window?.firstResponder === self, hovered: isHovered)
             drawRow(
-                item, in: rect.insetBy(dx: LitheTheme.Tree.horizontalInset + LitheTheme.Tree.iconTextGap, dy: 6),
+                item, in: Self.contentRect(in: rect),
                 style: style, context: context)
         }
+    }
+
+    static func contentRect(in row: CGRect) -> CGRect {
+        LitheTreeListAppearance.highlightRect(row).insetBy(dx: LitheTheme.Tree.horizontalInset, dy: 6)
+    }
+
+    static func pathRect(in content: CGRect) -> CGRect {
+        CGRect(x: content.minX, y: content.minY + 20,
+               width: max(0, content.width), height: 18)
+    }
+
+    override func expansionFrame(withFrame contentFrame: NSRect) -> NSRect {
+        guard let hoveredIndex, items.indices.contains(hoveredIndex), let hoveredPoint else { return .zero }
+        let path = Self.pathRect(in: Self.contentRect(in: rowRect(for: hoveredIndex)))
+        let width = ceil((items[hoveredIndex].worktree.path as NSString)
+            .size(withAttributes: [.font: resolvedDrawingStyle().path.font]).width)
+        guard path.contains(hoveredPoint), path.intersects(visibleRect), width > path.width else { return .zero }
+        // Same native expansion as Stash's changed-file tree; AppKit owns dismissal and screen bounds.
+        return CGRect(x: path.minX, y: path.minY, width: width, height: path.height)
+    }
+
+    override func draw(withExpansionFrame contentFrame: NSRect, in view: NSView) {
+        guard let hoveredIndex, items.indices.contains(hoveredIndex) else { return }
+        let style = resolvedDrawingStyle()
+        LitheTheme.nsColor(.sidebar, isDark: effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua).setFill()
+        contentFrame.fill()
+        drawText(items[hoveredIndex].worktree.path, in: contentFrame, style: style.path)
     }
 
     static func visibleRowRange(
@@ -357,16 +403,20 @@ final class GitWorktreeListNSView: NSView {
         if !current.isEmpty {
             drawText(current, in: CGRect(x: rect.maxX - currentWidth, y: rect.minY, width: currentWidth, height: 18), style: style.accent, alignment: .right)
         }
-        drawText(worktree.path, in: CGRect(x: rect.minX, y: rect.minY + 20, width: rect.width, height: 18), style: style.path, lineBreakMode: .byTruncatingMiddle)
+        drawText(worktree.path, in: Self.pathRect(in: rect), style: style.path, lineBreakMode: .byTruncatingMiddle)
 
-        let statusTitle = statusTitle(for: item.status)
+        let statusTitle = self.statusTitle(for: item.status)
         let statusWidth = ceil((statusTitle as NSString).size(withAttributes: [.font: style.metadata.font]).width) + 12
+        // Reserve the same status column for every row, including localized labels.
+        let statusColumnWidth = [GitWorktreeStatusKind.pathMissing, .locked, .modified, .current, .available]
+            .map { ceil((self.statusTitle(for: $0) as NSString).size(withAttributes: [.font: style.metadata.font]).width) + 12 }
+            .max() ?? statusWidth
         let statusX = rect.maxX - statusWidth
         context.setFillColor(statusColor(for: item.status, style: style).cgColor)
         context.fillEllipse(in: CGRect(x: statusX, y: rect.minY + 46, width: 6, height: 6))
         drawText(statusTitle, in: CGRect(x: statusX + 12, y: rect.minY + 40, width: statusWidth - 12, height: 18), style: style.metadata)
         let branch = worktree.branchName ?? gitLocalizedFormat("Detached HEAD", locale: locale)
-        drawText(gitLocalizedFormat("Branch: %@", branch, locale: locale), in: CGRect(x: rect.minX, y: rect.minY + 40, width: max(0, rect.width - statusWidth - 12), height: 18), style: style.path)
+        drawText(gitLocalizedFormat("Branch: %@", branch, locale: locale), in: CGRect(x: rect.minX, y: rect.minY + 40, width: max(0, rect.width - statusColumnWidth - 12), height: 18), style: style.path)
     }
 
     private func drawText(_ text: String, in rect: CGRect, style: TextStyle, lineBreakMode: NSLineBreakMode? = nil, alignment: NSTextAlignment? = nil) {

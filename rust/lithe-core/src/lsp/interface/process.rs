@@ -42,8 +42,9 @@ pub trait LspProcessHandle: Send + Sync {
         None
     }
 
-    /// Writes one already-framed message and flushes it. Fails once the input
-    /// stream is gone, which the engine turns into a transport failure.
+    /// Accepts one complete frame in order. Native handles flush it directly;
+    /// remote handles enqueue bounded delivery without blocking the UI caller.
+    /// A delivery failure closes the streams and becomes a transport failure.
     fn write_input(&self, frame: &[u8]) -> Result<(), CoreError>;
 
     /// Drops the input stream so the server observes EOF on stdin.
@@ -75,6 +76,9 @@ pub struct SystemProcessLauncher;
 
 impl LspProcessLauncher for SystemProcessLauncher {
     fn launch(&self, spec: LspProcessSpec) -> Result<LspProcessStreams, CoreError> {
+        if let Some(host) = crate::remote::workspace::current() {
+            return super::remote_process::launch(host, spec);
+        }
         let mut command = language_server_command(&spec);
         command
             .current_dir(&spec.working_directory)

@@ -76,12 +76,12 @@ Swift 适配器在启动工作任务前检查取消，并通过 `RustCoreCancell
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 - `SharedInstructionsFeatureTests` 覆盖共享草稿、切换排队、逐项失败与页面取消；Host shared 测试用临时目录验证真实读写、关闭字节还原、override、损坏标记和跨文件部分成功。
 - `AgentInstructionsCancellationTests` 使用真实 Core 和隔离共享源，确定性控制进入适配器前取消、编码后注册前取消，确认文件及锁未创建、已有字节不变，下一次有效保存仍能完成；不写开发者原生指令文件。
-- 典型共享流程前后比较 app bundle 文件清单与哈希，用户目录不参与发行资源写入；`node --test scripts/test-reuse-worktree-resources.mjs` 确认共享指令用户状态不能复制。
+- 典型共享流程前后比较 app bundle 文件清单与哈希，用户目录不参与发行资源写入；`node --test scripts/resources/test-reuse-worktree-resources.mjs` 确认共享指令用户状态不能复制。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentInstructionsFeatureModelTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests|ContextMenuCoverageTests'`。
 - Agent Host 计时测试覆盖原生优先级、读取不创建文件、保存和清空、外部修改与路径变化、UTF-8/大小限制、符号链接拒绝、权限保留和临时文件清理。
 - Core 的 `global_instruction_contract_dispatches_and_rejects_unknown_agents_without_file_access` 验证共享 fixture 与严格请求边界。
 - 隔离临时用户目录，通过同一 Core 命令保存，再捕获真实 Codex CLI 与 Claude CLI 发出的模型请求；Codex 的保存、更新、override 保存、清空 override、清空基础文件，以及 Claude 的保存、更新、清空共八项均确认新增指令出现、旧指令消失。Codex 五项同时确认项目规则继续存在。响应来自本地受控服务，不是在线模型推理；测试进程和临时目录均回收，不修改用户实际配置。
-- `./scripts/verify-runtime-bundle-immutability.sh`、`./scripts/verify-service-boundaries.sh`、`./scripts/verify-shared-contracts.sh`、`./scripts/verify-agent-notes.sh`、`./scripts/verify-platform-feature-matrix.sh`。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/architecture/verify-service-boundaries.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 ## 适用范围
 

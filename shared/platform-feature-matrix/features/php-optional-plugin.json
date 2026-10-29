@@ -26,7 +26,7 @@
       "windows/tauri/src/extensions/registry/extension-store-lifecycle.ts",
       "windows/tauri/src-tauri/src/language_tools.rs",
       "windows/tauri/src/extensions/packages/local-extension-package.ts",
-      "scripts/verify-windows-plugin-isolation.mjs"
+      "scripts/windows/verify/verify-windows-plugin-isolation.mjs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

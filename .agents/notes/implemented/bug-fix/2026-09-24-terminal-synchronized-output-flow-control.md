@@ -28,7 +28,7 @@
 
 ## 验证
 
-运行 `bun test src/features/terminal`、`./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 和 `./scripts/verify-windows-boundaries.sh`。缓冲测试覆盖只有开始标记、超时自动 flush、达到待写水位、结束标记分片、错误和清理路径。
+运行 `bun test src/features/terminal`、`./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 和 `./scripts/windows/verify/verify-windows-boundaries.sh`。缓冲测试覆盖只有开始标记、超时自动 flush、达到待写水位、结束标记分片、错误和清理路径。
 
 ## 适用范围
 

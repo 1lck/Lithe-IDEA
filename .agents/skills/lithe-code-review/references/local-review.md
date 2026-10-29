@@ -37,7 +37,7 @@ Note。
 - 直接受影响的测试、CI 注册和文档。
 
 变更涉及用户可见文案时，按 `review-policy.md` 的“界面文案与 i18n”核对，并运行
-`node scripts/verify-app-language-localization.mjs`；它不通过或豁免名单被改动都要报告。
+`node scripts/i18n/verify-app-language-localization.mjs`；它不通过或豁免名单被改动都要报告。
 
 如果一个结论依赖未修改的调用方，必须说明它如何被本次接口或行为变化触发。
 

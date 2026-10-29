@@ -109,19 +109,18 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             )
         }
 
-        // Xcode and Command Line Tools may expose lldb-dap through xcrun even
-        // when the GUI application's PATH does not include Developer/bin.
-        if command == "lldb-dap" {
-            for url in [
-                "/usr/bin/lldb-dap",
-                "/Library/Developer/CommandLineTools/usr/bin/lldb-dap",
-                "/Applications/Xcode.app/Contents/Developer/usr/bin/lldb-dap"
-            ].map(URL.init(fileURLWithPath:)) {
-                add(url, source: .xcode, detail: "Xcode toolchain")
-            }
-        }
         if command == "xcrun" {
             add(URL(fileURLWithPath: "/usr/bin/xcrun"), source: .xcode, detail: "Xcode toolchain lookup")
+        }
+
+        // Tools such as lldb-dap ship only inside the Xcode or Command Line
+        // Tools toolchain and are never on PATH; `xcrun` resolves them there.
+        for directory in xcodeToolchainDirectories(environment: environment) {
+            add(
+                directory.appendingPathComponent(command),
+                source: .xcode,
+                detail: directory.path
+            )
         }
 
         for directory in ["/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
@@ -132,6 +131,13 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             )
         }
         return result
+    }
+
+    private func xcodeToolchainDirectories(environment: [String: String]) -> [URL] {
+        var roots: [String] = []
+        if let developerDir = environment["DEVELOPER_DIR"], !developerDir.isEmpty { roots.append(developerDir) }
+        roots += ["/Applications/Xcode.app/Contents/Developer", "/Library/Developer/CommandLineTools"]
+        return roots.map { URL(fileURLWithPath: $0).appendingPathComponent("usr/bin", isDirectory: true) }
     }
 
     func guidance(
@@ -161,14 +167,12 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                 summary: "Node.js tooling (\(command)) was not found.",
                 recovery: "Install Node.js and the required npm package, then restart Lithe or add the Node bin directory to PATH."
             )
-        case "cargo", "rustc", "lldb-dap":
+        case "cargo", "rustc":
             return RuntimeToolGuidance(
                 command: command,
-                displayName: "Rust/Xcode toolchain",
-                summary: "Rust or debugger tooling (\(command)) was not found.",
-                recovery: command == "lldb-dap"
-                    ? "Install or select Xcode Command Line Tools, or configure an lldb-dap path explicitly."
-                    : "Install Rust with rustup and ensure Cargo's bin directory is on PATH."
+                displayName: "Rust toolchain",
+                summary: "Rust tooling (\(command)) was not found.",
+                recovery: "Install Rust with rustup and ensure Cargo's bin directory is on PATH."
             )
         case "java-debug-adapter", "java-debug":
             return RuntimeToolGuidance(
@@ -219,7 +223,6 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
         case "ts-node": "ts-node"
         case "cargo", "rustc": "rust"
         case "clangd": "llvm"
-        case "lldb-dap": "llvm"
         default: command
         }
     }

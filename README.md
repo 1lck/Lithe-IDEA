@@ -201,7 +201,7 @@ Development and CI use Swift 6.3.3, pinned in `.swift-version`, with Xcode 26.6.
 Run the development build from the repository root:
 
 ```bash
-./scripts/preview.sh
+./scripts/macos/build/preview.sh
 ```
 
 The script builds and links Rust Core before launching the macOS app. To validate only the Swift source, run:
@@ -213,24 +213,24 @@ swift run --disable-sandbox Lithe
 Build an app bundle:
 
 ```bash
-./scripts/package-app.sh
+./scripts/macos/package/package-app.sh
 open dist/Lithe.app
 ```
 
 Before submitting a change, run:
 
 ```bash
-./scripts/test-macos.sh
-./scripts/test-git-performance-baseline.sh
-./scripts/verify-core.sh
-./scripts/verify-git-graph.sh
-./scripts/verify-service-boundaries.sh
-./scripts/verify-shared-contracts.sh
-./scripts/verify-windows-boundaries.sh
-./scripts/verify-rust-core.sh
+./scripts/macos/test/test-macos.sh
+./scripts/macos/perf/test-git-performance-baseline.sh
+./scripts/architecture/verify-core.sh
+./scripts/git-graph/verify-git-graph.sh
+./scripts/architecture/verify-service-boundaries.sh
+./scripts/architecture/verify-shared-contracts.sh
+./scripts/windows/verify/verify-windows-boundaries.sh
+./scripts/rust-core/verify-rust-core.sh
 ```
 
-`test-git-performance-baseline.sh` runs deterministic Git graph work gates and
+`scripts/macos/perf/test-git-performance-baseline.sh` runs deterministic Git graph work gates and
 records an optimized multi-sample timing baseline under `.artifacts/`.
 
 See [Repository ownership and sharing boundaries](./.agents/notes/implemented/architecture/2026-09-13-repository-ownership-and-sharing-boundaries.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.

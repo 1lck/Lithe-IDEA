@@ -86,7 +86,7 @@ leading padding 降为 0，退出全屏后自动恢复预留，行为对齐 IDEA
 - 手工验证：启动应用，点击主窗口绿色按钮，确认进入独立全屏 Space（窗口
   `styleMask` 出现 `.fullScreen`、frame 覆盖整屏），再次点击或按 Esc 退出后
   窗口回到原位置。
-- 回归检查：`./scripts/test-macos.sh`（CI 执行）；本地受 Swift 6.2.4 工具链
+- 回归检查：`./scripts/macos/test/test-macos.sh`（CI 执行）；本地受 Swift 6.2.4 工具链
   类型检查超时限制无法完整编译时，以 CI 结果为准。
 
 ## 适用范围

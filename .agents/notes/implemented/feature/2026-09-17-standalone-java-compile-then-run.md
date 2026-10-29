@@ -83,11 +83,11 @@
 
 ## 验证
 
-- `./scripts/verify-rust-core-comments.sh`、`./scripts/verify-rust-core.sh`
-- `./scripts/verify-shared-contracts.sh`、`./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-agent-notes.sh`
-- `./scripts/test-macos.sh`；Windows 在 Parallels VM 上
-  `./scripts/build-windows.ps1 -Configuration Release` 与
+- `./scripts/rust-core/verify-rust-core-comments.sh`、`./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
+- `./scripts/macos/test/test-macos.sh`；Windows 在 Parallels VM 上
+  `./scripts/windows/build/build-windows.ps1 -Configuration Release` 与
   `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml`
 - Rust 用例：`rust/lithe-core/src/tests/run_configuration.rs` 的
   `plain_java_main_uses_the_jdk_without_maven`、

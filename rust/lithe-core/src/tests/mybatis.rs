@@ -313,6 +313,76 @@ fn mybatis_index_skips_unrelated_and_oversized_files_before_reading() {
     fs::remove_dir_all(root).expect("MyBatis fixture should be removable");
 }
 
+/// Only Java files a mapper namespace names are read and parsed: services and
+/// controllers stay untouched however many the workspace has.
+#[test]
+fn mybatis_index_reads_only_java_files_named_by_a_mapper_namespace() {
+    let _ = crate::languages::take_mybatis_disk_reads();
+    let root = temporary_root("mybatis-namespace-reads");
+    fs::create_dir_all(root.join("demo")).expect("MyBatis fixture directory should be creatable");
+    fs::write(
+        root.join("demo/UserMapper.java"),
+        "package demo;\npublic interface UserMapper {\n    User find();\n}\n",
+    )
+    .expect("mapper interface fixture should be writable");
+    fs::write(
+        root.join("demo/Outer.java"),
+        "package demo;\npublic class Outer {\n    public interface Inner {\n        User nested();\n    }\n}\n",
+    )
+    .expect("nested mapper fixture should be writable");
+    fs::write(
+        root.join("demo/UserService.java"),
+        "package demo;\npublic interface UserService {\n    User find();\n}\n",
+    )
+    .expect("unrelated service fixture should be writable");
+    fs::write(
+        root.join("UserMapper.xml"),
+        r#"<mapper namespace="demo.UserMapper"><select id="find">SELECT 1</select></mapper>"#,
+    )
+    .expect("mapper XML fixture should be writable");
+    fs::write(
+        root.join("Inner.xml"),
+        r#"<mapper namespace="demo.Outer.Inner"><select id="nested">SELECT 2</select></mapper>"#,
+    )
+    .expect("nested mapper XML fixture should be writable");
+
+    let response = execute_mybatis(
+        &root,
+        &[
+            "demo/UserService.java",
+            "demo/UserMapper.java",
+            "demo/Outer.java",
+            "UserMapper.xml",
+            "Inner.xml",
+        ],
+        serde_json::json!({}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+    let statements = response["data"]["statements"]
+        .as_array()
+        .expect("statements should be an array");
+    let java_paths = statements
+        .iter()
+        .map(|statement| statement["javaPath"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(java_paths, vec!["demo/Outer.java", "demo/UserMapper.java"]);
+
+    let mut reads = crate::languages::take_mybatis_disk_reads();
+    reads.sort();
+    assert_eq!(
+        reads,
+        vec![
+            "Inner.xml".to_string(),
+            "UserMapper.xml".to_string(),
+            "demo/Outer.java".to_string(),
+            "demo/UserMapper.java".to_string(),
+        ],
+        "{reads:?}"
+    );
+
+    fs::remove_dir_all(root).expect("MyBatis fixture should be removable");
+}
+
 #[test]
 fn mybatis_index_rejects_a_relative_root() {
     let response = execute_json(

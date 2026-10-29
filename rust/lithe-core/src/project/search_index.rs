@@ -5,9 +5,9 @@ use crate::project::files::{
     visible_children, ChildOrder, VisibilityRules,
 };
 use crate::protocol::{CoreError, ErrorCode, SearchMatch};
+use crate::remote::{workspace, workspace_io as fs};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, RwLock};
 
@@ -61,6 +61,7 @@ pub(crate) struct SearchIndexStats {
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct IndexKey {
     root: PathBuf,
+    host: PathBuf,
     hidden_directories: Vec<String>,
     hidden_file_patterns: Vec<String>,
     names_only: bool,
@@ -77,6 +78,7 @@ fn cache() -> &'static std::sync::Mutex<HashMap<IndexKey, SharedIndex>> {
 fn key(root: &Path, rules: &VisibilityRules) -> IndexKey {
     IndexKey {
         root: root.to_path_buf(),
+        host: workspace::identity_key(root),
         hidden_directories: rules.hidden_directories.clone(),
         hidden_file_patterns: rules.hidden_file_patterns.clone(),
         names_only: false,
@@ -98,8 +100,9 @@ pub(crate) fn get_or_build(root: &Path, rules: &VisibilityRules) -> Result<Share
     )?));
     // ponytail: one rule variant per root/kind bounds memory; alternating clients rebuild.
     // Upgrade to a measured, bounded multi-client cache only if that rebuild cost matters.
-    indexes
-        .retain(|existing, _| existing.root != root || existing.names_only != cache_key.names_only);
+    indexes.retain(|existing, _| {
+        existing.host != cache_key.host || existing.names_only != cache_key.names_only
+    });
     indexes.insert(cache_key, Arc::clone(&index));
     Ok(index)
 }
@@ -117,8 +120,9 @@ pub(crate) fn get_names(root: &Path, rules: &VisibilityRules) -> Result<SharedIn
     let index = Arc::new(RwLock::new(WorkspaceSearchIndex::build(root, rules, true)?));
     // ponytail: one rule variant per root/kind bounds memory; alternating clients rebuild.
     // Upgrade to a measured, bounded multi-client cache only if that rebuild cost matters.
-    indexes
-        .retain(|existing, _| existing.root != root || existing.names_only != cache_key.names_only);
+    indexes.retain(|existing, _| {
+        existing.host != cache_key.host || existing.names_only != cache_key.names_only
+    });
     indexes.insert(cache_key, Arc::clone(&index));
     Ok(index)
 }
@@ -127,7 +131,7 @@ pub(crate) fn invalidate_root(root: &Path) {
     let Ok(mut indexes) = cache().lock() else {
         return;
     };
-    indexes.retain(|key, _| key.root != root);
+    indexes.retain(|key, _| key.host != workspace::identity_key(root));
 }
 
 pub(crate) fn update_cached_file(root: &Path, path: &Path) {
@@ -137,7 +141,7 @@ pub(crate) fn update_cached_file(root: &Path, path: &Path) {
         };
         indexes
             .iter()
-            .filter(|(key, _)| key.root == root)
+            .filter(|(key, _)| key.host == workspace::identity_key(root))
             .map(|(key, index)| (key.clone(), Arc::clone(index)))
             .collect::<Vec<_>>()
     };
@@ -178,7 +182,7 @@ pub(crate) fn update_paths(
         indexes
             .iter()
             // Search-only exclusions create rule variants; keep all warm variants current.
-            .filter(|(cache_key, _)| cache_key.root == root)
+            .filter(|(cache_key, _)| cache_key.host == workspace::identity_key(root))
             .map(|(key, index)| (key.clone(), Arc::clone(index)))
             .collect::<Vec<_>>()
     };
@@ -391,18 +395,18 @@ fn normalized_update_path(root: &Path, value: &str) -> Option<PathBuf> {
 }
 
 pub(crate) fn canonicalize_with_missing_components(path: &Path) -> Option<PathBuf> {
-    if let Ok(canonical) = path.canonicalize() {
+    if let Ok(canonical) = fs::canonicalize(path) {
         return Some(canonical);
     }
     // Deleted paths cannot be canonicalized directly. Canonicalize their
     // nearest surviving ancestor, then append the missing path components.
     let mut ancestor = path;
     let mut suffix = Vec::<OsString>::new();
-    while !ancestor.exists() {
+    while !fs::try_exists(ancestor).ok()? {
         suffix.push(ancestor.file_name()?.to_os_string());
         ancestor = ancestor.parent()?;
     }
-    let mut normalized = ancestor.canonicalize().ok()?;
+    let mut normalized = fs::canonicalize(ancestor).ok()?;
     for component in suffix.iter().rev() {
         normalized.push(component);
     }
@@ -507,6 +511,7 @@ pub(crate) fn make_symbol_match(indexed: &IndexedSymbol, path: String) -> Search
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn source_caps_build_only_required_cold_indexes_and_skip_generated_text_enumeration() {

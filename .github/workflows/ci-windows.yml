@@ -45,9 +45,9 @@ jobs:
       - name: Test dependency cache tooling
         shell: bash
         run: |
-          node scripts/test-verify-download-cache.mjs
-          node scripts/test-reuse-worktree-resources.mjs
-          node --test --test-timeout=15000 scripts/test-codex-config-relay.mjs
+          node scripts/resources/test-verify-download-cache.mjs
+          node scripts/resources/test-reuse-worktree-resources.mjs
+          node --test --test-timeout=15000 scripts/agent/test-codex-config-relay.mjs
 
       - name: Resolve comparison base
         id: base
@@ -97,7 +97,7 @@ jobs:
           if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
             export LITHE_CI_SCOPE=release_promotion
           fi
-          ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          ./scripts/ci/common/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       # Reuse lanes that passed (or are running) on an earlier revision of this
       # pull request when its own new changes cannot affect them.
@@ -119,7 +119,7 @@ jobs:
             windows_rust=${{ steps.classify.outputs.windows_rust }}
             java_jdt=${{ steps.classify.outputs.java_jdt }}
         shell: bash
-        run: node scripts/plan-ci-lane-reuse.mjs
+        run: node scripts/ci/common/plan-ci-lane-reuse.mjs
 
       - name: Reject newly added Windows blocking test patterns
         if: steps.base.outputs.manual == 'false'
@@ -176,7 +176,7 @@ jobs:
         shell: pwsh
         # Native PowerShell/Job Object startup and owned-process cleanup need
         # headroom beyond the fixture's separate five second install deadlines.
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 60000 --suite-timeout-ms 180000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 60000 --suite-timeout-ms 180000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows/build/windows-frontend-install.test.ts
 
       - name: Configure isolated dependency caches
         shell: pwsh
@@ -207,7 +207,7 @@ jobs:
           }
           $package = Get-Content -Raw -LiteralPath windows/tauri/package.json | ConvertFrom-Json
           $bunVersion = ([string]$package.packageManager) -replace '^bun@', ''
-          node scripts/verify-download-cache.mjs `
+          node scripts/resources/verify-download-cache.mjs `
             --bun-version $bunVersion `
             --bun-lock bun.lock `
             --bun-cache .artifacts/bun-cache
@@ -221,7 +221,7 @@ jobs:
 
       - name: Install Windows frontend dependencies
         shell: pwsh
-        run: ./scripts/install-windows-frontend-dependencies.ps1
+        run: ./scripts/windows/build/install-windows-frontend-dependencies.ps1
 
       - name: Check Windows frontend types
         working-directory: windows/tauri
@@ -231,9 +231,9 @@ jobs:
       - name: Build and verify optional PHP worker plugin
         shell: pwsh
         run: |
-          bun scripts/build-windows-php-plugin.ts
+          bun scripts/windows/build/build-windows-php-plugin.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node scripts/verify-windows-plugin-isolation.mjs
+          node scripts/windows/verify/verify-windows-plugin-isolation.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-optional-plugins.json -- src/extensions/registry/extension-package-bootstrap.test.ts src/extensions/packages/local-extension-package.test.ts src/extensions/run src/extensions/ui/services/ui-extension-worker-runtime.test.ts src/extensions/registry/extension-store-lifecycle.test.ts src/features/run-actions/utils/run-action-discovery.test.ts
 
@@ -245,7 +245,7 @@ jobs:
             bun run build
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } finally { Pop-Location }
-          node scripts/verify-windows-plugin-isolation.mjs --dist
+          node scripts/windows/verify/verify-windows-plugin-isolation.mjs --dist
 
       - name: Upload optional PHP plugin package
         uses: actions/upload-artifact@v6
@@ -256,7 +256,7 @@ jobs:
 
       - name: Verify Windows boundaries
         shell: pwsh
-        run: ./scripts/verify-windows-boundaries.ps1
+        run: ./scripts/windows/verify/verify-windows-boundaries.ps1
 
       - name: Run Windows frontend tests
         shell: pwsh
@@ -288,6 +288,15 @@ jobs:
           # Merged notification counts rely on toast identity, so the resend path
           # stays covered instead of only its formatter.
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-notifications.json -- src/features/notifications
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test MCP delivery and authorization lifecycle
+        shell: pwsh
+        run: |
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-mcp-lifecycle.json -- src/features/host-api/mcp-lifecycle.test.ts src/features/host-api/ide-capabilities.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The real Tauri event API must run without other suites' module mocks.
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-mcp-events.json -- src/features/host-api/mcp-events.integration.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test declarative plugin lifecycle and UI
@@ -708,7 +717,7 @@ jobs:
       - name: Validate restored Cargo caches or fall back
         shell: pwsh
         run: |
-          ./scripts/validate-windows-build-caches.ps1 `
+          ./scripts/windows/prepare/validate-windows-build-caches.ps1 `
             -CargoDownloadsOutcome "${{ steps.cargo-download-cache.outcome }}" `
             -CargoBuildOutcome "${{ steps.cargo-build-cache.outcome }}" `
             -CargoBuildHit "${{ steps.cargo-build-cache.outputs.cache-hit }}"
@@ -718,6 +727,16 @@ jobs:
         shell: pwsh
         timeout-minutes: 20
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust -SuiteTimeoutSeconds 1080
+
+      - name: Verify Windows MCP stdio protocol
+        if: needs.changes.outputs.rust_core == 'true'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          cargo build --locked --manifest-path rust/Cargo.toml -p lithe-ide-host --features mcp --bin lithe-mcp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/mcp-protocol.junit.xml scripts/ide-mcp/test-ide-mcp.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Windows Rust host
         if: needs.changes.outputs.windows_rust == 'true'
@@ -787,7 +806,7 @@ jobs:
 
       - name: Prepare packaged JDT and extensions
         shell: pwsh
-        run: ./scripts/prepare-jdtls.ps1 -OutputDirectory .artifacts/jdtls
+        run: ./scripts/windows/prepare/prepare-jdtls.ps1 -OutputDirectory .artifacts/jdtls
 
       - name: Run bounded real-JDT integration suite
         shell: pwsh
@@ -804,6 +823,7 @@ jobs:
             --warn-ms 1000 `
             --max-ms 15000 `
             --test-budget git_paths_roundtrip_=60000 `
+            --test-budget watch_context_distinguishes_linked_worktree_git_and_common_directories=30000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
             --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
@@ -888,7 +908,7 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
         uses: actions/checkout@v7
         with:
-          sparse-checkout: scripts/verify-reused-ci-jobs.mjs
+          sparse-checkout: scripts/ci/common/verify-reused-ci-jobs.mjs
           sparse-checkout-cone-mode: false
 
       - name: Verify reused lane results
@@ -897,4 +917,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           LITHE_CI_REUSE: ${{ needs.changes.outputs.reuse }}
         timeout-minutes: 95
-        run: node scripts/verify-reused-ci-jobs.mjs
+        run: node scripts/ci/common/verify-reused-ci-jobs.mjs

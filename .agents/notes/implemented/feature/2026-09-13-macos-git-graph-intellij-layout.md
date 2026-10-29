@@ -164,7 +164,39 @@ Lithe 删除这处专用限制，使用工作区已有 30pt 面板下限；36pt 
 且继续保留分隔条的命中区、裁剪、拖动结束更新宽度及收缩前视图身份。
 这遵循本项目共享窄面板规则，不宣称 IDEA 在所有环境中的最小树宽均为 30pt。
 
-### 连续拖动时保持原生可见区域与数据计算独立
+### 后台刷新不能把深处历史缩回首批
+
+文件状态变化不代表提交历史变化，普通状态刷新只在仓库、分支或所选引用上下文
+改变时重开历史。工作区监听仍会检查历史，因此外部提交和其他工作树移动共享
+引用不会因为当前工作区状态没变而被漏掉；但后台重读的窗口大小必须保留已加载
+条数，并一次发布结果，不能先显示首批再靠底部自动加载补回来。否则文档高度
+反复缩短和增大，会让底部滚动条上下跳动。
+若新提交把原窗口尾部挤出，按共同提交的实际位移补读相应条数，再一起发布，
+避免尾部选择丢失；没有共同提交的历史改写不盲目扫描整个仓库。
+
+重读期间保留仓库图和后续页占位高度，暂停自动翻页；结果未变时不使已有提交、
+引用和仓库图的呈现版本失效。当前仓库的分支树复用同一次引用读取，其他仓库
+独立读取并继续做代次校验，避免同一仓库并行执行两份完全相同的引用查询。
+后台刷新打断边缘请求且返回相同行时，也会释放原边缘去重状态，让新游标继续翻页；
+失败状态仍暂停自动重试，不因加载状态变化形成失败循环。
+
+原生视口更新前记录顶部可见提交 hash 及行内像素偏移。新提交插在上方时，按
+这个锚点恢复，而不是滚回旧像素坐标或当前选择行；只有选择改变、切换上下文和
+显式图导航才允许主动定位。若原提交已经被改写掉，则夹取旧偏移到真实文档范围。
+正确例子是浏览第 170 行时保存文件，仍看到同一提交和行内偏移；不要在保存后
+替换为 100 行、清除后续页占位，再触发自动读取。
+
+代价是后台刷新会重新读取已经展示的有界窗口，而不是每次只读首批；它仍受
+Core 历史上限约束，不会为了固定滚动条长度预取整个仓库。进程超时仍照常报告，
+去掉重复查询不等同于隐藏或证明修复所有原生进程清理失败。
+
+`GitModuleTests.backgroundRefreshRetainsDeepHistoryAndSelectionWhileExternalCommitsStillAppear`
+覆盖状态改变、未变元数据、外部新提交、继续翻页和选择保持；
+`GitGraphInteractionTests.backgroundHistoryRefreshAnchorsVisibleCommitInsteadOfSelectedCommit`
+走真实原生更新路径，检查加载状态不改变滚动范围、新提交的像素锚定，以及显式
+导航仍优先。多仓库引用回归同时验证当前仓库只查询一次。
+
+### 连续拖动的布局边界
 
 Git Log 的生产路径使用已有 `GitGraphScrollView` 的原生滚动容器和绘制表面。
 分隔条改变可见区域的高度，提交数据和图谱快照继续保留；绘制仅处理脏矩形中的
@@ -190,6 +222,109 @@ Lithe 的共享分隔容器在宽高确定时直接向子面板传入最终矩�
 引用图标、分页与辅助功能继续使用已有动作。重复跳转到已选提交使用导航请求
 标识，不能只比较所选 hash。辅助功能访问时才生成可操作的行和箭头节点，
 不能在每次拖动时创建整棵行视图。
+
+### 连续滚动自动补充历史
+
+Git Log 在视口接近底部时自动读取下一批较早提交，不再把“加载更多提交”
+作为正常浏览的必经动作。读取仍使用既有有界游标（后端返回、下次原样传回的
+分页标记），不会一次读取全部历史。原生滚动容器处理边缘判断，同一批最后一条
+提交只触发一次请求；每个像素的滚动位置不进入整个工作台的状态。
+
+正确做法是：用户看到第 50 条附近时请求下一页，追加后保持当前视口和选择；
+不要在追加后重新定位所选的第 1 条，也不要在绘制回调中反复读取同一游标。
+没有新增提交或没有后续游标时停止自动加载，并释放未继续使用的游标。
+失败时只显示显式重试，不自动循环；Core 的失败游标已经失效，重试重新读取
+历史，而不是继续使用旧游标。重新读取按已加载的条数打开窗口（与后台刷新相同的
+保留窗口路径），不能缩回首页，也不能移动当前选择；否则在深处点击重试会丢掉
+用户已经滚过的列表。Windows 已有视口边缘自动加载，本次保留其入口。
+
+工作树详情的“提交历史”也遵守这一规则。原生行容器在距底部十行内自动补充，
+同一页只发起一个请求；追加和窗口改宽都保留像素偏移。文档高度必须跟随行数
+变化，不能只在宽度变化时重新设置，否则新提交虽已收到却无法滚动到。
+首屏仍复用当前仓库已有的最多 80 条提交，其他工作树先读 30 条；移除无视
+视口的后台 80 条预热，避免迟到预热把已追加的长列表覆盖成短列表。第一次
+续载用包含首屏的有界请求打开游标，后续每次只读 50 条，仍受 Core 5,000 条
+上限约束。失败保留已有行，暂停自动请求，显式重试重新打开游标。
+正常浏览不再保留底部“加载更多”按钮或固定高度页脚，原生列表直接撑满
+剩余空间。加载指示和失败重试覆盖在列表底部，不缩小视口；不能为了显示
+分页状态重新加入常驻空白带。
+状态扫描和历史追加分别合并当前结果，不能把新收到的变更或提交覆盖成旧快照。
+搜索只筛选已加载历史，有搜索条件时不自动遍历整个仓库；切换工作树、关闭页面、
+移除工作树或重置仓库时取消在途续载并关闭游标，迟到结果只清理自身资源。
+Windows 的 Worktree 弹窗目前没有此提交历史详情，不以这次 macOS 修复宣称两端
+详情功能已经对齐。
+
+工作树详情的“更改”不是只读状态表。它复用提交页的选择规则、共享复选框和
+原生可见区域绘制，提供单选、Command/Shift 多选、全选、暂存、取消暂存、
+Diff、打开文件、定位与复制路径。空格切换当前项暂存，Return 打开 Diff；
+点击复选框不能顺带打开文件，扩展选区也不能打断当前 Diff。
+批量操作优先作用于选区；右键未选中的文件只操作该文件。
+
+更改页采用可拖动的左右分栏：左边显示按本地变更列表（ChangeList）分组的
+文件状态，右边复用 `CommitAreaView` 的提交说明、AI、修订上次提交和提交/推送
+操作。窄详情列改为上下排列，路径与分支标题区保持紧凑，文件区不再额外套一圈
+12pt 留白。分组计算放在尺寸读取之外，拖动不重建原生列表或逐行计算分组。
+
+共享提交区不能直接绑定主工作区模型，否则从另一个工作树点击提交会带入主仓库
+或嵌套仓库。`commitFeature(for:)` 复用既有提交计划和 ChangeList 存储，但固定
+到当前工作树的唯一根目录，提交前仍由 Core 校验真实根目录、HEAD、索引及范围。
+例如，选中 linked 工作树时只传入 linked 这一项仓库绑定；不要把工作区发现的
+所有仓库原样交给这个提交区。缺失、可清理或裸仓库不允许从该入口提交。
+
+状态扫描的排除集合与提交绑定集合必须分开。首次检查、手动刷新、工作树列表
+自动刷新及独立提交模型刷新，都在所选 checkout 内发现仓库，把发现结果交给
+既有 Core 状态过滤；linked 路径在打开的工作区之外时也一样。提交模型的
+`availableRepositoryRoots` 仍只有所选根，目录展开同样携带状态排除集合。
+例如，父根下独立的 `nested/` 仓库不应成为父根的未跟踪行；不要为了单根提交
+把状态扫描也缩成 `[root]`，否则全部暂存会意外生成没有 `.gitmodules` 的
+gitlink（Git 索引中 mode-160000 的仓库引用）。已跟踪的 gitlink 仍由 Core
+原有规则保留，不由界面猜测子模块语义。代价是状态读取前需要一次仓库发现。
+
+提交说明草稿按工作树和工作区会话分别保留，切换详情标签或工作树不会串草稿。
+认证、取消和模块保活仍由父 Git 模型持有；主提交区与工作树提交互斥，同一根的
+ChangeList 值与存储故障状态同步，linked 根单独存储。工作区重置同时使旧提交模型
+失效，旧编辑器任务不能重新打开原路径。代价是在当前工作区会话内缓存访问过的
+工作树提交模型和草稿；不增加新的 Git 提交实现或运行时资源目录。
+互斥必须在模型写入口检查，既覆盖复选框和批量暂存，也覆盖 Diff 的直接文件与
+区块暂存/取消暂存。工作树提交在准备计划时已经持锁，不能只看父模型自身的
+`isCommitting`；否则仍打开的 Diff 会在计划已读取后修改同一个索引。
+
+所有写操作由 `GitFeatureModel` 调用已有 Git service，沿用提交页的暂存、
+取消暂存和回滚语义，不另外拼命令，也不隐式切换活动仓库。执行前核对
+工作树仍在列表、路径可用且快照已加载，再将捕获的文件与最新状态逐项匹配。
+例如，正确做法是向选中的 linked worktree 的根目录执行暂存；不要把同名文件
+映射到主工作区，也不要让旧确认框操作刷新后已经改变的文件。回滚必须先显示
+选中工作树及文件，并明确提示未跟踪文件会被删除；只回滚工作区变更，保持
+提交页已有的暂存区语义，不把“取消暂存”误当作删除文件。
+
+变更批次在途期间禁止重复提交，首个失败停止后续文件，保留错误供用户处理。
+取消或重置后的迟到结果不向新上下文发通知。操作后只重新扫描该工作树状态，
+合并到当前详情，保留已有历史与游标；扫描失败保留旧行并显示错误。
+主工作区刷新已确认文件状态后，同步更新正在显示的主工作区详情；刷新工作树
+记录时，对已选且已完成初次扫描的工作树补读文件状态。文件编辑不会改变
+工作树路径或 HEAD，不能只依赖这两个字段重启详情任务。状态未变时保留
+详情版本，不重复投影历史；正在初次加载或执行文件操作时不启动重复扫描。
+已打开的该工作树 Diff 跟随新状态刷新，文件变干净后关闭。其他工作树或仓库
+的新选择不能被旧扫描覆盖。Windows 当前只有管理弹窗，没有这组更改详情，
+本次没有新增 Windows 对等入口。
+
+同样的交互规则写入 `develop-lithe` Skill。反汇编列表也按滚动方向自动补充
+指令，上方插入时保留旧首行的像素位置；当前指令的定位只改变纵向偏移，
+短指令靠左，长指令保留横向滚动。内存查看器是离散地址页，不套用连续列表规则。
+
+反汇编的映像边界不能只等空页：本机 LLDB 21 在 Mach-O（macOS 可执行映像）
+头部地址继续向前读取时，会返回 `Unexpected error while disassembling instructions.`。
+上游 `llvmorg-21.1.0` 的 `lldb/tools/lldb-dap/Handler/DisassembleRequestHandler.cpp`
+也用同一错误表示起始地址或指令列表不可用，不能根据英文文案判断错误类型。
+宿主对被拒绝的反汇编页按 64、32、16、8、4、2、1 条有界缩小请求；
+单条相邻指令仍失败时，再读取已知边缘的一条指令。只有边缘仍可读才认为该方向
+到头，保留列表且允许向另一个方向滚动。超时、取消、传输停止和无效回复不走
+缩页；边缘验证失败仍显示可重试错误，旧暂停代次的验证结果直接丢弃。
+
+不要把所有分页失败都吞成“到头”，也不要按 ARM 固定宽度自己减地址：
+正确做法是继续把原始引用和 `instructionOffset` 交给适配器。上游补齐的空白
+无效指令不作为行或下次翻页锚点；有字节但没有助记符的内容仍按上游原样显示，
+不在宿主猜测可执行区段。错误条占满可用宽度并靠左，不因错误文字长度而居中。
 
 Git Log 分支内容和右侧文件树在尺寸读取器外构建；仅改变高度时不重建文件树。
 上方 Diff 的全文宽度测量、折叠规划及双栏布局同样在尺寸读取器外生成，再传给
@@ -334,12 +469,39 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 不透明保留面板的高亮、文字区域像素，覆盖明暗主题、两种工具和底部左右目标；同时检查工作区
 偏移、预览清理、鼠标穿透和宿主身份。组件渲染回归不替代整机拖放的人工验收。
 
-固定表面的命中不能覆盖外层分隔条伸入面板的区域。`Surface.hitTest` 在同一次同步查询内跳过自己，
-复用下层原生命中结果；如果下层命中 `SplitHandleInteractionView`，优先将事件交给它，
-否则沿用保留宿主的正常命中。不要临时隐藏宿主、缩小内容或另算一份分隔条矩形。
-`retainedHostsPreserveOuterDividerHitArea` 覆盖横纵方向，实际通过窗口发送中央和两侧偏移 4pt
-的按下、拖动和松开事件，检查每次提交尺寸、面板中央命中及两个宿主身份；直接调用 handle
-方法绕过了窗口命中分发，不能证明这条边界。
+固定表面的命中不能覆盖外层分隔条伸入面板的区域，也不能在命中过程中重新查询窗口根视图。
+命中测试（`hitTest`）用于确定鼠标下的控件；祖先正在遍历 SwiftUI 时，后代再次调用祖先的
+`hitTest` 会同步重入尚未结束的遍历。旧实现虽然用布尔值阻止 `Surface` 自身无限递归，
+仍会重入祖先。[Issue #1542](https://github.com/1lck/Lithe-IDEA/issues/1542) 的
+0.6.5 Intel 发布二进制 UUID 与报告一致，崩溃位置对应这次根视图回查内部的 Swift 独占访问冲突。
+独占访问要求同一存储的修改不能相互重叠，同一线程重入也可能违反；不能因此推断是后台索引竞争。
+报告没有给出冲突存储的名称，不声称已确定 SwiftUI 内部的具体变量。
+
+正确做法是由每个工作台的 `WorkbenchToolContentStore` 持有一个弱引用登记表
+`SplitHandleHitTestRegistry`，只把原布局树中的分隔条加入表中。固定表面先正常查询自己的
+保留内容，再从登记表判断是否应交给外层分隔条；判断只读取原生控件当前的 `bounds`、
+`visibleRect`（祖先裁剪后仍可见的范围）及坐标转换，不调用任何祖先的 `hitTest`。
+重叠分隔条沿原生兄弟视图层级择前，不按登记顺序选择。不缓存另一套布局矩形，也不在每次
+鼠标移动时扫描整个窗口树，因此重内容的规模不会增加查找的候选数量。
+
+登记表不传给独立的保留宿主，Git Log 内部的分隔条仍由自身正常遍历接收事件，不抢走外层边缘。
+禁用、收起和卸载时取消登记；收起面板中的嵌套分隔条也清除登记作用域。查询还排除隐藏、
+透明、已裁剪或不在同一窗口中的控件。原生控件移动窗口时更新登记，弱引用避免工作台持有已卸载
+控件。代价是新增绕过 SwiftUI 遍历的转发路径必须显式维护可交互状态；不能假定任意 SwiftUI
+隐藏修饰符都能从 AppKit 控件推断出来。
+
+不要改成“根视图回查但多加一层防递归”，这仍然重入祖先；也不要简单删除外层分隔条转发，
+那会把 10pt 命中范围缩成没有被保留面板遮住的部分。临时隐藏宿主或缩小内容同样不采用，
+避免破坏焦点、跟踪和原有布局。
+
+`retainedHostsPreserveOuterDividerHitArea` 覆盖横纵方向及工作区偏移，实际通过窗口发送中央和
+两侧偏移 4pt 的按下、拖动和松开事件，检查每次尺寸只提交一次、面板中央命中及两个宿主身份；
+根视图命中深度必须为 1，连续 100 次面板查询也只进入根视图 100 次。原实现会稳定得到深度 2
+和 200 次根查询，新实现消除该重入。直接调用 handle 方法绕过窗口分发，不能证明这条边界。
+`GitLogReferenceResizeTests` 另覆盖禁用、收起、恢复、嵌套及卸载；
+`SplitHandleHitTestTests` 覆盖实时几何、裁剪、原生层级、窗口隔离及弱引用生命周期；
+`DiffScrollSynchronizationTests` 在普通和保留侧栏下经真实窗口事件验证两端收起后仍可拉回。
+较新系统可复现旧实现重入，但未复现原报告的 abort；这些回归不替代 macOS 13 Intel 原机验收。
 
 `TerminalPlacementFeatureModelTests.retainedTerminalRestoresFocusAndWallpaperWithoutRecreatingItsSurface`
 使用真实 `TerminalView`/`TerminalSurfaceView` 和无进程测试 transport，在明暗主题检查标题栏/正文像素、
@@ -356,6 +518,33 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 
 ## 验证
 
+- `DebugDisassemblyLayoutTests` 验证明暗主题、左右对齐、横向溢出与步进位置，
+  `GitGraphInteractionTests` 验证原生视口自动加载、同页去重和追加后的偏移。
+- `DebugModuleTests` 与 `GitModuleTests` 验证无进展、失败、重试及失效请求边界。
+- `GitWorktreeAppearanceTests.historyScrollAutomaticallyAppendsWithoutMovingViewport`
+  使用真实原生视口覆盖深浅主题、接近底部续载、同页去重、追加偏移、同宽行数变化、
+  改宽、短列表、搜索上下文切换及失败/到尾停止；`GitModuleTests` 另验证工作树游标
+  的每页上限、显式重试、重复提交、无进展、取消/切换和状态扫描并发。
+- `GitWorktreeAppearanceTests` 另验证更改页的原生选择、复选框、快捷键、右键
+  批量目标、禁用状态、共享工具栏和深浅窄宽布局，以及路径整行自适应与行内展开；
+  `GitModuleTests` 覆盖根目录隔离、部分暂存、过期目标拒绝、首错停止、扫描失败
+  保留、Diff 刷新/关闭、历史保留和取消/重置后迟到错误不发布。
+- 更改页组件测试另外覆盖分组展开和勾选互不混淆、分组行不干扰文件键盘导航、
+  左右/上下布局切换保留选择及草稿、同轴调整不重建原生文档；模型测试检查
+  提交范围只包含选中根、ChangeList 独立与主根同步、存储故障和重置隔离。
+  `GitStatusObservationTests.realGitWorktreeComposerCommitsOnlySelectedCheckout` 使用
+  真实 Git 与 Core 提交 linked 改动，断言主仓库 HEAD 和暂存文件不变。
+  `realGitWorktreeRefreshAndStageAllExcludeIndependentNestedRepositories` 分别在主根
+  与工作区外 linked 根放置独立嵌套仓库，检查首次读取、显式/自动刷新、独立模型
+  刷新、全部暂存及提交不产生意外 gitlink，且嵌套仓库 HEAD/索引不变。
+  `worktreeCommitPreparationBlocksDirectDiffIndexMutations` 用有界 gate 暂停准备好的
+  提交计划，验证父 Diff 的文件与区块暂存/取消暂存不调用 service，释放后提交成功，
+  写入口恢复可用。
+  这些测试不替代完整工作台中拖动、确认弹窗及真实推送的人工验收。
+- `DebugModuleTests` 另覆盖上下两个方向的缩页、单条邻居失败后的边缘验证、
+  无效补位指令、真实错误保留和验证期间失效；本机 `lldb-dap` 21 的独立 C
+  程序实验复现映像首地址的负偏移失败及零偏移成功，不代替完整工作台验收。
+
 `GitGraphInteractionTests.continuousViewportResize` 连续调整原生视口 80 次，
 检查文档和子视图身份、文档宽度、滚动位置、多选、修饰键、上下键及重复跳转。
 `dragGitLogWithDiff` 用真实共享分隔条事件调整上方 1,200 行 Diff 和下方
@@ -371,9 +560,9 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 明暗主题下修改文件名的实际像素色、无逐行分隔线，以及可视宽度变化后的滚动范围。
 
 
-- `./scripts/build-macos.sh`
-- `./scripts/verify-git-graph.sh`
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/macos/build/build-macos.sh`
+- `./scripts/git-graph/verify-git-graph.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - `git diff --check`
 
 上游对照 fixture 固定保存在
@@ -400,6 +589,15 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 - `macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift`
 - `macos/Sources/Lithe/Views/Git/GitGraphView.swift`
 - `macos/Sources/Lithe/Views/Git/GitLogView.swift`
+- `macos/Sources/Lithe/Views/Git/GitWorktreesView.swift`
+- `macos/Sources/Lithe/Views/Git/GitWorktreeRowsView.swift`
+- `macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift`
+- `macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift`
+- `macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`
+- `macos/Tests/LitheTests/GitLogReferenceResizeTests.swift`
+- `macos/Tests/LitheTests/SplitHandleHitTestTests.swift`
+- `macos/Tests/LitheTests/DiffScrollSynchronizationTests.swift`
+- `macos/Tests/LitheTests/GitWorktreeAppearanceTests.swift`
 - `macos/Sources/Lithe/Views/Git/GitCommitFileTreeView.swift`
 - `macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`
 - `rust/lithe-core/src/git/history.rs`

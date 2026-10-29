@@ -32,6 +32,9 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     /// Minimum size reserved for the flexible pane, when the hosted content
     /// has a product-level usability requirement of its own.
     let flexibleMinimum: CGFloat?
+    /// A host with a known page size can answer intrinsic probes without
+    /// recursively measuring every control in both panes.
+    let idealSize: CGSize?
     /// Clip a pane with content wider than the dragged size at the split boundary.
     let clipsSizedPane: Bool
     /// Hide the tracked pane and divider without unmounting either pane.
@@ -51,6 +54,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     @State private var dragStart: CGFloat = 0
     @State private var isDragging = false
     @Environment(\.isLithePaneResizing) private var ancestorIsDragging
+    @Environment(\.splitHandleHitTestRegistry) private var hitTestRegistry
 
     init(
         axis: LitheSplitAxis,
@@ -59,6 +63,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         minimum: CGFloat,
         maximum: CGFloat,
         flexibleMinimum: CGFloat? = nil,
+        idealSize: CGSize? = nil,
         clipsSizedPane: Bool = false,
         isSizedPaneCollapsed: Bool = false,
         trackBackground: Color = .clear,
@@ -74,6 +79,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         self.minimum = minimum
         self.maximum = maximum
         self.flexibleMinimum = flexibleMinimum
+        self.idealSize = idealSize
         self.clipsSizedPane = clipsSizedPane
         self.isSizedPaneCollapsed = isSizedPaneCollapsed
         self.trackBackground = trackBackground
@@ -97,7 +103,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         let size = resolvedSize
         LitheSplitPaneLayout(axis: axis, placement: placement, size: size,
             dividerSize: isSizedPaneCollapsed ? 0 : SplitHandleView.thickness,
-            flexibleMinimum: flexibleMinimum ?? 0) {
+            flexibleMinimum: flexibleMinimum ?? 0, idealSize: idealSize) {
             panes(size)
         }
         .environment(\.isLithePaneResizing, ancestorIsDragging || isDragging)
@@ -112,6 +118,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         switch placement {
         case .leading:
             sizedPane
+                .environment(\.splitHandleHitTestRegistry, isSizedPaneCollapsed ? nil : hitTestRegistry)
                 .opacity(isSizedPaneCollapsed ? 0 : 1)
                 .allowsHitTesting(!isSizedPaneCollapsed)
                 .accessibilityHidden(isSizedPaneCollapsed)
@@ -121,6 +128,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             flexiblePane
             handle(size)
             sizedPane
+                .environment(\.splitHandleHitTestRegistry, isSizedPaneCollapsed ? nil : hitTestRegistry)
                 .opacity(isSizedPaneCollapsed ? 0 : 1)
                 .allowsHitTesting(!isSizedPaneCollapsed)
                 .accessibilityHidden(isSizedPaneCollapsed)
@@ -155,6 +163,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             trackBackground: trackBackground,
             dividerColor: dividerColor,
             showsIdleDivider: showsIdleDivider,
+            isHitTestEnabled: !isSizedPaneCollapsed,
             onDragStarted: {
                 dragStart = size
                 isDragging = true
@@ -201,11 +210,16 @@ private struct LitheSplitPaneLayout: Layout {
     let size: CGFloat
     let dividerSize: CGFloat
     let flexibleMinimum: CGFloat
+    let idealSize: CGSize?
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         if let width = proposal.width, let height = proposal.height,
            width.isFinite, height.isFinite {
             return CGSize(width: max(0, width), height: max(0, height))
+        }
+        if let idealSize {
+            return CGSize(width: proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil } ?? idealSize.width,
+                          height: proposal.height.flatMap { $0.isFinite ? max(0, $0) : nil } ?? idealSize.height)
         }
         // Intrinsic sizing is only needed if the host has not assigned bounds.
         let sizes = subviews.map { $0.sizeThatFits(.unspecified) }

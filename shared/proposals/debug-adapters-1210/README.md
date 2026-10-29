@@ -13,8 +13,8 @@
 
 - [统一调试内核与调试适配器 Registry](../../../.agents/notes/proposed/architecture/2026-10-25-unified-debug-engine-and-adapter-registry.md)：内核重写、必选 / 推荐 / 可选三层能力、P0–P5 迁移与验收。
 - [可选调试扩展](../../../.agents/notes/proposed/architecture/2026-10-25-optional-debug-extensions.md)：寄存器、内存、反汇编、反编译源码、子会话等，各自单独验收。
-- [能力块 schema](debug-adapters.draft.schema.json)：只校验从完整清单提取的 `debugAdapters` 段。
-- [拒绝 fixtures](semantic-rejections.draft.json)：合成的契约验收输入，不是可安装插件；区分 schema 能拒绝和待 Core 实现的语义拒绝。
+- 能力块 schema 已并入正式契约 [plugin-manifest.schema.json](../../contracts/plugins/v1/plugin-manifest.schema.json)（`$defs.debugAdapter`）。
+- [拒绝 fixtures](../../contracts/plugins/v1/fixtures/debug-adapter-rejections.json)：已由 Core 测试逐条执行（schema、coreManifest、corePlan、coreInstall 四层）。
 - [会话投影 v2 schema](debug-session-projection.draft.schema.json) 与[样例](projection-v2-examples.draft.json)：可选的源码位置、字符串地址、`presentationHint` 透传、暂停代次与能力快照。
 
 插件依赖、导出与跨包授权移到[独立平台提案](../../../.agents/notes/proposed/architecture/2026-10-25-plugin-dependencies-and-exports.md)，不是 #1210 的依赖或关闭条件。
@@ -58,11 +58,13 @@
 
 ## 固定启动声明，不引入工作流
 
-`launch` 固定包含 `process` 和 `transport`：
+`launch` 固定包含 `transport`，并在除 `tcpLanguageServer` 外的传输里包含 `process`：
 
 - `stdio`：适配器进程的标准输入输出直接传 DAP，stderr 仅记录诊断。
 - `tcpAnnounced`：从明确指定的 stdout/stderr 读取有界 UTF-8 行。字面量 `prefix` 后只接受端口或 `host:port`；IPv6 使用方括号，必须是 loopback。限制单行 4 KiB、总启动输出 1 MiB、连接准备 30 秒；未完整解出合法端点就不连接。没有 `jsDebugStandalone` 等按产品命名的解码档位。
 - `tcpPort`：连接本次适配器进程的固定 loopback 端口；进程先启动，端口占用则失败，不悄悄改端口。它不是 DAP attach 参数里的被调试程序端口。若无法证明连接对应本次启动的进程，平台应拒绝该传输，不公布支持。
+
+- `tcpLanguageServer`：适配器寄宿在同一插件已声明的语言服务器里，没有自己的进程，因此不写 `launch.process`（写了就拒绝，其他传输则必须写）。`endpoint` 只有 `languageID`（必须出现在同一插件的 `languageServers[]`）和 `command`（`workspace/executeCommand` 的命令 ID）。宿主先照常启动该语言服务器，再发送这个命令，服务器返回本次调试服务的 loopback 端口（整数或数字字符串，1...65535），宿主连接该端口。命令是安装与更新时用户审阅的内容的一部分，改命令会重新确认。它不是通用的“调用插件函数”：没有参数、没有返回值解释、不能指向其他插件的服务器。Java Debug Server 寄宿在 JDT LS 中，就是这种形式。
 
 TCP 启动期限只约束端口发现与连接，不限制整个调试会话。关闭、失败、取消和禁用都会关闭连接、清理本次创建的进程；已有共享服务和外部 attach 目标不属于这条进程清理链。
 
@@ -70,13 +72,17 @@ TCP 启动期限只约束端口发现与连接，不限制整个调试会话。�
 
 已有 `${pluginDir}` 等启动模板保持原规则；此处永远指**声明该进程的当前包**。路径字段、模板展开及参数数组仍由共享解析器处理。`configuration.arguments` 是普通 JSON，不把其中的 `backendRef`、`$lease` 等同名字段解释为资源。此版没有资源引用输入、跨包租约或用户 JSON 中的隐藏句柄。
 
-debugpy、lldb-dap 可以走 stdio，Delve/js-debug 可按真实启动方式选择 TCP；是否能完整调试仍要核对后端版本、端口输出和目标参数。Java 先由内置 Provider 接入 Registry，继续使用已有 JDT 集成，不把宿主服务暴露为第三方 JSON 字段。一个模型统一接入方式，不保证所有后端功能相同。
+debugpy、lldb-dap 可以走 stdio（宿主已不再内置 Python、Rust 调试，由对应语言插件提供），Delve、js-debug 这类适配器可按真实启动方式选择 TCP（宿主已不再内置 Go、Node 调试，由对应语言插件提供）；是否能完整调试仍要核对后端版本、端口输出和目标参数。Java 先由内置 Provider 接入 Registry，继续使用已有 JDT 集成，不把宿主服务暴露为第三方 JSON 字段。一个模型统一接入方式，不保证所有后端功能相同。
 
 ## 配置与能力
 
 保留现有 `DebugLaunchConfiguration`、Run 配置 ID、三层覆盖和导入参数。处理顺序是：适配器默认参数 → 现有 Run/导入/用户覆盖链 → 只补缺失的目标字段 → 可选参数 schema → Core 规范化。schema 的 `default` 是文档提示，实际默认值由 Core 实现。
 
-`targetBindings` 限定为 `program ← target.path`、`processId ← target.processID`、`cwd ← target.workingDirectory`；不允许把进程号当路径，也不引入任意表达式。如果所选目标缺少必需事实且显式参数也未提供，准备阶段失败，不启动进程。文件目标不会自动产生 `program`，插件需要选择映射或由现有 Run 配置提供参数；不能仅声明 selector 就声称能启动。
+`targetBindings` 限定为 `program ← target.path`、`processId ← target.processID`、`cwd ← target.workingDirectory`，以及只用于 `attach` 的 `connection`；不允许把进程号当路径，也不引入任意表达式。如果所选目标缺少必需事实且显式参数也未提供，准备阶段失败，不启动进程。
+
+`connection` 让适配器附加到另一台机器上的被调试程序（适配器仍在本机）。与前三项不同，它的值是**适配器参数里的目的地路径**，因为各适配器给主机和端口起的名字、嵌套都不同（`hostName`/`port`、`connect.host`/`connect.port`、一个 `host:port` 字符串）：`host` 与 `port` 成对，或 `address` 单个字符串；可选 `pathMappings` 有四种形状：`objects`（对象列表）、`first`（唯一一条映射写成两个字符串）、`dictionary`（以其中一侧为键的对象）、`pairs`（二元数组列表）；形状装不下用户给的全部映射时拒绝而不是丢弃。事实来源仍然封闭：`target.host`、`target.port`、`target.pathMappings`。目的地与其他目的地、`processId`/`cwd` 或同一配置的默认 `arguments` 冲突的清单，在声明期被拒绝，否则“默认值优先”会让适配器连到用户没有确认的地方。Core 只按字面量把 `localhost`、`127.0.0.0/8`、`::1` 判为本机，其余都返回 `remote: true` 交宿主确认。不新增权限，`debug.attach` 已覆盖。决策原因、被否方案和不做的内容见主 Note 的“远程 attach”。文件目标不会自动产生 `program`，插件需要选择映射或由现有 Run 配置提供参数；不能仅声明 selector 就声称能启动。
+
+这里绑定的是适配器 → 被调试程序的端点，不是 IDE → 适配器的 DAP 地址。默认 debugpy `--listen` 启动的是远端 DAP 适配器，需要独立的 DAP 直连入口，不能只填嵌套参数就算支持。当前只推进复用 #1520 的普通 TCP 连接与生命周期；代理、隧道、端口转发和 SSH 远端执行另做方案，不新增相关清单字段，见[网络边界 Note](../../../.agents/notes/proposed/architecture/2026-10-27-debug-network-paths-and-tcp-lifecycle.md)。
 
 路径身份和执行路径分开：工作区内源码的持久化身份仍为相对路径；Build/Run 可以提供用户已选择或授权的外部产物引用，平台在执行时解析为绝对路径。源码外构建和工作区外可执行文件无需伪造相对路径。本提案不新增 `workspacePath`、`configuration.id` 或 `target.configurationID` 的重复结构。
 
@@ -94,7 +100,7 @@ debugpy、lldb-dap 可以走 stdio，Delve/js-debug 可按真实启动方式选�
 
 ## Schema 与 Core 校验分界
 
-`semantic-rejections.draft.json` 以一个合成基线加 `set`/`remove` 描述单个拒绝输入，沿用已有 `invalid-manifests.json` 的 JSON Pointer fixture 约定，不新建编辑语法；路径只用于构造测试数据，**不是插件工作流语法**。每条记录标注校验层和预期稳定错误码，权限缺失沿用已有 `plugin.permission.undeclared`，新增 Debug 错误码仍为拟定；`expected.field` 是标准化后的错误位置，重复 ID 固定指向第二个条目。Core 计划也须验证输入目标快照与字段类型；无法从参数 schema 推断的后端必需字段，仍由 DAP 返回明确错误。无关基础清单字段按正式契约补足，不假装这些投影能安装。
+`debug-adapter-rejections.json` 以一个合成基线加 `set`/`remove` 描述单个拒绝输入，沿用已有 `invalid-manifests.json` 的 JSON Pointer fixture 约定，不新建编辑语法；路径只用于构造测试数据，**不是插件工作流语法**。每条记录标注校验层和预期稳定错误码，权限缺失沿用已有 `plugin.permission.undeclared`，新增 Debug 错误码仍为拟定；`expected.field` 是标准化后的错误位置，重复 ID 固定指向第二个条目。Core 计划也须验证输入目标快照与字段类型；无法从参数 schema 推断的后端必需字段，仍由 DAP 返回明确错误。无关基础清单字段按正式契约补足，不假装这些投影能安装。
 
 | 规则 | 必须拒绝的情况 | Fixture |
 | --- | --- | --- |

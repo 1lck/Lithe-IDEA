@@ -251,6 +251,18 @@ struct ProjectGenerationTests {
     // MARK: Window state
 
     @Test
+    func missingJavaTemplatesOfferAnInstallationEntry() throws {
+        let missing = NewProjectFeatureModel(environment: try Self.environment(plugins: PluginStates(enabled: []), sources: []))
+        missing.reloadCatalog()
+        #expect(missing.isJavaSupportMissing)
+        let installed = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: PluginStates(enabled: []), sources: [try Self.source(Self.javaSupportDirectory, enabled: false)]
+        ))
+        installed.reloadCatalog()
+        #expect(!installed.isJavaSupportMissing)
+    }
+
+    @Test
     func offersToEnableDisabledProvidersAndFindsMissingOnes() async throws {
         let plugins = PluginStates(enabled: [Self.templatesPluginID])
         let feature = NewProjectFeatureModel(environment: try Self.environment(plugins: plugins))
@@ -342,6 +354,11 @@ struct ProjectGenerationTests {
         templates["displayName"] = "Java Templates"
         templates["permissions"] = ["project.generate"]
         templates["requires"] = ["projectGenerators": 1]
+        // This separate template fixture is not the host-pinned bundled Java
+        // package, so it does not inherit that package's origin trust.
+        var templateVendor = manifest["vendor"] as? [String: Any] ?? [:]
+        templateVendor["bundledSignatureRequirement"] = nil
+        templates["vendor"] = templateVendor
         templates["activationEvents"] = [String]()
         func plugin(_ object: [String: Any], id: PluginID) throws -> ProjectGeneratorPluginSource {
             ProjectGeneratorPluginSource(

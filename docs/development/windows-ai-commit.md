@@ -78,9 +78,9 @@ Windows 验证需要仓库锁定的 Bun 版本（由 `windows/tauri/package.json
 ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1
 ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/settings/components/ai-settings-routing.test.tsx,src/features/git/services/ai-commit-workflow.test.ts,src/features/git/services/ai-commit-context.test.ts,src/features/git/types/ai-commit.test.ts,src/features/settings/lib/settings-normalization.test.ts
 cargo test --manifest-path rust/lithe-core/Cargo.toml ai::tests --lib
-./scripts/build-windows.ps1 -Configuration Release
+./scripts/windows/build/build-windows.ps1 -Configuration Release
 cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
-node scripts/verify-agent-notes.mjs
+node scripts/agent-notes/verify-agent-notes.mjs
 ```
 
 计时报告写入 `.artifacts/test-stability/`。真实服务商联调需使用用户选定的服务和凭据，单元测试不会访问真实网络，也不会读取个人 Codex/Claude 文件。

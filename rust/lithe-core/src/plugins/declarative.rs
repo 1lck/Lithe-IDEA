@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const DECLARATIVE_MANIFEST_SCHEMA_VERSION: u32 = 2;
 /// Declarative plugin API levels this Core build can host. The level is
 /// independent of the Lithe application version.
-pub const SUPPORTED_PLUGIN_API_VERSIONS: &[u32] = &[1, 2, 3];
+pub const SUPPORTED_PLUGIN_API_VERSIONS: &[u32] = &[1, 2, 3, 4];
 /// First API level with runtime launches, launch template variables,
 /// `initializationOptions`, and runtime version requirements.
 const LAUNCH_TEMPLATES_API_VERSION: u32 = 2;
@@ -55,10 +55,16 @@ const PERMISSION_BACKEND: &str = "backend.launch";
 /// Letting the backend keep secrets in the host's credential store, private
 /// to the plugin. `backend` 1.
 const PERMISSION_CREDENTIALS: &str = "credentials.store";
+/// Starting a debug session the plugin's adapter serves. `debugAdapters` 1.
+const PERMISSION_DEBUG_LAUNCH: &str = "debug.launch";
+/// Attaching the plugin's adapter to a running process. `debugAdapters` 1.
+const PERMISSION_DEBUG_ATTACH: &str = "debug.attach";
 const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_BACKEND,
     PERMISSION_BUILD,
     PERMISSION_CREDENTIALS,
+    PERMISSION_DEBUG_ATTACH,
+    PERMISSION_DEBUG_LAUNCH,
     PERMISSION_LANGUAGE_SERVER,
     PERMISSION_PROJECT_GENERATE,
     PERMISSION_RUN,
@@ -108,6 +114,16 @@ pub struct PluginRejection {
 }
 
 impl PluginRejection {
+    #[cfg(test)]
+    pub(crate) fn code(&self) -> &'static str {
+        self.code
+    }
+
+    #[cfg(test)]
+    pub(crate) fn field(&self) -> Option<&str> {
+        self.field.as_deref()
+    }
+
     pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -175,6 +191,10 @@ pub struct DeclarativePluginManifest {
     /// shape and its validation live in `crate::vcs`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     vcs_providers: Vec<crate::vcs::VcsProviderDeclaration>,
+    /// Debug adapters the plugin implements. API level 4; the shape and its
+    /// validation live in `crate::debug::adapters`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    debug_adapters: Vec<crate::debug::adapters::DebugAdapterDeclaration>,
     /// Entries of the New Project window. API level 3; the shape and its
     /// validation live in `crate::project_generators`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -360,6 +380,10 @@ struct PluginVendor {
     id: String,
     display_name: String,
     signature_requirement: SignatureRequirement,
+    /// Optional trust for the host's sealed built-in copy only. Installation
+    /// from every other origin still requires the primary publisher signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bundled_signature_requirement: Option<SignatureRequirement>,
 }
 
 /// How a package proves its origin. `sameTeamAsHost` is only honored by a
@@ -454,6 +478,7 @@ pub(crate) enum ServerRole {
     BuildProvider,
     VcsProvider,
     Backend,
+    DebugAdapter,
 }
 
 impl ServerRole {
@@ -463,6 +488,7 @@ impl ServerRole {
             Self::BuildProvider => "build provider",
             Self::VcsProvider => "VCS provider",
             Self::Backend => "plugin backend",
+            Self::DebugAdapter => "debug adapter",
         }
     }
 }
@@ -795,6 +821,18 @@ impl DeclarativePluginManifest {
                 "Official plugin IDs must carry a Lithe signature.",
             ));
         }
+        if let Some(bundled) = self.vendor.bundled_signature_requirement {
+            if self.plugin_api_version < CAPABILITIES_API_VERSION
+                || self.vendor.signature_requirement != SignatureRequirement::PublisherPackage
+                || bundled != SignatureRequirement::SameTeamAsHost
+                || !is_official_namespace(&self.id)
+            {
+                return Err(invalid(
+                    "vendor.bundledSignatureRequirement",
+                    "Bundled host-seal trust requires API 3, an official plugin ID, and publisherPackage for installed copies.",
+                ));
+            }
+        }
         if self.plugin_api_version >= CAPABILITIES_API_VERSION {
             capabilities::check_used(&self.requires, &self.used_capabilities())?;
         }
@@ -802,6 +840,7 @@ impl DeclarativePluginManifest {
             && self.ui.is_none()
             && self.build_systems.is_empty()
             && self.vcs_providers.is_empty()
+            && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
         {
             return Err(invalid("languages", "The plugin declares no languages."));
@@ -930,6 +969,7 @@ impl DeclarativePluginManifest {
             && self.ui.is_none()
             && self.build_systems.is_empty()
             && self.vcs_providers.is_empty()
+            && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
         {
             return Err(invalid(
@@ -949,8 +989,11 @@ impl DeclarativePluginManifest {
         crate::build::validate_declarations(
             &mut self.build_systems,
             &crate::build::DeclarationContext {
+                debug_adapters: &self.debug_adapters,
                 plugin_api_version: self.plugin_api_version,
                 build_systems_version: self.requires.get("buildSystems").copied().unwrap_or(1),
+                build_providers_version: self.requires.get("buildProviders").copied().unwrap_or(1),
+                model_inputs_version: self.requires.get("buildModelInputs").copied().unwrap_or(0),
                 official: is_official_namespace(&self.id),
                 declared_settings: &declared_settings,
                 language_servers: &server_languages,
@@ -963,6 +1006,7 @@ impl DeclarativePluginManifest {
                 declared_settings: &declared_settings,
             },
         )?;
+        self.validate_debug_adapters(&declared_settings)?;
         if let Some(backend) = &self.backend {
             backend.validate(&super::backend::DeclarationContext {
                 plugin_api_version: self.plugin_api_version,
@@ -982,6 +1026,10 @@ impl DeclarativePluginManifest {
     /// server, own build provider, and VCS provider is a `serverProcess`.
     fn used_capabilities(&self) -> BTreeSet<&'static str> {
         let sections = [
+            (
+                capabilities::PACKAGE_TRUST,
+                self.vendor.bundled_signature_requirement.is_some(),
+            ),
             (
                 capabilities::EXECUTABLE_RESOLUTION,
                 self.build_systems.iter().any(|system| {
@@ -1008,6 +1056,7 @@ impl DeclarativePluginManifest {
                 capabilities::SERVER_PROCESS,
                 !self.language_servers.is_empty()
                     || !self.vcs_providers.is_empty()
+                    || !self.debug_adapters.is_empty()
                     || self.backend.is_some()
                     || self
                         .build_systems
@@ -1034,13 +1083,78 @@ impl DeclarativePluginManifest {
                     .iter()
                     .any(|system| system.provider.is_some()),
             ),
+            (
+                capabilities::BUILD_MODEL_INPUTS,
+                self.build_systems.iter().any(|system| {
+                    system.model_sharing.is_some() || !system.model_inputs.is_empty()
+                }),
+            ),
             (capabilities::VCS_PROVIDERS, !self.vcs_providers.is_empty()),
+            (
+                capabilities::DEBUG_ADAPTERS,
+                !self.debug_adapters.is_empty(),
+            ),
             (capabilities::BACKEND, self.backend.is_some()),
         ];
         sections
             .into_iter()
             .filter_map(|(capability, used)| used.then_some(capability))
             .collect()
+    }
+
+    /// Checks the adapters and that `serverProcess` 2 is required exactly when
+    /// one starts on the selected runtime.
+    fn validate_debug_adapters(&mut self, declared_settings: &DeclaredSettings) -> Validation<()> {
+        // Levels 1 and 2 carry no `requires`, so the capability gate never
+        // sees an adapter declared there.
+        if !self.debug_adapters.is_empty()
+            && self.plugin_api_version < capabilities::DEBUG_ADAPTERS_API_VERSION
+        {
+            return Err(invalid(
+                "debugAdapters",
+                "Debug adapters require plugin API level 4.",
+            ));
+        }
+        let language_servers: BTreeSet<String> = self
+            .language_servers
+            .iter()
+            .map(|server| server.language_id.clone())
+            .collect();
+        crate::debug::adapters::validate_declarations(
+            &mut self.debug_adapters,
+            &crate::debug::adapters::DeclarationContext {
+                plugin_api_version: self.plugin_api_version,
+                declared_settings,
+                language_servers: &language_servers,
+            },
+        )?;
+        if crate::debug::adapters::uses_target_arguments(&self.debug_adapters)
+            && self
+                .requires
+                .get(capabilities::DEBUG_ADAPTERS)
+                .copied()
+                .unwrap_or(1)
+                < 2
+        {
+            return Err(invalid(
+                "requires.debugAdapters",
+                "Argument and environment bindings require debugAdapters 2.",
+            ));
+        }
+        if self.plugin_api_version >= CAPABILITIES_API_VERSION {
+            // serverProcess 2 exists for the selected-runtime launch alone, so
+            // a host without it never accepts an adapter it cannot start.
+            let selected = crate::debug::adapters::uses_selected_runtime(&self.debug_adapters);
+            let version = self.requires.get(capabilities::SERVER_PROCESS).copied();
+            if selected != (version == Some(2)) {
+                return Err(PluginRejection::at(
+                    "plugin.manifest.invalid",
+                    "requires.serverProcess",
+                    "serverProcess 2 is required exactly when an adapter runs on the selected runtime.",
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn validate_ui(&mut self) -> Validation<()> {
@@ -1198,6 +1312,21 @@ impl DeclarativePluginManifest {
         if !self.vcs_providers.is_empty() {
             required.insert(PERMISSION_VCS);
         }
+        if !self.debug_adapters.is_empty() {
+            required.insert(PERMISSION_DEBUG_LAUNCH);
+        }
+        if crate::debug::adapters::serves_attach(&self.debug_adapters) {
+            required.insert(PERMISSION_DEBUG_ATTACH);
+        } else if self
+            .permissions
+            .iter()
+            .any(|p| p == PERMISSION_DEBUG_ATTACH)
+        {
+            return Err(invalid(
+                "permissions",
+                "debug.attach is used by an adapter that serves attach; declare one or remove the permission.",
+            ));
+        }
         if !self.project_generators.is_empty() {
             required.insert(PERMISSION_PROJECT_GENERATE);
         }
@@ -1245,6 +1374,9 @@ impl DeclarativePluginManifest {
         }
         for provider in &self.vcs_providers {
             expected.insert(crate::vcs::activation_event(provider));
+        }
+        for adapter in &self.debug_adapters {
+            expected.insert(crate::debug::adapters::activation_event(adapter));
         }
         if let Some(ui) = &self.ui {
             for window in &ui.tool_windows {
@@ -1491,6 +1623,9 @@ impl DeclarativePluginManifest {
         }
         for provider in &self.vcs_providers {
             programs.extend(crate::vcs::programs(provider));
+        }
+        for adapter in &self.debug_adapters {
+            programs.extend(crate::debug::adapters::programs(adapter));
         }
         for generator in &self.project_generators {
             programs.extend(crate::project_generators::programs(generator));
@@ -1762,6 +1897,31 @@ impl LanguageServerDeclaration {
 }
 
 impl ServerProcess {
+    /// Package files the launch starts, as (launch field, package-relative
+    /// path): a `packaged` executable, or a `runtime` entry and its shipped
+    /// runtime. A `${arch}` runtime path varies per machine, so only the
+    /// installer can resolve it and it is left out.
+    pub(crate) fn packaged_files(&self) -> Vec<(&'static str, &str)> {
+        match &self.launch {
+            LanguageServerLaunch::Packaged { path } => vec![("path", path)],
+            LanguageServerLaunch::Runtime {
+                entry,
+                packaged_runtime,
+                ..
+            } => {
+                let mut files = vec![("entry", entry.as_str())];
+                if let Some(runtime) = packaged_runtime
+                    .as_deref()
+                    .filter(|path| !path.contains("${"))
+                {
+                    files.push(("packagedRuntime", runtime));
+                }
+                files
+            }
+            LanguageServerLaunch::SystemCommand { .. } => Vec::new(),
+        }
+    }
+
     /// Checks the launch, its arguments and probe, the initialization
     /// options, and the runtime dependencies. Level 1 arguments are literal
     /// text; templates are parsed from level 2 on.
@@ -1925,6 +2085,7 @@ impl ServerProcess {
             ServerRole::BuildProvider => "BuildProvider",
             ServerRole::VcsProvider => "VcsProvider",
             ServerRole::Backend => "Backend",
+            ServerRole::DebugAdapter => "DebugAdapter",
         };
         let mut program = match &self.launch {
             LanguageServerLaunch::Packaged { path } => json!({
@@ -2136,6 +2297,38 @@ pub(crate) fn validate_minimum_version(value: &str, field: &str) -> Validation<(
             "A minimum version must be one to three dot-separated numbers.",
         ))
     }
+}
+
+/// Checks the start and probe arguments of a process that has no launch of
+/// its own to validate, such as a debug adapter on the selected runtime.
+pub(crate) fn validate_process_arguments(
+    arguments: &[String],
+    validation_arguments: &[String],
+    declared_settings: &DeclaredSettings,
+    field: &str,
+) -> Validation<()> {
+    if arguments
+        .iter()
+        .chain(validation_arguments)
+        .any(|argument| argument.contains('\0'))
+    {
+        return Err(invalid(
+            format!("{field}.arguments"),
+            "Process arguments must not contain NUL.",
+        ));
+    }
+    validate_launch_templates(
+        arguments,
+        LaunchTemplateContext::Start,
+        declared_settings,
+        &format!("{field}.arguments"),
+    )?;
+    validate_launch_templates(
+        validation_arguments,
+        LaunchTemplateContext::ValidationProbe,
+        declared_settings,
+        &format!("{field}.validationArguments"),
+    )
 }
 
 fn validate_launch_templates(
@@ -2890,6 +3083,173 @@ fn backend_launch_plan(
     Ok(plan)
 }
 
+/// The launch plan of a debug adapter. `debugAdapter` repeats what the host
+/// needs besides the process: the transport and what to show. An adapter on
+/// the runtime Run selected has no process of its own to plan yet. An adapter
+/// inside the plugin's language server plans that server, as a build provider
+/// on a shared server does.
+fn debug_adapter_launch_plan(
+    manifest: &DeclarativePluginManifest,
+    adapter_id: &str,
+    request: &LanguageServerLaunchPlanRequest,
+) -> Validation<Value> {
+    use crate::debug::adapters::DebugProcess;
+    let adapter = manifest
+        .debug_adapters
+        .iter()
+        .find(|adapter| adapter.id == adapter_id)
+        .ok_or_else(|| {
+            PluginRejection::new(
+                "plugin.launch.unavailable",
+                format!("The plugin declares no debug adapter {adapter_id}."),
+            )
+        })?;
+    let mut plan = match &adapter.launch.process {
+        Some(DebugProcess::Server(process)) => {
+            server_launch_plan(manifest, process, None, request)?
+        }
+        Some(DebugProcess::SelectedRuntime(_)) => {
+            return Err(PluginRejection::new(
+                "plugin.launch.unavailable",
+                format!("The debug adapter {adapter_id} starts on the selected runtime."),
+            ));
+        }
+        None => {
+            let language_id = adapter
+                .launch
+                .endpoint
+                .as_ref()
+                .and_then(|endpoint| endpoint.language_id.as_deref())
+                .unwrap_or_default();
+            language_server_launch_plan(manifest, language_id, request)?
+        }
+    };
+    plan["debugAdapter"] = adapter.plan_descriptor(&manifest.id);
+    Ok(plan)
+}
+
+/// `debug.adapters.startArguments`: checks one start against the adapter's
+/// declaration and returns the DAP arguments its configuration defaults and
+/// target bindings give.
+pub fn debug_start_arguments_command(payload: Value) -> Result<Value, CoreError> {
+    const COMMAND: &str = "debug.adapters.startArguments";
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Payload {
+        manifest: Value,
+        #[serde(rename = "adapterID")]
+        adapter_id: String,
+        #[serde(flatten)]
+        start: crate::debug::adapters::StartRequest,
+    }
+    let payload: Payload = decode_payload(payload, COMMAND)?;
+    let started = validate_manifest_value(payload.manifest).and_then(|manifest| {
+        let adapter = manifest
+            .debug_adapters
+            .iter()
+            .find(|adapter| adapter.id == payload.adapter_id)
+            .ok_or_else(|| {
+                PluginRejection::new(
+                    "plugin.launch.unavailable",
+                    format!(
+                        "The plugin declares no debug adapter {}.",
+                        payload.adapter_id
+                    ),
+                )
+            })?;
+        crate::debug::adapters::start_arguments(adapter, &payload.start)
+    });
+    // `connection` is present only for a remote target, so a host that never
+    // attaches to one can ignore it.
+    let connection = started
+        .as_ref()
+        .ok()
+        .and_then(|started| started.connection.clone());
+    let mut result =
+        outcome(started.map(|started| ("arguments", Value::Object(started.arguments))));
+    if let Some(connection) = connection {
+        result["connection"] = json!(connection);
+    }
+    Ok(result)
+}
+
+/// `debug.adapters.executablePlan`: where a host looks for the program a
+/// launch debugs, when the adapter's configuration binds `program` to
+/// `target.executable`. `plan` is `null` for an adapter with no such lookup.
+/// The host owns the file system, so it checks `configured` and then each
+/// candidate; Core only says what to look at and in which order.
+pub fn debug_executable_plan_command(payload: Value) -> Result<Value, CoreError> {
+    const COMMAND: &str = "debug.adapters.executablePlan";
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Payload {
+        manifest: Value,
+        #[serde(rename = "adapterID")]
+        adapter_id: String,
+        #[serde(default)]
+        settings: BTreeMap<String, Value>,
+        #[serde(default)]
+        project_settings: BTreeMap<String, Value>,
+        /// Absolute root of the open project.
+        #[serde(default)]
+        workspace: Option<String>,
+        /// Absolute path of the source file being debugged, when there is one.
+        #[serde(default)]
+        target_path: Option<String>,
+    }
+    let payload: Payload = decode_payload(payload, COMMAND)?;
+    Ok(outcome(validate_manifest_value(payload.manifest).and_then(
+        |manifest| {
+            let adapter = manifest
+                .debug_adapters
+                .iter()
+                .find(|adapter| adapter.id == payload.adapter_id)
+                .ok_or_else(|| {
+                    PluginRejection::new(
+                        "plugin.launch.unavailable",
+                        format!(
+                            "The plugin declares no debug adapter {}.",
+                            payload.adapter_id
+                        ),
+                    )
+                })?;
+            let Some(lookup) = adapter
+                .configurations
+                .as_ref()
+                .and_then(|configurations| configurations.launch.as_ref())
+                .and_then(|configuration| configuration.executable.as_ref())
+            else {
+                return Ok(("plan", Value::Null));
+            };
+            let layers = SettingLayers {
+                global: &payload.settings,
+                project: &payload.project_settings,
+            };
+            let configured = manifest
+                .resolve_settings(layers)
+                .into_iter()
+                .find(|setting| setting.id == lookup.setting)
+                .and_then(|setting| match &setting.value {
+                    Value::String(path) if !path.is_empty() => {
+                        Some(json!({"path": path, "source": setting.source}))
+                    }
+                    _ => None,
+                });
+            Ok((
+                "plan",
+                json!({
+                    "setting": lookup.setting,
+                    "configured": configured,
+                    "candidates": lookup.expanded_candidates(
+                        payload.workspace.as_deref(),
+                        payload.target_path.as_deref(),
+                    ),
+                }),
+            ))
+        },
+    )))
+}
+
 fn server_launch_plan(
     manifest: &DeclarativePluginManifest,
     process: &ServerProcess,
@@ -3445,6 +3805,8 @@ struct LaunchPlanPayload {
     /// Selects the plugin's backend; `backend` 1.
     #[serde(default)]
     backend: bool,
+    #[serde(default, rename = "debugAdapterID")]
+    debug_adapter_id: Option<String>,
     request: LanguageServerLaunchPlanRequest,
 }
 
@@ -3453,6 +3815,7 @@ enum LaunchSelection<'a> {
     BuildSystem(&'a str),
     VcsProvider(&'a str),
     Backend,
+    DebugAdapter(&'a str),
 }
 
 pub(crate) fn decode_payload<T: for<'de> Deserialize<'de>>(
@@ -3540,18 +3903,22 @@ pub fn language_server_launch_plan_command(payload: Value) -> Result<Value, Core
         &payload.build_system_id,
         &payload.vcs_provider_id,
         payload.backend,
+        &payload.debug_adapter_id,
     ) {
-        (Some(language_id), None, None, false) => LaunchSelection::Language(language_id),
-        (None, Some(build_system_id), None, false) => LaunchSelection::BuildSystem(build_system_id),
-        (None, None, Some(vcs_id), false) => LaunchSelection::VcsProvider(vcs_id),
-        (None, None, None, true) => LaunchSelection::Backend,
+        (Some(language_id), None, None, false, None) => LaunchSelection::Language(language_id),
+        (None, Some(build_system_id), None, false, None) => {
+            LaunchSelection::BuildSystem(build_system_id)
+        }
+        (None, None, Some(vcs_id), false, None) => LaunchSelection::VcsProvider(vcs_id),
+        (None, None, None, true, None) => LaunchSelection::Backend,
+        (None, None, None, false, Some(adapter_id)) => LaunchSelection::DebugAdapter(adapter_id),
         _ => {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
                 format!("Invalid {COMMAND} payload"),
             )
             .with_details(
-                "Name exactly one of languageID, buildSystemID, vcsProviderID, and backend.",
+                "Name exactly one of languageID, buildSystemID, vcsProviderID, backend, and debugAdapterID.",
             ))
         }
     };
@@ -3568,6 +3935,9 @@ pub fn language_server_launch_plan_command(payload: Value) -> Result<Value, Core
                     vcs_provider_launch_plan(&manifest, vcs_id, &payload.request)
                 }
                 LaunchSelection::Backend => backend_launch_plan(&manifest, &payload.request),
+                LaunchSelection::DebugAdapter(adapter_id) => {
+                    debug_adapter_launch_plan(&manifest, adapter_id, &payload.request)
+                }
             }
             .map(|plan| ("plan", plan))
         },

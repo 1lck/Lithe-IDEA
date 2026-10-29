@@ -31,13 +31,13 @@ jobs:
           node-version: 20
 
       - name: Verify Agent Notes
-        run: node scripts/verify-agent-notes.mjs
+        run: node scripts/agent-notes/verify-agent-notes.mjs
 
       - name: Build complete public board
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/lithe-agent-notes-site"
-          node scripts/build-agent-notes-board.mjs \
+          node scripts/agent-notes/build-agent-notes-board.mjs \
             --bundle \
             .agents/notes \
             "$RUNNER_TEMP/lithe-agent-notes-site/index.html" \
@@ -45,7 +45,7 @@ jobs:
           touch "$RUNNER_TEMP/lithe-agent-notes-site/.nojekyll"
 
       - name: Build platform feature matrix
-        run: node scripts/generate-platform-feature-matrix.mjs --output-dir "$RUNNER_TEMP/lithe-agent-notes-site/platform-feature-matrix"
+        run: node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs --output-dir "$RUNNER_TEMP/lithe-agent-notes-site/platform-feature-matrix"
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

@@ -15,15 +15,51 @@ use serde_json::{json, Value};
 const EXPERIMENTAL_KEY: &str = "litheBuild";
 
 /// Build-provider protocol versions this client speaks, in preference order.
-const SUPPORTED_VERSIONS: [u64; 1] = [1];
+const SUPPORTED_VERSIONS: [u64; 6] = [6, 5, 4, 3, 2, 1];
 
 /// Feature name recorded in the session's server capabilities once a
 /// provider answered a supported version.
 pub(crate) const BUILD_PROVIDER_FEATURE: &str = "litheBuild";
 
-/// Requests of protocol version 1. Core plans both and decodes their results,
-/// so the host can only forward what `build.modelPlan` and
-/// `build.dependencyPlan` returned.
+/// Version 2 uses the same workspace session and operation lifecycle.
+pub(crate) const EXECUTE_METHOD: &str = "lithe/build/execute";
+/// Version 4 prepares a bounded launch, while the host owns the application.
+pub(crate) const PREPARE_RUN_METHOD: &str = "lithe/build/prepareRun";
+/// The negotiated ability to accept host-resolved public model inputs.
+pub(crate) const MODEL_INPUTS_FEATURE: &str = "litheBuildModelInputs";
+/// Old backends cannot silently ignore cross-provider context.
+pub(crate) fn model_inputs_negotiated(capabilities: &Value) -> bool {
+    capabilities
+        .pointer("/experimental/litheBuild/version")
+        .and_then(Value::as_u64)
+        == Some(6)
+}
+
+/// Version 5 prepares a native debug target, never an adapter process.
+pub(crate) const PREPARE_DEBUG_METHOD: &str = "lithe/build/prepareDebug";
+/// Admission feature for native debug preparation.
+pub(crate) const DEBUG_PREPARATION_FEATURE: &str = "litheDebugPreparation";
+/// Debug preparation requires the explicit version 5 agreement.
+pub(crate) fn debug_preparation_negotiated(capabilities: &Value) -> bool {
+    capabilities
+        .pointer("/experimental/litheBuild/version")
+        .and_then(Value::as_u64)
+        .is_some_and(|version| matches!(version, 5 | 6))
+}
+
+/// Admission feature for the version 4 method.
+pub(crate) const RUN_PREPARATION_FEATURE: &str = "litheRunPreparation";
+/// Version 3 adds tests while retaining the bounded execution lifecycle.
+pub(crate) const TEST_METHOD: &str = "lithe/build/test";
+/// Version 3 returns exact selectors; decoding remains a separate Core command.
+pub(crate) const DISCOVER_TESTS_METHOD: &str = "lithe/build/discoverTests";
+/// Feature required before writing a version 3 test request.
+pub(crate) const TEST_EXECUTION_FEATURE: &str = "litheBuildTestExecution";
+/// Progress never uses caller-chosen host operation IDs.
+pub(crate) const PROGRESS_METHOD: &str = "lithe/build/progress";
+/// Separate feature so version 1 cannot accidentally execute version 2 tasks.
+pub(crate) const EXECUTION_FEATURE: &str = "litheBuildExecution";
+
 const VERSION_1_METHODS: [&str; 2] = ["lithe/build/model", "lithe/build/dependencies"];
 
 /// The client half of the negotiation, placed under `capabilities.experimental`.
@@ -45,6 +81,97 @@ pub(crate) fn negotiated(capabilities: &Value) -> bool {
 /// Whether `method` is a request of the negotiated protocol.
 pub(crate) fn is_build_method(method: &str) -> bool {
     VERSION_1_METHODS.contains(&method)
+        || is_execution_method(method)
+        || method == DISCOVER_TESTS_METHOD
+        || method == PREPARE_RUN_METHOD
+        || method == PREPARE_DEBUG_METHOD
+}
+
+/// Whether the method shares bounded output, progress, and final result handling.
+pub(crate) fn is_execution_method(method: &str) -> bool {
+    matches!(method, EXECUTE_METHOD | TEST_METHOD)
+}
+
+/// True only for the execution protocol, not merely any negotiated provider.
+pub(crate) fn execution_negotiated(capabilities: &Value) -> bool {
+    capabilities
+        .pointer("/experimental/litheBuild/version")
+        .and_then(Value::as_u64)
+        .is_some_and(|version| matches!(version, 2 | 3 | 4 | 5 | 6))
+}
+
+/// Tests require an explicit version 3 agreement, independent of task support.
+pub(crate) fn tests_negotiated(capabilities: &Value) -> bool {
+    capabilities
+        .pointer("/experimental/litheBuild/version")
+        .and_then(Value::as_u64)
+        .is_some_and(|version| matches!(version, 3 | 4 | 5 | 6))
+}
+
+/// A preparation has progress and cancellation, but its reply is a launch plan.
+pub(crate) fn is_progress_method(method: &str) -> bool {
+    is_execution_method(method) || method == PREPARE_RUN_METHOD || method == PREPARE_DEBUG_METHOD
+}
+
+/// Run preparation requires an explicit version 4 agreement.
+pub(crate) fn run_preparation_negotiated(capabilities: &Value) -> bool {
+    capabilities
+        .pointer("/experimental/litheBuild/version")
+        .and_then(Value::as_u64)
+        .is_some_and(|version| matches!(version, 4 | 5 | 6))
+}
+
+/// Normalizes bounded progress; the engine checks the pending request identity.
+pub(crate) fn progress(params: Option<&Value>) -> Option<Value> {
+    let params = params?.as_object()?;
+    let id = params.get("operationID")?.as_str()?;
+    let mut result = json!({ "operationID": id });
+    for (field, limit) in [("message", 4096), ("output", 65536)] {
+        if let Some(value) = params.get(field) {
+            let text = value.as_str()?;
+            if text.len() > limit {
+                return None;
+            }
+            result[field] = json!(text);
+        }
+    }
+    if let Some(value) = params.get("percentage") {
+        result["percentage"] = json!(value.as_u64().filter(|value| *value <= 100)?);
+    }
+    Some(result)
+}
+
+/// Stable outcome for a provider-owned task. Tool failure is an exit code,
+/// while malformed replies and JSON-RPC errors are protocol failures.
+pub(crate) fn execution_outcome(reply: &Value) -> Result<Value, (&'static str, String)> {
+    if reply.get("error").is_some() {
+        return Err((
+            "plugin.build.failed",
+            reply
+                .pointer("/error/message")
+                .and_then(Value::as_str)
+                .unwrap_or("The build provider rejected the task.")
+                .chars()
+                .take(4096)
+                .collect(),
+        ));
+    }
+    let invalid = (
+        "plugin.build.invalidResult",
+        "The build provider returned an invalid task result.".to_string(),
+    );
+    let value = reply.get("result").ok_or_else(|| invalid.clone())?;
+    let exit = value
+        .get("exitCode")
+        .and_then(Value::as_i64)
+        .filter(|code| i32::try_from(*code).is_ok())
+        .ok_or_else(|| invalid.clone())?;
+    let output = value
+        .get("output")
+        .and_then(Value::as_str)
+        .filter(|text| text.len() <= 32 * 1024 * 1024)
+        .ok_or_else(|| invalid.clone())?;
+    Ok(json!({ "value": { "exitCode": exit, "output": output } }))
 }
 
 #[cfg(test)]
@@ -63,7 +190,7 @@ mod tests {
             &json!({ "experimental": { "litheBuild": {} } })
         ));
         assert!(!negotiated(
-            &json!({ "experimental": { "litheBuild": { "version": 2 } } })
+            &json!({ "experimental": { "litheBuild": { "version": 7 } } })
         ));
         assert!(!negotiated(
             &json!({ "experimental": { "litheBuild": { "version": "1" } } })
@@ -74,10 +201,57 @@ mod tests {
     }
 
     #[test]
-    fn version_one_accepts_only_its_two_requests() {
+    fn only_typed_provider_requests_are_accepted() {
         assert!(is_build_method("lithe/build/model"));
         assert!(is_build_method("lithe/build/dependencies"));
-        assert!(!is_build_method("lithe/build/execute"));
+        assert!(is_build_method("lithe/build/execute"));
+        assert!(is_build_method("lithe/build/test"));
         assert!(!is_build_method("workspace/executeCommand"));
+    }
+    #[test]
+    fn test_protocol_does_not_remove_task_support() {
+        let capabilities = json!({"experimental":{"litheBuild":{"version":3}}});
+        assert!(negotiated(&capabilities));
+        assert!(execution_negotiated(&capabilities));
+        assert!(tests_negotiated(&capabilities));
+        assert!(!tests_negotiated(
+            &json!({"experimental":{"litheBuild":{"version":2}}})
+        ));
+    }
+
+    #[test]
+    fn execution_replies_and_progress_match_the_shared_contract() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-execution-protocol.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            execution_outcome(&json!({"result": fixture["result"]})).unwrap(),
+            json!({"value": fixture["result"]})
+        );
+        for result in fixture["invalidResults"].as_array().unwrap() {
+            assert_eq!(
+                execution_outcome(&json!({"result": result})).unwrap_err().0,
+                "plugin.build.invalidResult"
+            );
+        }
+        assert_eq!(
+            execution_outcome(&json!({"error": {"message": "private"}}))
+                .unwrap_err()
+                .0,
+            "plugin.build.failed"
+        );
+        assert_eq!(
+            progress(Some(&fixture["progress"])),
+            Some(fixture["progress"].clone())
+        );
+        for invalid in fixture["invalidProgress"].as_array().unwrap() {
+            assert!(progress(Some(invalid)).is_none());
+        }
+        assert!(progress(Some(&json!({"operationID":"1","output":"x".repeat(65537)}))).is_none());
+        assert!(execution_outcome(
+            &json!({"result": {"exitCode": 0,"output":"x".repeat(32*1024*1024+1)}})
+        )
+        .is_err());
     }
 }

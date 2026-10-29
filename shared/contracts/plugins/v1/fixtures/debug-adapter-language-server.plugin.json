@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.debug-adapter-language-server",
+  "displayName": "Debug Adapter In Language Server Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 4,
+  "requires": { "debugAdapters": 1, "languageServers": 1, "languages": 1, "serverProcess": 1 },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "debug.launch",
+    "languageServer.launch"
+  ],
+  "activationEvents": [
+    "onDebug:example",
+    "onLanguage:example"
+  ],
+  "languages": [
+    {
+      "id": "example",
+      "displayName": "Example",
+      "fileExtensions": ["ex"],
+      "projectFileNames": ["example.toml"]
+    }
+  ],
+  "languageServers": [
+    {
+      "languageID": "example",
+      "launch": { "kind": "systemCommand", "commands": ["example-ls"] },
+      "arguments": ["--stdio"]
+    }
+  ],
+  "debugAdapters": [
+    {
+      "id": "example",
+      "displayName": "Example Debugger",
+      "adapterID": "example-dap",
+      "selectors": [{ "targetKinds": ["file"], "languageIDs": ["example"] }],
+      "launch": {
+        "transport": "tcpLanguageServer",
+        "endpoint": {
+          "languageID": "example",
+          "command": "example.startDebugSession"
+        }
+      }
+    }
+  ]
+}

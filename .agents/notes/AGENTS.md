@@ -50,4 +50,4 @@ yyyy-mm-dd-topic.md
   或源码复制品。
 - 不放 API 参考、字段全集、发布说明、普通教程、CI 日志或一次性执行计划。
 - 不创建集中索引；看板由脚本生成，不是第二份文档。
-- 写完运行 `./scripts/verify-agent-notes.sh`。
+- 写完运行 `./scripts/agent-notes/verify-agent-notes.sh`。

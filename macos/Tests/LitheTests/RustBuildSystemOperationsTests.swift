@@ -100,6 +100,121 @@ struct RustBuildSystemOperationsTests {
     }
 
     @Test
+    func providerTaskPlanCarriesSelectionWithoutHostArguments() throws {
+        let target = try Self.target("build-provider-execution", "gradle")
+        let plan = try operations.taskPlan(
+            target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
+            request: BuildTaskRequest(task: "build", project: BuildSelection(name: "app", path: "app"))
+        )
+        guard case .provider(let request) = plan, case .object(let params) = request.params else {
+            Issue.record("Expected a typed provider execution plan")
+            return
+        }
+        #expect(request.method == "lithe/build/execute")
+        #expect(params["task"] == .string("build"))
+        #expect(params["project"] == .object([
+            "name": .string("app"), "path": .string("app"), "tags": .array([]), "properties": .object([:])
+        ]))
+        #expect(params["options"] == .object(["offline": .bool(true)]))
+        #expect(request.executesProjectCode)
+        #expect(request.mayUseNetwork)
+    }
+
+    @Test
+    func providerRunPreparationRoundTripsThroughRealCore() throws {
+        let descriptor = try Self.descriptor("build-provider-run-preparation")
+        #expect(descriptor.buildSystems.first?.providerRuns.map(\.id) == ["application"])
+        let target = try Self.target("build-provider-run-preparation", "gradle")
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("app"), withIntermediateDirectories: true)
+        let plan = try operations.prepareRunPlan(target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
+            run: "application", project: BuildSelection(name: "app", path: "app"),
+            selectedTarget: BuildSelection(name: "Main", path: "app", tags: ["application"]), userArguments: ["a b"])
+        #expect(plan.method == "lithe/build/prepareRun")
+        guard case .object(let params) = plan.params else { Issue.record("Missing provider params"); return }
+        #expect(params["userArguments"] == .array([.string("a b")]))
+        let result: ToolingJSONValue = .object(["executable": .object(["kind": .string("toolchain"), "value": .string("project-jdk")]),
+            "arguments": .array([.string("Main"), .string("a b")]), "workingDirectory": .string("app"), "environment": .object([:])])
+        let launch = try operations.decodeRunPreparation(target, workspaceURL: workspace, root: ".", result: result)
+        #expect(launch.executable.kind == .toolchain)
+        #expect(launch.executable.value == "project-jdk")
+        #expect(launch.arguments == ["Main", "a b"])
+        #expect(launch.workingDirectory == "app")
+    }
+
+    @Test
+    func providerDebugPreparationRoundTripsThroughRealCore() throws {
+        let descriptor = try Self.descriptor("build-provider-debug-preparation")
+        #expect(descriptor.buildSystems.first?.providerRuns.first?.debugAdapter == "native")
+        let target = try Self.target("build-provider-debug-preparation", "gradle")
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let directory = workspace.appendingPathComponent("app", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("native program".utf8).write(to: directory.appendingPathComponent("main"))
+        let plan = try operations.prepareDebugPlan(target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
+            run: "application", project: BuildSelection(name: "app", path: "app"),
+            selectedTarget: BuildSelection(name: "Main", path: "app", tags: ["application"]), userArguments: ["a b"])
+        #expect(plan.method == "lithe/build/prepareDebug")
+        guard case .object(let params) = plan.params else { Issue.record("Missing provider params"); return }
+        #expect(params["userArguments"] == .array([.string("a b")]))
+        let result: ToolingJSONValue = .object(["program": .string("app/main"), "arguments": .array([.string("a b")]),
+            "workingDirectory": .string("app"), "environment": .object(["MODE": .string("debug")])])
+        let prepared = try operations.decodeDebugPreparation(target, workspaceURL: workspace, root: "app", run: "application", result: result)
+        #expect(prepared.adapter == "native")
+        #expect(prepared.root == "app")
+        #expect(prepared.program == "app/main")
+        #expect(prepared.arguments == ["a b"])
+        #expect(prepared.environment == ["MODE": "debug"])
+    }
+
+    @Test
+    func providerTestPlanKeepsTypedFiltersAndReportPatterns() throws {
+        let target = try Self.target("build-provider-tests", "gradle")
+        let plan = try operations.testPlan(
+            target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
+            request: BuildTestRequest(project: BuildSelection(name: "app", path: "app"),
+                                      suite: "Suite", testCase: "case with spaces", userArguments: ["--rerun-tasks"])
+        )
+        guard case .provider(let request) = plan.execution, case .object(let params) = request.params else {
+            Issue.record("Expected a provider test plan"); return
+        }
+        #expect(request.method == "lithe/build/test")
+        #expect(params["suite"] == .string("Suite"))
+        #expect(params["case"] == .string("case with spaces"))
+        #expect(params["userArguments"] == .array([.string("--rerun-tasks")]))
+        #expect(plan.results == .reports(decoder: "junitXml", patterns: ["app/build/test-results/**/*.xml"]))
+    }
+
+    @Test
+    func discoveredSelectorsRoundTripThroughTheRealCore() throws {
+        let descriptor = try Self.descriptor("build-provider-tests")
+        #expect(descriptor.buildSystems.first?.testDiscovery == true)
+        #expect(try Self.descriptor("build-static-file").buildSystems.first?.testDiscovery == false)
+        let target = try Self.target("build-provider-tests", "gradle")
+        let context = BuildPlanContext(root: ".", options: ["offline": .bool(true)])
+        let plan = try operations.testDiscoveryPlan(target, context: context)
+        #expect(plan.method == "lithe/build/discoverTests")
+        let fixture = try JSONDecoder().decode(ToolingJSONValue.self, from: Data(contentsOf:
+            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-test-discovery.json")))
+        guard case .object(let object) = fixture, let result = object["result"] else {
+            Issue.record("Missing discovery result"); return
+        }
+        let discovery = try operations.decodeTestDiscovery(target, context: context, result: result)
+        #expect(discovery.tests.count == 2)
+        #expect(Set(discovery.tests.map(\.id)).count == 2)
+        for test in discovery.tests {
+            let execution = try operations.testPlan(target, context: context, request: test.request)
+            guard case .provider(let request) = execution.execution, case .object(let params) = request.params else {
+                Issue.record("Discovery selector must remain a provider test"); return
+            }
+            #expect(params["suite"] == .string(test.suite))
+            #expect(params["case"] == .string(test.testCase))
+        }
+    }
+
+    @Test
     func taskAndTestPlansCarryOptionsAndSelection() throws {
         let target = try Self.target("build-static-file", "cargo")
         let project = BuildModel.Project(id: "cargo:demo", path: "crates/demo", name: "demo")
@@ -110,6 +225,7 @@ struct RustBuildSystemOperationsTests {
             context: context,
             request: BuildTaskRequest(task: "build", project: BuildSelection(project: project))
         )
+        guard case .process(let build) = build else { Issue.record("Expected a command plan"); return }
         #expect(build.arguments == ["build", "--message-format=short", "--release"])
         #expect(build.workingDirectory == "crates/demo")
         #expect(build.output == nil)
@@ -123,7 +239,10 @@ struct RustBuildSystemOperationsTests {
                 projects: ["crates/demo"]
             )
         )
-        #expect(tests.process.arguments == ["test", "--release", "--test", "integration"])
+        guard case .process(let process) = tests.execution else {
+            Issue.record("Expected a command test plan"); return
+        }
+        #expect(process.arguments == ["test", "--release", "--test", "integration"])
 
         #expect(throws: DeclarativePluginRejection.self) {
             try operations.taskPlan(target, context: context, request: BuildTaskRequest(task: "missing"))
@@ -261,6 +380,44 @@ struct RustBuildSystemOperationsTests {
         #expect(try operations.languageImport(
             Self.target("build-static-file", "cargo"), workspaceURL: workspace, root: ".", options: [:], executableURL: nil
         ) == nil)
+    }
+
+    @Test
+    func modelInputsCrossTheRealCoreBridgeWithoutPrivatePlans() throws {
+        let producer = try Self.source("build-model-producer")
+        let consumer = try Self.source("build-model-consumer")
+        #expect(producer.buildSystems.first?.sharesModel == true)
+        #expect(consumer.buildSystems.first?.modelInputs == [.init(pluginID: producer.pluginID, buildSystemID: "source")])
+        let model = try JSONDecoder().decode(BuildModel.self, from: Data("""
+        {"projects":[{"id":"source:app/demo","path":"app","name":"demo","properties":{"group":"org.example"}}],
+         "targets":[], "contentRoots":[], "tasks":[], "run":[{"command":"private"}], "optionValues":{}}
+        """.utf8))
+        let target = BuildSystemTarget(manifest: consumer.manifest, buildSystemID: "gradle")
+        let snapshot = try operations.resolveModelInputs(target, revision: 9, sources: [
+            BuildModelInputSource(manifest: producer.manifest, instances: [
+                .init(buildSystemID: "source", root: "app", state: "ready", model: model, options: ["offline": .bool(true)])
+            ])
+        ])
+        let context = BuildPlanContext(root: "app", options: [:], modelInputs: snapshot)
+        guard case .provider(let request) = try operations.taskPlan(target, context: context, request: BuildTaskRequest(task: "build")),
+              case .object(let params) = request.params, case .object(let wire)? = params["modelInputs"],
+              case .array(let slots)? = wire["inputs"], case .object(let slot)? = slots.first,
+              case .array(let instances)? = slot["instances"], case .object(let instance)? = instances.first,
+              case .object(let shared)? = instance["model"] else {
+            Issue.record("Expected the shared snapshot in the typed provider request"); return
+        }
+        #expect(params["modelInputs"] == snapshot)
+        #expect(instance["options"] == .object(["offline": .bool(true)]))
+        #expect(Set(shared.keys) == ["projects", "targets", "contentRoots"])
+        #expect(shared["run"] == nil)
+        #expect(throws: (any Error).self) {
+            try operations.taskPlan(target, context: BuildPlanContext(root: "app", options: [:]), request: BuildTaskRequest(task: "build"))
+        }
+        let unavailable = try operations.resolveModelInputs(target, revision: 10, sources: [])
+        guard case .object(let value) = unavailable, case .array(let slots)? = value["inputs"],
+              case .object(let missing)? = slots.first else { Issue.record("Missing slot"); return }
+        #expect(missing["state"] == .string("unavailable"))
+        #expect(missing["instances"] == .array([]))
     }
 
     // MARK: Fixtures

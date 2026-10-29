@@ -1,12 +1,14 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 /// DAP session projected from the shared Rust Debug Core. This type owns only
 /// callback correlation and UI model conversion; framing and state reduction
 /// stay behind `DebugProtocolCore`, while native I/O stays in the transport.
 @MainActor
 public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSession,
-    DebugAdapterRunInTerminalSession {
+    DebugAdapterRunInTerminalSession, DebugAdapterStartDebuggingSession,
+    DebugAdapterChildSessionLinking {
     private typealias OperationHandler = (Result<DebugCoreOperationResult, Error>) -> Void
 
     private struct PendingOperation {
@@ -18,14 +20,27 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         let deadline: any DebugOperationDeadline
     }
 
+    private struct PendingStartDebuggingRequest {
+        let deadline: any DebugOperationDeadline
+    }
+
     private let adapterID: String
+    public let consoleCommands: [DebugConsoleCommand]
+    public let consoleCommandPrefix: String?
     private let transport: any DebugAdapterTransport
     private let core: any DebugProtocolCore
     private let sessionID: String
+    /// Standard DAP capabilities the plugin turned off; Rust Core removes them
+    /// from what the adapter advertises.
+    private let disabledCapabilities: [String]
     private let deadlineScheduler: any DebugOperationDeadlineScheduling
     private let operationTimeoutMilliseconds: Int
+    private let initializationTimeoutMilliseconds: Int?
+    private var initializationDeadline: (any DebugOperationDeadline)?
+    private var initializationToken: UUID?
     private var operationHandlers: [String: PendingOperation] = [:]
     private var pendingRunInTerminalRequests: [String: PendingRunInTerminalRequest] = [:]
+    private var pendingStartDebuggingRequests: [String: PendingStartDebuggingRequest] = [:]
     private var errorOutputDecoder = StreamingUTF8Decoder()
     private var ownsCoreSession = false
     private var isStopping = false
@@ -36,23 +51,35 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     public var onStateChange: ((DebugAdapterState) -> Void)?
     public var onEvent: ((DebugAdapterEvent) -> Void)?
     public var onRunInTerminalRequest: DebugRunInTerminalRequestHandler?
+    public var onStartDebuggingRequest: DebugStartDebuggingRequestHandler?
+    public var coreSessionID: String { sessionID }
+    /// Set by the host before `start` when the adapter of another session asked for this one.
+    public var parentCoreSessionID: String?
     public var isRunning: Bool { transport.isRunning }
     public private(set) var capabilities: DebugAdapterCapabilities = .unknown
 
     public init(
         adapterID: String,
+        consoleCommands: [DebugConsoleCommand] = [],
+        consoleCommandPrefix: String? = nil,
+        disabledCapabilities: [String] = [],
         transport: any DebugAdapterTransport,
         core: any DebugProtocolCore,
         sessionID: String = UUID().uuidString,
         deadlineScheduler: any DebugOperationDeadlineScheduling,
-        operationTimeoutMilliseconds: Int = 10_000
+        operationTimeoutMilliseconds: Int = 10_000,
+        initializationTimeoutMilliseconds: Int? = nil
     ) {
         self.adapterID = adapterID
+        self.disabledCapabilities = disabledCapabilities
+        self.consoleCommands = consoleCommands
+        self.consoleCommandPrefix = consoleCommandPrefix
         self.transport = transport
         self.core = core
         self.sessionID = sessionID
         self.deadlineScheduler = deadlineScheduler
         self.operationTimeoutMilliseconds = max(1, operationTimeoutMilliseconds)
+        self.initializationTimeoutMilliseconds = initializationTimeoutMilliseconds.map { max(1, $0) }
         transport.onData = { [weak self] data in self?.receive(data) }
         transport.onErrorOutput = { [weak self] data in self?.receiveErrorOutput(data) }
         transport.onTermination = { [weak self] code in self?.transportTerminated(exitCode: code) }
@@ -64,18 +91,33 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         errorOutputDecoder.reset()
         operationHandlers = [:]
         discardPendingRunInTerminalRequests()
+        discardPendingStartDebuggingRequests()
         capabilities = .unknown
         try transport.start(rootURL: rootURL.standardizedFileURL)
+        if let initializationTimeoutMilliseconds {
+            let token = UUID()
+            initializationToken = token
+            initializationDeadline = deadlineScheduler.schedule(afterMilliseconds: initializationTimeoutMilliseconds) { [weak self] in
+                guard let self, self.initializationToken == token, self.ownsCoreSession else { return }
+                self.onEvent?(.output(category: "stderr", output: DebugAdapterProtocolError.timedOut("initialize").localizedDescription + "\n"))
+                guard self.initializationToken == token else { return }
+                self.failSession()
+            }
+        }
         do {
             let update = try core.createDebugSession(
                 sessionID: sessionID,
                 adapterID: adapterID,
                 rootPath: rootURL.standardizedFileURL.path,
-                supportsRunInTerminalRequest: onRunInTerminalRequest != nil
+                supportsRunInTerminalRequest: onRunInTerminalRequest != nil,
+                supportsStartDebuggingRequest: onStartDebuggingRequest != nil,
+                disabledCapabilities: disabledCapabilities,
+                parentSessionID: parentCoreSessionID
             )
             ownsCoreSession = true
             try apply(update)
         } catch {
+            cancelInitializationDeadline()
             transport.stop()
             releaseCoreSession()
             state = .failed
@@ -86,12 +128,18 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     public func stop() {
         guard state != .idle || transport.isRunning || ownsCoreSession else { return }
         isStopping = true
+        cancelInitializationDeadline()
         failPendingRunInTerminalRequests(DebugAdapterProtocolError.stopped)
+        failPendingStartDebuggingRequests(DebugAdapterProtocolError.stopped)
         if ownsCoreSession, transport.isRunning,
            let update = try? core.disconnectDebugSession(sessionID: sessionID) {
             try? apply(update)
         }
-        transport.stop()
+        if let draining = transport as? any DebugAdapterDrainingTransport {
+            draining.finishSendingAndStop()
+        } else {
+            transport.stop()
+        }
         finishErrorOutput()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
@@ -140,6 +188,18 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         guard ownsCoreSession else { return }
         do {
             try apply(core.setDebugFunctionBreakpoints(
+                sessionID: sessionID,
+                breakpoints: breakpoints
+            ))
+        } catch {
+            onEvent?(.output(category: "stderr", output: error.localizedDescription + "\n"))
+        }
+    }
+
+    public func setInstructionBreakpoints(_ breakpoints: [DebugInstructionBreakpoint]) {
+        guard ownsCoreSession else { return }
+        do {
+            try apply(core.setDebugInstructionBreakpoints(
                 sessionID: sessionID,
                 breakpoints: breakpoints
             ))
@@ -213,8 +273,38 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     public func execute(
         _ command: DebugExecutionCommand,
         threadID: Int?,
+        granularity: DebugSteppingGranularity
+    ) {
+        execute(
+            command,
+            threadID: threadID,
+            targetID: nil,
+            singleThread: false,
+            granularity: granularity
+        )
+    }
+
+    public func execute(
+        _ command: DebugExecutionCommand,
+        threadID: Int?,
         targetID: Int?,
         singleThread: Bool
+    ) {
+        execute(
+            command,
+            threadID: threadID,
+            targetID: targetID,
+            singleThread: singleThread,
+            granularity: nil
+        )
+    }
+
+    private func execute(
+        _ command: DebugExecutionCommand,
+        threadID: Int?,
+        targetID: Int?,
+        singleThread: Bool,
+        granularity: DebugSteppingGranularity?
     ) {
         guard ownsCoreSession else { return }
         let operationID = UUID().uuidString
@@ -225,7 +315,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 command: command,
                 threadID: threadID,
                 targetID: targetID,
-                singleThread: singleThread
+                singleThread: singleThread,
+                granularity: granularity
             ))
         } catch {
             onEvent?(.output(category: "stderr", output: error.localizedDescription + "\n"))
@@ -279,12 +370,84 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                     DebugStackFrame(
                         id: $0.id,
                         name: $0.name,
-                        sourceURL: $0.sourcePath.map { URL(fileURLWithPath: $0) },
+                        sourceURL: Self.fileURL(
+                            forAdapterSourcePath: $0.sourcePath,
+                            sourceReference: $0.sourceReference
+                        ),
                         line: $0.line,
                         column: $0.column,
-                        isFiltered: $0.isFiltered
+                        isFiltered: $0.isFiltered,
+                        instructionPointerReference: $0.instructionPointerReference
                     )
                 })
+            })
+        }
+    }
+
+    public func requestDisassembly(
+        memoryReference: String,
+        instructionOffset: Int,
+        instructionCount: Int,
+        completion: @escaping (Result<[DebugDisassembledInstruction], Error>) -> Void
+    ) {
+        guard capabilities.supportsDisassembleRequest else {
+            completion(.failure(DebugAdapterCapabilityError.unsupported("disassembly")))
+            return
+        }
+        inspect(
+            kind: "disassemble",
+            memory: DebugCoreMemoryQuery(
+                reference: memoryReference,
+                instructionOffset: instructionOffset,
+                instructionCount: instructionCount,
+                resolveSymbols: true
+            )
+        ) { result in
+            completion(result.flatMap { value in
+                guard value.kind == "disassemble", let instructions = value.instructions else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("disassemble"))
+                }
+                return .success(instructions.map {
+                    DebugDisassembledInstruction(
+                        address: $0.address,
+                        instructionBytes: $0.instructionBytes,
+                        instruction: $0.instruction,
+                        symbol: $0.symbol,
+                        sourceURL: Self.fileURL(forAdapterSourcePath: $0.sourcePath),
+                        line: $0.line
+                    )
+                })
+            })
+        }
+    }
+
+    public func requestReadMemory(
+        memoryReference: String,
+        offset: Int,
+        count: Int,
+        completion: @escaping (Result<DebugMemoryRead, Error>) -> Void
+    ) {
+        guard capabilities.supportsReadMemoryRequest else {
+            completion(.failure(DebugAdapterCapabilityError.unsupported("memory reading")))
+            return
+        }
+        inspect(
+            kind: "readMemory",
+            count: count,
+            memory: DebugCoreMemoryQuery(reference: memoryReference, offset: offset)
+        ) { result in
+            completion(result.flatMap { value in
+                guard value.kind == "readMemory",
+                      let address = value.address,
+                      let encoded = value.dataBase64,
+                      let data = Data(base64Encoded: encoded) else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("readMemory"))
+                }
+                return .success(DebugMemoryRead(
+                    address: address,
+                    unreadableBytes: value.unreadableBytes ?? 0,
+                    data: data
+                ))
             })
         }
     }
@@ -305,7 +468,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                         variablesReference: scope.variablesReference,
                         expensive: scope.expensive,
                         namedVariables: scope.namedVariables,
-                        indexedVariables: scope.indexedVariables
+                        indexedVariables: scope.indexedVariables,
+                        presentationHint: scope.presentationHint
                     )
                 })
             })
@@ -413,6 +577,54 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         }
     }
 
+    /// Evaluates console input with the DAP `repl` context, where adapters such
+    /// as lldb-dap also accept their own debugger commands (`bt`, `p x`).
+    public func evaluateInConsole(
+        _ expression: String,
+        frameID: Int?,
+        completion: @escaping (Result<DebugVariable, Error>) -> Void
+    ) {
+        inspect(kind: "evaluate", frameID: frameID, expression: expression, context: "repl") { result in
+            completion(result.flatMap { value in
+                guard value.kind == "evaluate", let variable = value.variable else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("evaluate"))
+                }
+                return .success(Self.makeVariable(variable, fallbackID: expression))
+            })
+        }
+    }
+
+    public func requestCompletions(
+        _ text: String,
+        column: Int?,
+        frameID: Int?,
+        completion: @escaping (Result<[DebugCompletionItem], Error>) -> Void
+    ) {
+        // The caller's caret counts UTF-16 units from 0; the wire column starts at 1.
+        inspect(
+            kind: "completions",
+            frameID: frameID,
+            expression: text,
+            column: column.map { $0 + 1 }
+        ) { result in
+            completion(result.flatMap { value in
+                guard value.kind == "completions", let items = value.items else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("completions"))
+                }
+                return .success(items.map {
+                    DebugCompletionItem(
+                        label: $0.label,
+                        text: $0.text,
+                        detail: $0.detail,
+                        kind: $0.kind,
+                        start: $0.start,
+                        length: $0.length
+                    )
+                })
+            })
+        }
+    }
+
     public func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
         inspect(kind: "redefineClasses") { result in
             completion(result.flatMap { value in
@@ -479,6 +691,16 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         }
     }
 
+    /// A frame or breakpoint is a file on disk only when its adapter path is
+    /// absolute and the adapter does not serve the content itself. Frames without
+    /// debug information, such as dyld's `start`, name a symbol there (lldb-dap
+    /// reports ``/usr/lib/dyld`start`` with a `sourceReference`), and resolving it
+    /// as a file would point at something that does not exist.
+    private static func fileURL(forAdapterSourcePath path: String?, sourceReference: Int? = nil) -> URL? {
+        guard let path, path.hasPrefix("/"), (sourceReference ?? 0) <= 0 else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
     private func inspect(
         kind: String,
         threadID: Int? = nil,
@@ -488,9 +710,11 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         start: Int? = nil,
         count: Int? = nil,
         expression: String? = nil,
+        context: String? = nil,
         sourcePath: String? = nil,
         line: Int? = nil,
         column: Int? = nil,
+        memory: DebugCoreMemoryQuery? = nil,
         completion: @escaping OperationHandler
     ) {
         guard ownsCoreSession else {
@@ -511,9 +735,11 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 start: start,
                 count: count,
                 expression: expression,
+                context: context,
                 sourcePath: sourcePath,
                 line: line,
-                column: column
+                column: column,
+                memory: memory
             ))
         } catch {
             completeOperation(operationID, result: .failure(error))
@@ -550,6 +776,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             consume(event)
         }
         state = Self.adapterState(update.state)
+        if state != .initializing { cancelInitializationDeadline() }
     }
 
     private func consume(_ event: DebugCoreEvent) {
@@ -580,17 +807,22 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 id: breakpoint.id,
                 verified: breakpoint.verified,
                 message: breakpoint.message,
-                sourceURL: breakpoint.sourcePath.map { URL(fileURLWithPath: $0) },
+                sourceURL: Self.fileURL(forAdapterSourcePath: breakpoint.sourcePath),
                 line: breakpoint.line,
                 column: breakpoint.column,
                 functionName: breakpoint.functionName,
                 dataID: breakpoint.dataID,
-                requestedLine: breakpoint.requestedLine
+                requestedLine: breakpoint.requestedLine,
+                instructionReference: breakpoint.instructionReference
             )))
         case "runInTerminalRequested":
             guard let requestID = event.requestID,
                   let request = event.request else { return }
             beginRunInTerminalRequest(requestID: requestID, request: request)
+        case "startDebuggingRequested":
+            guard let requestID = event.requestID,
+                  let request = event.startDebuggingRequest else { return }
+            beginStartDebuggingRequest(requestID: requestID, request: request)
         case "operationCompleted":
             guard let operationID = event.operationID,
                   let result = event.result else { return }
@@ -603,7 +835,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             case "timedOut": .timedOut(command)
             default: .requestFailed(
                 command: command,
-                message: event.message ?? "The Debug Adapter rejected the request."
+                message: event.message ?? L10n.string("The Debug Adapter rejected the request.")
             )
             }
             if operationHandlers[operationID] != nil {
@@ -618,8 +850,10 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     private func transportTerminated(exitCode: Int) {
         guard !isStopping else { return }
+        cancelInitializationDeadline()
         finishErrorOutput()
         discardPendingRunInTerminalRequests()
+        discardPendingStartDebuggingRequests()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
         state = exitCode == 0 ? .terminated : .failed
@@ -627,12 +861,20 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     }
 
     private func failSession() {
+        cancelInitializationDeadline()
         transport.stop()
         finishErrorOutput()
         discardPendingRunInTerminalRequests()
+        discardPendingStartDebuggingRequests()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
         state = .failed
+    }
+
+    private func cancelInitializationDeadline() {
+        initializationToken = nil
+        initializationDeadline?.cancel()
+        initializationDeadline = nil
     }
 
     private func releaseCoreSession() {
@@ -701,6 +943,64 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         }
     }
 
+    private func beginStartDebuggingRequest(
+        requestID: String,
+        request: DebugStartDebuggingRequest
+    ) {
+        let deadline = deadlineScheduler.schedule(
+            afterMilliseconds: operationTimeoutMilliseconds
+        ) { [weak self] in
+            self?.completeStartDebuggingRequest(
+                requestID,
+                result: .failure(DebugAdapterProtocolError.timedOut("startDebugging"))
+            )
+        }
+        pendingStartDebuggingRequests[requestID] = PendingStartDebuggingRequest(
+            deadline: deadline
+        )
+        guard let handler = onStartDebuggingRequest else {
+            completeStartDebuggingRequest(
+                requestID,
+                result: .failure(DebugAdapterCapabilityError.unsupported("child debug sessions"))
+            )
+            return
+        }
+        handler(request) { [weak self] result in
+            self?.completeStartDebuggingRequest(requestID, result: result)
+        }
+    }
+
+    private func completeStartDebuggingRequest(
+        _ requestID: String,
+        result: Result<Void, Error>
+    ) {
+        guard let pending = pendingStartDebuggingRequests.removeValue(forKey: requestID),
+              ownsCoreSession else { return }
+        pending.deadline.cancel()
+        do {
+            try apply(core.completeDebugStartDebuggingRequest(
+                sessionID: sessionID,
+                requestID: requestID,
+                result: result
+            ))
+        } catch {
+            onEvent?(.output(category: "stderr", output: error.localizedDescription + "\n"))
+            if !isStopping { failSession() }
+        }
+    }
+
+    private func failPendingStartDebuggingRequests(_ error: Error) {
+        for requestID in pendingStartDebuggingRequests.keys.sorted() {
+            completeStartDebuggingRequest(requestID, result: .failure(error))
+        }
+    }
+
+    private func discardPendingStartDebuggingRequests() {
+        let pending = pendingStartDebuggingRequests.values
+        pendingStartDebuggingRequests = [:]
+        pending.forEach { $0.deadline.cancel() }
+    }
+
     private func failPendingRunInTerminalRequests(_ error: Error) {
         for requestID in pendingRunInTerminalRequests.keys.sorted() {
             completeRunInTerminalRequest(requestID, result: .failure(error))
@@ -735,6 +1035,11 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             supportsExceptionInfoRequest: value.supportsExceptionInfoRequest,
             supportsStepInTargetsRequest: value.supportsStepInTargetsRequest,
             supportsGotoTargetsRequest: value.supportsGotoTargetsRequest,
+            supportsCompletionsRequest: value.supportsCompletionsRequest,
+            supportsDisassembleRequest: value.supportsDisassembleRequest,
+            supportsSteppingGranularity: value.supportsSteppingGranularity,
+            supportsInstructionBreakpoints: value.supportsInstructionBreakpoints,
+            supportsReadMemoryRequest: value.supportsReadMemoryRequest,
             exceptionBreakpointFilters: value.exceptionBreakpointFilters
         )
     }

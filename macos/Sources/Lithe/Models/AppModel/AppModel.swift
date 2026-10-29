@@ -13,6 +13,7 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
+    var hasSuggestedJavaPlugin = false
     lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
     lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
         sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
@@ -110,6 +111,16 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
+    let worktreeCommitSessions = WorktreeCommitSessions()
+
+    func worktreeCommitSession(feature: GitFeatureModel, worktree: GitWorktree) -> WorktreeCommitSession {
+        let scoped = feature.commitFeature(for: worktree)
+        return worktreeCommitSessions.session(for: scoped, generation: workspaceFeature.workspaceGeneration) {
+            let draft = CommitDraftFeatureModel()
+            return WorktreeCommitSession(feature: scoped, draft: draft,
+                workflow: CommitWorkflowComposition.make(model: self, draft: draft, activateGit: { [weak scoped] in scoped }))
+        }
+    }
     var commitMessage: String {
         get { commitDraftFeature.message }
         set { commitDraftFeature.message = newValue }
@@ -148,9 +159,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var documentLanguageCoordinator: DocumentLanguageCoordinator?
     private var sidebarRefreshTask: Task<Void, Never>?
     private var moduleSessionCoordinator: ModuleSessionCoordinator?
+    private(set) var isProjectSessionClosed = false
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var searchExclusionsObservation: AnyCancellable?
+    private var livePluginObservation: AnyCancellable?
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
     private var didCloseProject: (() -> Void)?
@@ -226,6 +239,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
+        awaitShutdown: { [weak self] in
+            await self?.awaitModuleRuntimeShutdown()
+            guard self?.isProjectSessionClosed == false else { throw CancellationError() }
+        },
         bind: { [weak self] in self?.bindLanguageIntelligenceCapability($0) },
         notify: { [weak self] in self?.showNotification($0) }
     )
@@ -575,6 +592,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
         }
+        // The language catalog follows plugins that apply without a restart, so
+        // a debugger installed now is offered now.
+        livePluginObservation = services.pluginRegistrationChanges?.sink { [weak self] in
+            self?.languageToolingFeature.refreshCatalog()
+        }
         suggestDatabasePluginIfNeeded()
         detectedAIConfigurations = loadAIConfigurations()
         let activeProviderHasAPIKey = settings.activeCommitMessageProvider
@@ -685,6 +707,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func shutdownProjectSession() async {
+        isProjectSessionClosed = true
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.
         services.pluginWebPages.closeAll()
@@ -705,6 +728,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             self.fileVisibilityRulesObserverID = nil
         }
         searchExclusionsObservation = nil
+        livePluginObservation = nil
         await shutdownModuleRuntime()
         moduleSessionCoordinator?.stopObserving()
     }
@@ -952,7 +976,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         navigationHistoryFeature.reset()
         virtualDocumentProviderIDs.removeAll()
         blameVisibleURL = nil
-        closeGitCommitDiff()
+        closeAllRepositoryDiffTabs()
         gitModuleCoordinator.resetFeature(gitFeatureIfActive)
         featureGraph.editorSession.resetContent()
         historyModuleCoordinator.resetFeature(projectHistoryFeatureIfActive)
@@ -989,7 +1013,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         editorDiagnosticsStore.reset()
         historyModuleCoordinator.resetFeature(projectHistoryFeatureIfActive)
         workspaceSessionCoordinator.resetWorkspaceFeature()
-        closeGitCommitDiff()
+        closeAllRepositoryDiffTabs()
         gitModuleCoordinator.resetFeature(gitFeatureIfActive)
         workbenchFeature.hideAllToolWindows()
         stopTerminalSessions()
@@ -1067,9 +1091,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         displayPath: String? = nil,
         allowsOutsideWorkspace: Bool = false
     ) {
+        suggestJavaPluginIfNeeded(files: [url])
         editorTabOrderFeature.repositoryDiffSelected = false
-        selectedChange = nil
-        closeBranchComparison()
         editorNavigationTarget = nil
         // SVG remains a text document so edits, saves, and previews share one buffer.
         if let mediaKind = MediaDocumentKind.from(url: url) {
@@ -1084,6 +1107,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func openStandaloneFile(_ url: URL) {
+        suggestJavaPluginIfNeeded(files: [url])
         workspaceSessionCoordinator.openStandaloneFile(at: url)
     }
 
@@ -1302,7 +1326,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 try await documentFeature.save(document, encoding: encoding)
                 showNotification("Saved \(document.displayName) as \(encoding.displayName)")
             } catch {
-                showNotification("Could not save \(document.displayName) as \(encoding.displayName)")
+                if !(error is CancellationError) {
+                    showNotification(documentFeature.saveFailureMessage(for: document, error: error))
+                }
             }
         }
     }
@@ -1354,6 +1380,16 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             )
             return false
         }
+        if moduleSessionCoordinator?.isShuttingDown == true {
+            Task { @MainActor [weak self, weak document] in
+                guard let self else { return }
+                await self.awaitModuleRuntimeShutdown()
+                guard let document, !Task.isCancelled, self.isCurrentWorkspace(identity),
+                      self.openDocuments.contains(where: { $0 === document }) else { return }
+                _ = self.activateLanguageServerIfAvailable(for: document)
+            }
+            return false
+        }
         if descriptor.id == "java" {
             switch prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
             case .ready: break
@@ -1374,6 +1410,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 Task { [weak self, weak document] in
                     guard let self, let document else { return }
                     do {
+                        await self.awaitModuleRuntimeShutdown()
+                        guard !Task.isCancelled, self.isCurrentWorkspace(identity),
+                              self.openDocuments.contains(where: { $0 === document }) else { return }
                         _ = try await self.services.moduleRuntime.activateCapability(capabilityID)
                         guard self.isCurrentWorkspace(identity), !Task.isCancelled,
                               self.openDocuments.contains(where: { $0 === document }) else { return }
@@ -1434,9 +1473,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             Task { [weak self] in
                 guard let self else { return }
                 do {
-                    let value = try await self.services.moduleRuntime.activateCapability(.languageIntelligence)
-                    guard let capability = value as? LitheLanguageIntelligenceModule.LanguageIntelligenceCapability else { return }
-                    self.bindLanguageIntelligenceCapability(capability)
+                    _ = try await self.languageIntelligenceModuleCoordinator.activate()
                     guard self.isCurrentWorkspace(identity), !Task.isCancelled,
                           self.openDocuments.contains(where: { $0 === document }) else { return }
                     _ = self.activateLanguageServerIfAvailable(for: document)
@@ -1572,49 +1609,84 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await gitFeature.selectGitCommit(commit)
     }
 
-    func showGitCommitDiff(for file: GitCommitFile) {
-        if selectedGitCommitDiffContext == nil || !editorTabOrderFeature.contains(.repositoryDiff) {
-            editorTabOrderFeature.moveToEnd(.repositoryDiff)
-        }
-        selectRepositoryDiffTab()
-        let requestID = UUID()
-        editorTabOrderFeature.repositoryDiffRequestID = requestID
+    func showGitCommitDiff(for file: GitCommitFile, context: GitCommitDiffContext? = nil, files: [GitCommitFile]? = nil) {
+        guard let context = context ?? gitFeatureIfActive.flatMap({ feature in
+            feature.selectedGitCommit.flatMap { commit in
+                feature.gitRepositoryRoot.map { GitCommitDiffContext(repositoryRoot: $0, commit: commit, file: file) }
+            }
+        }) else { return }
+        let requestID = beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: context.repositoryRoot.standardizedFileURL,
+            source: .commit(context.commit.hash, file.path)))
+        let files = files ?? gitFeatureIfActive?.selectedGitCommitFiles ?? [file]
         Task { [weak self] in
-            let feature = await self?.activateGitModule()
-            guard let self, self.editorTabOrderFeature.repositoryDiffRequestID == requestID else { return }
-            guard let feature else { self.closeGitCommitDiff(); return }
-            await feature.showGitCommitDiff(for: file)
+            await self?.performRepositoryDiffRequest(requestID) { feature, session in
+                await feature.showGitCommitDiff(for: file, session: session, context: context, files: files)
+            }
         }
     }
 
     func showSavedChangesDiff(_ snapshot: GitSavedChangesSnapshot, version: String, file: GitCommitFile) {
-        guard let feature = gitFeatureIfActive, feature.gitRepositoryRoot == snapshot.repositoryRoot else { return }
-        editorTabOrderFeature.repositoryDiffRequestID = UUID()
-        if !editorTabOrderFeature.contains(.repositoryDiff) { editorTabOrderFeature.moveToEnd(.repositoryDiff) }
-        feature.showSavedChangesDiff(snapshot, version: version, file: file)
-        selectRepositoryDiffTab()
+        // Validate before opening a tab: a snapshot of another repository, or one
+        // without this version/file, must not leave an empty comparison behind.
+        guard let feature = gitFeatureIfActive,
+              feature.gitRepositoryRoot == snapshot.repositoryRoot,
+              snapshot.files.contains(where: { $0.version == version && $0.file == file }) else { return }
+        let id = beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: snapshot.repositoryRoot.standardizedFileURL,
+            source: .saved(String(describing: snapshot.id), version, file.path)))
+        let session = feature.repositoryDiffSession(id: id)
+        if session.savedDiffSnapshot == nil { feature.showSavedChangesDiff(snapshot, version: version, file: file, session: session) }
     }
 
-    func closeGitCommitDiff() {
-        let wasSelected = isRepositoryDiffSelected
-        let previous = editorTabOrderFeature.repositoryDiffReturnTab
-        editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.repositoryDiffReturnTab = nil
-        editorTabOrderFeature.repositoryDiffRequestID = nil
-        editorTabOrderFeature.remove(.repositoryDiff)
-        gitFeatureIfActive?.closeGitCommitDiff()
-        guard wasSelected else { return }
-        let target = previous.flatMap { editorTabItems.contains($0) ? $0 : nil } ?? editorTabItems.last
-        switch target {
-        case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
-        case .document(let id):
-            if let document = openDocuments.first(where: { $0.id == id }) { selectEditorDocument(document) }
-        case .terminal(let id):
-            if let session = terminalSessions.first(where: { $0.id == id }) { selectEditorTerminalSession(session) }
-        case .media(let id):
-            if let media = openMediaDocuments.first(where: { $0.id == id }) { selectMediaDocument(media) }
-        case .repositoryDiff, nil: break
+    func beginRepositoryDiffRequest(key: RepositoryDiffTabKey? = nil) -> UUID {
+        if let key, let existing = editorTabOrderFeature.repositoryDiffKeys.first(where: { $0.value == key })?.key,
+           editorTabOrderFeature.contains(.repositoryDiff(existing)) {
+            selectRepositoryDiffTab(existing)
+            return existing
         }
+        let id = UUID()
+        editorTabOrderFeature.repositoryDiffReturnTabs[id] = editorTabOrderFeature.focusedItem
+            ?? activeEditorTerminalSession.map { .terminal($0.id) }
+            ?? activeMediaDocument.map { .media($0.id) }
+            ?? activeDocument.map { .document($0.id) }
+        editorTabOrderFeature.repositoryDiffKeys[id] = key
+        editorTabOrderFeature.moveToEnd(.repositoryDiff(id))
+        selectRepositoryDiffTab(id)
+        return id
+    }
+
+    func performRepositoryDiffRequest(
+        _ requestID: UUID, action: (GitFeatureModel, GitRepositoryDiffSession) async -> Void
+    ) async {
+        let feature = await activateGitModule()
+        guard editorTabOrderFeature.contains(.repositoryDiff(requestID)) else { return }
+        guard let feature else { closeRepositoryDiffTab(requestID); return }
+        let session = feature.repositoryDiffSession(id: requestID)
+        guard session.selectedChange == nil, session.selectedGitCommitDiffContext == nil,
+              session.branchComparison == nil, !session.isLoadingDiff, !session.isLoadingBranchComparison else { return }
+        await action(feature, session)
+    }
+
+    func closeRepositoryDiffTab(_ requestedID: UUID? = nil) {
+        guard let id = requestedID ?? selectedRepositoryDiffID ?? editorTabOrderFeature.repositoryDiffIDs.last else { return }
+        let item = EditorTabItem.repositoryDiff(id)
+        let wasSelected = selectedRepositoryDiffID == id
+        let previous = editorTabOrderFeature.repositoryDiffReturnTabs.removeValue(forKey: id)
+        editorTabOrderFeature.repositoryDiffKeys[id] = nil
+        let group = editorTabOrderFeature.groupLayout.groups.first { editorTabOrderFeature.items(in: $0).contains(item) }
+        if wasSelected { editorTabOrderFeature.repositoryDiffSelected = false }
+        editorTabOrderFeature.remove(item)
+        gitFeatureIfActive?.closeRepositoryDiffSession(id)
+        guard wasSelected else { return }
+        let sameGroup = group.map { editorTabOrderFeature.items(in: $0) } ?? []
+        let target = previous.flatMap { sameGroup.contains($0) ? $0 : nil }
+            ?? group.flatMap { editorTabOrderFeature.selectedItem(in: $0) }
+            ?? editorTabOrderFeature.focusedItem ?? editorTabItems.last
+        if let target { selectEditorTab(target) }
+    }
+
+    func closeAllRepositoryDiffTabs() {
+        for id in editorTabOrderFeature.repositoryDiffIDs { closeRepositoryDiffTab(id) }
+        gitFeatureIfActive?.closeAllRepositoryDiffSessions()
     }
 
     func showGitCommit(_ hash: String) async {
@@ -1626,19 +1698,15 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func showComparisonWithWorkingTree(for reference: GitReference) async {
-        activeDocumentID = nil
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.showComparisonWithWorkingTree(for: reference)
+        let requestID = beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: gitRepositoryRoot?.standardizedFileURL,
+            source: .references(reference.id, nil)))
+        await performRepositoryDiffRequest(requestID) { await $0.showComparisonWithWorkingTree(for: reference, session: $1) }
     }
 
     func showComparison(from reference: GitReference, to target: GitReference) async {
-        activeDocumentID = nil
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.showComparison(from: reference, to: target)
-    }
-
-    func closeBranchComparison() {
-        gitFeatureIfActive?.closeBranchComparison()
+        let requestID = beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: gitRepositoryRoot?.standardizedFileURL,
+            source: .references(reference.id, target.id)))
+        await performRepositoryDiffRequest(requestID) { await $0.showComparison(from: reference, to: target, session: $1) }
     }
 
     func createBranch(
