@@ -21,6 +21,87 @@ import web_bridge_fallback_fixture as fixture
 
 
 class WebFallbackHelperTests(unittest.TestCase):
+    @contextlib.contextmanager
+    def source_repository(self):
+        import text_window_fixture
+
+        with tempfile.TemporaryDirectory(prefix="lithe-source-inventory-") as temporary:
+            root = Path(temporary).resolve()
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True,
+                           capture_output=True, timeout=3)
+            (root / ".gitignore").write_text(".artifacts/\nnode_modules/\ntarget/\ndist/\n", encoding="utf-8")
+            helpers = root / "scripts/plugin-host-acceptance"
+            helpers.mkdir(parents=True)
+            for name in ("text_window_fixture.py", "text_window_acceptance.py", "text_window_acceptance_test.py"):
+                (helpers / name).write_bytes(b"controlled helper source")
+            (root / "package.json").write_bytes(b'{"name":"controlled-inventory"}')
+            with patch.object(fixture, "ROOT", root), patch.object(text_window_fixture, "ROOT", root), \
+                    patch.object(text_window_fixture, "__file__", str(helpers / "text_window_fixture.py")):
+                yield root, text_window_fixture
+
+    def test_source_inventory_untracked_input_changes_match_every_lane(self):
+        # Only a disposable Git repository changes; no real build inputs or
+        # build marker are touched. Both host lanes must see the same bytes.
+        with self.source_repository() as (root, text_fixture):
+            baseline = fixture.source_inventory()
+            self.assertIn("package.json", baseline)
+            self.assertEqual(baseline, text_fixture.source_inventory())
+            names = ("windows/tauri/src/new input 中文.ts", "rust/lithe-core/src/new.rs",
+                     "scripts/new-helper.py", "third_party/tool/manifest.json")
+            for name in names:
+                source = root / name
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_bytes(b"first source bytes")
+            added = fixture.source_inventory()
+            self.assertEqual(set(added) - set(baseline), set(names))
+            self.assertEqual(list(added), sorted(added))
+            self.assertEqual(added, text_fixture.source_inventory())
+            for name in names:
+                (root / name).write_bytes(b"changed source bytes")
+            changed = fixture.source_inventory()
+            self.assertEqual(set(changed), set(added))
+            for name in names:
+                with self.subTest(source=name):
+                    self.assertNotEqual(changed[name], added[name])
+            self.assertEqual(changed, text_fixture.source_inventory())
+            for name in names:
+                (root / name).unlink()
+            self.assertEqual(fixture.source_inventory(), baseline)
+            self.assertEqual(text_fixture.source_inventory(), baseline)
+
+    def test_source_inventory_ignored_outputs_do_not_change_either_lane(self):
+        with self.source_repository() as (root, text_fixture):
+            baseline = fixture.source_inventory()
+            names = ("windows/tauri/node_modules/dependency/index.js", "windows/tauri/dist/bundle.js",
+                     "rust/target/generated.rs", "third_party/tool/target/extracted.bin",
+                     ".artifacts/acceptance/generated.py")
+            for name in names:
+                output = root / name
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(b"ignored output")
+            self.assertEqual(fixture.source_inventory(), baseline)
+            self.assertEqual(text_fixture.source_inventory(), baseline)
+            for name in names:
+                (root / name).write_bytes(b"changed ignored output")
+            self.assertEqual(fixture.source_inventory(), baseline)
+            self.assertEqual(text_fixture.source_inventory(), baseline)
+
+    def test_source_inventory_deadline_precedes_git_and_empty_file_hashing(self):
+        with patch.object(fixture.time, "monotonic", return_value=10), \
+                patch.object(fixture.subprocess, "run") as command:
+            with self.assertRaisesRegex(TimeoutError, "300 seconds"):
+                fixture.source_inventory(deadline=10)
+            command.assert_not_called()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "empty.rs").touch()
+            with patch.object(fixture, "ROOT", root), \
+                    patch.object(fixture.subprocess, "run", return_value=SimpleNamespace(stdout=b"empty.rs\0")) as command, \
+                    patch.object(fixture.time, "monotonic", side_effect=[0, 10]):
+                with self.assertRaisesRegex(TimeoutError, "300 seconds"):
+                    fixture.source_inventory(deadline=10)
+                self.assertEqual(command.call_args.kwargs["timeout"], 10)
+
     def event(self):
         return {"requestId": "request-1", "frameId": "plugin-frame", "request": {
             "url": acceptance.IPC_URL, "method": "POST", "headers": {"Tauri-Callback": "12", "Tauri-Error": "13", "Tauri-Invoke-Key": "ephemeral"},

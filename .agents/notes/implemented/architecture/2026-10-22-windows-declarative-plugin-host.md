@@ -206,10 +206,14 @@ R24 的真实 Node 24.15 子进程已验证两个 tree-sitter-cli 版本的 CONN
 
 正式验收入口的所有模式在构建前后记录同一完整 Windows/第三方输入库存；`-SkipBuild` 在复用前同时核对库存、Git 提交、x64 目标、配置和 EXE 哈希。这个规则同样适用于默认、LSP 和设置链，避免 HEAD 未变但工作区源码已改变时错误沿用旧二进制。库存只写本轮隔离验收目录，不是跨工作树缓存；缺库存的旧 marker 必须重新构建，不能事后补写冒充原构建。
 
+所有验收模式共用包含已跟踪与未忽略新文件的源码清单，覆盖 Windows、共享前端、Rust、脚本、根依赖和 `third_party` 输入；忽略的依赖与构建输出不进入清单。否则新增的 TS、Rust 或第三方描述文件可能改变构建，却仍被误判为原源码。Git 枚举和逐块哈希共用截止时间，SUBST 别名先解析真实根；不能缩减旧 marker 的清单来迁就某个验收模式。修复验收 helper 后保留原始构建及产品证据的提交身份，不能把旧二进制写成修复后提交已重建。
+
 默认与 LSP 验收在安装、重启、进程退出和版本交易边界，对完整安装目录执行有界快照，并与该阶段原始 ZIP 的文件字节及目录清单比较。不能只验证安装记录里的归档摘要：它不能证明运行时没有往版本目录新增状态或改写服务器。失败先保存实际清单和差异再抛错；替换后按新包比较，旧阶段证据保留，不能重采基线掩盖写入。
 
 ## 验证
 
+- 当前 Windows x64 集成基线 `04f411889d4264343fb2e548619543f5136a25d5` 已完成正式 Release、ui:1 字面文本九阶段、默认与 LSP 生命周期 19 项，以及受控设置九阶段。LSP 链覆盖真实编辑器服务器及子进程、初始化中断、关闭重开、双产品窗口、禁用重启、替换升级回滚卸载；八个检查点的安装目录均与对应 ZIP 字节一致。设置驱动按设计非零退出，因为真实 functions 与完整 M10 前提仍未满足；受控 LSP 也不证明真实 JDT/Provider 包已验收。
+- 同一冻结基线的 ui:2 原入口因源码清单少算五个 `third_party` 文件而在启动前失败。归档的独立适配入口仅改用既有的完整清单计算器，重新计算 5011 项并与原 marker 精确比较后，原生回退链九阶段通过；产品、IPC、回包和 marker 均未替换。发行镜像、安装包与归档字节未变，owned 进程及隔离 profile 已清理。后续清单修复的 web helper 13 项及 text 兼容 12 项通过，不扩大上述运行时提交范围。ui:3、functions、vcsProviders、buildProviders、buildSystems、签名完整包和 arm64 继续 pending，整体保持 partial/pending。
 - R25 已在冻结提交 `2193e60a4cc3df484c4ee129dc437b992b330548` 完成官方来源的 frozen 全量安装、两个原始 CLI lifecycle 及当前源码 Windows x64 Release。正式入口共调用四次；前两次在构建准备中失败，第三次产品九阶段通过但报告聚合失败，修复原始 progress JSON 的归档位置后，第四次 `-ResumeBuild -TextWindow` 退出 0。最终受控 unsigned API3/ui:1 九阶段 9/9，通过完整源码库存、EXE/配置身份、精确 DOM/CSP/请求、计数器正控、回调排空及资源哈希检查；全部 owned 进程和 profile 已清理。不能把网络观察写成精确零 postMessage IPC，也不能扩大为 ui:3、VCS Provider、签名包、arm64 或完整 M10。该 lane 未能执行原 zsh 只读门禁，只通过等价源码扫描和真实资源不变检查；集成窗口另行执行原脚本并保留结果，不改写 lane 的原始记录。
 - 设置作用域回归：`declarative-plugin-settings-editor.test.tsx` 使用真实生产控件验证继承、全局项锁定、空值、保存/取消、重置与冲突；`declarative-plugin-reload-project.test.ts` 使用真实模型服务验证保存凭据、审批、不可取消预检与可取消模型阶段、清理失败重试和同路径重开拒绝迟到结果。`build_tests.rs`、`build/tests.rs` 和 `settings/snapshot/tests.rs` 覆盖目标窗口隔离、持久设置修订、真实窗口资源实例、精确原操作清理重试与 Core 归属。集成窗口已通过原生逐项计时测试；前端使用原生端口替身，真实双窗口 Provider 与发行目录哈希验收仍须另行完成。
 - 原生面板函数回归：`functions/native/tests.rs`、`functions/runtime/tests.rs` 和网页函数测试覆盖倒序打开、旧凭据清理、作用域隔离、晚审批和失败清理重试；`native-functions.test.ts` 与三个共享原生 fixture 的组件回归验证生产控件到 typed port 的完整调用。受影响 Rust 与 Frontend 计时测试、完整 TypeScript、格式和静态门禁已通过；这些证据不代替真实包、停靠布局和 WebView2 人工验收。

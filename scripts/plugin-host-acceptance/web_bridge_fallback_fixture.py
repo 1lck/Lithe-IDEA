@@ -69,19 +69,28 @@ def load_plan(root: Path) -> dict:
 
 def source_inventory(*, deadline: float | None = None) -> dict:
     # Cover the entire Windows build graph and its contracts/tooling, including
-    # root lock/config inputs. macOS-only sources are not compiled in this host.
+    # root lock/config and third-party inputs. Untracked, non-ignored sources
+    # can also be compiled; generated dependencies/outputs follow Git ignores.
+    # macOS-only sources are not compiled in this host.
     deadline = deadline if deadline is not None else time.monotonic() + 300
-    result = subprocess.run(["git", "ls-files", "-z", "--", "windows", "frontend", "rust", "Plugins/win", "shared", "scripts",
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("full Windows source inventory exceeded 300 seconds")
+    result = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--",
+                             "windows", "frontend", "rust", "Plugins/win", "shared", "scripts", "third_party",
                              "Cargo.lock", "Cargo.toml", "bun.lock", "bunfig.toml", "package.json"],
-                            cwd=ROOT, capture_output=True, check=True, timeout=15)
+                            cwd=ROOT, capture_output=True, check=True, timeout=min(15, remaining))
     inventory = {}
     for name in sorted(result.stdout.decode().split("\0")):
         if name and (ROOT / name).is_file():
             digest = hashlib.sha256()
             with (ROOT / name).open("rb") as stream:
-                while chunk := stream.read(1024 * 1024):
+                while True:
                     if time.monotonic() >= deadline:
                         raise TimeoutError("full Windows source inventory exceeded 300 seconds")
+                    chunk = stream.read(1024 * 1024)
+                    if not chunk:
+                        break
                     digest.update(chunk)
             inventory[name] = digest.hexdigest()
     return inventory
