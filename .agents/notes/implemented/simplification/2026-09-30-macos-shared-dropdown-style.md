@@ -62,7 +62,10 @@ Commit/Shelf 页签的留白以同一 Community revision 的 `IslandsUICustomiza
 macOS 使用只保留最新快照的 AsyncStream，逐批核对查询代次、工作区/来源有效性和任务取消，
 旧任务结束不能清掉新任务的 loading；重置/关闭也撤销 Core 操作。
 复用 RustCoreCancellation 的 requestStarted 握手处理注册前取消，阻塞的 C 调用放到 GCD worker。
-列表及当前选择改按结果 ID 识别，追加更高排名结果不会把预览切到同序号的另一文件。
+列表及用户主动选择按结果 ID 识别，追加更高排名结果不会把预览切到同序号的另一文件。
+未进行鼠标或键盘导航时，`nil` 表示默认跟随当前首项；不能把临时首项自动写成主动选择，
+否则本地 Actions 先到或较差候选先到时，等待完成后 Enter 仍会激活旧项。主动选择失效才清回
+默认状态。原生回归分别控制 Actions/文件与较差/更优候选的到达顺序，核对预览和 Enter。
 保留 180ms 输入防抖和索引更新/失效屏障，冷名称索引仍须先完成轻量枚举；不宣称固定首屏延迟。
 不引入新的搜索线程池、缓存或任意等待关键来源的排序延迟。参考
 [ThrottlingListenerWrapper.java](https://github.com/JetBrains/intellij-community/blob/master/platform/lang-impl/src/com/intellij/ide/actions/searcheverywhere/ThrottlingListenerWrapper.java)

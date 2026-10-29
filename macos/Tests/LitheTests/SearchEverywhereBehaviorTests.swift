@@ -662,6 +662,79 @@ struct SearchEverywhereBehaviorTests {
         #expect(Set(feature.searchEverywhereResults.allMatches.map(\.id)).count == 257)
     }
 
+    @Test(arguments: [true, false])
+    func implicitSelectionFollowsFilesAfterActionsAndBetterCandidates(actionsFirst: Bool) async throws {
+        let finish = TestGate()
+        let feature = SearchFeatureModel(operations: PreviewSelectionOperations(
+            resultCount: 2, finishStreaming: actionsFirst ? nil : finish))
+        defer { finish.open(); feature.reset() }
+        let session = SearchSessionFeatureModel()
+        session.beginSearchEverywhere(query: "")
+        session.isEverywherePreviewVisible = true
+        let suite = "search-default-selection-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var previewed: URL?
+        var opened: URL?
+        var actionCount = 0
+        let view = SearchEverywhereView(feature: feature, session: session,
+            settings: AppSettings(store: MacUserDefaultsStore(defaults: defaults)),
+            actionMatches: { query in actionsFirst && !query.isEmpty ? [LitheAction(id: "fixture.name", title: "Name action", subtitle: "", group: .window, perform: {})] : [] },
+            search: { _, _ in }, dismiss: {}, openResult: { opened = $0.url },
+            performAction: { _ in actionCount += 1 }, revealInFinder: { _ in }, copyPath: { _, _ in },
+            relativePath: { $0.lastPathComponent }, moduleLabel: { _ in "" },
+            loadPreviewDocument: { url, _ in EditorDocument(url: url, text: "preview", modificationDate: nil) },
+            makePreviewEditor: { document, _ in
+                previewed = document.url
+                return AnyView(TextField("Preview fixture", text: .constant(document.text)))
+            })
+        let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: view)
+        parent.contentView = host
+        parent.makeKeyAndOrderFront(nil)
+        defer { session.endSearchEverywhere(); parent.contentView = nil; parent.close() }
+        func settle(_ condition: () -> Bool) async -> Bool {
+            let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                parent.childWindows?.first?.contentView?.layoutSubtreeIfNeeded()
+                if condition() { return true }
+                await Task.yield()
+            } while ContinuousClock().now < deadline
+            return condition()
+        }
+        try #require(await settle { parent.childWindows?.first?.initialFirstResponder != nil })
+        let popup = try #require(parent.childWindows?.first)
+        let field = try #require(popup.initialFirstResponder as? NSTextField)
+        try #require(await settle { field.currentEditor() != nil })
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.insertText("name", replacementRange: editor.selectedRange())
+        try #require(await settle { field.stringValue == "name" && popup.frame.height > 84 })
+        func enter() throws {
+            NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                isARepeat: false, keyCode: 36)))
+        }
+        if actionsFirst { try enter(); #expect(actionCount == 1) }
+        let request = Task {
+            await feature.searchEverywhere(at: URL(fileURLWithPath: "/fixture"), query: "name", options: .default,
+                visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []), isCurrent: { true })
+        }
+        defer { finish.open(); request.cancel() }
+        if !actionsFirst {
+            try #require(await settle { previewed?.lastPathComponent == "name00.swift" })
+        }
+        finish.open()
+        await request.value
+        let expected = actionsFirst ? "name00.swift" : "name00-first.swift"
+        #expect(await settle { previewed?.lastPathComponent == expected })
+        try enter()
+        #expect(opened?.lastPathComponent == expected)
+        #expect(actionCount == (actionsFirst ? 1 : 0), "Enter must activate the current first file without navigation")
+    }
+
     @Test(arguments: [ColorScheme.dark, .light], [40, 199, SearchEverywhereResults.providerLimit])
     func previewSelectionKeepsFocusColorAndMouseScrollPosition(scheme: ColorScheme, resultCount: Int) async throws {
         let finishStreaming = TestGate()

@@ -149,6 +149,7 @@ private struct SearchEverywhereContent: View {
     }
     @State private var pageRequest = 0
     @State private var retryPage = false
+    // nil follows the current first result until the user explicitly selects a row.
     @State private var selectedItemID: String?
     private var selectedIndex: Int {
         get { visibleItems.firstIndex { $0.id == selectedItemID } ?? 0 }
@@ -295,7 +296,7 @@ private struct SearchEverywhereContent: View {
             selectionRevealRevision &+= 1
         }
         .onChange(of: visibleItems.map(\.id)) { ids in
-            if !ids.contains(where: { $0 == selectedItemID }) { selectedItemID = ids.first }
+            if let selectedItemID, !ids.contains(selectedItemID) { self.selectedItemID = nil }
         }
         .onChange(of: searchTaskIdentity) { _ in
             feature.cancelSearchEverywhere()
