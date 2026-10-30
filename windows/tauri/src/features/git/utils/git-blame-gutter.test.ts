@@ -4,6 +4,7 @@ import {
   buildGitBlameGutterEntries,
   escapeGitBlameHtml,
   formatGitBlameDate,
+  gitBlameColumnChars,
   gitBlameGutterHtml,
 } from "./git-blame-gutter";
 
@@ -45,7 +46,7 @@ describe("git blame gutter entries", () => {
     // IDEA annotates each line; a blank gutter on the second line of a block
     // reads as missing attribution rather than as shared authorship.
     for (const lineNumber of [1, 2, 3]) {
-      expect(entries.get(lineNumber)?.text).toBe("2025/10/30 Ada");
+      expect(entries.get(lineNumber)?.text).toBe("2025/10/30  Ada");
     }
     expect(entries.get(2)?.commitHash).toBe(FIRST);
     expect(entries.get(3)?.commitHash).toBe(SECOND);
@@ -93,6 +94,34 @@ describe("git blame gutter markup", () => {
     expect(escapeGitBlameHtml('a "b" <c>')).toBe("a &quot;b&quot; &lt;c&gt;");
     const entries = buildGitBlameGutterEntries(blame([blameLine({ line_number: 1 })]), options);
     expect(gitBlameGutterHtml(entries.get(1)!)).toContain(`· ${FIRST.slice(0, 8)}`);
+  });
+});
+
+describe("git blame gutter column", () => {
+  const columnChars = (author: string) =>
+    gitBlameColumnChars(
+      buildGitBlameGutterEntries(blame([blameLine({ line_number: 1, author })]), options).values(),
+    );
+
+  test("sizes the column to the longest label", () => {
+    // "2025/10/30  Ada" is 15 cells; the number and its gap take 4 more.
+    expect(columnChars("Ada")).toBe(19);
+  });
+
+  test("keeps a floor and a ceiling so the gutter stays usable", () => {
+    const shortLabel = buildGitBlameGutterEntries(
+      blame([blameLine({ line_number: 1, commit_hash: UNCOMMITTED, is_uncommitted: true })]),
+      { uncommittedLabel: "x" },
+    );
+    expect(gitBlameColumnChars(shortLabel.values())).toBe(12);
+
+    const longAuthor = "A".repeat(60);
+    expect(columnChars(longAuthor)).toBe(26);
+  });
+
+  test("counts wide glyphs as two cells", () => {
+    // A Chinese name must not truncate behind a Latin one of equal length.
+    expect(columnChars("张三")).toBe(columnChars("ab") + 2);
   });
 });
 

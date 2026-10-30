@@ -90,7 +90,7 @@
 .monaco-editor-shell .monaco-editor .line-numbers .lithe-blame {
   display: inline-block;
   float: left;
-  max-width: calc(100% - 5ch);
+  max-width: calc(100% - 4ch);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

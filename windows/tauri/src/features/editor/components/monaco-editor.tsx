@@ -74,6 +74,7 @@ import { recordStartupMilestone } from "@/features/bootstrap/startup-performance
 import { useVimStore } from "@/features/vim/stores/vim.store";
 import {
   buildGitBlameGutterEntries,
+  gitBlameColumnChars,
   gitBlameGutterHtml,
   type GitBlameGutterEntry,
 } from "@/features/git/utils/git-blame-gutter";
@@ -220,12 +221,6 @@ function gitGutterControllerOptions(
 const EMPTY_DIAGNOSTICS: Diagnostic[] = [];
 /** Annotation-free gutter, so the line-number formatter keeps its old output. */
 const EMPTY_BLAME_GUTTER_ENTRIES: ReadonlyMap<number, GitBlameGutterEntry> = new Map();
-/**
- * Line-number column width while annotating. IDEA reserves a wide annotation
- * area left of the numbers; 26 characters fits "author, 2025/10/30" and still
- * leaves the numbers aligned.
- */
-const BLAME_LINE_NUMBER_CHARS = 26;
 const DEFAULT_LINE_NUMBER_CHARS = 5;
 const INACTIVE_CURSOR_POSITION: Position = { line: 0, column: 0, offset: 0 };
 
@@ -600,6 +595,16 @@ export function MonacoEditor({
   // the latest entries through a ref and a dedicated effect repaints instead.
   const blameGutterEntriesRef = useRef(EMPTY_BLAME_GUTTER_ENTRIES);
   blameGutterEntriesRef.current = blameGutterEntries;
+  /** Gutter width in cells, sized to the longest label instead of a fixed 26. */
+  const blameColumnChars = useMemo(
+    () =>
+      blameGutterEntries.size > 0
+        ? gitBlameColumnChars(blameGutterEntries.values())
+        : DEFAULT_LINE_NUMBER_CHARS,
+    [blameGutterEntries],
+  );
+  const blameColumnCharsRef = useRef(DEFAULT_LINE_NUMBER_CHARS);
+  blameColumnCharsRef.current = blameColumnChars;
   /** Annotation set already painted into the gutter, to skip redundant repaints. */
   const appliedBlameGutterEntriesRef = useRef(EMPTY_BLAME_GUTTER_ENTRIES);
 
@@ -1104,7 +1109,7 @@ export function MonacoEditor({
           : "off",
       lineNumbersMinChars:
         blameGutterEntriesRef.current.size > 0
-          ? BLAME_LINE_NUMBER_CHARS
+          ? blameColumnCharsRef.current
           : DEFAULT_LINE_NUMBER_CHARS,
       renderWhitespace: renderWhitespace === "none" ? "none" : renderWhitespace,
       wordWrap: wordWrap ? "on" : "off",
@@ -2362,7 +2367,7 @@ export function MonacoEditor({
           : "off",
       lineNumbersMinChars:
         blameGutterEntriesRef.current.size > 0
-          ? BLAME_LINE_NUMBER_CHARS
+          ? blameColumnCharsRef.current
           : DEFAULT_LINE_NUMBER_CHARS,
     });
     // The formatter keeps its identity, so Monaco holds the line-number HTML it
@@ -2439,7 +2444,7 @@ export function MonacoEditor({
           : "off",
       lineNumbersMinChars:
         blameGutterEntriesRef.current.size > 0
-          ? BLAME_LINE_NUMBER_CHARS
+          ? blameColumnCharsRef.current
           : DEFAULT_LINE_NUMBER_CHARS,
       minimap: { enabled: minimapEnabled },
       fontLigatures: editorFontLigatures,

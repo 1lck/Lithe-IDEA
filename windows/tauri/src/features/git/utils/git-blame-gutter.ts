@@ -33,9 +33,9 @@ export function formatGitBlameDate(unixSeconds: number): string {
 /**
  * Builds the per-line gutter annotations. IDEA annotates every line, so
  * consecutive lines of one commit repeat the same label instead of leaving a
- * blank gutter that reads as missing data. The date leads the label with a
- * single space before the author, matching the annotate column users compare
- * against IDEA.
+ * blank gutter that reads as missing data. The date leads the label with two
+ * spaces before the author, which keeps the two fields visually separate
+ * without a punctuation mark that reads as a list.
  */
 export function buildGitBlameGutterEntries(
   blame: GitBlame,
@@ -47,7 +47,7 @@ export function buildGitBlameGutterEntries(
   for (const line of lines) {
     const label = line.is_uncommitted
       ? options.uncommittedLabel
-      : `${formatGitBlameDate(line.time)} ${line.author}`;
+      : `${formatGitBlameDate(line.time)}  ${line.author}`;
     entries.set(line.line_number, {
       commitHash: line.commit_hash,
       text: label,
@@ -57,6 +57,32 @@ export function buildGitBlameGutterEntries(
   }
 
   return entries;
+}
+
+/** Cells reserved for the line number and the gap after the label. */
+const NUMBER_CELLS = 4;
+const MIN_COLUMN_CELLS = 12;
+const MAX_COLUMN_CELLS = 26;
+
+/** Wide (CJK and fullwidth) glyphs occupy two cells in the gutter column. */
+function glyphCells(char: string): number {
+  const code = char.codePointAt(0) ?? 0;
+  return code >= 0x2e80 && !(code >= 0xff61 && code <= 0xffdc) ? 2 : 1;
+}
+
+/**
+ * Width of the annotation column in character cells. Sizing it to the longest
+ * label keeps short names from reserving a column they never fill, and the cap
+ * stops one unusually long author from pushing the numbers away.
+ */
+export function gitBlameColumnChars(entries: Iterable<GitBlameGutterEntry>): number {
+  let labelCells = 0;
+  for (const entry of entries) {
+    let cells = 0;
+    for (const char of entry.text) cells += glyphCells(char);
+    labelCells = Math.max(labelCells, cells);
+  }
+  return Math.min(MAX_COLUMN_CELLS, Math.max(MIN_COLUMN_CELLS, labelCells + NUMBER_CELLS));
 }
 
 /**
