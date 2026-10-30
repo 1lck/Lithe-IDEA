@@ -3227,7 +3227,11 @@ by this operation. Lower priority wins; equal-priority candidates use descending
 numeric Java versions (including legacy `1.8`), then ascending ID.
 
 When `project-jdk.minimumVersion` exists, selection first filters using the same
-Java version comparison as run-configuration diagnostics. The response is
+Java version comparison as run-configuration diagnostics. Among the compatible
+candidates, the one whose Java feature version equals the declared one wins, else
+the oldest newer feature version; source priority only breaks ties within a feature
+version. A Java 8 project therefore runs on an installed JDK 8 even when `JAVA_HOME`
+points at JDK 21, matching IDEA and OpenIDEA. The response is
 `{ id, warning }`: the compatible candidate, or the supplied usable fallback
 with an actionable warning if none qualifies. Missing requirements retain the
 platform's unconstrained choice; a malformed or unsupported `requirements`

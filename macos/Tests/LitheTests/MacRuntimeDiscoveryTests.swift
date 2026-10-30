@@ -124,6 +124,50 @@ struct MacRuntimeDiscoveryTests {
         }
     }
 
+    @Test
+    func discoversVersionManagerAndIDEAJavaInstalls() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-version-managers-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        // mise keeps a macOS JDK as its bundle; asdf and IDEA flatten it.
+        let mise = home.appendingPathComponent(".local/share/mise/installs/java/21.0.2/Contents/Home")
+        let asdf = root.appendingPathComponent("asdf/installs/java/temurin-17.0.10+7")
+        let idea = home.appendingPathComponent(".jdks/corretto-1.8.0_402")
+        for javaHome in [mise, asdf, idea] { try createExecutableJava(at: javaHome) }
+
+        let homes = MacRuntimeDiscovery.discoverJavaHomes(
+            environment: ["ASDF_DATA_DIR": root.appendingPathComponent("asdf").path],
+            homeDirectory: home.path,
+            javaHomePaths: [],
+            directoryEntries: { (try? FileManager.default.contentsOfDirectory(atPath: $0)) ?? [] }
+        ).map { $0.resolvingSymlinksInPath().path }
+
+        for javaHome in [mise, asdf, idea] {
+            #expect(homes.contains(javaHome.resolvingSymlinksInPath().path))
+        }
+    }
+
+    @Test
+    func discoversVersionManagerMavenAndSkipsShims() {
+        let home = "/fixture/home"
+        let mise = "\(home)/.local/share/mise/installs/maven/3.9.6/bin/mvn"
+        let sdkman = "\(home)/.sdkman/candidates/maven/3.8.8/bin/mvn"
+        let shim = "\(home)/.local/share/mise/shims/mvn"
+        let entries: [String: [String]] = [
+            "\(home)/.local/share/mise/installs/maven": ["3.9.6"],
+            "\(home)/.sdkman/candidates/maven": ["3.8.8"]
+        ]
+        let found = MacRuntimeDiscovery.discoverMavenExecutables(
+            environment: ["PATH": "\(home)/.local/share/mise/shims"],
+            homeDirectory: home,
+            directoryEntries: { entries[$0] ?? [] },
+            isExecutable: { [mise, sdkman, shim].contains($0.path) }
+        ).map(\.path)
+
+        #expect(found == [sdkman, mise])
+    }
+
     private func createExecutableJava(at home: URL) throws {
         let executable = home.appendingPathComponent("bin/java")
         try FileManager.default.createDirectory(
