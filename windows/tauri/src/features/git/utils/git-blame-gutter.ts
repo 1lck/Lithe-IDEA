@@ -59,8 +59,6 @@ export function buildGitBlameGutterEntries(
   return entries;
 }
 
-/** Cells reserved for the line number and the gap after the label. */
-const NUMBER_CELLS = 4;
 const MIN_COLUMN_CELLS = 12;
 const MAX_COLUMN_CELLS = 26;
 
@@ -74,15 +72,23 @@ function glyphCells(char: string): number {
  * Width of the annotation column in character cells. Sizing it to the longest
  * label keeps short names from reserving a column they never fill, and the cap
  * stops one unusually long author from pushing the numbers away.
+ *
+ * Monaco sizes the column as `cells × maxDigitWidth` and rounds, while the
+ * label is capped by a `ch` subtraction in CSS. Without one spare cell the
+ * longest label lands a fraction of a pixel over that cap and renders with an
+ * ellipsis, so the number cells are rounded up.
  */
-export function gitBlameColumnChars(entries: Iterable<GitBlameGutterEntry>): number {
+export function gitBlameColumnChars(entries: ReadonlyMap<number, GitBlameGutterEntry>): number {
   let labelCells = 0;
-  for (const entry of entries) {
+  let lastLine = 1;
+  for (const [lineNumber, entry] of entries) {
+    lastLine = Math.max(lastLine, lineNumber);
     let cells = 0;
     for (const char of entry.text) cells += glyphCells(char);
     labelCells = Math.max(labelCells, cells);
   }
-  return Math.min(MAX_COLUMN_CELLS, Math.max(MIN_COLUMN_CELLS, labelCells + NUMBER_CELLS));
+  const numberCells = Math.max(4, String(lastLine).length) + 1;
+  return Math.min(MAX_COLUMN_CELLS, Math.max(MIN_COLUMN_CELLS, labelCells + numberCells));
 }
 
 /**

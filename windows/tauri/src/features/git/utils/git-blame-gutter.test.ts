@@ -100,12 +100,22 @@ describe("git blame gutter markup", () => {
 describe("git blame gutter column", () => {
   const columnChars = (author: string) =>
     gitBlameColumnChars(
-      buildGitBlameGutterEntries(blame([blameLine({ line_number: 1, author })]), options).values(),
+      buildGitBlameGutterEntries(blame([blameLine({ line_number: 1, author })]), options),
     );
 
   test("sizes the column to the longest label", () => {
-    // "2025/10/30  Ada" is 15 cells; the number and its gap take 4 more.
-    expect(columnChars("Ada")).toBe(19);
+    // "2025/10/30  Ada" is 15 cells; the number cells plus one spare cell that
+    // absorbs Monaco's rounding keep the label from being ellipsized.
+    expect(columnChars("Ada")).toBe(20);
+  });
+
+  test("reserves more cells for a file with five-digit line numbers", () => {
+    const entries = buildGitBlameGutterEntries(
+      blame([blameLine({ line_number: 12_345 })]),
+      options,
+    );
+    // 15 label cells + 5 number cells + 1 spare.
+    expect(gitBlameColumnChars(entries)).toBe(21);
   });
 
   test("keeps a floor and a ceiling so the gutter stays usable", () => {
@@ -113,7 +123,7 @@ describe("git blame gutter column", () => {
       blame([blameLine({ line_number: 1, commit_hash: UNCOMMITTED, is_uncommitted: true })]),
       { uncommittedLabel: "x" },
     );
-    expect(gitBlameColumnChars(shortLabel.values())).toBe(12);
+    expect(gitBlameColumnChars(shortLabel)).toBe(12);
 
     const longAuthor = "A".repeat(60);
     expect(columnChars(longAuthor)).toBe(26);

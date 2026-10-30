@@ -602,7 +602,7 @@ export function MonacoEditor({
   const blameColumnChars = useMemo(
     () =>
       blameGutterEntries.size > 0
-        ? gitBlameColumnChars(blameGutterEntries.values())
+        ? gitBlameColumnChars(blameGutterEntries)
         : DEFAULT_LINE_NUMBER_CHARS,
     [blameGutterEntries],
   );
