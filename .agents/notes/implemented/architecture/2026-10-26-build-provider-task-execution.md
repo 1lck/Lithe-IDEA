@@ -277,6 +277,10 @@ Stop 在准备期间可用，新 Run 先撤销旧任务，迟到返回不能清�
 后端通过当前生效插件的 Mojo（Maven 目标执行单元）描述符配置暂停和回环地址。
 Spring Boot 合并现有 JVM 参数并拒绝重复 JDWP；Quarkus、Micronaut 使用各自插件的
 受管调试参数，并校验参数名称和类型。缺少兼容参数时明确失败，不静默忽略。
+描述符查找同时识别 Maven 的属性表达式和默认值表达式：Quarkus 3.15.5 的
+`jvm.args` 使用默认值绑定，只检查属性表达式会错误拒绝真实插件。读取已有 JVM
+参数时继续使用 Maven 自己的参数求值器，先展开配置值或默认值，再检查重复代理；
+不要把 `${jvm.args}` 当作最终参数，也不要在宿主复制 Maven 的属性优先级。
 用于框架调试的同一份临时模型和选项还通过已有语言导入契约交给 JDT，并等待
 配置屏障后再启动框架；不保存为默认 Profile，也不为了附加调试再做一次 JDT 构建。
 
@@ -297,6 +301,14 @@ Quarkus 服务配置换成编辑器当前 Java 文件。明确带 Java 源文件
 没有新增运行时目录或缓存。Maven 模型、扩展及插件包保持只读，编译输出仍属于
 用户工作区；用户配置仍写既有 canonical Run 文档。此增量不替代完整原生 UI、
 全部框架版本和 Windows 验收，也没有完成阶段 E 的 Java 后端迁移。
+
+配套 Maven 仓库的 `scripts/test-framework-debug.mjs` 用 Quarkus 3.15.5 和
+Micronaut Maven Plugin 4.7.2 的真实开发目标验证了启动前暂停、标准 JDI 连接与恢复、
+原有 JVM 参数、应用参数、环境和未安装的 reactor 兄弟依赖；停止后包字节不变。
+这组集成使用 Java 21 和 Maven 3.9.16，CI 在 Java 17 的现代 Maven 车道执行；
+Provider 的 Java 8 / Maven 3.6.3 兼容车道保持独立。Java 8 的 JDI 辅助程序在编译和
+运行时都从所选 JDK 加载 `tools.jar`，不能借用 Maven 的另一个 `JAVA_HOME`。
+这些进程证据不替代宿主断点 UI 或完整 Micronaut 应用验收，因此矩阵仍保持待验收。
 
 ## 考虑过的备选方案
 

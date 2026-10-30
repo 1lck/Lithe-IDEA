@@ -29,5 +29,5 @@
   },
   "owner": "Build / Debug",
   "verification": "用当前 Maven 插件选择框架服务，配置 Profile、运行 JDK、JVM/应用参数和环境，启动调试，确认先暂停且可命中断点；覆盖编译失败、端口超时、Stop、替换、配置 ABA、插件更新/停用、工作区重开及非当前调试会话结束时的进程清理。协议与生命周期测试不能替代完整原生 UI 和发行组合验收。",
-  "notes": "协议 11 只允许宿主选定的回环 JVM 端口；领域参数由 Maven 插件按当前 Mojo 描述符设置。普通 Maven 目标没有确定的调试 JVM。Windows 仍待 Provider 宿主迁移，不宣称完成。 当前仅支持本机工作区；远程工作区在具备端口转发前明确拒绝此入口。"
+  "notes": "协议 11 只允许宿主选定的回环 JVM 端口；领域参数由 Maven 插件按当前 Mojo 描述符设置。普通 Maven 目标没有确定的调试 JVM。Windows 仍待 Provider 宿主迁移，不宣称完成。 当前仅支持本机工作区；远程工作区在具备端口转发前明确拒绝此入口。 配套 Maven 插件已用真实 Quarkus 3.15.5 与 Micronaut Maven Plugin 4.7.2 验证暂停、JDI 连接/恢复、参数、环境及 reactor 依赖；宿主断点 UI 与完整 Micronaut 应用仍待验收。"
 }
