@@ -1,3 +1,4 @@
+import { useIndexingVersion } from "@/features/file-explorer/stores/workspace-indexing";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDebounce } from "use-debounce";
 import type { FileEntry } from "@/features/file-system/types/app.types";
@@ -92,6 +93,7 @@ export const useContentSearch = () => {
     () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
     [rootFolderPath, workspaceFolders],
   );
+  const indexingVersion = useIndexingVersion();
   const searchSession = useGlobalSearchStore((state) => state);
   const {
     query,
@@ -125,6 +127,7 @@ export const useContentSearch = () => {
     () =>
       [
         nativeRootPaths.join("\n") || rootFolderPath || "",
+        indexingVersion,
         debouncedQuery,
         JSON.stringify(scopePaths),
         debouncedIncludeQuery,
@@ -137,6 +140,7 @@ export const useContentSearch = () => {
       debouncedExcludeQuery,
       debouncedIncludeQuery,
       debouncedQuery,
+      indexingVersion,
       nativeRootPaths,
       scopePaths,
       rootFolderPath,
@@ -212,7 +216,8 @@ export const useContentSearch = () => {
       }
 
       return searchFilesContent({
-        root_paths: scopePaths.length ? scopePaths : nativeRootPaths,
+        root_paths: nativeRootPaths,
+        scope_paths: scopePaths,
         query: debouncedQuery,
         case_sensitive: searchOptions.caseSensitive,
         whole_word: searchOptions.wholeWord,

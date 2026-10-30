@@ -7,7 +7,7 @@ import {
   type AgentFileDropHoverDetail,
 } from "@/features/file-system/utils/file-system-drop-controller";
 import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
-import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useFileLoader } from "@/features/quick-open/hooks/use-file-loader";
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import { useTranslation } from "@/i18n/locale-provider";
 import {
@@ -54,7 +54,6 @@ import { AgentBrandIcon } from "./brand/agent-brand-icon";
 import { AgentSessionSelectors } from "./agent-session-selectors";
 import { AgentContextUsageView, AgentSubscriptionQuotaView } from "./agent-usage-panel";
 
-const EMPTY_PROJECT_FILES: FileEntry[] = [];
 const FILE_RESULT_LIMIT = 50;
 
 function candidateFiles(entries: FileEntry[], limit: number): FileEntry[] {
@@ -127,9 +126,7 @@ export function AgentComposer({
 }: AgentComposerProps) {
   const { t } = useTranslation();
   const snapshot = useAgentSnapshot();
-  const projectFiles = useFileSystemStore(
-    (state) => state.projectFilesCache?.files ?? EMPTY_PROJECT_FILES,
-  );
+  const { files: projectFiles } = useFileLoader(true);
   const activeFilePath = useBufferStore((state) => {
     const active = state.buffers.find((buffer) => buffer.isActive);
     return typeof active?.path === "string" ? active.path : null;

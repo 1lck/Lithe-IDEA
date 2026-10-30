@@ -9515,7 +9515,19 @@
     "document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying": "未能完整保存共享文件。所有硬链接可能已包含部分修改。编辑器中的内容已保留，请检查文件后再重试。",
     "document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor": "此编辑器不支持打开这种文件类型",
     "document.fileAccess.updateAllHardLinks": "更新所有硬链接",
-    "document.fileAccess.savePermissionDenied": "无法保存 {arg1}：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。"
+    "document.fileAccess.savePermissionDenied": "无法保存 {arg1}：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。",
+    "indexing.title": "项目索引",
+    "indexing.autoGit": "根据 Git 忽略规则自动排除目录",
+    "indexing.description": "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。",
+    "indexing.cancelExclusion": "取消排除",
+    "indexing.languageDescription": "已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。",
+    "indexing.providerDependent": "取决于语言服务",
+    "indexing.gitFailed": "无法完整解析 Git 忽略规则，手动排除仍然生效。",
+    "indexing.manualReason": "手动排除索引",
+    "indexing.gitReason": "根据 Git 忽略规则排除索引",
+    "indexing.inheritedReason": "继承父目录的索引排除",
+    "indexing.incomplete": "部分目录无法扫描，未刷新项目自动分析。",
+    "indexing.remoteUnsupported": "远程项目暂不支持目录索引排除。"
   },
   "overrides": {
     "macos": {

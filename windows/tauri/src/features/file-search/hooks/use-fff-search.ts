@@ -1,3 +1,4 @@
+import { useIndexingVersion } from "@/features/file-explorer/stores/workspace-indexing";
 import { useEffect, useState } from "react";
 import { fffSearchFiles, type FffSearchHit } from "../lib/file-search-api";
 import { getNativeWorkspaceRootPaths } from "../utils/file-search-paths";
@@ -8,11 +9,12 @@ export const useFffSearch = (
   rootPaths: readonly string[],
   limit = 100,
 ) => {
+  const indexingVersion = useIndexingVersion();
   const trimmedQuery = query.trim();
   const searchRootPaths = getNativeWorkspaceRootPaths(rootPaths[0], rootPaths.slice(1));
   const searchKey =
     enabled && trimmedQuery && searchRootPaths.length > 0
-      ? JSON.stringify([searchRootPaths, trimmedQuery, limit])
+      ? JSON.stringify([searchRootPaths, trimmedQuery, limit, indexingVersion])
       : null;
   const [searchState, setSearchState] = useState<{
     key: string | null;

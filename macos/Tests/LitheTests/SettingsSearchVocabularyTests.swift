@@ -11,6 +11,14 @@ import Testing
 @Suite("Settings search vocabulary")
 @MainActor
 struct SettingsSearchVocabularyTests {
+    @Test func gitIgnoreExclusionQueriesFindGitSettings() throws {
+        let translations = try simplifiedChineseTranslations()
+        for query in ["Project Indexing", "index", "ignore", "exclude", "索引", "忽略", "排除", "根据 Git 忽略规则自动排除目录"] {
+            #expect(SettingsSearchVocabulary.matches(query: query, category: .git, localize: { translations[$0] ?? $0 }))
+            #expect(!SettingsSearchVocabulary.matches(query: query, category: .project, localize: { translations[$0] ?? $0 }))
+        }
+    }
+
     @Test func globalInstructionsAreSearchableByNativeFileAndChineseName() throws {
         let translations = try simplifiedChineseTranslations()
         for query in ["Global instructions", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "全局指令"] {

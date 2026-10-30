@@ -1,6 +1,7 @@
 //! Dynamic provider metadata and host-model adapters for individual languages.
 
 mod catalog;
+pub(crate) mod indexing;
 pub(crate) mod java_entrypoints;
 pub(crate) mod java_main_methods;
 pub(crate) mod java_navigation_syntax;

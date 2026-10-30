@@ -90792,6 +90792,149 @@
           "arg1"
         ]
       }
+    },
+    {
+      "id": "indexing.title",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Project Indexing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.autoGit",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Automatically exclude Git-ignored directories",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.description",
+      "description": "Project-scoped Git ignore indexing control and language-service limitations",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.cancelExclusion",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Cancel Exclusion",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.languageDescription",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Lithe excludes these directories from its own indexes. Third-party language servers may still scan them when their provider does not support exclusions.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.providerDependent",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Provider-dependent",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.gitFailed",
+      "description": "Workspace indexing exclusions",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Git ignore exclusions could not be fully resolved. Manual exclusions remain active.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.manualReason",
+      "description": "Workspace indexing exclusion reason",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Manually excluded from indexing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.gitReason",
+      "description": "Workspace indexing exclusion reason",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Excluded from indexing by Git ignore rules",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.inheritedReason",
+      "description": "Workspace indexing exclusion reason",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Excluded from indexing by a parent directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.incomplete",
+      "description": "Workspace indexing exclusion reason",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Some directories could not be scanned. Automatic project analysis was not refreshed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.remoteUnsupported",
+      "description": "Remote workspace indexing exclusion capability",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Directory indexing exclusions are not supported for remote projects.",
+        "arguments": []
+      }
     }
   ]
 }

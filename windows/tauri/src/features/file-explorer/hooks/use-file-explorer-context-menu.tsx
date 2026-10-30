@@ -90,6 +90,7 @@ interface UseFileExplorerContextMenuOptions {
   rootFolderPath?: string;
   selectedEntries?: Array<{ path: string; is_dir: boolean }>;
   selectedPaths?: ReadonlySet<string>;
+  isIndexExcluded?: (path: string) => boolean;
   markDirectory?: (path: string, mark: DirectoryMark) => void;
   onFileSelect: (path: string, isDir: boolean) => void | string | Promise<void | string>;
   onCreateNewFileInDirectory?: (
@@ -157,6 +158,7 @@ export function useFileExplorerContextMenu({
   selectedEntries = [],
   selectedPaths,
   markDirectory,
+  isIndexExcluded,
   onFileSelect,
   onCreateNewFileInDirectory,
   onCreateNewFolderInDirectory,
@@ -856,9 +858,15 @@ export function useFileExplorerContextMenu({
           label: t("project.markAs"),
           icon: <FolderOpen />,
           onClick: () => {},
-          children: DIRECTORY_MARKS.map((mark) => ({
+          children: DIRECTORY_MARKS.filter(
+            (mark) => !isIndexExcluded?.(contextMenu.path) || mark === "plain",
+          ).map((mark) => ({
             id: `mark-${mark}`,
-            label: t(`project.mark.${mark}`),
+            label: t(
+              mark === "plain" && isIndexExcluded?.(contextMenu.path)
+                ? "indexing.cancelExclusion"
+                : `project.mark.${mark}`,
+            ),
             onClick: () => {
               try {
                 markDirectory(contextMenu.path, mark);
@@ -1005,6 +1013,7 @@ export function useFileExplorerContextMenu({
     selectedEntries,
     selectedPaths,
     markDirectory,
+    isIndexExcluded,
     availableRepoPaths,
     canRemoveWorkspaceRootPath,
     clipboardActions,

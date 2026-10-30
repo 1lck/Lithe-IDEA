@@ -1,4 +1,11 @@
-import { useDirectoryMarks } from "../stores/directory-marks";
+import { canUseNativeFileSearch } from "@/features/file-search/utils/file-search-paths";
+import {
+  configureWorkspaceIndexing,
+  releaseWorkspaceIndexing,
+  indexingEvent,
+  type IndexingStatus,
+} from "../stores/workspace-indexing";
+import { directoryMarkRoot, useDirectoryMarks } from "../stores/directory-marks";
 import { ProjectDependencies } from "@/features/maven/components/project-dependencies";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -182,7 +189,93 @@ function FileExplorerTreeComponent({
 }: FileExplorerTreeProps) {
   useJavaFileIconCacheLifecycle();
   const [projectView, setProjectView] = useState("project");
-  const { marks, markDirectory } = useDirectoryMarks(rootFolderPath);
+  const workspaceRootPaths = useMemo(() => {
+    const roots: string[] = [];
+    let hasRootFolderPath = false;
+
+    for (const file of files) {
+      if (!file.isDir) continue;
+      roots.push(file.path);
+      if (file.path === rootFolderPath) {
+        hasRootFolderPath = true;
+      }
+    }
+
+    if (rootFolderPath && !hasRootFolderPath) {
+      roots.unshift(rootFolderPath);
+    }
+
+    return roots;
+  }, [files, rootFolderPath]);
+
+  const { markForPath, markDirectory, error: directoryMarksError } = useDirectoryMarks(workspaceRootPaths);
+  useEffect(() => { if (directoryMarksError) toast.error(directoryMarksError); }, [directoryMarksError]);
+  const indexingRootsKey = JSON.stringify(workspaceRootPaths.filter(canUseNativeFileSearch));
+  useEffect(
+    () => () => {
+      for (const root of JSON.parse(indexingRootsKey) as string[]) void releaseWorkspaceIndexing(root).catch(console.error);
+    },
+    [indexingRootsKey],
+  );
+  const [indexingStatuses, setIndexingStatuses] = useState<Record<string, IndexingStatus>>({});
+  useEffect(() => {
+    const roots = [
+      ...new Set(
+        [rootFolderPath, ...files.filter((entry) => entry.isDir).map((entry) => entry.path)].filter(
+          canUseNativeFileSearch,
+        ),
+      ),
+    ];
+    let disposed = false;
+    const refresh = () => {
+      void Promise.all(
+        roots.map(async (root) => {
+          const paths: string[] = [];
+          const visit = (entries: FileEntry[]) => {
+            for (const entry of entries) {
+              if (!pathStartsWithRoot(entry.path, root)) continue;
+              if (entry.isDir)
+                paths.push(getRelativePath(entry.path, root).replace(/\\/g, "/") || ".");
+              if (entry.children) visit(entry.children);
+            }
+          };
+          visit(files);
+          return [root, await configureWorkspaceIndexing(root, paths)] as const;
+        }),
+      )
+        .then((values) => {
+          if (!disposed) setIndexingStatuses(Object.fromEntries(values));
+        })
+        .catch((error) => {
+          if (!disposed) toast.error(String(error));
+        });
+    };
+    refresh();
+    window.addEventListener(indexingEvent, refresh);
+    window.addEventListener("lithe:directory-marks-changed", refresh);
+    return () => {
+      disposed = true;
+      window.removeEventListener(indexingEvent, refresh);
+      window.removeEventListener("lithe:directory-marks-changed", refresh);
+    };
+  }, [files, rootFolderPath]);
+  const exclusionReason = (path: string): string | undefined => {
+    const root = Object.keys(indexingStatuses)
+      .filter((root) => pathStartsWithRoot(path, root))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!root) return undefined;
+    const relative = getRelativePath(path, root).replace(/\\/g, "/") || ".";
+    const reasons = indexingStatuses[root].excludedDirectories;
+    const exact = reasons[relative];
+    return exact
+      ? t(exact === "manual" ? "indexing.manualReason" : "indexing.gitReason")
+      : Object.keys(reasons).some(
+            (directory) => directory === "." || relative.startsWith(directory + "/"),
+          )
+        ? t("indexing.inheritedReason")
+        : undefined;
+  };
+  const isIndexExcluded = (path: string) => exclusionReason(path) !== undefined;
   const [deleteCandidate, setDeleteCandidate] = useState<{
     path: string;
     isDir: boolean;
@@ -299,27 +392,9 @@ function FileExplorerTreeComponent({
     return ig;
   }, [fileTreeSettings.hiddenFilePatterns, fileTreeSettings.hiddenDirectoryPatterns]);
 
-  const workspaceRootPaths = useMemo(() => {
-    const roots: string[] = [];
-    let hasRootFolderPath = false;
-
-    for (const file of files) {
-      if (!file.isDir) continue;
-      roots.push(file.path);
-      if (file.path === rootFolderPath) {
-        hasRootFolderPath = true;
-      }
-    }
-
-    if (rootFolderPath && !hasRootFolderPath) {
-      roots.unshift(rootFolderPath);
-    }
-
-    return roots;
-  }, [files, rootFolderPath]);
 
   const getWorkspaceRootForPath = useCallback(
-    (path: string) => workspaceRootPaths.find((rootPath) => pathStartsWithRoot(path, rootPath)),
+    (path: string) => directoryMarkRoot(path, workspaceRootPaths),
     [workspaceRootPaths],
   );
 
@@ -1006,6 +1081,7 @@ function FileExplorerTreeComponent({
     selectedEntries,
     selectedPaths,
     markDirectory,
+    isIndexExcluded,
     onFileSelect,
     onCreateNewFileInDirectory,
     onCreateNewFolderInDirectory,
@@ -1778,22 +1854,18 @@ function FileExplorerTreeComponent({
                     ? selectedPaths.has(row.file.path)
                     : highlightedPath === row.file.path
                 }
+                exclusionReason={exclusionReason(row.file.path)}
                 directoryMark={
-                  marks[getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."]
+                  isIndexExcluded(row.file.path)
+                    ? "excluded"
+                    : markForPath(row.file.path)
                 }
                 semanticKind={
-                  marks[
-                    getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."
-                  ] === "sources"
+                  markForPath(row.file.path) === "sources"
                     ? "folder.source-root"
-                    : marks[
-                          getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."
-                        ] === "resources"
+                    : markForPath(row.file.path) === "resources"
                       ? "folder.resources-root"
-                      : marks[
-                            getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") ||
-                              "."
-                          ] === "package"
+                      : markForPath(row.file.path) === "package"
                         ? "folder.package"
                         : row.semanticKind
                 }

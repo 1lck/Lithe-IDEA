@@ -1,6 +1,7 @@
+import { configureWorkspaceIndexing } from "@/features/file-explorer/stores/workspace-indexing";
 import { executeCore } from "@/core/lithe-core-client";
 import { getFilenameFromPath } from "@/features/file-system/controllers/file-utils";
-import { joinPath } from "@/utils/path-helpers";
+import { joinPath, getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 
 export interface SearchMatchRange {
   start: number;
@@ -38,6 +39,7 @@ export interface SearchFilesResponse {
 
 export interface SearchFilesRequest {
   root_paths: string[];
+  scope_paths?: string[];
   query: string;
   case_sensitive?: boolean;
   whole_word?: boolean;
@@ -90,9 +92,15 @@ export async function searchFilesContent(
 ): Promise<SearchFilesResponse> {
   const maxResults = request.max_results ?? 500;
   const responses = await Promise.all(
-    request.root_paths.map(async (root) => {
-      const response = await executeCore<{ matches: CoreSearchMatch[] }>(
-        {
+    request.root_paths
+      .filter(
+        (root) =>
+          !request.scope_paths?.length ||
+          request.scope_paths.some((scope) => pathStartsWithRoot(scope, root)),
+      )
+      .map(async (root) => {
+        await configureWorkspaceIndexing(root);
+        const response = await executeCore<{ matches: CoreSearchMatch[] }>({
           id: crypto.randomUUID(),
           command: "workspace.search",
           payload: {
@@ -102,12 +110,15 @@ export async function searchFilesContent(
             wholeWords: request.whole_word ?? false,
             regularExpression: request.use_regex ?? false,
             maxResults,
+            maxFileResults: 0,
+            scopePaths: request.scope_paths
+              ?.filter((scope) => pathStartsWithRoot(scope, root))
+              .map((scope) => getRelativePath(scope, root).replace(/\\/g, "/") || "."),
             fileMask: "",
           },
-        },
-      );
-      return { root, matches: coreData(response).matches };
-    }),
+        });
+        return { root, matches: coreData(response).matches };
+      }),
   );
 
   const grouped = new Map<string, FileSearchResult>();
@@ -199,10 +210,18 @@ export async function fffTrackAccess(_path: string): Promise<void> {
 }
 
 async function listWorkspaceFiles(root: string): Promise<string[]> {
-  const response = await executeCore<{ root: CoreWorkspaceNode; files: string[] }>({
+  await configureWorkspaceIndexing(root);
+  const response = await executeCore<{
+    root: CoreWorkspaceNode;
+    files: string[];
+    incompleteDirectories?: string[];
+  }>({
     id: crypto.randomUUID(),
     command: "workspace.snapshot",
-    payload: { root },
+    payload: { root, includeTree: false },
   });
-  return coreData(response).files;
+  const data = coreData(response);
+  if (data.incompleteDirectories?.length)
+    throw new Error("Workspace scan is incomplete: " + data.incompleteDirectories.join(", "));
+  return data.files;
 }

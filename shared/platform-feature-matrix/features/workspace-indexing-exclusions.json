@@ -1,0 +1,41 @@
+{
+  "id": "workspace-indexing-exclusions",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "目录索引排除与 Git 自动排除",
+  "owner": "Workspace",
+  "verification": "两端开关已统一到设置 › 版本控制 › Git，移除原索引/项目环境入口。macOS 自动排除使用与凭据助手相同的小型 switch 样式，已在真实 App 目视核对；Windows 两项沿用同一个 Checkbox。真实 macOS App 已验证中文索引/忽略搜索定位、无项目禁用、默认开启、启闭重启和取消排除例外持久化。2026-10-30 同一开发构建的隔离英文原生实例补验通过：普通目录六项标记、继承排除仅取消排除且须由父级恢复、全局/仓库 Git 范围往返保持项目 A 的关闭值，项目 B 仍默认开启；两项目搜索结果分别符合开关值。Git 配置与忽略文件未变，原开发包 757 文件清单及哈希不变。此前 48 项 Swift、20 项前端定向测试通过，包含子仓库隔离和存储失败（本机 Swift 6.4，前端在 macOS/Bun 运行）。固定 Xcode 26.6 仍待验证；Windows 原生按用户要求不执行。Java 已导入项目仍可能扫描，Maven 显式模块保留；Go/Rust 原生配置与同步门禁已验证，不保证零后台目录访问。 2026-10-30 整合 preview fbb5e578 后修复刷新期间策略变更、watcher 刷新后的释放句柄、Java 原有导入排除保留、Windows 附加根菜单范围及远程误导提示；补充回归覆盖项目切换/同根重开/关闭期间的在途配置回收、跨工作区根移动目录的标记与例外迁移，以及先刷新策略再扫描时保留语言服务 Git 排除；TypeScript 类型检查通过。指定目录查找按用户要求暂不调整；远程索引排除未实现，明确显示不支持。 最终定向计时回归通过：Swift 79 项（6.4）、Rust 57 项、macOS/Bun 前端 26 项及相关回归 25 项；新增配额失败逆序回滚与可见性规则同根重开隔离。",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
+      "macos/Sources/Lithe/Views/App/WorkspaceIndexingSettingsView.swift",
+      "rust/lithe-core/src/project/indexing.rs",
+      "shared/fixtures/workspace/indexing-policy-v1.json",
+      "rust/lithe-core/src/lsp/languages/indexing.rs",
+      "macos/Tests/LitheTests/RemoteConnectionsTests.swift",
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift",
+      "macos/Tests/LitheTests/SettingsSearchVocabularyTests.swift",
+      ".agents/notes/implemented/architecture/2026-10-28-workspace-indexing-exclusions.md",
+      "macos/Tests/LitheTests/LazyProjectTreeInventoryTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/file-explorer/stores/workspace-indexing.ts",
+      "windows/tauri/src/features/settings/components/workspace-indexing-settings.tsx",
+      "rust/lithe-core/src/project/indexing.rs",
+      "shared/fixtures/workspace/indexing-policy-v1.json",
+      "rust/lithe-core/src/lsp/languages/indexing.rs",
+      "windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx",
+      "windows/tauri/src/features/settings/components/git-execution-settings.tsx",
+      "windows/tauri/src/features/settings/components/git-indexing-settings.test.tsx",
+      "windows/tauri/src/features/file-explorer/stores/directory-marks.test.ts",
+      "windows/tauri/src/features/file-system/stores/file-system.store.ts"
+    ]
+  }
+}

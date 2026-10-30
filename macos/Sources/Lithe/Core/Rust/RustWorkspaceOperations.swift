@@ -12,6 +12,14 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         directoryListings.invalidate()
     }
 
+    func releaseIndexing(at rootURL: URL, revision: UInt64) {
+        core.releaseIndexing(at: rootURL, revision: revision)
+    }
+
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus {
+        try core.configureIndexing(at: rootURL, policy: policy, refresh: refresh)
+    }
+
     func snapshot(
         at rootURL: URL,
         visibilityRules: FileVisibilityRules
@@ -23,10 +31,8 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         )?.makeSnapshot(at: rootURL) {
             return snapshot
         }
-        return FileSystemWorkspaceSnapshotBuilder().snapshot(
-            at: rootURL,
-            visibilityRules: visibilityRules
-        )
+        // A failed policy-aware scan must not fall back to an unfiltered inventory.
+        return nil
     }
 
     func childRows(

@@ -1,4 +1,4 @@
-import { migrateDirectoryMarks } from "@/features/file-explorer/stores/directory-marks";
+import { migrateWorkspaceDirectoryMarks } from "@/features/file-explorer/stores/directory-marks";
 import { loadFileContent } from "../controllers/workspace-session-restore";
 import { invoke } from "@/platform/tauri-core";
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
@@ -2453,7 +2453,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const { rootFolderPath } = get();
         if (rootFolderPath) {
           try {
-            migrateDirectoryMarks(rootFolderPath, oldPath, newPath);
+            migrateWorkspaceDirectoryMarks(getWorkspaceFolderPaths(get), oldPath, newPath);
           } catch (error) {
             toast.error(getCurrentTranslator()("project.markFailed"), {
               description: String(error),
@@ -2710,7 +2710,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const { rootFolderPath } = get();
         if (rootFolderPath) {
           try {
-            migrateDirectoryMarks(rootFolderPath, path);
+            migrateWorkspaceDirectoryMarks(getWorkspaceFolderPaths(get), path);
           } catch (error) {
             toast.error(getCurrentTranslator()("project.markFailed"), {
               description: String(error),
@@ -2883,7 +2883,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
 
       handleRenamePath: async (path: string, newName?: string) => {
-        const marksRoot = get().rootFolderPath;
+        const marksRoots = getWorkspaceFolderPaths(get);
         if (newName) {
           const remoteInfo = parseRemotePath(path);
           const wslInfo = parseWslPath(path);
@@ -2919,9 +2919,9 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               await renameFile(path, targetPath);
             }
 
-            if (marksRoot) {
+            if (marksRoots.length > 0) {
               try {
-                migrateDirectoryMarks(marksRoot, path, targetPath);
+                migrateWorkspaceDirectoryMarks(marksRoots, path, targetPath);
               } catch (error) {
                 toast.error(getCurrentTranslator()("project.markFailed"), {
                   description: String(error),

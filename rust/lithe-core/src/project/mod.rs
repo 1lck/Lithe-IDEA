@@ -4,6 +4,7 @@ mod document_lifecycle;
 pub(crate) mod file_name_order;
 pub(crate) mod files;
 mod history;
+pub(crate) mod indexing;
 mod markdown;
 mod maven;
 mod maven_dependency_tree;

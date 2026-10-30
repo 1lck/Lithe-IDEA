@@ -1,3 +1,4 @@
+import { useIndexingVersion } from "@/features/file-explorer/stores/workspace-indexing";
 import { useEffect, useMemo, useRef } from "react";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { deferUntilAfterNextPaint } from "@/features/editor/lsp/deferred-lsp-work";
@@ -42,6 +43,7 @@ type DocumentChangeOwnerState =
   | { phase: "flushing"; completion: Promise<void> };
 
 interface LspDocumentOwner {
+  indexingVersion: number;
   // One record owns every asynchronous resource for one editor attachment.
   state: LspDocumentOwnerState;
   changes: DocumentChangeOwnerState;
@@ -68,6 +70,9 @@ export const useLspIntegration = ({
   filePath,
   contentRevision = 0,
 }: UseLspIntegrationOptions) => {
+  const indexingVersion = useIndexingVersion();
+  const indexingVersionRef = useRef(indexingVersion);
+  indexingVersionRef.current = indexingVersion;
   const lspClient = useMemo(() => LspClient.getInstance(), []);
   const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
@@ -102,9 +107,12 @@ export const useLspIntegration = ({
 
     const existingOwner = documentOwnersRef.current.get(filePath);
     const owner: LspDocumentOwner =
-      existingOwner && !isTerminalOwnerState(existingOwner.state)
+      existingOwner &&
+      existingOwner.indexingVersion === indexingVersion &&
+      !isTerminalOwnerState(existingOwner.state)
         ? existingOwner
         : {
+            indexingVersion,
             state: { phase: "scheduled" },
             changes: { phase: "idle", completion: Promise.resolve() },
           };
@@ -114,7 +122,7 @@ export const useLspIntegration = ({
       const isStillOpen = Boolean(
         getSourceEditorBufferByPath(useBufferStore.getState().buffers, filePath),
       );
-      if (isStillOpen) return;
+      if (isStillOpen && indexingVersionRef.current === indexingVersion) return;
 
       if (owner.state.phase === "stopping" || owner.state.phase === "stopped") return;
       const previousState = owner.state;
@@ -147,12 +155,17 @@ export const useLspIntegration = ({
       void stopTask;
     };
 
-    if (existingOwner && !isTerminalOwnerState(existingOwner.state)) {
+    if (
+      existingOwner &&
+      existingOwner.indexingVersion === indexingVersion &&
+      !isTerminalOwnerState(existingOwner.state)
+    ) {
       return cleanupDocument;
     }
 
     const initializeLsp = async () => {
       try {
+        if (existingOwner?.state.phase === "stopping") await existingOwner.state.task;
         logger.debug("LspIntegration", `Starting LSP for ${filePath} in ${workspacePath}`);
         const attachment = await lspClient.startForFile(filePath, scope);
         if (attachment.kind !== "attached") {
@@ -196,7 +209,7 @@ export const useLspIntegration = ({
       cancelInitialization();
       cleanupDocument();
     };
-  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, workspaceId]);
+  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, workspaceId, indexingVersion]);
 
   useEffect(() => {
     if (!enabled || !filePath || !isLspSupported) return;

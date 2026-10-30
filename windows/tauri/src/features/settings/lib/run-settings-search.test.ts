@@ -10,3 +10,12 @@ test("run configuration searches target Settings rather than project toolchain d
     expect(scoreSettingSearchRecord(query, record)).toBeGreaterThan(0);
   }
 });
+
+test("Git ignore indexing searches target the Git settings page", () => {
+  const record = settingsSearchIndex.find((entry) => entry.id === "git-indexing-exclusions");
+  expect(record?.tab).toBe("git");
+  if (!record) throw new Error("Missing Git indexing settings search entry");
+  for (const query of ["indexing", "ignore", "exclude", "索引", "忽略", "排除"]) {
+    expect(scoreSettingSearchRecord(query, record)).toBeGreaterThan(0);
+  }
+});

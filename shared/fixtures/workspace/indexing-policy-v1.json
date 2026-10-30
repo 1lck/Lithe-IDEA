@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "command": "workspace.configureIndexing",
+  "request": {
+    "root": "/workspace",
+    "manualExcludedDirectories": ["vendor"],
+    "includedDirectories": ["generated/examples"],
+    "gitIgnoreEnabled": true,
+    "refresh": false,
+    "paths": ["vendor", "generated"]
+  },
+  "response": {
+    "revision": 1,
+    "excludedDirectories": {"vendor": "manual"},
+    "gitIgnoreFailed": false
+  },
+  "cases": [
+    {"path": "vendor/src", "reason": "manual"},
+    {"path": "generated/examples", "reason": null},
+    {"path": "generated", "reason": null}
+  ],
+  "notes": "generated is a traversal ancestor of an include exception and cannot be pruned as a whole. Hidden-path rules are separate."
+}

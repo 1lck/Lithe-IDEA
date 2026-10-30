@@ -1,3 +1,4 @@
+import { indexingEvent } from "@/features/file-explorer/stores/workspace-indexing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type FffIndexedFile, fffListFiles } from "@/features/file-search/lib/file-search-api";
 import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
@@ -25,6 +26,19 @@ export const useFileLoader = (isVisible: boolean) => {
     rootFolderPath,
     workspaceFolders.map((folder) => folder.path),
   ]);
+  const [policyVersion, setPolicyVersion] = useState(0);
+  useEffect(() => {
+    const invalidate = () => {
+      setFiles([]);
+      setPolicyVersion((value) => value + 1);
+    };
+    window.addEventListener(indexingEvent, invalidate);
+    window.addEventListener("lithe:directory-marks-changed", invalidate);
+    return () => {
+      window.removeEventListener(indexingEvent, invalidate);
+      window.removeEventListener("lithe:directory-marks-changed", invalidate);
+    };
+  }, []);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
@@ -70,7 +84,7 @@ export const useFileLoader = (isVisible: boolean) => {
 
     void loadFiles();
     return cleanup;
-  }, [getAllProjectFiles, isVisible, nativeRootPaths, workspaceKey]);
+  }, [getAllProjectFiles, isVisible, nativeRootPaths, workspaceKey, policyVersion]);
 
   return {
     files,

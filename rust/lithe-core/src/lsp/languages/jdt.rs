@@ -162,9 +162,13 @@ pub(crate) struct JdtJavaRuntime {
 /// Values Lithe owns in JDT LS's `settings.java`, borrowed from one session.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct JdtSettings<'a> {
+    /// Workspace indexing policy, when the host has installed one.
+    pub indexing_root_uri: Option<&'a str>,
     /// Plugin-declared completion options from this session's initialization;
     /// all leaves survive except the provider-owned guessMethodArguments.
     pub completion: Option<&'a Value>,
+    /// Original plugin import exclusions, before Lithe overlays the workspace policy.
+    pub import_exclusions: Option<&'a Value>,
     pub maven: Option<&'a JdtMavenConfiguration>,
     /// Gradle import settings, present only for Gradle workspaces.
     pub gradle: Option<&'a JdtGradleConfiguration>,
@@ -488,6 +492,25 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
         // `offline.enabled`, ...) have to survive, so the owned leaves merge
         // into the declared `import` object instead of replacing it.
         if key == "import" {
+            if let Some(exclusions) = value.get("exclusions").and_then(Value::as_array) {
+                let import = java
+                    .entry("import".to_string())
+                    .or_insert_with(|| json!({}));
+                if !import.is_object() {
+                    *import = json!({});
+                }
+                let mut combined = import
+                    .get("exclusions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                for exclusion in exclusions {
+                    if !combined.contains(exclusion) {
+                        combined.push(exclusion.clone());
+                    }
+                }
+                import["exclusions"] = json!(combined);
+            }
             if let Some(gradle) = value.get("gradle").and_then(Value::as_object) {
                 let import = java
                     .entry("import".to_string())
@@ -512,6 +535,9 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
                 }
                 continue;
             }
+        }
+        if key == "import" && value.get("exclusions").is_some() {
+            continue;
         }
         java.insert(key, value);
     }
@@ -1195,6 +1221,22 @@ fn java_settings(settings: JdtSettings<'_>) -> Value {
     if let Some(section) = gradle_settings_section(gradle_configuration) {
         java["java"]["import"]["gradle"] = section;
     }
+    if settings.indexing_root_uri.is_some() || settings.import_exclusions.is_some() {
+        let mut exclusions = settings
+            .import_exclusions
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(root_uri) = settings.indexing_root_uri {
+            for path in crate::project::indexing::java_import_exclusions(root_uri) {
+                let value = Value::String(path);
+                if !exclusions.contains(&value) {
+                    exclusions.push(value);
+                }
+            }
+        }
+        java["java"]["import"]["exclusions"] = json!(exclusions);
+    }
     if let Some(configuration) = maven_configuration {
         java["java"]["project"]["sourcePaths"] = json!(configuration.source_paths);
     }
@@ -1306,9 +1348,10 @@ fn java_configuration_for_section(section: Option<&str>, settings: JdtSettings<'
         Some("java.configuration.maven.globalSettings") => maven_configuration
             .and_then(|value| value.global_settings_path.as_ref())
             .map_or(Value::Null, |path| json!(path)),
-        Some("java.import") => gradle_settings_section(gradle_configuration)
-            .map(|section| json!({ "gradle": section }))
-            .unwrap_or(Value::Null),
+        Some("java.import") => java_settings(settings)["java"]["import"].clone(),
+        Some("java.import.exclusions") => {
+            java_settings(settings)["java"]["import"]["exclusions"].clone()
+        }
         Some("java.import.gradle") => {
             gradle_settings_section(gradle_configuration).unwrap_or(Value::Null)
         }
