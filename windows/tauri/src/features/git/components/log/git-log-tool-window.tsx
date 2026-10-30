@@ -292,7 +292,13 @@ export function GitLogToolWindow() {
         revealAttemptsRef.current < MAX_REVEAL_PAGE_ATTEMPTS
       ) {
         revealAttemptsRef.current += 1;
-        void loadMore();
+        // A page that adds nothing (failed or empty) ends the search: without
+        // this the pending request would idle until a later refresh moved it.
+        void loadMore().then((progressed) => {
+          if (progressed) return;
+          revealAttemptsRef.current = 0;
+          clearReveal();
+        });
       } else {
         revealAttemptsRef.current = 0;
         clearReveal();
