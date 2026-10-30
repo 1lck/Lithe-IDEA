@@ -820,12 +820,12 @@ struct SearchEverywhereBehaviorTests {
         #expect(popup.frame == originalFrame, "Selecting a file must not move or resize the popup")
         func selectedColor(row: Int = 7) throws -> NSColor {
             content.layoutSubtreeIfNeeded()
-            let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
-            content.cacheDisplay(in: content.bounds, to: bitmap)
             let sample = document.convert(NSPoint(x: 400, y: 4 + row * 24 + 12), to: content)
-            let scale = CGFloat(bitmap.pixelsWide) / content.bounds.width
-            let y = content.isFlipped ? sample.y : content.bounds.height - sample.y
-            return try #require(bitmap.colorAt(x: Int(sample.x * scale), y: Int(y * scale))?.usingColorSpace(.deviceRGB))
+            // The assertion needs one background pixel, not a full popup snapshot on every poll.
+            let sampleRect = NSRect(origin: sample, size: NSSize(width: 1, height: 1))
+            let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: sampleRect))
+            content.cacheDisplay(in: sampleRect, to: bitmap)
+            return try #require(bitmap.colorAt(x: 0, y: 0)?.usingColorSpace(.deviceRGB))
         }
         await settle("focused color") { (try? selectedColor()).map { $0.blueComponent > $0.redComponent + 0.1 } == true }
         let color = try selectedColor()
@@ -847,6 +847,8 @@ struct SearchEverywhereBehaviorTests {
                 timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "",
                 isARepeat: false, keyCode: 125)))
             await Task.yield()
+            // Stop once native keyboard navigation has demonstrated the required scroll.
+            if scroll.contentView.bounds.origin.y > originalOffset.y { break }
         }
         await settle { scroll.contentView.bounds.origin.y > originalOffset.y }
         #expect(scroll.contentView.bounds.origin.y > originalOffset.y, "Keyboard navigation must still reveal offscreen rows")
