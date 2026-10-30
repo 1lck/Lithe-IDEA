@@ -445,7 +445,7 @@ export default function MonacoGitDiff({
     return () => unsubscribe.forEach(stop => stop());
   }, [themeId, editorItalicComments]);
 
-  return <div className="relative min-h-0 w-full overflow-hidden bg-background" style={{ height: embedded ? height : "100%" }}>
+  return <div data-readonly-diff="true" className="relative min-h-0 w-full overflow-hidden bg-background" style={{ height: embedded ? height : "100%" }}>
     <div ref={container} className="absolute inset-0" title="Ctrl/Cmd-click to open source" />
     {actionError && <div role="alert" className="absolute bottom-0 inset-x-0 bg-background p-2 text-destructive">{t(actionError === "stale" ? "git.diff.hunkStale" : "git.operationFailed")}</div>}
     {error && <div role="alert" className="absolute inset-0 bg-background p-4 text-destructive">{error}</div>}

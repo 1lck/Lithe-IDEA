@@ -94,6 +94,12 @@
   background-color: var(--file-tree-hover-bg);
 }
 
+/* Project tree rows get no hover highlight: sweeping the pointer over many rows repainted
+   one pseudo-element per row and made scrolling stutter. Other file trees keep the hover. */
+.file-explorer-shell .file-tree-container [data-sidebar-tree-row]:hover::before {
+  background-color: transparent;
+}
+
 .file-tree-container .file-tree-row {
   position: relative;
   z-index: 2;

@@ -117,7 +117,7 @@ export function useGitLogController(
       loadingMore?: boolean;
       refreshReferences?: boolean;
     }) => {
-      if (!repoPath || repoPathRef.current !== repoPath) return;
+      if (!repoPath || repoPathRef.current !== repoPath) return false;
 
       const requestId = ++requestIdRef.current;
       const isStaleRequest = () =>
@@ -154,7 +154,7 @@ export function useGitLogController(
           } else if (cursor) {
             void closeGitHistoryCursor(repoPath, cursor);
           }
-          return;
+          return false;
         }
         const referenceRefresh = reconcileGitLogReference(
           reference,
@@ -181,13 +181,13 @@ export function useGitLogController(
         if (isStaleRequest()) {
           if (page?.nextCursor) void closeGitHistoryCursor(repoPath, page.nextCursor);
           else if (cursor) void closeGitHistoryCursor(repoPath, cursor);
-          return;
+          return false;
         }
         if (!page) {
           if (cursor) void closeGitHistoryCursor(repoPath, cursor);
           setLoadState("failed");
           setError(t("git.historyLoadRepositoryFailed"));
-          return;
+          return false;
         }
 
         if (resolvedReference !== reference) {
@@ -195,6 +195,13 @@ export function useGitLogController(
           setSelectedReferenceState(resolvedReference);
         }
 
+        // The caller needs to know whether a page advanced the visible history:
+        // a reveal that keeps asking for older pages must stop when nothing new
+        // arrives, instead of waiting for a later refresh to jump unexpectedly.
+        const loadedHashes = loadingMore
+          ? new Set(historyRef.current.commits.map((commit) => commit.hash))
+          : new Set<string>();
+        const pageAddedCommits = page.commits.some((commit) => !loadedHashes.has(commit.hash));
         setHistory((current) => {
           const existingHashes = loadingMore
             ? new Set(current.commits.map((commit) => commit.hash))
@@ -214,14 +221,16 @@ export function useGitLogController(
         });
         activeCursorRef.current = page.nextCursor ?? null;
         setLoadState("ready");
+        return pageAddedCommits;
       } catch (loadError) {
         if (isStaleRequest()) {
           if (cursor) void closeGitHistoryCursor(repoPath, cursor);
-          return;
+          return false;
         }
         if (cursor) void closeGitHistoryCursor(repoPath, cursor);
         setLoadState("failed");
         setError(loadError instanceof Error ? loadError.message : t("git.historyLoadFailed"));
+        return false;
       } finally {
         activeOperationIdsRef.current.delete(pageOperationId);
         activeOperationIdsRef.current.delete(referencesOperationId);
@@ -309,11 +318,11 @@ export function useGitLogController(
     [repoPath],
   );
 
-  const refresh = useCallback(() => {
-    if (repoPathRef.current !== repoPath) return Promise.resolve();
+  const refresh = useCallback(async () => {
+    if (repoPathRef.current !== repoPath) return;
     cancelScheduledRefresh();
     closeActiveCursor();
-    return load({ reference: selectedReferenceRef.current });
+    await load({ reference: selectedReferenceRef.current });
   }, [cancelScheduledRefresh, closeActiveCursor, load, repoPath]);
 
   useEffect(() => {
@@ -334,11 +343,12 @@ export function useGitLogController(
     };
   }, [cancelScheduledRefresh, refresh, repoPath]);
 
-  const loadMore = useCallback(() => {
-    if (repoPathRef.current !== repoPath) return Promise.resolve();
+  /** Resolves true when the page advanced the visible history. */
+  const loadMore = useCallback((): Promise<boolean> => {
+    if (repoPathRef.current !== repoPath) return Promise.resolve(false);
     const currentHistory = historyRef.current;
     const cursor = activeCursorRef.current;
-    if (!currentHistory.hasMore || cursor === null || isLoadingMore) return Promise.resolve();
+    if (!currentHistory.hasMore || cursor === null || isLoadingMore) return Promise.resolve(false);
     activeCursorRef.current = null;
     return load({
       reference: selectedReferenceRef.current,

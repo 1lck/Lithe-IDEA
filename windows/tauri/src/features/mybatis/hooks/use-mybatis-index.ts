@@ -16,7 +16,9 @@ import {
   workspaceRelativeMybatisPath,
 } from "../utils/mybatis-index-paths";
 
-const RELOAD_DELAY_MS = 300;
+// A reload parses the workspace again and copies every open file across IPC, so
+// it waits for the same pause as autosave rather than for a gap between words.
+const RELOAD_DELAY_MS = 1_000;
 
 export function useMybatisIndex() {
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);

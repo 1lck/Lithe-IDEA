@@ -440,6 +440,25 @@
       ],
       "identity": "Current source palettes, upstream pinned theme revisions, license/NOTICE files, Monaco and Bun versions; no validated build identity stamp",
       "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines."
+    },
+    {
+      "id": "plugin-host-runtime-state",
+      "reusable": false,
+      "locations": [
+        "<app-support>/Lithe/PluginHost/root-id.key",
+        "<app-support>/Lithe/PluginState/<plugin-id>/backend/workspaces/<workspace-digest>/"
+      ],
+      "identity": "Mutable per-installation root identity secret and per-plugin workspace state; no version/platform/architecture/toolchain artifact identity stamp",
+      "reason": "Created only by the platform host outside the app bundle and plugin package. The secret is installation-owned; workspace state survives disable/update and is removed on uninstall. Never copy, share, or validate as reusable worktree resources at any stage; no effect on code signing or Sparkle delta baselines."
+    },
+    {
+      "id": "windows-perf-state",
+      "reusable": false,
+      "locations": [
+        ".artifacts/windows-perf/"
+      ],
+      "identity": "Worktree-owned frontend perf bundles, local baselines and CPU profiles. They follow that worktree's sources and machine and carry no identity stamp.",
+      "reason": "Never copy or share this state at any worktree reuse stage. A bundle or baseline from another worktree would compare different sources. run-windows-perf.mjs rebuilds the bundle in its own worktree; nothing here reaches an app bundle, install directory or Sparkle delta baseline."
     }
   ]
 }

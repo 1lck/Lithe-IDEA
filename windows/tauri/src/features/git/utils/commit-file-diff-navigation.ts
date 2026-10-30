@@ -10,6 +10,12 @@ export function selectedCommitFileIndex(data: MultiFileDiff): number {
   return index >= 0 ? index : data.files.length ? 0 : -1;
 }
 
+/** Path of the file the preview currently shows, in the form the commit-files tree uses. */
+export function selectedCommitFilePath(data: MultiFileDiff): string | null {
+  const diff = data.files[selectedCommitFileIndex(data)];
+  return diff ? diff.new_path || diff.file_path || diff.old_path || null : null;
+}
+
 /** No wrapping: preserve the complete snapshot and change only the visible entry. */
 export function moveCommitFile(data: MultiFileDiff, direction: -1 | 1): MultiFileDiff | null {
   const index = selectedCommitFileIndex(data);

@@ -969,7 +969,7 @@
     {
       "name": "backend capability version this Core does not know",
       "base": "backend.plugin.json",
-      "edits": [{ "op": "set", "path": "/requires/backend", "value": 2 }],
+      "edits": [{ "op": "set", "path": "/requires/backend", "value": 99 }],
       "expectedCode": "plugin.api.unsupported"
     },
     {
@@ -1012,6 +1012,42 @@
       "name": "credentials.store without a backend",
       "base": "backend.plugin.json",
       "edits": [{ "op": "remove", "path": "/backend" }, { "op": "set", "path": "/requires", "value": {"ui":  2} }, { "op": "set", "path": "/permissions", "value": ["credentials.store", "ui.contribute", "ui.web"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "backend 2 still needs a way to start",
+      "base": "backend-workspace.plugin.json",
+      "edits": [{ "op": "set", "path": "/activationEvents", "value": [] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "onWorkspaceOpen needs backend 2",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "set", "path": "/activationEvents", "value": ["onView:dev.lithe.fixture.backend.window", "onWorkspaceOpen"] }],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "workspace.metadata needs backend 2",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "set", "path": "/permissions", "value": ["backend.launch", "credentials.store", "ui.contribute", "ui.web", "workspace.metadata"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "workspace.metadata without a backend",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "remove", "path": "/backend" }, { "op": "set", "path": "/requires", "value": {"ui":  2} }, { "op": "set", "path": "/permissions", "value": ["ui.contribute", "ui.web", "workspace.metadata"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "backend 2 does not start on every launch",
+      "base": "backend-workspace.plugin.json",
+      "edits": [{ "op": "set", "path": "/activationEvents", "value": ["onStartupFinished", "onWorkspaceOpen"] }],
+      "expectedCode": "plugin.activation.invalid"
+    },
+    {
+      "name": "backend 2 is still one process for every workspace",
+      "base": "backend-workspace.plugin.json",
+      "edits": [{ "op": "set", "path": "/backend/arguments", "value": ["--cache", "${workspaceStateDir}"] }],
       "expectedCode": "plugin.manifest.invalid"
     }
   ]

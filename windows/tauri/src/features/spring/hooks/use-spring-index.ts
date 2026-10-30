@@ -24,7 +24,9 @@ import {
 } from "../utils/spring-index-paths";
 import { isSupportedSpringRoot } from "../utils/spring-root";
 
-const RELOAD_DELAY_MS = 300;
+// A reload parses the workspace again and copies every open file across IPC, so
+// it waits for the same pause as autosave rather than for a gap between words.
+const RELOAD_DELAY_MS = 1_000;
 
 async function resolveMavenMetadataRepository(): Promise<string | undefined> {
   try {

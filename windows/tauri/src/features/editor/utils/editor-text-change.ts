@@ -21,3 +21,23 @@ export function sortEditorTextChangesForOriginalDocument(
 ): EditorTextChange[] {
   return [...changes].sort((left, right) => right.rangeOffset - left.rangeOffset);
 }
+
+/** Beyond this, sending the whole document is cheaper than proving a replay. */
+const MAX_REPLAYED_CHANGES = 32;
+
+/**
+ * Applies `changes` the way LSP does: in order, each relative to the previous
+ * result. Returns undefined when they cannot be replayed.
+ */
+export function replayEditorTextChanges(
+  content: string,
+  changes: readonly EditorTextChange[],
+): string | undefined {
+  if (changes.length > MAX_REPLAYED_CHANGES) return undefined;
+  let next = content;
+  for (const { rangeOffset, rangeLength, startLine, text } of changes) {
+    if (startLine === undefined || rangeOffset + rangeLength > next.length) return undefined;
+    next = `${next.slice(0, rangeOffset)}${text}${next.slice(rangeOffset + rangeLength)}`;
+  }
+  return next;
+}

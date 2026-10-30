@@ -358,14 +358,24 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
     ) -> Result<Void, LanguageServerRuntimeFailure> {
         let result: ToolingJSONValue?
-        let failureMessage: String?
+        let failure: PluginHostRequestFailure?
         switch outcome {
-        case .success(let value): result = value; failureMessage = nil
-        case .failure(let failure): result = nil; failureMessage = failure.message
+        case .success(let value): result = value; failure = nil
+        case .failure(let reason): result = nil; failure = reason
         }
         return lspHostResponse(
-            sessionID: sessionID, hostRequestID: hostRequestID, result: result, failureMessage: failureMessage
+            sessionID: sessionID, hostRequestID: hostRequestID, result: result,
+            failureMessage: failure?.message, failureCode: failure?.code, failureDetails: failure?.details
         ).mapError(Self.runtimeFailure)
+    }
+
+    func notifyPluginBackend(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        lspHostNotify(sessionID: sessionID, method: method, params: params)
+            .mapError(Self.runtimeFailure)
     }
 
     func updateWorkspaceConfiguration(
@@ -385,6 +395,21 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
         lspFunctionRequest(
             sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+        ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference?,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspFunctionRequest(
+            sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params,
+            context: context, timeout: timeout
         ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
             .mapError(Self.runtimeFailure)
     }

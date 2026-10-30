@@ -12,6 +12,7 @@ import {
   languageServerNavigationBlock,
   type LanguageServerNavigationBlock,
 } from "@/features/editor/lsp/language-server-navigation";
+import { resolveJavaSyntaxDefinitions } from "@/features/editor/lsp/java-syntax-definition";
 import { resolveLombokAccessorDefinition } from "@/features/editor/lsp/lombok-accessor-navigation";
 import { openLspNavigationLocation } from "@/features/editor/lsp/navigation-target";
 import {
@@ -225,6 +226,38 @@ async function ensureNavigationLanguageServer(
   return "deferred";
 }
 
+/**
+ * Answers a Java definition request while the language server cannot, leaving
+ * the import notice in place when syntax has nothing certain to offer.
+ */
+async function syntaxDefinitionLocations(
+  buffer: EditorContent,
+  languageId: string | undefined,
+  line: number,
+  character: number,
+): Promise<LspLocation[]> {
+  const workspaceRoot = useProjectStore.getState().rootFolderPath;
+  if (languageId !== "java" || !workspaceRoot) return [];
+  try {
+    const locations = await resolveJavaSyntaxDefinitions({
+      source: buffer.content,
+      sourceFilePath: buffer.path,
+      workspaceRoot,
+      line,
+      character,
+    });
+    if (useBufferStore.getState().activeBufferId !== buffer.id || locations.length === 0) return [];
+    toast.info(getCurrentTranslator()("navigation.syntaxFallback", { name: languageDisplayName(languageId) }), {
+      id: NAVIGATION_LANGUAGE_SERVER_TOAST_ID,
+      duration: 3500,
+    });
+    return locations;
+  } catch (error) {
+    logger.warn("LSPNavigation", "Syntax definition lookup failed", error);
+    return [];
+  }
+}
+
 function mybatisLocationsForActiveFile(): SpringNavigationLocation[] {
   const context = activeEditorNavigationContext();
   const mybatisState = useMybatisStore.getState();
@@ -428,13 +461,23 @@ async function goToActiveLspLocation(
   if (!activeBuffer || activeBuffer.type !== "editor" || !activeBuffer.path) return;
   const documentTarget = lspDocumentTargetForEditor(activeBuffer);
 
+  let syntaxLocations: LspLocation[] | undefined;
   if (options.requireLanguageServer !== false) {
     const readiness = await ensureNavigationLanguageServer(
       activeBuffer,
       options.feature ?? label,
       lspClient,
     );
-    if (readiness !== "proceed") return;
+    if (readiness !== "proceed") {
+      if (label !== "definition") return;
+      syntaxLocations = await syntaxDefinitionLocations(
+        activeBuffer,
+        documentTarget.languageId,
+        requestLine,
+        requestCharacter,
+      );
+      if (syntaxLocations.length === 0) return;
+    }
   }
 
   const preResolvedLocations =
@@ -446,12 +489,12 @@ async function goToActiveLspLocation(
         })
       : undefined;
   const hasPreResolvedLocations = preResolvedLocations !== undefined;
-  let locations = hasPreResolvedLocations
+  let locations = syntaxLocations ?? (hasPreResolvedLocations
     ? preResolvedLocations
     : await withSlowRequestNotice(
         resolveLocations(lspClient, documentTarget, requestLine, requestCharacter),
         pendingNavigationNotice(label),
-      );
+      ));
 
   if (
     (!locations || locations.length === 0) &&
@@ -496,7 +539,8 @@ async function goToActiveLspLocation(
     scrollLeft: editorState.scrollLeft,
   });
 
-  if (navigationLocationPresentation(locations.length, options.showMultipleResults) === "list") {
+  const showMultipleResults = options.showMultipleResults || syntaxLocations !== undefined;
+  if (navigationLocationPresentation(locations.length, showMultipleResults) === "list") {
     await presentLspLocations(
       locations,
       translateNavigationLabel(label),

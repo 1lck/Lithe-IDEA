@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import {
   useFileTreePresentation,
@@ -166,6 +166,28 @@ export function GitCommitFileTree({
     [files],
   );
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // The selection can move without a click here (the diff preview's next/previous file), so a
+  // newly selected file must not stay hidden inside a folder the user collapsed earlier.
+  const [revealedPath, setRevealedPath] = useState<string | null>(null);
+  if (selectedPath !== revealedPath) {
+    setRevealedPath(selectedPath);
+    const normalized = selectedPath?.replace(/\\/g, "/");
+    if (normalized && [...collapsed].some((path) => normalized.startsWith(`${path}/`))) {
+      setCollapsed(new Set([...collapsed].filter((path) => !normalized.startsWith(`${path}/`))));
+    }
+  }
+  // Vertical-only "nearest" scrolling: a click on a wide row must not jump the horizontal offset.
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const row = viewport?.querySelector<HTMLElement>('[data-sidebar-tree-row][data-active="true"]');
+    if (!viewport || !row) return;
+    const viewportBounds = viewport.getBoundingClientRect();
+    const rowBounds = row.getBoundingClientRect();
+    if (rowBounds.top < viewportBounds.top)
+      viewport.scrollTop -= viewportBounds.top - rowBounds.top;
+    else if (rowBounds.bottom > viewportBounds.bottom)
+      viewport.scrollTop += rowBounds.bottom - viewportBounds.bottom;
+  }, [selectedPath]);
   const toggle = (path: string) => {
     setCollapsed((current) => {
       const next = new Set(current);

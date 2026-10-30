@@ -86,6 +86,7 @@ import {
   joinPath,
   pathStartsWithRoot,
   stripTrailingPathSeparators,
+  toRootedPath,
 } from "@/utils/path-helpers";
 import { useFileExplorerContextMenu } from "../hooks/use-file-explorer-context-menu";
 import { useFileExplorerDragDrop } from "../hooks/use-file-explorer-drag-drop";
@@ -1100,19 +1101,11 @@ function FileExplorerTreeComponent({
       }
       selectPath(t.path, { additive: e.ctrlKey || e.metaKey, range: e.shiftKey });
       if (e.ctrlKey || e.metaKey || e.shiftKey) return;
-      if (!t.isDir) {
-        fileOpenBenchmark.ensureStarted(t.path, "explorer-click");
-        fileOpenBenchmark.mark(t.path, "explorer-click");
-      }
-      if (t.isDir) {
-        setFocusedPath(t.path);
-        updateActivePath?.(t.path);
-      } else {
-        setFocusedPath(t.path);
-        void Promise.resolve(onFileSelect(t.path, false));
-      }
+      // A single click only selects; opening a file is the double-click (or Enter) action.
+      setFocusedPath(t.path);
+      updateActivePath?.(t.path);
     },
-    [onFileSelect, toggleDirectory, updateActivePath, pathToFile, selectPath],
+    [toggleDirectory, updateActivePath, pathToFile, selectPath],
   );
 
   const handleContainerDoubleClick = useCallback(
@@ -1446,6 +1439,26 @@ function FileExplorerTreeComponent({
             onRenamePath?.(current.path);
             break;
           }
+          case "Delete": {
+            // Shift+Delete means "permanent delete" on Windows; this tree has no such action.
+            if (!current || mod || e.altKey || e.shiftKey) break;
+            const entries = selectedEntries.length
+              ? selectedEntries
+              : workspaceRootPaths.includes(current.path)
+                ? []
+                : [{ path: current.path, is_dir: !!isDir }];
+            const [first] = entries;
+            if (!first) break;
+            e.preventDefault();
+            // A stray key press must never delete on its own, so this path always asks first,
+            // even when "confirm before delete" is off for the context menu.
+            setDeleteCandidate(
+              entries.length === 1
+                ? { path: first.path, isDir: first.is_dir }
+                : { path: first.path, isDir: first.is_dir, entries },
+            );
+            break;
+          }
         }
       }}
       onDragOver={(e) => {
@@ -1491,8 +1504,12 @@ function FileExplorerTreeComponent({
               setProjectView("project");
               setTreeSearchQuery("");
               setTreeSearchOpen(false);
-              void requestRevealPath(activePath);
-              selectPath(activePath);
+              // The editor may spell the path differently from the tree nodes it must match.
+              const treePath = rootFolderPath
+                ? toRootedPath(activePath, rootFolderPath)
+                : activePath;
+              void requestRevealPath(treePath);
+              selectPath(treePath);
             }
           }}
         >

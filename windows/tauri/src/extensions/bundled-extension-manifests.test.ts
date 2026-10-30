@@ -70,12 +70,67 @@ describe("bundled file icon themes", () => {
     expect(iconTheme.expandedFolders).toEqual(iconTheme.folders);
   });
 
+  test("gives common project files dedicated glyphs instead of the text icon", async () => {
+    const iconTheme = await getIdeaIconTheme();
+    const filenames = iconTheme.filenames ?? {};
+    const extensions = iconTheme.fileExtensions ?? {};
+
+    expect(filenames[".gitattributes"]).toBe("idea-gitignore");
+    expect(filenames["go.mod"]).toBe("idea-go");
+    expect(filenames["go.sum"]).toBe("idea-go");
+    expect(filenames["makefile"]).toBe("lithe-makefile");
+    expect(filenames["package.json"]).toBe("idea-nodejs");
+    expect(filenames["readme.md"]).toBe("idea-info");
+    expect(filenames["license"]).toBe("lithe-license");
+    expect(extensions[".lock"]).toBe("idea-locked");
+    expect(extensions[".ps1"]).toBe("lithe-powershell");
+
+    for (const iconId of ["lithe-makefile", "lithe-license", "lithe-powershell"]) {
+      expect(iconTheme.iconDefinitions[iconId]).toMatch(/^\.\/icons\/lithe\/fileTypes\/.+_dark\.svg$/);
+      expect(iconTheme.lightIconDefinitions?.[iconId]).toMatch(/(?<!_dark)\.svg$/);
+    }
+  });
+
   test("declares dark and light assets for every added IDEA tree icon", async () => {
     const iconTheme = await getIdeaIconTheme();
 
     for (const iconId of IDEA_TREE_ICON_IDS) {
       expect(iconTheme.iconDefinitions[iconId]).toMatch(/_dark\.svg$/);
       expect(iconTheme.lightIconDefinitions?.[iconId]).toMatch(/(?<!_dark)\.svg$/);
+    }
+  });
+
+  test("maps the file types macOS already recognises plus the added IDEA kinds", async () => {
+    const iconTheme = await getIdeaIconTheme();
+    const byExtension = (extension: string) => iconTheme.fileExtensions?.[extension];
+
+    expect(byExtension(".kt")).toBe("idea-kotlin");
+    expect(byExtension(".kts")).toBe("idea-kotlin");
+    expect(byExtension(".gradle.kts")).toBe("idea-gradle");
+    expect(byExtension(".rs")).toBe("idea-rust");
+    expect(byExtension(".py")).toBe("idea-python");
+    expect(byExtension(".jsonl")).toBe("idea-json");
+    expect(byExtension(".wbmp")).toBe("idea-image");
+    expect(byExtension(".strings")).toBe("idea-i18n");
+    for (const extension of [".doc", ".docx", ".ppt", ".pptx"]) {
+      expect(byExtension(extension)).toBe("idea-custom");
+    }
+    expect(iconTheme.filenames?.[".gitattributes"]).toBe("idea-gitignore");
+    expect(iconTheme.filenames?.["docker-compose.yml"]).toBe("idea-docker");
+  });
+
+  test("ships a light and dark asset for every added file-type icon", async () => {
+    const iconTheme = await getIdeaIconTheme();
+    const addedIds = ["kotlin", "rust", "go", "python", "ruby", "scala", "php", "i18n", "custom"].map(
+      (name) => `idea-${name}`,
+    );
+
+    for (const iconId of addedIds) {
+      for (const assetPath of [iconTheme.iconDefinitions[iconId], iconTheme.lightIconDefinitions?.[iconId]]) {
+        expect(assetPath).toBeDefined();
+        const asset = Bun.file(new URL(`./bundled/icon-themes/idea/${assetPath!.replace(/^\.\//, "")}`, import.meta.url));
+        expect(await asset.exists()).toBe(true);
+      }
     }
   });
 
