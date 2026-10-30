@@ -28,8 +28,14 @@ export class BuildWorkspaceController {
   private disposed = false;
   private readonly nativeEditors = new Map<string, BuildNativeConfigurationController>();
   readonly domain: WindowsBuildProviderWorkspace;
+  private readonly unsubscribeFacts: () => void;
 
-  constructor(readonly workspacePath: string, private readonly ports: BuildWorkspaceControllerPorts) { this.domain = ports.domain; }
+  constructor(readonly workspacePath: string, private readonly ports: BuildWorkspaceControllerPorts) {
+    this.domain = ports.domain;
+    this.unsubscribeFacts = this.domain.subscribeFacts(() => {
+      if (!this.disposed) this.publish({ modelRevision: this.state.modelRevision + 1 });
+    });
+  }
   snapshot = (): BuildWorkspaceSnapshot => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private publish(values: Partial<BuildWorkspaceSnapshot>): void {
@@ -113,6 +119,7 @@ export class BuildWorkspaceController {
 
   async dispose(): Promise<void> {
     this.disposed = true; this.generation++;
+    this.unsubscribeFacts();
     for (const editor of this.nativeEditors.values()) editor.dispose();
     this.publish({ status: "idle", entries: [], manifests: {}, selectedID: undefined, modelRevision: this.state.modelRevision + 1 });
     try { await this.domain.dispose(); }

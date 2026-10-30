@@ -81,6 +81,36 @@ function fixture() {
 }
 
 describe("Windows Build Provider workspace operations", () => {
+  test("dependency snapshots are bounded across projects and disappear when model inputs change", async () => {
+    const f = fixture();
+    const projects = Array.from({ length: 6 }, (_, index) => ({ id: `project-${index}`, name: `Project ${index}`, path: `project-${index}`, properties: {} }));
+    f.holdCore("build.decodeModel", Promise.resolve({ model: { ...model, projects } }));
+    try {
+      await f.workspace.loadModel(instance).completion;
+      for (const project of projects) await f.workspace.dependencies(instance, project.id).completion;
+      expect(projects.filter(project => f.workspace.dependencyResult(instance, project.id))).toHaveLength(4);
+      expect(f.workspace.dependencyResult(instance, projects[0]!.id)).toBeUndefined();
+      const copy = f.workspace.dependencyResult(instance, projects[5]!.id)!;
+      copy.dependencies.length = 0;
+      expect(f.workspace.dependencyResult(instance, projects[5]!.id)?.dependencies).toHaveLength(1);
+      f.workspace.invalidate(instance);
+      expect(f.workspace.dependencyResult(instance, projects[5]!.id)).toBeUndefined();
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("a late dependency decode cannot repopulate results after cancellation", async () => {
+    const f = fixture(), gate = deferred<unknown>();
+    await f.workspace.loadModel(instance).completion;
+    f.holdCore("build.decodeDependencies", gate.promise);
+    const loading = f.workspace.dependencies(instance, "service"), complete = loading.completion.catch(error => error.code);
+    try {
+      await f.entered.decode.promise; f.workspace.invalidate(instance);
+      expect(await complete).toBe("cancelled");
+      gate.resolve({ dependencies: { project: "service", dependencies: [{ name: "late" }], truncated: false } });
+      expect(f.workspace.dependencyResult(instance, "service")).toBeUndefined();
+    } finally { gate.resolve({ dependencies: { project: "service", dependencies: [], truncated: false } }); await complete; await f.workspace.dispose(); }
+  }, 5000);
+
   test("close retains a failed late native token release for an explicit cleanup retry", async () => {
     const f = fixture(), gate = deferred<boolean>();
     await f.workspace.readConfiguration(instance).completion;
@@ -103,19 +133,22 @@ describe("Windows Build Provider workspace operations", () => {
     const f = fixture(), gate = deferred<unknown>(); f.holdProvider(gate.promise);
     let notifications = 0;
     const unsubscribe = f.workspace.subscribe(() => { notifications++; });
+    let facts = 0;
+    const unsubscribeFacts = f.workspace.subscribeFacts(() => { facts++; });
     const operation = f.workspace.loadModel(instance);
     try {
       await f.entered.provider.promise; await Promise.resolve();
-      const before = notifications, progress = f.sent[0]!.onProgress!;
+      const before = notifications, factsBefore = facts, progress = f.sent[0]!.onProgress!;
       progress({ output: "first" }); progress({ output: "second" }); progress({ output: "third" });
       expect(notifications).toBe(before);
       await Promise.resolve();
       expect(notifications).toBe(before + 1);
+      expect(facts).toBe(factsBefore);
       expect(f.workspace.operation(operation.operationID)?.output).toBe("firstsecondthird");
       expect(f.workspace.operationSummaries()[0]).not.toHaveProperty("output");
       unsubscribe(); const after = notifications;
       progress({ output: "unsubscribed" }); await Promise.resolve(); expect(notifications).toBe(after);
-    } finally { unsubscribe(); gate.resolve({}); await operation.completion; await f.workspace.dispose(); }
+    } finally { unsubscribe(); unsubscribeFacts(); gate.resolve({}); await operation.completion; await f.workspace.dispose(); }
   }, 5000);
 
   test("plugin stop still finds its targets after model invalidation without stopping siblings", async () => {

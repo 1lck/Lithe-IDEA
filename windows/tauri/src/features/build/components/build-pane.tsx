@@ -1,16 +1,14 @@
-import { useMemo, useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useMemo } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import { ArrowClockwiseIcon, PlayIcon, TerminalIcon, XIcon } from "@/ui/icons";
-import { ScrollArea } from "@/ui/scroll-area";
+import { ArrowClockwiseIcon, TerminalIcon, XIcon } from "@/ui/icons";
 import { Spinner } from "@/ui/spinner";
 import { paneHeaderClassName, paneTitleClassName } from "@/features/panes/components/pane-chrome";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { applyRightToolWindowIntent } from "@/features/layout/actions/right-tool-window-actions";
 import { useBuildWorkspace } from "../hooks/use-build-workspace";
-import type { BuildInstance, BuildModel } from "../services/build-provider-workspace";
 import type { BuildWorkspaceController } from "../services/build-workspace-controller";
+import { BuildTaskList } from "./build-task-list";
 
 export function openBuildOutput(): void {
   const state = useUIState.getState();
@@ -52,29 +50,8 @@ export function BuildPaneContent({ controller, snapshot }: ReturnType<typeof use
         {busy ? <Spinner compact /> : null}{t("build.window.load")}
       </Button>
       {model?.truncated ? <div role="alert" className="p-2 ui-text-sm">{t("build.errors.incompleteModel")}</div> : null}
-      {model ? <BuildModelTasks controller={controller} instance={selected} model={model} /> : null}
+      {model ? <BuildTaskList key={selected.id} controller={controller} instance={selected} model={model}
+        manifest={snapshot.manifests[selected.pluginID]} openOutput={openBuildOutput} /> : null}
     </> : snapshot.status === "ready" ? <div className="p-2 text-subtle-foreground ui-text-sm">{t("build.window.empty")}</div> : null}
   </section>;
-}
-
-function BuildModelTasks({ controller, instance, model }: { controller: BuildWorkspaceController; instance: BuildInstance; model: BuildModel }) {
-  const { t } = useTranslation(), scrollRef = useRef<HTMLDivElement>(null);
-  const tasks = useMemo(() => model.tasks.filter(task => task.execution === "task"), [model]);
-  const virtual = useVirtualizer({ count: tasks.length, getScrollElement: () => scrollRef.current, estimateSize: () => 30,
-    getItemKey: index => tasks[index]!.id, overscan: 6 });
-  const row = (index: number) => {
-    const task = tasks[index]!;
-    return <Button key={task.id} variant="ghost" className="h-[30px] w-full justify-start rounded-none px-2" disabled={model.truncated}
-      title={task.path} onClick={() => { openBuildOutput(); void controller.perform(instance, () => controller.domain.executeModelTask(instance, task.id)); }}>
-      <PlayIcon className="size-3 shrink-0" /><span className="truncate">{task.name}</span>
-    </Button>;
-  };
-  return <>
-    <span className="px-2 py-1 text-subtle-foreground ui-text-sm">{t("build.window.tasks")}</span>
-    <ScrollArea className="min-h-0 flex-1" viewportProps={{ ref: scrollRef }}>
-      {tasks.length <= 200 ? tasks.map((_, index) => row(index)) : <div className="relative" style={{ height: virtual.getTotalSize() }}>
-        {virtual.getVirtualItems().map(item => <div key={item.key} className="absolute top-0 w-full" style={{ transform: `translateY(${item.start}px)` }}>{row(item.index)}</div>)}
-      </div>}
-    </ScrollArea>
-  </>;
 }

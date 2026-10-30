@@ -12,6 +12,8 @@ import type { WindowsBuildCatalog } from "@/platform/build-provider-platform";
 import type { buildCore } from "@/platform/build-core-api";
 import { BuildPaneContent } from "./build-pane";
 import { BuildOutputContent } from "./build-output-pane";
+import * as dialogControl from "@/ui/dialog";
+import * as inputControl from "@/ui/input";
 
 const catalog: WindowsBuildCatalog = { detection: { instances: [{ id: "example:root", pluginID: "dev.example.build", buildSystemID: "example",
   root: ".", displayName: "Example Build", options: {}, optionFingerprint: "default", droppedOptions: [], modelSource: "provider" }],
@@ -28,11 +30,14 @@ function fixture() {
   type Request = Parameters<Ports["providers"]["send"]>[1];
   const sent: Request[] = [];
   const entered = deferred<void>();
-  let pending: Promise<unknown> | undefined, decodedModel = structuredClone(model), failedDetection = false;
+  let pending: Promise<unknown> | undefined, decodedModel = structuredClone(model), failedDetection = false, detected = structuredClone(catalog);
   const core = (async (command: string, _manifest: unknown, _system: string, request: Record<string, unknown>) => {
     if (command.endsWith("Plan")) return { plan: { provider: { method: command, params: request } } };
     if (command === "build.decodeModel") return { model: decodedModel };
     if (command === "build.decodeDiagnostics") return { diagnostics: [] };
+    if (command === "build.decodeDependencies") return { dependencies: { project: "app", truncated: false, dependencies: [
+      { name: "Upstream library", version: "1.0", children: [{ name: "Nested library", children: [] }] },
+    ] } };
     throw new Error(`Unexpected command ${command}`);
   }) as typeof buildCore;
   const domain = new WindowsBuildProviderWorkspace("C:/work", { core, translate: createTranslator("en-US"), guard: () => () => {},
@@ -45,10 +50,11 @@ function fixture() {
   });
   const controller = new BuildWorkspaceController("C:/work", { domain, guard: () => () => {}, detect: async () => {
     if (failedDetection) throw new Error("Detection rejected");
-    return structuredClone(catalog);
+    return structuredClone(detected);
   } });
   return { domain, controller, sent, entered, hold: (gate?: Promise<unknown>) => { pending = gate; },
-    model: (value: BuildModel) => { decodedModel = value; }, failDetection: () => { failedDetection = true; } };
+    model: (value: BuildModel) => { decodedModel = value; }, failDetection: () => { failedDetection = true; },
+    manifest: (value: Record<string, unknown>) => { detected.plugins = [{ manifest: value }]; } };
 }
 
 let restoreDom: () => void, root: Root, container: HTMLDivElement;
@@ -157,6 +163,79 @@ test("failed detection and incomplete models keep visible errors without present
   } finally { await act(async () => { await f.controller.dispose(); }); }
 }, 5000);
 
+test("a model invalidated outside the task window disappears before another task can be clicked", async () => {
+  const f = fixture();
+  try {
+    await f.controller.refresh(); await render(f.controller);
+    await act(async () => button("Load project model").click());
+    expect(button("Upstream compile")).toBeDefined();
+    await act(async () => f.domain.invalidate(f.controller.snapshot().entries[0]!));
+    expect(button("Upstream compile")).toBeUndefined();
+    expect(f.sent).toHaveLength(1);
+  } finally { await act(async () => { await f.controller.dispose(); }); }
+}, 5000);
+
+test("declared task scope follows the selected module and argument confirmation preserves exact argv", async () => {
+  const f = fixture();
+  f.manifest({ id: "dev.example.build", buildSystems: [{ id: "example", tasks: [
+    { id: "compile", displayName: "Declared compile", source: "provider", scopes: ["workspace", "project"], group: "build" },
+    { id: "goal", displayName: "Custom goal", source: "provider", scopes: ["workspace", "project"], requiresUserArguments: true, group: "other" },
+  ] }] });
+  // Exercise the product handlers independently of Base UI's cached native
+  // portal/input feature detection when several suites share one Bun process.
+  const dialog = spyOn(dialogControl, "default").mockImplementation((({ children, title, footer }) =>
+    <div role="dialog">{title}{children}{footer}</div>) as typeof dialogControl.default);
+  const input = spyOn(inputControl, "default").mockImplementation((({ value, disabled, onChange, "aria-label": label }) =>
+    <input value={value} disabled={disabled} aria-label={label} onInput={event => onChange?.({ ...event, target: event.currentTarget })} />) as typeof inputControl.default);
+  try {
+    await f.controller.refresh(); await render(f.controller);
+    await act(async () => button("Load project model").click());
+    await act(async () => button("Declared compile").click());
+    expect(f.sent[1]!.params).toMatchObject({ task: "compile", project: { id: "app", path: "app" } });
+    await act(async () => {
+      const select = container.querySelector<HTMLSelectElement>('select[aria-label="Project or module"]')!;
+      select.value = ""; select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(button("Upstream compile")).toBeUndefined();
+    await act(async () => button("Custom goal").click());
+    expect(f.sent).toHaveLength(2);
+    await act(async () => button("Cancel").click());
+    expect(f.sent).toHaveLength(2);
+    await act(async () => button("Custom goal").click());
+    for (let index = 0; index < 3; index++) await act(async () => button("Add argument").click());
+    const expected = ["verify", "-Dtitle=a b", "", "C:\\cache\\local"];
+    await act(async () => {
+      for (const [index, text] of expected.entries()) {
+        const node = container.querySelector<HTMLInputElement>(`input[aria-label="Argument ${index + 1}"]`)!;
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(node, text);
+        node.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+    await act(async () => button("Run task").click());
+    expect(f.sent[2]!.params).toMatchObject({ task: "goal", userArguments: expected });
+    expect((f.sent[2]!.params as Record<string, unknown>).project).toBeUndefined();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  } finally { dialog.mockRestore(); input.mockRestore(); await act(async () => { await f.controller.dispose(); }); }
+}, 5000);
+
+test("dependency navigation expands canonical upstream nodes and clears with its model", async () => {
+  const f = fixture();
+  f.manifest({ id: "dev.example.build", buildSystems: [{ id: "example", dependencies: { source: "provider" } }] });
+  try {
+    await f.controller.refresh(); await render(f.controller);
+    await act(async () => button("Load project model").click());
+    await act(async () => button("Load dependencies").click());
+    expect(f.sent[1]!.params).toMatchObject({ project: { id: "app", path: "app" } });
+    expect(container.textContent).toContain("Upstream library");
+    expect(container.textContent).not.toContain("Nested library");
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!.click());
+    expect(container.textContent).toContain("Nested library");
+    await act(async () => f.domain.invalidate(f.controller.snapshot().entries[0]!));
+    expect(container.textContent).not.toContain("Upstream library");
+    expect(f.sent).toHaveLength(2);
+  } finally { await act(async () => { await f.controller.dispose(); }); }
+}, 5000);
+
 test("large task models mount only the virtualizer's visible rows", async () => {
   const f = fixture();
   f.model({ ...model, tasks: Array.from({ length: 10_000 }, (_, index) => ({ ...model.tasks[0]!, id: `task-${index}`, name: `Task ${index}` })) });
@@ -170,8 +249,8 @@ test("large task models mount only the virtualizer's visible rows", async () => 
     await f.controller.refresh(); await render(f.controller);
     await act(async () => button("Load project model").click());
     expect(button("Task 0")).toBeDefined();
-    expect(button("Task 11")).toBeDefined();
-    expect(button("Task 12")).toBeUndefined();
+    expect(button("Task 10")).toBeDefined();
+    expect(button("Task 11")).toBeUndefined();
     expect(container.querySelectorAll("button").length).toBeLessThan(25);
   } finally { virtual.mockRestore(); await act(async () => { await f.controller.dispose(); }); }
 }, 5000);

@@ -92471,6 +92471,121 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "build.window.module",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.workspace",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.runTask",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.argument",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "index": "integer"
+      }
+    },
+    {
+      "id": "build.window.addArgument",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.lifecycle",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.build",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.test",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.run",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.verification",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.documentation",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.group.other",
+      "description": "Windows Build task catalog and parameter dialog",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.loadDependencies",
+      "description": "Windows canonical Build dependency tree",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.dependencies",
+      "description": "Windows canonical Build dependency tree",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.dependenciesTruncated",
+      "description": "Windows canonical Build dependency tree",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.noDependencies",
+      "description": "Windows canonical Build dependency tree",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

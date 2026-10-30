@@ -9680,7 +9680,23 @@
     "build.phase.succeeded": "已成功",
     "build.phase.failed": "已失败",
     "build.phase.cancelled": "已取消",
-    "build.errors.detectionFailed": "无法检测构建项目。请检查团队构建选项文档后重新检测。"
+    "build.errors.detectionFailed": "无法检测构建项目。请检查团队构建选项文档后重新检测。",
+    "build.window.module": "项目或模块",
+    "build.window.workspace": "工作区",
+    "build.window.runTask": "运行任务",
+    "build.window.argument": "参数 {index}",
+    "build.window.addArgument": "添加参数",
+    "build.group.lifecycle": "生命周期",
+    "build.group.build": "构建",
+    "build.group.test": "测试",
+    "build.group.run": "运行",
+    "build.group.verification": "验证",
+    "build.group.documentation": "文档",
+    "build.group.other": "其他",
+    "build.window.loadDependencies": "加载依赖",
+    "build.window.dependencies": "依赖",
+    "build.window.dependenciesTruncated": "依赖树不完整。",
+    "build.window.noDependencies": "无依赖。"
   },
   "overrides": {
     "macos": {

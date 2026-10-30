@@ -28,7 +28,7 @@ export class BuildNativeConfigurationController {
   private operationID?: string;
   private disposed = false;
   constructor(private readonly domain: WindowsBuildProviderWorkspace, private readonly instance: () => BuildInstance | undefined) {
-    this.unsubscribe = domain.subscribe(() => {
+    this.unsubscribe = domain.subscribeFacts(() => {
       if (this.state.configuration && !this.busy() && !this.current() && !this.state.stale) this.publish({ stale: true });
     });
   }

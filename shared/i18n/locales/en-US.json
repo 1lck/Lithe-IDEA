@@ -9680,7 +9680,23 @@
     "build.phase.succeeded": "Succeeded",
     "build.phase.failed": "Failed",
     "build.phase.cancelled": "Cancelled",
-    "build.errors.detectionFailed": "Build projects could not be detected. Check the team Build options document and reload."
+    "build.errors.detectionFailed": "Build projects could not be detected. Check the team Build options document and reload.",
+    "build.window.module": "Project or module",
+    "build.window.workspace": "Workspace",
+    "build.window.runTask": "Run task",
+    "build.window.argument": "Argument {index}",
+    "build.window.addArgument": "Add argument",
+    "build.group.lifecycle": "Lifecycle",
+    "build.group.build": "Build",
+    "build.group.test": "Test",
+    "build.group.run": "Run",
+    "build.group.verification": "Verification",
+    "build.group.documentation": "Documentation",
+    "build.group.other": "Other",
+    "build.window.loadDependencies": "Load dependencies",
+    "build.window.dependencies": "Dependencies",
+    "build.window.dependenciesTruncated": "The dependency tree is incomplete.",
+    "build.window.noDependencies": "No dependencies."
   },
   "overrides": {
     "windows": {

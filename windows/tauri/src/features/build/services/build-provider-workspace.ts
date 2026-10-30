@@ -8,12 +8,20 @@ export interface BuildProject {
   id: string; name: string; path: string; parentID?: string;
   displayName?: string; properties: Record<string, string>;
 }
+export interface BuildDependencyNode {
+  name: string; group?: string; version?: string; scope?: string;
+  properties?: Record<string, string>; children?: BuildDependencyNode[];
+}
+export interface BuildDependencies {
+  project: string; dependencies: BuildDependencyNode[]; truncated: boolean;
+}
+export interface BuildDependencySnapshot extends BuildDependencies { revision: string }
 
 export interface BuildModel {
   projects: BuildProject[];
   targets: Array<{ id: string; projectID: string; name: string; path: string; tags: string[]; properties: Record<string, string> }>;
   tasks: Array<{ id: string; projectID: string; name: string; path: string; template: string;
-    execution: "task" | "service"; properties: Record<string, string> }>;
+    execution: "task" | "service"; properties: Record<string, string>; displayName?: string; description?: string; category?: string[]; group?: string }>;
   contentRoots: Array<{ projectID: string; path: string; kind: string }>;
   optionValues: Record<string, string[]>;
   truncated?: boolean;
@@ -88,6 +96,7 @@ export interface BuildNativeConfigurationEdits { sourceID: string; revision: str
 
 const MAX_OUTPUT_CHARACTERS = 500_000;
 const MAX_COMPLETED_OPERATIONS = 50;
+const MAX_DEPENDENCY_SNAPSHOTS = 4;
 
 function owner(instance: BuildInstance): string {
   return JSON.stringify([instance.pluginID, instance.buildSystemID, instance.root]);
@@ -107,12 +116,15 @@ function fingerprint(value: unknown): string {
  * the remaining model sources and UI consumers have migrated. */
 export class WindowsBuildProviderWorkspace {
   private readonly listeners = new Set<() => void>();
+  private readonly factListeners = new Set<() => void>();
+  private factsQueued = false;
   private publicationRevision = 0;
   private publicationQueued = false;
   private disposed = false;
   private readonly revisions = new Map<string, number>();
   private readonly models = new Map<string, BuildModel>();
   private readonly modelInputs = new Map<string, { options: string; context: string; current: () => void }>();
+  private readonly dependencyResults = new Map<string, { instance: string; snapshot: BuildDependencySnapshot }>();
   private readonly configurations = new Map<string, { snapshot: string; context: string; options: string; current: () => void }>();
   private readonly cleanupFailures = new Map<() => Promise<unknown>, unknown>();
   private readonly pendingTasks = new Set<Promise<unknown>>();
@@ -126,6 +138,15 @@ export class WindowsBuildProviderWorkspace {
   private revoked(): Error & { code: string } { return revoked(this.message("inputsChanged")); }
 
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  subscribeFacts = (listener: () => void): (() => void) => { this.factListeners.add(listener); return () => { this.factListeners.delete(listener); }; };
+  private factsChanged(): void {
+    if (this.factsQueued) return;
+    this.factsQueued = true;
+    queueMicrotask(() => {
+      this.factsQueued = false;
+      for (const listener of this.factListeners) listener();
+    });
+  }
   snapshotRevision = (): number => this.publicationRevision;
   operation(id: string): BuildOperation | undefined {
     const record = this.records.get(id); return record && structuredClone(record);
@@ -151,11 +172,19 @@ export class WindowsBuildProviderWorkspace {
   }
 
   operations(): BuildOperation[] { return [...this.records.values()].map(record => structuredClone(record)); }
-  model(instance: BuildInstance): BuildModel | undefined {
+  private modelIsCurrent(instance: BuildInstance): boolean {
     const inputs = this.modelInputs.get(owner(instance));
-    if (!inputs || inputs.options !== fingerprint(instance.options)) return undefined;
-    try { inputs.current(); } catch { return undefined; }
+    if (!inputs || inputs.options !== fingerprint(instance.options)) return false;
+    try { inputs.current(); return true; } catch { return false; }
+  }
+  model(instance: BuildInstance): BuildModel | undefined {
+    if (!this.modelIsCurrent(instance)) return undefined;
     const model = this.models.get(owner(instance)); return model && structuredClone(model);
+  }
+  dependencyResult(instance: BuildInstance, projectID?: string): BuildDependencySnapshot | undefined {
+    if (!this.modelIsCurrent(instance)) return undefined;
+    const result = this.dependencyResults.get(JSON.stringify([owner(instance), projectID ?? ""]))?.snapshot;
+    return result && structuredClone(result);
   }
   configurationIsCurrent(instance: BuildInstance, snapshot: BuildNativeConfiguration): boolean {
     const receipt = this.configurations.get(owner(instance));
@@ -167,8 +196,10 @@ export class WindowsBuildProviderWorkspace {
     this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1);
     this.models.delete(key);
     this.modelInputs.delete(key);
+    for (const [id, cached] of this.dependencyResults) if (cached.instance === key) this.dependencyResults.delete(id);
     this.configurations.delete(key);
     for (const pending of this.controllers.values()) if (pending.instance === key) pending.controller.abort(this.revoked());
+    this.factsChanged();
     this.changed();
   }
   cancel(id: string): boolean {
@@ -186,15 +217,26 @@ export class WindowsBuildProviderWorkspace {
       const selected = operation.record.instance;
       this.models.set(owner(selected), structuredClone(decoded.model));
       this.modelInputs.set(owner(selected), { options: fingerprint(selected.options), context: operation.context, current: operation.current });
+      this.factsChanged();
       return decoded.model;
     }, false);
   }
 
   dependencies(instance: BuildInstance, projectID?: string) {
-    return this.begin<{ dependencies: { project: string; dependencies: unknown[]; truncated: boolean } }>(instance, false, async operation => {
+    return this.begin<{ dependencies: BuildDependencies }>(instance, false, async operation => {
       const project = this.project(operation.record.instance, projectID);
       const result = await operation.perform("build.dependencyPlan", { project });
-      return await operation.decode("build.decodeDependencies", { result, project: project?.path });
+      const decoded = await operation.decode<{ dependencies: BuildDependencies }>("build.decodeDependencies", { result, project: project?.path });
+      operation.current();
+      const key = owner(operation.record.instance);
+      const cacheKey = JSON.stringify([key, projectID ?? ""]);
+      this.dependencyResults.delete(cacheKey);
+      this.dependencyResults.set(cacheKey, { instance: key, snapshot: { ...structuredClone(decoded.dependencies), revision: operation.record.id } });
+      // Core bounds each tree. Keep only four recently requested trees across
+      // all roots, rather than one large tree for every reactor project.
+      while (this.dependencyResults.size > MAX_DEPENDENCY_SNAPSHOTS) this.dependencyResults.delete(this.dependencyResults.keys().next().value!);
+      this.factsChanged();
+      return decoded;
     });
   }
 
@@ -248,9 +290,11 @@ export class WindowsBuildProviderWorkspace {
     const keys = new Set([...this.models.keys(), ...this.configurations.keys(), ...[...this.controllers.values()].map(pending => pending.instance)]
       .filter(key => { const [plugin, system] = JSON.parse(key); return plugin === selected.pluginID && system === selected.buildSystemID; }));
     for (const key of keys) { this.models.delete(key); this.modelInputs.delete(key); this.configurations.delete(key); }
+    for (const [id, cached] of this.dependencyResults) if (keys.has(cached.instance)) this.dependencyResults.delete(id);
     for (const [id, pending] of this.controllers) {
       if (id !== savingOperationID && keys.has(pending.instance)) pending.controller.abort(this.revoked());
     }
+    this.factsChanged();
     this.changed();
   }
 
@@ -259,6 +303,7 @@ export class WindowsBuildProviderWorkspace {
     const selected = operation.record.instance;
     this.configurations.set(owner(selected), { snapshot: fingerprint(snapshot), context: operation.context,
       options: fingerprint(selected.options), current: operation.current });
+    this.factsChanged();
   }
 
   executeTask(instance: BuildInstance, task: string, projectID?: string, userArguments: string[] = []) {
@@ -445,7 +490,9 @@ export class WindowsBuildProviderWorkspace {
     for (const pending of this.controllers.values()) pending.controller.abort(this.revoked());
     this.models.clear();
     this.modelInputs.clear();
+    this.dependencyResults.clear();
     this.configurations.clear();
+    this.factsChanged();
     this.changed();
     const stops = await Promise.allSettled([...this.targets.values()].map(target => this.ports.providers.stop(target)));
     // Cancelling a completion may register cleanup for its late native reply.
