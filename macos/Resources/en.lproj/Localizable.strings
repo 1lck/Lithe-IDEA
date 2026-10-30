@@ -966,6 +966,7 @@
 "Could not compare the local adapter with the verified version." = "Could not compare the local adapter with the verified version.";
 "Could not confirm" = "Could not confirm";
 "Could not connect to the Debug Adapter: %@" = "Could not connect to the Debug Adapter: %@";
+"Could not connect to the Java Debug Server: %@" = "Could not connect to the Java Debug Server: %@";
 "Could not copy your Stable settings" = "Could not copy your Stable settings";
 "Could not decode this file" = "Could not decode this file";
 "Could not discover runtimes on the remote host. Check the connection and refresh." = "Could not discover runtimes on the remote host. Check the connection and refresh.";
@@ -992,6 +993,7 @@
 "Could not prepare the run configuration: %@" = "Could not prepare the run configuration: %@";
 "Could not read %@." = "Could not read %@.";
 "Could not read %@: %@" = "Could not read %@: %@";
+"Could not read Java build-file metadata for %@." = "Could not read Java build-file metadata for %@.";
 "Could not read the command line." = "Could not read the command line.";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "Could not read the selected built-in background." = "Could not read the selected built-in background.";
@@ -1570,6 +1572,7 @@
 "Full access" = "Full access";
 "Gathering diagnostics…" = "Gathering diagnostics…";
 "General" = "General";
+"Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved." = "Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.";
 "Generate Preview" = "Generate Preview";
 "Generate a commit message from staged diffs" = "Generate a commit message from staged diffs";
 "Generate a commit message from the selected diff" = "Generate a commit message from the selected diff";
@@ -2003,12 +2006,14 @@
 "Lithe is up to date at version %@." = "Lithe is up to date at version %@.";
 "Lithe looks for Codex and Claude configuration files on this Mac." = "Lithe looks for Codex and Claude configuration files on this Mac.";
 "Lithe looks for ~/.codex/config.toml and ~/.codex/auth.json on this Mac." = "Lithe looks for ~/.codex/config.toml and ~/.codex/auth.json on this Mac.";
+"Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed." = "Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.";
 "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed." = "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.";
 "Lithe publisher signature verified" = "Lithe publisher signature verified";
 "Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes." = "Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes.";
 "Lithe will clone the repository into %@." = "Lithe will clone the repository into %@.";
 "Lithe will clone the repository into (destinationDescription)." = "Lithe will clone the repository into (destinationDescription).";
 "Lithe will download the update and restart after replacing the current app." = "Lithe will download the update and restart after replacing the current app.";
+"Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed." = "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.";
 "Lithe will look for services again. Project and local overrides will not be changed." = "Lithe will look for services again. Project and local overrides will not be changed.";
 "Lithe: fetch submodules" = "Lithe: fetch submodules";
 "Lithe: fetch tags" = "Lithe: fetch tags";
@@ -3824,6 +3829,7 @@
 "The Hook library response was not recognised." = "The Hook library response was not recognised.";
 "The JDK the new project uses. It must be at least the Java version below." = "The JDK the new project uses. It must be at least the Java version below.";
 "The JVM does not expose supported heap counters through jstat." = "The JVM does not expose supported heap counters through jstat.";
+"The Java Debug Server connection is stopped." = "The Java Debug Server connection is stopped.";
 "The Java Debug Server returned an invalid TCP port." = "The Java Debug Server returned an invalid TCP port.";
 "The Java Support plugin does not provide %@. Reinstall the plugin." = "The Java Support plugin does not provide %@. Reinstall the plugin.";
 "The Java argument file could not be encoded as UTF-8." = "The Java argument file could not be encoded as UTF-8.";
@@ -3832,6 +3838,7 @@
 "The Java language service could not identify one launch target for this source file." = "The Java language service could not identify one launch target for this source file.";
 "The Java language service could not resolve a main class for this file." = "The Java language service could not resolve a main class for this file.";
 "The Java language service failed to prepare the project." = "The Java language service failed to prepare the project.";
+"The Java language service is unavailable." = "The Java language service is unavailable.";
 "The Java language service returned an invalid runtime classpath." = "The Java language service returned an invalid runtime classpath.";
 "The Java language service returned an unexpected project build status." = "The Java language service returned an unexpected project build status.";
 "The Java language service returned an unknown project build status." = "The Java language service returned an unknown project build status.";
@@ -5543,6 +5550,7 @@
 "native.couldNotCompareTheLocalAdapterWithTheVerifiedVersion" = "Could not compare the local adapter with the verified version.";
 "native.couldNotConfirm" = "Could not confirm";
 "native.couldNotConnectToTheDebugAdapter" = "Could not connect to the Debug Adapter: %1$@";
+"native.couldNotConnectToTheJavaDebugServer" = "Could not connect to the Java Debug Server: %1$@";
 "native.couldNotCopyYourStableSettings" = "Could not copy your Stable settings";
 "native.couldNotFindTheJavaSourceFor" = "Could not find the Java source for %1$@";
 "native.couldNotImportMcpJsonCheckTheMcpserversObjectAndTryAgain" = "Could not import MCP JSON. Check the mcpServers object and try again.";
@@ -5564,6 +5572,7 @@
 "native.couldNotPrepareTheRunConfiguration" = "Could not prepare the run configuration: %1$@";
 "native.couldNotRead" = "Could not read %1$@: %2$@";
 "native.couldNotRead.variant2" = "Could not read %1$@.";
+"native.couldNotReadJavaBuildFileMetadataFor" = "Could not read Java build-file metadata for %1$@.";
 "native.couldNotReadTheCommandLine" = "Could not read the command line.";
 "native.couldNotReadTheProjectFolderCheckThatItStillExistsAndThatLitheHasPermissionToAccessIt" = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "native.couldNotReadTheSelectedBuiltInBackground" = "Could not read the selected built-in background.";
@@ -6177,6 +6186,7 @@
 "native.generateACommitMessageFromStagedDiffs" = "Generate a commit message from staged diffs";
 "native.generateACommitMessageFromTheSelectedDiff" = "Generate a commit message from the selected diff";
 "native.generateATitleAndDescriptionFromTheSelectedBranchChanges" = "Generate a title and description from the selected branch changes";
+"native.generateLitheRunGeneratedJsonToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved" = "Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.";
 "native.generatePreview" = "Generate Preview";
 "native.generateWithAI" = "Generate with AI";
 "native.generated1RunnableProjectEntry" = "Generated 1 runnable project entry.";
@@ -6679,6 +6689,7 @@
 "native.litheLooksForCodexAndClaudeConfigurationFilesOnThisMac" = "Lithe looks for Codex and Claude configuration files on this Mac.";
 "native.litheLooksForCodexConfigTomlAndCodexAuthJsonOnThisMac" = "Lithe looks for ~/.codex/config.toml and ~/.codex/auth.json on this Mac.";
 "native.litheMCPWasRegisteredButCodexConfigTomlCouldNotBeAddedToGitSLocalExcludeList" = "Lithe MCP was registered, but .codex/config.toml could not be added to Git’s local exclude list: %1$@";
+"native.litheNeedsToIdentifyTheProjectAndGenerateLitheRunGeneratedJsonBeforeRunAndDebu71dbeebe55" = "Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.";
 "native.litheNeedsToIdentifyTheProjectBeforeRunAndDebugAreAvailableProjectAndLocalOverridesWillNotBeChanged" = "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.";
 "native.litheOfficial" = "Lithe Official";
 "native.lithePruneStaleBranches" = "Lithe: prune stale branches";
@@ -6689,6 +6700,7 @@
 "native.litheWillCloneTheRepositoryInto" = "Lithe will clone the repository into %1$@.";
 "native.litheWillCloneTheRepositoryIntoDestinationDescription" = "Lithe will clone the repository into (destinationDescription).";
 "native.litheWillDownloadTheUpdateAndRestartAfterReplacingTheCurrentApp" = "Lithe will download the update and restart after replacing the current app.";
+"native.litheWillLookForServicesAgainAndRefreshLitheRunGeneratedJsonProjectAndLocalOvec4eb77affa" = "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.";
 "native.litheWillLookForServicesAgainProjectAndLocalOverridesWillNotBeChanged" = "Lithe will look for services again. Project and local overrides will not be changed.";
 "native.lld" = "%1$@ %2$lld";
 "native.lld.variant2" = "%1$@ (%2$lld)";
@@ -8597,10 +8609,12 @@
 "native.theJDKTheNewProjectUsesItMustBeAtLeastTheJavaVersionBelow" = "The JDK the new project uses. It must be at least the Java version below.";
 "native.theJVMDoesNotExposeSupportedHeapCountersThroughJstat" = "The JVM does not expose supported heap counters through jstat.";
 "native.theJavaArgumentFileCouldNotBeEncoded" = "The Java argument file could not be encoded as UTF-8.";
+"native.theJavaDebugServerConnectionIsStopped" = "The Java Debug Server connection is stopped.";
 "native.theJavaDebugServerReturnedAnInvalidTcp" = "The Java Debug Server returned an invalid TCP port.";
 "native.theJavaLanguageServerDidNotTakeTheMavenConfiguration" = "The Java language server did not take the Maven configuration: %1$@";
 "native.theJavaLanguageServiceCouldNotResolveA" = "The Java language service could not resolve a main class for this file.";
 "native.theJavaLanguageServiceFailedToPrepareTheProject" = "The Java language service failed to prepare the project.";
+"native.theJavaLanguageServiceIsUnavailable" = "The Java language service is unavailable.";
 "native.theJavaSourceForCouldNotBeResolved" = "The Java source for %1$@ could not be resolved.";
 "native.theJavaSupportPluginDoesNotProvideReinstall" = "The Java Support plugin does not provide %1$@. Reinstall the plugin.";
 "native.theJavaTestResultListenerDidNotBecome" = "The Java test result listener did not become ready in time.";

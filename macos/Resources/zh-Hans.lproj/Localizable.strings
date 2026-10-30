@@ -966,6 +966,7 @@
 "Could not compare the local adapter with the verified version." = "无法比较本地适配器与已核验版本。";
 "Could not confirm" = "无法确认";
 "Could not connect to the Debug Adapter: %@" = "无法连接调试适配器：%@";
+"Could not connect to the Java Debug Server: %@" = "无法连接 Java Debug Server：%@";
 "Could not copy your Stable settings" = "无法复制正式版设置";
 "Could not decode this file" = "无法解码此文件";
 "Could not discover runtimes on the remote host. Check the connection and refresh." = "无法探测远程主机的运行环境，请检查连接后刷新。";
@@ -992,6 +993,7 @@
 "Could not prepare the run configuration: %@" = "无法准备运行配置：%@";
 "Could not read %@." = "无法读取 %@。";
 "Could not read %@: %@" = "无法读取 %@：%@";
+"Could not read Java build-file metadata for %@." = "无法读取 %@ 的 Java 构建文件元数据。";
 "Could not read the command line." = "无法读取命令行。";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "Could not read the selected built-in background." = "无法读取所选的内置背景。";
@@ -1570,6 +1572,7 @@
 "Full access" = "完全访问";
 "Gathering diagnostics…" = "正在收集诊断信息…";
 "General" = "通用";
+"Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved." = "生成 .lithe/run/generated.json 后即可使用运行和调试。现有项目配置和本机覆盖配置会被保留。";
 "Generate Preview" = "生成预览";
 "Generate a commit message from staged diffs" = "根据已暂存的 Diff 生成提交信息";
 "Generate a commit message from the selected diff" = "根据选中的 Diff 生成提交信息";
@@ -2003,12 +2006,14 @@
 "Lithe is up to date at version %@." = "Lithe 已是最新版本 %@。";
 "Lithe looks for Codex and Claude configuration files on this Mac." = "Lithe 会在此 Mac 上查找 Codex 和 Claude 的本地配置文件。";
 "Lithe looks for ~/.codex/config.toml and ~/.codex/auth.json on this Mac." = "Lithe 会在此 Mac 上查找 ~/.codex/config.toml 和 ~/.codex/auth.json。";
+"Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed." = "使用运行和调试功能前，Lithe 需要识别项目并生成 .lithe/run/generated.json。项目配置和本机覆盖配置不会被修改。";
 "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed." = "使用运行和调试功能前，Lithe 需要先识别项目。项目配置和本机覆盖配置不会被修改。";
 "Lithe publisher signature verified" = "已验证 Lithe 发布者签名";
 "Lithe reads the servers registered in your Codex and Claude Code configuration. Saving writes only the changed entry, keeps backups in Application Support, and never overwrites an entry created outside Lithe. Agents read MCP configuration when a session starts, so restart a session to apply changes." = "Lithe 会读取你已在 Codex 与 Claude Code 配置中注册的服务器。保存时只改写发生变化的条目，备份存放在 Application Support 中，且不会覆盖在 Lithe 之外创建的条目。Agent 在会话启动时读取 MCP 配置，重启会话后生效。";
 "Lithe will clone the repository into %@." = "Lithe 会将仓库克隆到 %@。";
 "Lithe will clone the repository into (destinationDescription)." = "Lithe 会将仓库克隆到（目标文件夹）。";
 "Lithe will download the update and restart after replacing the current app." = "Lithe 将下载更新，替换当前应用后重新启动。";
+"Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed." = "Lithe 将重新查找服务并刷新 .lithe/run/generated.json。项目与本机的覆盖配置不会被修改。";
 "Lithe will look for services again. Project and local overrides will not be changed." = "Lithe 将重新查找服务。项目与本机的覆盖配置不会被修改。";
 "Lithe: fetch submodules" = "Lithe：获取子模块";
 "Lithe: fetch tags" = "Lithe：获取标签";
@@ -3824,6 +3829,7 @@
 "The Hook library response was not recognised." = "无法识别 Hook 资源库响应。";
 "The JDK the new project uses. It must be at least the Java version below." = "新项目使用的 JDK，版本不能低于下方的 Java 版本。";
 "The JVM does not expose supported heap counters through jstat." = "当前 JVM 未通过 jstat 提供受支持的堆计数器。";
+"The Java Debug Server connection is stopped." = "Java Debug Server 的连接已停止。";
 "The Java Debug Server returned an invalid TCP port." = "Java Debug Server 返回了无效的 TCP 端口。";
 "The Java Support plugin does not provide %@. Reinstall the plugin." = "Java 支持插件没有提供 %@。请重新安装该插件。";
 "The Java argument file could not be encoded as UTF-8." = "Java 参数文件无法编码为 UTF-8。";
@@ -3832,6 +3838,7 @@
 "The Java language service could not identify one launch target for this source file." = "Java 语言服务无法为此源文件确定唯一的启动入口。";
 "The Java language service could not resolve a main class for this file." = "Java 语言服务无法为此文件解析主类。";
 "The Java language service failed to prepare the project." = "Java 语言服务未能完成项目准备。";
+"The Java language service is unavailable." = "Java 语言服务不可用。";
 "The Java language service returned an invalid runtime classpath." = "Java 语言服务返回的运行类路径无效。";
 "The Java language service returned an unexpected project build status." = "Java 语言服务返回了未知的项目构建状态。";
 "The Java language service returned an unknown project build status." = "Java 语言服务返回了未知的项目构建状态。";
@@ -5543,6 +5550,7 @@
 "native.couldNotCompareTheLocalAdapterWithTheVerifiedVersion" = "无法比较本地适配器与已核验版本。";
 "native.couldNotConfirm" = "无法确认";
 "native.couldNotConnectToTheDebugAdapter" = "无法连接调试适配器：%1$@";
+"native.couldNotConnectToTheJavaDebugServer" = "无法连接 Java Debug Server：%1$@";
 "native.couldNotCopyYourStableSettings" = "无法复制正式版设置";
 "native.couldNotFindTheJavaSourceFor" = "找不到 %1$@ 对应的 Java 源码";
 "native.couldNotImportMcpJsonCheckTheMcpserversObjectAndTryAgain" = "无法导入 MCP JSON。请检查 mcpServers 对象后重试。";
@@ -5564,6 +5572,7 @@
 "native.couldNotPrepareTheRunConfiguration" = "无法准备运行配置：%1$@";
 "native.couldNotRead" = "无法读取 %1$@：%2$@";
 "native.couldNotRead.variant2" = "无法读取 %1$@。";
+"native.couldNotReadJavaBuildFileMetadataFor" = "无法读取 %1$@ 的 Java 构建文件元数据。";
 "native.couldNotReadTheCommandLine" = "无法读取命令行。";
 "native.couldNotReadTheProjectFolderCheckThatItStillExistsAndThatLitheHasPermissionToAccessIt" = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "native.couldNotReadTheSelectedBuiltInBackground" = "无法读取所选的内置背景。";
@@ -6177,6 +6186,7 @@
 "native.generateACommitMessageFromStagedDiffs" = "根据已暂存的 Diff 生成提交信息";
 "native.generateACommitMessageFromTheSelectedDiff" = "根据选中的 Diff 生成提交信息";
 "native.generateATitleAndDescriptionFromTheSelectedBranchChanges" = "根据所选分支的更改生成标题和描述";
+"native.generateLitheRunGeneratedJsonToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved" = "生成 .lithe/run/generated.json 后即可使用运行和调试。现有项目配置和本机覆盖配置会被保留。";
 "native.generatePreview" = "生成预览";
 "native.generateWithAI" = "AI 生成";
 "native.generated1RunnableProjectEntry" = "已生成 1 个可运行的项目入口。";
@@ -6679,6 +6689,7 @@
 "native.litheLooksForCodexAndClaudeConfigurationFilesOnThisMac" = "Lithe 会在此 Mac 上查找 Codex 和 Claude 的本地配置文件。";
 "native.litheLooksForCodexConfigTomlAndCodexAuthJsonOnThisMac" = "Lithe 会在此 Mac 上查找 ~/.codex/config.toml 和 ~/.codex/auth.json。";
 "native.litheMCPWasRegisteredButCodexConfigTomlCouldNotBeAddedToGitSLocalExcludeList" = "Lithe MCP 已注册，但无法把 .codex/config.toml 加入 Git 的本地排除列表：%1$@";
+"native.litheNeedsToIdentifyTheProjectAndGenerateLitheRunGeneratedJsonBeforeRunAndDebu71dbeebe55" = "使用运行和调试功能前，Lithe 需要识别项目并生成 .lithe/run/generated.json。项目配置和本机覆盖配置不会被修改。";
 "native.litheNeedsToIdentifyTheProjectBeforeRunAndDebugAreAvailableProjectAndLocalOverridesWillNotBeChanged" = "使用运行和调试功能前，Lithe 需要先识别项目。项目配置和本机覆盖配置不会被修改。";
 "native.litheOfficial" = "Lithe 官方";
 "native.lithePruneStaleBranches" = "Lithe：清理失效的远程分支";
@@ -6689,6 +6700,7 @@
 "native.litheWillCloneTheRepositoryInto" = "Lithe 会将仓库克隆到 %1$@。";
 "native.litheWillCloneTheRepositoryIntoDestinationDescription" = "Lithe 会将仓库克隆到（目标文件夹）。";
 "native.litheWillDownloadTheUpdateAndRestartAfterReplacingTheCurrentApp" = "Lithe 将下载更新，替换当前应用后重新启动。";
+"native.litheWillLookForServicesAgainAndRefreshLitheRunGeneratedJsonProjectAndLocalOvec4eb77affa" = "Lithe 将重新查找服务并刷新 .lithe/run/generated.json。项目与本机的覆盖配置不会被修改。";
 "native.litheWillLookForServicesAgainProjectAndLocalOverridesWillNotBeChanged" = "Lithe 将重新查找服务。项目与本机的覆盖配置不会被修改。";
 "native.lld" = "%1$@ %2$lld";
 "native.lld.variant2" = "%1$@（%2$lld）";
@@ -8597,10 +8609,12 @@
 "native.theJDKTheNewProjectUsesItMustBeAtLeastTheJavaVersionBelow" = "新项目使用的 JDK，版本不能低于下方的 Java 版本。";
 "native.theJVMDoesNotExposeSupportedHeapCountersThroughJstat" = "当前 JVM 未通过 jstat 提供受支持的堆计数器。";
 "native.theJavaArgumentFileCouldNotBeEncoded" = "Java 参数文件无法编码为 UTF-8。";
+"native.theJavaDebugServerConnectionIsStopped" = "Java Debug Server 的连接已停止。";
 "native.theJavaDebugServerReturnedAnInvalidTcp" = "Java Debug Server 返回了无效的 TCP 端口。";
 "native.theJavaLanguageServerDidNotTakeTheMavenConfiguration" = "Java 语言服务器未能应用 Maven 配置：%1$@";
 "native.theJavaLanguageServiceCouldNotResolveA" = "Java 语言服务无法为此文件解析主类。";
 "native.theJavaLanguageServiceFailedToPrepareTheProject" = "Java 语言服务未能完成项目准备。";
+"native.theJavaLanguageServiceIsUnavailable" = "Java 语言服务不可用。";
 "native.theJavaSourceForCouldNotBeResolved" = "无法解析 %1$@ 的 Java 源码。";
 "native.theJavaSupportPluginDoesNotProvideReinstall" = "Java 支持插件没有提供 %1$@。请重新安装该插件。";
 "native.theJavaTestResultListenerDidNotBecome" = "Java 测试结果监听器未能及时就绪。";
