@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -186,7 +187,10 @@ pub struct LspClientDocument {
     pub uri: String,
     pub language_id: String,
     pub version: i64,
-    pub text: String,
+    /// Shared so that copying the client state, which every request, document
+    /// change, and server message does while holding the session locks, does
+    /// not copy the text of every open document. Serializes as a plain string.
+    pub text: Arc<str>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -298,9 +302,11 @@ pub struct ClientFeatureRequest {
     pub command: Option<Value>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Server JSON-RPC message to reduce into the current client state.
+/// Server JSON-RPC message to reduce into the current client state. Only the
+/// stateless reducer tests use it; the engine passes the parsed message.
 pub struct ClientApplyServerMessageRequest {
     #[serde(default)]
     pub state: LspClientState,

@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import Testing
 @testable import Lithe
 @testable import LitheAgentConversationModule

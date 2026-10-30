@@ -38618,13 +38618,13 @@
       }
     },
     {
-      "id": "native.generateLitheRunGeneratedJsonToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved",
-      "description": "Native UI: Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.",
+      "id": "native.identifyTheProjectToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved",
+      "description": "Native UI: Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.",
+        "key": "Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
         "arguments": []
       }
     },
@@ -42772,13 +42772,13 @@
       }
     },
     {
-      "id": "native.litheNeedsToIdentifyTheProjectAndGenerateLitheRunGeneratedJsonBeforeRunAndDebu71dbeebe55",
-      "description": "Native UI: Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.",
+      "id": "native.litheNeedsToIdentifyTheProjectBeforeRunAndDebugAreAvailableProjectAndLocalOverridesWillNotBeChanged",
+      "description": "Native UI: Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.",
+        "key": "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
         "arguments": []
       }
     },
@@ -42871,13 +42871,13 @@
       }
     },
     {
-      "id": "native.litheWillLookForServicesAgainAndRefreshLitheRunGeneratedJsonProjectAndLocalOvec4eb77affa",
-      "description": "Native UI: Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.",
+      "id": "native.litheWillLookForServicesAgainProjectAndLocalOverridesWillNotBeChanged",
+      "description": "Native UI: Lithe will look for services again. Project and local overrides will not be changed.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.",
+        "key": "Lithe will look for services again. Project and local overrides will not be changed.",
         "arguments": []
       }
     },
@@ -84231,22 +84231,6 @@
       "macos": {
         "key": "Rust Core workspace-fingerprint resolution is unavailable.",
         "arguments": []
-      }
-    },
-    {
-      "id": "native.couldNotReadJavaBuildFileMetadataFor",
-      "description": "Native UI: Could not read Java build-file metadata for %@.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Could not read Java build-file metadata for %@.",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
       }
     },
     {
