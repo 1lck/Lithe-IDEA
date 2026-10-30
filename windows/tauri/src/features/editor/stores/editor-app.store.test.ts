@@ -469,6 +469,8 @@ async function startAutosaveHarness(options: {
    * the re-read afterwards no longer sees an owner.
    */
   onClaimRefusedWhileSaving?: (writes: PendingWrite[]) => Promise<void>;
+  /** Holds a claim that will succeed, so a test can act between timer and write. */
+  onClaim?: () => Promise<void>;
 } = {}) {
   const documentFiles = await import("@/platform/document-files");
   const lifecycle = await import("@/platform/document-lifecycle");
@@ -501,6 +503,7 @@ async function startAutosaveHarness(options: {
           }
           return { state, action: state.status === "conflict" ? "showConflict" : "none" };
         }
+        await options.onClaim?.();
         return {
           state: {
             status: "saving",
@@ -695,6 +698,44 @@ describe("editor autosave continuation", () => {
       await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "the save to settle");
       expect(harness.writes).toHaveLength(1);
     } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("a focus change while the fired autosave claims the document does not start it again", async () => {
+    let claims = 0;
+    let releaseClaim = () => {};
+    const claimHeld = new Promise<void>((resolve) => {
+      releaseClaim = resolve;
+    });
+    const harness = await startAutosaveHarness({
+      onClaim: async () => {
+        claims += 1;
+        await claimHeld;
+      },
+    });
+    try {
+      setWorkspaceBuffers(
+        WORKSPACE_A,
+        [editorBuffer("a", "first line", { path: "C:/fixture/a.txt", isVirtual: false })],
+        "a",
+      );
+      const { actions } = harness.store.getState();
+      await actions.handleContentChange("a", "first line!");
+      await flushUntil(() => harness.timer.size === 1, "the autosave debounce");
+      await harness.timer.fireNext();
+      await flushUntil(() => claims === 1, "the fired autosave to claim the document");
+
+      actions.flushAutoSaves();
+      releaseClaim();
+      await flushUntil(() => harness.writes.length > 0, "the write after the claim");
+      harness.writes[0].resolve();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "the save to settle");
+
+      expect(claims).toBe(1);
+      expect(harness.writes).toHaveLength(1);
+    } finally {
+      releaseClaim();
       harness.restore();
     }
   }, 1_000);

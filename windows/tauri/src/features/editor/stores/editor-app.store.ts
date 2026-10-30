@@ -632,7 +632,12 @@ export const createEditorAppStore = (
                 path: target.path,
                 operationId: crypto.randomUUID(),
               };
+              // The task stays queued until its write settles, so a focus change
+              // can reach it after the timer already fired.
+              let started = false;
               const run = () => {
+                if (started) return;
+                started = true;
                 void runAutoSave(autoSaveContext, text, target);
               };
               const timeoutId = scheduler.setTimer(run, AUTO_SAVE_DELAY_MILLISECONDS);
