@@ -1,0 +1,27 @@
+{
+  "id": "editor-tab-limit",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "标签数量上限与自动关闭策略",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Editor"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/editor/stores/buffer-eviction.ts",
+      "windows/tauri/src/features/editor/stores/buffer-eviction.test.ts",
+      "windows/tauri/src/features/tabs/utils/tab-recency.ts",
+      "windows/tauri/src/features/tabs/components/tab-bar.tsx",
+      "windows/tauri/src/features/settings/components/tabs/editor-settings.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Editor",
+  "notes": "Windows 只有一份上限逻辑：打开新标签时由 buffer store 淘汰，调低上限或恢复会话时由标签栏补齐。上限只计算可自动关闭的标签，已固定、有未保存修改的标签以及终端、Agent 等工具标签既不计数也不关闭；0 表示不限制。默认值 30 只影响新安装，已写入 settings.json 的值保持不变。",
+  "verification": "Windows：把最大打开标签数设为 3，依次打开 5 个文件并切回第 1 个，确认默认策略关闭最久未使用的标签而不是最早打开的；切换为「关闭最早打开的」后行为随之改变。开着终端、Agent 对话、已固定和未保存标签重复上述步骤，确认它们都不被关闭。把上限设为 0 后继续打开文件，确认不再自动关闭。"
+}

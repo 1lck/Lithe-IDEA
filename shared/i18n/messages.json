@@ -69266,6 +69266,34 @@
       ]
     },
     {
+      "id": "settings.editor.tabLimitPolicy",
+      "description": "Windows UI: settings.editor.tabLimitPolicy",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.editor.tabLimitPolicyDescription",
+      "description": "Windows UI: settings.editor.tabLimitPolicyDescription",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.editor.tabLimitPolicy.leastRecentlyUsed",
+      "description": "Windows UI: settings.editor.tabLimitPolicy.leastRecentlyUsed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.editor.tabLimitPolicy.oldestOpened",
+      "description": "Windows UI: settings.editor.tabLimitPolicy.oldestOpened",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "settings.editor.parameterHints",
       "description": "Windows UI: settings.editor.parameterHints",
       "platforms": [

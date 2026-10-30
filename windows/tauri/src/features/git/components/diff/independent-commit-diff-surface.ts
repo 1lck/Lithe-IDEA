@@ -19,6 +19,7 @@ import {
   type IndependentChange,
   type IndependentDisplayChange,
 } from "../../utils/independent-commit-diff";
+import { MONACO_INPUT_OPTIONS } from "@/features/editor/engines/monaco/input-options";
 
 const RAIL_WIDTH = 12,
   RAIL_GAP = 4,
@@ -129,6 +130,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
   );
   const views = nodes.map((node, index) =>
     monaco.editor.create(node, {
+      ...MONACO_INPUT_OPTIONS,
       model: models[index],
       readOnly: true,
       domReadOnly: true,

@@ -192,6 +192,41 @@ const tabs = {
   },
 };
 
+// More files than the mounted editors, so the last opens reuse an editor. Each
+// open waits for the file's own text: hidden editors' lines are already on screen.
+const OPENED_FILE_COUNT = 12;
+const MOUNTED_EDITOR_COUNT = 8;
+
+const classNameOf = (fileName) => fileName.replace(".java", "");
+
+// The tree sorts by name and renders only its first rows.
+function firstServiceFiles(count) {
+  return Array.from({ length: SERVICE_COUNT }, (_, index) => `Service${index}.java`)
+    .sort()
+    .slice(0, count);
+}
+
+const fileOpen = {
+  id: "fileOpen",
+  title: `Open ${OPENED_FILE_COUNT} files, past the mounted editor limit`,
+  async run(harness) {
+    await setupProject(harness);
+    const opens = [];
+    for (const name of firstServiceFiles(OPENED_FILE_COUNT)) {
+      opens.push(await harness.openFileToText(`${SERVICE_DIRECTORY}/${name}`, classNameOf(name)));
+      await harness.quiet(150);
+    }
+    const counters = await harness.counters();
+    return {
+      newEditorOpenP50Ms: percentile(opens.slice(1, MOUNTED_EDITOR_COUNT), 50),
+      pastLimitOpenP50Ms: percentile(opens.slice(MOUNTED_EDITOR_COUNT), 50),
+      pastLimitOpenP95Ms: percentile(opens.slice(MOUNTED_EDITOR_COUNT), 95),
+      heapMb: counters.heapMb,
+      domNodes: counters.domNodes,
+    };
+  },
+};
+
 const projectTree = {
   id: "projectTree",
   title: `Browse a folder of ${SERVICE_COUNT} files in the project tree`,
@@ -282,6 +317,7 @@ export const SCENARIOS = [
   keyRepeat,
   scroll,
   tabs,
+  fileOpen,
   projectTree,
   quickOpen,
   commandPalette,

@@ -177,6 +177,16 @@ export class Harness {
     return milliseconds;
   }
 
+  /** Like `openFile`, but waits for `text` so a hidden editor's lines do not count. */
+  async openFileToText(relative, text) {
+    const row = await this.revealRow(relative);
+    return this.inputToShown(
+      () => this.page.locator(this.rowSelector(row)).first().dblclick(),
+      EDITOR_LINES,
+      text,
+    );
+  }
+
   async focusEditor() {
     // The line layer scrolls away with the content; the guard stays in the viewport.
     await this.page.locator(".monaco-editor .overflow-guard").first().click({ position: { x: 300, y: 200 } });

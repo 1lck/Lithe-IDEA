@@ -123,7 +123,10 @@ import {
 import type { MarkdownScrollMetrics } from "../markdown/scroll-sync";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
-import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
+import {
+  registerMonacoDefinitionLinkGesture,
+  type MonacoDefinitionLinkGesture,
+} from "../engines/monaco/definition-link";
 import { suppressFindWidgetCloseButtonHover } from "../engines/monaco/find-widget-hover";
 import {
   consumeLocalContentSnapshot,
@@ -132,11 +135,12 @@ import {
 import {
   clampMonacoHoverWidgets,
   mutationsContainMonacoHoverWidget,
-  syncMonacoHoverBounds,
 } from "../engines/monaco/hover-widgets";
+import { registerMonacoSurface, type MonacoSurfaceRegistration } from "../engines/monaco/surface-visibility";
 import { toMonacoLanguageId } from "../engines/monaco/language";
 import { ensureMonacoLanguageTokenizer } from "../engines/monaco/language-contributions";
 import { acquireMonacoModel } from "../engines/monaco/model-lifecycle";
+import { createMonacoModelPositionResolver } from "../engines/monaco/model-position-resolver";
 import { reactivateMonacoModelLanguage } from "../engines/monaco/model-language-activation";
 import { getEditorBottomScrollPadding } from "../engines/monaco/scroll-padding";
 import { acquireEditorModelSource } from "@lithe/editor/model-source";
@@ -172,6 +176,7 @@ import {
 } from "../engines/monaco/java-run-markers";
 import type { JavaImplementationMarker } from "../lsp/java-navigation-models";
 import { toast } from "sonner";
+import { MONACO_INPUT_OPTIONS } from "../engines/monaco/input-options";
 import { writeClipboardText } from "@/utils/clipboard";
 
 registerMonacoLspProviders();
@@ -185,6 +190,14 @@ interface GitGutterRenderContext {
 }
 
 /** Binds the long-lived gutter controller to the editor's latest render values. */
+/**
+ * Monaco never unregisters `addCommand` handlers, so a closure from the editor
+ * setup would keep the disposed editor and its DOM alive for the whole session.
+ */
+function createSelectAllCommand(callbacks: { current: { selectEntireModel: () => void } }) {
+  return () => callbacks.current.selectEntireModel();
+}
+
 function gitGutterControllerOptions(
   context: () => GitGutterRenderContext | null,
 ): GitGutterControllerOptions {
@@ -321,13 +334,37 @@ export interface MonacoEditorScrollApi {
   setScrollTop: (scrollTop: number) => void;
 }
 
+/** The file a reused editor currently shows; editor-level handlers read it. */
+interface MonacoModelBinding {
+  model: Monaco.editor.ITextModel;
+  filePath: string;
+  editorBufferId: string;
+  paneId: string | undefined;
+  viewKey: string;
+}
+
 export interface MonacoEditorProps {
   bufferId?: string;
   paneId?: string;
   viewStateKey?: string;
   isActiveSurface?: boolean;
+  /** Shown in its pane, focused or not; defaults to `isActiveSurface`. */
+  isVisibleSurface?: boolean;
   isPreviewMode?: boolean;
   enableExpensiveServices?: boolean;
+  /**
+   * Whether this editor may show rich view options (code lens, glyph margin,
+   * parameter hints) at all, independent of focus. Defaults to
+   * `enableExpensiveServices`. Hosts that keep hidden editors mounted pass a
+   * focus-independent value: toggling these options rebuilds editor parts and
+   * restyles the whole editor, which made every tab switch pay that cost twice.
+   */
+  enableRichViewOptions?: boolean;
+  /**
+   * False while the buffer's text is still loading. The editor stays mounted so
+   * it can be reused, and the file is bound only once its text has arrived.
+   */
+  isContentReady?: boolean;
   readOnly?: boolean;
   scrollable?: boolean;
   alwaysConsumeMouseWheel?: boolean;
@@ -368,8 +405,11 @@ export function MonacoEditor({
   paneId,
   viewStateKey,
   isActiveSurface = true,
+  isVisibleSurface = isActiveSurface,
   isPreviewMode = false,
   enableExpensiveServices = true,
+  enableRichViewOptions = enableExpensiveServices,
+  isContentReady = true,
   readOnly = false,
   scrollable = true,
   alwaysConsumeMouseWheel = true,
@@ -433,6 +473,8 @@ export function MonacoEditor({
   // editor — and re-tokenizing the file from scratch — on each switch. Option
   // changes are applied by the dedicated `updateOptions` effect instead.
   const enableExpensiveServicesRef = useRef(enableExpensiveServices);
+  const enableRichViewOptionsRef = useRef(enableRichViewOptions);
+  const surfaceRegistrationRef = useRef<MonacoSurfaceRegistration | null>(null);
   const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
   const buffer = useBufferStore(
     useCallback(
@@ -697,6 +739,7 @@ export function MonacoEditor({
   onScrollMetricsChangeRef.current = onScrollMetricsChange;
   onEditorScrollApiReadyRef.current = onEditorScrollApiReady;
   enableExpensiveServicesRef.current = enableExpensiveServices;
+  enableRichViewOptionsRef.current = enableRichViewOptions;
 
   const isCurrentEditorSurface = useCallback(() => {
     if (!isActiveSurfaceRef.current) return false;
@@ -707,6 +750,21 @@ export function MonacoEditor({
     const activeViewKey = useEditorStateStore.getState().activeEditorViewKey;
     return !viewStateKey || !activeViewKey || activeViewKey === viewStateKey;
   }, [editorBufferId, viewStateKey]);
+
+  // Lets language providers skip models that only hidden tabs show.
+  const isVisibleSurfaceRef = useRef(isVisibleSurface);
+  isVisibleSurfaceRef.current = isVisibleSurface;
+  useEffect(() => {
+    const registration = registerMonacoSurface(modelUri.toString(), isVisibleSurfaceRef.current);
+    surfaceRegistrationRef.current = registration;
+    return () => {
+      registration.dispose();
+      if (surfaceRegistrationRef.current === registration) surfaceRegistrationRef.current = null;
+    };
+  }, [modelUri]);
+  useEffect(() => {
+    surfaceRegistrationRef.current?.setVisible(isVisibleSurface);
+  }, [isVisibleSurface]);
 
   const lineNumberFormatter = useCallback(
     (lineNumber: number) => {
@@ -1095,179 +1153,121 @@ export function MonacoEditor({
     inlineEditState.inlineEditToolbarActions.hide();
   });
 
+  // The Monaco editor outlives the file it shows. Creating an editor builds
+  // its whole DOM and runs every contribution (70-100 ms per open), so the
+  // editor is created once per surface and file switches only swap the model,
+  // as VS Code does. Everything bound to one file lives in the model effect
+  // below; editor-level handlers read the current file through this ref.
+  const modelBindingRef = useRef<MonacoModelBinding | null>(null);
+  const definitionLinkGestureRef = useRef<MonacoDefinitionLinkGesture | null>(null);
+  const releaseBoundModelRef = useRef<(() => void) | null>(null);
+  const editorCallbacksRef = useRef({
+    isCurrentEditorSurface,
+    onScrollOffsetChange,
+    selectEntireModel,
+    setContextMenuPosition,
+    setScrollForBuffer,
+    setViewportHeight,
+    syncCursorAndSelection,
+  });
+  editorCallbacksRef.current = {
+    isCurrentEditorSurface,
+    onScrollOffsetChange,
+    selectEntireModel,
+    setContextMenuPosition,
+    setScrollForBuffer,
+    setViewportHeight,
+    syncCursorAndSelection,
+  };
+  // Creation-time options; later changes go through the `updateOptions` effect.
+  const creationOptionsRef = useRef<() => Monaco.editor.IStandaloneEditorConstructionOptions>(
+    () => ({}),
+  );
+  creationOptionsRef.current = () => ({
+    ...MONACO_INPUT_OPTIONS,
+    automaticLayout: true,
+    fontFamily,
+    fontSize,
+    lineHeight,
+    tabSize,
+    insertSpaces: true,
+    readOnly: readOnly || isPreviewMode,
+    domReadOnly: readOnly || isPreviewMode,
+    minimap: { enabled: minimapEnabled },
+    fontLigatures: editorFontLigatures,
+    // Geist Mono is a variable font; Windows DPI plus Monaco's default
+    // monospace width cache places the caret one column left of the click.
+    disableMonospaceOptimizations: true,
+    selectOnLineNumbers: true,
+    glyphMargin: enableRichViewOptions && monacoLanguageId === "java",
+    stickyScroll: { enabled: editorStickyScroll },
+    bracketPairColorization: { enabled: editorBracketPairColorization },
+    smoothScrolling: editorSmoothScrolling,
+    mouseWheelScrollSensitivity: EDITOR_CONSTANTS.MOUSE_WHEEL_SCROLL_SENSITIVITY,
+    scrollBeyondLastLine: editorScrollBeyondLastLine,
+    // Annotate owns the column while it is on, the way the macOS workbench
+    // keeps numbers visible so the annotation has something to sit next to.
+    lineNumbers: lineNumbers || blameGutterEntriesRef.current.size > 0 ? lineNumberFormatter : "off",
+    lineNumbersMinChars:
+      blameGutterEntriesRef.current.size > 0
+        ? blameColumnCharsRef.current
+        : DEFAULT_LINE_NUMBER_CHARS,
+    renderWhitespace: renderWhitespace === "none" ? "none" : renderWhitespace,
+    wordWrap: wordWrap ? "on" : "off",
+    guides: {
+      indentation: renderIndentGuides,
+      highlightActiveIndentation: renderIndentGuides,
+    },
+    occurrencesHighlight: highlightOccurrences ? "singleFile" : "off",
+    selectionHighlight: highlightOccurrences,
+    quickSuggestions: autoCompletion,
+    suggestOnTriggerCharacters: autoCompletion,
+    // Word-scan suggestions are a fallback when LSP completions are unavailable.
+    // They insert plain identifiers without namespace imports, so LSP results
+    // remain the primary source for typed class completions.
+    wordBasedSuggestions: "matchingDocuments",
+    parameterHints: { enabled: enableRichViewOptions && parameterHints },
+    codeLens: enableRichViewOptions && codeLens,
+    inlayHints: { enabled: enableRichViewOptions && inlayHints ? "on" : "off" },
+    theme: defineMonacoTheme(themeId, editorItalicComments),
+    cursorStyle: vimModeEnabled && vimCurrentMode === "normal" ? "block" : editorCursorStyle,
+    cursorBlinking: vimModeEnabled && vimCurrentMode === "normal" ? "solid" : editorCursorBlinking,
+    contextmenu: false,
+    overviewRulerLanes: 0,
+    fixedOverflowWidgets: false,
+    // Full-width punctuation is normal Chinese prose; see frontend/editor workbench.ts
+    // for the rationale behind disabling Monaco's confusable-character warning.
+    unicodeHighlight: { ambiguousCharacters: false },
+    // Standalone Monaco stores every editor's options in one shared
+    // configuration, so this flag is global: it follows the setting alone and
+    // the provider decides which models get tokens.
+    "semanticHighlighting.enabled": semanticTokens,
+    scrollbar: {
+      vertical: scrollable ? "auto" : "hidden",
+      horizontal: scrollable ? "auto" : "hidden",
+      handleMouseWheel: scrollable,
+      alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
+      verticalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
+      horizontalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
+    },
+  });
+
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container || !editorBufferId) return;
-    const finishCreatedRestore = viewStateRestoreGate.begin();
-    const fontOptions = { fontFamily, fontSize, lineHeight };
-    syncMonacoHoverBounds(container);
-    if (filePath && fileOpenBenchmark.has(filePath)) {
-      fileOpenBenchmark.mark(filePath, "monaco-create-start");
-    }
-    const languageTokenizerPromise = ensureMonacoLanguageTokenizer(monacoLanguageId).catch(
-      (error) => {
-        console.error(`Failed to load Monaco tokenizer for ${monacoLanguageId}:`, error);
-        return false;
-      },
-    );
-
-    const acquiredModel = acquireMonacoModel(content, monacoLanguageId, modelUri);
-    const model = acquiredModel.model;
-    const source = acquireEditorModelSource(model, content);
+    if (!container) return;
+    const callbacks = () => editorCallbacksRef.current;
     const editor = monacoEditor.create(container, {
-      model,
-      automaticLayout: true,
-      fontFamily,
-      fontSize,
-      lineHeight,
-      tabSize,
-      insertSpaces: true,
-      readOnly: readOnly || isPreviewMode,
-      domReadOnly: readOnly || isPreviewMode,
-      minimap: { enabled: minimapEnabled },
-      fontLigatures: editorFontLigatures,
-      // Geist Mono is a variable font; Windows DPI plus Monaco's default
-      // monospace width cache places the caret one column left of the click.
-      disableMonospaceOptimizations: true,
-      selectOnLineNumbers: true,
-      glyphMargin: enableExpensiveServicesRef.current && monacoLanguageId === "java",
-      stickyScroll: { enabled: editorStickyScroll },
-      bracketPairColorization: { enabled: editorBracketPairColorization },
-      smoothScrolling: editorSmoothScrolling,
-      mouseWheelScrollSensitivity: EDITOR_CONSTANTS.MOUSE_WHEEL_SCROLL_SENSITIVITY,
-      scrollBeyondLastLine: editorScrollBeyondLastLine,
+      ...creationOptionsRef.current(),
+      model: null,
       padding: { bottom: getEditorBottomScrollPadding(container.clientHeight) },
-      // Annotate owns the column while it is on, the way the macOS workbench
-      // keeps numbers visible so the annotation has something to sit next to.
-      lineNumbers:
-        lineNumbers || blameGutterEntriesRef.current.size > 0
-          ? lineNumberFormatter
-          : "off",
-      lineNumbersMinChars:
-        blameGutterEntriesRef.current.size > 0
-          ? blameColumnCharsRef.current
-          : DEFAULT_LINE_NUMBER_CHARS,
-      renderWhitespace: renderWhitespace === "none" ? "none" : renderWhitespace,
-      wordWrap: wordWrap ? "on" : "off",
-      guides: {
-        indentation: renderIndentGuides,
-        highlightActiveIndentation: renderIndentGuides,
-      },
-      occurrencesHighlight: highlightOccurrences ? "singleFile" : "off",
-      selectionHighlight: highlightOccurrences,
-      quickSuggestions: autoCompletion,
-      suggestOnTriggerCharacters: autoCompletion,
-      // Word-scan suggestions are a fallback when LSP completions are unavailable.
-      // They insert plain identifiers without namespace imports, so LSP results
-      // remain the primary source for typed class completions.
-      wordBasedSuggestions: "matchingDocuments",
-      // Expensive-service options are read from the ref so this effect stays
-      // stable across active-surface flips; the dedicated `updateOptions` effect
-      // below re-applies them whenever the live value changes.
-      parameterHints: { enabled: enableExpensiveServicesRef.current && parameterHints },
-      codeLens: enableExpensiveServicesRef.current && codeLens,
-      inlayHints: { enabled: enableExpensiveServicesRef.current && inlayHints ? "on" : "off" },
-      theme: defineMonacoTheme(themeId, editorItalicComments),
-      cursorStyle: vimModeEnabled && vimCurrentMode === "normal" ? "block" : editorCursorStyle,
-      cursorBlinking:
-        vimModeEnabled && vimCurrentMode === "normal" ? "solid" : editorCursorBlinking,
-      contextmenu: false,
-      overviewRulerLanes: 0,
-      fixedOverflowWidgets: false,
-      // Full-width punctuation is normal Chinese prose; see frontend/editor workbench.ts
-      // for the rationale behind disabling Monaco's confusable-character warning.
-      unicodeHighlight: { ambiguousCharacters: false },
-      "semanticHighlighting.enabled": enableExpensiveServicesRef.current && semanticTokens,
-      scrollbar: {
-        vertical: scrollable ? "auto" : "hidden",
-        horizontal: scrollable ? "auto" : "hidden",
-        handleMouseWheel: scrollable,
-        alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
-        verticalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
-        horizontalScrollbarSize: EDITOR_CONSTANTS.SCROLLBAR_TRACK_SIZE,
-      },
     });
     const restoreFindWidgetCloseButtonHover = suppressFindWidgetCloseButtonHover(container);
 
     editorRef.current = editor;
-    modelRef.current = model;
     const implementationDecorations = editor.createDecorationsCollection();
     implementationDecorationsRef.current = implementationDecorations;
-    const runMarkerDecorationCollection = editor.createDecorationsCollection(
-      runMarkerDecorationSpecsRef.current,
-    );
+    const runMarkerDecorationCollection = editor.createDecorationsCollection();
     runMarkerDecorationsRef.current = runMarkerDecorationCollection;
-    // The gutter controller lives exactly as long as this editor and model,
-    // so recreating the editor (file switch, option change) also disposes any
-    // open inline review. Its base arrives through `setBase`.
-    const gitGutterController = createGitGutterController(
-      editor,
-      model,
-      gitGutterControllerOptions(() => gitGutterContextRef.current),
-    );
-    gitGutterControllerRef.current = gitGutterController;
-    gitGutterController.setBase(gitGutterContextRef.current?.base?.lines ?? null);
-    previousContentRef.current = content;
-    pendingLocalContentSnapshotsRef.current = [];
-    if (filePath && fileOpenBenchmark.has(filePath)) {
-      fileOpenBenchmark.mark(filePath, "monaco-created", `${model.getLineCount()} lines`);
-    }
-    let benchmarkRafId: number | null = null;
-    let benchmarkTimeoutId: number | null = null;
-    let benchmarkFinished = false;
-    const getBenchmarkTokenTypes = () =>
-      Array.from(
-        new Set(
-          monacoEditor
-            .tokenize(content.slice(0, 4_096), model.getLanguageId())
-            .flatMap((line) => line.map((token) => token.type))
-            .filter(Boolean),
-        ),
-      ).slice(0, 12);
-    const finishBenchmark = () => {
-      if (benchmarkFinished) return;
-      benchmarkFinished = true;
-      if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
-      if (benchmarkTimeoutId !== null) window.clearTimeout(benchmarkTimeoutId);
-      if (!filePath || !fileOpenBenchmark.has(filePath) || model.isDisposed()) return;
-      const benchmarkTokenTypes = getBenchmarkTokenTypes();
-      fileOpenBenchmark.finish(filePath, "editor-ready", `${content.length} chars`, {
-        contentLength: content.length,
-        lineCount: model.getLineCount(),
-        largeContentMode: false,
-        languageId: model.getLanguageId(),
-        themeId,
-        tokenTypes: benchmarkTokenTypes,
-      });
-      recordStartupMilestone("editor:first-ready");
-    };
-    void languageTokenizerPromise.then((loaded) => {
-      if (model.isDisposed()) return;
-      if (loaded) {
-        reactivateMonacoModelLanguage(model, monacoLanguageId, (target, language) => {
-          monacoEditor.setModelLanguage(target as Monaco.editor.ITextModel, language);
-        });
-      }
-      const tokenTypes = getBenchmarkTokenTypes();
-      frontendTrace(tokenTypes.length > 0 ? "info" : "error", "bench:syntax", filePath, {
-        languageId: model.getLanguageId(),
-        themeId,
-        tokenTypes,
-      });
-      if (filePath && fileOpenBenchmark.has(filePath)) {
-        fileOpenBenchmark.mark(
-          filePath,
-          "syntax-ready",
-          loaded ? model.getLanguageId() : "built-in",
-        );
-      }
-      if (document.visibilityState === "visible") {
-        benchmarkRafId = requestAnimationFrame(finishBenchmark);
-        benchmarkTimeoutId = window.setTimeout(finishBenchmark, 100);
-      } else {
-        benchmarkTimeoutId = window.setTimeout(finishBenchmark, 0);
-      }
-    });
 
     let hoverClampRaf: number | null = null;
     const scheduleMonacoHoverClamp = () => {
@@ -1296,12 +1296,21 @@ export function MonacoEditor({
       editor.updateOptions({ padding: { bottom: bottomScrollPadding } });
     };
 
-    const syncNestedEditorFonts = () => syncContainedEditorFontOptions(container, fontOptions);
+    const currentFontOptions = () => {
+      const options = editor.getRawOptions();
+      return {
+        fontFamily: options.fontFamily,
+        fontSize: options.fontSize,
+        lineHeight: options.lineHeight,
+      };
+    };
+    const syncNestedEditorFonts = () =>
+      syncContainedEditorFontOptions(container, currentFontOptions());
     const createdEditorDisposable = monacoEditor.onDidCreateEditor((createdEditor) => {
       requestAnimationFrame(() => {
         const editorElement = createdEditor.getDomNode();
         if (!editorElement || !container.contains(editorElement)) return;
-        createdEditor.updateOptions(fontOptions);
+        createdEditor.updateOptions(currentFontOptions());
       });
     });
     requestAnimationFrame(syncNestedEditorFonts);
@@ -1318,24 +1327,18 @@ export function MonacoEditor({
     };
     onEditorScrollApiReadyRef.current?.(scrollApi);
 
-    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel);
-    const definitionLinkGesture = registerMonacoDefinitionLinkGesture({
-      editor,
-      model,
-      documentTarget,
-      workspaceScope: rootFolderPath ? { workspaceId, root: rootFolderPath } : undefined,
-      isEnabled: () => enableExpensiveServicesRef.current,
-    });
+    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, createSelectAllCommand(editorCallbacksRef));
     let definitionClickIntent = 0;
     const cursorEntryFromEditor = (): CursorHistoryEntry | null => {
+      const binding = modelBindingRef.current;
       const position = editor.getPosition();
-      if (!position || !editorBufferId || !filePath) return null;
+      if (!binding || !position || !binding.editorBufferId || !binding.filePath) return null;
 
       return {
-        bufferId: editorBufferId,
-        filePath,
-        paneId,
-        ...toEditorPosition(model, position),
+        bufferId: binding.editorBufferId,
+        filePath: binding.filePath,
+        paneId: binding.paneId,
+        ...toEditorPosition(binding.model, position),
         scrollTop: editor.getScrollTop(),
         scrollLeft: editor.getScrollLeft(),
       };
@@ -1374,21 +1377,16 @@ export function MonacoEditor({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      selectEntireModel();
+      callbacks().selectEntireModel();
     };
 
     window.addEventListener("keydown", handleWindowSelectAllShortcut, true);
 
     const disposables = [
-      bindMonacoDebugDecorations(editor, filePath),
       editor.onContextMenu((event) => {
         event.event.preventDefault();
         event.event.stopPropagation();
         setContextMenuRunMarker(null);
-        // Line targets cover the gutter and the content itself: IDEA answers
-        // "this line" from both, and a menu item that silently no-ops on
-        // content right-clicks reads as broken. The range is computed from the
-        // pre-collapse selection, so content clicks may still move the caret.
         // Line targets cover the gutter and the content itself: IDEA answers
         // "this line" from both, and a menu item that silently no-ops on
         // content right-clicks reads as broken. The range is computed from the
@@ -1456,12 +1454,12 @@ export function MonacoEditor({
                 event.target.position.column,
               ),
             );
-            syncCursorAndSelection();
+            callbacks().syncCursorAndSelection();
           }
         }
 
         editor.focus();
-        setContextMenuPosition({
+        callbacks().setContextMenuPosition({
           x: event.event.posx,
           y: event.event.posy,
           lineNumber: event.target.position?.lineNumber ?? editor.getPosition()?.lineNumber ?? 0,
@@ -1480,51 +1478,12 @@ export function MonacoEditor({
 
         event.preventDefault();
         event.stopPropagation();
-        selectEntireModel();
-      }),
-      // Listen on the model, not the editor: Monaco delivers the editor-level
-      // content event before EditorModelSource's model subscription on the
-      // undo/redo path, so reading `source.lastChange` here published a stale
-      // document (undo looked like a no-op and the save pipeline skipped the
-      // write). Model listeners run in registration order and this one is
-      // registered after the source acquired above, so `lastChange` is fresh.
-      model.onDidChangeContent(() => {
-        // Monaco moves decorations before React publishes the new document.
-        // Invalidate click/context targets synchronously, not just on rerender.
-        javaRunMarkersRef.current = [];
-        runMarkerDecorationCollection.clear();
-        setRunMarkerMenu(null);
-        setContextMenuRunMarker(null);
-        if (applyingExternalChangeRef.current) return;
-        const change = source.lastChange;
-        if (!change || change.external) return;
-        const previousContent = change.previousContent;
-        const nextContent = change.content;
-        const contentChanges: EditorTextChange[] = change.changes.map(edit => ({
-          rangeOffset: edit.offset, rangeLength: edit.length, text: edit.text,
-          startLine: edit.start.line, startColumn: edit.start.column,
-          endLine: edit.end.line, endColumn: edit.end.column,
-        }));
-        const editorState = useEditorStateStore.getState();
-        previousContentRef.current = nextContent;
-        rememberLocalContentSnapshot(pendingLocalContentSnapshotsRef.current, nextContent);
-        if (filePath && enableExpensiveServicesRef.current) {
-          queueLspDocumentChanges(filePath, contentChanges);
-        }
-        latestContentChangeRef.current?.(
-          nextContent,
-          previousContent,
-          editorState.cursorPosition,
-          editorState.selection,
-          {
-            contentChange: contentChanges[0],
-            contentChanges,
-          },
-        );
-        syncCursorAndSelection();
+        callbacks().selectEntireModel();
       }),
       editor.onMouseDown((event) => {
-        if (!isCurrentEditorSurface()) return;
+        if (!callbacks().isCurrentEditorSurface()) return;
+        const binding = modelBindingRef.current;
+        if (!binding) return;
         const mouseEvent = event.event;
         const markerElement = event.target.element;
         // IDEA opens the annotated commit from the gutter label itself; the
@@ -1536,7 +1495,7 @@ export function MonacoEditor({
             mouseEvent.stopPropagation();
             mouseSelectingRef.current = false;
             mouseGestureStartRef.current = null;
-            setContextMenuPosition(null);
+            callbacks().setContextMenuPosition(null);
             revealBlameCommitRef.current(lineNumber);
             return;
           }
@@ -1557,7 +1516,7 @@ export function MonacoEditor({
             mouseEvent.stopPropagation();
             mouseSelectingRef.current = false;
             mouseGestureStartRef.current = null;
-            setContextMenuPosition(null);
+            callbacks().setContextMenuPosition(null);
             setRunMarkerMenu({ marker, position: { x: mouseEvent.posx, y: mouseEvent.posy } });
             return;
           }
@@ -1581,7 +1540,7 @@ export function MonacoEditor({
               lineNumber: marker.line + 1,
               column: marker.utf16Column + 1,
             });
-            syncCursorAndSelection();
+            callbacks().syncCursorAndSelection();
             void keymapRegistry.executeCommand(
               marker.direction === "down"
                 ? "editor.goToImplementation"
@@ -1592,7 +1551,7 @@ export function MonacoEditor({
           }
         }
         if (
-          filePath.toLowerCase().endsWith(".java") &&
+          binding.filePath.toLowerCase().endsWith(".java") &&
           !editor.getRawOptions().readOnly &&
           event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
           event.target.position &&
@@ -1602,7 +1561,7 @@ export function MonacoEditor({
           mouseEvent.stopPropagation();
           useDebuggerStore
             .getState()
-            .actions.toggleBreakpoint(filePath, event.target.position.lineNumber - 1);
+            .actions.toggleBreakpoint(binding.filePath, event.target.position.lineNumber - 1);
           return;
         }
         if (
@@ -1615,18 +1574,21 @@ export function MonacoEditor({
           mouseSelectingRef.current = false;
           mouseGestureStartRef.current = null;
           editor.setPosition(event.target.position);
-          syncCursorAndSelection();
+          callbacks().syncCursorAndSelection();
           const clickedPosition = event.target.position;
           const clickIntent = ++definitionClickIntent;
-          if (!definitionLinkGesture.enabled) {
+          const definitionLinkGesture = definitionLinkGestureRef.current;
+          if (!definitionLinkGesture?.enabled) {
             void keymapRegistry.executeCommand("editor.goToDefinition");
             return;
           }
+          const clickedModel = binding.model;
           void definitionLinkGesture.resolveForClick(clickedPosition).then((definitionHint) => {
             if (
               clickIntent !== definitionClickIntent ||
               !definitionHint ||
-              model.isDisposed() ||
+              clickedModel.isDisposed() ||
+              editor.getModel() !== clickedModel ||
               !isActiveSurfaceRef.current
             ) {
               return;
@@ -1653,7 +1615,7 @@ export function MonacoEditor({
       editor.onMouseUp(() => {
         if (!mouseSelectingRef.current) return;
         mouseSelectingRef.current = false;
-        if (!isCurrentEditorSurface()) {
+        if (!callbacks().isCurrentEditorSurface()) {
           mouseGestureStartRef.current = null;
           return;
         }
@@ -1665,20 +1627,21 @@ export function MonacoEditor({
         mouseGestureStartRef.current = null;
       }),
       editor.onDidChangeCursorSelection(() => {
-        if (!isCurrentEditorSurface()) return;
+        if (!modelBindingRef.current) return;
+        if (!callbacks().isCurrentEditorSurface()) return;
         if (suppressNextCursorSelectionSyncRef.current) {
           suppressNextCursorSelectionSyncRef.current = false;
-          return;
+            return;
         }
-        syncCursorAndSelection();
+        callbacks().syncCursorAndSelection();
       }),
-      definitionLinkGesture,
       editor.onDidScrollChange((event) => {
-        if (!isCurrentEditorSurface()) return;
+        const binding = modelBindingRef.current;
+        if (!binding) return;
+        if (!callbacks().isCurrentEditorSurface()) return;
         if (viewStateRestoreGate.isRestoring()) return;
-        const viewKey = viewStateKey ?? activeBufferId ?? null;
-        setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
-        onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
+        callbacks().setScrollForBuffer(binding.viewKey || null, event.scrollTop, event.scrollLeft);
+        callbacks().onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
         onScrollMetricsChangeRef.current?.({
           scrollTop: event.scrollTop,
           scrollHeight: event.scrollHeight,
@@ -1686,18 +1649,19 @@ export function MonacoEditor({
         });
       }),
       editor.onDidLayoutChange((info) => {
-        setViewportHeight(info.height);
+        callbacks().setViewportHeight(info.height);
         syncBottomScrollPadding(info.height);
         scheduleMonacoHoverClamp();
-        if (!viewStateRestoreGate.isRestoring()) return;
-        applyMonacoSurfaceViewport(editor, viewStateKey ?? activeBufferId ?? "");
+        const binding = modelBindingRef.current;
+        if (!binding || !viewStateRestoreGate.isRestoring()) return;
+        applyMonacoSurfaceViewport(editor, binding.viewKey);
       }),
     ];
 
     const handleWindowMouseUp = () => {
       if (!mouseSelectingRef.current) return;
       mouseSelectingRef.current = false;
-      if (!isCurrentEditorSurface()) {
+      if (!callbacks().isCurrentEditorSurface()) {
         mouseGestureStartRef.current = null;
         return;
       }
@@ -1710,75 +1674,11 @@ export function MonacoEditor({
     };
     window.addEventListener("mouseup", handleWindowMouseUp);
 
-    const unsubscribeCursor = editorAPI.on("cursorChange", (position) => {
-      if (!modelRef.current || editorRef.current !== editor) return;
-      if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
-      const monacoPosition = toClampedMonacoPosition(model, position);
-      const currentPosition = editor.getPosition();
-      if (
-        currentPosition &&
-        currentPosition.lineNumber === monacoPosition.lineNumber &&
-        currentPosition.column === monacoPosition.column
-      ) {
-        editor.focus();
-        return;
-      }
-      const currentSelection = editor.getSelection();
-      if (currentSelection && !currentSelection.isEmpty()) {
-        editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
-        editor.focus();
-        return;
-      }
-      editor.setPosition(monacoPosition);
-      editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
-      editor.focus();
-    });
-    const unsubscribeSelection = editorAPI.on("selectionChange", (selection) => {
-      if (!modelRef.current || editorRef.current !== editor) return;
-      if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
-      if (selection) {
-        editor.setSelection(toMonacoRange(model, selection));
-      } else {
-        const position = editor.getPosition();
-        if (position) {
-          editor.setSelection(
-            new MonacoRange(
-              position.lineNumber,
-              position.column,
-              position.lineNumber,
-              position.column,
-            ),
-          );
-        }
-      }
-    });
-
-    const createdViewKey = viewStateKey ?? activeBufferId ?? "";
-    const createdNavigationRevision = editorAPI.getOwnerNavigationRevision(createdViewKey);
-    applyMonacoSurfaceViewState(editor, createdViewKey);
-    const cancelCreatedViewStateRestore = scheduleCachedViewStateRestore({
-      editor,
-      cachedScroll: cachedScrollForViewKey(createdViewKey),
-      isEditorCurrent: () => editorRef.current === editor,
-      isNavigationRevisionCurrent: () =>
-        editorAPI.getOwnerNavigationRevision(createdViewKey) === createdNavigationRevision,
-      focus: () => {
-        if (isActiveSurfaceRef.current) editor.focus();
-      },
-      onRestoreComplete: finishCreatedRestore,
-    });
-
     return () => {
-      cancelCreatedViewStateRestore();
-      finishCreatedRestore();
-      if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
-      if (benchmarkTimeoutId !== null) window.clearTimeout(benchmarkTimeoutId);
-      if (filePath && fileOpenBenchmark.has(filePath)) {
-        fileOpenBenchmark.cancel(filePath, "editor-unmounted-before-ready");
-      }
+      // React runs this cleanup before the model effect's on unmount, but the
+      // model teardown saves the viewport and needs a live editor.
+      releaseBoundModelRef.current?.();
       onModelPositionResolverChange?.(null);
-      unsubscribeCursor();
-      unsubscribeSelection();
       container.removeEventListener("mousedown", handleNativeMouseDownCapture, true);
       restoreFindWidgetCloseButtonHover();
       window.removeEventListener("keydown", handleWindowSelectAllShortcut, true);
@@ -1807,23 +1707,282 @@ export function MonacoEditor({
       if (implementationDecorationsRef.current === implementationDecorations) {
         implementationDecorationsRef.current = null;
       }
+      runMarkerDecorationCollection.clear();
+      if (runMarkerDecorationsRef.current === runMarkerDecorationCollection) {
+        runMarkerDecorationsRef.current = null;
+      }
+      if (editorRef.current === editor) editorRef.current = null;
+      try {
+        editor.dispose();
+      } catch (error) {
+        console.error("Failed to dispose Monaco editor:", error);
+      }
+    };
+    // The editor is created once per surface; option changes are applied by
+    // the `updateOptions` effect and file switches by the model effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    const container = containerRef.current;
+    if (!editor || !container || !editorBufferId || !isContentReady) return;
+    const finishCreatedRestore = viewStateRestoreGate.begin();
+    if (filePath && fileOpenBenchmark.has(filePath)) {
+      fileOpenBenchmark.mark(filePath, "monaco-create-start");
+    }
+    const languageTokenizerPromise = ensureMonacoLanguageTokenizer(monacoLanguageId).catch(
+      (error) => {
+        console.error(`Failed to load Monaco tokenizer for ${monacoLanguageId}:`, error);
+        return false;
+      },
+    );
+
+    const acquiredModel = acquireMonacoModel(content, monacoLanguageId, modelUri);
+    const model = acquiredModel.model;
+    const source = acquireEditorModelSource(model, content);
+    editor.setModel(model);
+    const viewKey = viewStateKey ?? activeBufferId ?? "";
+    modelRef.current = model;
+    modelBindingRef.current = {
+      model,
+      filePath,
+      editorBufferId,
+      paneId,
+      viewKey,
+    };
+    // The gutter controller lives exactly as long as this model is shown, so a
+    // file switch also disposes any open inline review. Its base arrives
+    // through `setBase`.
+    const gitGutterController = createGitGutterController(
+      editor,
+      model,
+      gitGutterControllerOptions(() => gitGutterContextRef.current),
+    );
+    gitGutterControllerRef.current = gitGutterController;
+    gitGutterController.setBase(gitGutterContextRef.current?.base?.lines ?? null);
+    previousContentRef.current = content;
+    pendingLocalContentSnapshotsRef.current = [];
+    if (filePath && fileOpenBenchmark.has(filePath)) {
+      fileOpenBenchmark.mark(filePath, "monaco-created", `${model.getLineCount()} lines`);
+    }
+    let benchmarkRafId: number | null = null;
+    let benchmarkTimeoutId: number | null = null;
+    let benchmarkFinished = false;
+    const getBenchmarkTokenTypes = () =>
+      Array.from(
+        new Set(
+          monacoEditor
+            .tokenize(content.slice(0, 4_096), model.getLanguageId())
+            .flatMap((line) => line.map((token) => token.type))
+            .filter(Boolean),
+        ),
+      ).slice(0, 12);
+    const finishBenchmark = () => {
+      if (benchmarkFinished) return;
+      benchmarkFinished = true;
+      if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
+      if (benchmarkTimeoutId !== null) window.clearTimeout(benchmarkTimeoutId);
+      if (!filePath || !fileOpenBenchmark.has(filePath) || model.isDisposed()) return;
+      const benchmarkTokenTypes = getBenchmarkTokenTypes();
+      fileOpenBenchmark.finish(filePath, "editor-ready", `${content.length} chars`, {
+        contentLength: content.length,
+        lineCount: model.getLineCount(),
+        largeContentMode: false,
+        languageId: model.getLanguageId(),
+        themeId,
+        tokenTypes: benchmarkTokenTypes,
+      });
+      recordStartupMilestone("editor:first-ready");
+    };
+    void languageTokenizerPromise.then((loaded) => {
+      if (model.isDisposed()) return;
+      if (loaded) {
+        reactivateMonacoModelLanguage(model, monacoLanguageId, (target, language) => {
+          monacoEditor.setModelLanguage(target as Monaco.editor.ITextModel, language);
+        });
+      }
+      if (filePath && fileOpenBenchmark.has(filePath)) {
+        // Re-tokenizing the file head is benchmark-only work; ordinary opens
+        // skip it so it does not add to every tab switch.
+        const tokenTypes = getBenchmarkTokenTypes();
+        frontendTrace(tokenTypes.length > 0 ? "info" : "error", "bench:syntax", filePath, {
+          languageId: model.getLanguageId(),
+          themeId,
+          tokenTypes,
+        });
+        fileOpenBenchmark.mark(
+          filePath,
+          "syntax-ready",
+          loaded ? model.getLanguageId() : "built-in",
+        );
+      }
+      if (document.visibilityState === "visible") {
+        benchmarkRafId = requestAnimationFrame(finishBenchmark);
+        benchmarkTimeoutId = window.setTimeout(finishBenchmark, 100);
+      } else {
+        benchmarkTimeoutId = window.setTimeout(finishBenchmark, 0);
+      }
+    });
+
+    const definitionLinkGesture = registerMonacoDefinitionLinkGesture({
+      editor,
+      model,
+      documentTarget,
+      workspaceScope: rootFolderPath ? { workspaceId, root: rootFolderPath } : undefined,
+      isEnabled: () => enableExpensiveServicesRef.current,
+    });
+    definitionLinkGestureRef.current = definitionLinkGesture;
+
+    const disposables = [
+      bindMonacoDebugDecorations(editor, filePath),
+      definitionLinkGesture,
+      // Listen on the model, not the editor: Monaco delivers the editor-level
+      // content event before EditorModelSource's model subscription on the
+      // undo/redo path, so reading `source.lastChange` here published a stale
+      // document (undo looked like a no-op and the save pipeline skipped the
+      // write). Model listeners run in registration order and this one is
+      // registered after the source acquired above, so `lastChange` is fresh.
+      model.onDidChangeContent(() => {
+        // Monaco moves decorations before React publishes the new document.
+        // Invalidate click/context targets synchronously, not just on rerender.
+        javaRunMarkersRef.current = [];
+        runMarkerDecorationsRef.current?.clear();
+        setRunMarkerMenu(null);
+        setContextMenuRunMarker(null);
+        if (applyingExternalChangeRef.current) return;
+        const change = source.lastChange;
+        if (!change || change.external) return;
+        const previousContent = change.previousContent;
+        const nextContent = change.content;
+        const contentChanges: EditorTextChange[] = change.changes.map(edit => ({
+          rangeOffset: edit.offset, rangeLength: edit.length, text: edit.text,
+          startLine: edit.start.line, startColumn: edit.start.column,
+          endLine: edit.end.line, endColumn: edit.end.column,
+        }));
+        const editorState = useEditorStateStore.getState();
+        previousContentRef.current = nextContent;
+        rememberLocalContentSnapshot(pendingLocalContentSnapshotsRef.current, nextContent);
+        if (filePath && enableExpensiveServicesRef.current) {
+          queueLspDocumentChanges(filePath, contentChanges);
+        }
+        latestContentChangeRef.current?.(
+          nextContent,
+          previousContent,
+          editorState.cursorPosition,
+          editorState.selection,
+          {
+            contentChange: contentChanges[0],
+            contentChanges,
+          },
+        );
+        editorCallbacksRef.current.syncCursorAndSelection();
+      }),
+    ];
+
+    const unsubscribeCursor = editorAPI.on("cursorChange", (position) => {
+      if (modelRef.current !== model || editorRef.current !== editor) return;
+      if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
+      const monacoPosition = toClampedMonacoPosition(model, position);
+      const currentPosition = editor.getPosition();
+      if (
+        currentPosition &&
+        currentPosition.lineNumber === monacoPosition.lineNumber &&
+        currentPosition.column === monacoPosition.column
+      ) {
+        editor.focus();
+        return;
+      }
+      const currentSelection = editor.getSelection();
+      if (currentSelection && !currentSelection.isEmpty()) {
+        editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+        editor.focus();
+        return;
+      }
+      editor.setPosition(monacoPosition);
+      editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+      editor.focus();
+    });
+    const unsubscribeSelection = editorAPI.on("selectionChange", (selection) => {
+      if (modelRef.current !== model || editorRef.current !== editor) return;
+      if (!isCurrentEditorSurface() || mouseSelectingRef.current) return;
+      if (selection) {
+        editor.setSelection(toMonacoRange(model, selection));
+      } else {
+        const position = editor.getPosition();
+        if (position) {
+          editor.setSelection(
+            new MonacoRange(
+              position.lineNumber,
+              position.column,
+              position.lineNumber,
+              position.column,
+            ),
+          );
+        }
+      }
+    });
+
+    const createdNavigationRevision = editorAPI.getOwnerNavigationRevision(viewKey);
+    applyMonacoSurfaceViewState(editor, viewKey);
+    const cancelCreatedViewStateRestore = scheduleCachedViewStateRestore({
+      editor,
+      cachedScroll: cachedScrollForViewKey(viewKey),
+      isEditorCurrent: () => editorRef.current === editor && editor.getModel() === model,
+      isNavigationRevisionCurrent: () =>
+        editorAPI.getOwnerNavigationRevision(viewKey) === createdNavigationRevision,
+      focus: () => {
+        if (isActiveSurfaceRef.current) editor.focus();
+      },
+      onRestoreComplete: finishCreatedRestore,
+    });
+
+    let released = false;
+    const releaseBoundModel = () => {
+      if (released) return;
+      released = true;
+      if (releaseBoundModelRef.current === releaseBoundModel) releaseBoundModelRef.current = null;
+      // Menus opened on this file must not survive a switch to another one.
+      setRunMarkerMenu(null);
+      setContextMenuRunMarker(null);
+      setGutterMenuPosition(null);
+      setLineHistoryMenu(null);
+      editorCallbacksRef.current.setContextMenuPosition(null);
+      cancelCreatedViewStateRestore();
+      finishCreatedRestore();
+      if (benchmarkRafId !== null) cancelAnimationFrame(benchmarkRafId);
+      if (benchmarkTimeoutId !== null) window.clearTimeout(benchmarkTimeoutId);
+      if (filePath && fileOpenBenchmark.has(filePath)) {
+        fileOpenBenchmark.cancel(filePath, "editor-unmounted-before-ready");
+      }
+      unsubscribeCursor();
+      unsubscribeSelection();
+      for (const disposable of disposables) {
+        disposable.dispose();
+      }
+      if (definitionLinkGestureRef.current === definitionLinkGesture) {
+        definitionLinkGestureRef.current = null;
+      }
+      implementationDecorationsRef.current?.clear();
       implementationMarkerOwnerRef.current = null;
       implementationMarkersRef.current = [];
       gitGutterController.dispose();
       if (gitGutterControllerRef.current === gitGutterController) {
         gitGutterControllerRef.current = null;
       }
-      runMarkerDecorationCollection.clear();
-      if (runMarkerDecorationsRef.current === runMarkerDecorationCollection) {
-        runMarkerDecorationsRef.current = null;
+      runMarkerDecorationsRef.current?.clear();
+      // Save the viewport while the editor still shows this model.
+      if (editor.getModel() === model) {
+        persistMonacoSurfaceViewState(editor, viewKey);
       }
-      persistMonacoSurfaceViewState(editor, viewStateKey ?? activeBufferId ?? "");
-      if (editorRef.current === editor) editorRef.current = null;
+      if (modelBindingRef.current?.model === model) modelBindingRef.current = null;
       if (modelRef.current === model) modelRef.current = null;
+      // Detach before releasing: releasing may dispose the model, and Monaco
+      // must not keep rendering a disposed model.
       try {
-        editor.dispose();
+        if (editor.getModel() === model) editor.setModel(null);
       } catch (error) {
-        console.error("Failed to dispose Monaco editor:", error);
+        console.error("Failed to detach Monaco model:", error);
       }
       try {
         acquiredModel.release();
@@ -1831,51 +1990,21 @@ export function MonacoEditor({
         console.error("Failed to release Monaco model:", error);
       }
     };
+    releaseBoundModelRef.current = releaseBoundModel;
+    return releaseBoundModel;
   }, [
     activeBufferId,
-    autoCompletion,
-    editorBracketPairColorization,
-    editorCursorBlinking,
-    editorCursorStyle,
-    editorFontLigatures,
-    editorItalicComments,
-    editorScrollBeyondLastLine,
-    editorSmoothScrolling,
-    editorStickyScroll,
     documentTarget,
-    inlayHints,
-    setContextMenuPosition,
     filePath,
     paneId,
-    fontFamily,
-    fontSize,
-    highlightOccurrences,
-    isPreviewMode,
-    lineHeight,
-    lineNumbers,
-    lineNumberFormatter,
-    minimapEnabled,
     modelUri,
     monacoLanguageId,
-    onScrollOffsetChange,
-    parameterHints,
-    readOnly,
-    renderIndentGuides,
-    renderWhitespace,
     rootFolderPath,
     workspaceId,
-    scrollable,
-    alwaysConsumeMouseWheel,
-    selectEntireModel,
-    semanticTokens,
-    setScrollForBuffer,
-    setViewportHeight,
-    syncCursorAndSelection,
-    tabSize,
     themeId,
     viewStateKey,
-    wordWrap,
     editorBufferId,
+    isContentReady,
     isCurrentEditorSurface,
   ]);
 
@@ -2316,7 +2445,7 @@ export function MonacoEditor({
         monacoEditor.setModelMarkers(model, "lithe", []);
       }
     };
-  }, [diagnosticsForFile]);
+  }, [diagnosticsForFile, isContentReady]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -2485,20 +2614,20 @@ export function MonacoEditor({
       },
       occurrencesHighlight: highlightOccurrences ? "singleFile" : "off",
       selectionHighlight: highlightOccurrences,
-      glyphMargin: enableExpensiveServices && monacoLanguageId === "java",
+      glyphMargin: enableRichViewOptions && monacoLanguageId === "java",
       quickSuggestions: autoCompletion,
       suggestOnTriggerCharacters: autoCompletion,
       // Word-scan suggestions are a fallback when LSP completions are unavailable.
       // They insert plain identifiers without namespace imports, so LSP results
       // remain the primary source for typed class completions.
       wordBasedSuggestions: "matchingDocuments",
-      parameterHints: { enabled: enableExpensiveServices && parameterHints },
-      codeLens: enableExpensiveServices && codeLens,
-      inlayHints: { enabled: enableExpensiveServices && inlayHints ? "on" : "off" },
+      parameterHints: { enabled: enableRichViewOptions && parameterHints },
+      codeLens: enableRichViewOptions && codeLens,
+      inlayHints: { enabled: enableRichViewOptions && inlayHints ? "on" : "off" },
       cursorStyle: vimModeEnabled && vimCurrentMode === "normal" ? "block" : editorCursorStyle,
       cursorBlinking:
         vimModeEnabled && vimCurrentMode === "normal" ? "solid" : editorCursorBlinking,
-      "semanticHighlighting.enabled": enableExpensiveServices && semanticTokens,
+      "semanticHighlighting.enabled": semanticTokens,
       // Full-width punctuation is normal Chinese prose; see frontend/editor workbench.ts
       // for the rationale behind disabling Monaco's confusable-character warning.
       unicodeHighlight: { ambiguousCharacters: false },
@@ -2538,7 +2667,7 @@ export function MonacoEditor({
     editorScrollBeyondLastLine,
     editorSmoothScrolling,
     editorStickyScroll,
-    enableExpensiveServices,
+    enableRichViewOptions,
     fontFamily,
     fontSize,
     highlightOccurrences,
@@ -2573,7 +2702,9 @@ export function MonacoEditor({
     vimStatusRef.current?.remove();
     vimStatusRef.current = null;
 
-    if (!editor || !container || !vimModeEnabled || readOnly || isPreviewMode) {
+    // The adapter reads the model as it attaches, and a surface waiting for its
+    // text has none yet.
+    if (!editor || !container || !isContentReady || !vimModeEnabled || readOnly || isPreviewMode) {
       return;
     }
 
@@ -2606,7 +2737,7 @@ export function MonacoEditor({
       statusNode.remove();
       if (vimStatusRef.current === statusNode) vimStatusRef.current = null;
     };
-  }, [isPreviewMode, readOnly, vimModeEnabled]);
+  }, [isContentReady, isPreviewMode, readOnly, vimModeEnabled]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -2640,52 +2771,9 @@ export function MonacoEditor({
   }, [bufferIsDirty, readOnly]);
 
   useEffect(() => {
-    const editor = editorRef.current;
-    const model = modelRef.current;
-    if (!editor || !model) {
-      onModelPositionResolverChange?.(null);
-      return;
-    }
-
-    onModelPositionResolverChange?.((line, column) => {
-      if (model.isDisposed()) return null;
-      const position = clampMonacoPosition(model, {
-        lineNumber: line + 1,
-        column: column + 1,
-      });
-      let editorPosition: Position;
-      let top: number;
-      let left: number;
-      let lineLength: number;
-
-      try {
-        editorPosition = toEditorPosition(model, position);
-        top = editor.getTopForLineNumber(position.lineNumber);
-        left = editor.getOffsetForColumn(position.lineNumber, position.column);
-        lineLength = model.getLineLength(position.lineNumber);
-      } catch (error) {
-        if (model.isDisposed()) return null;
-        throw error;
-      }
-      const modelLine = position.lineNumber - 1;
-
-      return {
-        ...editorPosition,
-        viewLine: modelLine,
-        modelLine,
-        top,
-        left,
-        height: lineHeight,
-        segment: {
-          viewLine: modelLine,
-          modelLine,
-          startColumn: 0,
-          endColumn: lineLength,
-          top,
-          height: lineHeight,
-        },
-      };
-    });
+    onModelPositionResolverChange?.(
+      createMonacoModelPositionResolver(() => editorRef.current, lineHeight),
+    );
 
     return () => {
       onModelPositionResolverChange?.(null);
@@ -2707,7 +2795,10 @@ export function MonacoEditor({
     const navigationRevision = editorAPI.getOwnerNavigationRevision(viewStateKeyForRestore);
     const finishActivationRestore = viewStateRestoreGate.begin();
 
-    editor.layout();
+    // No synchronous layout() here: reading the container size in the middle
+    // of the commit forced a whole-window style and layout pass on every tab
+    // activation. The hidden slot keeps its cached size, automaticLayout picks
+    // up resizes, and the restore frame below lays the editor out once.
     applyMonacoSurfaceViewState(editor, viewStateKeyForRestore);
 
     const cancelCachedViewStateRestore = scheduleCachedViewStateRestore({
