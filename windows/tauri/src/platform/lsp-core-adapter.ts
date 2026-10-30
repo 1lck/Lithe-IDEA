@@ -7,6 +7,11 @@ import {
   clearProjectPreparation,
   type ProjectPreparation,
 } from "@/features/run/stores/project-preparation.store";
+import {
+  clearLanguageServerProgress,
+  finishLanguageServerImport,
+  recordLanguageServerProgress,
+} from "@/features/run/stores/language-server-progress.store";
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
 import { readJavaBuildFailure, type JavaBuildReport } from "@/platform/java-launch-readiness";
@@ -441,6 +446,15 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   }
   if (event.type === "stateChanged" && event.state === "failed" && session.languageId === "java") {
     failProjectPreparation(session.workspacePath, session.id);
+  }
+  if (event.type === "log") {
+    recordLanguageServerProgress(session, event.message, event.detail);
+  }
+  if (event.type === "stateChanged" && event.state === "ready") {
+    finishLanguageServerImport(session.id);
+  }
+  if (event.type === "stateChanged" && (event.state === "failed" || event.state === "stopped")) {
+    clearLanguageServerProgress(session.id);
   }
 
   await dispatchRuntimeEvent(event, session.workspacePath);
@@ -1035,6 +1049,7 @@ async function start(args: JsonRecord): Promise<void> {
 
 async function stopSession(session: Session, preservePreparation = false): Promise<void> {
   if (session.languageId === "java" && !preservePreparation) clearProjectPreparation(session.workspacePath, session.id);
+  clearLanguageServerProgress(session.id);
   const key = sessionKey(session.workspacePath, session.languageId);
   stoppingSessionIds.add(session.id);
   removeSessionMappings(session);

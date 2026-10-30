@@ -158,6 +158,11 @@ const WINDOW_CHROME_DENSITIES = new Set<Settings["windowChromeDensity"]>([
   "focused",
   "comfortable",
 ]);
+const JAVA_PROJECT_IMPORT_ON_OPEN = new Set<Settings["javaProjectImportOnOpen"]>([
+  "automatic",
+  "ask",
+  "manual",
+]);
 const FILE_TREE_SORT_ORDERS = new Set<Settings["fileTreeSortOrder"]>(["folders-first", "name"]);
 const PROJECT_OPEN_DESTINATIONS = new Set<Settings["projectOpenDefaultDestination"]>([
   "this-window",
@@ -292,6 +297,12 @@ function normalizeEditorTabLayoutMode(value: unknown): Settings["editorTabLayout
   return EDITOR_TAB_LAYOUT_MODES.has(value as Settings["editorTabLayoutMode"])
     ? (value as Settings["editorTabLayoutMode"])
     : defaultSettings.editorTabLayoutMode;
+}
+
+function normalizeJavaProjectImportOnOpen(value: unknown): Settings["javaProjectImportOnOpen"] {
+  return JAVA_PROJECT_IMPORT_ON_OPEN.has(value as Settings["javaProjectImportOnOpen"])
+    ? (value as Settings["javaProjectImportOnOpen"])
+    : defaultSettings.javaProjectImportOnOpen;
 }
 
 function normalizeWindowChromeDensity(value: unknown): Settings["windowChromeDensity"] {
@@ -568,6 +579,9 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.windowChromeDensity = normalizeWindowChromeDensity(
     (normalizedSettings as { windowChromeDensity?: unknown }).windowChromeDensity,
   );
+  normalizedSettings.javaProjectImportOnOpen = normalizeJavaProjectImportOnOpen(
+    (normalizedSettings as { javaProjectImportOnOpen?: unknown }).javaProjectImportOnOpen,
+  );
   normalizedSettings.fileTreeSortOrder = normalizeFileTreeSortOrder(
     (normalizedSettings as { fileTreeSortOrder?: unknown }).fileTreeSortOrder,
   );
@@ -726,6 +740,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "windowChromeDensity") {
     return normalizeWindowChromeDensity(value) as Settings[K];
+  }
+
+  if (key === "javaProjectImportOnOpen") {
+    return normalizeJavaProjectImportOnOpen(value) as Settings[K];
   }
 
   if (key === "fileTreeSortOrder") {

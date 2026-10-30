@@ -551,11 +551,13 @@ const initializeLocalWorkspaceInBackground = (
           { resolveJavaWorkspacePolicy },
           { getJavaWorkspaceLanguageServerOwner },
           { loadMavenProjectForWorkspace },
+          { askToImportJavaProject, javaImportOnOpenDecision },
         ] = await Promise.all([
           import("@/utils/path-helpers"),
           import("@/platform/java-workspace-policy"),
           import("@/features/editor/lsp/java-workspace-language-server"),
           import("@/features/maven/stores/maven.store"),
+          import("@/features/editor/lsp/java-import-on-open"),
         ]);
         const workspaceFiles = projectFiles.filter(
           (entry) => !entry.isDir && pathStartsWithRoot(entry.path, path),
@@ -577,8 +579,23 @@ const initializeLocalWorkspaceInBackground = (
           return;
         }
 
-        operation.succeeded({ representativeJavaPath: policy.representativeJavaPath });
-        await getJavaWorkspaceLanguageServerOwner().prewarm({ workspaceId, root: path }, javaFile);
+        const owner = getJavaWorkspaceLanguageServerOwner();
+        const scope = { workspaceId, root: path };
+        const decision = javaImportOnOpenDecision(
+          useSettingsStore.getState().settings.javaProjectImportOnOpen,
+          owner.isImporting(scope),
+        );
+        operation.succeeded({ representativeJavaPath: policy.representativeJavaPath, decision });
+        if (decision === "start") {
+          await owner.prewarm(scope, javaFile);
+        } else if (decision === "ask") {
+          // The answer may come after switching tabs; only a closed project is dropped.
+          askToImportJavaProject(path, () => {
+            if (workspaceRuntimeRegistry.hasWorkspace(workspaceId)) {
+              void owner.prewarm(scope, javaFile);
+            }
+          });
+        }
       } catch (error) {
         operation.failed(error);
       }

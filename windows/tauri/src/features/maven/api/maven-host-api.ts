@@ -7,12 +7,29 @@ import type {
   MavenLaunchPlan,
   MavenSettings,
   MavenStoredConfiguration,
+  MavenUserSettings,
 } from "../types/maven.types";
 
 export function loadMavenConfiguration(root: string, reactorPath: string) {
   return invoke<MavenStoredConfiguration>("maven_load_configuration", {
     root,
     reactorPath,
+  });
+}
+
+export function readMavenUserSettings() {
+  return invoke<MavenUserSettings>("maven_read_user_settings");
+}
+
+/** Prefix of the host error for a write based on an outdated read. */
+export const MAVEN_USER_SETTINGS_CONFLICT = "mavenUserSettingsChanged";
+
+export function writeMavenUserLocalRepository(
+  localRepository: string,
+  expectedRevision: string | null,
+) {
+  return invoke<MavenUserSettings>("maven_write_user_local_repository", {
+    args: { localRepository, expectedRevision },
   });
 }
 

@@ -3,13 +3,34 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@/platform/tauri-core";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
-import { emitGitChanged, isGitChangeRelevant } from "../events/git-events";
+import { emitGitChanged, type GitChange, isGitChangeRelevant } from "../events/git-events";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { createGitRefreshQueue } from "../services/git-operation-coordinator";
 
 interface GitMetadataChange {
   repositoryRoots: string[];
   metadataLinkChanged: boolean;
+  /** Only the index was rewritten: staging changed, commits and refs did not. */
+  indexOnly?: boolean;
+}
+
+/**
+ * The repository change one native metadata batch stands for. An index-only
+ * batch refreshes working-tree state; it is not reported as a history change,
+ * because tools rewrite the index constantly while a project opens and history
+ * consumers (blame, log) would otherwise reload on every rewrite.
+ */
+export function gitChangeForMetadata(
+  repoPath: string,
+  change: Pick<GitMetadataChange, "indexOnly">,
+): GitChange {
+  return {
+    repoPath,
+    scopes: change.indexOnly
+      ? ["working-tree"]
+      : ["working-tree", "history", "refs", "stashes", "repository"],
+    source: "external-git-change",
+  };
 }
 
 export function GitMetadataWatchHost() {
@@ -48,11 +69,7 @@ export function GitMetadataWatchHost() {
     const listener = listen<GitMetadataChange>("git-metadata-changed", ({ payload }) => {
       if (!current) return;
       for (const root of payload.repositoryRoots) {
-        emitGitChanged({
-          repoPath: root,
-          scopes: ["working-tree", "history", "refs", "stashes", "repository"],
-          source: "external-git-change",
-        });
+        emitGitChanged(gitChangeForMetadata(root, payload));
       }
       if (payload.metadataLinkChanged && payload.repositoryRoots.length)
         for (const repoPath of repoPaths) {

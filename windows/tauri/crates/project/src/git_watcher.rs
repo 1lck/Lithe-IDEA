@@ -19,6 +19,11 @@ pub struct GitWatchContext {
 pub struct GitMetadataChange {
     pub repository_roots: Vec<PathBuf>,
     pub metadata_link_changed: bool,
+    /// Every change of the batch rewrote the index (`index`, `index.lock`):
+    /// staging and stat refreshes changed, but no commit, ref or setting did.
+    /// Git and other tools rewrite the index constantly while a project is
+    /// opened, so consumers refresh only working-tree state for such batches.
+    pub index_only: bool,
 }
 
 pub trait GitMetadataEmitter: Send + Sync {
@@ -134,6 +139,7 @@ impl GitMetadataWatcher {
                     let registrations = registrations.lock().unwrap();
                     let mut roots = BTreeSet::new();
                     let mut metadata_link_changed = false;
+                    let mut index_only = true;
                     for context in registrations
                         .values()
                         .filter_map(|entry| entry.context.as_ref())
@@ -142,8 +148,10 @@ impl GitMetadataWatcher {
                             if event.path == context.repository_root.join(".git") {
                                 roots.insert(context.repository_root.clone());
                                 metadata_link_changed = true;
+                                index_only = false;
                             } else if is_relevant_metadata_change(context, &event.path) {
                                 roots.insert(context.repository_root.clone());
+                                index_only &= is_index_write(context, &event.path);
                             }
                         }
                     }
@@ -152,6 +160,7 @@ impl GitMetadataWatcher {
                         emitter.emit_git_metadata_change(&GitMetadataChange {
                             repository_roots: roots.into_iter().collect(),
                             metadata_link_changed,
+                            index_only,
                         });
                     }
                 },
@@ -208,6 +217,23 @@ impl GitMetadataWatcher {
 /// isolated commits. They never change repository state, and reporting them
 /// makes every snapshot diff refresh the views that requested it.
 const LITHE_TEMPORARY_GIT_CONTEXT_PREFIX: &str = "lithe-commit-";
+
+/// The worktree's own index or its lock. A linked worktree keeps its index in
+/// its own `git_directory`; the common directory's `index` belongs to the main
+/// worktree and is not reported for linked worktrees at all.
+fn is_index_write(context: &GitWatchContext, path: &Path) -> bool {
+    path.strip_prefix(&context.git_directory)
+        .ok()
+        .and_then(|relative| {
+            let mut components = relative.components();
+            let first = components.next()?;
+            components
+                .next()
+                .is_none()
+                .then(|| first.as_os_str().to_string_lossy().into_owned())
+        })
+        .is_some_and(|name| matches!(name.as_str(), "index" | "index.lock"))
+}
 
 fn is_relevant_metadata_change(context: &GitWatchContext, path: &Path) -> bool {
     if let Ok(relative) = path.strip_prefix(&context.git_directory) {
@@ -347,6 +373,34 @@ mod tests {
         for path in ["objects/ab/object", "worktrees/other/index", "index"] {
             assert!(
                 !is_relevant_metadata_change(&context, &context.git_common_directory.join(path)),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_worktree_index_counts_as_an_index_write() {
+        // Index rewrites refresh staging only; blame and history wait for refs.
+        let linked = GitWatchContext {
+            repository_root: PathBuf::from("workspace/linked"),
+            git_directory: PathBuf::from("workspace/main/.git/worktrees/linked"),
+            git_common_directory: PathBuf::from("workspace/main/.git"),
+        };
+        for path in ["index", "index.lock"] {
+            assert!(
+                is_index_write(&linked, &linked.git_directory.join(path)),
+                "{path}"
+            );
+        }
+        for path in ["HEAD", "ORIG_HEAD", "index/nested", "indexes"] {
+            assert!(
+                !is_index_write(&linked, &linked.git_directory.join(path)),
+                "{path}"
+            );
+        }
+        for path in ["refs/heads/main", "packed-refs", "config"] {
+            assert!(
+                !is_index_write(&linked, &linked.git_common_directory.join(path)),
                 "{path}"
             );
         }

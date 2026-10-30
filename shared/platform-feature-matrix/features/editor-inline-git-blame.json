@@ -1,0 +1,29 @@
+{
+  "id": "editor-inline-git-blame",
+  "area": "编辑器",
+  "group": "Git 变更",
+  "capability": "Windows 行尾 Git Blame 默认关闭；开启后仅在文件本身或提交历史变化时刷新，刷新期间保留旧注释，不随 .git/index 改写闪烁",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/git/stores/git-blame.store.ts",
+      "windows/tauri/src/features/git/hooks/use-git-blame.ts",
+      "windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx",
+      "windows/tauri/crates/project/src/git_watcher.rs",
+      "windows/tauri/src/features/settings/config/default-settings.ts",
+      "windows/tauri/src/features/git/stores/git-blame.store.test.ts",
+      "windows/tauri/src/features/git/hooks/use-git-blame.test.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Editor / Git",
+  "verification": "Windows：新安装时行尾 Blame 关闭；在设置中开启后打开大型 Maven 项目，导入期间（工具频繁改写 .git/index）行尾注释不闪烁、不重复执行 git blame；保存文件、提交、切换分支后注释更新且更新前保留旧注释。未提交行显示本地化的“未提交的更改”。已保存过开关的老用户保持原值。",
+  "notes": "macOS 没有行尾 Blame，只有行号区菜单入口（见 editor-git-blame-menu）。"
+}

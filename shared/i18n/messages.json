@@ -25172,6 +25172,100 @@
       }
     },
     {
+      "id": "maven.userSettings.conflict",
+      "description": "Windows UI: the settings.xml changed on disk after it was read; the edit was not saved",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.declared",
+      "description": "Windows UI: the local repository shown comes from this settings.xml",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.defaultValue",
+      "description": "Windows UI: marks the shown local repository as Maven's built-in default rather than a configured value",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.description",
+      "description": "Windows UI: explains that the user-level Maven settings apply to every project unless the project overrides them",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.invalid",
+      "description": "Windows UI: the user-level settings.xml is malformed and will not be rewritten",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.loading",
+      "description": "Windows UI: status while reading the user-level Maven settings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.missing",
+      "description": "Windows UI: the user-level settings.xml does not exist yet",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.notDeclared",
+      "description": "Windows UI: the settings.xml exists but declares no local repository",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.readFailed",
+      "description": "Windows UI: the user-level Maven settings could not be read; error is the system message",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "maven.userSettings.reload",
+      "description": "Windows UI: button that reads the user-level settings.xml again",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.reloadProject",
+      "description": "Windows UI: after saving, the open project uses the new repository once Maven is reloaded",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.save",
+      "description": "Windows UI: button that writes the local repository to the user-level settings.xml",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.title",
+      "description": "Windows UI: settings group for the user-level Maven settings.xml shared by all projects",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "maven.versionManagedFrom",
       "description": "Windows UI: maven.versionManagedFrom",
       "platforms": [
@@ -64889,11 +64983,32 @@
       ]
     },
     {
+      "id": "navigation.resolving",
+      "description": "Windows UI: shown while a slow navigation request is still running; target is a translated navigation kind such as definition",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "target": "string"
+      }
+    },
+    {
       "id": "navigation.typeDefinition",
       "description": "Windows UI: navigation.typeDefinition",
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "navigation.waitingForImport",
+      "description": "Windows UI: navigation is unavailable while the language server imports the project",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string",
+        "percent": "integer"
+      }
     },
     {
       "id": "newProject.backToStarters",
@@ -65809,6 +65924,26 @@
       ]
     },
     {
+      "id": "preparation.currentProject",
+      "description": "Windows UI: Java module the language server is importing; name comes from the language server",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "preparation.downloading",
+      "description": "Windows UI: dependency the Java import is downloading; artifact comes from the build tool",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "artifact": "string"
+      }
+    },
+    {
       "id": "preparation.explanation",
       "description": "Windows UI: preparation.explanation",
       "platforms": [
@@ -65828,6 +65963,16 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "preparation.importingPercent",
+      "description": "Windows UI: status bar label while the Java project imports, with the import percentage",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "percent": "integer"
+      }
     },
     {
       "id": "preparation.logs",
@@ -91193,6 +91338,96 @@
         "key": "Disabled by color scheme",
         "arguments": []
       }
+    },
+    {
+      "id": "backgroundTasks.explanation",
+      "description": "Windows UI: explains that background tasks finish by themselves and cannot be cancelled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "backgroundTasks.more",
+      "description": "Windows UI: status bar suffix counting further background tasks",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "backgroundTasks.title",
+      "description": "Windows UI: status bar popover title listing language-server background work",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "backgroundTasks.untitled",
+      "description": "Windows UI: name for a language-server background task that reported no title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.ask",
+      "description": "Windows UI: import-on-open option that asks first",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.askOnOpen",
+      "description": "Windows UI: notification asking whether to import a Java project that was just opened",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "project": "string"
+      }
+    },
+    {
+      "id": "javaImport.automatic",
+      "description": "Windows UI: import-on-open option that imports immediately",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.configureFirst",
+      "description": "Windows UI: action that opens Maven settings before importing",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.import",
+      "description": "Windows UI: action that starts importing the Java project",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.manual",
+      "description": "Windows UI: import-on-open option that waits until the project model is needed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.onOpen",
+      "description": "Windows UI: setting label for what opening a Java project does with the language-server import",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.onOpenDescription",
+      "description": "Windows UI: explains the Java import-on-open choices, including that manual still imports when needed",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }
