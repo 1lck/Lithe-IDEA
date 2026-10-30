@@ -42,7 +42,7 @@ struct PluginHostWindowServices {
         let resolver = PluginHostResourceResolver(fileStorage: fileStorage)
         let editor = PluginHostEditorService(directory: directory, resolver: resolver)
         self.editor = editor
-        preview = PluginHostPreviewService(editor: editor)
+        preview = PluginHostPreviewService(editor: editor, directory: directory)
         browser = PluginHostBrowserService(
             directory: directory, resolver: resolver, opener: PluginHostPlatformBrowser(platformUI: platformUI)
         )

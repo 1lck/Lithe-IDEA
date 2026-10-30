@@ -90,29 +90,6 @@ private struct EditorDocumentTabIcon: View {
     }
 }
 
-enum DocumentPreviewMode: String, CaseIterable, Identifiable, Equatable {
-    case editor
-    case split
-    case preview
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .editor: "Editor"
-        case .split: "Editor and Preview"
-        case .preview: "Preview"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .editor: "pencil.line"
-        case .split: "rectangle.split.2x1"
-        case .preview: "doc.richtext"
-        }
-    }
-}
 
 struct EditorAreaView: View {
     var groupID: UUID? = nil
@@ -132,7 +109,7 @@ struct EditorAreaView: View {
     @State private var tabReorderTarget: EditorTabReorderTarget?
     @State private var isTerminalTabBarDropTargeted = false
     @State private var resolvedTabIcons: [UUID: LitheIconKind] = [:]
-    @State private var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
+    private var documentPreviewModes: [UUID: DocumentPreviewMode] { model.editorTabOrderFeature.documentPreviewModes }
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var hoveredPreviewMode: DocumentPreviewMode?
 
@@ -179,7 +156,7 @@ struct EditorAreaView: View {
         }
         .onChange(of: model.openDocuments.map(\.id)) { ids in
             resolvedTabIcons = resolvedTabIcons.filter { ids.contains($0.key) }
-            documentPreviewModes = documentPreviewModes.filter { ids.contains($0.key) }
+            model.editorTabOrderFeature.documentPreviewModes = documentPreviewModes.filter { ids.contains($0.key) }
             markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
         }
         .onChange(of: model.editorTabItems) { items in
@@ -1119,7 +1096,7 @@ struct EditorAreaView: View {
 
     private func selectDocumentPreviewMode(_ mode: DocumentPreviewMode) {
         guard let document = paneDocument else { return }
-        documentPreviewModes[document.id] = mode
+        model.editorTabOrderFeature.documentPreviewModes[document.id] = mode
     }
 
     private func isSVGFile(_ document: EditorDocument) -> Bool {

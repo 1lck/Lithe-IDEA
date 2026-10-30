@@ -383,7 +383,7 @@ struct PluginHostPreviewServiceTests {
         }
     }
 
-    @Test func refusesOtherFilesAndPreviewOnlyBeforeTouchingTheWindow() async {
+    @Test func refusesOtherFilesBeforeTouchingTheWindow() async {
         let fixture = PluginHostFixture()
         defer { fixture.tearDown() }
         fixture.addFile("notes.md")
@@ -392,11 +392,6 @@ struct PluginHostPreviewServiceTests {
         await #expect(throws: PluginHostError.notHTMLDocument) {
             try await fixture.preview.openHTML(PluginHostPreviewOpenRequest(
                 context: fixture.context(), resource: fixture.resource("notes.md")
-            ))
-        }
-        await #expect(throws: PluginHostError.unsupportedOption) {
-            try await fixture.preview.openHTML(PluginHostPreviewOpenRequest(
-                context: fixture.context(), resource: fixture.resource("a.html"), presentation: .previewOnly
             ))
         }
         #expect(fixture.window.openCalls.isEmpty)

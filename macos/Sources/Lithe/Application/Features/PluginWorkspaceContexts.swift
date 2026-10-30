@@ -58,6 +58,11 @@ final class PluginWorkspaceContexts {
     /// Grows whenever a context opens, closes, or changes.
     private(set) var revision = 1
     private var contextsByOwner: [ObjectIdentifier: PluginWorkspaceContext] = [:]
+    private final class Owner {
+        weak var value: AnyObject?
+        init(_ value: AnyObject) { self.value = value }
+    }
+    private var owners: [ObjectIdentifier: Owner] = [:]
     private var closeObservers: [UUID: @MainActor (String) -> Void] = [:]
     private var openObservers: [UUID: @MainActor (PluginWorkspaceContext) -> Void] = [:]
     private var revisionObservers: [UUID: @MainActor (Int) -> Void] = [:]
@@ -72,6 +77,11 @@ final class PluginWorkspaceContexts {
 
     func context(ownedBy owner: AnyObject) -> PluginWorkspaceContext? {
         contextsByOwner[ObjectIdentifier(owner)]
+    }
+
+    func owner(of context: PluginWorkspaceContext) -> AnyObject? {
+        guard let key = contextsByOwner.first(where: { $0.value.reference == context.reference })?.key else { return nil }
+        return owners[key]?.value
     }
 
     /// The context a reference names, when it is open and of that
@@ -110,6 +120,7 @@ final class PluginWorkspaceContexts {
             location: stateKey, name: name, localURL: root, remotePath: remote?.remoteRoot
         )
         let key = ObjectIdentifier(owner)
+        owners[key] = Owner(owner)
         let previous = contextsByOwner[key]
         if let previous, previous.authority == authority, previous.folders == [folder] {
             return previous
@@ -143,6 +154,7 @@ final class PluginWorkspaceContexts {
 
     /// Closes the window's context; nothing happens when it has none.
     func close(owner: AnyObject) {
+        owners[ObjectIdentifier(owner)] = nil
         guard let context = contextsByOwner.removeValue(forKey: ObjectIdentifier(owner)) else { return }
         revision += 1
         for observer in closeObservers.values { observer(context.contextID) }

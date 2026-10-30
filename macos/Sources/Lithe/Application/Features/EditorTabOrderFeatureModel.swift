@@ -1,6 +1,31 @@
 import Combine
 import Foundation
 
+enum DocumentPreviewMode: String, CaseIterable, Identifiable, Equatable {
+    case editor
+    case split
+    case preview
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .editor: "Editor"
+        case .split: "Editor and Preview"
+        case .preview: "Preview"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .editor: "pencil.line"
+        case .split: "rectangle.split.2x1"
+        case .preview: "doc.richtext"
+        }
+    }
+}
+
+
 struct AgentEditorConversation: Equatable {
     let agentID: String
     let sessionID: String?
@@ -11,6 +36,7 @@ struct AgentEditorConversation: Equatable {
 /// selection remain with their existing features.
 @MainActor
 final class EditorTabOrderFeatureModel: ObservableObject {
+    @Published var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
     @Published private(set) var items: [EditorTabItem] = [] {
         didSet {
             reconcileGroups()

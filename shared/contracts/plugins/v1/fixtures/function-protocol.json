@@ -278,6 +278,9 @@
     }
   ],
   "hostRequests": [
+    {"name": "workspace metadata never authorizes file reads", "version": 3, "hostServices": ["workspace"], "method": "lithe/host/workspace/readFile", "params": {"context": {"contextID": "w1", "generation": 1}}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "editor read method grant never authorizes edits", "version": 3, "hostServices": ["lithe/host/editor/getSelections"], "method": "lithe/host/editor/applyEdits", "params": {}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "only the explicit file method is forwarded", "version": 3, "hostServices": ["lithe/host/workspace/readFile"], "method": "lithe/host/workspace/readFile", "params": {"context": {"contextID": "w1", "generation": 1}, "resource": {"rootID": "r1", "path": "hello.txt"}}, "expected": {"forward": "workspace"}},
     {
       "name": "version 1 sessions get no host service even when granted",
       "version": 1,
@@ -410,6 +413,8 @@
           "limits": {
             "pendingHostRequests": 16,
             "functionResultBytes": 1048576,
+            "hostRequestBytes": 1048576,
+            "hostResultBytes": 1048576,
             "errorMessageBytes": 1024,
             "errorDetailsBytes": 4096,
             "notificationBytes": 1048576

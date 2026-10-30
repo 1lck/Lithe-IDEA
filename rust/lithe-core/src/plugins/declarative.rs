@@ -275,8 +275,13 @@ enum UIDock {
 struct UICommand {
     id: String,
     title: String,
-    #[serde(rename = "toolWindowID")]
-    tool_window_id: String,
+    /// Absent for a backend command from `ui` 4 on.
+    #[serde(
+        default,
+        rename = "toolWindowID",
+        skip_serializing_if = "Option::is_none"
+    )]
+    tool_window_id: Option<String>,
     #[serde(default)]
     order: i32,
     placements: Vec<UICommandPlacement>,
@@ -1180,14 +1185,17 @@ impl DeclarativePluginManifest {
                 "UI contributions require plugin API level 2.",
             ));
         }
-        if ui.tool_windows.is_empty() || ui.tool_windows.len() > 64 || ui.commands.len() > 128 {
+        let version = self.requires.get(capabilities::UI).copied().unwrap_or(1);
+        if (ui.tool_windows.is_empty() && (version < 4 || ui.commands.is_empty()))
+            || ui.tool_windows.len() > 64
+            || ui.commands.len() > 128
+        {
             return Err(invalid(
                 "ui",
                 "UI requires 1-64 tool windows and at most 128 commands.",
             ));
         }
         // Below level 3 there is no `requires`, and the section means `ui` 1.
-        let version = self.requires.get(capabilities::UI).copied().unwrap_or(1);
         let prefix = format!("{}.", self.id);
         let mut ids = BTreeSet::new();
         let mut windows = BTreeSet::new();
@@ -1237,7 +1245,19 @@ impl DeclarativePluginManifest {
                 || command.title.len() > 256
                 || !ids.insert(command.id.clone())
                 || !action_ids.insert(command.id.clone())
-                || !windows.contains(&command.tool_window_id)
+                || match &command.tool_window_id {
+                    Some(id) => !windows.contains(id),
+                    None => {
+                        version < 4
+                            || self.backend.is_none()
+                            || self
+                                .requires
+                                .get(capabilities::BACKEND)
+                                .copied()
+                                .unwrap_or(1)
+                                < 2
+                    }
+                }
                 || command.placements.is_empty()
             {
                 return Err(invalid(
@@ -1269,6 +1289,11 @@ impl DeclarativePluginManifest {
         // the plugin from hosts that could run it.
         if (version == 2 && ui.tool_windows.iter().all(|window| window.web.is_none()))
             || (version == 3 && ui.tool_windows.iter().all(|window| window.native.is_none()))
+            || (version == 4
+                && ui
+                    .commands
+                    .iter()
+                    .all(|command| command.tool_window_id.is_some()))
         {
             return Err(invalid(
                 "requires.ui",
@@ -1284,7 +1309,10 @@ impl DeclarativePluginManifest {
 
     fn validate_permissions(&mut self) -> Validation<()> {
         for permission in &self.permissions {
-            if !KNOWN_PERMISSIONS.contains(&permission.as_str()) {
+            if !KNOWN_PERMISSIONS.contains(&permission.as_str())
+                && !crate::lsp::interface::plugin_function::HOST_PERMISSIONS
+                    .contains(&permission.as_str())
+            {
                 return Err(PluginRejection::at(
                     "plugin.permission.unknown",
                     "permissions",
@@ -1365,6 +1393,17 @@ impl DeclarativePluginManifest {
             return Err(invalid(
                 "permissions",
                 "workspace.metadata is used by a plugin backend 2; require backend 2 or remove the permission.",
+            ));
+        }
+        if self
+            .permissions
+            .iter()
+            .any(|p| crate::lsp::interface::plugin_function::HOST_PERMISSIONS.contains(&p.as_str()))
+            && (self.backend.is_none() || self.backend_version() < 2)
+        {
+            return Err(invalid(
+                "permissions",
+                "Host API permissions require backend 2.",
             ));
         }
         for permission in required {
@@ -1515,6 +1554,12 @@ impl DeclarativePluginManifest {
         {
             services.push(super::backend::HOST_SERVICE_WORKSPACE);
         }
+        for permission in &self.permissions {
+            services
+                .extend(crate::lsp::interface::plugin_function::methods_for_permission(permission));
+        }
+        services.sort_unstable();
+        services.dedup();
         services
     }
 

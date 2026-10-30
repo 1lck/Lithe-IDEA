@@ -11,7 +11,7 @@ import Foundation
 /// caller treats the buffer as possibly newer than it knows.
 @MainActor
 enum PluginHostEditorFlush {
-    static let defaultTimeout: Duration = .seconds(2)
+    nonisolated static let defaultTimeout: Duration = .seconds(2)
 
     /// `request` starts the synchronization and must call its argument once
     /// with the outcome. Later calls are ignored.

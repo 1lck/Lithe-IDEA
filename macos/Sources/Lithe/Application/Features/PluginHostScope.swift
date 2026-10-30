@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheModuleAPI
 
 // Note: 编辑器打开、HTML 预览、外部浏览器和窗口消息的宿主内部服务见 .agents/notes/implemented/architecture/2026-10-30-plugin-host-open-preview-services.md
@@ -71,6 +72,8 @@ struct PluginHostWindowSnapshot: Equatable, Sendable {
 
 /// One document as the window's document owner holds it.
 struct PluginHostDocumentState: Equatable, Sendable {
+    var documentID: UUID? = nil
+    var version: UInt64? = nil
     let url: URL
     /// False when the owner holds no buffer for the file.
     let isOpen: Bool
@@ -101,6 +104,9 @@ enum PluginHostEditorActivation: Equatable, Sendable {
 /// may make. The AppModel of a project session implements it.
 @MainActor
 protocol PluginHostWindowPort: AnyObject {
+    var hostDocumentService: (any EditorDocumentServicing)? { get }
+    var hostVisibilityRules: FileVisibilityRules { get }
+    func hostSetHTMLPresentation(at url: URL, previewOnly: Bool) throws
     /// nil once the session closed or when no folder is open.
     var hostSnapshot: PluginHostWindowSnapshot? { get }
     /// Reads the document state. With `flushingEditor` the editor first
@@ -118,10 +124,30 @@ protocol PluginHostWindowPort: AnyObject {
     func hostNoteMessageLimit(pluginName: String)
 }
 
+extension PluginHostWindowPort {
+    var hostDocumentService: (any EditorDocumentServicing)? { nil }
+    var hostVisibilityRules: FileVisibilityRules { .default }
+    func hostSetHTMLPresentation(at url: URL, previewOnly: Bool) throws { throw PluginHostError.unsupportedOption }
+}
+
 /// Finds a window by the ID a plugin was given for it.
 @MainActor
 protocol PluginHostWindowDirectory: AnyObject {
     func hostWindow(id: UUID) -> (any PluginHostWindowPort)?
+}
+
+/// Resolves windows only through live contexts; never consults global focus.
+@MainActor
+final class PluginContextWindowDirectory: PluginHostWindowDirectory {
+    let contexts: PluginWorkspaceContexts
+    init(contexts: PluginWorkspaceContexts) { self.contexts = contexts }
+    func hostWindow(id: UUID) -> (any PluginHostWindowPort)? {
+        for context in contexts.contexts {
+            if let port = contexts.owner(of: context) as? any PluginHostWindowPort,
+               port.hostSnapshot?.windowID == id { return port }
+        }
+        return nil
+    }
 }
 
 /// A call accepted by the gate: the window and the snapshot it was

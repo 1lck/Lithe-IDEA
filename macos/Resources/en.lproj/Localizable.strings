@@ -3971,6 +3971,8 @@
 "The plugin backend stopped before it was ready." = "The plugin backend stopped before it was ready.";
 "The plugin does not provide the debug adapter %@." = "The plugin does not provide the debug adapter %@.";
 "The plugin download address is invalid." = "The plugin download address is invalid.";
+"The plugin host request could not be completed." = "The plugin host request could not be completed.";
+"The plugin host request parameters are invalid." = "The plugin host request parameters are invalid.";
 "The plugin is not allowed to use the host service %@." = "The plugin is not allowed to use the host service %@.";
 "The plugin launch refers to %@, which is not a file inside its package." = "The plugin launch refers to %@, which is not a file inside its package.";
 "The plugin package changed while it was being copied. Choose it again." = "The plugin package changed while it was being copied. Choose it again.";
@@ -9254,6 +9256,8 @@
 "npm was not found. It is normally installed with Node.js." = "npm was not found. It is normally installed with Node.js.";
 "or" = "or";
 "outline.expandAll" = "Expand All";
+"plugin.host.invalidParameters" = "The plugin host request parameters are invalid.";
+"plugin.host.requestFailed" = "The plugin host request could not be completed.";
 "plugins.java.installNotice" = "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.";
 "plugins.java.installTemplates" = "Install Java Support for Java, Maven and Spring templates…";
 "plugins.title" = "Plugins";

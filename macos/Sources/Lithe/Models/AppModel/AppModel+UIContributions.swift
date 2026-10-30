@@ -17,7 +17,7 @@ extension AppModel {
 
     func performToolWindowContribution(_ contribution: ModuleContribution, owner: ModuleID, openOnly: Bool = false) {
         let target = contribution.kind == .toolWindow ? contribution.id : contribution.visibility["toolWindowID"]
-        guard let target, workspaceURL != nil,
+        guard workspaceURL != nil,
               services.moduleRuntime.availableContributions()[owner]?.contains(contribution) == true else { return }
         // A plugin command reaches its `backend` 2, which starts first when
         // the plugin declares `onCommand:<id>`; the window opens without
@@ -25,6 +25,7 @@ extension AppModel {
         if contribution.kind == .command, let commandID = contribution.actionID {
             services.pluginBackendActivation?.runCommand(commandID, owner: owner, context: pluginWebWorkspaceContext)
         }
+        guard let target else { return }
         let window = WorkbenchFeatureModel.ToolWindow(rawValue: target)
         if !openOnly && contribution.kind == .toolWindow && workbenchFeature.isVisible(window) {
             workbenchFeature.setVisibility(window, isVisible: false)

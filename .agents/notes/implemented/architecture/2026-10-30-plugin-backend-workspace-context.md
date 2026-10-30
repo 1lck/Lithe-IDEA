@@ -35,8 +35,8 @@ M0 计划（`docs/development/macos-plugin-api-plan.md` 第 4 节）要求插件
 
 理由如下：
 
-- 后端持有的东西（数据库连接、索引缓存、登录态）属于用户，不属于某个工程。按工作区拆进程，就要为每个窗口重复启动、重复认证，内存也会成倍增长。
-- 同一个进程里，靠上下文参数隔离已经足够。宿主对每个请求都会核验上下文是否仍然有效，后端无法自己拼出一个上下文来越权。
+- 数据库连接和登录态可以属于用户；索引、项目缓存和订阅仍属于显式工作区上下文。共享进程减少重复启动与认证，但不是隔离或授权边界。
+- 宿主对每个请求核验上下文是否有效以及该方法是否获授权。原生后端有用户级 OS 权限，且 workspace.metadata 允许枚举全部上下文；不能把上下文检查宣传成 OS 沙盒或逐工程授权。
 - `${workspaceStateDir}` 在 v2 里继续拒绝，因为进程启动时没有“当前工作区”可言。每个工作区的状态目录改由上下文对象里的 `stateDirectory` 给出。
 
 正确的做法是：网页调用时，宿主从该网页所在窗口取上下文（`PluginWebBridgeHost.pluginWebWorkspaceContext`），再经 `lsp.functionRequest.context` 送到后端。不要这样做：后端在收不到上下文时，去取“最近打开的工作区”。
@@ -75,7 +75,7 @@ rootID 用按插件加密钥的 HMAC，而不是位置的普通哈希：普通�
 
 ### 激活事件与启动预算
 
-- `onWorkspaceOpen`：窗口打开工作区后，在下一个主线程任务里启动，不阻塞打开流程。多个插件按 ID 排序后串行启动，一次只启动一个。每个插件沿用 60 秒的 initialize 超时，超时或失败只记日志（`plugins.backend`），不会挡住工作区。
+- `onWorkspaceOpen`：窗口打开工作区后，在下一个主线程任务里启动，不阻塞打开流程。后台激活按 ID 入队，最多同时启动两个插件并去重。用户命令独立等待自己的启动，不排在其他插件的后台队列后面。每个插件沿用 60 秒的 initialize 超时，超时或失败只记日志（`plugins.backend`），不会挡住工作区。
 - `onCommand:<id>`：在 `performToolWindowContribution` 里，命令贡献的 `actionID` 就是命令 ID；只启动所属 UI 模块为 `<pluginID>.ui` 的那个插件。窗口照常打开，不等待后端。命令本身经 `lithe/host/commands/didRun { commandID, context? }` 送到 `backend: 2` 的后端：已就绪的后端立即按通知顺序收到；正在启动的排在启动之后；未运行的只有声明了该命令的 `onCommand:<id>` 才会被启动并在就绪后收到。`backend: 1` 不收命令通知。
 - 热启用：`enable` 和 `register` 时如果已经有工作区打开，声明 `onWorkspaceOpen` 的插件立即启动，等同于工作区刚打开，不必等下一个窗口。新安装带后端的包仍需重启（`canActivateWithoutRestart`），这一点不在本次范围。
 - 不接受 `onStartupFinished` 和 `*`。“应用一启动就跑”的后端没有用户可感知的触发点，会拖慢所有用户的启动。
@@ -101,7 +101,7 @@ Core 新增命令 `lsp.hostNotify { sessionId, method, params }`，返回 `{ del
 - `lithe/host/subscriptions/notify { subscriptionID, sequence, event }`：`PluginHostSubscriptions.notify` 为每个订阅单独递增 `sequence`（从 1 起），已释放的订阅不再发送。服务通过 dispatcher 的 `subscriptions` 发事件，不直接找会话。
 - `lithe/host/commands/didRun { commandID, context? }`：见上面的 `onCommand`。
 
-宿主按插件串行发送通知（每个运行中会话一个 Task 链），停止会话时取消未发出的通知，保证同一后端收到的顺序与宿主发出的顺序一致。参数序列化后不超过 1 MiB（`limits.notificationBytes`）。
+宿主按插件串行发送通知（每个运行中会话一个有界队列和发送任务），停止会话时取消未发出的通知，除可合并的工作区 revision 外保持队列顺序；已释放订阅和过期 context 的命令不再发送。参数序列化后不超过 1 MiB（`limits.notificationBytes`）。
 
 ### 协议 3 内只增不改
 
@@ -114,6 +114,32 @@ Core 新增命令 `lsp.hostNotify { sessionId, method, params }`，返回 `{ del
 - 新服务的权限仍要在清单里声明。不认识该权限的旧宿主在安装时以 `plugin.permission.unknown` 拒绝整个包，不会悄悄授予或忽略权限。
 
 这样改的原因：插件后端调用宿主属于运行时能力，本来就靠协商和发现判断能不能用（[按能力分版本](2026-10-17-plugin-capability-versions.md)：“进程启动后还能做什么，走它自己的协议协商”）。如果每加一批服务都升一次版本，SDK 和插件要同时维护很多个版本分支，而版本号能表达的信息 `getCapabilities` 已经全部给出。用户在 PR #1595 评审时确认了这个取舍。
+
+### 公共服务接线与生命周期补全
+
+编辑器、文件和窗口三组内部服务已通过 `PluginDocumentHostService`、
+`PluginFileHostService` 和 `PluginWindowHostService` 接入公共分发。插件只提供
+`PluginWorkspaceContext.reference` 与资源 ID；统一 resolver 找到拥有该 context
+的弱引用窗口，再把内部 scope 值交给既有 owner。内部类型不是第二份可伪造的授权真源。
+
+- 新权限展开为具体方法的 grant，不以 `workspace` 或 `editor` 整个命名空间放行。
+  Core 白名单、宿主已注册方法、会话 grant 三者取交集；metadata 不会因新增文件方法获得读盘权。
+- 每次 beginSession 生成 session token。旧进程回调、取消和结束都必须核验身份，不能碰新进程同名 hostRequestID。
+  进程退出立即清理 dispatcher 和 running entry；initialize 中的命令等 ready，崩溃后的命令可按激活事件重启。
+- 稳定 rootID 只标识资源。文件服务内部 lease 使用 contextID 加 rootID；关闭一个窗口只关闭它的 lease。
+  同一路径的新 context 从 generation 1 开始也能读取，不会被历史 closedGeneration 拒绝。
+- context 关闭取消在途请求并返回 contextExpired；普通机器操作有 30 秒宿主截止时间。
+  等待用户按钮的消息不设总时限，仍随会话、context 和取消回收。
+- 通知队列每会话最多 128 项，工作区 revision 合并为最新值。溢出报告失败并结束会话；
+  不静默丢命令。发送前复核订阅/context。通知和响应与函数请求共用发送 watchdog，卡住的 stdin 不阻塞主线程停用。
+- `ui:4` 允许没有工具窗口的后端命令，旧 ui 版本保持不变。命令事件没有业务成功确认，
+  不把送出通知当成编辑已完成；有结果的执行将沿用函数请求生命周期。
+
+正确做法：同一工程两窗口有相同 rootID，却有不同 context lease；关 A 不影响 B。
+不要这样做：拿 rootID 的全局 closedGeneration 判断 B 是否过期，或者把非空 session 当作 ready。
+
+取消/超时不表示回滚，副作用可能已经提交。版本冲突必须重读并重新计算；
+contextExpired 必须重新解析原目标，不能换成活动窗口。新协议不允许 SDK 自动重放修改。
 
 ### 工作区信任
 
@@ -167,7 +193,7 @@ Core 新增命令 `lsp.hostNotify { sessionId, method, params }`，返回 `{ del
 收益：
 
 - 没有网页的插件也能运行后端。
-- 三个切片只需要实现一个协议并注册一次，不改契约，也不改 Core 的能力表。
+- 服务实现注册到按方法分发的宿主入口；正式方法、权限和数据形状仍须与 Core 和契约同步。
 - 后端能明确知道每次调用属于哪个工作区，并在工作区过期时得到提示。
 - 远程工作区不会被误读。
 
@@ -178,7 +204,7 @@ Core 新增命令 `lsp.hostNotify { sessionId, method, params }`，返回 `{ del
 - 每加一个新服务，都要同时更新 Core 的 `HOST_METHODS`（以及有通知时的 `HOST_NOTIFICATIONS`）和契约 README。新增的服务、选项和错误码都留在协议 3 内，不能顺手改已有方法或字段的含义，否则就要出协议 4。
 - 同为协议 3，不同宿主能用的方法可能不同，后端和 SDK 必须按 `getCapabilities` 判断，不能只看版本号。
 - 后端拿到 `listContexts` 后，要用 `getContext` 才能得到某个工作区的 `stateDirectory`。
-- `onWorkspaceOpen` 后端串行启动。插件多的时候，最后一个插件就绪得较晚，但这不影响工作区本身。
+- 后台启动并发有界，但进程仍可能很慢；用户命令不等待无关后台插件，失败通过激活错误回调记录。
 
 ## 验证
 

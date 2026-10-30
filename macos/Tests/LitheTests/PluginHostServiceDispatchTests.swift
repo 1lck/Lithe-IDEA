@@ -98,7 +98,7 @@ struct PluginHostServiceDispatchTests {
     func aGrantedServiceWithoutAHandlerIsUnavailable() async {
         let fixture = Fixture()
         defer { fixture.remove() }
-        fixture.dispatcher.beginSession(pluginID: Self.pluginID, hostServices: ["files"])
+        fixture.dispatcher.beginSession(pluginID: Self.pluginID, hostServices: ["lithe/host/files/read"])
 
         let outcome = await fixture.dispatcher.dispatch(
             PluginHostRequest(id: "h-1", method: "lithe/host/files/read", service: "files", params: .object([:])),

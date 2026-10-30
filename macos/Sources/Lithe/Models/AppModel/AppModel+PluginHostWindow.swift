@@ -9,6 +9,13 @@ import Foundation
 /// `id` is the window ID that plugins are given.
 @MainActor
 extension AppModel: PluginHostWindowPort {
+    var hostDocumentService: (any EditorDocumentServicing)? { makeEditorDocumentService() }
+    var hostVisibilityRules: FileVisibilityRules { settings.fileVisibilityRules }
+
+    func hostSetHTMLPresentation(at url: URL, previewOnly: Bool) throws {
+        guard let document = hostDocument(matching: url) else { throw PluginHostError.documentNotOpen }
+        editorTabOrderFeature.documentPreviewModes[document.id] = previewOnly ? .preview : .split
+    }
     var hostSnapshot: PluginHostWindowSnapshot? {
         guard let identity = currentWorkspaceIdentity else { return nil }
         return PluginHostWindowSnapshot(
@@ -38,6 +45,7 @@ extension AppModel: PluginHostWindowPort {
         // The window or the tab may have gone while the editor was answering.
         guard currentWorkspaceIdentity != nil, openDocuments.contains(where: { $0 === document }) else { return nil }
         return PluginHostDocumentState(
+            documentID: document.id, version: document.contentVersion,
             url: normalized,
             isOpen: true,
             // A buffer whose latest input the editor did not confirm may be
@@ -72,6 +80,7 @@ extension AppModel: PluginHostWindowPort {
             selectEditorTab(.document(document.id))
         }
         return PluginHostDocumentState(
+            documentID: document.id, version: document.contentVersion,
             url: normalized,
             isOpen: true,
             hasUnsavedChanges: document.isDirty,
@@ -106,7 +115,7 @@ extension AppModel: PluginHostWindowPort {
 
     /// True when the file's tab is the one in front: selected in the focused
     /// editor group, with no diff tab over it.
-    private func hostIsForegroundTab(_ document: EditorDocument) -> Bool {
+    func hostIsForegroundTab(_ document: EditorDocument) -> Bool {
         guard activeDocumentID == document.id, !editorTabOrderFeature.repositoryDiffSelected else { return false }
         // Before the editor area first mounts nothing is focused yet; the
         // active document then is the foreground one.

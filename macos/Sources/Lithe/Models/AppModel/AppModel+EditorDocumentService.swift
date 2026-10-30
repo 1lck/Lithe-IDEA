@@ -9,7 +9,10 @@ extension AppModel {
             windowID: id,
             workspaceURL: { [weak self] in self?.workspaceURL },
             documents: { [weak self] in self?.documentFeature.editorDocuments ?? [] },
-            activeDocumentID: { [weak self] in self?.documentFeature.activeDocumentID },
+            activeDocumentID: { [weak self] in
+                guard let self, let document = self.documentFeature.editorDocuments.first(where: { self.hostIsForegroundTab($0) }) else { return nil }
+                return document.id
+            },
             languageIdentifier: { [weak self] url in
                 self?.languageProviderCatalog.provider(for: url)?.languageIdentifier(for: url)
             })

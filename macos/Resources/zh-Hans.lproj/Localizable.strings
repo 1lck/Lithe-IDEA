@@ -3971,6 +3971,8 @@
 "The plugin backend stopped before it was ready." = "插件后端在就绪前已停止。";
 "The plugin does not provide the debug adapter %@." = "插件没有提供调试适配器 %@。";
 "The plugin download address is invalid." = "插件下载地址无效。";
+"The plugin host request could not be completed." = "未能完成插件宿主请求。";
+"The plugin host request parameters are invalid." = "插件宿主请求的参数无效。";
 "The plugin is not allowed to use the host service %@." = "插件无权使用宿主服务 %@。";
 "The plugin launch refers to %@, which is not a file inside its package." = "插件启动项引用了 %@，它不是插件包内的文件。";
 "The plugin package changed while it was being copied. Choose it again." = "插件包在复制过程中发生了变化。请重新选择。";
@@ -9254,6 +9256,8 @@
 "npm was not found. It is normally installed with Node.js." = "未找到 npm。它通常随 Node.js 一起安装。";
 "or" = "或";
 "outline.expandAll" = "全部展开";
+"plugin.host.invalidParameters" = "插件宿主请求的参数无效。";
+"plugin.host.requestFailed" = "未能完成插件宿主请求。";
 "plugins.java.installNotice" = "Java Support 现已独立安装。请从插件市场安装，或使用“从磁盘安装”导入离线包。原有 Java 设置会保留。";
 "plugins.java.installTemplates" = "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…";
 "plugins.title" = "插件";

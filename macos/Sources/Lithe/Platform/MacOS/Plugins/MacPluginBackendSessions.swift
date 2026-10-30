@@ -72,8 +72,12 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// Reports a backend that an activation event failed to start; the
     /// workspace or command goes on without it.
     var onActivationFailure: (@MainActor (_ pluginID: String, _ error: Error) -> Void)?
-    /// Starts activated backends one plugin at a time.
-    private var activationQueue: Task<Void, Never>?
+    private static let maximumBackgroundStarts = 2
+    private static let maximumPendingNotifications = 128
+    private var backgroundQueue: [String] = []
+    private var backgroundStarts: [String: Task<Void, Never>] = [:]
+    private var commandStarts: [String: Task<Void, Never>] = [:]
+    private var pendingCommands: [String: [ToolingJSONValue]] = [:]
     private var packages: [String: Package] = [:]
     /// Disabled plugins start again once enabled.
     private var disabledPluginIDs: Set<String> = []
@@ -88,10 +92,12 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         let settings: [String: ToolingJSONValue]
         var task: Task<LanguageServerRuntimeSession, Error>?
         var session: LanguageServerRuntimeSession?
+        var ready = false
         /// What Core granted the session, set when the process launches.
         var hostServices: Set<String> = []
         /// Notifications reach the backend in the order the host sent them.
         var notifications: Task<Void, Never>?
+        var notificationQueue: [(method: String, params: ToolingJSONValue)] = []
 
         init(settings: [String: ToolingJSONValue]) {
             self.settings = settings
@@ -212,29 +218,32 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         }.keys.sorted()
     }
 
-    /// Starts the backends the event activates, after what is queued, one
-    /// plugin at a time and without the caller waiting: a slow or failing
-    /// backend never holds up the workspace or the command. A backend that
-    /// is already running stays as it is.
+    /// Queues deduplicated background starts without holding up the workspace.
+    /// Explicit commands take the independent per-plugin readiness path.
     func activate(event: String, owner: ModuleID? = nil) {
         start(pluginIDs(activatedBy: event, owner: owner).filter { running[$0] == nil })
     }
 
-    /// Queues the start of each plugin's backend; `then` runs for each one
-    /// that is ready, in the queue's order.
-    private func start(
-        _ pluginIDs: [String],
-        then: (@MainActor (_ pluginID: String) -> Void)? = nil
-    ) {
-        guard !pluginIDs.isEmpty else { return }
-        let previous = activationQueue
-        activationQueue = Task { @MainActor [weak self] in
-            await previous?.value
-            for pluginID in pluginIDs {
-                guard let self, !Task.isCancelled else { return }
+    /// Background activation is bounded and deduplicated. User commands have
+    /// their own start path so an unrelated slow initialize never delays them.
+    private func start(_ pluginIDs: [String]) {
+        for id in pluginIDs where backgroundStarts[id] == nil && !backgroundQueue.contains(id) {
+            backgroundQueue.append(id)
+        }
+        drainBackgroundStarts()
+    }
+
+    private func drainBackgroundStarts() {
+        while backgroundStarts.count < Self.maximumBackgroundStarts, !backgroundQueue.isEmpty {
+            let pluginID = backgroundQueue.removeFirst()
+            backgroundStarts[pluginID] = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer {
+                    if !Task.isCancelled { self.backgroundStarts[pluginID] = nil }
+                    self.drainBackgroundStarts()
+                }
                 do {
                     _ = try await self.session(for: pluginID)
-                    then?(pluginID)
                 } catch {
                     if !(error is CancellationError) { self.onActivationFailure?(pluginID, error) }
                 }
@@ -261,16 +270,32 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
                 "contextID": .string(context.contextID), "generation": .integer(context.generation),
             ])
         }
-        let deliver: @MainActor (String) -> Void = { [weak self] pluginID in
-            self?.notify(pluginID: pluginID, method: "lithe/host/commands/didRun", params: .object(params))
+        if commandStarts[pluginID] == nil, running[pluginID]?.ready == true, running[pluginID]?.session?.isRunning == true {
+            notify(pluginID: pluginID, method: "lithe/host/commands/didRun", params: .object(params))
+            return
         }
-        // A ready backend gets it in order with the notifications sent from
-        // now; a starting one after its start. A stopped one starts only on
-        // its own `onCommand:<id>`.
-        if running[pluginID]?.session != nil {
-            deliver(pluginID)
-        } else if running[pluginID] != nil || package.activationEvents.contains("onCommand:\(commandID)") {
-            start([pluginID], then: deliver)
+        guard running[pluginID] != nil || package.activationEvents.contains("onCommand:\(commandID)") else { return }
+        guard pendingCommands[pluginID, default: []].count < Self.maximumPendingNotifications else {
+            reportNotificationLimit(pluginID)
+            return
+        }
+        pendingCommands[pluginID, default: []].append(.object(params))
+        guard commandStarts[pluginID] == nil else { return }
+        commandStarts[pluginID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { if !Task.isCancelled { self.commandStarts[pluginID] = nil } }
+            do {
+                _ = try await self.session(for: pluginID)
+                guard !Task.isCancelled else { return }
+                let commands = self.pendingCommands.removeValue(forKey: pluginID) ?? []
+                for command in commands {
+                    self.notify(pluginID: pluginID, method: "lithe/host/commands/didRun", params: command)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.pendingCommands[pluginID] = nil
+                if !(error is CancellationError) { self.onActivationFailure?(pluginID, error) }
+            }
         }
     }
 
@@ -287,12 +312,47 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// ones sent before it. A backend that is not running, or negotiated a
     /// protocol without the notification, does not receive it.
     private func notify(pluginID: String, method: String, params: ToolingJSONValue) {
-        guard let entry = running[pluginID], let session = entry.session else { return }
-        let previous = entry.notifications
-        entry.notifications = Task { @MainActor in
-            await previous?.value
-            _ = await session.notify(method: method, params: params)
+        guard let entry = running[pluginID], entry.ready, let session = entry.session else { return }
+        if method == "lithe/host/workspace/didChangeContexts" {
+            entry.notificationQueue.removeAll { $0.method == method }
         }
+        guard entry.notificationQueue.count < Self.maximumPendingNotifications else {
+            reportNotificationLimit(pluginID)
+            stop(pluginID)
+            return
+        }
+        entry.notificationQueue.append((method, params))
+        guard entry.notifications == nil else { return }
+        entry.notifications = Task { @MainActor [weak self, weak entry] in
+            guard let self, let entry else { return }
+            defer { entry.notifications = nil }
+            while !Task.isCancelled, self.running[pluginID] === entry, !entry.notificationQueue.isEmpty {
+                let next = entry.notificationQueue.removeFirst()
+                if next.method == "lithe/host/subscriptions/notify", case .object(let params) = next.params,
+                   case .string(let id)? = params["subscriptionID"],
+                   !self.hostDispatcher.subscriptions.contains(pluginID: pluginID, subscriptionID: id) { continue }
+                if next.method == "lithe/host/commands/didRun", case .object(let params) = next.params,
+                   let value = params["context"], let context = PluginHostServiceDispatcher.contextReference(value),
+                   case .failure(let error) = self.hostDispatcher.contexts.resolve(context) {
+                    self.onActivationFailure?(pluginID, error)
+                    continue
+                }
+                guard await session.notify(method: next.method, params: next.params) else {
+                    if !Task.isCancelled, self.running[pluginID] === entry {
+                        self.onActivationFailure?(pluginID, PluginHostServiceError(.failed,
+                            L10n.string("The plugin host request could not be completed.")))
+                        self.stop(pluginID)
+                    }
+                    return
+                }
+            }
+        }
+    }
+
+    private func reportNotificationLimit(_ pluginID: String) {
+        onActivationFailure?(pluginID, PluginHostServiceError(
+            .limitExceeded, L10n.string("This plugin already has too many messages waiting.")
+        ))
     }
 
     /// Stops the backend until `enable` is called.
@@ -317,10 +377,15 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     }
 
     private func stop(_ pluginID: String) {
+        backgroundQueue.removeAll { $0 == pluginID }
+        backgroundStarts.removeValue(forKey: pluginID)?.cancel()
+        commandStarts.removeValue(forKey: pluginID)?.cancel()
+        pendingCommands[pluginID] = nil
         hostDispatcher.endSession(pluginID: pluginID)
         guard let entry = running.removeValue(forKey: pluginID) else { return }
         entry.task?.cancel()
         entry.notifications?.cancel()
+        entry.notificationQueue = []
         entry.session?.stop()
     }
 
@@ -362,7 +427,10 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             do {
                 return try await self.launch(backend, pluginID: pluginID, installation: package.installation, entry: entry)
             } catch {
-                if self.running[pluginID] === entry { self.running[pluginID] = nil }
+                if self.running[pluginID] === entry {
+                    self.running[pluginID] = nil
+                    self.hostDispatcher.endSession(pluginID: pluginID)
+                }
                 throw error
             }
         }
@@ -396,8 +464,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         // Core lists in `getCapabilities` what it grants, so it is granted
         // only what this host serves: a listed method never fails for want
         // of a handler.
-        let served = Set(hostDispatcher.registeredServices)
-        let hostServices = backend.hostServices.filter { served.contains($0) }
+        let hostServices = hostDispatcher.supportedGrants(backend.hostServices)
         let session = LanguageServerRuntimeSession(
             providerID: "pluginBackend:\(pluginID)",
             executableURL: executableURL,
@@ -417,23 +484,32 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         let hostDispatcher = hostDispatcher
         session.stuckSendGrace = stuckSendGrace
         session.terminateProcess = { endBackendProcesses(backendToken, true) }
-        session.onReleased = { endBackendProcesses(backendToken, false) }
+        session.onReleased = { [weak self, weak entry] in
+            endBackendProcesses(backendToken, false)
+            guard let self, let entry, self.running[pluginID] === entry else { return }
+            self.running[pluginID] = nil
+            entry.ready = false
+            entry.notifications?.cancel()
+            entry.notificationQueue = []
+            hostDispatcher.endSession(pluginID: pluginID)
+        }
         // A new process starts with no subscriptions and nothing in flight.
         hostDispatcher.endSession(pluginID: pluginID)
-        hostDispatcher.beginSession(pluginID: pluginID, hostServices: hostServices)
+        let sessionToken = hostDispatcher.beginSession(pluginID: pluginID, hostServices: hostServices)
         entry.hostServices = Set(hostServices)
         session.onHostRequest = { [weak session] request in
-            hostDispatcher.handle(request, pluginID: pluginID) { outcome in
+            hostDispatcher.handle(request, pluginID: pluginID, sessionID: sessionToken) { outcome in
                 session?.respond(to: request.id, with: outcome)
             }
         }
         session.onHostRequestCancelled = { hostRequestID in
-            hostDispatcher.cancel(hostRequestID: hostRequestID, pluginID: pluginID)
+            hostDispatcher.cancel(hostRequestID: hostRequestID, pluginID: pluginID, sessionID: sessionToken)
         }
         entry.session = session
         try await waitUntilReady(session, rootURL: backend.stateDirectory)
         try Task.checkCancellation()
         guard running[pluginID] === entry else { throw CancellationError() }
+        entry.ready = true
         return session
     }
 

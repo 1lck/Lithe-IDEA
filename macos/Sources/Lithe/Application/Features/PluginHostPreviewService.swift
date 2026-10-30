@@ -5,8 +5,7 @@ import Foundation
 enum PluginHostPreviewPresentation: Equatable, Sendable {
     /// The editor and the preview side by side, the HTML default.
     case editorAndPreview
-    /// The preview alone. The editor area keeps this choice per tab as view
-    /// state, so a service cannot set it yet; asking for it is refused.
+    /// The preview alone; the document presentation owner applies this mode.
     case previewOnly
 }
 
@@ -48,20 +47,24 @@ final class PluginHostPreviewService {
     static let htmlExtensions: Set<String> = ["html", "htm"]
 
     private let editor: PluginHostEditorService
+    private let directory: any PluginHostWindowDirectory
 
-    init(editor: PluginHostEditorService) {
+    init(editor: PluginHostEditorService, directory: any PluginHostWindowDirectory) {
         self.editor = editor
+        self.directory = directory
     }
 
     func openHTML(_ request: PluginHostPreviewOpenRequest) async throws -> PluginHostPreviewOpenResult {
-        guard request.presentation == .editorAndPreview else { throw PluginHostError.unsupportedOption }
         guard Self.isHTML(request.resource.relativePath) else { throw PluginHostError.notHTMLDocument }
         let result = try await editor.open(PluginHostEditorOpenRequest(
             context: request.context, resource: request.resource, range: request.range,
             activation: .select, tab: .regular
         ))
+        try Task.checkCancellation()
+        let scope = try PluginHostScopeGate(directory: directory).enter(request.context)
+        try scope.port.hostSetHTMLPresentation(at: result.document.url, previewOnly: request.presentation == .previewOnly)
         return PluginHostPreviewOpenResult(
-            editor: result, usesLiveBuffer: true, presentation: .editorAndPreview
+            editor: result, usesLiveBuffer: true, presentation: request.presentation
         )
     }
 

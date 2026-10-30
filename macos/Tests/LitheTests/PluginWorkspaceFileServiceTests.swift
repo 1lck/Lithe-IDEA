@@ -580,6 +580,46 @@ struct PluginWorkspaceFileServiceTests {
         #expect(!release.isOpen)
     }
 
+    @MainActor
+    @Test func publicFileLeasesSurviveAnotherWindowClosingAndReopening() async throws {
+        let workspace = try TemporaryWorkspace()
+        defer { workspace.remove() }
+        try workspace.write("a.txt", "hello")
+        let contexts = PluginWorkspaceContexts()
+        let first = FakePluginHostWindow(snapshot: PluginHostWindowSnapshot(windowID: UUID(), workspaceURL: workspace.base.standardizedFileURL,
+            workspaceGeneration: 1, isRemoteWorkspace: false, isForeground: true, roots: []))
+        let second = FakePluginHostWindow(snapshot: first.snapshot)
+        let metadata = PluginWorkspaceHostService(contexts: contexts, backendStateDirectory: { _ in workspace.base }, rootIDSecret: { Data(repeating: 1, count: 32) })
+        let files = Self.makeService()
+        let dispatcher = PluginHostServiceDispatcher(contexts: contexts)
+        dispatcher.register(PluginFileHostService(contexts: contexts, metadata: metadata, files: files))
+        dispatcher.beginSession(pluginID: "plugin", hostServices: ["lithe/host/workspace/readFile", "lithe/host/workspace/watch"])
+        defer { dispatcher.endSession(pluginID: "plugin"); contexts.close(owner: first); contexts.close(owner: second) }
+        let a = contexts.open(owner: first, rootURL: workspace.base, remote: nil)
+        let b = contexts.open(owner: second, rootURL: workspace.base, remote: nil)
+        let rootID = metadata.rootID(of: a.folders[0], pluginID: "plugin")
+        func request(_ method: String, _ context: PluginWorkspaceContext, path: String) -> PluginHostRequest {
+            PluginHostRequest(id: UUID().uuidString, method: "lithe/host/workspace/" + method, service: "workspace", params: .object([
+                "context": .object(["contextID": .string(context.contextID), "generation": .integer(context.generation)]),
+                "resource": .object(["rootID": .string(rootID), "path": .string(path)]),
+            ]))
+        }
+        _ = try await dispatcher.dispatch(request("watch", a, path: ""), pluginID: "plugin").get()
+        _ = try await dispatcher.dispatch(request("watch", b, path: ""), pluginID: "plugin").get()
+        #expect(files.activeWatchSubscriptionCount == 2)
+        contexts.close(owner: first)
+        #expect(files.activeWatchSubscriptionCount == 1)
+        _ = try await dispatcher.dispatch(request("readFile", b, path: "a.txt"), pluginID: "plugin").get()
+        let reopened = contexts.open(owner: first, rootURL: workspace.base, remote: nil)
+        #expect(reopened.generation == 1)
+        #expect(metadata.rootID(of: reopened.folders[0], pluginID: "plugin") == rootID)
+        let result = try await dispatcher.dispatch(request("readFile", reopened, path: "a.txt"), pluginID: "plugin").get()
+        guard case .object(let object) = result else { Issue.record("missing read result"); return }
+        #expect(object["text"] == .string("hello"))
+        dispatcher.endSession(pluginID: "plugin")
+        #expect(files.activeWatchSubscriptionCount == 0)
+    }
+
     // MARK: Helpers
 
     private static func makeService(

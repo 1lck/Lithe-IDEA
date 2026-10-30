@@ -420,11 +420,21 @@ final class MacServiceContainer {
             let hostDispatcher = PluginHostServiceDispatcher(contexts: .shared)
             hostDispatcher.register(PluginCredentialHostService(credentials: pluginCredentials))
             let backendDirectories = MacPluginStateDirectories(fileStorage: fileStorage)
-            hostDispatcher.register(PluginWorkspaceHostService(
+            let workspaceHost = PluginWorkspaceHostService(
                 contexts: .shared,
                 backendStateDirectory: { backendDirectories.backendStateDirectory(pluginID: $0) },
                 rootIDSecret: { MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)) }
-            ))
+            )
+            hostDispatcher.register(workspaceHost)
+            hostDispatcher.register(PluginDocumentHostService(contexts: .shared))
+            hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,
+                files: MacPluginWorkspaceFileService(
+                    searchOperations: RustWorkspaceOperations(core: rustCore),
+                    watcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport),
+                    isRemoteWorkspaceRoot: { remoteWorkspaces.resolve($0) != nil }
+                )))
+            hostDispatcher.register(PluginWindowHostService(contexts: .shared, metadata: workspaceHost,
+                                                            fileStorage: fileStorage, platformUI: platformUI))
             let sessions = MacPluginBackendSessions(
                 launchResolver: pluginLaunchResolver,
                 tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),

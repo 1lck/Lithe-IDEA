@@ -937,9 +937,11 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// it is sent off the main actor like a request.
     package func respond(to requestID: String, with outcome: Result<ToolingJSONValue, PluginHostRequestFailure>) {
         guard let sessionID else { return }
-        let core = core
-        Task.detached(priority: .userInitiated) {
-            _ = core.respondToPluginHostRequest(sessionID: sessionID, hostRequestID: requestID, outcome: outcome)
+        Task { @MainActor [self] in
+            _ = await send(timeout: requestTimeout) { core in
+                core.respondToPluginHostRequest(sessionID: sessionID, hostRequestID: requestID, outcome: outcome)
+            }
+            sendsInFlight -= 1
         }
     }
 
@@ -948,12 +950,12 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// `false` when the session is not running, the backend negotiated a
     /// protocol without the notification, or Core refused it.
     package func notify(method: String, params: ToolingJSONValue) async -> Bool {
-        guard let sessionID, isRunning else { return false }
-        let core = core
-        let sending = Task.detached(priority: .userInitiated) {
+        guard let sessionID, case .ready = state, !Task.isCancelled else { return false }
+        let result = await send(timeout: requestTimeout) { core in
             core.notifyPluginBackend(sessionID: sessionID, method: method, params: params)
         }
-        switch await sending.value {
+        sendsInFlight -= 1
+        switch result {
         case .success(let delivered):
             return delivered
         case .failure(let failure):
@@ -985,12 +987,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// A write that is still blocked when the call's timeout passes, or
     /// `stuckSendGrace` after the caller was cancelled, ends the process:
     /// the write then fails and Core fails the session.
-    private func send(
+    private func send<Value: Sendable>(
         timeout: TimeInterval,
-        _ request: @escaping @Sendable (any LanguageServerRuntimeCore) -> Result<
-            LanguageServerRuntimeOperation, LanguageServerRuntimeFailure
-        >
-    ) async -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        _ request: @escaping @Sendable (any LanguageServerRuntimeCore) -> Result<Value, LanguageServerRuntimeFailure>
+    ) async -> Result<Value, LanguageServerRuntimeFailure> {
         sendsInFlight += 1
         // A drain that started before this send must finish before the request
         // is written; its events then cannot include this request's reply.

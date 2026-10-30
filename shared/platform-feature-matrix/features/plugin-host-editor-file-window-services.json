@@ -2,7 +2,7 @@
   "id": "plugin-host-editor-file-window-services",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "插件宿主服务（内部实现，尚未对插件开放）：读取已打开文档与选区并按版本整批编辑（一个撤销步骤，IME 组字期间拒绝）；工作区文件分页读目录、stat、读文件、监听与文件名/全文搜索（逐段 O_NOFOLLOW，远程拒绝）；在指定窗口打开/定位编辑器、打开 HTML 预览、用系统浏览器打开 http/https 或本地文件、显示带按钮的插件消息",
+  "capability": "插件公共宿主服务：按方法授权的文档读取、选区、版本化编辑、工作区文件/搜索/watch、编辑器打开、HTML 预览与外部浏览器、窗口消息",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -22,7 +22,13 @@
       "macos/Tests/LitheTests/PluginHostEditorServiceTests.swift",
       "macos/Tests/LitheTests/PluginHostBrowserServiceTests.swift",
       "macos/Tests/LitheTests/PluginHostMessageServiceTests.swift",
-      "macos/Tests/LitheTests/HTMLPreviewBridgeIsolationTests.swift"
+      "macos/Tests/LitheTests/HTMLPreviewBridgeIsolationTests.swift",
+      "macos/Sources/Lithe/Application/Features/PluginDocumentHostService.swift",
+      "macos/Sources/Lithe/Application/Features/PluginFileHostService.swift",
+      "macos/Sources/Lithe/Application/Features/PluginWindowHostService.swift",
+      "macos/Tests/LitheTests/PluginPublicHostAPITests.swift",
+      "macos/Experiments/Monaco/workbench.integration.ts",
+      "macos/Tests/LitheTests/PluginHostProcessIntegrationTests.swift"
     ]
   },
   "windows": {
@@ -33,6 +39,6 @@
     ]
   },
   "owner": "Extensions",
-  "verification": "macOS 单测：scripts/macos/test/test-macos.sh --filter \"EditorTextEditPlannerTests|EditorDocumentServiceTests|PluginWorkspaceFileServiceTests|PluginHostEditorServiceTests|PluginHostBrowserServiceTests|PluginHostMessageServiceTests|HTMLPreviewBridgeIsolationTests\"；前端：frontend/editor 下运行 plugin-edits.test.ts。服务接入宿主分发、对插件开放后，按计划 §7 用三个验收插件（选区转换器、分页文件浏览器、HTML 预览启动器）在 debug 应用中原生验收：版本冲突与 IME 组字时编辑被拒、撤销一步回退整批编辑；符号链接与 .. 越界被拒、远程工作区返回 authorityUnsupported；后台窗口打开文件不抢焦点、消息限频生效；验收后关闭应用并确认无残留进程。",
-  "notes": "本条覆盖 #1548 计划的 API-06–API-10、API-15–API-17（三种消息）。这些服务目前只是 Mac 内部实现，没有注册进 hostDispatcher，也没在 Core HOST_METHODS 登记，用户与插件都还观察不到，所以实现状态为部分实现、验证为待验证。HTML 预览不暴露插件 bridge 已有回归测试。QuickPick/InputBox、可替换预览标签和纯预览模式未做。Windows/Tauri 不在本轮范围。"
+  "verification": "macOS 单测：scripts/macos/test/test-macos.sh --filter \"EditorTextEditPlannerTests|EditorDocumentServiceTests|PluginWorkspaceFileServiceTests|PluginHostEditorServiceTests|PluginHostBrowserServiceTests|PluginHostMessageServiceTests|HTMLPreviewBridgeIsolationTests\"；前端：frontend/editor 下运行 plugin-edits.test.ts。服务接入宿主分发、对插件开放后，按计划 §7 用三个验收插件（选区转换器、分页文件浏览器、HTML 预览启动器）在 debug 应用中原生验收：版本冲突与 IME 组字时编辑被拒、撤销一步回退整批编辑；符号链接与 .. 越界被拒、远程工作区返回 authorityUnsupported；后台窗口打开文件不抢焦点、消息限频生效；验收后关闭应用并确认无残留进程。 显式设置 LITHE_PLUGIN_HOST_TEST_NODE 后运行 PluginHostProcessIntegrationTests，验证真实 Node 后端经 Core 请求宿主、编辑 dirty 缓冲区、退出清理及插件包字节不变；scripts/macos/probe/probe-macos-monaco.sh --workbench-tests 验证真实 WebKit 的整批编辑与一次撤销。",
+  "notes": "公共方法已注册到 Core 与 Mac dispatcher；新增权限生成逐方法授权，不扩大 workspace.metadata。窗口入口统一解析 PluginWorkspaceContext，内部类型仅为 owner 适配值。HTML 预览显式设置呈现模式，支持 previewOnly；editor.open 返回 documentID/version。文件 lease 绑定 contextID，不用稳定 rootID 作为关闭边界。findText 的上游只给行号，range 如实为 null；纯命令通过 ui:4 开放。不含 Windows 实现。保留 pending，直到完成真实安装插件的整机验收。 纯命令入口同时修复命令面板鼠标点击禁用行仍执行的问题；回归由现有 PluginUIIconTests 覆盖。"
 }

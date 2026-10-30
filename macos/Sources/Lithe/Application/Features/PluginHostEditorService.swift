@@ -81,12 +81,14 @@ final class PluginHostEditorService {
     private func perform(
         _ request: PluginHostEditorOpenRequest, requiresOpenDocument: Bool
     ) async throws -> PluginHostEditorOpenResult {
+        try Task.checkCancellation()
         let scope = try gate.enter(request.context)
         guard request.tab == .regular else { throw PluginHostError.unsupportedOption }
         if let range = request.range { try PluginHostPositionValidation.validate(range) }
         let url = try resolver.resolveFile(request.resource, roots: scope.snapshot.roots)
 
         let before = await scope.port.hostDocumentState(at: url, flushingEditor: false)
+        try Task.checkCancellation()
         let wasAlreadyOpen = before?.isOpen == true
         if requiresOpenDocument && !wasAlreadyOpen { throw PluginHostError.documentNotOpen }
         _ = try gate.enter(request.context)
@@ -96,6 +98,7 @@ final class PluginHostEditorService {
         }
         // The window may have closed or switched workspace while the file loaded.
         let current = try gate.enter(request.context)
+        try Task.checkCancellation()
 
         var applied = PluginHostAppliedSelection.none
         if request.activation == .select, let start = request.range?.start {

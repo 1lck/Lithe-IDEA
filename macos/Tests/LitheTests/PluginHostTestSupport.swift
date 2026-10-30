@@ -43,6 +43,11 @@ final class FakePluginHostWindow: PluginHostWindowPort {
     }
 
     var snapshot: PluginHostWindowSnapshot?
+    var hostDocumentService: (any EditorDocumentServicing)?
+    var htmlPreviewOnly: [String: Bool] = [:]
+    func hostSetHTMLPresentation(at url: URL, previewOnly: Bool) throws {
+        htmlPreviewOnly[url.path] = previewOnly
+    }
     /// Open buffers by file path; true when the buffer holds unsaved edits.
     var openBuffers: [String: Bool] = [:]
     /// The file whose tab is in front, or nil when another kind of tab is.
@@ -170,7 +175,7 @@ final class PluginHostFixture {
         window = FakePluginHostWindow(snapshot: Self.snapshot(windowID: id))
         directory.windows[id] = window
         editor = PluginHostEditorService(directory: directory, resolver: table.resolver())
-        preview = PluginHostPreviewService(editor: editor)
+        preview = PluginHostPreviewService(editor: editor, directory: directory)
         browser = PluginHostBrowserService(directory: directory, resolver: table.resolver(), opener: opener)
     }
 

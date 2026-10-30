@@ -4,11 +4,11 @@
 
 ## 先说结论
 
-macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`preview.openHTML`、`browser.openExternal`）和 API-17 的最小部分（`window.showInformation/Warning/Error`）先在宿主里做成**内部服务**：一组 Swift 协议加实现，不对插件公开，也不碰插件契约。每次调用都必须显式带上“哪个插件、哪个窗口、哪个工作区（含代际）”，服务不会回退到“当前活动窗口”；资源用“根 ID + 工作区相对路径”表示，不收绝对路径。
+macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`preview.openHTML`、`browser.openExternal`）和 API-17 的三种消息（`window.showInformation/Warning/Error`）由内部 Swift 服务复用现有窗口 owner，并通过 `PluginWindowHostService` 对协议 3 插件开放。每次调用都必须显式带上“哪个插件、哪个窗口、哪个工作区（含代际）”，服务不会回退到“当前活动窗口”；资源用“根 ID + 工作区相对路径”表示，不收绝对路径。
 
 三条最容易被改坏的规则：已经打开的文档，不管有没有未保存修改，都不会被磁盘内容替换；后台窗口的调用只在它自己的窗口里干活，不抢焦点；项目 HTML 和外部导航永远拿不到插件 bridge（页面与宿主通信的消息通道）。`editor.open` 用 `.select` 激活时，会像点击标签一样把文档切成前台标签，这是插件读选区、改文本前必须先做的一步。
 
-后续 M0（激活与作用域协议）把这些服务接到插件调用分发和权限授予上；本篇不涉及授权，也不做错误码映射。
+公共分发按具体方法授权，统一解析 M0 的 context；`PluginHostAPIValues` 将内部失败映射到稳定错误分类和结构化 details。
 
 ## 问题
 
@@ -22,7 +22,7 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 
 ### 1. 窗口端口加作用域闸门，服务只依赖协议
 
-`PluginHostWindowPort`（一个窗口对宿主服务暴露的最小能力）由 `AppModel` 在 `AppModel+PluginHostWindow.swift` 里实现；`PluginHostWindowDirectory`（按窗口 ID 找窗口的目录）由 `ProjectSessionManager` 实现。服务只持有目录，每次调用先过 `PluginHostScopeGate`：
+`PluginHostWindowPort`（一个窗口对宿主服务暴露的最小能力）由 `AppModel` 在 `AppModel+PluginHostWindow.swift` 里实现；`PluginHostWindowDirectory`（按窗口 ID 找窗口的目录）公共路径由 `PluginContextWindowDirectory` 按活跃 context 的弱引用 owner 实现；`ProjectSessionManager` 仍保留内部目录适配。服务只持有目录，每次调用先过 `PluginHostScopeGate`：
 
 - 窗口不存在或没有工作区：`windowUnavailable`。
 - 工作区是远程的：`remoteWorkspaceUnsupported`，在检查路径之前就拒绝，插件不会从错误信息里得知远端有哪些文件。
@@ -44,7 +44,7 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 `PluginHostEditorService.open` 的顺序：闸门、选项检查（`tab == .preview` 当前不支持，明确拒绝，不降级成普通标签）、范围校验（行列从 1 开始，结束不早于开始）、解析资源、读打开状态、再过闸门、交给窗口打开、再过闸门、放置光标。
 
 - 已打开的文档只会被激活，不会重新读盘。未保存的缓冲区保持原样，这是 API-15 的硬要求，对应测试 `anOpenDirtyBufferIsKeptAndNeverReloadedFromDisk`。
-- `activation == .select`：加载（如需要）后调用 `selectEditorTab(.document(id))`，效果等同用户点击标签：跨编辑器分组、盖在 diff / 终端 / Agent 标签之上也会切到前台。结果里的 `document.isActive` 就是这个标签是否在前台。
+- `activation == .select`：加载（如需要）后调用 `selectEditorTab(.document(id))`，效果等同用户点击标签：跨编辑器分组、盖在 diff / 终端 / Agent 标签之上也会切到前台。结果里的 `document.isActive` 就是这个标签是否在前台。公共返回还包含 documentID 和 contentVersion，后续读选区/编辑不必按 URL 猜文档。
 - `activation == .background`：只保证文档已打开，不改前台标签，也不放光标。
 - `reveal`：文件没打开时返回 `documentNotOpen`，不替插件加载文件。
 - 范围只落到起点：编辑器的导航目标（`EditorNavigationTarget`）没有“结束位置”，所以插件传了范围也只放光标，结果用 `appliedSelection == .caret(起点)` 明说，不假装选中了。
@@ -53,7 +53,7 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 
 ### 4. `preview.openHTML`
 
-内嵌预览是文件自己的编辑器标签里的一个面板，吃的是编辑器的当前缓冲区，所以未保存的修改会显示在预览里（结果的 `usesLiveBuffer` 永远是 `true`，用来和系统浏览器对照）。服务只做两件事：检查扩展名是 `.html` / `.htm`（不区分大小写，否则 `notHTMLDocument`），再走 `editor.open` 的 `.select` 路径。“只显示预览”（`.previewOnly`）当前是每个标签视图里的 `@State`，服务没法设置，所以明确拒绝为 `unsupportedOption`。
+内嵌预览是文件自己的编辑器标签里的一个面板，吃的是编辑器的当前缓冲区，所以未保存的修改会显示在预览里（结果的 `usesLiveBuffer` 永远是 `true`，用来和系统浏览器对照）。服务先做两件事：检查扩展名是 `.html` / `.htm`（不区分大小写，否则 `notHTMLDocument`），再走 `editor.open` 的 `.select` 路径。呈现模式已移到 `EditorTabOrderFeatureModel`，保留原来的文档级选择；openHTML 显式设置 split 或 preview，所以用户先前选过仅编辑器也不会假成功。
 
 ### 5. `browser.openExternal` 与未保存状态
 
@@ -105,7 +105,7 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 
 ### 备选方案三：`.preview` 标签和 `.previewOnly` 先做近似实现
 
-可以把 `.preview` 当普通标签、`.previewOnly` 当并排预览，插件调用不会失败。没有采用，因为近似实现会让插件以为得到了可替换标签或纯预览，之后一旦真实支持就是行为变更。现在明确返回 `unsupportedOption`，等编辑器有可替换标签和可设置的预览模式后再放开。
+可以把 `.preview` 当普通标签、`.previewOnly` 当并排预览，插件调用不会失败。没有采用，因为近似实现会让插件以为得到了可替换标签或纯预览，之后一旦真实支持就是行为变更。可替换标签仍明确返回 `unsupportedOption`；纯预览已通过功能模型的真实呈现状态实现，不再近似。
 
 ### 备选方案四：外部浏览器打开前强制保存
 
@@ -114,7 +114,7 @@ macOS 插件 API 计划里的 API-15（`editor.open/reveal`）、API-16（`previ
 ## 后果
 
 - 收益：窗口和工作区在每个等待点都被复核；已打开文档的未保存修改不会丢；外部浏览器的可启动目标有明确的白名单；预览与插件 bridge 隔离有回归测试守着。
-- 代价：多了一层协议和假对象；范围只落到光标；没有可替换的预览标签；消息堆叠在左下角，可能盖住左侧工具栏的一部分。
+- 代价：多了一层协议和假对象；范围只落到光标；没有可替换的预览标签；纯预览模式已接入；消息堆叠在左下角，可能盖住左侧工具栏的一部分。
 - 已知限制：路径检查和打开之间存在竞态（先检查再打开，之间文件可被替换成指向外部的链接）；大小写或 Unicode 规范化不同的路径别名可能产生第二个缓冲区；媒体和二进制文件返回 `openFailed`；`loadFile` 失败时可能在目标窗口弹出“无法打开”的通知。
 - 需要重新评估的触发条件：编辑器支持范围选择或可替换预览标签；预览配置新增脚本处理器；窗口之外的文件根（多根工作区）进入 `PluginHostRoot` 列表。
 

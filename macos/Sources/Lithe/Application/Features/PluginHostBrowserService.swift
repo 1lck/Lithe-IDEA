@@ -76,6 +76,7 @@ final class PluginHostBrowserService {
     }
 
     func openExternal(_ request: PluginHostExternalOpenRequest) async throws -> PluginHostExternalOpenResult {
+        try Task.checkCancellation()
         let scope = try gate.enter(request.context)
         switch request.target {
         case .webURL(let raw):
@@ -88,6 +89,7 @@ final class PluginHostBrowserService {
             // The editor first reports input it has not handed over, so a
             // file the user is typing in is not mistaken for a saved one.
             let state = await scope.port.hostDocumentState(at: url, flushingEditor: true)
+            try Task.checkCancellation()
             let hasUnsavedChanges = state?.hasUnsavedChanges ?? false
             if hasUnsavedChanges && request.unsaved == .requireSaved { throw PluginHostError.unsavedChanges }
             _ = try gate.enter(request.context)

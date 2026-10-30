@@ -2633,7 +2633,22 @@ impl RuntimeSession {
                         data,
                     )?
                 }
-                (result, None) => json_rpc_result(&backend_id, result.unwrap_or(Value::Null))?,
+                (result, None) => {
+                    let result = result.unwrap_or(Value::Null);
+                    if state.client.plugin_function_version.unwrap_or(0)
+                        >= super::plugin_function::CONTEXT_VERSION
+                        && result.to_string().len() > super::plugin_function::MAX_RESULT_BYTES
+                    {
+                        json_rpc_error_with_code(
+                            &backend_id,
+                            -32014,
+                            "Host result exceeds the byte limit.",
+                            super::plugin_function::codes::HOST_LIMIT_EXCEEDED,
+                        )?
+                    } else {
+                        json_rpc_result(&backend_id, result)?
+                    }
+                }
             }
         };
         self.send_messages_or_fail(&outbound_order, vec![message], "hostResponse")
@@ -5294,9 +5309,10 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
     // know could never be forwarded.
     if !request.host_services.is_empty()
         && (request.plugin_id.is_none()
-            || request.host_services.iter().any(|service| {
-                !super::plugin_function::GRANTABLE_HOST_SERVICES.contains(&service.as_str())
-            }))
+            || request
+                .host_services
+                .iter()
+                .any(|service| !super::plugin_function::is_host_grant(service)))
     {
         return Err(invalid_field("hostServices"));
     }

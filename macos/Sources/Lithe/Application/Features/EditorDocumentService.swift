@@ -119,6 +119,7 @@ final class EditorDocumentService: EditorDocumentServicing {
 
     func applyEdits(scope: EditorDocumentScope, documentID: UUID, expectedVersion: UInt64,
                     edits: [EditorTextEdit]) async throws -> EditorDocumentEditResult {
+        try Task.checkCancellation()
         let document = try resolve(scope, documentID)
         guard !document.isReadOnly else { throw EditorDocumentServiceError.readOnly }
         guard document.contentVersion == expectedVersion else {

@@ -85,6 +85,8 @@ async function readRegistry() {
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,
   // not reusable build inputs, even without plugin mirror staging.
+  // Plugin host secrets and workspace state also take this rejection route,
+  // never a download/cache validator: their identity belongs to the installation.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

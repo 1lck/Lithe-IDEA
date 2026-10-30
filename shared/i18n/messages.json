@@ -91976,6 +91976,28 @@
         "key": "This plugin already has too many messages waiting.",
         "arguments": []
       }
+    },
+    {
+      "id": "plugin.host.requestFailed",
+      "description": "Generic sanitized host API failure; structured code and details identify the recovery action.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin host request could not be completed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.host.invalidParameters",
+      "description": "Invalid public plugin host request parameters.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin host request parameters are invalid.",
+        "arguments": []
+      }
     }
   ]
 }

@@ -10,6 +10,44 @@ import Testing
 /// receives, how its credential requests are answered, and when it stops.
 @MainActor
 struct MacPluginBackendSessionsTests {
+    @Test
+    func commandsWaitForInitializeAndRestartAfterExit() async throws {
+        let fixture = try BackendFixture(backendVersion: 2, commandActivation: true)
+        defer { fixture.remove() }
+        fixture.core.delayReady = true
+        let owner = ModuleID("\(BackendFixture.pluginID).ui")
+        fixture.sessions.runCommand("dev.lithe.fixture.backend.open", owner: owner, context: nil)
+        try #require(await fixture.core.started.waitUntilOpen())
+        fixture.sessions.runCommand("dev.lithe.fixture.backend.open", owner: owner, context: nil)
+        #expect(fixture.core.notifications.isEmpty)
+        fixture.core.finishInitialize()
+        try #require(await fixture.core.waitForNotifications(2))
+        #expect(fixture.core.starts.count == 1)
+
+        let disposed = TestGate()
+        _ = fixture.sessions.hostDispatcher.subscriptions.add(pluginID: BackendFixture.pluginID, contextID: nil) { disposed.open() }
+        fixture.core.exit()
+        try #require(await disposed.waitUntilOpen())
+        fixture.core.delayReady = false
+        fixture.sessions.runCommand("dev.lithe.fixture.backend.open", owner: owner, context: nil)
+        try #require(await fixture.core.waitForNotifications(3))
+        #expect(fixture.core.starts.count == 2)
+        #expect(fixture.core.notifications.last?.sessionID == "backend-2")
+    }
+
+    @Test
+    func stoppingABlockedNotificationReleasesTheWriteOffMainActor() async throws {
+        let fixture = try BackendFixture(backendVersion: 2)
+        defer { fixture.core.releaseWrite.open(); fixture.remove() }
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        fixture.core.blockNotification = true
+        fixture.sessions.runCommand("query.run", owner: ModuleID("\(BackendFixture.pluginID).ui"), context: nil)
+        try #require(await fixture.core.writeStarted.waitUntilOpen())
+        fixture.sessions.disable(BackendFixture.pluginID)
+        try #require(await fixture.core.forcedStop.waitUntilOpen())
+        try #require(await fixture.core.writeFinished.waitUntilOpen())
+    }
+
     /// The first page call starts the backend in its own state directory,
     /// outside the package, with the services its permissions grant; later
     /// calls reuse the process.
@@ -122,10 +160,13 @@ struct MacPluginBackendSessionsTests {
         let owner = ModuleID("\(BackendFixture.pluginID).ui")
         let subscriptions = fixture.sessions.hostDispatcher.subscriptions
         let subscriptionID = subscriptions.add(pluginID: BackendFixture.pluginID, contextID: nil) {}
+        let window = NSObject()
+        let context = fixture.sessions.hostDispatcher.contexts.open(owner: window, rootURL: URL(fileURLWithPath: "/fixture/project"), remote: nil)
+        defer { fixture.sessions.hostDispatcher.contexts.close(owner: window) }
 
         fixture.sessions.runCommand(
             "query.run", owner: owner,
-            context: PluginWorkspaceContextReference(contextID: "w-1", generation: 2)
+            context: context.reference
         )
         subscriptions.notify(pluginID: BackendFixture.pluginID, subscriptionID: subscriptionID, event: ["kind": .string("changed")])
         fixture.sessions.runCommand("query.stop", owner: owner, context: nil)
@@ -136,7 +177,7 @@ struct MacPluginBackendSessionsTests {
         ])
         #expect(fixture.core.notifications.first?.params == .object([
             "commandID": .string("query.run"),
-            "context": .object(["contextID": .string("w-1"), "generation": .integer(2)]),
+            "context": .object(["contextID": .string(context.contextID), "generation": .integer(context.generation)]),
         ]))
         #expect(fixture.core.notifications.last?.params == .object(["commandID": .string("query.stop")]))
     }
@@ -224,6 +265,7 @@ private struct BackendFixture {
 
     init(
         backendVersion: Int = 1,
+        commandActivation: Bool = false,
         prepareState: @escaping @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void = { _, _ in }
     ) throws {
         root = FileManager.default.temporaryDirectory
@@ -238,6 +280,14 @@ private struct BackendFixture {
         if var requires = object["requires"] as? [String: Any] {
             requires["backend"] = backendVersion
             object["requires"] = requires
+        }
+        if commandActivation {
+            var ui = object["ui"] as? [String: Any] ?? [:]
+            let windows = ui["toolWindows"] as? [[String: Any]] ?? []
+            let commandID = "dev.lithe.fixture.backend.open"
+            ui["commands"] = [["id": commandID, "title": "Open", "toolWindowID": windows[0]["id"]!, "placements": ["commandPalette"]]]
+            object["ui"] = ui
+            object["activationEvents"] = (object["activationEvents"] as? [String] ?? []) + ["onCommand:\(commandID)"]
         }
         _ = try DeclarativePluginTestSupport.writePackage(at: packageURL, manifest: object)
         let executable = packageURL.appendingPathComponent("bin/backend")
@@ -261,7 +311,10 @@ private struct BackendFixture {
             processRegistry: nil,
             credentials: credentials,
             prepareState: prepareState,
-            endBackendProcesses: { _, _ in }
+            stuckSendGrace: .milliseconds(20),
+            endBackendProcesses: { [core] _, immediately in
+                if immediately { core.forcedStop.open(); core.releaseWrite.open() }
+            }
         )
         sessions.register([InstalledPluginPackage(
             descriptor: descriptor,
@@ -308,6 +361,23 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     private var _notifications: [Notification] = []
     private var waiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
     private var notificationWaiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
+    private var _delayReady = false
+    private var _blockNotification = false
+    let started = TestGate()
+    let writeStarted = TestGate()
+    let releaseWrite = TestGate()
+    let writeFinished = TestGate()
+    let forcedStop = TestGate()
+    var delayReady: Bool { get { lock.withLock { _delayReady } } set { lock.withLock { _delayReady = newValue } } }
+    var blockNotification: Bool { get { lock.withLock { _blockNotification } } set { lock.withLock { _blockNotification = newValue } } }
+
+    func finishInitialize() {
+        lock.withLock { events["backend-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "ready")) }
+    }
+
+    func exit() {
+        lock.withLock { events["backend-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "stopped")) }
+    }
 
     var starts: [Start] { lock.withLock { _starts } }
     var stops: [String] { lock.withLock { _stops } }
@@ -329,8 +399,9 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
                     type: "functionsChanged",
                     result: .object(["functions": .array([.string("query.run")]), "removed": .array([])])
                 ),
-                LanguageServerRuntimeEvent(type: "stateChanged", state: "ready"),
             ]
+            if !_delayReady { events[sessionID, default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "ready")) }
+            started.open()
             return .success(LanguageServerRuntimeStart(sessionID: sessionID, state: "initializing", processID: nil))
         }
     }
@@ -379,6 +450,15 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     func notifyPluginBackend(
         sessionID: String, method: String, params: ToolingJSONValue
     ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        if blockNotification {
+            writeStarted.open()
+            defer { writeFinished.open() }
+            // Native synchronous transport is exercised on its owned worker.
+            guard releaseWrite.waitSynchronously(timeout: 5) else {
+                return .failure(LanguageServerRuntimeFailure(code: "timeout", message: "write watchdog did not terminate"))
+            }
+            return .failure(LanguageServerRuntimeFailure(code: "processFailed", message: "backend ended"))
+        }
         let satisfied = lock.withLock {
             _notifications.append(Notification(sessionID: sessionID, method: method, params: params))
             let ready = notificationWaiters.filter { $0.value.count <= _notifications.count }

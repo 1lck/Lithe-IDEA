@@ -2083,3 +2083,26 @@ fn debug_start_arguments_refuse_stale_registrations_and_missing_target_facts() {
     .expect("payload is well formed");
     assert_eq!(stale["error"]["code"], "debug.provider.stale");
 }
+
+/// Backend commands are install-time gated by ui 4, and read permissions grant
+/// only their own methods rather than an entire growing service namespace.
+#[test]
+fn pure_backend_commands_require_ui_4_and_grant_methods_individually() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/command-backend.plugin.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let mut old = manifest.clone();
+    old["requires"]["ui"] = json!(3);
+    assert_ne!(validate(old)["status"], "ok");
+    let hosted = validate_command(json!({"manifest": manifest, "hostCapabilities": {"backend":[2],"serverProcess":[1],"ui":[1,2,3]}})).unwrap();
+    assert_eq!(hosted["error"]["code"], "plugin.api.unsupported");
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": manifest, "backend": true,
+        "request": {"pluginDirectory":"/plugins/example","stateDirectory":"/state/example","architecture":"arm64"}
+    })).unwrap();
+    let grants = plan["plan"]["backend"]["hostServices"].as_array().unwrap();
+    assert!(grants.contains(&json!("lithe/host/editor/getSelections")));
+    assert!(grants.contains(&json!("lithe/host/editor/applyEdits")));
+    assert!(!grants.contains(&json!("editor")));
+    assert!(!grants.contains(&json!("lithe/host/workspace/readFile")));
+}

@@ -9626,7 +9626,9 @@
     "native.theResourceNamesARootThisWindowDoesNotOffer": "The resource names a root this window does not offer.",
     "native.theWorkspaceContextIsNoLongerCurrent": "The workspace context is no longer current. Ask the host for it again.",
     "native.noWebBrowserCouldBeOpened": "No web browser could be opened.",
-    "native.thisPluginAlreadyHasTooManyMessagesWaiting": "This plugin already has too many messages waiting."
+    "native.thisPluginAlreadyHasTooManyMessagesWaiting": "This plugin already has too many messages waiting.",
+    "plugin.host.requestFailed": "The plugin host request could not be completed.",
+    "plugin.host.invalidParameters": "The plugin host request parameters are invalid."
   },
   "overrides": {
     "windows": {

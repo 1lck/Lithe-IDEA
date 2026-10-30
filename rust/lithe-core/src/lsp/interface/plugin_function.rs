@@ -54,7 +54,7 @@ const MAX_PLUGIN_ERROR_CODE_BYTES: usize = 64;
 const MAX_MESSAGE_BYTES: usize = 1024;
 /// Bound of one serialized function result. Larger documents belong in a
 /// domain protocol with its own decoder, not in a plugin-private reply.
-const MAX_RESULT_BYTES: usize = 1 << 20;
+pub(crate) const MAX_RESULT_BYTES: usize = 1 << 20;
 /// Upper bound of one invocation's deadline, matching build-provider requests.
 pub(crate) const MAX_FUNCTION_TIMEOUT_MS: u64 = 60 * 60_000;
 
@@ -70,10 +70,42 @@ const HOST_SERVICE_HOST: &str = "host";
 /// of version 3 has it, because only the session that holds a subscription
 /// can name it.
 const HOST_SERVICE_SUBSCRIPTIONS: &str = "subscriptions";
-/// Services a launch plan may grant through `lsp.startServer.hostServices`.
-/// The implicit `host` and `subscriptions` services are never listed.
+/// Legacy aggregate grants. New methods are granted individually so adding a
+/// method to `workspace` or `editor` never widens an existing permission.
 pub(crate) const GRANTABLE_HOST_SERVICES: &[&str] =
     &[HOST_SERVICE_CREDENTIALS, HOST_SERVICE_WORKSPACE];
+
+/// Whether a launch grant names an implemented legacy service or host method.
+pub(crate) fn is_host_grant(grant: &str) -> bool {
+    GRANTABLE_HOST_SERVICES.contains(&grant)
+        || HOST_METHODS
+            .iter()
+            .any(|entry| entry.method == grant && entry.permission.is_some())
+}
+
+/// Methods admitted by one manifest permission. The platform intersects these
+/// with its registered method handlers before starting the backend.
+pub(crate) fn methods_for_permission(permission: &str) -> Vec<&'static str> {
+    HOST_METHODS
+        .iter()
+        .filter(|entry| entry.permission == Some(permission))
+        .map(|entry| entry.method)
+        .collect()
+}
+
+/// Permissions for the additive host services of backend 2.
+pub(crate) const HOST_PERMISSIONS: &[&str] = &[
+    "workspace.files.read",
+    "workspace.files.watch",
+    "workspace.search",
+    "documents.read",
+    "editor.edit",
+    "editor.open",
+    "preview.open",
+    "browser.open",
+    "window.messages",
+];
+
 const CREDENTIALS_GET: &str = "lithe/host/credentials/get";
 const CREDENTIALS_SET: &str = "lithe/host/credentials/set";
 const CREDENTIALS_DELETE: &str = "lithe/host/credentials/delete";
@@ -457,6 +489,8 @@ pub(crate) struct HostMethod {
     /// First protocol version that defines the method.
     pub since: u64,
     pub params: HostParams,
+    /// A separate grant per method for new services; legacy services use their aggregate grant.
+    pub permission: Option<&'static str>,
 }
 
 /// Every backend-to-host method Core admits. A method missing here is
@@ -467,50 +501,198 @@ pub(crate) const HOST_METHODS: &[HostMethod] = &[
     HostMethod {
         method: CREDENTIALS_GET,
         service: HOST_SERVICE_CREDENTIALS,
+        permission: None,
         since: 2,
         params: HostParams::Credential { with_secret: false },
     },
     HostMethod {
         method: CREDENTIALS_SET,
         service: HOST_SERVICE_CREDENTIALS,
+        permission: None,
         since: 2,
         params: HostParams::Credential { with_secret: true },
     },
     HostMethod {
         method: CREDENTIALS_DELETE,
         service: HOST_SERVICE_CREDENTIALS,
+        permission: None,
         since: 2,
         params: HostParams::Credential { with_secret: false },
     },
     HostMethod {
         method: GET_CAPABILITIES,
         service: HOST_SERVICE_HOST,
+        permission: None,
         since: CONTEXT_VERSION,
         params: HostParams::Empty,
     },
     HostMethod {
         method: SUBSCRIPTIONS_DISPOSE,
         service: HOST_SERVICE_SUBSCRIPTIONS,
+        permission: None,
         since: CONTEXT_VERSION,
         params: HostParams::Subscription,
     },
     HostMethod {
         method: WORKSPACE_LIST_CONTEXTS,
         service: HOST_SERVICE_WORKSPACE,
+        permission: None,
         since: CONTEXT_VERSION,
         params: HostParams::Empty,
     },
     HostMethod {
         method: WORKSPACE_GET_CONTEXT,
         service: HOST_SERVICE_WORKSPACE,
+        permission: None,
         since: CONTEXT_VERSION,
         params: HostParams::Context,
     },
     HostMethod {
         method: WORKSPACE_GET_FOLDERS,
         service: HOST_SERVICE_WORKSPACE,
+        permission: None,
         since: CONTEXT_VERSION,
         params: HostParams::Context,
+    },
+    HostMethod {
+        method: "lithe/host/workspace/readDirectory",
+        service: "workspace",
+        permission: Some("workspace.files.read"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/workspace/stat",
+        service: "workspace",
+        permission: Some("workspace.files.read"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/workspace/readFile",
+        service: "workspace",
+        permission: Some("workspace.files.read"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/workspace/watch",
+        service: "workspace",
+        permission: Some("workspace.files.watch"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/workspace/findFiles",
+        service: "workspace",
+        permission: Some("workspace.search"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/workspace/findText",
+        service: "workspace",
+        permission: Some("workspace.search"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/documents/list",
+        service: "documents",
+        permission: Some("documents.read"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/documents/getSnapshot",
+        service: "documents",
+        permission: Some("documents.read"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/editor/getActive",
+        service: "editor",
+        permission: Some("documents.read"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/editor/getSelections",
+        service: "editor",
+        permission: Some("documents.read"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/editor/applyEdits",
+        service: "editor",
+        permission: Some("editor.edit"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/editor/replaceSelections",
+        service: "editor",
+        permission: Some("editor.edit"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/editor/insertText",
+        service: "editor",
+        permission: Some("editor.edit"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/editor/open",
+        service: "editor",
+        permission: Some("editor.open"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/editor/reveal",
+        service: "editor",
+        permission: Some("editor.open"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/preview/openHTML",
+        service: "preview",
+        permission: Some("preview.open"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/browser/openExternal",
+        service: "browser",
+        permission: Some("browser.open"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/window/showInformation",
+        service: "window",
+        permission: Some("window.messages"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/window/showWarning",
+        service: "window",
+        permission: Some("window.messages"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/window/showError",
+        service: "window",
+        permission: Some("window.messages"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
     },
 ];
 
@@ -547,7 +729,13 @@ pub(crate) fn host_request(
             details: None,
         });
     };
-    if !is_implicit_service(entry.service) && !granted.contains(entry.service) {
+    if !is_implicit_service(entry.service)
+        && !granted.contains(if entry.permission.is_some() {
+            entry.method
+        } else {
+            entry.service
+        })
+    {
         return Err(HostRequestRefusal {
             // Version 2 answered a missing grant like a missing method.
             rpc_code: if version >= CONTEXT_VERSION {
@@ -557,6 +745,16 @@ pub(crate) fn host_request(
             },
             code: codes::HOST_PERMISSION_DENIED,
             message: "The plugin does not declare the permission for this host service.",
+            details: None,
+        });
+    }
+    if version >= CONTEXT_VERSION
+        && params.is_some_and(|value| value.to_string().len() > MAX_RESULT_BYTES)
+    {
+        return Err(HostRequestRefusal {
+            rpc_code: host_rpc_code(codes::HOST_LIMIT_EXCEEDED),
+            code: codes::HOST_LIMIT_EXCEEDED,
+            message: "Host request exceeds the byte limit.",
             details: None,
         });
     }
@@ -585,10 +783,14 @@ pub(crate) fn capabilities_answer(version: u64, granted: &BTreeSet<String>) -> V
             list.push(json!(method));
         }
     };
-    for entry in HOST_METHODS
-        .iter()
-        .filter(|entry| version >= entry.since && admitted(entry.service))
-    {
+    for entry in HOST_METHODS.iter().filter(|entry| {
+        version >= entry.since
+            && if entry.permission.is_some() {
+                granted.contains(entry.method)
+            } else {
+                admitted(entry.service)
+            }
+    }) {
         add(entry.service, "methods", entry.method);
     }
     for entry in HOST_NOTIFICATIONS
@@ -606,6 +808,8 @@ pub(crate) fn capabilities_answer(version: u64, granted: &BTreeSet<String>) -> V
         "limits": {
             "pendingHostRequests": MAX_PENDING_HOST_REQUESTS,
             "functionResultBytes": MAX_RESULT_BYTES,
+            "hostRequestBytes": MAX_RESULT_BYTES,
+            "hostResultBytes": MAX_RESULT_BYTES,
             "errorMessageBytes": MAX_MESSAGE_BYTES,
             "errorDetailsBytes": MAX_HOST_DETAILS_BYTES,
             "notificationBytes": MAX_HOST_NOTIFICATION_BYTES,

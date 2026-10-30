@@ -79,6 +79,7 @@ struct PluginHostServiceError: Error, Equatable, Sendable {
 /// resolved the context the params name, so `context` is current.
 struct PluginHostCall {
     let pluginID: String
+    let sessionID: String
     let request: PluginHostRequest
     /// The current context the params named under `context`; nil when they
     /// name none.
@@ -98,9 +99,24 @@ struct PluginHostCall {
 protocol PluginHostServiceHandling: AnyObject {
     /// The service name of the methods, such as `workspace`.
     var service: String { get }
+    var methods: Set<String> { get }
     /// Blocking work belongs off the main actor. A cancelled task's result
     /// is dropped: the backend was already answered.
     func answer(_ call: PluginHostCall) async -> Result<ToolingJSONValue, PluginHostServiceError>
+    func endSession(pluginID: String, sessionID: String)
+    func closeContext(_ contextID: String)
+}
+
+extension PluginHostServiceHandling {
+    var methods: Set<String> {
+        switch service {
+        case "credentials": Set(["get", "set", "delete"].map { "lithe/host/credentials/\($0)" })
+        case "workspace": Set(["listContexts", "getContext", "getFolders"].map { "lithe/host/workspace/\($0)" })
+        default: []
+        }
+    }
+    func endSession(pluginID: String, sessionID: String) {}
+    func closeContext(_ contextID: String) {}
 }
 
 /// Subscriptions services created for backends. Each belongs to one plugin
@@ -131,6 +147,10 @@ final class PluginHostSubscriptions {
             "sequence": .integer(sequence),
             "event": .object(event),
         ]))
+    }
+
+    func contains(pluginID: String, subscriptionID: String) -> Bool {
+        entries[pluginID]?[subscriptionID] != nil
     }
 
     /// Records a subscription and returns its ID for the backend.
@@ -187,36 +207,83 @@ final class PluginHostServiceDispatcher {
     let subscriptions = PluginHostSubscriptions()
     private var handlers: [String: any PluginHostServiceHandling] = [:]
     private var grants: [String: Set<String>] = [:]
-    private var inFlight: [String: [String: Task<Void, Never>]] = [:]
+    private var sessionIDs: [String: String] = [:]
+    private struct Pending {
+        let task: Task<Void, Never>
+        let deadline: Task<Void, Never>?
+        let contextID: String?
+        let respond: @MainActor (Result<ToolingJSONValue, PluginHostRequestFailure>) -> Void
+    }
+    private var inFlight: [String: [String: Pending]] = [:]
     private var contextObserver: UUID?
 
     init(contexts: PluginWorkspaceContexts) {
         self.contexts = contexts
         contextObserver = contexts.observeClose { [weak self] contextID in
-            self?.subscriptions.disposeAll(contextID: contextID)
+            guard let self else { return }
+            self.subscriptions.disposeAll(contextID: contextID)
+            for handler in self.uniqueHandlers { handler.closeContext(contextID) }
+            for (plugin, requests) in self.inFlight {
+                for (id, pending) in requests where pending.contextID == contextID {
+                    self.inFlight[plugin]?[id] = nil
+                    pending.task.cancel()
+                    pending.deadline?.cancel()
+                    pending.respond(.failure(PluginHostServiceError(.contextExpired,
+                        L10n.string("The workspace context is no longer current. Ask the host for it again.")).failure))
+                }
+            }
         }
     }
 
-    /// Adds or replaces the handler of its service.
+    /// Registers exact methods; duplicate ownership is a composition error.
     func register(_ handler: any PluginHostServiceHandling) {
-        handlers[handler.service] = handler
+        for method in handler.methods {
+            precondition(handlers[method] == nil, "Duplicate plugin host method")
+            handlers[method] = handler
+        }
+    }
+
+    private var uniqueHandlers: [any PluginHostServiceHandling] {
+        var seen: Set<ObjectIdentifier> = []
+        return handlers.values.filter { seen.insert(ObjectIdentifier($0)).inserted }
     }
 
     var registeredServices: [String] {
-        handlers.keys.sorted()
+        Array(Set(uniqueHandlers.map(\.service))).sorted()
+    }
+
+    func supportedGrants(_ requested: [String]) -> [String] {
+        requested.filter { grant in
+            if handlers[grant] != nil { return true }
+            let legacy: [String]
+            switch grant {
+            case "workspace": legacy = ["listContexts", "getContext", "getFolders"]
+            case "credentials": legacy = ["get", "set", "delete"]
+            default: return false
+            }
+            return legacy.allSatisfy { handlers["lithe/host/\(grant)/\($0)"] != nil }
+        }
     }
 
     /// Starts serving a session with the host services it was granted.
-    func beginSession(pluginID: String, hostServices: [String]) {
+    @discardableResult
+    func beginSession(pluginID: String, hostServices: [String]) -> String {
+        endSession(pluginID: pluginID)
+        let id = UUID().uuidString
+        sessionIDs[pluginID] = id
         grants[pluginID] = Set(hostServices)
+        return id
     }
 
     /// Ends serving a session: the work in flight stops unanswered and its
     /// subscriptions are disposed.
     func endSession(pluginID: String) {
         grants[pluginID] = nil
+        if let id = sessionIDs.removeValue(forKey: pluginID) {
+            for handler in uniqueHandlers { handler.endSession(pluginID: pluginID, sessionID: id) }
+        }
         if let tasks = inFlight.removeValue(forKey: pluginID) {
-            for task in tasks.values { task.cancel() }
+            for pending in tasks.values { pending.task.cancel(); pending.deadline?.cancel() }
         }
         subscriptions.disposeAll(pluginID: pluginID)
     }
@@ -226,29 +293,55 @@ final class PluginHostServiceDispatcher {
     func handle(
         _ request: PluginHostRequest,
         pluginID: String,
+        sessionID: String? = nil,
         respond: @escaping @MainActor (Result<ToolingJSONValue, PluginHostRequestFailure>) -> Void
     ) {
+        guard let currentSession = sessionIDs[pluginID], sessionID == nil || sessionID == currentSession else { return }
+        guard inFlight[pluginID]?[request.id] == nil else { return }
         let task = Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, !Task.isCancelled, self.sessionIDs[pluginID] == currentSession else { return }
             let outcome = await self.dispatch(request, pluginID: pluginID)
-            guard !Task.isCancelled, self.inFlight[pluginID]?.removeValue(forKey: request.id) != nil else { return }
+            guard !Task.isCancelled, self.sessionIDs[pluginID] == currentSession,
+                  let pending = self.inFlight[pluginID]?.removeValue(forKey: request.id) else { return }
+            pending.deadline?.cancel()
             respond(outcome)
         }
-        inFlight[pluginID, default: [:]][request.id] = task
+        let contextID: String?
+        if case .object(let params) = request.params, let value = params["context"] {
+            contextID = Self.contextReference(value)?.contextID
+        } else { contextID = nil }
+        // User-choice messages have no clock deadline; their session, context
+        // and cancellation own dismissal. Machine operations are locally bounded.
+        let deadline: Task<Void, Never>? = request.method.hasPrefix("lithe/host/window/show") ? nil : Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            guard let self, self.sessionIDs[pluginID] == currentSession,
+                  let pending = self.inFlight[pluginID]?.removeValue(forKey: request.id) else { return }
+            pending.task.cancel()
+            pending.respond(.failure(PluginHostServiceError(.timeout,
+                L10n.string("The plugin host request could not be completed.")).failure))
+        }
+        inFlight[pluginID, default: [:]][request.id] = Pending(task: task, deadline: deadline, contextID: contextID, respond: respond)
     }
 
     /// The backend cancelled the request; Core already answered it.
-    func cancel(hostRequestID: String, pluginID: String) {
-        inFlight[pluginID]?.removeValue(forKey: hostRequestID)?.cancel()
+    func cancel(hostRequestID: String, pluginID: String, sessionID: String? = nil) {
+        guard sessionID == nil || sessionIDs[pluginID] == sessionID else { return }
+        if let pending = inFlight[pluginID]?.removeValue(forKey: hostRequestID) {
+            pending.task.cancel()
+            pending.deadline?.cancel()
+        }
     }
 
     func dispatch(_ request: PluginHostRequest, pluginID: String) async -> Result<ToolingJSONValue, PluginHostRequestFailure> {
-        guard let granted = grants[pluginID] else {
+        guard let granted = grants[pluginID], let sessionID = sessionIDs[pluginID] else {
             return .failure(PluginHostServiceError(
                 .backendExited, L10n.string("The plugin backend is no longer running.")
             ).failure)
         }
-        guard Self.implicitServices.contains(request.service) || granted.contains(request.service) else {
+        let legacyMethod = request.method.hasPrefix("lithe/host/credentials/")
+            || ["listContexts", "getContext", "getFolders"].map { "lithe/host/workspace/" + $0 }.contains(request.method)
+        guard Self.implicitServices.contains(request.service) || granted.contains(request.method)
+                || (legacyMethod && granted.contains(request.service)) else {
             return .failure(PluginHostServiceError(
                 .permissionDenied, L10n.string("The plugin is not allowed to use the host service \(request.service).")
             ).failure)
@@ -283,13 +376,13 @@ final class PluginHostServiceDispatcher {
             case .failure(let error): return .failure(error.failure)
             }
         }
-        guard let handler = handlers[request.service] else {
+        guard let handler = handlers[request.method] else {
             return .failure(PluginHostServiceError(
                 .unavailable, L10n.string("The host does not serve \(request.method).")
             ).failure)
         }
         let call = PluginHostCall(
-            pluginID: pluginID, request: request, context: context, params: params, subscriptions: subscriptions
+            pluginID: pluginID, sessionID: sessionID, request: request, context: context, params: params, subscriptions: subscriptions
         )
         return await handler.answer(call).mapError(\.failure)
     }

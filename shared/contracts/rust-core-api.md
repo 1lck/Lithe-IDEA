@@ -2561,7 +2561,7 @@ directory, initialization options, optional runtime executable,
 optional `pluginId` of the plugin that owns the process, its optional
 `workspaceConfiguration` (an object, plugin-owned sessions only), its
 optional `hostServices` (the launch plan's `backend.hostServices`;
-plugin-owned sessions only, and only services Core defines), plus
+plugin-owned sessions only; legacy service grants or full public host-method names Core defines), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2932,6 +2932,15 @@ are refused with `plugin.host.failed`. From version 3 the error may also be
 JSON-RPC number, and `details`, an object of at most 4 KiB, as
 `error.data.details`
 ([failure codes](plugins/v1/README.md#workspace-contexts-and-capability-discovery-protocol-version-3)).
+
+The macOS public document/file/window adapters use method-level grants for new
+permissions. Core intersects grants with its method table for capability discovery;
+macOS first intersects them with actual registered handlers. Legacy `workspace`
+never authorizes file methods. Host request/result JSON is bounded to 1 MiB;
+oversized v3 results return `plugin.host.limitExceeded`. See the plugin contract's
+public document, file and window method table for exact shapes and cancellation
+semantics. The underlying `PluginFunctionRequest` context and legacy SDK wire
+shapes remain compatible.
 
 `lsp.hostNotify` accepts `{ sessionId, method, params }` for a ready
 plugin-owned session and returns `{ delivered }`. Core sends the
