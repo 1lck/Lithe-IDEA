@@ -1047,6 +1047,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
+| `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.prepareLaunch` | Prepare a saved Java source through shared entry selection, serialized build and runtime path resolution |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
@@ -2560,7 +2561,7 @@ directory, initialization options, optional runtime executable,
 optional `pluginId` of the plugin that owns the process, its optional
 `workspaceConfiguration` (an object, plugin-owned sessions only), its
 optional `hostServices` (the launch plan's `backend.hostServices`;
-plugin-owned sessions only, and only services Core defines), plus
+plugin-owned sessions only; legacy service grants or full public host-method names Core defines), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2926,7 +2927,29 @@ event. `lsp.hostResponse` accepts `{ sessionId, hostRequestID, result? }` or
 `result` (default `null`) or `-32603` with `data.code: "plugin.host.failed"`
 to the backend. An unknown or already answered `hostRequestID` is
 `invalid_request`. At most 16 host requests are unanswered per session; more
-are refused with `plugin.host.failed`.
+are refused with `plugin.host.failed`. From version 3 the error may also be
+`{ message, code?, details? }`: a host code reaches the backend with its own
+JSON-RPC number, and `details`, an object of at most 4 KiB, as
+`error.data.details`
+([failure codes](plugins/v1/README.md#workspace-contexts-and-capability-discovery-protocol-version-3)).
+
+The macOS public document/file/window adapters use method-level grants for new
+permissions. Core intersects grants with its method table for capability discovery;
+macOS first intersects them with actual registered handlers. Legacy `workspace`
+never authorizes file methods. Host request/result JSON is bounded to 1 MiB;
+oversized v3 results return `plugin.host.limitExceeded`. See the plugin contract's
+public document, file and window method table for exact shapes and cancellation
+semantics. The underlying `PluginFunctionRequest` context and legacy SDK wire
+shapes remain compatible.
+
+`lsp.hostNotify` accepts `{ sessionId, method, params }` for a ready
+plugin-owned session and returns `{ delivered }`. Core sends the
+[host notification](plugins/v1/README.md#host-notifications-protocol-version-3)
+when the session negotiated version 3 and is granted its service, and returns
+`delivered: false` without sending for an older version. Another method, an
+ungranted service, malformed or oversized params, a session that is not
+plugin-owned, or one that is not ready is `invalid_request` with the
+`plugin.host.*` code in `details`.
 
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or

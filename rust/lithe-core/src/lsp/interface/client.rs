@@ -565,26 +565,37 @@ pub(super) fn client_apply_server_message_for_plugin(
                 ) {
                     // The engine answers once the host has; the request
                     // carries the backend's own ID back to it.
-                    Ok(service) => events.push(LspClientEvent {
-                        kind: "hostRequest".to_string(),
-                        request_id: None,
-                        method: Some(method.to_string()),
-                        uri: None,
-                        version: None,
-                        diagnostics: None,
-                        result: Some(json!({
-                            "id": id,
-                            "service": service,
-                            "params": message.get("params").cloned().unwrap_or(Value::Null),
-                        })),
-                        error: None,
-                    }),
-                    Err(refusal) => responses.push(json_rpc_error_with_code(
-                        id,
-                        refusal.rpc_code,
-                        refusal.message,
-                        refusal.code,
-                    )?),
+                    Ok(plugin_function::HostRoute::Answer(result)) => {
+                        responses.push(json_rpc_result(id, result)?)
+                    }
+                    Ok(plugin_function::HostRoute::Forward(service)) => {
+                        events.push(LspClientEvent {
+                            kind: "hostRequest".to_string(),
+                            request_id: None,
+                            method: Some(method.to_string()),
+                            uri: None,
+                            version: None,
+                            diagnostics: None,
+                            result: Some(json!({
+                                "id": id,
+                                "service": service,
+                                "params": message.get("params").cloned().unwrap_or(Value::Null),
+                            })),
+                            error: None,
+                        })
+                    }
+                    Err(refusal) => {
+                        let mut data = json!({ "code": refusal.code });
+                        if let Some(details) = refusal.details {
+                            data["details"] = details;
+                        }
+                        responses.push(json_rpc_error_with_data(
+                            id,
+                            refusal.rpc_code,
+                            refusal.message,
+                            data,
+                        )?)
+                    }
                 }
             }
             _ => {
@@ -786,7 +797,7 @@ fn json_rpc_request(id: &str, method: &str, params: Value) -> Result<String, Cor
     }))
 }
 
-fn json_rpc_notification(method: &str, params: Value) -> Result<String, CoreError> {
+pub(super) fn json_rpc_notification(method: &str, params: Value) -> Result<String, CoreError> {
     encode_json_rpc(json!({
         "jsonrpc": "2.0",
         "method": method,
@@ -833,10 +844,21 @@ pub(super) fn json_rpc_error_with_code(
     message: &str,
     contract_code: &str,
 ) -> Result<String, CoreError> {
+    json_rpc_error_with_data(id, code, message, json!({ "code": contract_code }))
+}
+
+/// A JSON-RPC error with the given `data`, which holds at least the stable
+/// plugin-contract `code`.
+pub(super) fn json_rpc_error_with_data(
+    id: &Value,
+    code: i64,
+    message: &str,
+    data: Value,
+) -> Result<String, CoreError> {
     encode_json_rpc(json!({
         "jsonrpc": "2.0",
         "id": id,
-        "error": { "code": code, "message": message, "data": { "code": contract_code } }
+        "error": { "code": code, "message": message, "data": data }
     }))
 }
 

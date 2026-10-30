@@ -95,7 +95,9 @@ struct FileSystemWorkspaceSnapshotBuilder {
 
     /// Mirrors Rust Core's `is_nested_linked_worktree`: a `.git` pointer file
     /// into `<main>/.git/worktrees/<id>` where `<main>` contains the directory.
-    private func isNestedLinkedWorktree(_ directory: URL) -> Bool {
+    /// `MacPluginWorkspaceFileService` reuses it so plugin listings omit the
+    /// same nested worktrees as the Project view.
+    func isNestedLinkedWorktree(_ directory: URL) -> Bool {
         let marker = directory.appendingPathComponent(".git")
         guard let attributes = try? fileManager.attributesOfItem(atPath: marker.path),
               attributes[.type] as? FileAttributeType == .typeRegular,

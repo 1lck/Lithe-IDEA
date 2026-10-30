@@ -413,7 +413,29 @@ final class MacServiceContainer {
                     applicationLogging?.record(level: "warn", scope: "plugins.migration", message: message, fields: [:])
                 }
             )
-            return MacPluginBackendSessions(
+            // Host services of backend requests: the credentials of
+            // protocol 2 and the workspace contexts of protocol 3. Context
+            // state lives below each plugin's `${stateDir}` in Application
+            // Support, never in the bundle or the package.
+            let hostDispatcher = PluginHostServiceDispatcher(contexts: .shared)
+            hostDispatcher.register(PluginCredentialHostService(credentials: pluginCredentials))
+            let backendDirectories = MacPluginStateDirectories(fileStorage: fileStorage)
+            let workspaceHost = PluginWorkspaceHostService(
+                contexts: .shared,
+                backendStateDirectory: { backendDirectories.backendStateDirectory(pluginID: $0) },
+                rootIDSecret: { MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)) }
+            )
+            hostDispatcher.register(workspaceHost)
+            hostDispatcher.register(PluginDocumentHostService(contexts: .shared))
+            hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,
+                files: MacPluginWorkspaceFileService(
+                    searchOperations: RustWorkspaceOperations(core: rustCore),
+                    watcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport),
+                    isRemoteWorkspaceRoot: { remoteWorkspaces.resolve($0) != nil }
+                )))
+            hostDispatcher.register(PluginWindowHostService(contexts: .shared, metadata: workspaceHost,
+                                                            fileStorage: fileStorage, platformUI: platformUI))
+            let sessions = MacPluginBackendSessions(
                 launchResolver: pluginLaunchResolver,
                 tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
                 versionChecker: declarativePluginOperations,
@@ -426,8 +448,14 @@ final class MacServiceContainer {
                         applicationLogging?.record(level: "info", scope: "plugins.migration", message: "database connections moved into the plugin",
                             fields: ["profiles": String(profiles), "passwords": String(passwords)])
                     }
-                }
+                },
+                hostDispatcher: hostDispatcher
             )
+            sessions.onActivationFailure = { [applicationLogging] pluginID, error in
+                applicationLogging?.record(level: "warn", scope: "plugins.backend", message: "backend activation failed",
+                    fields: ["plugin": pluginID, "error": error.localizedDescription])
+            }
+            return sessions
         }
         pluginBackends.register(pluginStartup.registeredPlugins)
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
@@ -1122,6 +1150,8 @@ final class MacServiceContainer {
                 }
             )
         }
+        services.pluginWorkspaceContexts = PluginWorkspaceContexts.shared
+        services.pluginBackendActivation = pluginBackends
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared

@@ -8,6 +8,7 @@ import { IBulkEditService } from "monaco-editor/esm/vs/editor/browser/services/b
 import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";
 import { mountNativeFind, type NativeFindInput } from "./native-find";
 import { mapCompletionKind } from "./completion-kind";
+import { CompositionTracker, applyPluginEdits, checkPluginEdits, savedPluginSelections, selectionView, toPluginSelections, type PluginEdit } from "./plugin-edits";
 import { mountDiffReview, type DiffReviewInput, type ReviewSelection } from "./diff-review";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import "monaco-editor/esm/vs/editor/editor.all.js";
@@ -151,6 +152,10 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
   let updating = false;
   let failed = false;
+  // Set only while a plugin batch is applied, so its edit message names the
+  // batch (exact post-edit version) and the source mirror keeps the host's EOL.
+  let pluginEdit: { token: string; eol: string } | undefined;
+  const compositions = new CompositionTracker();
   const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, { languageID: string; model: monaco.editor.ITextModel; lifetime: DisposableStore }>();
   let activation: Promise<unknown> = Promise.resolve();
   let textmate: Awaited<ReturnType<typeof installJavaTextMate>>;
@@ -340,10 +345,11 @@ export function mountWorkbench(host: WorkbenchHost) {
         scheduleNavigation(payload.id, owned);
         if (updating) return;
         const baseRevision = owned.revision++;
-        const changes = owned.source.apply(event.changes, model.getAlternativeVersionId());
+        const origin = pluginEdit;
+        const changes = owned.source.apply(event.changes, model.getAlternativeVersionId(), origin?.eol);
         owned.pendingEdits++;
         owned.chain = owned.chain.then(async () => {
-          const reply = await send({ type: "edit", id: payload.id, baseRevision, changes });
+          const reply = await send({ type: "edit", id: payload.id, baseRevision, changes, ...(origin ? { origin: origin.token } : {}) });
           if (reply.revision !== owned.revision && reply.revision !== baseRevision + 1) throw new Error("Edit revision mismatch");
         }).then(() => { owned.pendingEdits--; }, error => {
           owned.pendingEdits--;
@@ -979,6 +985,40 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
 
   const api = {
+    /** Selections of a document, primary first, with the revision they belong to. */
+    async pluginSelections(payload: { id: string }) {
+      await activation;
+      const entry = entries.get(payload.id);
+      if (!entry) return { status: "documentNotFound" };
+      await entry.chain.catch(() => undefined);
+      const view = selectionView(entry.model, allEditors(), lastFocusedView);
+      const selections = view ? toPluginSelections(view.getSelections()) : savedPluginSelections(entry.state);
+      return { status: "ok", revision: entry.revision, selections };
+    },
+    /** Applies a host-validated batch as one undo step, or rejects it untouched. */
+    async applyPluginEdits(payload: { id: string; revision: number; token: string; eol: string; edits: PluginEdit[] }) {
+      // No await before the check: queued activation must not hide newer input,
+      // and the revision comparison below already rejects any unseen edit.
+      const entry = entries.get(payload.id);
+      if (!entry) return { status: "documentNotFound" };
+      const views = allEditors();
+      const status = checkPluginEdits({
+        model: entry.model, edits: payload.edits, readonly: entry.readonly,
+        busy: failed || updating || entry.frozen || (entry.closingHolds ?? 0) > 0,
+        revision: entry.revision, expectedRevision: payload.revision, pendingEdits: entry.pendingEdits,
+        composing: compositions.isComposing(entry.model, views),
+      });
+      if (status) return { status };
+      const view = selectionView(entry.model, views, lastFocusedView);
+      pluginEdit = { token: payload.token, eol: payload.eol };
+      try {
+        applyPluginEdits(entry.model, payload.edits, view?.getSelections() ?? null);
+      } finally { pluginEdit = undefined; }
+      // Resolve after Swift acknowledged the tagged edit so it can report the
+      // version produced by exactly this batch.
+      await entry.chain;
+      return { status: "applied", revision: entry.revision };
+    },
     async markdownScroll(payload: { id: string; ratio?: number } | null) {
       await activation;
       clearTimeout(markdownScrollTimer); markdownScrollTimer = undefined;
@@ -1124,6 +1164,7 @@ export function mountWorkbench(host: WorkbenchHost) {
           attachDebugInteractions(view);
           surface = { editor: view, id: payload.id, states: new Map() };
           surfaces.set(surfaceID, surface);
+          compositions.track(view);
           view.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             void send({ type: "save", id: surface!.id }).catch(fail);
           });
@@ -1153,6 +1194,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       surfaceOperations.set(surfaceID, (surfaceOperations.get(surfaceID) ?? 0) + 1);
       const surface = surfaces.get(surfaceID);
       if (!surface) return;
+      compositions.forget(surface.editor);
       surface.editor.dispose();
       surfaces.delete(surfaceID);
     },
@@ -1561,6 +1603,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       if (active) void send({ type: "save", id: active }).catch(fail);
     });
+    compositions.track(editor);
     editor.onDidFocusEditorText(() => {
       lastFocusedView = editor;
       const position = editor.getPosition();
