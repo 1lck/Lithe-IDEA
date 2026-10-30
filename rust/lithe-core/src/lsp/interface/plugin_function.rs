@@ -88,6 +88,12 @@ const MAX_CREDENTIAL_KEY_BYTES: usize = 128;
 pub(crate) const MAX_CREDENTIAL_SECRET_BYTES: usize = 16 * 1024;
 /// Host requests one session may have awaiting the host's answer.
 pub(crate) const MAX_PENDING_HOST_REQUESTS: usize = 16;
+/// Bound of the serialized `details` object of one host failure; enough
+/// for a few numbers and identifiers, not for documents.
+pub(crate) const MAX_HOST_DETAILS_BYTES: usize = 4 * 1024;
+/// Bound of the serialized params of one host-to-backend notification,
+/// the same as one function result.
+pub(crate) const MAX_HOST_NOTIFICATION_BYTES: usize = MAX_RESULT_BYTES;
 
 /// Stable codes of the plugin-function contract. Synchronous refusals carry
 /// them in `CoreError::details`; asynchronous outcomes in the runtime error's
@@ -134,12 +140,32 @@ pub(crate) mod codes {
     pub const HOST_AUTHORITY_UNSUPPORTED: &str = "plugin.host.authorityUnsupported";
     /// A versioned write found a newer version than the one it names.
     pub const HOST_VERSION_CONFLICT: &str = "plugin.host.versionConflict";
-    /// The request exceeds a host limit: size, count, or rate.
+    /// The request exceeds a host limit on size or count. Retrying the same
+    /// request fails again; rate limits are `HOST_RATE_LIMITED`.
     pub const HOST_LIMIT_EXCEEDED: &str = "plugin.host.limitExceeded";
     /// The backend cancelled the request, or the host stopped it.
     pub const HOST_CANCELLED: &str = "plugin.host.cancelled";
     /// The host's own deadline for the operation passed.
     pub const HOST_TIMEOUT: &str = "plugin.host.timeout";
+    /// The resource the request names (a file, a document, a window) does
+    /// not exist or is no longer open.
+    pub const HOST_NOT_FOUND: &str = "plugin.host.notFound";
+    /// The resource exists but may not be changed.
+    pub const HOST_READ_ONLY: &str = "plugin.host.readOnly";
+    /// The params are well formed, but this host does not implement an
+    /// option they ask for.
+    pub const HOST_UNSUPPORTED_OPTION: &str = "plugin.host.unsupportedOption";
+    /// The resource is not in the state the operation needs, for example a
+    /// document with unsaved changes or of another kind; the backend changes
+    /// the state or the request, not merely retries.
+    pub const HOST_PRECONDITION_FAILED: &str = "plugin.host.preconditionFailed";
+    /// The host cannot serve the request at the moment, for example while
+    /// the user composes text or an index loads; the same request may
+    /// succeed later.
+    pub const HOST_BUSY: &str = "plugin.host.busy";
+    /// The plugin made too many requests of this kind recently; the same
+    /// request may succeed after a while.
+    pub const HOST_RATE_LIMITED: &str = "plugin.host.rateLimited";
     /// A page's call or a host operation ended because the backend process
     /// exited. Reported by hosts to pages, never sent to a backend.
     pub const BACKEND_EXITED: &str = "plugin.backend.exited";
@@ -487,7 +513,9 @@ pub(crate) const HOST_METHODS: &[HostMethod] = &[
 /// Services every plugin-owned session of their version has without a
 /// permission: they reveal nothing beyond the session's own grants.
 fn is_implicit_service(service: &str) -> bool {
-    service == HOST_SERVICE_HOST || service == HOST_SERVICE_SUBSCRIPTIONS
+    service == HOST_SERVICE_HOST
+        || service == HOST_SERVICE_SUBSCRIPTIONS
+        || service == HOST_SERVICE_COMMANDS
 }
 
 /// Where a backend request for a host service goes, or why it is refused.
@@ -533,19 +561,32 @@ pub(crate) fn host_request(
 /// The answer to `lithe/host/getCapabilities`: the negotiated version, the
 /// services and methods this session may call, where the backend runs, and
 /// the bounds Core enforces. It lists only what the session is granted, so
-/// it reveals nothing about other plugins.
+/// it reveals nothing about other plugins. `granted` is what the host
+/// passed to `lsp.startServer.hostServices`; a host passes only services it
+/// serves, so a listed method never answers `plugin.host.unavailable` for
+/// want of a handler.
 pub(crate) fn capabilities_answer(version: u64, granted: &BTreeSet<String>) -> Value {
+    let admitted = |service: &str| is_implicit_service(service) || granted.contains(service);
     let mut services = serde_json::Map::new();
-    for entry in HOST_METHODS.iter().filter(|entry| {
-        version >= entry.since
-            && (is_implicit_service(entry.service) || granted.contains(entry.service))
-    }) {
-        let service = services
-            .entry(entry.service.to_string())
-            .or_insert_with(|| json!({ "methods": [] }));
-        if let Some(methods) = service["methods"].as_array_mut() {
-            methods.push(json!(entry.method));
+    let mut add = |service: &str, kind: &str, method: &str| {
+        let entry = services
+            .entry(service.to_string())
+            .or_insert_with(|| json!({ "methods": [], "notifications": [] }));
+        if let Some(list) = entry[kind].as_array_mut() {
+            list.push(json!(method));
         }
+    };
+    for entry in HOST_METHODS
+        .iter()
+        .filter(|entry| version >= entry.since && admitted(entry.service))
+    {
+        add(entry.service, "methods", entry.method);
+    }
+    for entry in HOST_NOTIFICATIONS
+        .iter()
+        .filter(|entry| version >= entry.since && admitted(entry.service))
+    {
+        add(entry.service, "notifications", entry.method);
     }
     json!({
         "protocolVersion": version,
@@ -556,9 +597,154 @@ pub(crate) fn capabilities_answer(version: u64, granted: &BTreeSet<String>) -> V
         "limits": {
             "pendingHostRequests": MAX_PENDING_HOST_REQUESTS,
             "functionResultBytes": MAX_RESULT_BYTES,
-            "messageBytes": MAX_MESSAGE_BYTES,
+            "errorMessageBytes": MAX_MESSAGE_BYTES,
+            "errorDetailsBytes": MAX_HOST_DETAILS_BYTES,
+            "notificationBytes": MAX_HOST_NOTIFICATION_BYTES,
         },
     })
+}
+
+/// How Core checks the params of one host-to-backend notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NotificationParams {
+    /// Exactly `{ revision }`, a positive integer.
+    Revision,
+    /// Exactly `{ subscriptionID, sequence, event }`: the subscription the
+    /// backend holds, a positive sequence that grows per subscription, and
+    /// the service's event object.
+    SubscriptionEvent,
+    /// `{ commandID, context? }`: one of the plugin's own commands and the
+    /// workspace context of the window it ran in.
+    Command,
+}
+
+/// One row of the host-notification table.
+pub(crate) struct HostNotification {
+    pub method: &'static str,
+    /// Service whose grant admits sending it; implicit services need none.
+    pub service: &'static str,
+    pub since: u64,
+    pub params: NotificationParams,
+}
+
+const WORKSPACE_DID_CHANGE_CONTEXTS: &str = "lithe/host/workspace/didChangeContexts";
+const SUBSCRIPTIONS_NOTIFY: &str = "lithe/host/subscriptions/notify";
+const COMMANDS_DID_RUN: &str = "lithe/host/commands/didRun";
+/// The plugin's own UI commands reaching its backend. Every plugin-owned
+/// session of version 3 has it; a command names only the plugin's own IDs.
+const HOST_SERVICE_COMMANDS: &str = "commands";
+
+/// Every host-to-backend notification the host may send through
+/// `lsp.hostNotify`. A notification missing here never reaches a backend,
+/// so the host cannot use the channel to call into the backend's own
+/// protocol (functions, build or VCS methods).
+pub(crate) const HOST_NOTIFICATIONS: &[HostNotification] = &[
+    HostNotification {
+        method: WORKSPACE_DID_CHANGE_CONTEXTS,
+        service: HOST_SERVICE_WORKSPACE,
+        since: CONTEXT_VERSION,
+        params: NotificationParams::Revision,
+    },
+    HostNotification {
+        method: SUBSCRIPTIONS_NOTIFY,
+        service: HOST_SERVICE_SUBSCRIPTIONS,
+        since: CONTEXT_VERSION,
+        params: NotificationParams::SubscriptionEvent,
+    },
+    HostNotification {
+        method: COMMANDS_DID_RUN,
+        service: HOST_SERVICE_COMMANDS,
+        since: CONTEXT_VERSION,
+        params: NotificationParams::Command,
+    },
+];
+
+/// Whether a host notification reaches this session. `Ok(false)` means the
+/// backend negotiated a version without it, so the host may skip it; a
+/// method outside the table, one whose service the session was not
+/// granted, or malformed params are the host's mistake and refused.
+pub(crate) fn host_notification(
+    method: &str,
+    params: &Value,
+    version: u64,
+    granted: &BTreeSet<String>,
+) -> Result<bool, CoreError> {
+    let invalid = |message: &str| {
+        refusal(
+            ErrorCode::InvalidRequest,
+            message,
+            codes::HOST_INVALID_PARAMS,
+        )
+    };
+    let Some(entry) = HOST_NOTIFICATIONS
+        .iter()
+        .find(|entry| entry.method == method)
+    else {
+        return Err(refusal(
+            ErrorCode::InvalidRequest,
+            "The host may not send this notification to a plugin process.",
+            codes::HOST_UNAVAILABLE,
+        ));
+    };
+    if !is_implicit_service(entry.service) && !granted.contains(entry.service) {
+        return Err(refusal(
+            ErrorCode::InvalidRequest,
+            "The session was not granted the service of this notification.",
+            codes::HOST_PERMISSION_DENIED,
+        ));
+    }
+    let Some(object) = params.as_object() else {
+        return Err(invalid("Notification params must be an object."));
+    };
+    if serde_json::to_vec(params).map_or(true, |bytes| bytes.len() > MAX_HOST_NOTIFICATION_BYTES) {
+        return Err(invalid(
+            "Notification params exceed the notification bound.",
+        ));
+    }
+    let positive = |key: &str| {
+        object
+            .get(key)
+            .and_then(Value::as_u64)
+            .is_some_and(|value| value >= 1)
+    };
+    let only = |keys: &[&str]| object.keys().all(|key| keys.contains(&key.as_str()));
+    let well_formed = match entry.params {
+        NotificationParams::Revision => only(&["revision"]) && positive("revision"),
+        NotificationParams::SubscriptionEvent => {
+            only(&["subscriptionID", "sequence", "event"])
+                && object
+                    .get("subscriptionID")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_credential_key)
+                && positive("sequence")
+                && object.get("event").is_some_and(Value::is_object)
+        }
+        NotificationParams::Command => {
+            only(&["commandID", "context"])
+                && object
+                    .get("commandID")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_command_id)
+                && object.get("context").map_or(true, is_context_reference)
+        }
+    };
+    if !well_formed {
+        return Err(invalid(
+            "Notification params do not match the notification.",
+        ));
+    }
+    Ok(version >= entry.since)
+}
+
+/// A UI command ID as the manifest schema spells it: `[a-z0-9.-]+`.
+fn is_command_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_FUNCTION_ID_BYTES
+        && value.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '.' | '-')
+        })
 }
 
 fn check_host_params(rule: HostParams, params: Option<&Value>) -> Result<(), HostRequestRefusal> {
@@ -697,8 +883,28 @@ pub(crate) fn host_rpc_code(code: &str) -> i64 {
         codes::HOST_VERSION_CONFLICT => -32013,
         codes::HOST_LIMIT_EXCEEDED => -32014,
         codes::HOST_TIMEOUT => -32015,
+        codes::HOST_NOT_FOUND => -32016,
+        codes::HOST_READ_ONLY => -32017,
+        codes::HOST_UNSUPPORTED_OPTION => -32018,
+        codes::HOST_PRECONDITION_FAILED => -32019,
+        codes::HOST_BUSY => -32020,
+        codes::HOST_RATE_LIMITED => -32021,
         _ => -32603,
     }
+}
+
+/// The `details` of a host failure a version 3 backend receives in
+/// `error.data.details`: an object of at most `MAX_HOST_DETAILS_BYTES`
+/// serialized, such as the current version of a `versionConflict` or the
+/// index of the edit a range error names. Anything else is dropped, so a
+/// host cannot inflate the reply or send a value a backend must not parse.
+pub(crate) fn bounded_host_details(details: Option<&Value>) -> Option<Value> {
+    let details = details?;
+    if !details.is_object() {
+        return None;
+    }
+    let size = serde_json::to_vec(details).map(|bytes| bytes.len()).ok()?;
+    (size <= MAX_HOST_DETAILS_BYTES).then(|| details.clone())
 }
 
 /// The code and JSON-RPC error code a version 3 backend receives when the
@@ -716,6 +922,12 @@ pub(crate) fn host_failure(code: Option<&str>) -> (&'static str, i64) {
         Some(codes::HOST_LIMIT_EXCEEDED) => codes::HOST_LIMIT_EXCEEDED,
         Some(codes::HOST_CANCELLED) => codes::HOST_CANCELLED,
         Some(codes::HOST_TIMEOUT) => codes::HOST_TIMEOUT,
+        Some(codes::HOST_NOT_FOUND) => codes::HOST_NOT_FOUND,
+        Some(codes::HOST_READ_ONLY) => codes::HOST_READ_ONLY,
+        Some(codes::HOST_UNSUPPORTED_OPTION) => codes::HOST_UNSUPPORTED_OPTION,
+        Some(codes::HOST_PRECONDITION_FAILED) => codes::HOST_PRECONDITION_FAILED,
+        Some(codes::HOST_BUSY) => codes::HOST_BUSY,
+        Some(codes::HOST_RATE_LIMITED) => codes::HOST_RATE_LIMITED,
         // A backend exit is reported to pages, never to the backend itself.
         _ => codes::HOST_FAILED,
     };
@@ -1085,6 +1297,64 @@ mod tests {
             assert_eq!(code, case["expected"]["code"], "{}", name(&case));
             assert_eq!(rpc_code, case["expected"]["rpcCode"], "{}", name(&case));
         }
+    }
+
+    #[test]
+    fn host_notifications_follow_the_fixture() {
+        for case in cases("hostNotifications") {
+            let granted: BTreeSet<String> = case["hostServices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|service| service.as_str().unwrap().to_string())
+                .collect();
+            let outcome = host_notification(
+                case["method"].as_str().unwrap(),
+                &case["params"],
+                case["version"].as_u64().unwrap(),
+                &granted,
+            );
+            let expected = &case["expected"];
+            match expected["code"].as_str() {
+                Some(code) => assert_eq!(
+                    outcome.expect_err(name(&case)).details.as_deref(),
+                    Some(code),
+                    "{}",
+                    name(&case)
+                ),
+                None => assert_eq!(
+                    outcome.unwrap_or_else(|error| panic!("{}: {error:?}", name(&case))),
+                    expected["delivered"].as_bool().unwrap(),
+                    "{}",
+                    name(&case)
+                ),
+            }
+        }
+    }
+
+    /// Details pass only as a bounded object, so a host cannot hand a
+    /// backend an unbounded or untyped payload through a failure.
+    #[test]
+    fn host_failure_details_are_a_bounded_object() {
+        let details = json!({ "currentVersion": 7 });
+        assert_eq!(bounded_host_details(Some(&details)), Some(details));
+        assert_eq!(bounded_host_details(Some(&json!("text"))), None);
+        let oversized = json!({ "text": "x".repeat(MAX_HOST_DETAILS_BYTES) });
+        assert_eq!(bounded_host_details(Some(&oversized)), None);
+        assert_eq!(bounded_host_details(None), None);
+    }
+
+    /// An oversized notification is refused before it reaches a backend.
+    #[test]
+    fn host_notifications_are_bounded() {
+        let params = json!({
+            "subscriptionID": "s1",
+            "sequence": 1,
+            "event": { "text": "x".repeat(MAX_HOST_NOTIFICATION_BYTES) }
+        });
+        let refusal = host_notification(SUBSCRIPTIONS_NOTIFY, &params, 3, &BTreeSet::new())
+            .expect_err("the notification is too large");
+        assert_eq!(refusal.details.as_deref(), Some(codes::HOST_INVALID_PARAMS));
     }
 
     /// Capability discovery lists only what the session may call.

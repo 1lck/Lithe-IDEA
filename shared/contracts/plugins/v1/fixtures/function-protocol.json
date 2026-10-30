@@ -376,17 +376,28 @@
           "protocolVersion": 3,
           "backendAuthority": "local",
           "services": {
-            "host": { "methods": ["lithe/host/getCapabilities"] },
-            "subscriptions": { "methods": ["lithe/host/subscriptions/dispose"] },
+            "commands": { "methods": [], "notifications": ["lithe/host/commands/didRun"] },
+            "host": { "methods": ["lithe/host/getCapabilities"], "notifications": [] },
+            "subscriptions": {
+              "methods": ["lithe/host/subscriptions/dispose"],
+              "notifications": ["lithe/host/subscriptions/notify"]
+            },
             "workspace": {
               "methods": [
                 "lithe/host/workspace/listContexts",
                 "lithe/host/workspace/getContext",
                 "lithe/host/workspace/getFolders"
-              ]
+              ],
+              "notifications": ["lithe/host/workspace/didChangeContexts"]
             }
           },
-          "limits": { "pendingHostRequests": 16, "functionResultBytes": 1048576, "messageBytes": 1024 }
+          "limits": {
+            "pendingHostRequests": 16,
+            "functionResultBytes": 1048576,
+            "errorMessageBytes": 1024,
+            "errorDetailsBytes": 4096,
+            "notificationBytes": 1048576
+          }
         }
       }
     },
@@ -544,7 +555,25 @@
     { "name": "params the service itself refuses", "code": "plugin.host.invalidParams", "expected": { "code": "plugin.host.invalidParams", "rpcCode": -32602 } },
     { "name": "the user withheld consent", "code": "plugin.host.permissionDenied", "expected": { "code": "plugin.host.permissionDenied", "rpcCode": -32010 } },
     { "name": "a service the host turned off", "code": "plugin.host.unavailable", "expected": { "code": "plugin.host.unavailable", "rpcCode": -32601 } },
+    { "name": "the target does not exist", "code": "plugin.host.notFound", "expected": { "code": "plugin.host.notFound", "rpcCode": -32016 } },
+    { "name": "the target cannot be written", "code": "plugin.host.readOnly", "expected": { "code": "plugin.host.readOnly", "rpcCode": -32017 } },
+    { "name": "an option this host does not support", "code": "plugin.host.unsupportedOption", "expected": { "code": "plugin.host.unsupportedOption", "rpcCode": -32018 } },
+    { "name": "a state the operation needs is missing", "code": "plugin.host.preconditionFailed", "expected": { "code": "plugin.host.preconditionFailed", "rpcCode": -32019 } },
+    { "name": "the host is busy and the request may be retried", "code": "plugin.host.busy", "expected": { "code": "plugin.host.busy", "rpcCode": -32020 } },
+    { "name": "the plugin sent requests too often", "code": "plugin.host.rateLimited", "expected": { "code": "plugin.host.rateLimited", "rpcCode": -32021 } },
     { "name": "a host cannot borrow a function code", "code": "plugin.function.unknown", "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } },
     { "name": "a host cannot report a backend exit to the backend", "code": "plugin.backend.exited", "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } }
+  ],
+  "hostNotifications": [
+    { "name": "changed contexts reach a workspace session", "version": 3, "hostServices": ["workspace"], "method": "lithe/host/workspace/didChangeContexts", "params": { "revision": 4 }, "expected": { "delivered": true } },
+    { "name": "a version 2 backend is skipped", "version": 2, "hostServices": ["workspace"], "method": "lithe/host/workspace/didChangeContexts", "params": { "revision": 4 }, "expected": { "delivered": false } },
+    { "name": "changed contexts need the workspace grant", "version": 3, "hostServices": [], "method": "lithe/host/workspace/didChangeContexts", "params": { "revision": 4 }, "expected": { "code": "plugin.host.permissionDenied" } },
+    { "name": "a revision is positive", "version": 3, "hostServices": ["workspace"], "method": "lithe/host/workspace/didChangeContexts", "params": { "revision": 0 }, "expected": { "code": "plugin.host.invalidParams" } },
+    { "name": "a subscription event", "version": 3, "hostServices": [], "method": "lithe/host/subscriptions/notify", "params": { "subscriptionID": "s1", "sequence": 1, "event": { "kind": "changed" } }, "expected": { "delivered": true } },
+    { "name": "a subscription event is an object", "version": 3, "hostServices": [], "method": "lithe/host/subscriptions/notify", "params": { "subscriptionID": "s1", "sequence": 1, "event": "changed" }, "expected": { "code": "plugin.host.invalidParams" } },
+    { "name": "a command run in a window", "version": 3, "hostServices": [], "method": "lithe/host/commands/didRun", "params": { "commandID": "db.refresh", "context": { "contextID": "w1", "generation": 2 } }, "expected": { "delivered": true } },
+    { "name": "a command without a window", "version": 3, "hostServices": [], "method": "lithe/host/commands/didRun", "params": { "commandID": "db.refresh" }, "expected": { "delivered": true } },
+    { "name": "extra command params are refused", "version": 3, "hostServices": [], "method": "lithe/host/commands/didRun", "params": { "commandID": "db.refresh", "path": "/etc" }, "expected": { "code": "plugin.host.invalidParams" } },
+    { "name": "the host cannot call the backend's own protocol", "version": 3, "hostServices": [], "method": "lithe/functions/invoke", "params": {}, "expected": { "code": "plugin.host.unavailable" } }
   ]
 }

@@ -778,7 +778,7 @@ fn json_rpc_request(id: &str, method: &str, params: Value) -> Result<String, Cor
     }))
 }
 
-fn json_rpc_notification(method: &str, params: Value) -> Result<String, CoreError> {
+pub(super) fn json_rpc_notification(method: &str, params: Value) -> Result<String, CoreError> {
     encode_json_rpc(json!({
         "jsonrpc": "2.0",
         "method": method,
@@ -825,10 +825,21 @@ pub(super) fn json_rpc_error_with_code(
     message: &str,
     contract_code: &str,
 ) -> Result<String, CoreError> {
+    json_rpc_error_with_data(id, code, message, json!({ "code": contract_code }))
+}
+
+/// A JSON-RPC error with the given `data`, which holds at least the stable
+/// plugin-contract `code`.
+pub(super) fn json_rpc_error_with_data(
+    id: &Value,
+    code: i64,
+    message: &str,
+    data: Value,
+) -> Result<String, CoreError> {
     encode_json_rpc(json!({
         "jsonrpc": "2.0",
         "id": id,
-        "error": { "code": code, "message": message, "data": { "code": contract_code } }
+        "error": { "code": code, "message": message, "data": data }
     }))
 }
 

@@ -2,7 +2,7 @@
 
 use super::client::{
     client_apply_server_message_for_plugin, client_initialize_for_plugin, json_rpc_error_with_code,
-    json_rpc_result,
+    json_rpc_error_with_data, json_rpc_notification, json_rpc_result,
 };
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
@@ -462,6 +462,32 @@ pub struct PluginHostFailure {
     /// Stable `plugin.host.*` code of the failure, from protocol version 3.
     #[serde(default)]
     pub code: Option<String>,
+    /// Structured facts a backend may act on, such as the current version
+    /// of a `plugin.host.versionConflict`. From protocol version 3 it
+    /// reaches the backend as `error.data.details` when it is an object
+    /// within `plugin_function::MAX_HOST_DETAILS_BYTES`; otherwise it is
+    /// dropped and the code and message still arrive.
+    #[serde(default)]
+    pub details: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One notification from the host to a plugin backend, such as a
+/// subscription event or a changed set of workspace contexts. Core admits
+/// only the methods of `plugin_function::HOST_NOTIFICATIONS`.
+pub struct PluginHostNotification {
+    pub session_id: String,
+    pub method: String,
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Whether a host notification was written to the backend. `false` means
+/// the backend negotiated a protocol version without the notification.
+pub struct PluginHostNotificationResponse {
+    pub delivered: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1329,6 +1355,16 @@ pub fn plugin_host_response(request: PluginHostResponse) -> Result<(), CoreError
     engine()
         .session(&request.session_id)?
         .host_response(request)
+}
+
+/// Sends one host notification to a plugin backend.
+pub fn plugin_host_notify(
+    request: PluginHostNotification,
+) -> Result<PluginHostNotificationResponse, CoreError> {
+    let delivered = engine()
+        .session(&request.session_id)?
+        .host_notify(request)?;
+    Ok(PluginHostNotificationResponse { delivered })
 }
 
 /// Invokes one plugin function on a session of the function's plugin.
@@ -2425,17 +2461,59 @@ impl RuntimeSession {
                     } else {
                         (super::plugin_function::codes::HOST_FAILED, -32603)
                     };
-                    json_rpc_error_with_code(
+                    let mut data = json!({ "code": code });
+                    if version >= super::plugin_function::CONTEXT_VERSION {
+                        if let Some(details) =
+                            super::plugin_function::bounded_host_details(failure.details.as_ref())
+                        {
+                            data["details"] = details;
+                        }
+                    }
+                    json_rpc_error_with_data(
                         &backend_id,
                         rpc_code,
                         &super::plugin_function::bounded_host_message(&failure.message),
-                        code,
+                        data,
                     )?
                 }
                 (result, None) => json_rpc_result(&backend_id, result.unwrap_or(Value::Null))?,
             }
         };
         self.send_messages_or_fail(&outbound_order, vec![message], "hostResponse")
+    }
+
+    /// Writes one host notification to a ready plugin-owned backend.
+    /// Returns `false`, writing nothing, when the backend negotiated a
+    /// protocol version without the notification.
+    fn host_notify(&self, notification: PluginHostNotification) -> Result<bool, CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let message = {
+            let state = self.lock_state()?;
+            if self.plugin_id.is_none() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Only a plugin process receives host notifications.",
+                ));
+            }
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            let delivered = super::plugin_function::host_notification(
+                &notification.method,
+                &notification.params,
+                state.client.plugin_function_version.unwrap_or(0),
+                &state.client.host_services,
+            )?;
+            if !delivered {
+                return Ok(false);
+            }
+            json_rpc_notification(&notification.method, notification.params)?
+        };
+        self.send_messages_or_fail(&outbound_order, vec![message], "hostNotify")?;
+        Ok(true)
     }
 
     fn request_with_kind(
@@ -13268,6 +13346,87 @@ public class Main {
             assert_eq!(reply["error"]["data"]["code"], expected, "{code}");
             assert_eq!(reply["error"]["code"], rpc_code, "{code}");
         }
+    }
+
+    /// A host failure's details reach a version 3 backend under
+    /// `error.data.details`, next to the stable code.
+    #[test]
+    fn host_failure_details_reach_a_version_3_backend() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "folders",
+            "method": "lithe/host/workspace/getFolders",
+            "params": { "context": { "contextID": "w1", "generation": 1 } }
+        }));
+        let host_request_id = harness
+            .await_event(|event| event.kind == "hostRequest")
+            .clone()
+            .result
+            .unwrap()["hostRequestID"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let response: PluginHostResponse = serde_json::from_value(json!({
+            "sessionId": harness.session_id,
+            "hostRequestID": host_request_id,
+            "error": {
+                "message": "The context changed.",
+                "code": "plugin.host.contextExpired",
+                "details": { "generation": 2 }
+            }
+        }))
+        .expect("documented wire shape");
+        harness
+            .session()
+            .host_response(response)
+            .expect("the host reports its failure");
+        let reply = await_reply(&harness, "folders");
+        assert_eq!(reply["error"]["data"]["code"], "plugin.host.contextExpired");
+        assert_eq!(
+            reply["error"]["data"]["details"],
+            json!({ "generation": 2 })
+        );
+    }
+
+    /// `lsp.hostNotify` writes an admitted notification to the backend and
+    /// refuses one the session was not granted.
+    #[test]
+    fn host_notifications_reach_a_version_3_backend() {
+        let harness = host_service_backend(3, &["workspace"]);
+        let notify = |method: &str, params: Value| {
+            let request: PluginHostNotification = serde_json::from_value(json!({
+                "sessionId": harness.session_id,
+                "method": method,
+                "params": params,
+            }))
+            .expect("documented wire shape");
+            harness.session().host_notify(request)
+        };
+        assert!(notify(
+            "lithe/host/workspace/didChangeContexts",
+            json!({ "revision": 2 })
+        )
+        .expect("an admitted notification"));
+        assert!(harness
+            .server
+            .await_notification("lithe/host/workspace/didChangeContexts"));
+        assert!(notify("lithe/build/run", json!({})).is_err());
+    }
+
+    /// A version 2 backend never receives a notification it cannot read.
+    #[test]
+    fn host_notifications_skip_a_version_2_backend() {
+        let harness = host_service_backend(2, &["workspace"]);
+        let request: PluginHostNotification = serde_json::from_value(json!({
+            "sessionId": harness.session_id,
+            "method": "lithe/host/workspace/didChangeContexts",
+            "params": { "revision": 2 },
+        }))
+        .expect("documented wire shape");
+        assert!(!harness
+            .session()
+            .host_notify(request)
+            .expect("a known notification"));
     }
 
     /// A backend that cancels its own host request is answered at once, the
