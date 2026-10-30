@@ -40,6 +40,7 @@ import {
 } from "./lsp-completion";
 import { filePathFromLitheModelUri } from "./model-uri";
 import { createMonacoSemanticTokenProvider } from "./semantic-token-provider";
+import { createHiddenModelRefresh } from "./surface-visibility";
 
 let providersRegistered = false;
 
@@ -385,6 +386,9 @@ export function registerMonacoLspProviders() {
   void listen<{ sessionId: string }>("lsp://semantic-tokens-refresh", ({ payload }) => {
     if (ownsLspSession(payload.sessionId)) semanticTokensChanged.fire();
   });
+  // Every document open bumps the revision above; hidden tabs keep their
+  // colors instead of each asking the server again, and refresh when shown.
+  const hiddenSemanticTokens = createHiddenModelRefresh(() => semanticTokensChanged.fire());
   languages.registerDocumentSemanticTokensProvider(
     selector,
     createMonacoSemanticTokenProvider({
@@ -392,6 +396,7 @@ export function registerMonacoLspProviders() {
       filePathFromModel,
       isLspModel: (model) => model.uri.scheme === "file" || model.uri.scheme === "lithe",
       onDidChange: semanticTokensChanged.event,
+      skipHiddenModel: (model) => hiddenSemanticTokens.skipIfHidden(model.uri.toString()),
     }),
   );
 

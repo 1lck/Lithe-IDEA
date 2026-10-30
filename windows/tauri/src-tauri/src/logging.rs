@@ -2456,6 +2456,31 @@ pub fn frontend_trace(
     manager.emit_json(&level, scope, message, payload);
 }
 
+/// One frontend log entry inside a [`frontend_trace_batch`] call.
+#[derive(Debug, Deserialize)]
+pub struct FrontendTraceEntry {
+    level: String,
+    scope: String,
+    message: String,
+    payload: Option<Value>,
+}
+
+/// Records frontend log entries collected since the last flush.
+///
+/// The frontend queues its logs and sends them together once the window is
+/// idle, so logging during a file open or keystroke costs no IPC round trip.
+/// The command is async so the batch never waits for the UI thread.
+#[tauri::command]
+pub async fn frontend_trace_batch(
+    entries: Vec<FrontendTraceEntry>,
+    manager: State<'_, Arc<LogManager>>,
+) -> Result<(), String> {
+    for entry in entries {
+        manager.emit_json(&entry.level, entry.scope, entry.message, entry.payload);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn record_startup_milestone(milestone: String, manager: State<'_, Arc<LogManager>>) {
     manager.emit(LogLevel::Info, "startup", milestone, BTreeMap::new());

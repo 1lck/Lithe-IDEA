@@ -241,7 +241,7 @@ export const useFileSystemFolderDrop = (
       });
     };
 
-    setupListener();
+    void setupListener();
 
     return () => listeners.dispose();
   }, [treatPaneDropAsGlobal]);

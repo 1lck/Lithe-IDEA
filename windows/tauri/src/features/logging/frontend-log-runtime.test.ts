@@ -3,7 +3,9 @@ import {
   sanitizeFrontendLogPayload,
   serializeConsoleArguments,
   setFrontendDiagnosticEnabled,
+  setFrontendLogTransportForTests,
   setFrontendLogWorkspaceRoots,
+  submitFrontendLog,
   subscribeFrontendDiagnosticEnabled,
 } from "./frontend-log-runtime";
 
@@ -71,5 +73,81 @@ describe("frontend log serialization", () => {
     unsubscribe();
 
     expect(changes).toEqual([initial, true, false]);
+  });
+});
+
+describe("frontend log forwarding", () => {
+  // Runs each scheduled flush on demand so batching never depends on real timers.
+  function manualTransport(onBatch: (messages: string[]) => Promise<void>) {
+    const scheduled: Array<() => void> = [];
+    const restore = setFrontendLogTransportForTests(
+      (entries) => onBatch(entries.map((entry) => entry.message)),
+      (run) => scheduled.push(run),
+    );
+    const flush = async () => {
+      // Flushing settles the batch promise, whose handlers may schedule the next flush.
+      for (let round = 0; round < 3 && scheduled.length > 0; round++) {
+        scheduled.splice(0).forEach((run) => run());
+        for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+      }
+    };
+    return { flush, restore };
+  }
+
+  test("sends logs submitted together in one batch", async () => {
+    const batches: string[][] = [];
+    const transport = manualTransport(async (messages) => {
+      batches.push(messages);
+    });
+    try {
+      const results = Promise.all([
+        submitFrontendLog({ level: "info", scope: "test", message: "first" }),
+        submitFrontendLog({ level: "warn", scope: "test", message: "second" }),
+      ]);
+      await transport.flush();
+      expect(await results).toEqual([true, true]);
+      expect(batches).toEqual([["first", "second"]]);
+    } finally {
+      transport.restore();
+    }
+  });
+
+  test("reports failed batches and announces recovery in a later batch", async () => {
+    const batches: string[][] = [];
+    let fail = true;
+    const transport = manualTransport(async (messages) => {
+      batches.push(messages);
+      if (fail) throw new Error("transport down");
+    });
+    try {
+      const lost = submitFrontendLog({ level: "error", scope: "test", message: "lost" });
+      await transport.flush();
+      expect(await lost).toBe(false);
+
+      fail = false;
+      const kept = submitFrontendLog({ level: "error", scope: "test", message: "kept" });
+      await transport.flush();
+      expect(await kept).toBe(true);
+      expect(batches).toEqual([["lost"], ["kept"], ["frontend log forwarding recovered"]]);
+    } finally {
+      transport.restore();
+    }
+  });
+
+  test("drops debug logs while diagnostics are off without sending anything", async () => {
+    let sent = 0;
+    const transport = manualTransport(async () => {
+      sent += 1;
+    });
+    try {
+      setFrontendDiagnosticEnabled(false);
+      expect(await submitFrontendLog({ level: "debug", scope: "test", message: "noise" })).toBe(
+        false,
+      );
+      await transport.flush();
+      expect(sent).toBe(0);
+    } finally {
+      transport.restore();
+    }
   });
 });

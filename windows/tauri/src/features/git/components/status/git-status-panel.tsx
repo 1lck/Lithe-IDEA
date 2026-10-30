@@ -88,6 +88,7 @@ import { useGitStatusExpandableHint } from "./use-git-status-expandable-hint";
 import { useTreeContentWidth } from "../../hooks/use-tree-content-width";
 import { buildGitRepositoryColorMap } from "../../utils/git-repository-colors";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
+import { installTreeGuideVisibility } from "@/features/file-explorer/lib/tree-guide-visibility";
 
 interface GitStatusPanelProps {
   header?: React.ReactNode;
@@ -561,6 +562,9 @@ const GitStatusPanel = ({
   // are virtualized and absolutely positioned, so the tree takes the widest width any
   // rendered row has needed; it restarts from the viewport width only when the layout
   // itself changes, so routine status refreshes do not briefly re-truncate every name.
+  useEffect(() => {
+    installTreeGuideVisibility();
+  }, []);
   const treeContentWidth = useTreeContentWidth({
     viewportRef: statusViewportRef,
     rowSelector: "[data-git-status-row-index]",

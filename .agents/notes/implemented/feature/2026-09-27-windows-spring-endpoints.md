@@ -9,6 +9,9 @@ Windows 的 Spring Endpoints 列表展示已有 `spring.index` 返回的 HTTP �
 旧任务不能读取新项目的编辑器内容或覆盖新列表。刷新失败时保留同一项目上一次的
 成功结果，并明确提示它可能已经过期。
 
+Windows Quick Open（双击 Shift）也复用同一份索引：在默认搜索框输入路由、
+控制器、处理函数或 HTTP 方法即可看到接口结果，回车打开控制器并定位到声明行。
+
 ## 问题
 
 原有 Windows Spring 适配层只保留配置和 Bean 信息，没有把 Core 已返回的接口
@@ -36,6 +39,13 @@ Windows 的 Spring Endpoints 列表展示已有 `spring.index` 返回的 HTTP �
   HTTP 方法集合、路由、控制器和路径在窄面板中截断，完整值由行提示保留。
 - 索引失败提示使用固定分类和翻译，日志只记录分类；源码跳转失败仅记录操作名，
   不把宿主异常里的完整路径直接输出。
+- Quick Open 的接口结果直接读取工作区 Spring 存储中、索引 `phase` 为 `ready` 且已加载根
+  与当前工作区根一致的 `endpoints`，按“路由精确匹配、路由前缀、路由包含、控制器或
+  处理函数、HTTP 方法”的顺序排序，并与文件结果合并到同一键盘导航序列。同一接口声明
+  多个 HTTP 方法时，每个方法与路由分别组成可搜索组合，避免只有第一个或最后一个方法
+  能命中。刷新失败时旧结果不再进入 Quick Open。选中结果沿用现有文件导航入口，把 Core
+  给出的一基行列号转换成编辑器位置后打开控制器。不要为了搜索再写一套注解解析器，
+  否则列表和 Quick Open 会对同一源码给出不同的路由或行号。
 
 正确做法是“项目 A 开始扫描 → 用户切到 B → A 的后续请求被丢弃，B 独立更新”。
 不要在 A 的异步回调中调用全局活动存储的 `getState()`，也不要把文件夹重命名当作
@@ -52,9 +62,10 @@ Windows 的 Spring Endpoints 列表展示已有 `spring.index` 返回的 HTTP �
 
 ## 后果
 
-接口搜索、源码定位和失败状态都有自动化测试，且不会因为项目切换混用存储。
+接口搜索、Quick Open 路由跳转、源码定位和失败状态都有自动化测试，且不会因为项目切换混用存储。
 代价是无关文件的结构变更也可能触发一次刷新；去抖合并连续事件，普通文件内容更新
-仍按类型过滤。
+仍按类型过滤。Quick Open 的接口结果依赖同一个索引完成；索引尚未就绪或失败时，
+文件搜索照常工作，但不会显示接口结果。
 
 本次范围为 Windows 本地盘符和 UNC 主工作区。WSL、远程和附加工作区根目录的接口
 浏览不在此次能力内。Core 现有 Java 源码索引的语义限制仍然存在；自定义组合注解、
@@ -63,6 +74,7 @@ Windows 的 Spring Endpoints 列表展示已有 `spring.index` 返回的 HTTP �
 ## 验证
 
 - `cd windows/tauri && bun test src/features/spring src/features/keymaps/commands/view-command-actions.test.ts src/features/file-system/services/file-watcher-listener.test.ts`
+- `cd windows/tauri && bun test src/features/quick-open/hooks/use-quick-open.test.tsx src/features/quick-open/utils/endpoint-results.test.ts`
 - `cd windows/tauri && bun run typecheck`
 - `node .agents/skills/write-stable-tests/scripts/verify-test-stability.mjs --platform windows`
 - `./scripts/windows/verify/verify-windows-boundaries.sh`
@@ -75,6 +87,7 @@ Windows 的 Spring Endpoints 列表展示已有 `spring.index` 返回的 HTTP �
 ## 适用范围
 
 - `windows/tauri/src/features/spring/`
+- `windows/tauri/src/features/quick-open/`
 - `windows/tauri/src/features/file-system/services/file-watcher-listener.ts`
 - `windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx`
 - `shared/contracts/rust-core-api.md`

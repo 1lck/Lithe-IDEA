@@ -26,3 +26,12 @@ export function collectMybatisIndexPaths(filePaths: readonly string[], root: str
 export function editAffectsMybatisIndex(filePath: string): boolean {
   return isMybatisIndexPath(filePath);
 }
+
+/** MyBatis statements need an XML mapper; Java-only workspaces have none to link. */
+export function hasMybatisMapperCandidate(
+  paths: readonly string[],
+  textOverrides: Readonly<Record<string, string>>,
+): boolean {
+  const isXml = (path: string) => path.toLowerCase().endsWith(".xml");
+  return paths.some(isXml) || Object.keys(textOverrides).some(isXml);
+}

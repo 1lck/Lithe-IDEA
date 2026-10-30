@@ -246,6 +246,7 @@ fn main() {
                             logging::resolve_previous_log_cleanup,
                             logging::open_log_directory,
                             logging::frontend_trace,
+                            logging::frontend_trace_batch,
                             logging::record_startup_milestone,
                             host::get_system_theme,
                             host::set_native_window_appearance,
