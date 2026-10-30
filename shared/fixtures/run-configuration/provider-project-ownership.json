@@ -1,11 +1,12 @@
 {
   "version": 1,
   "files": {
-    "alpha/pom.xml": "<broken-provider-owned-input>",
+    "alpha/pom.xml": "<broken-provider-owned-input><maven.compiler.release>99</maven.compiler.release>",
     "alpha/app/pom.xml": "<broken-child>",
     "alpha/app/custom-checks/demo/Main.java": "package demo; class Main { public static void main(String[] args) {} }",
     "beta/pom.xml": "<broken-independent-reactor>",
-    "beta/app/sources/demo/Main.java": "package demo; class Main { public static void main(String[] args) {} }"
+    "beta/app/sources/demo/Main.java": "package demo; class Main { public static void main(String[] args) {} }",
+    ".java-version": "11"
   },
   "javaEntrypoints": {
     "schemaVersion": 1,
@@ -40,7 +41,8 @@
         }
       ],
       "name": "app",
-      "mavenRunProvider": "quarkus.maven"
+      "mavenRunProvider": "quarkus.maven",
+      "minimumJavaVersion": "17"
     },
     {
       "path": "beta/app",
@@ -52,7 +54,8 @@
         }
       ],
       "name": "app",
-      "mavenRunProvider": "spring-boot.maven"
+      "mavenRunProvider": "spring-boot.maven",
+      "minimumJavaVersion": "21"
     }
   ],
   "expected": {
@@ -81,6 +84,7 @@
         "cwd": "beta",
         "module": "app"
       }
-    ]
+    ],
+    "minimumJavaVersion": "21"
   }
 }

@@ -41,6 +41,10 @@ struct RunConfigurationIntegrationTests {
             #expect(extensions["maven"]?["module"] as? String == item["module"])
             #expect(extensions["java"]?["sourceSet"] as? String == item["sourceSet"])
         }
+        let requirementsData = try Data(contentsOf: root.appendingPathComponent(".lithe/toolchains/requirements.json"))
+        let requirements = try #require(JSONSerialization.jsonObject(with: requirementsData) as? [String: Any])
+        let tools = try #require(requirements["toolchains"] as? [String: [String: Any]])
+        #expect(tools["project-jdk"]?["minimumVersion"] as? String == expected["minimumJavaVersion"] as? String)
         for item in try #require(expected["services"] as? [[String: String]]) {
             let actual = try #require(configurations.first { $0["id"] as? String == item["id"] })
             #expect(actual["cwd"] as? String == item["cwd"])

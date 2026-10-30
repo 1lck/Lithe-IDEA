@@ -4670,6 +4670,10 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         assert_eq!(actual["execution"], "service");
         assert_eq!(actual["extensions"]["maven"]["module"], expected["module"]);
     }
+    assert_eq!(
+        output["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
+        fixture["expected"]["minimumJavaVersion"]
+    );
     // Duplicate labels in one reactor keep both services by module path.
     let duplicate = generate(serde_json::json!([
         {"path":"alpha/a","name":"same","mavenReactorPath":"alpha","mavenRunProvider":"quarkus.maven"},
@@ -4694,6 +4698,8 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         );
     }
     for invalid in [
+        serde_json::json!([{"path":"app","minimumJavaVersion":"1.8"}]),
+        serde_json::json!([{"path":"app","minimumJavaVersion":"0"}]),
         serde_json::json!([{"path":"app","name":"app","mavenReactorPath":".","mavenRunProvider":"invented.maven"}]),
         serde_json::json!([{"path":"app","mavenRunProvider":"quarkus.maven"}]),
         serde_json::json!([{"path":"../escape"}]),

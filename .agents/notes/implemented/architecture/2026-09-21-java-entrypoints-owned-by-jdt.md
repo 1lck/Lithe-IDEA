@@ -116,8 +116,18 @@ reactor 根及该项目的主/测试源码根交给 Core。Core 只校验、选�
 `run.modelVersion` / `run.provider` 发布结果，宿主只投影项目名和服务标识。
 Core 收到当前快照后关闭旧 POM 框架检测，只生成与既有配置 ID 一致的服务。
 旧插件缺少模型版本时明确要求更新，不能退回宿主解析；后端缓存指纹包含扩展 JAR
-字节，更新扩展也会使旧快照失效。旧 Maven 启动规划及剩余工具链推断仍待迁移，
-不能据此声称整个生成器已移出 Core。
+字节，更新扩展也会使旧快照失效。Java 编译版本要求也改由 Maven 的执行计划计算器
+（`LifecycleExecutionPlanCalculator`）及参数解析器提供：只计算到 `test-compile`，
+不执行目标；在克隆的会话里检查所有实际 compiler execution 的 release，或
+source/target，包含 Profile、继承、测试专用版本和自定义执行。不可解析时记录
+诊断并保持未知，不能再按 POM 属性名猜测。Core 只校验标准化版本并取当前工程的
+最高要求；本机 `.java-version` 不得降低已知编译下限。
+
+编译计划接口在 Maven 内部包中，3.6.3 已提供相同签名；扩展仍按 3.6.3 编译，
+升级时必须运行最低版本真实集成。已否决宿主正则和独立解析 compiler XML：它们
+不能重现 execution 合并和参数默认值。模型使用原有 Maven 本地仓库解析描述符，
+不新增缓存目录；状态和下载物不进入插件包，安装文件清单验证保持有效。
+旧 Maven 启动规划及 Wrapper 相关工具链推断仍待迁移，不能据此声称整个生成器已移出 Core。
 
 正确例子：Maven 模型把 `custom-checks` 声明为测试源码，即按测试源码生成配置。
 不要因为路径里没有 `test` 就改成主源码，也不要遇到损坏的 POM 就覆盖上游提供的
@@ -160,6 +170,12 @@ Core 收到当前快照后关闭旧 POM 框架检测，只生成与既有配置 
 
 ## 验证
 
+- 编译要求增量：1399 项含真实 JDT 的 Core/集成计时、286 项 Swift、4 项生产
+  Provider 集成和完整 Rust/24 项 bridge 通过。真实 Core→Maven 18 项通过，
+  编译计划场景 2.964 秒，覆盖 Profile/testRelease、自定义 execution、模块覆盖、
+  Maven 将缺失表达式视为未设置、非法语言版本保持未知，以及损坏 POM 不改变
+  已提供要求。Core fixture 19 毫秒，生产 Swift bridge 21 毫秒。
+  Provider→JDT→JVM 场景 17.038 秒；普通入口与链接工作区分别 10.750/6.433 秒。
 - 框架识别增量：1399 项 Core 计时、286 项 Swift、4 项生产 macOS Provider 集成、
   C ABI/24 项 bridge 及完整 Rust crates 通过。共享 fixture 经 Core 22 毫秒和
   真实 Swift bridge 32 毫秒验证；缺少后端元数据的模型拒绝生成，2 毫秒。

@@ -14,7 +14,7 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "13";
+const GENERATOR_REVISION: &str = "14";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -883,6 +883,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         maven_root.as_ref().map(|(path, _)| path.as_path()),
         has_java_ecosystem,
         &configurations,
+        request.project_ownership.as_deref(),
     )?;
     let generated = RunConfigurationDocument {
         version: VERSION,
@@ -3298,6 +3299,7 @@ fn detect_requirements(
     maven_root: Option<&Path>,
     has_java_ecosystem: bool,
     configurations: &[RunConfiguration],
+    projects: Option<&[super::project_ownership::RunProjectOwnership]>,
 ) -> Result<ToolchainRequirementsDocument, CoreError> {
     let mut jdk = ToolchainRequirement {
         kind: "java".to_string(),
@@ -3317,7 +3319,14 @@ fn detect_requirements(
     };
     let maven_root = maven_root.unwrap_or(root);
     let pom = maven_root.join("pom.xml");
-    if let Ok(text) = fs::read_to_string(pom) {
+    if let Some(projects) = projects {
+        jdk.minimum_version = projects
+            .iter()
+            .filter_map(|project| project.minimum_java_version.as_deref())
+            .filter_map(|value| value.parse::<u16>().ok())
+            .max()
+            .map(|value| value.to_string());
+    } else if let Ok(text) = fs::read_to_string(pom) {
         let re = regex::Regex::new(r"(?:maven.compiler.release|maven.compiler.source|maven.compiler.target|java.version)\s*>?\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)").unwrap();
         // Java 8 projects commonly declare `1.8`; keep the feature version
         // instead of the legacy `1` prefix.
@@ -3329,7 +3338,15 @@ fn detect_requirements(
     if let Some((version, vendor)) =
         declared_java_version(maven_root).or_else(|| declared_java_version(root))
     {
-        jdk.minimum_version = Some(version);
+        jdk.minimum_version = if projects.is_some() {
+            jdk.minimum_version
+                .as_deref()
+                .and_then(major_version)
+                .filter(|floor| version_parts(floor) > version_parts(&version))
+                .or(Some(version))
+        } else {
+            Some(version)
+        };
         jdk.preferred_vendor = vendor;
     }
     if maven_root.join("mvnw").exists() {
@@ -3351,7 +3368,15 @@ fn detect_requirements(
     if has_java_ecosystem || consumes("project-jdk") {
         toolchains.insert("project-jdk".to_string(), jdk);
     }
-    if maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file() {
+    if projects.map_or_else(
+        || maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file(),
+        |projects| {
+            projects
+                .iter()
+                .any(|project| project.maven_reactor_path.is_some())
+                || consumes("project-maven")
+        },
+    ) {
         toolchains.insert("project-maven".to_string(), maven);
     }
     if consumes("project-node") {

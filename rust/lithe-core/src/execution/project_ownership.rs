@@ -17,6 +17,9 @@ pub struct RunProjectOwnership {
     /// Maven backend's effective framework selection, never inferred here.
     #[serde(default)]
     pub maven_run_provider: Option<String>,
+    /// Compiler language floor published by the upstream execution model.
+    #[serde(default)]
+    pub minimum_java_version: Option<String>,
     /// Existing Maven import ownership; absent for other project kinds.
     #[serde(default)]
     pub maven_reactor_path: Option<String>,
@@ -87,6 +90,17 @@ pub(super) fn validate(projects: &[RunProjectOwnership]) -> Result<(), CoreError
                     || project.name.as_deref().is_none_or(|name| {
                         name.is_empty() || name.len() > 256 || name.chars().any(char::is_control)
                     })
+            })
+        {
+            return Err(invalid());
+        }
+        if project
+            .minimum_java_version
+            .as_deref()
+            .is_some_and(|value| {
+                value.parse::<u16>().ok().is_none_or(|feature| {
+                    feature == 0 || feature > 999 || feature.to_string() != value
+                })
             })
         {
             return Err(invalid());

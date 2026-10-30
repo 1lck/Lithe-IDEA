@@ -3145,7 +3145,7 @@ never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
 relative `modulePaths`, optional schema-versioned `javaEntrypoints` from the
 current `lsp.request` result, and optional `projectOwnership`. The latter is a
 host projection of current enabled Provider projects: `{ path,
-name?, mavenReactorPath?, mavenRunProvider?, contentRoots: [{ path, kind }] }`, using workspace-relative
+name?, mavenReactorPath?, mavenRunProvider?, minimumJavaVersion?, contentRoots: [{ path, kind }] }`, using workspace-relative
 paths and the model's `source`/`testSource`/generated-source roles. Core validates
 project/root containment, unique project paths, roles and bounds (2,000 projects,
 10,000 content roots). When supplied, including `[]`, these facts own Java
@@ -3156,8 +3156,12 @@ backend's effective framework selection (`spring-boot.maven`, `quarkus.maven`,
 `micronaut.maven`), requiring `name` and reactor ownership. Core projects existing
 service IDs and toolchain bindings without scanning POMs; duplicate labels use
 module paths within each reactor. This authoritative snapshot also disables the
-legacy Maven framework detector. Remaining toolchain requirements and launch
-planning still need migration. See `fixtures/run-configuration/provider-project-ownership.json`.
+legacy Maven framework detector. `minimumJavaVersion` is an optional normalized Java feature version (1–999),
+owned by the upstream compiler model. When the snapshot is supplied, Core uses
+the highest known project floor and never parses POM compiler properties; a
+platform Java version file can raise but cannot lower that floor. Missing means
+unknown, not permission to infer. Wrapper requirements and launch planning still
+need migration. See `fixtures/run-configuration/provider-project-ownership.json`.
 Java configurations with the same class and module name in independent reactors
 remain distinct; a common reactor retains its existing configuration IDs.
  When Java tooling is still preparing, omission
