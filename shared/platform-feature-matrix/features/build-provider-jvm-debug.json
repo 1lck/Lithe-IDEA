@@ -1,0 +1,30 @@
+{
+  "id": "build-provider-jvm-debug",
+  "area": "运行与调试",
+  "group": "调试器",
+  "capability": "Maven 框架服务调试通过 Provider 准备当前目标，保留框架运行方式、工具与参数，再由现有 Java 调试器连接本机暂停的 JVM",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Models/AppModel/AppModel+Debugging.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+BuildProviderDebugging.swift",
+      "macos/Sources/LitheExecutionModule/Services/RunService.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Debug/MacDebugPortAvailabilityChecker.swift",
+      "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
+      "shared/contracts/plugins/v1/fixtures/build-jvm-debug-options.json",
+      "rust/lithe-core/src/tests/build_systems.rs",
+      "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/maven/api/maven-core-api.ts"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Build / Debug",
+  "verification": "用当前 Maven 插件选择框架服务，配置 Profile、运行 JDK、JVM/应用参数和环境，启动调试，确认先暂停且可命中断点；覆盖编译失败、端口超时、Stop、替换、配置 ABA、插件更新/停用、工作区重开及非当前调试会话结束时的进程清理。协议与生命周期测试不能替代完整原生 UI 和发行组合验收。",
+  "notes": "协议 11 只允许宿主选定的回环 JVM 端口；领域参数由 Maven 插件按当前 Mojo 描述符设置。普通 Maven 目标没有确定的调试 JVM。Windows 仍待 Provider 宿主迁移，不宣称完成。 当前仅支持本机工作区；远程工作区在具备端口转发前明确拒绝此入口。"
+}

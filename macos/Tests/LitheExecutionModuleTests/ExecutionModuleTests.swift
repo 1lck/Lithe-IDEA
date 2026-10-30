@@ -8,6 +8,51 @@ import Testing
 
 @MainActor
 struct ExecutionModuleTests {
+    @Test(arguments: ["launch", "stop", "reset", "disable", "changed"])
+    func providerDebugKeepsCanonicalInputsAndOwnsItsProcessAcrossCancellation(outcome: String) async throws {
+        let owner = BuildSystemPluginSource(pluginID: "dev.first", manifest: Data(), packageURL: URL(fileURLWithPath: "/fixture/first"), buildSystems: [])
+        let operations = ProviderChoicesRunOperations(), gate = ProviderPreparationGate(), process = TestStreamingProcess()
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations, executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback))
+        service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
+        var current = true
+        var ended: [String] = []
+        let observation = service.providerDebugEnded.sink { ended.append($0) }
+        service.configureProviderConfigurationRuns(source: { _, _ in owner }) { inputs, _, _, _, _, _ in
+            #expect(inputs.launchOptions.debug == .init(port: 51235))
+            #expect(inputs.launchOptions.arguments == ["a b", "雪"])
+            gate.entered.continuation.yield(())
+            let waiter = Task { try await awaitSignal(gate.release.stream) }
+            defer { waiter.cancel() }
+            try await waiter.value
+            return try JSONDecoder().decode(BuildRunPreparation.self, from: Data(#"{"executable":{"kind":"toolchain","value":"project-maven"},"arguments":["prepared-debug"],"workingDirectory":".","environment":{}}"#.utf8))
+        }
+        await service.loadProject(at: root, files: [])
+        let task = Task { try await service.prepareProviderDebug(operations.configurations[0], port: 51235, isCurrent: { current }) }
+        defer { task.cancel(); gate.release.continuation.yield(()); service.reset(); observation.cancel() }
+        try await awaitSignal(gate.entered.stream)
+        if outcome == "stop" { service.stopProviderDebug() }
+        if outcome == "reset" { service.reset() }
+        if outcome == "disable" { service.retainProviderConfigurations([]) }
+        if outcome == "changed" { current = false }
+        gate.release.continuation.yield(())
+        if outcome == "launch" {
+            let operation = try await task.value
+            #expect(service.isProviderDebugActive(operation))
+            #expect(process.startRequests.first?.arguments == ["prepared-debug"])
+            service.retainProviderConfigurations([])
+            #expect(!service.isProviderDebugActive(operation) && !process.isRunning)
+            #expect(ended.filter { $0 == operation }.count == 1)
+        } else {
+            do { _ = try await task.value; Issue.record("Stale debug preparation launched") }
+            catch is CancellationError { }
+            #expect(process.startRequests.isEmpty && !service.isRunning)
+        }
+    }
+
     @Test
     func providerServicesPrepareIndependentlyAndStoppedRepliesCannotLaunchOverReplacements() async throws {
         let firstOwner = BuildSystemPluginSource(pluginID: "dev.first", manifest: Data(), packageURL: URL(fileURLWithPath: "/fixture/first"), buildSystems: [])

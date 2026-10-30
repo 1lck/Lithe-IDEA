@@ -99,6 +99,14 @@ package final class RunFeatureModel: ObservableObject {
     package var lastExitCode: Int32? { service.lastExitCode }
     package var mavenProfiles: [MavenProfile] { service.mavenProfiles }
     package var primaryExecutionID: String? { service.primaryExecutionID }
+    package var providerDebugEnded: AnyPublisher<String, Never> { service.providerDebugEnded.eraseToAnyPublisher() }
+    package func prepareProviderDebug(_ configuration: RunConfiguration, port: UInt16,
+        isCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> String {
+        try await service.prepareProviderDebug(configuration, port: port, isCurrent: isCurrent)
+    }
+    package func isProviderDebugActive(_ operation: String) -> Bool { service.isProviderDebugActive(operation) }
+    package func providerDebugProcessID(_ operation: String) -> Int32? { service.providerDebugProcessID(operation) }
+    package func stopProviderDebug() { service.stopProviderDebug() }
     package var moduleSessions: [RunSession] { service.moduleSessions }
     package var portConflicts: [RunPortConflict] { service.portConflicts }
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }

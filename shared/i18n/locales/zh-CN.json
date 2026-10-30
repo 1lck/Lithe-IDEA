@@ -9586,7 +9586,9 @@
     "native.editorAppearanceIntelliJIDEA": "IntelliJ IDEA",
     "native.editorAppearanceBracketSchemeInfo": "括号颜色跟随所选编辑器配色方案。",
     "native.editorAppearanceBracketSchemeEnabled": "配色方案已启用",
-    "native.editorAppearanceBracketSchemeDisabled": "配色方案已关闭"
+    "native.editorAppearanceBracketSchemeDisabled": "配色方案已关闭",
+    "macos.buildProvider.jvmDebugPortTimeout": "框架未在期限内开放 JVM 调试端口，请查看运行输出。",
+    "macos.buildProvider.jvmDebugRemoteUnavailable": "远程工作区暂不支持框架服务调试。"
   },
   "overrides": {
     "macos": {

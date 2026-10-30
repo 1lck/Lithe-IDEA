@@ -1563,6 +1563,7 @@
 "Found automatically" = "Found automatically";
 "Frames are not available" = "Frames are not available";
 "Frames rendered per second" = "Frames rendered per second";
+"Framework service debugging is not available in remote workspaces yet." = "Framework service debugging is not available in remote workspaces yet.";
 "Free space" = "Free space";
 "From (UTC ISO 8601)" = "From (UTC ISO 8601)";
 "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left." = "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left.";
@@ -3926,6 +3927,7 @@
 "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.";
 "The file system that holds the home directory." = "The file system that holds the home directory.";
 "The file will be created when you save." = "The file will be created when you save.";
+"The framework did not open its JVM debug port before the deadline. Check the Run output." = "The framework did not open its JVM debug port before the deadline. Check the Run output.";
 "The function call was cancelled." = "The function call was cancelled.";
 "The generated message will replace the text currently in the editor." = "The generated message will replace the text currently in the editor.";
 "The generated title or description would replace text you already entered." = "The generated title or description would replace text you already entered.";
@@ -4697,6 +4699,8 @@
 "local commit(s)" = "local commit(s)";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
+"macos.buildProvider.jvmDebugPortTimeout" = "The framework did not open its JVM debug port before the deadline. Check the Run output.";
+"macos.buildProvider.jvmDebugRemoteUnavailable" = "Framework service debugging is not available in remote workspaces yet.";
 "main Java" = "main Java";
 "main resources" = "main resources";
 "matches" = "matches";

@@ -91577,6 +91577,28 @@
         "key": "Disabled by color scheme",
         "arguments": []
       }
+    },
+    {
+      "id": "macos.buildProvider.jvmDebugPortTimeout",
+      "description": "JVM framework debug listener deadline",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The framework did not open its JVM debug port before the deadline. Check the Run output.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "macos.buildProvider.jvmDebugRemoteUnavailable",
+      "description": "Framework JVM debug needs a local workspace until endpoint forwarding is supported",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Framework service debugging is not available in remote workspaces yet.",
+        "arguments": []
+      }
     }
   ]
 }

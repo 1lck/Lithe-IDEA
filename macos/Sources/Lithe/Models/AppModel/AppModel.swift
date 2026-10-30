@@ -206,6 +206,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var languageToolingFeature: LanguageToolingFeatureModel { featureGraph.languageTooling }
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
+    var providerDebugRunObservation: AnyCancellable?
+    var providerDebugSession: (operation: String, session: DebugSessionID)?
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
     var githubFeature: GitHubFeatureModel { featureGraph.github }
     var diagnosticsFeature: DiagnosticsFeatureModel { featureGraph.diagnostics }

@@ -34,6 +34,27 @@ pub(crate) struct LaunchOptions {
         skip_serializing_if = "Option::is_none"
     )]
     entrypoint: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "optional_runtime_debug",
+        skip_serializing_if = "Option::is_none"
+    )]
+    debug: Option<RuntimeDebug>,
+}
+
+/// A host-selected loopback JVM endpoint; providers may not select a remote host.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RuntimeDebug {
+    runtime: String,
+    port: u16,
+}
+
+/// Omitted debug means Run; explicit null must never silently discard Debug.
+fn optional_runtime_debug<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<RuntimeDebug>, D::Error> {
+    RuntimeDebug::deserialize(deserializer).map(Some)
 }
 
 /// Optional means absent; an explicitly null launch choice is malformed.
@@ -47,6 +68,11 @@ impl LaunchOptions {
     /// Bounds wire values and verifies an explicit directory in the host workspace.
     fn validate(&self, workspace_root: Option<&str>) -> Validation<()> {
         let invalid = || plans::invalid_selection("Invalid provider launch options.");
+        if self.debug.as_ref().is_some_and(|debug| {
+            debug.runtime != "jvm" || debug.port == 0 || self.execution != BuildExecution::Service
+        }) {
+            return Err(invalid());
+        }
         for arguments in [&self.runtime_arguments, &self.arguments] {
             if arguments.len() > MAX_ARGUMENTS
                 || arguments
@@ -124,6 +150,11 @@ pub(crate) fn plan(
     let execution = declaration.execution.unwrap_or(BuildExecution::Application);
     match &request.launch_options {
         Some(options) => {
+            if options.debug.is_some() && protocol_version < 11 {
+                return Err(plans::invalid_selection(
+                    "Runtime debug options require buildProviders 11.",
+                ));
+            }
             if protocol_version < 10 || options.execution != execution {
                 return Err(plans::invalid_selection(
                     "Launch options require buildProviders 10 and the declared execution kind.",
@@ -217,6 +248,14 @@ pub(crate) fn decode(
     }
     let invalid = || decode::invalid_output("Invalid provider run preparation result.");
     if request.launch_options.is_some() && protocol_version < 10 {
+        return Err(invalid());
+    }
+    if request
+        .launch_options
+        .as_ref()
+        .is_some_and(|options| options.debug.is_some())
+        && protocol_version < 11
+    {
         return Err(invalid());
     }
     let value = &request.result;

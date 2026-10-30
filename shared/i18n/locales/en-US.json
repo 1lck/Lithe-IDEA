@@ -9586,7 +9586,9 @@
     "native.editorAppearanceIntelliJIDEA": "IntelliJ IDEA",
     "native.editorAppearanceBracketSchemeInfo": "Bracket colors follow the selected editor color scheme.",
     "native.editorAppearanceBracketSchemeEnabled": "Enabled by color scheme",
-    "native.editorAppearanceBracketSchemeDisabled": "Disabled by color scheme"
+    "native.editorAppearanceBracketSchemeDisabled": "Disabled by color scheme",
+    "macos.buildProvider.jvmDebugPortTimeout": "The framework did not open its JVM debug port before the deadline. Check the Run output.",
+    "macos.buildProvider.jvmDebugRemoteUnavailable": "Framework service debugging is not available in remote workspaces yet."
   },
   "overrides": {
     "windows": {

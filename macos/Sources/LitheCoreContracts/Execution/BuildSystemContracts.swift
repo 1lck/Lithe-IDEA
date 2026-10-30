@@ -783,17 +783,25 @@ package struct BuildProviderRunReference: Codable, Hashable, Sendable {
 
 /// Version-10 user choices. Providers own their interpretation and the host owns the process.
 package struct BuildLaunchOptions: Codable, Equatable, Sendable {
+    /// Version 11 requests a suspended JVM on a host-selected loopback port.
+    package struct Debug: Codable, Equatable, Sendable {
+        package let runtime: String
+        package let port: UInt16
+        package init(port: UInt16) { self.runtime = "jvm"; self.port = port }
+    }
     package let execution: BuildExecution
     package var runtimeArguments: [String]
     package var arguments: [String]
     package var environment: [String: String]
     package var workingDirectory: String?
     package var entrypoint: String?
+    package var debug: Debug?
 
     package init(execution: BuildExecution, runtimeArguments: [String] = [], arguments: [String] = [],
-                 environment: [String: String] = [:], workingDirectory: String? = nil, entrypoint: String? = nil) {
+                 environment: [String: String] = [:], workingDirectory: String? = nil, entrypoint: String? = nil, debug: Debug? = nil) {
         self.execution = execution; self.runtimeArguments = runtimeArguments; self.arguments = arguments
         self.environment = environment; self.workingDirectory = workingDirectory; self.entrypoint = entrypoint
+        self.debug = debug
     }
 }
 

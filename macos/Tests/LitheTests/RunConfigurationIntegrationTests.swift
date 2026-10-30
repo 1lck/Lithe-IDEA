@@ -229,15 +229,20 @@ struct RunConfigurationIntegrationTests {
 
     @Test
     func projectPreparationDoesNotBlockStandaloneOrMavenGoalLaunchers() {
-        func configuration(_ kind: RunConfigurationKind, reactor: String? = nil) -> RunConfiguration {
+        func configuration(_ kind: RunConfigurationKind, reactor: String? = nil, source: String? = nil) -> RunConfiguration {
             RunConfiguration(id: "sample", name: "Sample", kind: kind, modulePath: nil,
-                             mainClass: "sample.Main", mavenReactorPath: reactor)
+                             mainClass: "sample.Main", sourcePath: source, mavenReactorPath: reactor)
         }
         #expect(!configuration(.javaMain).usesJavaProjectPreparation)
         #expect(!configuration(.currentFile, reactor: ".").usesJavaProjectPreparation)
         #expect(!configuration(.mavenModule, reactor: ".").usesJavaProjectPreparation)
         #expect(configuration(.javaMain, reactor: ".").usesJavaProjectPreparation)
-        #expect(configuration(.springBoot, reactor: ".").usesJavaProjectPreparation)
+        #expect(!configuration(.springBoot, reactor: ".").usesJavaProjectPreparation)
+        #expect(configuration(.springBoot, reactor: ".", source: "src/Main.java").usesJavaProjectPreparation)
+        #expect(configuration(.springBoot, reactor: ".").usesProviderFrameworkLaunch)
+        #expect(!configuration(.springBoot, reactor: ".", source: "src/Main.java").usesProviderFrameworkLaunch)
+        #expect(configuration(.mavenFramework(.quarkus), reactor: ".", source: "src/Main.java").usesProviderFrameworkLaunch)
+        #expect(!RunConfigurationKind.mavenModule.capabilities.contains(.jdwpDebug))
     }
 
     @Test

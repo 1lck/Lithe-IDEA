@@ -153,6 +153,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private var modulePreLaunchProcesses: [String: any StreamingProcess] = [:]
     private var moduleOperationIDs: [String: String] = [:]
     private var primaryProviderSource: BuildSystemPluginSource?
+    private var providerDebugOperationID: String?
+    private var activeProcessID: Int32?
+    package let providerDebugEnded = PassthroughSubject<String, Never>()
     private var moduleProviderSources: [String: BuildSystemPluginSource] = [:]
 
     /// Enabled package identities, rather than tool names, own their running processes.
@@ -182,6 +185,64 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private func needsProviderLaunch(_ configuration: RunConfiguration, javaLaunch: JavaDebugLaunchTarget?) -> Bool {
         configurationRunPreparer != nil && javaLaunch == nil && (configuration.kind == .mavenModule || configuration.kind.mavenFramework != nil
             || configuration.buildProvider?.execution != nil)
+    }
+
+    /// Debug uses the same canonical inputs and process owner as Run. Only the
+    /// selected loopback port crosses the domain boundary, never Maven flags.
+    package func prepareProviderDebug(_ configuration: RunConfiguration, port: UInt16,
+        isCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> String {
+        guard configuration.usesProviderFrameworkLaunch, let workspace = projectURL,
+              let prepare = configurationRunPreparer else { throw CancellationError() }
+        stop()
+        let identity = UUID().uuidString, load = projectLoadID, revision = providerLaunchRevision, generated = generationRevision
+        primaryExecutionID = identity; providerDebugOperationID = identity
+        isRunning = true; isPreparingBuildRun = true; runningTitle = configuration.name
+        output = ""; lastExitCode = nil
+        var transferred = false
+        defer { if !transferred && primaryExecutionID == identity { stop() } }
+        let valid: @MainActor @Sendable () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return !Task.isCancelled && isCurrent() && self.projectURL == workspace && self.projectLoadID == load
+                && self.providerLaunchRevision == revision && self.generationRevision == generated
+                && self.primaryExecutionID == identity && self.isRunning
+        }
+        guard let context = try mavenContext(for: configuration), valid() else { throw CancellationError() }
+        let root = context.reactorPath, operations = runConfigurationOperations
+        let original = try await Task.detached(priority: .userInitiated) {
+            try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: root)
+        }.value
+        guard valid(), let owner = configurationRunSource?(original, root) else { throw CancellationError() }
+        primaryProviderSource = owner
+        var choices = original.launchOptions
+        choices.debug = .init(port: port)
+        let inputs = ProviderLaunchInputs(buildSystemID: original.buildSystemID, provider: original.provider,
+            projectPath: original.projectPath, launchOptions: choices, optionOverrides: original.optionOverrides, reference: original.reference)
+        let tool = try buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: root)
+        let prepared = try await prepare(inputs, root, workspace, tool, valid) { [weak self] value in
+            if valid() { self?.append(value.output ?? value.message.map { $0 + "\n" } ?? "") }
+        }
+        let latest = try await Task.detached(priority: .userInitiated) {
+            try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: root)
+        }.value
+        guard valid(), latest == original else { throw CancellationError() }
+        try validateProviderGeneration(for: configuration)
+        let operation = try launchPreparedRun(prepared, workspaceURL: workspace, title: configuration.name,
+            configuration: configuration, retainingIdentity: identity)
+        providerDebugOperationID = operation
+        transferred = true
+        return operation
+    }
+
+    package func isProviderDebugActive(_ operation: String) -> Bool {
+        providerDebugOperationID == operation && activeOperationID == operation && isRunning
+    }
+
+    package func providerDebugProcessID(_ operation: String) -> Int32? {
+        isProviderDebugActive(operation) ? activeProcessID : nil
+    }
+
+    package func stopProviderDebug() {
+        if providerDebugOperationID != nil { stop() }
     }
 
     /// Each service owns its own preparation; a second Start never replaces another service's work.
@@ -1454,6 +1515,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func stop() {
+        activeProcessID = nil
+        let debugOperation = providerDebugOperationID
+        providerDebugOperationID = nil
         primaryProviderSource = nil
         providerPrimaryPreparation?.cancel(); providerPrimaryPreparation = nil
         let preparation = buildPreparationID
@@ -1469,6 +1533,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         isRunning = false
         runningTitle = nil
         activeOperationID = nil
+        if let debugOperation { providerDebugEnded.send(debugOperation) }
     }
 
     package func reset() {
@@ -1789,12 +1854,16 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     private func finishProcess(exitCode: Int32) {
+        activeProcessID = nil
+        let debugOperation = providerDebugOperationID
+        providerDebugOperationID = nil
         activeLanguageExecutionSession = nil
         activeLaunchArgumentLease = nil
         isRunning = false
         runningTitle = nil
         lastExitCode = exitCode
         activeOperationID = nil
+        if let debugOperation { providerDebugEnded.send(debugOperation) }
     }
 
     private func prepareJavaLaunch(
@@ -1814,6 +1883,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         guard event.operationID == activeOperationID else { return }
         switch event.state {
         case .starting, .running:
+            if let pid = event.processID, pid > 0 { activeProcessID = pid }
             isRunning = true
         case .stopping, .finished:
             isRunning = false

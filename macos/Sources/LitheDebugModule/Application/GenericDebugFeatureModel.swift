@@ -433,6 +433,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// Notifies the host after a debugger session has been stopped and its
     /// adapter resources have been released.
     public var onSessionStopped: ((DebugSessionID) -> Void)?
+    /// Resource owners must see terminal states of inactive sessions as well.
+    public var onSessionStateChanged: ((DebugSessionID, DebugAdapterState) -> Void)?
 
     private let sessions: DebugAdapterSessionManager
     private let breakpointPersistence: (any DebugBreakpointPersisting)?
@@ -519,6 +521,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 )
             }
             self.reconcileRemovedSessions()
+            self.onSessionStateChanged?(sessionID, state)
         }
         sessions.onSessionEvent = { [weak self] sessionID, providerID, event in
             guard let self else { return }

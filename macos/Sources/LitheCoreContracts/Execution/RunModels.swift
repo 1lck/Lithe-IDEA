@@ -155,7 +155,10 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
         switch self {
         case .currentFile, .javaMain:
             return [.workingDirectory, .arguments, .environment, .javaRuntime, .javaVMArguments, .jdwpDebug]
-        case .mavenModule, .mavenFramework:
+        case .mavenModule:
+            return [.workingDirectory, .arguments, .environment, .javaRuntime,
+                    .javaVMArguments, .mavenProfiles, .mavenSkipTests]
+        case .mavenFramework:
             return [
                 .workingDirectory, .arguments, .environment, .javaRuntime,
                 .javaVMArguments, .mavenProfiles, .mavenSkipTests, .jdwpDebug
@@ -262,7 +265,12 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
 
     /// Only launches backed by a JDT project wait for workspace preparation.
     package var usesJavaProjectPreparation: Bool {
-        (kind == .javaMain || kind == .springBoot) && mavenReactorPath != nil
+        (kind == .javaMain || (kind == .springBoot && sourcePath?.lowercased().hasSuffix(".java") == true)) && mavenReactorPath != nil
+    }
+
+    /// Framework dev goals retain their Maven lifecycle; an explicit Spring Java entry uses JDT.
+    package var usesProviderFrameworkLaunch: Bool {
+        kind.mavenFramework != nil && !(kind == .springBoot && sourcePath?.lowercased().hasSuffix(".java") == true)
     }
 
     package init(

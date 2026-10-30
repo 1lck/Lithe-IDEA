@@ -459,7 +459,7 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 
 The macOS host sends its capability table with validation, marketplace filtering
 and install review. It advertises `buildSystems: [1, 2, 3]` and
-`buildProviders: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]`; native Provider models, dependencies, tasks, tests and launch preparation
+`buildProviders: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
 but admission must use the actual host table. Windows does not yet advertise
@@ -1128,7 +1128,30 @@ launch result validation and cancellation/stale-result behavior are unchanged.
 Canonical fixtures: `fixtures/build-provider-run-options.plugin.json` and
 `fixtures/build-run-options.json`.
 
-#### Native debug preparation (version 5)
+#### JVM service debugging (buildProviders 11)
+
+Version 11 retains versions 1–10 and adds optional
+`launchOptions.debug: { "runtime": "jvm", "port": 51235 }` to service
+`lithe/build/prepareRun` requests. The exact two fields are required; the port
+is an integer from 1 through 65535. Explicit null, unknown fields, other runtime
+kinds and application/task execution are rejected. Both the manifest capability
+and the process agreement must support version 11; hosts and SDKs refuse the
+field before invoking an older handler.
+
+The host selects an unused local port and owns the process, its output and its
+lifetime. The provider configures its upstream tool to start exactly one JVM
+agent, bound to `127.0.0.1`, suspended until attachment. It must preserve the
+user's effective tool/profile/runtime choices and fail explicitly when its
+framework version cannot honor them. It cannot select a remote endpoint or
+silently launch an ordinary main class in place of the declared framework goal.
+The result remains the portable Run process plan, without adapter commands,
+DAP arguments or an endpoint selected by the provider. Hosts attach their
+existing JVM debugger after readiness and stop the process on cancellation,
+workspace/package invalidation, debugger failure or session termination.
+This does not change the separate same-package native `prepareDebug` API.
+Canonical fixture: `fixtures/build-jvm-debug-options.json`.
+
+### Native debug preparation (version 5)
 
 A provider run may additionally declare `debug: {"adapter":"native"}` with
 `requires.buildProviders: 5` and `requires.debugAdapters: 2`. `adapter` is a

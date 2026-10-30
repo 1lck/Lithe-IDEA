@@ -2821,6 +2821,55 @@ fn provider_run_options_preserve_argv_and_validate_declared_execution_and_cwd() 
     );
 }
 
+/// Runtime debugging requires an explicit process agreement and never a provider-selected host.
+#[test]
+fn provider_jvm_debug_options_require_version_eleven_and_a_host_selected_loopback_endpoint() {
+    let mut manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-run-options.plugin.json"
+    ))
+    .unwrap();
+    let fixture: Value =
+        serde_json::from_str(contract_file!("fixtures/build-jvm-debug-options.json")).unwrap();
+    let workspace = TemporaryWorkspace::new("provider-jvm-debug");
+    workspace.write("app/Main.java", "class Main {}");
+    workspace.write("tools/readme.txt", "cwd");
+    let mut request: Value =
+        serde_json::from_str::<Value>(contract_file!("fixtures/build-run-preparation.json"))
+            .unwrap()["request"]
+            .clone();
+    request["root"] = json!("app");
+    request["run"] = json!("service");
+    request["workspaceRoot"] = json!(workspace.root());
+    request["launchOptions"] = fixture["launchOptions"].clone();
+    let plan = |manifest: &Value, request: &Value| {
+        build_prepare_run_plan_command(
+            json!({"manifest":manifest,"buildSystemID":"gradle","request":request}),
+        )
+    };
+    assert_eq!(plan(&manifest, &request).unwrap()["status"], "rejected");
+    manifest["requires"]["buildProviders"] = json!(11);
+    let planned = plan(&manifest, &request).unwrap();
+    assert_eq!(planned["status"], "ok", "{planned}");
+    assert_eq!(
+        planned["plan"]["provider"]["params"]["launchOptions"],
+        fixture["launchOptions"]
+    );
+    for debug in [
+        Value::Null,
+        json!({}),
+        json!({"runtime":"native","port":51235}),
+        json!({"runtime":"jvm","port":0}),
+        json!({"runtime":"jvm","port":65536}),
+        json!({"runtime":"jvm","port":1.5}),
+        json!({"runtime":"jvm","port":51235,"host":"remote"}),
+    ] {
+        let mut invalid = request.clone();
+        invalid["launchOptions"]["debug"] = debug;
+        let result = plan(&manifest, &invalid);
+        assert!(result.is_err() || result.unwrap()["status"] == "rejected");
+    }
+}
+
 /// Canonical containment must survive a user-selected directory's filesystem alias.
 #[cfg(unix)]
 #[test]

@@ -181,7 +181,8 @@ struct DebugLaunchConfigurationResolver {
             arguments: [
                 "hostName": .string(normalizedHost),
                 "port": .integer(port)
-            ]
+            ],
+            adapterProviderID: "java"
         )
     }
 

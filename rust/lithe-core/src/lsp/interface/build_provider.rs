@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 const EXPERIMENTAL_KEY: &str = "litheBuild";
 
 /// Build-provider protocol versions this client speaks, in preference order.
-const SUPPORTED_VERSIONS: [u64; 10] = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+const SUPPORTED_VERSIONS: [u64; 11] = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 
 /// Feature name recorded in the session's server capabilities once a
 /// provider answered a supported version.
@@ -32,7 +32,7 @@ pub(crate) fn model_inputs_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 6 | 7 | 8 | 9 | 10))
+        .is_some_and(|version| matches!(version, 6 | 7 | 8 | 9 | 10 | 11))
 }
 
 /// Version 7 returns non-sensitive native settings and source/write metadata.
@@ -44,7 +44,7 @@ pub(crate) fn configuration_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 7 | 8 | 9 | 10))
+        .is_some_and(|version| matches!(version, 7 | 8 | 9 | 10 | 11))
 }
 
 /// Version 8 returns canonical reports with the completing test operation.
@@ -54,7 +54,7 @@ pub(crate) fn test_reports_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 8 | 9 | 10))
+        .is_some_and(|version| matches!(version, 8 | 9 | 10 | 11))
 }
 
 /// Version 9 passes public semantic selectors unchanged to the owning backend.
@@ -64,7 +64,7 @@ pub(crate) fn test_selectors_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 9 | 10))
+        .is_some_and(|version| matches!(version, 9 | 10 | 11))
 }
 
 /// Admission feature for typed user options and host-owned service/task launches.
@@ -74,7 +74,17 @@ pub(crate) fn run_options_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        == Some(10)
+        .is_some_and(|version| matches!(version, 10 | 11))
+}
+
+/// Version 11 accepts a host-selected suspended JVM endpoint.
+pub(crate) const RUNTIME_DEBUG_FEATURE: &str = "litheBuildRuntimeDebug";
+/// The process agreement, rather than just the manifest, gates debug choices.
+pub(crate) fn runtime_debug_negotiated(capabilities: &Value) -> bool {
+    capabilities
+        .pointer("/experimental/litheBuild/version")
+        .and_then(Value::as_u64)
+        == Some(11)
 }
 
 /// Version 5 prepares a native debug target, never an adapter process.
@@ -86,7 +96,7 @@ pub(crate) fn debug_preparation_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 5 | 6 | 7 | 8 | 9 | 10))
+        .is_some_and(|version| matches!(version, 5 | 6 | 7 | 8 | 9 | 10 | 11))
 }
 
 /// Admission feature for the version 4 method.
@@ -140,7 +150,7 @@ pub(crate) fn execution_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10))
+        .is_some_and(|version| matches!(version, 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11))
 }
 
 /// Tests require an explicit version 3 agreement, independent of task support.
@@ -148,7 +158,7 @@ pub(crate) fn tests_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10))
+        .is_some_and(|version| matches!(version, 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11))
 }
 
 /// A preparation has progress and cancellation, but its reply is a launch plan.
@@ -161,7 +171,7 @@ pub(crate) fn run_preparation_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 4 | 5 | 6 | 7 | 8 | 9 | 10))
+        .is_some_and(|version| matches!(version, 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11))
 }
 
 /// Normalizes bounded progress; the engine checks the pending request identity.
