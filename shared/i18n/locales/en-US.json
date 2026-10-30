@@ -6981,7 +6981,7 @@
     "quickOpen.noMatch": "No matching files found",
     "quickOpen.noSymbols": "No symbols found",
     "quickOpen.openFolder": "Open a folder to start searching files",
-    "quickOpen.searchFiles": "Type to search files...",
+    "quickOpen.searchFiles": "Type to search files or Spring routes...",
     "quickOpen.searchSymbols": "Type to filter symbols...",
     "quickOpen.searchWorkspaceSymbols": "Type to search symbols across the project...",
     "quickOpen.searching": "Searching...",
