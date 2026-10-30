@@ -744,6 +744,10 @@ Build Provider 原生配置探针的 `configuration-*/configuration.json`、模�
 
 Maven 模型与依赖快照继续位于现有
 `<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/`。
+Windows Build Provider 的对应位置为
+`<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/build-systems/<build-system-id>/<workspace-digest>/`，
+由原生存储 adapter 分配，和语言服务器状态分开。会话拥有其缓存、日志和临时输出，
+模型失效可重建，插件卸载随所属状态清理；工作区摘要只是归属键，不是构建身份。
 它属于具体插件、构建系统和工作区的可变上游状态，没有版本/平台/架构/工具链 identity stamp，
 复用清单 `official-plugin-packages` 和脚本的排除路由拒绝任何复制阶段共享。
 #1495 阶段 D 已删除 macOS 旧 Maven 依赖树临时文件 adapter；不再创建该专属目录，

@@ -58,6 +58,10 @@ let semanticRequestResults: unknown[] = [];
 let semanticResultGate: Promise<void> | undefined;
 let releaseSemanticResult: (() => void) | undefined;
 let onSemanticRequest: (() => void) | undefined;
+let providerAckGate: Promise<void> | undefined;
+let releaseProviderAck: (() => void) | undefined;
+let providerProgress: unknown[] = [];
+let onCoreCancel: (() => void) | undefined;
 let semanticRefreshOnReady = false;
 let eventsAroundReady: { before: unknown[]; after: unknown[] } = { before: [], after: [] };
 let releaseInitialization: (() => void) | undefined;
@@ -294,6 +298,7 @@ const executeCore = mock(
             ok: true as const,
             data: {
               events: [
+                ...providerProgress.splice(0).map(result => ({ type: "requestProgress", sessionId, operationId: semanticOperationId, result })),
                 {
                   type: "requestCompleted",
                   providerId: "java",
@@ -379,11 +384,11 @@ const executeCore = mock(
         },
       };
     }
-    if (request.command === "lsp.request" || request.command === "java.resolveNavigation" || request.command === "java.prepareLaunch") {
+    if (request.command === "lsp.request" || request.command === "lsp.buildRequest" || request.command === "java.resolveNavigation" || request.command === "java.prepareLaunch") {
       requestPayload = request.payload;
       requestPayloads.push(request.payload ?? {});
       const operation = String(request.payload?.operation ?? request.command);
-      const operationId = `${operation}-operation`;
+      const operationId = request.command === "lsp.buildRequest" ? String(request.payload?.operationId) : `${operation}-operation`;
       if (scenario === "semantic-request") {
         semanticRequestPending = true;
         semanticOperationId = operationId;
@@ -391,6 +396,7 @@ const executeCore = mock(
       } else {
         virtualDocumentPending = true;
       }
+      if (request.command === "lsp.buildRequest") await providerAckGate;
       return {
         id: request.id,
         ok: true as const,
@@ -405,6 +411,7 @@ const executeCore = mock(
         data: { settingsChanged: true, projectsReloaded: false, profilesUpdating: false },
       };
     }
+    if (request.command === "lsp.cancelOperation") onCoreCancel?.();
     if (request.command === "lsp.saveDocument") {
       requestPayload = request.payload;
       return { id: request.id, ok: true as const, data: { sent: true } };
@@ -422,6 +429,9 @@ const {
   getLspWorkspaceSessionSnapshot,
   ownsLspSession,
   invokeLsp,
+  startCoreBuildProvider,
+  stopCoreBuildProvider,
+  requestCoreBuildProvider,
   LSP_EXPLICITLY_UNAVAILABLE_COMMANDS,
   LSP_OPERATION_BY_COMMAND,
 } = await import("./lsp-core-adapter");
@@ -470,6 +480,10 @@ describe("Rust Core LSP adapter failures", () => {
     semanticResultGate = undefined;
     releaseSemanticResult = undefined;
     onSemanticRequest = undefined;
+    providerAckGate = undefined;
+    releaseProviderAck = undefined;
+    providerProgress = [];
+    onCoreCancel = undefined;
     semanticRefreshOnReady = false;
     eventsAroundReady = { before: [], after: [] };
     releaseInitialization = undefined;
@@ -481,6 +495,7 @@ describe("Rust Core LSP adapter failures", () => {
 
   afterEach(async () => {
     releaseSemanticResult?.();
+    releaseProviderAck?.();
     releaseInitialization?.();
     releaseRuntimeReady?.();
     await invokeLsp("lsp_stop", { workspacePath: "C:/work/project" });
@@ -1675,6 +1690,131 @@ describe("Rust Core LSP adapter failures", () => {
       pluginStartEntered = undefined;
       pluginStartGate = undefined;
       releasePluginStart = undefined;
+    }
+  }, 5000);
+
+  const buildTarget = { workspacePath: "C:/work", pluginId: "dev.example.build", buildSystemId: "example" };
+  const buildLaunch = { serverPath: "C:/tools/provider.exe", serverArgs: ["--stdio"], environment: {} };
+
+  test("Build progress and raw results can precede submission acknowledgement without a source file", async () => {
+    scenario = "semantic-request";
+    await startCoreBuildProvider(buildTarget, buildLaunch);
+    providerAckGate = new Promise<void>(resolve => { releaseProviderAck = resolve; });
+    providerProgress = [{ output: "compiling\n" }, { output: "done\n" }];
+    const value = { utf16Column: 7, projects: [] };
+    semanticRequestResult = { value };
+    const progress: unknown[] = [];
+    try {
+      expect(await requestCoreBuildProvider<typeof value>(buildTarget, {
+        method: "lithe/build/model", params: {}, timeoutMilliseconds: 1000,
+        onProgress: value => { progress.push(value); },
+      })).toEqual(value);
+      expect(progress).toEqual([{ output: "compiling\n" }, { output: "done\n" }]);
+      expect(startPayload?.providerId).toBe(buildTarget.pluginId);
+      expect(startPayload?.pluginId).toBe(buildTarget.pluginId);
+      expect(commands).not.toContain("lsp.openDocument");
+      expect(requestPayload?.timeoutMilliseconds).toBe(1000);
+    } finally { releaseProviderAck?.(); }
+  }, 5000);
+
+  test("cancelling a Build request before acknowledgement cancels that late submission only", async () => {
+    scenario = "semantic-request";
+    await startCoreBuildProvider(buildTarget, buildLaunch);
+    providerAckGate = new Promise<void>(resolve => { releaseProviderAck = resolve; });
+    semanticResultGate = new Promise<void>(resolve => { releaseSemanticResult = resolve; });
+    const controller = new AbortController();
+    onSemanticRequest = () => controller.abort();
+    const cancellationSent = new Promise<void>(resolve => { onCoreCancel = resolve; });
+    try {
+      await expect(requestCoreBuildProvider(buildTarget, {
+        method: "lithe/build/execute", params: {}, timeoutMilliseconds: 1000, signal: controller.signal,
+      })).rejects.toMatchObject({ code: "cancelled" });
+      expect(commands).not.toContain("lsp.stopServer");
+      releaseProviderAck?.();
+      await cancellationSent;
+      expect(commands).toContain("lsp.cancelOperation");
+      releaseSemanticResult?.();
+      expect(getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "buildProvider:dev.example.build:example" })?.phase).toBe("ready");
+    } finally { releaseProviderAck?.(); releaseSemanticResult?.(); }
+  }, 5000);
+
+  test("a failing Build progress consumer cancels its request and keeps the shared backend", async () => {
+    scenario = "semantic-request";
+    await startCoreBuildProvider(buildTarget, buildLaunch);
+    providerProgress = [{ output: "compile" }];
+    semanticRequestResult = { value: {} };
+    await expect(requestCoreBuildProvider(buildTarget, {
+      method: "lithe/build/execute", params: {}, timeoutMilliseconds: 1000,
+      onProgress: () => { throw new Error("view was revoked"); },
+    })).rejects.toThrow("view was revoked");
+    expect(commands).toContain("lsp.cancelOperation");
+    expect(commands).not.toContain("lsp.stopServer");
+  }, 5000);
+
+  test("stopping one Build target preserves another system from the same plugin", async () => {
+    scenario = "multi-session";
+    const other = { ...buildTarget, buildSystemId: "another" };
+    await startCoreBuildProvider(buildTarget, buildLaunch);
+    await startCoreBuildProvider(other, buildLaunch);
+    await stopCoreBuildProvider(buildTarget);
+    expect(getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "buildProvider:dev.example.build:example" })).toBeNull();
+    expect(getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "buildProvider:dev.example.build:another" })?.phase).toBe("ready");
+    expect(commands.filter(command => command === "lsp.stopServer")).toHaveLength(1);
+  }, 5000);
+
+  test("Build operations reject pre-cancellation and invalid deadlines before Core submission", async () => {
+    scenario = "semantic-request";
+    await startCoreBuildProvider(buildTarget, buildLaunch);
+    const controller = new AbortController(); controller.abort();
+    await expect(requestCoreBuildProvider(buildTarget, {
+      method: "lithe/build/model", params: {}, timeoutMilliseconds: 1000, signal: controller.signal,
+    })).rejects.toBeDefined();
+    await expect(requestCoreBuildProvider(buildTarget, {
+      method: "lithe/build/model", params: {}, timeoutMilliseconds: 0,
+    })).rejects.toMatchObject({ code: "invalid_request" });
+    expect(commands).not.toContain("lsp.buildRequest");
+  }, 5000);
+
+  test("Build backend failures preserve their structured code and never invoke a legacy command", async () => {
+    scenario = "semantic-request";
+    await startCoreBuildProvider(buildTarget, buildLaunch);
+    semanticRequestResult = { coreError: { code: "maven.invalidRun", message: "Target was removed" } };
+    await expect(requestCoreBuildProvider(buildTarget, {
+      method: "lithe/build/prepareRun", params: {}, timeoutMilliseconds: 1000,
+    })).rejects.toMatchObject({ code: "maven.invalidRun", message: "Target was removed" });
+    expect(commands.some(command => command.startsWith("maven."))).toBe(false);
+  }, 5000);
+
+  test("a malformed Build response envelope fails before a domain decoder receives it", async () => {
+    scenario = "semantic-request";
+    await startCoreBuildProvider(buildTarget, buildLaunch);
+    semanticRequestResult = { projects: [] };
+    await expect(requestCoreBuildProvider(buildTarget, {
+      method: "lithe/build/model", params: {}, timeoutMilliseconds: 1000,
+    })).rejects.toMatchObject({ code: "invalid_response" });
+  }, 5000);
+
+  test("workspace close drains a Build backend whose native start reply arrives late", async () => {
+    scenario = "held-plugin-start";
+    let entered!: () => void;
+    const startingEntered = new Promise<void>(resolve => { entered = resolve; });
+    pluginStartEntered = entered;
+    pluginStartGate = new Promise<void>(resolve => { releasePluginStart = resolve; });
+    const starting = startCoreBuildProvider(buildTarget, buildLaunch).then(() => "started", () => "cancelled");
+    let stopping: Promise<unknown> | undefined;
+    try {
+      await startingEntered;
+      stopping = invokeLsp("lsp_stop", { workspacePath: "c:/WORK" });
+      scenario = "capabilities"; releasePluginStart?.();
+      await stopping;
+      expect(await starting).toBe("cancelled");
+      expect(commands).toContain("lsp.stopServer");
+      expect(commands).toContain("lsp.destroyServer");
+      expect(getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "buildProvider:dev.example.build:example" })).toBeNull();
+    } finally {
+      releasePluginStart?.();
+      await Promise.allSettled([starting, stopping]);
+      pluginStartEntered = undefined; pluginStartGate = undefined; releasePluginStart = undefined;
     }
   }, 5000);
 

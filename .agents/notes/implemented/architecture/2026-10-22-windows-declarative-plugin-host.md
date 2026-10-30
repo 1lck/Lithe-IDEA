@@ -26,6 +26,31 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 
 宿主在 `plugins.declarative.validate` 的 payload 里声明 `hostCapabilities = { languages:[1], languageServers:[1,2], serverProcess:[1], settings:[1,2], ui:[1,2] }`。Core 的 `capabilities.rs` 会拒绝声明了宿主未开放能力的插件，宿主不需要自己写拒绝逻辑。M3 已把 `languageServers` 与 `settings` 提到 2，注册设置页并下推 `workspaceConfiguration`；M4 已增 `ui:[1,2]`。`executionProviders`、`buildProviders` 与 `buildSystems` 仍未开放，运行/测试计划命令的存在不代表这些插件能力可安装。宿主不声明的能力，市场侧按不支持展示。
 
+### Build Provider 的传输基础（阶段 D，产品入口仍待迁移）
+
+Windows 的 Build 后端继续复用已有 Core LSP 进程运行时，不另写 stdio、RPC 或进程树
+管理器。原生 `plugin_host/build.rs` 只给已准入的插件展开公开启动计划，复用现有的包路径、
+运行时版本和生命周期检查；会话按插件、构建系统和工作区隔离，不伪造 Java 文件来启动。
+目前只接独立 Provider 进程，共享语言会话型 Provider 明确拒绝，能力声明仍保持关闭。
+
+`WindowsBuildProviderSessions` 串行处理同一目标的启动解析与替换，任务请求可以独立并行。
+包、设置、实际运行时或环境变化先停止旧进程；停止失败时禁止新请求，显式重试清理成功后
+才恢复。解析前后都检查插件代次，工作区关闭会等待晚到的启动回复并销毁其进程。
+单个请求取消只取消该操作，不能停止其他调用者共用的后端。原生解析未返回时，调用者可
+立即结束等待，后台仍持有这次解析，避免取消后丢失晚到进程的清理归属。
+
+Core 请求 ID 在发起 IPC 前登记，因此进度或回复先于 IPC 确认到达也能找到原操作。
+回复原样交给领域解码器，不经过语言位置字段的转换；取消或完成后的迟到消息丢弃。
+例如 Build 模型中的 `utf16Column` 属性应原样保留，不应因为复用了 LSP 运输层就改成
+`character`。进度消费者失败会撤销自己的请求，不能让事件泵退出或启动旧 Maven fallback。
+
+可写位置由平台存储分配为
+`app_local_data_dir()/plugin-state/<pluginID>/build-systems/<buildSystemID>/<workspace 哈希>`，
+与语言服务器状态分开，归插件安装和工作区会话所有；卸载时随所属插件状态清理。
+目录没有可复用的版本/平台/架构/工具链身份，资源清单及排除路由拒绝跨工作树复制。
+安装包、插件包和签名基线保持只读。此基础不代表 Maven 模型、任务、设置、报告和 Run
+消费者已迁移，也不能据此删除仍在使用的共享 Core Maven 命令。
+
 ### 存储、信任与安装（v0）
 
 - 安装根为 `app_local_data_dir()/plugins/<pluginID>/<version>/`，`installation.json` 记录版本与启用状态；记录缺失或损坏的包隔离展示，绝不静默加载。
@@ -105,6 +130,7 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - 多窗口事件投递必须显式指定当前产品窗口的 `Window` target。Tauri 默认 `Any` 监听也接收发给其他 label 的事件，原生 `emit_to(ownerLabel)` 本身不足以隔离接收者；文件请求与生命周期确认均绑定当前窗口，防止其他工作区误处理请求或重复确认。`plugin-lifecycle-listener.test.ts` 检查两类监听的目标。
 - 2026-10-24 Windows Release 实机验收：Playwright/CDP 连接真实 WebView2，测试包安装、ui 1 文本渲染、工作区关闭重开、状态隔离、两个产品窗口归属、主题/语言与重载、过期工作区 openFile 拒绝、双窗口卸载关闭全部插件页均通过；无重复确认异常，外站 HTTP GET 为零，安装包及发行资源哈希不变，应用正常退出。该测试包不替代真实语言服务器的完整安装→启动→即时设置验收，也不覆盖停靠布局。
 - 管理并发回归：`lifecycle.rs` 覆盖原生使用计数排空、禁止晚到获取、逐窗口确认、停止失败、窗口断开和有界超时；`lsp-core-adapter.test.ts` 用可控 Core 响应覆盖停止期间晚到的服务器，断言先停止再拒绝，且 `pluginId` 没有丢失。`plugin-lifecycle-listener.test.ts` 验证收到停用事件立即撤销入口、等待运行和 LSP 两方后才确认。
+- Build 传输基础：`build-provider-sessions.test.ts` 和 `lsp-core-adapter.test.ts` 覆盖包/设置/运行时变化、逐目标停止、停止失败后阻止新请求、解析中取消、插件代次和工作区关闭、早于 IPC 确认的进度与回复，以及原始字段与稳定错误码。新增回归在 macOS 的 Bun 逐项计时入口通过；这不代表 Windows 原生进程、共享语言会话或产品 Maven 工作流已验收。资源复用回归明确拒绝复制新的 Windows Provider 状态。
 - 工作区与界面回归：`web.rs` 覆盖双工作区窗口/状态键隔离和文本转义；`plugin-lifecycle-listener.test.ts` 验证其他工作区请求、路径解析中切换工作区以及成功确认；`workspace-lifecycle.test.ts` 验证关闭工作区时清理网页。`declarative-plugin-ui.test.ts` 用 Hello Lithe fixture 验证文本窗口与命令面板、菜单、工具栏三处贡献及撤销，受控刷新同时覆盖相关与无关插件的撤销。CI 按文件分进程执行插件套件，避免原生命令和事件 mock 跨套件泄漏。
 - 启动计划回归：`launch.rs` 验证必需资源缺失、运行时依赖缺失、目录资源与普通文件入口的区别，以及有输出但非零退出的校验命令。`tests.rs` 还覆盖完整扫描的有序发布，`web.rs` 用有界通道覆盖写入与撤销交错、旧页面实例和旧工作区版本拒绝。Windows Rust 最终计时运行记录 357 项，其中 354 通过、3 项夹具跳过；前端受影响测试分别在隔离进程中运行，报告保存在 `.artifacts/test-stability/`。这些测试不替代双工作区真实 WebView2、真实语言服务器与停靠界面的产品验收。
 

@@ -9,6 +9,7 @@
 //! .agents/notes/implemented/architecture/2026-10-22-windows-declarative-plugin-host.md
 
 pub mod install;
+pub mod build;
 #[cfg(test)]
 mod install_tests;
 pub mod launch;

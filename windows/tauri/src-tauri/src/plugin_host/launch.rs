@@ -199,7 +199,7 @@ fn owning_language_id(package: &ScannedPackage, file_path: &str) -> Option<Strin
 /// Builds the Core launch-plan request with host-owned directories and
 /// architecture. Settings layers stay empty until the settings milestone;
 /// Core then falls back to declared defaults.
-fn launch_request(
+pub(super) fn launch_request(
     state_directory: &Path,
     package: &ScannedPackage,
     workspace_path: &str,
@@ -219,7 +219,7 @@ fn launch_request(
 /// Creates the host-owned directories requested by Core before the frontend
 /// starts the process. The plan only names the two directories from the
 /// shared contract; arbitrary paths are rejected at this boundary.
-fn prepare_required_directories(
+pub(super) fn prepare_required_directories(
     plan: &Value,
     state_directory: &Path,
     workspace_state_directory: &Path,
@@ -251,7 +251,7 @@ fn prepare_required_directories(
     Ok(())
 }
 
-fn resolve_launch(
+pub(super) fn resolve_launch(
     package: &ScannedPackage,
     language_id: &str,
     plan: &Value,
