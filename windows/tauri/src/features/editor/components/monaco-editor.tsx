@@ -83,6 +83,7 @@ import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
 import { isNativeTextInputTarget } from "@/utils/keyboard/text-input-target";
 import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import EditorContextMenu from "../context-menu/context-menu";
+import { GutterContextMenu } from "../context-menu/gutter-context-menu";
 import { EDITOR_CONSTANTS } from "../config/constants";
 import { JavaRunMarkerMenu } from "../context-menu/java-run-marker-menu";
 import { useBufferStore } from "../stores/buffer.store";
@@ -527,7 +528,7 @@ export function MonacoEditor({
     () => (rootFolderPath ? { workspaceId, root: rootFolderPath } : null),
     [rootFolderPath, workspaceId],
   );
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const { markers: javaRunMarkers } = useJavaRunMarkers(
     javaTestScope,
     filePath,
@@ -590,10 +591,9 @@ export function MonacoEditor({
       return EMPTY_BLAME_GUTTER_ENTRIES;
     }
     return buildGitBlameGutterEntries(blame, {
-      language,
       uncommittedLabel: t("git.blame.uncommitted"),
     });
-  }, [blame, blameVisible, language, lineNumberMap, lineNumberStart, t]);
+  }, [blame, blameVisible, lineNumberMap, lineNumberStart, t]);
   // The formatter is passed to editor creation, so it must keep its identity
   // when annotations arrive: a new identity would rebuild the editor. It reads
   // the latest entries through a ref and a dedicated effect repaints instead.
@@ -894,11 +894,11 @@ export function MonacoEditor({
     y: number;
   } | null>(null);
   const [contextMenuRunMarker, setContextMenuRunMarker] = useState<JavaRunMarker | null>(null);
-  /**
-   * Whether the open context menu came from the line-number gutter. Annotate is
-   * a gutter action in IDEA, so it stays out of the content menu.
-   */
-  const [contextMenuFromGutter, setContextMenuFromGutter] = useState(false);
+  /** Line-number right-clicks get their own short menu instead of the editor one. */
+  const [gutterMenuPosition, setGutterMenuPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [runMarkerMenu, setRunMarkerMenu] = useState<{
     marker: JavaRunMarker;
     position: { x: number; y: number };
@@ -1357,6 +1357,38 @@ export function MonacoEditor({
         ];
         const isLineNumberTarget = lineTargetTypes.includes(event.target.type);
         const isGutterTarget = gutterTypes.includes(event.target.type);
+        if (event.target.type === monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS) {
+          // IDEA answers "this line" from a two-item menu here; the editor menu
+          // would bury the Git actions among editing commands.
+          editor.focus();
+          setContextMenuPosition(null);
+          setContextMenuRunMarker(null);
+          if (event.target.position) {
+            const clickedLine = event.target.position.lineNumber;
+            const currentSelection = editor.getSelection();
+            let span: Parameters<typeof gutterLineRange>[1] = null;
+            if (currentSelection && !currentSelection.isEmpty()) {
+              const firstLine = Math.min(
+                currentSelection.startLineNumber,
+                currentSelection.endLineNumber,
+              );
+              const lastLine = Math.max(
+                currentSelection.startLineNumber,
+                currentSelection.endLineNumber,
+              );
+              const lastLineColumn =
+                currentSelection.endLineNumber >= currentSelection.startLineNumber
+                  ? currentSelection.endColumn
+                  : currentSelection.startColumn;
+              span = { firstLine, lastLine, lastLineColumn };
+            }
+            pendingLineHistoryRangeRef.current = gutterLineRange(clickedLine, span);
+          } else {
+            pendingLineHistoryRangeRef.current = null;
+          }
+          setGutterMenuPosition({ x: event.event.posx, y: event.event.posy });
+          return;
+        }
         if (isLineNumberTarget && event.target.position) {
           const clickedLine = event.target.position.lineNumber;
           const currentSelection = editor.getSelection();
@@ -1401,7 +1433,6 @@ export function MonacoEditor({
         }
 
         editor.focus();
-        setContextMenuFromGutter(isGutterTarget);
         setContextMenuPosition({ x: event.event.posx, y: event.event.posy });
       }),
       editor.onKeyDown((event) => {
@@ -2736,7 +2767,7 @@ export function MonacoEditor({
               !lineHistoryFileUntracked
                 ? () => {
                     const range = pendingLineHistoryRangeRef.current;
-                    if (!range || !contextMenuPosition) return;
+                    if (!range) return;
                     const buffer = getBufferById(
                       useBufferStore.getState().buffers,
                       activeBufferId,
@@ -2752,18 +2783,6 @@ export function MonacoEditor({
                   }
                 : undefined
             }
-            onToggleBlame={
-              contextMenuFromGutter &&
-              blameFileEligible &&
-              !lineHistoryFileUntracked &&
-              setBlameVisible
-                ? () => {
-                    setContextMenuPosition(null);
-                    setBlameVisible(!blameVisible);
-                  }
-                : undefined
-            }
-            blameVisible={blameVisible}
             onDuplicate={canEdit ? () => executeEditorCommand("editor.duplicateLine") : undefined}
             onSelectNextOccurrence={() => executeEditorCommand("editor.selectNextOccurrence")}
             onSelectAllOccurrences={() => executeEditorCommand("editor.selectAllOccurrences")}
@@ -2798,6 +2817,51 @@ export function MonacoEditor({
                   : undefined
             }
             runContextLabel={contextRunTarget?.label}
+          />,
+          document.body,
+        )}
+      {gutterMenuPosition &&
+        createPortal(
+          <GutterContextMenu
+            isOpen
+            position={gutterMenuPosition}
+            onClose={() => setGutterMenuPosition(null)}
+            onToggleBlame={
+              blameFileEligible && !lineHistoryFileUntracked
+                ? () => {
+                    setGutterMenuPosition(null);
+                    setBlameVisible(!blameVisible);
+                  }
+                : undefined
+            }
+            blameVisible={blameVisible}
+            onLineHistory={
+              rootFolderPath &&
+              filePath &&
+              !editorBuffer?.isVirtual &&
+              !isPreviewMode &&
+              !lineHistoryFileUntracked
+                ? () => {
+                    const range = pendingLineHistoryRangeRef.current;
+                    if (!range) return;
+                    const buffer = getBufferById(
+                      useBufferStore.getState().buffers,
+                      activeBufferId,
+                    );
+                    setLineHistoryMenu({
+                      range,
+                      anchor: {
+                        x: gutterMenuPosition.x,
+                        y: gutterMenuPosition.y,
+                      },
+                      content,
+                      revision:
+                        buffer && isEditorContent(buffer) ? (buffer.contentRevision ?? 0) : 0,
+                    });
+                    setGutterMenuPosition(null);
+                  }
+                : undefined
+            }
           />,
           document.body,
         )}

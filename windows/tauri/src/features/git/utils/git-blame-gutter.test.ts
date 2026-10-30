@@ -29,10 +29,10 @@ function blame(lines: GitBlameLine[]): GitBlame {
   return { file_path: "src/main.ts", lines };
 }
 
-const options = { language: "en-US", uncommittedLabel: "Uncommitted" };
+const options = { uncommittedLabel: "Uncommitted" };
 
 describe("git blame gutter entries", () => {
-  test("labels every line, including neighbours from the same commit", () => {
+  test("labels every line with the date first, then the author", () => {
     const entries = buildGitBlameGutterEntries(
       blame([
         blameLine({ line_number: 1 }),
@@ -45,7 +45,7 @@ describe("git blame gutter entries", () => {
     // IDEA annotates each line; a blank gutter on the second line of a block
     // reads as missing attribution rather than as shared authorship.
     for (const lineNumber of [1, 2, 3]) {
-      expect(entries.get(lineNumber)?.text.startsWith("Ada, ")).toBe(true);
+      expect(entries.get(lineNumber)?.text).toBe("2025/10/30, Ada");
     }
     expect(entries.get(2)?.commitHash).toBe(FIRST);
     expect(entries.get(3)?.commitHash).toBe(SECOND);
@@ -97,28 +97,24 @@ describe("git blame gutter markup", () => {
 });
 
 describe("git blame date", () => {
-  test("zero pads the month and day in the app language", () => {
+  test("formats yyyy/M/d without padding", () => {
     const singleDigits = Date.UTC(2026, 7, 8, 12, 0, 0) / 1000;
 
-    // Padded fields keep the annotation column from jumping between commits.
-    expect(formatGitBlameDate(singleDigits, "en-US")).toBe("08/08/2026");
-    expect(formatGitBlameDate(singleDigits, "zh-CN")).toBe("2026/08/08");
+    // IDEA and the macOS workbench both annotate with an unpadded y/M/d date.
+    expect(formatGitBlameDate(singleDigits)).toBe("2026/8/8");
+    expect(formatGitBlameDate(AUTHOR_TIME)).toBe("2025/10/30");
   });
 
-  test("renders an absolute date in the app language", () => {
-    const english = formatGitBlameDate(AUTHOR_TIME, "en-US");
-    const chinese = formatGitBlameDate(AUTHOR_TIME, "zh-CN");
+  test("renders an absolute date", () => {
+    const text = formatGitBlameDate(AUTHOR_TIME);
 
-    // Both locales must carry the full year and day; a relative label would not.
-    for (const text of [english, chinese]) {
-      expect(text).toContain("2025");
-      expect(text).toContain("30");
-      expect(text).not.toMatch(/ago|前/);
-    }
+    expect(text).toContain("2025");
+    expect(text).toContain("30");
+    expect(text).not.toMatch(/ago|前/);
   });
 
   test("omits the date when the authoring time is missing", () => {
-    expect(formatGitBlameDate(0, "en-US")).toBe("");
-    expect(formatGitBlameDate(Number.NaN, "en-US")).toBe("");
+    expect(formatGitBlameDate(0)).toBe("");
+    expect(formatGitBlameDate(Number.NaN)).toBe("");
   });
 });

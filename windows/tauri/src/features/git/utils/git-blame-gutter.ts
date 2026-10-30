@@ -20,27 +20,25 @@ export function escapeGitBlameHtml(value: string): string {
 }
 
 /**
- * Formats the authoring date the way IDEA annotates a line: an absolute date
- * instead of a relative one, zero padded so the column keeps a steady width
- * (`08/08/2026` rather than `8/8/2026`). Month order follows the app language.
+ * Formats the authoring date the way IDEA and the macOS workbench annotate a
+ * line: `yyyy/M/d`, an absolute date with unpadded month and day instead of a
+ * relative one, so a stale annotation cannot read as "3 days ago" forever.
  */
-export function formatGitBlameDate(unixSeconds: number, language: string): string {
+export function formatGitBlameDate(unixSeconds: number): string {
   if (!Number.isFinite(unixSeconds) || unixSeconds <= 0) return "";
-  return new Intl.DateTimeFormat(language, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(unixSeconds * 1000));
+  const date = new Date(unixSeconds * 1000);
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
 }
 
 /**
  * Builds the per-line gutter annotations. IDEA annotates every line, so
  * consecutive lines of one commit repeat the same label instead of leaving a
- * blank gutter that reads as missing data.
+ * blank gutter that reads as missing data. The date leads the label, matching
+ * the annotate column users compare against IDEA.
  */
 export function buildGitBlameGutterEntries(
   blame: GitBlame,
-  options: { language: string; uncommittedLabel: string },
+  options: { uncommittedLabel: string },
 ): Map<number, GitBlameGutterEntry> {
   const entries = new Map<number, GitBlameGutterEntry>();
   const lines = [...blame.lines].sort((left, right) => left.line_number - right.line_number);
@@ -48,7 +46,7 @@ export function buildGitBlameGutterEntries(
   for (const line of lines) {
     const label = line.is_uncommitted
       ? options.uncommittedLabel
-      : `${line.author}, ${formatGitBlameDate(line.time, options.language)}`;
+      : `${formatGitBlameDate(line.time)}, ${line.author}`;
     entries.set(line.line_number, {
       commitHash: line.commit_hash,
       text: label,
