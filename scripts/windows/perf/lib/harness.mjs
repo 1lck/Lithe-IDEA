@@ -9,6 +9,8 @@ import { keySummary, totalBlockingTime } from "./stats.mjs";
 const STEP_TIMEOUT_MILLISECONDS = 30_000;
 const SETTLE_TIMEOUT_MILLISECONDS = 8_000;
 const SETTLE_POLL_MILLISECONDS = 100;
+// Outlasts the 1-second autosave and index debounces that follow the last key.
+const HOST_QUIET_MILLISECONDS = 1_500;
 const TREE_ROW = "[data-file-path]";
 const EDITOR_LINES = ".monaco-editor .view-lines";
 const OPEN_FOLDER_BUTTON = /^(Open|打开)$/;
@@ -200,6 +202,21 @@ export class Harness {
     return value;
   }
 
+  /** Waits until the host has seen no command for longer than any debounce, or the deadline passes. */
+  async hostQuiet() {
+    const deadline = performance.now() + SETTLE_TIMEOUT_MILLISECONDS;
+    let commands = JSON.stringify(await this.host("commandCounts()"));
+    let quietSince = performance.now();
+    while (performance.now() - quietSince < HOST_QUIET_MILLISECONDS && performance.now() < deadline) {
+      await delay(SETTLE_POLL_MILLISECONDS);
+      const latest = JSON.stringify(await this.host("commandCounts()"));
+      if (latest !== commands) {
+        commands = latest;
+        quietSince = performance.now();
+      }
+    }
+  }
+
   /** Counts the visible lines whose code renders in more than one token color. */
   async multiColorLines() {
     return this.page.evaluate((selector) => {
@@ -215,6 +232,10 @@ export class Harness {
    * Types `text` at one key per `intervalMilliseconds`, keeping to a fixed
    * schedule. `burst` adds a thinking pause after that many keys, the rhythm that
    * lets debounced work such as autosave fire.
+   *
+   * Per-key metrics cover the typing alone, all ending at the same moment. The
+   * `tail` metrics cover the work the last key leaves behind, such as the final
+   * autosave, which would otherwise land outside every window.
    */
   async typeMeasured(text, intervalMilliseconds, burst = null) {
     const refresh = await this.refreshMilliseconds();
@@ -239,14 +260,16 @@ export class Harness {
     }
     await this.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const after = await this.counters();
-    if (this.profiling) this.cpuProfile = (await this.cdp.send("Profiler.stop")).profile;
+    const typedCommands = await this.host("commandCounts()");
+    const typedPayloadBytes = await this.host("payloadBytes()");
     const { latencies, tasks } = await this.page.evaluate(() => {
       const probe = window.__LITHE_PERF__;
       probe.recordKeys = false;
       return { latencies: [...probe.keyLatencies], tasks: [...probe.longTasks] };
     });
-    // Autosave fires shortly after the last key; let it finish so its cost is counted.
-    await delay(400);
+    await this.hostQuiet();
+    const settled = await this.counters();
+    if (this.profiling) this.cpuProfile = (await this.cdp.send("Profiler.stop")).profile;
     const commands = await this.host("commandCounts()");
     const payloadBytes = await this.host("payloadBytes()");
     this.payloadByCommand = await this.host("payloadByCommand()");
@@ -257,11 +280,15 @@ export class Harness {
       scriptMsPerKey: (after.scriptMs - before.scriptMs) / keys,
       styleLayoutMsPerKey: (after.styleLayoutMs - before.styleLayoutMs) / keys,
       tbtMs: totalBlockingTime(tasks),
-      saves: commands.save_document_file ?? 0,
-      ipcPerKey: Object.entries(commands)
+      saves: typedCommands.save_document_file ?? 0,
+      tailSaves: (commands.save_document_file ?? 0) - (typedCommands.save_document_file ?? 0),
+      tailMainThreadMs: settled.taskMs - after.taskMs,
+      tailScriptMs: settled.scriptMs - after.scriptMs,
+      tailIpcKilobytes: (payloadBytes - typedPayloadBytes) / 1_024,
+      ipcPerKey: Object.entries(typedCommands)
         .filter(([command]) => !command.startsWith("core:") && !command.startsWith("platform_invoke:") && command !== "frontend_trace")
         .reduce((sum, [, calls]) => sum + calls, 0) / keys,
-      ipcKilobytesPerKey: payloadBytes / 1_024 / keys,
+      ipcKilobytesPerKey: typedPayloadBytes / 1_024 / keys,
     };
   }
 
