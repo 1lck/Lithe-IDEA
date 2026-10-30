@@ -3343,6 +3343,16 @@ selected Node installation. They do not fall back to a PATH shim from another
 installation, and Windows executable extensions take precedence over extensionless
 shell scripts.
 
+Automatic Spring service generation requires both an applied Maven plugin and
+exactly one JDT-confirmed, Spring-classified non-test entry in the same module.
+An inherited plugin alone cannot promote a library to a runnable service.
+Nested-module entries do not promote their parent. Ambiguous, utility and test
+mains remain independently selectable Java entries. Module assignment consumes
+the confirmed source set even when the caller supplies no editor paths.
+Absent discovery may reuse previously confirmed entries; an explicit empty result
+removes automatic services. Existing service IDs and user-authored Maven-goal
+compatibility configurations retain their established meaning.
+
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, optional `debugPort`, and optional
 `localDocument`. Maven-backed Run and Debug callers may also supply the same
