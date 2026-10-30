@@ -3542,12 +3542,17 @@ source text and a file simple name and returns the fully qualified runtime class
 name.
 
 `java.sourceDefinition` accepts `source`, `declarationName`, an optional
-`memberName`, and an optional `declarationsOnly`, returning zero-based `line`
-and UTF-16 `utf16Column` or `null` when no declaration is found. A member is
-looked up as a syntax-tree method, field, or enum-constant declaration first.
-Without `declarationsOnly`, text that merely resembles one, such as a call, is
-accepted next, and then the `declarationName` type; with it, a missing member
-returns `null`.
+`memberName`, an optional `declarationsOnly`, and an optional `reference`
+(`line`, `utf16Column`), returning zero-based `line` and UTF-16 `utf16Column` or
+`null` when no declaration is found. A member is looked up as a syntax-tree
+method, field, or enum-constant declaration that the `declarationName` type
+declares directly. With `reference`, the member is instead resolved from that
+position: the identifier must be a plain name or a `this.` access, the innermost
+type is searched first and then the enclosing ones, and the result is `null` when
+a type on the way may inherit the name or a local may shadow a field.
+Without `declarationsOnly`, text that merely resembles a declaration, such as a
+call, is accepted next, and then the `declarationName` type; with it, a missing
+member returns `null`.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
 returns `foldRegions`, `inlayHints`, and `syntaxHighlights`.

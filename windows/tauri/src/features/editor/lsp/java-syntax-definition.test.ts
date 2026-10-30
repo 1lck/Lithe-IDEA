@@ -24,7 +24,12 @@ function dependencies(files: string[], typeSources: Record<string, string> = {})
     readSource: mock(async (path: string) => typeSources[path] ?? ""),
     findTypeDefinition: mock(async (text: string, typeName: string) =>
       definitionIn(text, new RegExp(`\\b(?:class|interface|enum|record)\\s+${typeName}\\b`), typeName)),
-    findMemberDefinition: mock(async (text: string, _typeName: string, memberName: string) =>
+    findMemberDefinition: mock(async (
+      text: string,
+      _typeName: string,
+      memberName: string,
+      _reference: { line: number; utf16Column: number },
+    ) =>
       definitionIn(text, new RegExp(`^\\s*(?:void|int|\\w+)\\s+${memberName}\\b`), memberName)),
   };
 }
@@ -77,10 +82,16 @@ describe("Java syntax definitions", () => {
     }
   });
 
-  test("does not guess the receiver of a member access", async () => {
+  test("asks Core to resolve a member from where the name starts", async () => {
     const deps = dependencies([]);
-    expect(await resolveJavaSyntaxDefinitions(at(5, "save"), deps)).toEqual([]);
-    expect(deps.findMemberDefinition).not.toHaveBeenCalled();
+    await resolveJavaSyntaxDefinitions(at(5, "save"), deps);
+    expect(deps.findMemberDefinition).toHaveBeenCalledTimes(1);
+    expect(deps.findMemberDefinition.mock.calls[0]).toEqual([
+      source,
+      "OrderController",
+      "save",
+      { line: 5, utf16Column: source.split("\n")[5].indexOf("save") },
+    ]);
   });
 
   test("a name on its own declaration goes nowhere", async () => {

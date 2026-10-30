@@ -17,6 +17,7 @@ interface JavaSyntaxDefinitionDependencies {
     source: string,
     typeName: string,
     memberName: string,
+    reference: { line: number; utf16Column: number },
   ) => Promise<JavaSourceDefinition | null>;
 }
 
@@ -53,8 +54,8 @@ const defaultDependencies: JavaSyntaxDefinitionDependencies = {
   },
   readSource: readFileContent,
   findTypeDefinition: (source, declarationName) => sourceDefinition({ source, declarationName }),
-  findMemberDefinition: (source, declarationName, memberName) =>
-    sourceDefinition({ source, declarationName, memberName, declarationsOnly: true }),
+  findMemberDefinition: (source, declarationName, memberName, reference) =>
+    sourceDefinition({ source, declarationName, memberName, declarationsOnly: true, reference }),
 };
 
 function identifierAt(line: string, character: number) {
@@ -88,8 +89,9 @@ function typeSourcePaths(source: string, typeName: string, workspaceFiles: strin
  * Finds the declarations of the identifier at a position without a language
  * server, for the minutes a Java project spends importing.
  *
- * Syntax cannot resolve a receiver's type, so `other.save()` finds nothing
- * rather than a same-named method of this class. Local variables are not
+ * Core resolves members from the reference's scope and finds nothing when
+ * syntax cannot tell: `other.save()` has a receiver of unknown type, an inherited
+ * name is invisible, and a local may shadow a field. Local variables are not
  * covered either. Callers must present the result as an approximation, since
  * only JDT LS knows what a name binds to.
  */
@@ -125,9 +127,10 @@ export async function resolveJavaSyntaxDefinitions(
     return locations.filter((value) => value !== null);
   }
 
-  const receiver = /([\p{L}\p{N}_$]*)\s*\.\s*$/u.exec(lineText.slice(0, identifier.start))?.[1];
-  if (receiver !== undefined && receiver !== "this") return [];
   const typeName = normalizePath(sourceFilePath).split("/").pop()?.replace(/\.java$/, "") ?? "";
-  const member = await dependencies.findMemberDefinition(source, typeName, identifier.name);
+  const member = await dependencies.findMemberDefinition(source, typeName, identifier.name, {
+    line: options.line,
+    utf16Column: identifier.start,
+  });
   return member && !isHere(member) ? [location(sourceFilePath, member)] : [];
 }
