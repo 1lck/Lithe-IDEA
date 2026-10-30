@@ -1738,7 +1738,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     }>();
     monaco.languages.registerCompletionItemProvider("*", {
       triggerCharacters: ["."],
-      async provideCompletionItems(model, position, _context, token) {
+      async provideCompletionItems(model, position, context, token) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         const id = pair?.[0]; const entry = pair?.[1];
         if (!id || !entry || entry.model !== model) return { suggestions: [] };
@@ -1748,10 +1748,11 @@ export function mountWorkbench(host: WorkbenchHost) {
         const revision = entry.revision, version = model.getVersionId();
         const request = {};
         completionRequests.set(entry, request);
-        const reply = await languageRequest({ type: "completion", id, revision, line: position.lineNumber - 1, column: position.column - 1 });
+        const reply = await languageRequest({ type: "completion", id, revision, line: position.lineNumber - 1, column: position.column - 1,
+          triggerKind: context.triggerKind + 1, triggerCharacter: context.triggerCharacter });
         if (!current() || token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() || entry.revision !== revision || model.getVersionId() !== version || completionRequests.get(entry) !== request || reply.cancelled) return { suggestions: [] };
         const word = model.getWordUntilPosition(position);
-        return { suggestions: (reply.items ?? []).map((item: any) => {
+        return { incomplete: reply.isIncomplete === true, suggestions: (reply.items ?? []).map((item: any) => {
           const suggestion = { ...item, kind: mapCompletionKind(item.kind),
             insertTextRules: item.insertTextFormat === 2 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
             range: item.range ?? new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn) };

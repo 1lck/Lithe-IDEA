@@ -12,6 +12,57 @@ import Testing
 @Suite("Run entry points", .serialized)
 @MainActor
 struct RunEntryPointTests {
+    @Test(arguments: [false, true])
+    func javaPreparationSavesDirtyDependenciesAndStopsOnSaveFailure(saveFails: Bool) async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations.neverScans())
+        defer { model.closeProject() }
+        model.settings.autoSave = false
+        model.openProjectDirectly(workspace.root)
+        let identity = try #require(model.currentWorkspaceIdentity)
+        await model.documentFeature.openFileAsync(
+            workspace.sourceURL, isReadOnly: false, displayPath: nil, activateWhenReady: true
+        )
+        let main = try #require(model.activeDocument)
+        main.text += "\n// edited main"
+        let dependencyURL = workspace.root.appendingPathComponent("Dependency.java")
+        try "class Dependency {}".write(to: dependencyURL, atomically: true, encoding: .utf8)
+        await model.documentFeature.openFileAsync(
+            dependencyURL, isReadOnly: false, displayPath: nil, activateWhenReady: true
+        )
+        let dependency = try #require(model.activeDocument)
+        dependency.text += "\n// edited dependency"
+        if saveFails {
+            try FileManager.default.removeItem(at: dependencyURL)
+            try FileManager.default.createDirectory(at: dependencyURL, withIntermediateDirectories: false)
+        }
+        // A removed module ends preparation after saving, before any language
+        // server starts. A failed save must stop even before source resolution.
+        let configuration = RunConfiguration(
+            id: "fixture-java", name: "Missing", kind: .javaMain,
+            modulePath: "removed-module", mainClass: "demo.Missing", mavenReactorPath: "."
+        )
+        do {
+            _ = try await model.prepareJavaRunLaunch(for: configuration, identity: identity)
+            Issue.record("A removed module must not produce a Java target")
+        } catch {
+            let sourceFailure = error as? RunConfigurationOperationFailure
+            let failure = try #require(sourceFailure)
+            #expect(failure.message == (saveFails
+                ? "Java launch stopped because modified files could not be saved."
+                : "The Java source for Missing could not be resolved."))
+        }
+        if saveFails {
+            #expect(dependency.isDirty)
+        } else {
+            #expect(!main.isDirty && !dependency.isDirty)
+            #expect(try String(contentsOf: workspace.sourceURL, encoding: .utf8) == main.text)
+            #expect(try String(contentsOf: dependencyURL, encoding: .utf8) == dependency.text)
+        }
+        await model.shutdownProjectSession()
+    }
+
     @Test(arguments: [AppLanguage.english, .simplifiedChinese], [false, true])
     func javaBuildDecisionButtonsStayInsideTheDialog(language: AppLanguage, offersRecovery: Bool) async throws {
         let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations.neverScans())

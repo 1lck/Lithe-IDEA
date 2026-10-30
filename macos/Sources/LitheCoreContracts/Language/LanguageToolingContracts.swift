@@ -912,6 +912,11 @@ package protocol LanguageServerSession: AnyObject {
     func synchronize(fileURL: URL, text: String, languageID: String) throws
     func notifyWorkspaceFilesChanged(_ changes: [LanguageServerWorkspaceFileChange]) throws
     func closeDocument(_ fileURL: URL)
+    func completionList(
+        fileURL: URL, position: LanguageServerPosition, context: LanguageServerCompletionContext?,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
+    ) throws
+    func notifyDocumentSaved(_ fileURL: URL, text: String) throws
     func completions(
         fileURL: URL,
         position: LanguageServerPosition,
@@ -981,6 +986,8 @@ package protocol LanguageServerSession: AnyObject {
     func javaEntrypoints(
         completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
     ) throws
+    /// Prepares one saved source through Core's shared Java launch operation.
+    func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation
     /// Test classes and methods JDT reports for one source file.
     func javaTestItems(
         fileURL: URL,
@@ -1017,7 +1024,36 @@ package protocol LanguageServerSession: AnyObject {
     func stop()
 }
 
+/// Completion metadata is list-scoped, including when the list is empty.
+package struct LanguageServerCompletionList: Sendable {
+    package var items: [LanguageServerCompletionItem]
+    package var isIncomplete: Bool
+    package init(items: [LanguageServerCompletionItem] = [], isIncomplete: Bool = false) {
+        self.items = items
+        self.isIncomplete = isIncomplete
+    }
+}
+
+/// LSP trigger kinds: invoked (1), trigger character (2), incomplete-list refresh (3).
+package struct LanguageServerCompletionContext: Encodable, Sendable {
+    package let triggerKind: Int
+    package let triggerCharacter: String?
+    package init(triggerKind: Int = 1, triggerCharacter: String? = nil) {
+        self.triggerKind = triggerKind
+        self.triggerCharacter = triggerCharacter
+    }
+}
+
 package extension LanguageServerSession {
+    func completionList(
+        fileURL: URL, position: LanguageServerPosition, context: LanguageServerCompletionContext?,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
+    ) throws {
+        try completions(fileURL: fileURL, position: position) { result in
+            completion(result.map { LanguageServerCompletionList(items: $0) })
+        }
+    }
+
     @discardableResult
     func updateWorkspaceConfiguration(_: ToolingJSONValue) -> Bool { false }
 
@@ -1085,6 +1121,10 @@ package extension LanguageServerSession {
 }
 
 package extension LanguageServerSession {
+    func prepareJavaLaunch(fileURL _: URL, mainClass _: String?) async throws -> JavaLaunchPreparation {
+        throw LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string("Java launch preparation is not supported by this runtime."))
+    }
+
     func executeReturningValue(_ command: LanguageServerCommand, fileURL: URL) async throws -> ToolingJSONValue {
         try Task.checkCancellation()
         let (stream, continuation) = AsyncThrowingStream<ToolingJSONValue, Error>.makeStream()
@@ -1133,6 +1173,7 @@ package extension LanguageServerSession {
         set {}
     }
     func closeDocument(_: URL) {}
+    func notifyDocumentSaved(_: URL, text _: String) throws {}
     func notifyWorkspaceFilesChanged(_: [LanguageServerWorkspaceFileChange]) throws {}
     func javaTestItems(
         fileURL _: URL,

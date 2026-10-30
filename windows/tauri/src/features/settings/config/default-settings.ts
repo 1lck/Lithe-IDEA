@@ -72,6 +72,7 @@ export const defaultSettings: Settings = {
   inlayHints: true,
   codeLens: true,
   semanticTokens: true,
+  javaProjectImportOnOpen: "automatic",
   breadcrumbShowSymbols: true,
   // Terminal
   terminalFontFamily: DEFAULT_MONO_FONT_FAMILY,

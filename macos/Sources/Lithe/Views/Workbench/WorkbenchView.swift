@@ -282,7 +282,7 @@ struct WorkbenchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var toolWindowDrag = ToolWindowDragState()
     @StateObject private var toolContentStore = WorkbenchToolContentStore()
-    @State private var sidebarWidth: CGFloat = 320
+    @State private var sidebarWidth = CGFloat(WorkbenchLayout.defaultSidebarWidth)
     @State private var rightSidebarWidth: CGFloat = 380
     @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
     @State private var branchPopupHeight: CGFloat?
@@ -1648,7 +1648,7 @@ struct WorkbenchView: View {
             GeometryReader { geometry in
                 let leading = hasVisibleTool(on: .left) ? min(sidebarWidth, geometry.size.width) : 0
                 let trailing = hasVisibleTool(on: .right) ? min(mavenPaneWidth, geometry.size.width - leading) : 0
-                let height = isBottomToolVisible ? min(topPaneHeight ?? geometry.size.height * 2 / 3, geometry.size.height)
+                let height = isBottomToolVisible ? min(topPaneHeight ?? geometry.size.height * WorkbenchLayout.defaultTopPaneFraction, geometry.size.height)
                     : geometry.size.height
                 Rectangle().fill(LitheTheme.toolWindowDropArea)
                     .overlay {
@@ -2093,7 +2093,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             )
             let maximumTopPaneHeight = availablePaneHeight - minimumTopPaneHeight
             let resolvedTopPaneHeight = constrained(
-                liveTopPaneHeight ?? max(255, geometry.size.height * 0.40),
+                liveTopPaneHeight ?? geometry.size.height * WorkbenchLayout.defaultTopPaneFraction,
                 minimum: minimumTopPaneHeight,
                 maximum: maximumTopPaneHeight
             )
