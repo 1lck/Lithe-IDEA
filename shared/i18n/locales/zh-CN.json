@@ -9689,7 +9689,20 @@
     "native.noWebBrowserCouldBeOpened": "无法打开网页浏览器。",
     "native.thisPluginAlreadyHasTooManyMessagesWaiting": "此插件已有过多消息在等待。",
     "plugin.host.requestFailed": "未能完成插件宿主请求。",
-    "plugin.host.invalidParameters": "插件宿主请求的参数无效。"
+    "plugin.host.invalidParameters": "插件宿主请求的参数无效。",
+    "native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped": "已下载的部分已保留，重试时会从中断处继续下载。",
+    "native.updateSource": "更新源",
+    "native.stableUpdatesDownloadFromThisAddressAMirrorMustServeTheSameSignedAppcastAndUpdateArchivesSideBySideAndLitheStillV": "稳定版更新从这个地址下载。镜像需要把同一份已签名的 appcast 和更新包放在同一目录下，安装前 Lithe 仍会校验签名。AutoBuild 始终使用官方源。",
+    "native.foundLitheAtThisSource": "已在此更新源找到 Lithe {arg1}。",
+    "native.enterAFullWebAddressSuchAsHttpsMirrorExampleComLithe": "请输入完整网址，例如 https://mirror.example.com/lithe/。",
+    "native.updateSourcesMustUseHttpsHttpIsOnlyAllowedForThisMacLocalhost": "更新源必须使用 https://；http:// 只允许用于本机（localhost）。",
+    "native.noUpdateFeedWasFoundAtThisAddressTheSourceMustProvideNextToTheUpdateArchives": "这个地址没有找到更新清单。更新源需要在更新包旁边提供 {arg1}。",
+    "native.theSourceListsLitheButDoesNotProvide": "更新源列出了 Lithe {arg1}，但没有提供 {arg2}。",
+    "native.theConnectionToTimedOutCheckYourProxyOrVPNConnectionAndTryAgain": "连接 {arg1} 超时。请检查代理或 VPN 后重试。",
+    "native.couldNotBeReachedCheckYourInternetProxyOrVPNConnectionAndTryAgain": "无法连接 {arg1}。请检查网络、代理或 VPN 后重试。",
+    "native.aSecureConnectionToCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSystemCertificateSettings": "无法与 {arg1} 建立安全连接。请检查 TLS 检查、代理、VPN 或系统证书设置。",
+    "native.returnedHTTP": "{arg1} 返回了 HTTP {arg2}。",
+    "native.returnedAnUnexpectedResponse": "{arg1} 返回了无法识别的响应。"
   },
   "overrides": {
     "macos": {

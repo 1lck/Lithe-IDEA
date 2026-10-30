@@ -9689,7 +9689,20 @@
     "native.noWebBrowserCouldBeOpened": "No web browser could be opened.",
     "native.thisPluginAlreadyHasTooManyMessagesWaiting": "This plugin already has too many messages waiting.",
     "plugin.host.requestFailed": "The plugin host request could not be completed.",
-    "plugin.host.invalidParameters": "The plugin host request parameters are invalid."
+    "plugin.host.invalidParameters": "The plugin host request parameters are invalid.",
+    "native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped": "Downloaded data was kept. Try again to resume from where it stopped.",
+    "native.updateSource": "Update source",
+    "native.stableUpdatesDownloadFromThisAddressAMirrorMustServeTheSameSignedAppcastAndUpdateArchivesSideBySideAndLitheStillV": "Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.",
+    "native.foundLitheAtThisSource": "Found Lithe {arg1} at this source.",
+    "native.enterAFullWebAddressSuchAsHttpsMirrorExampleComLithe": "Enter a full web address, such as https://mirror.example.com/lithe/.",
+    "native.updateSourcesMustUseHttpsHttpIsOnlyAllowedForThisMacLocalhost": "Update sources must use https://. http:// is only allowed for this Mac (localhost).",
+    "native.noUpdateFeedWasFoundAtThisAddressTheSourceMustProvideNextToTheUpdateArchives": "No update feed was found at this address. The source must provide {arg1} next to the update archives.",
+    "native.theSourceListsLitheButDoesNotProvide": "The source lists Lithe {arg1} but does not provide {arg2}.",
+    "native.theConnectionToTimedOutCheckYourProxyOrVPNConnectionAndTryAgain": "The connection to {arg1} timed out. Check your proxy or VPN connection and try again.",
+    "native.couldNotBeReachedCheckYourInternetProxyOrVPNConnectionAndTryAgain": "{arg1} could not be reached. Check your internet, proxy, or VPN connection and try again.",
+    "native.aSecureConnectionToCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSystemCertificateSettings": "A secure connection to {arg1} could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.",
+    "native.returnedHTTP": "{arg1} returned HTTP {arg2}.",
+    "native.returnedAnUnexpectedResponse": "{arg1} returned an unexpected response."
   },
   "overrides": {
     "windows": {
