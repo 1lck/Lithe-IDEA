@@ -712,6 +712,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         // closing its workspace. Revoke page requests before teardown can yield.
         services.pluginWebPages.closeAll()
         closePluginWorkspaceContext()
+        dismissPluginHostMessages(.windowClosed)
         workbenchFeature.endLayoutSession()
         // VCS providers too: their pending refreshes, or a scan still loading
         // the workspace, would otherwise start a process for a closed window.
@@ -939,6 +940,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func prepareForWorkspaceOpen(at normalizedURL: URL) {
+        dismissPluginHostMessages(.workspaceChanged)
         documentLanguageCoordinator?.stop()
         beginModuleRuntimeShutdown()
         // A workspace root is a hard language-server ownership boundary. Stop
@@ -999,6 +1001,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     private func finishWorkspaceClose(for workspaceURL: URL) {
         closePluginWorkspaceContext()
+        dismissPluginHostMessages(.workspaceChanged)
         releaseRemoteWorkspace(at: workspaceURL)
         ideCapabilities.disable()
         documentLanguageCoordinator?.stop()

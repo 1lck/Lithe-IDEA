@@ -45,6 +45,7 @@
 "%@ provider (inside the plugin)" = "%@ Provider（插件内置）";
 "%@ provider (installed on this Mac)" = "%@ Provider（使用本机已安装的程序）";
 "%@ returned an invalid language-server provider." = "%@ 返回了无效的语言服务器 Provider。";
+"%@ sent messages too quickly, so some were not shown." = "%@ 发送消息过快，部分消息未显示。";
 "%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved." = "%@ 与其他路径指向同一份文件内容。“保存为独立文件”只更新当前路径，并解除它与其他路径的硬链接关系。“更新所有硬链接”直接修改共享文件，包括项目外指向它的路径；此操作不是原子保存，中断可能导致内容不完整。“取消”将保留未保存的编辑。";
 "%@ started a task that is still running" = "%@ 启动的任务仍在运行";
 "%@ test run timed out after %@ seconds." = "%@ 测试运行在 %@ 秒后超时。";
@@ -1934,6 +1935,7 @@
 "Line Breakpoints" = "行断点";
 "Line breakpoint actions" = "行断点操作";
 "Linear" = "Linear";
+"Lines and columns start at 1, and a range must not end before it starts." = "行号和列号从 1 开始，范围的终点不能早于起点。";
 "Lines kept for scrolling back in new terminal sessions." = "新建终端会话保留的可回滚行数。";
 "Linked this conversation to a pull request" = "已将此对话关联到拉取请求";
 "Linked worktree" = "关联工作树";
@@ -2436,6 +2438,7 @@
 "No upstream configured" = "未设置上游分支";
 "No usages found" = "没有找到调用位置";
 "No verified Homebrew formula is configured for %@." = "没有为 %@ 配置经过验证的 Homebrew formula。";
+"No web browser could be opened." = "无法打开网页浏览器。";
 "No worktrees" = "没有工作树";
 "Node.js %lld or later" = "Node.js %lld 或更高版本";
 "Node.js %lld or later is required; found %@." = "需要 Node.js %lld 或更高版本，当前为 %@。";
@@ -2494,8 +2497,10 @@
 "One sentence focused on the main change" = "聚焦主要更改的一句话";
 "One test: %@" = "单个测试：%@";
 "One-time choices override repository preferences, which override application defaults. Git configuration is changed only when you save or clear a field below." = "单次选项优先于仓库偏好，仓库偏好优先于应用默认值。只有保存或清除下方字段时才会修改 Git 配置。";
+"Only .html and .htm files can be shown in a browser." = "只有 .html 和 .htm 文件可以在浏览器中显示。";
 "Only API keys are used. The Agent's own account sign-in, such as a ChatGPT login, is never used." = "只使用 API 密钥登录，不会使用 Agent 自带的账号登录（例如 ChatGPT 登录）。";
 "Only ask for actions detected as potentially unsafe" = "自动审批，仅在检测到潜在风险时请求你的确认。";
+"Only http and https addresses with a host name can be opened." = "只能打开带主机名的 http 和 https 地址。";
 "Only local files can be attached to an Agent message." = "Agent 消息仅支持添加本地文件。";
 "Only regular files can be opened as text. Devices, sockets and named pipes are not supported." = "只能将普通文件作为文本打开，不支持设备、套接字和命名管道。";
 "Only source files of the current language can be opened from outside the workspace" = "工作区外只能打开当前语言的源码文件";
@@ -2967,6 +2972,7 @@
 "Remote URL" = "远程地址";
 "Remote folder" = "远程文件夹";
 "Remote pending documents exceeded the startup limit. Wait for the language server to start." = "远程语言服务启动前的待同步文档已达到上限，请等待启动完成。";
+"Remote workspaces are not supported by this operation yet." = "此操作暂不支持远程工作区。";
 "Remote: %@" = "远程：%@";
 "Removal pending" = "等待移除";
 "Remove" = "移除";
@@ -3859,8 +3865,11 @@
 "The field value does not match its declaration or exceeds its size limit." = "字段值不符合声明或超过大小限制。";
 "The field value is invalid or exceeds 1024 UTF-8 bytes." = "字段值无效或超过 1024 个 UTF-8 字节。";
 "The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor." = "无法按所选或自动识别的编码解码文件。请检查文件编码，或使用外部编辑器打开。";
+"The file could not be opened as a text document." = "无法将该文件作为文本文档打开。";
 "The file could not be read. Check its availability and try again." = "无法读取文件。请检查文件是否可访问后重试。";
 "The file has changed since the Agent edit. Open the diff and review it manually." = "文件内容与 Agent 修改存在冲突，请打开差异手动确认。";
+"The file has unsaved changes. Save it first, because the browser shows the saved file." = "文件有未保存的更改。请先保存，因为浏览器显示的是已保存的文件。";
+"The file is not open in this window." = "该文件未在此窗口中打开。";
 "The file is too large to compare." = "文件过大，无法比较。";
 "The file no longer exists or was moved. Refresh the project and try again." = "文件已不存在或已被移动。请刷新项目后重试。";
 "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "保存期间文件或硬链接发生了变化。编辑内容尚未保存，请检查文件后重新保存。";
@@ -3874,6 +3883,7 @@
 "The host could not be reached. Check the host name, the port, and your network." = "无法连接到主机，请检查主机名、端口和网络。";
 "The host could not create the plugin's workspace state directory." = "宿主无法创建插件的工作区状态目录。";
 "The host does not serve %@." = "宿主不提供 %@。";
+"The host does not support the requested option yet." = "宿主暂不支持所请求的选项。";
 "The host has no bridge method %@." = "宿主没有桥接方法 %@。";
 "The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts." = "主机密钥未被接受。如果服务器重装过，请从 ~/.ssh/known_hosts 中删除它的旧记录。";
 "The image destination is outside the current workspace" = "图片目标位置在当前工作区之外";
@@ -3891,6 +3901,7 @@
 "The local Codex account changed. Reconnect to refresh quota." = "本机 Codex 账号已变更，请重新连接以刷新额度。";
 "The local adapter is at or above the verified version." = "本地适配器版本等于或高于已核验版本。";
 "The location service did not answer." = "地区查询服务没有响应。";
+"The message text or its buttons are empty, too long, or too many." = "消息文本或按钮为空、过长或过多。";
 "The model is too large; some entries are not shown." = "模型过大，部分条目未显示。";
 "The monitored JVM has exited or changed." = "监控的 JVM 已退出或发生变化。";
 "The name of the artifact the build produces." = "构建产物的名称。";
@@ -3963,6 +3974,11 @@
 "The repository will be opened in detached HEAD state." = "仓库将以 detached HEAD 状态打开。";
 "The request has no secret." = "请求不包含密钥。";
 "The required tool is not available on the remote host." = "远程主机上没有可用的所需工具。";
+"The resource does not exist." = "资源不存在。";
+"The resource is not a regular file." = "资源不是常规文件。";
+"The resource is outside the workspace." = "资源位于工作区之外。";
+"The resource names a root this window does not offer." = "资源指定的根目录不在此窗口提供的范围内。";
+"The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\"." = "资源路径必须是相对路径，使用“/”分隔，且不能包含“.”或“..”。";
 "The response stopped at the model's token limit." = "回复已达到模型的 token 上限，已停止。";
 "The saved provider run configuration is unavailable." = "已保存的提供方运行配置不可用。";
 "The selected AI provider has an invalid API URL or model." = "所选 AI 服务商的 API 地址或模型无效。";
@@ -4017,6 +4033,8 @@
 "The version control client could not be run. Check that it is installed." = "无法运行版本控制客户端。请检查它是否已安装。";
 "The version control provider failed to start." = "版本控制 Provider 启动失败。";
 "The version control provider stopped before it was ready." = "版本控制 Provider 在就绪前已停止。";
+"The window is closed or has no workspace open." = "窗口已关闭或没有打开工作区。";
+"The window now shows a different workspace than the one this call was made for." = "窗口现在显示的工作区与本次调用针对的工作区不同。";
 "The working copy is locked by an interrupted action. Run Cleanup, then try again." = "工作副本被中断的操作锁定。请先执行清理，然后重试。";
 "The working copy is out of date. Update it, then commit again." = "工作副本已过期。请先更新，再重新提交。";
 "The working copy was cleaned up." = "工作副本已清理。";
@@ -4093,12 +4111,14 @@
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "这会永久删除“%@”中的未提交文件和未跟踪文件，但会保留对应分支。";
 "This plugin adds no options to this page." = "该插件未在此页添加选项。";
 "This plugin already has an installation in progress. Try again after it finishes." = "该插件已有安装正在进行，请在完成后重试。";
+"This plugin already has too many messages waiting." = "此插件已有过多消息在等待。";
 "This plugin declares no features." = "该插件没有声明功能。";
 "This plugin declares no settings." = "该插件没有声明设置。";
 "This plugin has no backend that can run now." = "此插件目前没有可运行的后端。";
 "This plugin is maintained and signed by Lithe. Report problems in the source repository." = "该插件由 Lithe 维护并签名，问题请在源码仓库反馈。";
 "This plugin is maintained by a community developer, not by Lithe. Lithe verified that the download matches the plugin repository, and will show what the plugin can run before installing it. Report problems with the plugin in its own repository." = "插件由社区开发者维护，并非 Lithe 官方出品。Lithe 已校验下载内容与插件仓库一致，并会在安装前列出插件能运行的程序。插件问题请到插件自己的仓库反馈。";
 "This plugin requires a newer version of Lithe." = "该插件需要更新版本的 Lithe。";
+"This plugin sent messages too quickly." = "此插件发送消息过快。";
 "This preview contains changes that have not been officially released and may be unstable." = "此预览版包含尚未正式发布的改动，可能不稳定。";
 "This project" = "此项目";
 "This project is not a Git repository" = "当前项目不是 Git 仓库";
@@ -4875,6 +4895,7 @@
 "native.arg1ProviderInstalledOnThisMac" = "%1$@ Provider（使用本机已安装的程序）";
 "native.arg1ProviderRunsWithArg2" = "%1$@ Provider（使用 %2$@ 运行）";
 "native.arg1Tools" = "%1$d 个工具";
+"native.argSentMessagesTooQuicklySoSomeWereNotShown" = "%1$@ 发送消息过快，部分消息未显示。";
 "native.arguments" = "参数";
 "native.argumentsFromThePage" = "页面提供的参数：";
 "native.argumentsOnePerLine" = "参数（每行一个）";
@@ -6525,6 +6546,7 @@
 "native.lineColumn" = "[行] [:列]:";
 "native.lineLld" = "%1$@，第 %2$lld 行，%3$@";
 "native.linear" = "Linear";
+"native.linesAndColumnsStartAtAndARangeMustNotEndBeforeItStarts" = "行号和列号从 1 开始，范围的终点不能早于起点。";
 "native.linesKeptForScrollingBackInNewTerminalSessions" = "新建终端会话保留的可回滚行数。";
 "native.linkedThisConversationToAPullRequest" = "已将此对话关联到拉取请求";
 "native.linkedWorktree" = "关联工作树";
@@ -7091,6 +7113,7 @@
 "native.noUpstreamConfigured" = "未设置上游分支";
 "native.noUsagesFound" = "没有找到调用位置";
 "native.noVerifiedHomebrewFormulaIsConfiguredFor" = "没有为 %1$@ 配置经过验证的 Homebrew formula。";
+"native.noWebBrowserCouldBeOpened" = "无法打开网页浏览器。";
 "native.noWorktrees" = "没有工作树";
 "native.nodeJsDebuggingRequiresTheOfficialVscodeJs" = "Node.js 调试需要官方的 vscode-js-debug 独立 DAP 包。请将 LITHE_JS_DEBUG_PATH 设置为其 dapDebugServer.js 文件，或将其解压到 .lithe/toolchains/js-debug。";
 "native.nodeJsLldOrLater" = "Node.js %1$lld 或更高版本";
@@ -7153,6 +7176,8 @@
 "native.oneUsage" = "1 处使用";
 "native.onlyAPIKeysAreUsedTheAgentSOwnAccountSignInSuchAsAChatGPTLoginIsNeverUsed" = "只使用 API 密钥登录，不会使用 Agent 自带的账号登录（例如 ChatGPT 登录）。";
 "native.onlyAskForActionsDetectedAsPotentiallyUnsafe" = "自动审批，仅在检测到潜在风险时请求你的确认。";
+"native.onlyHtmlAndHtmFilesCanBeShownInABrowser" = "只有 .html 和 .htm 文件可以在浏览器中显示。";
+"native.onlyHttpAndHttpsAddressesWithAHostNameCanBeOpened" = "只能打开带主机名的 http 和 https 地址。";
 "native.onlyLocalFilesCanBeAttachedToAnAgentMessage" = "Agent 消息仅支持添加本地文件。";
 "native.onlySourceFilesOfTheCurrentLanguageCanBeOpenedFromOutsideTheWorkspace" = "工作区外只能打开当前语言的源码文件";
 "native.onlyTheAPIURLModelAndAPIKeyAreSavedOtherCLIOptionsContinueToUseYourLocalConfig36d9d4cdfd" = "仅保存 API 地址、模型和 API 密钥，其他 CLI 选项继续沿用本机配置。密钥与设置分开存储。编辑时显示这些已保存字段的配置模板。";
@@ -7624,6 +7649,7 @@
 "native.remoteTerminalInputBusy" = "远程终端正忙，请稍后再发送输入。";
 "native.remoteTerminalInvalidDirectory" = "终端目录不在远程工作区内。";
 "native.remoteURL" = "远程地址";
+"native.remoteWorkspacesAreNotSupportedByThisOperationYet" = "此操作暂不支持远程工作区。";
 "native.removalPending" = "等待移除";
 "native.removeAll" = "全部移除";
 "native.removeAndItsCheckoutDirectoryTheBranchIsKeptIfGitRefusesBecauseFilesHaveChange7ffdbe003e" = "删除“%1$@”及其检出目录？对应分支会保留。如果 Git 因文件已更改而拒绝删除，你可以继续查看单独的强制删除警告。";
@@ -8444,7 +8470,10 @@
 "native.theFeaturedMcpCatalogCouldNotBeLoaded" = "无法加载内置 MCP 精选目录。";
 "native.theFieldValueDoesNotMatchItsDeclarationOrExceedsItsSizeLimit" = "字段值不符合声明或超过大小限制。";
 "native.theFieldValueIsInvalidOrExceeds1024UTF8Bytes" = "字段值无效或超过 1024 个 UTF-8 字节。";
+"native.theFileCouldNotBeOpenedAsATextDocument" = "无法将该文件作为文本文档打开。";
 "native.theFileHasChangedSinceTheAgentEditOpenTheDiffAndReviewItManually" = "文件内容与 Agent 修改存在冲突，请打开差异手动确认。";
+"native.theFileHasUnsavedChangesSaveItFirstBecauseTheBrowserShowsTheSavedFile" = "文件有未保存的更改。请先保存，因为浏览器显示的是已保存的文件。";
+"native.theFileIsNotOpenInThisWindow" = "该文件未在此窗口中打开。";
 "native.theFileIsTooLargeToCompare" = "文件过大，无法比较。";
 "native.theFileSystemThatHoldsTheHomeDirectory" = "主目录所在的文件系统。";
 "native.theFileWillBeCreatedWhenYouSave" = "保存时将创建此文件。";
@@ -8464,6 +8493,7 @@
 "native.theHostCouldNotBeReachedCheckTheHostNameThePortAndYourNetwork" = "无法连接到主机，请检查主机名、端口和网络。";
 "native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory" = "宿主无法创建插件的工作区状态目录。";
 "native.theHostDoesNotServe" = "宿主不提供 %1$@。";
+"native.theHostDoesNotSupportTheRequestedOptionYet" = "宿主暂不支持所请求的选项。";
 "native.theHostHasNoBridgeMethod" = "宿主没有桥接方法 %1$@。";
 "native.theHostKeyWasNotAcceptedIfTheServerWasReinstalledRemoveItsOldEntryFromSshKnownHosts" = "主机密钥未被接受。如果服务器重装过，请从 ~/.ssh/known_hosts 中删除它的旧记录。";
 "native.theImageDestinationIsOutsideTheCurrentWorkspace" = "图片目标位置在当前工作区之外";
@@ -8505,6 +8535,7 @@
 "native.theMcpRegistryCouldNotBeLoadedTryAgainOrAddAServerManually" = "无法加载 MCP Registry。请重试，或手动添加服务器。";
 "native.theMcpRegistryIsUnreachableCheckTheNetworkOrProxy" = "无法连接 MCP Registry，请检查网络或代理。";
 "native.theMcpRegistryRequestTimedOutTryAgain" = "MCP Registry 请求超时，请重试。";
+"native.theMessageTextOrItsButtonsAreEmptyTooLongOrTooMany" = "消息文本或按钮为空、过长或过多。";
 "native.theModelIsTooLargeSomeEntriesAreNotShown" = "模型过大，部分条目未显示。";
 "native.theMonitoredJVMHasExitedOrChanged" = "监控的 JVM 已退出或发生变化。";
 "native.theNameOfTheArtifactTheBuildProduces" = "构建产物的名称。";
@@ -8572,6 +8603,11 @@
 "native.theRepositoryChangedOrAnotherGitOperationIsRunningRefreshThePreviewToRetry" = "仓库已更改或有其他 Git 操作正在运行。请刷新预览后重试。";
 "native.theRepositoryWillBeOpenedInDetachedHEADState" = "仓库将以 detached HEAD 状态打开。";
 "native.theRequestHasNoSecret" = "请求不包含密钥。";
+"native.theResourceDoesNotExist" = "资源不存在。";
+"native.theResourceIsNotARegularFile" = "资源不是常规文件。";
+"native.theResourceIsOutsideTheWorkspace" = "资源位于工作区之外。";
+"native.theResourceNamesARootThisWindowDoesNotOffer" = "资源指定的根目录不在此窗口提供的范围内。";
+"native.theResourcePathMustBeRelativeUseSeparatorsAndNotContainOr" = "资源路径必须是相对路径，使用“/”分隔，且不能包含“.”或“..”。";
 "native.theResponseStoppedAtTheModelSTokenLimit" = "回复已达到模型的 token 上限，已停止。";
 "native.theSelectedAIProviderHasAnInvalidAPIURLOrModel" = "所选 AI 服务商的 API 地址或模型无效。";
 "native.theSelectedAIProviderHasNoAPIKey" = "所选 AI 服务商没有 API 密钥。";
@@ -8625,6 +8661,8 @@
 "native.theVersionControlClientCouldNotBeRunCheckThatItIsInstalled" = "无法运行版本控制客户端。请检查它是否已安装。";
 "native.theVersionControlProviderFailedToStart" = "版本控制 Provider 启动失败。";
 "native.theVersionControlProviderStoppedBeforeItWasReady" = "版本控制 Provider 在就绪前已停止。";
+"native.theWindowIsClosedOrHasNoWorkspaceOpen" = "窗口已关闭或没有打开工作区。";
+"native.theWindowNowShowsADifferentWorkspaceThanTheOneThisCallWasMadeFor" = "窗口现在显示的工作区与本次调用针对的工作区不同。";
 "native.theWorkingCopyIsLockedByAnInterruptedActionRunCleanupThenTryAgain" = "工作副本被中断的操作锁定。请先执行清理，然后重试。";
 "native.theWorkingCopyIsOutOfDateUpdateItThenCommitAgain" = "工作副本已过期。请先更新，再重新提交。";
 "native.theWorkingCopyWasCleanedUp" = "工作副本已清理。";
@@ -8695,12 +8733,14 @@
 "native.thisPermanentlyDeletesUncommittedAndUntrackedFilesInTheBranchItselfIsKept" = "这会永久删除“%1$@”中的未提交文件和未跟踪文件，但会保留对应分支。";
 "native.thisPluginAddsNoOptionsToThisPage" = "该插件未在此页添加选项。";
 "native.thisPluginAlreadyHasAnInstallationInProgress" = "该插件已有安装正在进行，请在完成后重试。";
+"native.thisPluginAlreadyHasTooManyMessagesWaiting" = "此插件已有过多消息在等待。";
 "native.thisPluginDeclaresNoFeatures" = "该插件没有声明功能。";
 "native.thisPluginDeclaresNoSettings" = "该插件没有声明设置。";
 "native.thisPluginHasNoBackendThatCanRun" = "此插件目前没有可运行的后端。";
 "native.thisPluginIsMaintainedAndSignedByLitheReportProblemsInTheSourceRepository" = "该插件由 Lithe 维护并签名，问题请在源码仓库反馈。";
 "native.thisPluginIsMaintainedByACommunityDeveloperNotByLitheLitheVerifiedThatTheDownl1989920b43" = "插件由社区开发者维护，并非 Lithe 官方出品。Lithe 已校验下载内容与插件仓库一致，并会在安装前列出插件能运行的程序。插件问题请到插件自己的仓库反馈。";
 "native.thisPluginRequiresANewerVersionOfLithe" = "该插件需要更新版本的 Lithe。";
+"native.thisPluginSentMessagesTooQuickly" = "此插件发送消息过快。";
 "native.thisPreviewContainsChangesThatHaveNotBeenOfficiallyReleasedAndMayBeUnstable" = "此预览版包含尚未正式发布的改动，可能不稳定。";
 "native.thisProject" = "此项目";
 "native.thisProjectIsNotAGitRepository" = "当前项目不是 Git 仓库";

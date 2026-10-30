@@ -9521,7 +9521,27 @@
     "native.thePluginIsNotAllowedToUseTheHostService": "The plugin is not allowed to use the host service {arg1}.",
     "native.theParamsOfMustBeAnObject": "The params of {arg1} must be an object.",
     "native.theWorkspaceContextReferenceIsMalformed": "The workspace context reference is malformed.",
-    "native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory": "The host could not create the plugin's workspace state directory."
+    "native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory": "The host could not create the plugin's workspace state directory.",
+    "native.theResourcePathMustBeRelativeUseSeparatorsAndNotContainOr": "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\".",
+    "native.theResourceNamesARootThisWindowDoesNotOffer": "The resource names a root this window does not offer.",
+    "native.theResourceIsOutsideTheWorkspace": "The resource is outside the workspace.",
+    "native.theResourceDoesNotExist": "The resource does not exist.",
+    "native.theResourceIsNotARegularFile": "The resource is not a regular file.",
+    "native.theWindowIsClosedOrHasNoWorkspaceOpen": "The window is closed or has no workspace open.",
+    "native.theWindowNowShowsADifferentWorkspaceThanTheOneThisCallWasMadeFor": "The window now shows a different workspace than the one this call was made for.",
+    "native.remoteWorkspacesAreNotSupportedByThisOperationYet": "Remote workspaces are not supported by this operation yet.",
+    "native.linesAndColumnsStartAtAndARangeMustNotEndBeforeItStarts": "Lines and columns start at 1, and a range must not end before it starts.",
+    "native.theHostDoesNotSupportTheRequestedOptionYet": "The host does not support the requested option yet.",
+    "native.theFileIsNotOpenInThisWindow": "The file is not open in this window.",
+    "native.theFileCouldNotBeOpenedAsATextDocument": "The file could not be opened as a text document.",
+    "native.onlyHtmlAndHtmFilesCanBeShownInABrowser": "Only .html and .htm files can be shown in a browser.",
+    "native.onlyHttpAndHttpsAddressesWithAHostNameCanBeOpened": "Only http and https addresses with a host name can be opened.",
+    "native.theFileHasUnsavedChangesSaveItFirstBecauseTheBrowserShowsTheSavedFile": "The file has unsaved changes. Save it first, because the browser shows the saved file.",
+    "native.noWebBrowserCouldBeOpened": "No web browser could be opened.",
+    "native.theMessageTextOrItsButtonsAreEmptyTooLongOrTooMany": "The message text or its buttons are empty, too long, or too many.",
+    "native.thisPluginSentMessagesTooQuickly": "This plugin sent messages too quickly.",
+    "native.thisPluginAlreadyHasTooManyMessagesWaiting": "This plugin already has too many messages waiting.",
+    "native.argSentMessagesTooQuicklySoSomeWereNotShown": "{arg1} sent messages too quickly, so some were not shown."
   },
   "overrides": {
     "windows": {
