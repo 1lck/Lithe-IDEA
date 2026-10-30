@@ -127,7 +127,14 @@ source/target，包含 Profile、继承、测试专用版本和自定义执行�
 升级时必须运行最低版本真实集成。已否决宿主正则和独立解析 compiler XML：它们
 不能重现 execution 合并和参数默认值。模型使用原有 Maven 本地仓库解析描述符，
 不新增缓存目录；状态和下载物不进入插件包，安装文件清单验证保持有效。
-旧 Maven 启动规划及 Wrapper 相关工具链推断仍待迁移，不能据此声称整个生成器已移出 Core。
+Wrapper 的存在和发行版本也由 Maven 后端读取选定 reactor 的原生文件后发布。
+Java `Properties` 负责转义和注释语义，分发 URL 仅提取可识别发行文件名；自定义
+文件名保持未知。读取有 1 MiB 硬上限，不执行脚本，不导出可能含凭据的完整 URL。
+脚本与 properties 都参与后端指纹和宿主同步观察；脚本替换/删除必须撤销缓存。
+宿主把脚本投影成工作区相对路径；两个独立 reactor 不共用全局 Wrapper，实际
+Run 仍由平台按其 cwd 和工具选择解析。Windows `.cmd` 也参与生成指纹。
+这些模型事实继续使用现有仓库、状态与包生命周期，不新增资源目录；Core 收到
+快照时不读取 Wrapper 文件补齐。旧 Maven 启动规划仍待迁移，不能据此声称整个生成器已移出 Core。
 
 正确例子：Maven 模型把 `custom-checks` 声明为测试源码，即按测试源码生成配置。
 不要因为路径里没有 `test` 就改成主源码，也不要遇到损坏的 POM 就覆盖上游提供的
@@ -170,6 +177,15 @@ source/target，包含 Profile、继承、测试专用版本和自定义执行�
 
 ## 验证
 
+- Wrapper 增量：1399 项含真实 JDT 的 Core/集成、286 项 Swift、4 项生产
+  Provider 和完整 Rust/24 项 bridge 通过。共享 Core fixture 21 毫秒验证双根不
+  共用 Wrapper、单根 Windows 脚本及 `.cmd` 内容变化影响指纹；Swift fixture
+  33 毫秒。真实 Core→Maven 19 项、缓存 17 项、受控原生 16 项、常规 Maven
+  16 项通过；Wrapper 原生 properties、脚本缓存撤销和超限文件拒绝 3.739 秒。
+  后端指纹改为有单文件 64 MiB 上限的流式哈希，避免新增脚本输入触发整文件分配。
+  最终包再次执行 3 项真实 JDT，含 Cargo 启动的计时为 16.199/8.056/6.940 秒；
+  退出、安装目录文件清单和进程清理均通过。HTML 由现有有界进程/报告入口生成，
+  每项命令 600 秒期限，目标测试本身继续使用原有 JDT 操作期限。
 - 编译要求增量：1399 项含真实 JDT 的 Core/集成计时、286 项 Swift、4 项生产
   Provider 集成和完整 Rust/24 项 bridge 通过。真实 Core→Maven 18 项通过，
   编译计划场景 2.964 秒，覆盖 Profile/testRelease、自定义 execution、模块覆盖、

@@ -657,7 +657,9 @@ package final class BuildSystemService: ObservableObject {
                     contentRoots: model.contentRoots.filter { $0.projectID == project.id && ["source", "testSource", "generatedSource", "generatedTestSource"].contains($0.kind) }
                         .map { RunProjectOwnership.SourceRoot(path: $0.path, kind: $0.kind) },
                     name: project.name, mavenRunProvider: reactor == nil ? nil : project.properties["run.provider"],
-                    minimumJavaVersion: project.properties["java.minimumVersion"])
+                    minimumJavaVersion: project.properties["java.minimumVersion"],
+                    mavenMinimumVersion: reactor == nil ? nil : project.properties["maven.minimumVersion"],
+                    mavenWrapper: project.properties["maven.wrapper"].flatMap { script in reactor.map { $0 == "." ? script : $0 + "/" + script } })
             }
         }
     }

@@ -63,7 +63,7 @@
 | --- | --- | --- |
 | Agent 构建 → 输出/状态 → 停止 | 已实现并验证；`MavenService` 任务进程/API/状态机已删除；原生回归 159 项/6 组通过，真实 Agent + Maven 模块编译 4.787 秒通过 | Draft PR；不代替整阶段配置/加载/平台验收 |
 | Maven 配置和项目运行设置 | 项目默认和按根工具路径已切 Run local.json；Build 选项按实例保留团队默认及本机差异；协议 7 原生 XML 读取、确认保存、冲突保护和回读已经接通通用插件设置页及真实 Maven。旧设置表单 XML 读取与配置存储已删除；迁移器已接官方插件被动检测，验证后清理源并重新检测，315 项原生回归通过 | 正式包与完整 UI 验收 |
-| 项目加载、标签/搜索模块事实、运行配置 | 已删除 MavenService/FeatureModel 和 POM 专属加载；Run 工程路径、源码根、候选来自当前 Provider 模型，无 MavenProject 注入 | Java 入口生成的模块/reactor/源码角色已改为当前 Provider 归属，损坏 POM 共享 fixture、独立 reactor 同名类及真实 Swift bridge 通过；框架识别已改用 Maven 生效插件模型（含 Profile/继承），保留既有服务 ID；编译要求已改用 Maven 实际 execution/参数模型；Wrapper 工具链推断和框架/模块启动规划仍需迁移，Java 入口继续复用 JDT |
+| 项目加载、标签/搜索模块事实、运行配置 | 已删除 MavenService/FeatureModel 和 POM 专属加载；Run 工程路径、源码根、候选来自当前 Provider 模型，无 MavenProject 注入 | Java 入口生成的模块/reactor/源码角色已改为当前 Provider 归属，损坏 POM 共享 fixture、独立 reactor 同名类及真实 Swift bridge 通过；框架识别已改用 Maven 生效插件模型（含 Profile/继承），保留既有服务 ID；编译要求已改用 Maven 实际 execution/参数模型；Wrapper 元数据也已切入 Provider；框架/模块启动规划仍需迁移，Java 入口继续复用 JDT |
 | 依赖树与依赖导航 | 已删除旧 macOS 依赖进程、Swift 文本树桥、临时 adapter 与坐标路径 fallback；Build 用 Provider，导航用 JDT；245 项受影响原生回归通过，真实 Agent 构建及 Provider 编译/精确测试 2 项通过 | 完整 UI/JDT 实机流程、Windows 现存共享命令仍待迁移 |
 | Java 导入、运行/测试/调试准备 | Java 导入和 Run Maven 上下文已停用旧服务回退，按 reactor 根读取同一代 Build 输入；315 项受影响原生测试通过；Debug 已等待 Build 输入并检查 ABA 代次；旧 Maven 工程模型已从生产加载删除 | Java 主程序/Debug 的资源准备已接公开 Provider 项目任务（主资源/主加测试资源），Core 仅给未携带当前回执的旧消费者保留资源规划；框架/模块启动规划仍待迁移。协议 9 的 JDT 原样标识、报告精确重跑及工程隔离通过 350 项 macOS 回归、1368 项 Core/集成计时和 Maven 实测；删除宿主 Maven CLI/报告 adapter，测试 Debug 准备补配置 ABA；完整 Java/JDT 后端迁移留在阶段 E |
 | Maven 执行中的测试报告 | 协议 8 随操作返回规范报告，Maven 后端用实际配置的 Surefire/Failsafe Mojo 目录和 Apache parser；删除插件内旧固定目录测试选择报告读取器；真实 Core/macOS/Maven 和两个 SDK 通过，Maven 3.6.3 兼容通过 | Java 精确测试宿主路径已切换并删除旧 adapter；Windows 旧共享命令仍未迁移；[固定提交 Java 8 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40792694290) 在两种 Maven 各 72 项通过；正式包验证仍依赖 SDK 发行 |
@@ -137,5 +137,16 @@ reactor。1399 项普通 Core 计时、286 项 Swift、4 项生产 Provider 集�
 表达式和非法值；Core 停用此路径的 POM 正则，本机版本偏好不能降低已知下限。
 1399 项含真实 JDT 的 Core/集成、286 项 Swift、4 项生产 Provider、18 项真实
 Core→Maven 和 Maven 常规集成通过，包清单不变。上一轮固定组合 CI 暴露旧模型
-全等断言漏列新增字段，已更新断言并在本地完整常规集成通过；修正后的最低运行时
-CI 尚须以新固定组合运行。旧启动规划、Wrapper 推断、Windows 及正式发行仍待完成。
+全等断言漏列新增字段，已更新断言并在本地完整常规集成通过；修正后的 [最低运行时 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40983512456) 已在 Java 8、当前 Maven 和 3.6.3 通过（Core b70929c、SDK 19fbda5、Maven 072960c）。Wrapper 来源也已迁入后端；旧启动规划、Windows 及正式发行仍待完成。
+
+下一批启动迁移还必须处理生成结果的模型身份：Provider Profile/模型变化不能让
+已删除的框架配置继续被视为当前配置。生成时的文件指纹不等于当前 Provider 模型
+指纹；需要在持久层记录模型投影身份、在检查/执行时比较当前输入，并覆盖 Profile
+变化、ABA、禁用插件和重新打开工作区，不能只依赖旧 POM 文件哈希。
+
+Wrapper 补充验收（2026-10-30）：原生 properties/脚本元数据、脚本/配置缓存撤销、
+宿主同步观察、单根相对路径与独立 reactor 隔离均接通。指纹对脚本和其他文件使用
+有单文件 64 MiB 上限的流式哈希。1399 项含真实 JDT 的 Core、286 项 Swift、
+4 项生产 Provider、19 项真实 Core→Maven、17 项缓存、16 项受控原生与 16 项
+常规 Maven 检查通过；最终开发包再次通过 3 项真实 JDT（16.199/8.056/6.940 秒，
+含 Cargo 启动），关闭后包/JDT 清单不变且无进程残留。

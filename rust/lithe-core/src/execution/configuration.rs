@@ -14,7 +14,7 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "14";
+const GENERATOR_REVISION: &str = "15";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -647,8 +647,8 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .iter()
         .any(|path| path.to_lowercase().ends_with(".java"));
     let has_maven_project = maven_relative_path.is_some()
-        || root.join("mvnw").is_file()
-        || root.join("mvnw.cmd").is_file();
+        || (request.project_ownership.is_none()
+            && (root.join("mvnw").is_file() || root.join("mvnw.cmd").is_file()));
     // A Gradle build needs the same JDK requirement as Maven, and its sources may
     // be Kotlin or Groovy rather than Java, so the build files count on their own.
     let has_gradle_project = ["build.gradle", "build.gradle.kts", "gradlew"]
@@ -3349,13 +3349,31 @@ fn detect_requirements(
         };
         jdk.preferred_vendor = vendor;
     }
-    if maven_root.join("mvnw").exists() {
-        maven.wrapper = Some("./mvnw".to_string());
+    if let Some(projects) = projects {
+        maven.minimum_version = highest_version(
+            projects
+                .iter()
+                .filter_map(|project| project.maven_minimum_version.clone())
+                .collect(),
+        );
+        let roots = projects
+            .iter()
+            .filter_map(|project| project.maven_reactor_path.as_deref())
+            .collect::<BTreeSet<_>>();
+        // One global requirement cannot select a Wrapper for two independent
+        // reactors. Their actual executable remains a per-Run platform choice.
+        if roots.len() == 1 {
+            maven.wrapper = projects
+                .iter()
+                .find_map(|project| project.maven_wrapper.clone());
+        }
+    } else {
+        if maven_root.join("mvnw").exists() {
+            maven.wrapper = Some("./mvnw".to_string());
+        }
+        // A distribution version is a floor, not an exact system Maven pin.
+        maven.minimum_version = maven_wrapper_version(maven_root);
     }
-    // Wrapper distribution is a floor for system Maven, not an exact pin. A
-    // newer installed Maven (for example 3.9.x against a 3.6.x wrapper URL)
-    // remains valid for launch planning and run diagnostics.
-    maven.minimum_version = maven_wrapper_version(maven_root);
     let mut toolchains = BTreeMap::new();
     let consumes = |toolchain: &str| {
         configurations.iter().any(|configuration| {
@@ -3676,6 +3694,7 @@ fn fingerprint_input(path: &Path) -> bool {
         path.file_name().and_then(|name| name.to_str()),
         Some(
             "pom.xml"
+                | "mvnw.cmd"
                 | "mvnw"
                 | "maven-wrapper.properties"
                 | ".java-version"

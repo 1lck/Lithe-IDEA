@@ -4674,6 +4674,21 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         output["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
         fixture["expected"]["minimumJavaVersion"]
     );
+    assert_eq!(
+        output["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"],
+        fixture["expected"]["minimumMavenVersion"]
+    );
+    assert_eq!(
+        output["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["wrapper"],
+        fixture["expected"]["mavenWrapper"]
+    );
+    let single = generate(
+        serde_json::json!([{"path":"alpha/app", "mavenReactorPath":"alpha", "mavenMinimumVersion":"3.9.9", "mavenWrapper":"alpha/mvnw.cmd"}]),
+    );
+    assert_eq!(
+        single["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["wrapper"],
+        "alpha/mvnw.cmd"
+    );
     // Duplicate labels in one reactor keep both services by module path.
     let duplicate = generate(serde_json::json!([
         {"path":"alpha/a","name":"same","mavenReactorPath":"alpha","mavenRunProvider":"quarkus.maven"},
@@ -4686,6 +4701,20 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
             .iter()
             .any(|c| c["id"] == id));
     }
+    let first_cmd = output["data"]["generated"]["generator"]["inputs"]["alpha/mvnw.cmd"].clone();
+    assert!(first_cmd
+        .as_str()
+        .is_some_and(|value| value.starts_with("sha256:")));
+    fs::write(root.join("alpha/mvnw.cmd"), "exit /b 98").unwrap();
+    let changed = generate(fixture["projectOwnership"].clone());
+    assert_ne!(
+        changed["data"]["generated"]["generator"]["inputs"]["alpha/mvnw.cmd"],
+        first_cmd
+    );
+    assert_ne!(
+        changed["data"]["generated"]["generator"]["fingerprint"],
+        output["data"]["generated"]["generator"]["fingerprint"]
+    );
     let empty = generate(serde_json::json!([]));
     assert_eq!(empty["ok"], true, "{empty}");
     for configuration in empty["data"]["generated"]["configurations"]
@@ -4700,6 +4729,8 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
     for invalid in [
         serde_json::json!([{"path":"app","minimumJavaVersion":"1.8"}]),
         serde_json::json!([{"path":"app","minimumJavaVersion":"0"}]),
+        serde_json::json!([{"path":"app","mavenMinimumVersion":"3.*"}]),
+        serde_json::json!([{"path":"app","mavenReactorPath":"app","mavenWrapper":"other/mvnw"}]),
         serde_json::json!([{"path":"app","name":"app","mavenReactorPath":".","mavenRunProvider":"invented.maven"}]),
         serde_json::json!([{"path":"app","mavenRunProvider":"quarkus.maven"}]),
         serde_json::json!([{"path":"../escape"}]),

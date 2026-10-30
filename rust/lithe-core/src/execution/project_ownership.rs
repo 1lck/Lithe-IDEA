@@ -20,6 +20,12 @@ pub struct RunProjectOwnership {
     /// Compiler language floor published by the upstream execution model.
     #[serde(default)]
     pub minimum_java_version: Option<String>,
+    /// Native Wrapper distribution floor, if the provider could identify it.
+    #[serde(default)]
+    pub maven_minimum_version: Option<String>,
+    /// Workspace-relative native Wrapper script; never executed by generation.
+    #[serde(default)]
+    pub maven_wrapper: Option<String>,
     /// Existing Maven import ownership; absent for other project kinds.
     #[serde(default)]
     pub maven_reactor_path: Option<String>,
@@ -101,6 +107,29 @@ pub(super) fn validate(projects: &[RunProjectOwnership]) -> Result<(), CoreError
                 value.parse::<u16>().ok().is_none_or(|feature| {
                     feature == 0 || feature > 999 || feature.to_string() != value
                 })
+            })
+        {
+            return Err(invalid());
+        }
+        if project
+            .maven_minimum_version
+            .as_deref()
+            .is_some_and(|value| {
+                project.maven_reactor_path.is_none()
+                    || value.len() > 64
+                    || value.split('.').count() < 2
+                    || value.split('.').any(|part| {
+                        part.is_empty()
+                            || !part.bytes().all(|byte| byte.is_ascii_digit())
+                            || part.parse::<u32>().is_err()
+                    })
+            })
+            || project.maven_wrapper.as_deref().is_some_and(|path| {
+                !portable(path)
+                    || project
+                        .maven_reactor_path
+                        .as_deref()
+                        .is_none_or(|root| !contains(root, path))
             })
         {
             return Err(invalid());
