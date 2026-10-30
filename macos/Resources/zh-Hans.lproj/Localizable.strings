@@ -1255,6 +1255,7 @@
 "Download and Install" = "下载并安装";
 "Downloaded %@ · %@/s" = "已下载 %@ · %@/秒";
 "Downloaded (%lld of %lld enabled)" = "已下载（%lld 个，%lld 个已启用）";
+"Downloaded data was kept. Try again to resume from where it stopped." = "已下载的部分已保留，重试时会从中断处继续下载。";
 "Downloading %@…" = "正在下载 %@…";
 "Downloading full stable release…" = "正在下载正式版完整安装包…";
 "Downloading packages…" = "正在下载软件包…";
@@ -5889,6 +5890,7 @@
 "native.downloadPHPSupportFromTheOfficialPluginRelease" = "从官方插件版本下载 PHP 支持。";
 "native.downloadPHPSupportFromTheOfficialSignedPluginPackage" = "从官方签名的插件包下载 PHP 支持。";
 "native.downloadStableRelease" = "下载正式版";
+"native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped" = "已下载的部分已保留，重试时会从中断处继续下载。";
 "native.downloadedLldOfLldEnabled" = "已下载（%1$lld 个，%2$lld 个已启用）";
 "native.downloadedS" = "已下载 %1$@ · %2$@/秒";
 "native.downloading" = "正在下载 %1$@…";

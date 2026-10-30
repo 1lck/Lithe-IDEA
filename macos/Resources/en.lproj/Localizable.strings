@@ -1255,6 +1255,7 @@
 "Download and Install" = "Download and Install";
 "Downloaded %@ · %@/s" = "Downloaded %@ · %@/s";
 "Downloaded (%lld of %lld enabled)" = "Downloaded (%lld of %lld enabled)";
+"Downloaded data was kept. Try again to resume from where it stopped." = "Downloaded data was kept. Try again to resume from where it stopped.";
 "Downloading %@…" = "Downloading %@…";
 "Downloading full stable release…" = "Downloading full stable release…";
 "Downloading packages…" = "Downloading packages…";
@@ -5889,6 +5890,7 @@
 "native.downloadPHPSupportFromTheOfficialPluginRelease" = "Download PHP Support from the official plugin release.";
 "native.downloadPHPSupportFromTheOfficialSignedPluginPackage" = "Download PHP Support from the official signed plugin package.";
 "native.downloadStableRelease" = "Download Stable Release";
+"native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped" = "Downloaded data was kept. Try again to resume from where it stopped.";
 "native.downloadedLldOfLldEnabled" = "Downloaded (%1$lld of %2$lld enabled)";
 "native.downloadedS" = "Downloaded %1$@ · %2$@/s";
 "native.downloading" = "Downloading %1$@…";

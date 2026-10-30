@@ -166,6 +166,40 @@ struct StableRollbackTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.stage.appendingPathComponent("previous.app").path))
     }
 
+    @Test
+    func launchRemovesFinishedAndAbandonedStagingButKeepsOthers() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("rollback-leftovers-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = root.appendingPathComponent("Lithe.app")
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        func stage(_ name: String, app: String, identifier: String, age: TimeInterval, mounted: Bool = false) throws -> URL {
+            let folder = root.appendingPathComponent(".lithe-stable-\(name)")
+            let contents = folder.appendingPathComponent("\(app)/Contents")
+            try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            let info = ["CFBundleIdentifier": identifier] as NSDictionary
+            try info.write(to: contents.appendingPathComponent("Info.plist"))
+            if mounted {
+                try FileManager.default.createDirectory(at: folder.appendingPathComponent("mount/Lithe.app"),
+                                                        withIntermediateDirectories: true)
+            }
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-age)], ofItemAtPath: folder.path)
+            return folder
+        }
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let finished = try stage("finished", app: "previous.app", identifier: "app.lithe.desktop", age: 60)
+        let abandoned = try stage("abandoned", app: "new.app", identifier: "app.lithe.desktop", age: 2 * 86_400)
+        let recent = try stage("recent", app: "new.app", identifier: "app.lithe.desktop", age: 60)
+        let other = try stage("other", app: "previous.app", identifier: "com.example.other", age: 60)
+        let mounted = try stage("mounted", app: "previous.app", identifier: "app.lithe.desktop", age: 60, mounted: true)
+
+        let removed = StableRollbackPackage.removeLeftoverStaging(beside: target, identifier: "app.lithe.desktop", now: now)
+
+        #expect(Set(removed.map(\.lastPathComponent)) == [finished.lastPathComponent, abandoned.lastPathComponent])
+        for kept in [recent, other, mounted, target] {
+            #expect(FileManager.default.fileExists(atPath: kept.path))
+        }
+    }
+
     @Test @MainActor
     func unpreparedRollbackCannotRequestExitOrLaunchAHelper() {
         let rollback = MacStableRollback()
