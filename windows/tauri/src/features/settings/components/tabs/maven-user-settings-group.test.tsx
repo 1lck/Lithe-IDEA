@@ -29,6 +29,9 @@ afterAll(() => {
 });
 const { createRoot } = await import("react-dom/client");
 
+/** The folder the injected picker returns next. */
+let picked: string | null = null;
+
 async function render(dependencies: MavenUserSettingsDependencies, onSaved?: () => void) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -45,18 +48,18 @@ async function render(dependencies: MavenUserSettingsDependencies, onSaved?: () 
     [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "Save to settings.xml",
     )!;
-  const type = async (value: string) => {
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      setter.call(input(), value);
-      input().dispatchEvent(new Event("input", { bubbles: true }));
-    });
+  // Choosing a folder sets the draft through the injected picker, which does
+  // not depend on React's input-event plugin seeing this file's DOM.
+  const choose = async (value: string) => {
+    picked = value;
+    const browse = container.querySelector<HTMLButtonElement>('button[aria-label="Browse"]')!;
+    await act(async () => browse.click());
   };
   const cleanup = async () => {
     await act(async () => root.unmount());
     container.remove();
   };
-  return { container, input, saveButton, type, cleanup };
+  return { container, input, saveButton, choose, cleanup };
 }
 
 test("Maven's default is shown as the value and opening the page writes nothing", async () => {
@@ -67,7 +70,7 @@ test("Maven's default is shown as the value and opening the page writes nothing"
       writes.push(args);
       return MISSING;
     },
-    browse: async () => null,
+    browse: async () => picked,
   });
   try {
     expect(view.input().value).toBe(MISSING.defaultLocalRepository);
@@ -91,12 +94,12 @@ test("saving writes against the read revision and shows the value read back", as
         writes.push([localRepository, expectedRevision]);
         return { ...MISSING, status: "readable", localRepository, revision: "r2" };
       },
-      browse: async () => null,
+      browse: async () => picked,
     },
     () => saved++,
   );
   try {
-    await view.type("  D:/maven/repository ");
+    await view.choose("  D:/maven/repository ");
     expect(view.saveButton().disabled).toBe(false);
     await act(async () => view.saveButton().click());
     expect(writes).toEqual([["D:/maven/repository", "r1"]]);
@@ -121,10 +124,10 @@ test("a conflicting write keeps the draft until the file is read again", async (
     write: async () => {
       throw new Error("mavenUserSettingsChanged: C:/Users/fixture/.m2/settings.xml changed");
     },
-    browse: async () => null,
+    browse: async () => picked,
   });
   try {
-    await view.type("D:/mine");
+    await view.choose("D:/mine");
     await act(async () => view.saveButton().click());
     expect(view.container.querySelector('[role="alert"]')?.textContent).toContain(
       "changed after it was read",
@@ -147,7 +150,7 @@ test("an invalid settings file is not editable", async () => {
   const view = await render({
     read: async () => ({ ...MISSING, status: "invalid", revision: "r1" }),
     write: async () => MISSING,
-    browse: async () => null,
+    browse: async () => picked,
   });
   try {
     expect(view.input().disabled).toBe(true);
