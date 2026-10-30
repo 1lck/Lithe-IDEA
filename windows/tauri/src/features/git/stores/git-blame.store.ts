@@ -14,6 +14,12 @@ interface GitBlameState {
   isLoading: Map<string, boolean>;
   errors: Map<string, string>;
   fileToRepo: Map<string, string>;
+  /**
+   * Files whose annotation the user turned on from the gutter menu. IDEA scopes
+   * annotate to the editor, not to a global preference, so visibility lives
+   * with the file instead of the settings.
+   */
+  visibleFiles: Set<string>;
 
   actions: {
     loadBlameForFile: (repoPath: string, filePath: string) => Promise<void>;
@@ -21,6 +27,7 @@ interface GitBlameState {
     clearAllBlame: () => void;
     getBlameForLine: (filePath: string, lineNumber: number) => GitBlameLine | null;
     getRepoPath: (filePath: string) => string | null;
+    toggleBlameForFile: (filePath: string, visible?: boolean) => void;
   };
 }
 
@@ -37,6 +44,7 @@ export const createGitBlameStore = () =>
     isLoading: new Map(),
     errors: new Map(),
     fileToRepo: new Map(),
+    visibleFiles: new Set(),
 
     actions: {
       loadBlameForFile: async (repoPath: string, filePath: string) => {
@@ -147,7 +155,24 @@ export const createGitBlameStore = () =>
           isLoading: new Map(),
           errors: new Map(),
           fileToRepo: new Map(),
+          visibleFiles: new Set(),
         });
+      },
+
+      toggleBlameForFile: (filePath: string, visible?: boolean) => {
+        const state = get();
+        const nextVisible = visible ?? !state.visibleFiles.has(filePath);
+        if (nextVisible === state.visibleFiles.has(filePath)) return;
+
+        const visibleFiles = new Set(state.visibleFiles);
+        if (nextVisible) {
+          visibleFiles.add(filePath);
+        } else {
+          visibleFiles.delete(filePath);
+        }
+        // The revision forces a reload for a file whose cached blame was cleared
+        // by a Git change while the annotation was off.
+        set({ visibleFiles, revision: state.revision + 1 });
       },
 
       getBlameForLine: (filePath: string, lineNumber: number) => {

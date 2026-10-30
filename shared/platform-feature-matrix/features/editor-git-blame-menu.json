@@ -2,7 +2,7 @@
   "id": "editor-git-blame-menu",
   "area": "编辑器",
   "group": "Git 变更",
-  "capability": "行号区域右键通过 Annotate with Git Blame 显示作者和日期，已显示时可隐藏注释；非仓库及未跟踪文件禁用入口；已有断点的行号右键只打开同一菜单，断点编辑必须显式选择",
+  "capability": "行号区域右键通过 Annotate with Git Blame 显示作者和日期，已显示时可隐藏注释；注释只出现在提交块首行，点注释打开该行所属提交；非仓库及未跟踪文件禁用入口；已有断点的行号右键只打开同一菜单，断点编辑必须显式选择",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -16,13 +16,21 @@
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/features/git/stores/git-blame.store.ts"
+      "windows/tauri/src/features/git/utils/git-blame-gutter.ts",
+      "windows/tauri/src/features/git/utils/git-blame-gutter.test.ts",
+      "windows/tauri/src/features/git/stores/git-blame.store.ts",
+      "windows/tauri/src/features/git/hooks/use-git-blame.ts",
+      "windows/tauri/src/features/git/utils/open-commit-diff-buffer.ts",
+      "windows/tauri/src/platform/core-result-adapter.ts",
+      "windows/tauri/src/features/editor/components/monaco-editor.tsx",
+      "windows/tauri/src/features/editor/context-menu/editor-context-menu-items.tsx",
+      "windows/tauri/src/features/editor/styles/monaco-editor.css"
     ]
   },
   "owner": "Editor / Git",
-  "verification": "macOS：打开已跟踪文件，行号区右键开启及隐藏 Git Blame；检查作者、日期、提交点击与栏宽恢复。检查深浅主题、中文菜单、分屏、只读已跟踪文件，以及非仓库、未跟踪文件入口禁用。菜单打开后切换或关闭文档，旧动作不能作用到新文档。运行 scripts/macos/probe/probe-macos-monaco.sh --workbench-tests 验证真实 WebKit 命中、动作、模型生命周期和选区/撤销保护；完整产品 Git 数据链路另行实机验收。 在已有断点的 Java 行号上执行完整 mousedown/mouseup/contextmenu 右键序列，打开菜单不能触发断点编辑；仅点击编辑断点时发送该行请求。检查切换文件后的旧编辑动作失效。",
-  "notes": "沿用已有 GitFeatureModel.loadBlame 和作者/提交展示；共享编辑器只在宿主显式启用 gitBlameMenu 时添加入口，Windows 现有 Blame 能力不受此入口开关影响。"
+  "verification": "macOS：打开已跟踪文件，行号区右键开启及隐藏 Git Blame；检查作者、日期、提交点击与栏宽恢复。检查深浅主题、中文菜单、分屏、只读已跟踪文件，以及非仓库、未跟踪文件入口禁用。菜单打开后切换或关闭文档，旧动作不能作用到新文档。运行 scripts/macos/probe/probe-macos-monaco.sh --workbench-tests 验证真实 WebKit 命中、动作、模型生命周期和选区/撤销保护；完整产品 Git 数据链路另行实机验收。 在已有断点的 Java 行号上执行完整 mousedown/mouseup/contextmenu 右键序列，打开菜单不能触发断点编辑；仅点击编辑断点时发送该行请求。检查切换文件后的旧编辑动作失效。 Windows：在已跟踪文件的行号区右键开启 Annotate with Git Blame，确认作者与绝对日期出现在行号左侧、同一提交块只在首行显示、栏宽随之加宽并在隐藏后恢复；点注释确认打开该行提交的单文件 diff 并定位到命中行；对未提交行、未跟踪文件、非仓库文件和只读预览确认入口禁用或无反应。检查深浅主题、中文界面、行号 off/relative 两种设置、分屏同时开启两个文件互不影响、提交后注释自动刷新而不是关闭。运行 bun test src/features/git/utils/git-blame-gutter.test.ts 与 bun run typecheck，并在 Windows 实机核对完整链路。",
+  "notes": "沿用已有 GitFeatureModel.loadBlame 和作者/提交展示；共享编辑器只在宿主显式启用 gitBlameMenu 时添加入口，Windows 现有 Blame 能力不受此入口开关影响。 Windows 侧与 macOS/IDEA 对齐：注释由 Monaco 行号格式化器输出 HTML 渲染在行号左侧，可见性按文件存放在 git-blame store（原来的全局 enableInlineGitBlame 设置已删除），只有开启注释的文件才读取 git.blame；点注释复用 openCommitDiffBuffer 打开带路径限制和定位范围的提交 diff。行号被 diff 编辑器重映射或为虚拟/预览缓冲时不渲染注释，避免行号与实际内容错位。"
 }

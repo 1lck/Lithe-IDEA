@@ -31,6 +31,10 @@ export interface EditorContextMenuHandlers {
   onGoToLine?: () => void;
   /** Opens the Git line-history popover for the gutter target under the menu. */
   onLineHistory?: () => void;
+  /** Turns the per-file Git blame annotation on or off from the gutter menu. */
+  onToggleBlame?: () => void;
+  /** Current annotation state of the file under the menu. */
+  blameVisible?: boolean;
   onGoToDefinition?: () => void;
   onGoToTypeDefinition?: () => void;
   onFindReferences?: () => void;
@@ -86,6 +90,8 @@ export function buildEditorContextMenuItems({
   onFind,
   onGoToLine,
   onLineHistory,
+  onToggleBlame,
+  blameVisible = false,
   onGoToDefinition,
   onGoToTypeDefinition,
   onFindReferences,
@@ -330,6 +336,13 @@ export function buildEditorContextMenuItems({
       icon: <Clock />,
       disabled: isDisabled(onLineHistory),
       onClick: onLineHistory ?? noop,
+    },
+    {
+      id: "toggle-blame",
+      label: t(blameVisible ? "git.blame.hide" : "git.blame.annotate"),
+      icon: <FileText />,
+      disabled: isDisabled(onToggleBlame),
+      onClick: onToggleBlame ?? noop,
     },
     {
       id: "bookmark",

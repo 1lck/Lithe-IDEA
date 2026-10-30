@@ -219,7 +219,6 @@ export const defaultSettings: Settings = {
   gitFetchSubmodules: "inherit",
   gitFetchTags: "inherit",
   githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
-  enableInlineGitBlame: true,
   enableGitGutter: true,
 };
 

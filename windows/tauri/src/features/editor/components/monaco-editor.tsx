@@ -72,7 +72,12 @@ import {
 import { useTranslation } from "@/i18n/locale-provider";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { useVimStore } from "@/features/vim/stores/vim.store";
-import { formatRelativeTime } from "@/utils/date";
+import {
+  buildGitBlameGutterEntries,
+  gitBlameGutterHtml,
+  type GitBlameGutterEntry,
+} from "@/features/git/utils/git-blame-gutter";
+import { openCommitDiffBuffer } from "@/features/git/utils/open-commit-diff-buffer";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
 import { isNativeTextInputTarget } from "@/utils/keyboard/text-input-target";
@@ -126,10 +131,6 @@ import {
 } from "../engines/monaco/hover-widgets";
 import { toMonacoLanguageId } from "../engines/monaco/language";
 import { ensureMonacoLanguageTokenizer } from "../engines/monaco/language-contributions";
-import {
-  createInlineGitBlameWidget,
-  type InlineGitBlameWidget,
-} from "../engines/monaco/inline-git-blame-widget";
 import { acquireMonacoModel } from "../engines/monaco/model-lifecycle";
 import { reactivateMonacoModelLanguage } from "../engines/monaco/model-language-activation";
 import { getEditorBottomScrollPadding } from "../engines/monaco/scroll-padding";
@@ -215,6 +216,15 @@ function gitGutterControllerOptions(
 }
 
 const EMPTY_DIAGNOSTICS: Diagnostic[] = [];
+/** Annotation-free gutter, so the line-number formatter keeps its old output. */
+const EMPTY_BLAME_GUTTER_ENTRIES: ReadonlyMap<number, GitBlameGutterEntry> = new Map();
+/**
+ * Line-number column width while annotating. IDEA reserves a wide annotation
+ * area left of the numbers; 26 characters fits "author, 2025/10/30" and still
+ * leaves the numbers aligned.
+ */
+const BLAME_LINE_NUMBER_CHARS = 26;
+const DEFAULT_LINE_NUMBER_CHARS = 5;
 const INACTIVE_CURSOR_POSITION: Position = { line: 0, column: 0, offset: 0 };
 
 function monacoViewStateHandle(
@@ -392,14 +402,10 @@ export function MonacoEditor({
   );
   const implementationMarkerOwnerRef = useRef<string | null>(null);
   const implementationMarkersRef = useRef<JavaImplementationMarker[]>([]);
-  const gitBlameWidgetRef = useRef<InlineGitBlameWidget | null>(null);
-  const gitBlameRenderFrameRef = useRef<number | null>(null);
-  const renderedGitBlameKeyRef = useRef<string | null>(null);
   const javaRunMarkersRef = useRef<JavaRunMarker[]>([]);
   const runMarkerDecorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
   // Latest Run-marker decorations, reapplied when the Monaco instance is recreated.
   const runMarkerDecorationSpecsRef = useRef<Monaco.editor.IModelDeltaDecoration[]>([]);
-  const renderInlineGitBlameRef = useRef<() => void>(() => {});
   const gitGutterControllerRef = useRef<GitGutterController | null>(null);
   // Latest render values read by the long-lived gutter controller callbacks.
   const gitGutterContextRef = useRef<GitGutterRenderContext | null>(null);
@@ -514,7 +520,6 @@ export function MonacoEditor({
   const javaMarkerRevision = useLspStore((state) =>
     javaMarkerRefreshRevision(state.lspStatus),
   );
-  const inlineGitBlameEnabled = useSettingsStore((state) => state.settings.enableInlineGitBlame);
   const gitGutterEnabled = useSettingsStore((state) => state.settings.enableGitGutter);
   const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
@@ -522,7 +527,7 @@ export function MonacoEditor({
     () => (rootFolderPath ? { workspaceId, root: rootFolderPath } : null),
     [rootFolderPath, workspaceId],
   );
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { markers: javaRunMarkers } = useJavaRunMarkers(
     javaTestScope,
     filePath,
@@ -552,11 +557,17 @@ export function MonacoEditor({
     setScrollForBuffer,
     setViewportHeight,
   } = useEditorStateStore.use.actions();
-  const { getBlameForLine } = useGitBlame(
-    isActiveSurface && enableExpensiveServices && inlineGitBlameEnabled && filePath
-      ? filePath
-      : undefined,
-  );
+  // IDEA scopes annotate to the editor: the gutter menu turns it on per file,
+  // and only then does the file pay for a Git blame read.
+  const blameFileEligible =
+    isActiveSurface && !isPreviewMode && !editorBuffer?.isVirtual && Boolean(filePath);
+  const {
+    blame,
+    blameVisible,
+    repoPath: blameRepoPath,
+    getBlameForLine,
+    setBlameVisible,
+  } = useGitBlame(blameFileEligible ? filePath : undefined);
 
   const gitGutterActive =
     gitGutterEnabled && enableExpensiveServices && !isPreviewMode && !editorBuffer?.isVirtual;
@@ -572,57 +583,48 @@ export function MonacoEditor({
     t,
   };
 
-  const renderInlineGitBlame = useCallback(() => {
-    const editor = editorRef.current;
-    const model = modelRef.current;
-    if (!editor || !model || model.isDisposed()) return;
-    if (mouseSelectingRef.current) return;
-
-    const widget = gitBlameWidgetRef.current ?? createInlineGitBlameWidget(editor);
-    gitBlameWidgetRef.current = widget;
-
-    const hideBlame = () => {
-      renderedGitBlameKeyRef.current = null;
-      widget.hide();
-    };
-
-    if (!inlineGitBlameEnabled || !isActiveSurface || !filePath) {
-      hideBlame();
-      return;
+  // Diff editors remap line numbers, so a blame line number would no longer
+  // match the rendered line; annotate only where both agree.
+  const blameGutterEntries = useMemo(() => {
+    if (!blame || !blameVisible || lineNumberMap || lineNumberStart) {
+      return EMPTY_BLAME_GUTTER_ENTRIES;
     }
-
-    const position = editor.getPosition();
-    const lineNumber = position?.lineNumber ?? 0;
-    if (lineNumber < 1 || lineNumber > model.getLineCount()) {
-      hideBlame();
-      return;
-    }
-
-    const blameLine = getBlameForLine(lineNumber - 1);
-    if (!blameLine) {
-      hideBlame();
-      return;
-    }
-
-    const blameContent = blameLine.is_uncommitted
-      ? "  Uncommitted changes"
-      : `  ${blameLine.author}, ${formatRelativeTime(blameLine.time)}`;
-    const decorationKey = `${filePath}:${lineNumber}:${blameLine.commit_hash}:${blameContent}`;
-    if (renderedGitBlameKeyRef.current === decorationKey) return;
-
-    widget.show(lineNumber, model.getLineMaxColumn(lineNumber), blameContent);
-    renderedGitBlameKeyRef.current = decorationKey;
-  }, [filePath, getBlameForLine, inlineGitBlameEnabled, isActiveSurface]);
-  renderInlineGitBlameRef.current = renderInlineGitBlame;
-
-  const scheduleInlineGitBlameRender = useCallback(() => {
-    if (mouseSelectingRef.current) return;
-    if (gitBlameRenderFrameRef.current !== null) return;
-    gitBlameRenderFrameRef.current = requestAnimationFrame(() => {
-      gitBlameRenderFrameRef.current = null;
-      renderInlineGitBlameRef.current();
+    return buildGitBlameGutterEntries(blame, {
+      language,
+      uncommittedLabel: t("git.blame.uncommitted"),
     });
-  }, []);
+  }, [blame, blameVisible, language, lineNumberMap, lineNumberStart, t]);
+  // The formatter is passed to editor creation, so it must keep its identity
+  // when annotations arrive: a new identity would rebuild the editor. It reads
+  // the latest entries through a ref and a dedicated effect repaints instead.
+  const blameGutterEntriesRef = useRef(EMPTY_BLAME_GUTTER_ENTRIES);
+  blameGutterEntriesRef.current = blameGutterEntries;
+  /** Annotation set already painted into the gutter, to skip redundant repaints. */
+  const appliedBlameGutterEntriesRef = useRef(EMPTY_BLAME_GUTTER_ENTRIES);
+
+  /** Opens the commit that last touched `lineNumber` from the gutter label. */
+  const openBlameCommit = useCallback(
+    async (lineNumber: number) => {
+      if (!filePath || !blameRepoPath) return;
+      const blameLine = getBlameForLine(lineNumber - 1);
+      if (!blameLine || blameLine.is_uncommitted) return;
+      const relativePath = getRelativePath(filePath, blameRepoPath);
+      await openCommitDiffBuffer({
+        repoPath: blameRepoPath,
+        commitHash: blameLine.commit_hash,
+        author: blameLine.author,
+        pathspecs: [relativePath],
+        initialRevealRange: {
+          startLine: blameLine.line_number,
+          endLine: blameLine.line_number + Math.max(0, blameLine.total_lines - 1),
+        },
+      });
+    },
+    [blameRepoPath, filePath, getBlameForLine],
+  );
+  const openBlameCommitRef = useRef(openBlameCommit);
+  openBlameCommitRef.current = openBlameCommit;
+
   const diagnosticsForFile = useDiagnosticsStore((state) =>
     filePath ? (state.diagnosticsByFile.get(filePath) ?? EMPTY_DIAGNOSTICS) : EMPTY_DIAGNOSTICS,
   );
@@ -674,13 +676,23 @@ export function MonacoEditor({
   const lineNumberFormatter = useCallback(
     (lineNumber: number) => {
       const mappedLine = lineNumberMap?.[lineNumber - 1];
-      if (typeof mappedLine === "number") return String(mappedLine);
-      if (vimModeEnabled && vimRelativeLineNumbers && !lineNumberMap) {
+      let text: string;
+      if (typeof mappedLine === "number") {
+        text = String(mappedLine);
+      } else if (vimModeEnabled && vimRelativeLineNumbers && !lineNumberMap) {
         const cursorLine = useEditorStateStore.getState().cursorPosition.line + 1;
         const distance = Math.abs(lineNumber - cursorLine);
-        if (distance > 0) return String(distance);
+        text =
+          distance > 0 ? String(distance) : String((lineNumberStart ?? 1) + lineNumber - 1);
+      } else {
+        text = String((lineNumberStart ?? 1) + lineNumber - 1);
       }
-      return String((lineNumberStart ?? 1) + lineNumber - 1);
+      if (blameGutterEntriesRef.current.size === 0) return text;
+      // Monaco injects this result as HTML, so the annotation lands left of the
+      // line number the way IDEA and the macOS workbench render it.
+      const entry = blameGutterEntriesRef.current.get(lineNumber);
+      const metadata = entry ? gitBlameGutterHtml(entry) : "";
+      return `${metadata}<span class="lithe-blame-line">${text}</span>`;
     },
     [lineNumberMap, lineNumberStart, vimModeEnabled, vimRelativeLineNumbers],
   );
@@ -882,6 +894,11 @@ export function MonacoEditor({
     y: number;
   } | null>(null);
   const [contextMenuRunMarker, setContextMenuRunMarker] = useState<JavaRunMarker | null>(null);
+  /**
+   * Whether the open context menu came from the line-number gutter. Annotate is
+   * a gutter action in IDEA, so it stays out of the content menu.
+   */
+  const [contextMenuFromGutter, setContextMenuFromGutter] = useState(false);
   const [runMarkerMenu, setRunMarkerMenu] = useState<{
     marker: JavaRunMarker;
     position: { x: number; y: number };
@@ -1070,7 +1087,16 @@ export function MonacoEditor({
       mouseWheelScrollSensitivity: EDITOR_CONSTANTS.MOUSE_WHEEL_SCROLL_SENSITIVITY,
       scrollBeyondLastLine: editorScrollBeyondLastLine,
       padding: { bottom: getEditorBottomScrollPadding(container.clientHeight) },
-      lineNumbers: lineNumbers ? lineNumberFormatter : "off",
+      // Annotate owns the column while it is on, the way the macOS workbench
+      // keeps numbers visible so the annotation has something to sit next to.
+      lineNumbers:
+        lineNumbers || blameGutterEntriesRef.current.size > 0
+          ? lineNumberFormatter
+          : "off",
+      lineNumbersMinChars:
+        blameGutterEntriesRef.current.size > 0
+          ? BLAME_LINE_NUMBER_CHARS
+          : DEFAULT_LINE_NUMBER_CHARS,
       renderWhitespace: renderWhitespace === "none" ? "none" : renderWhitespace,
       wordWrap: wordWrap ? "on" : "off",
       guides: {
@@ -1375,6 +1401,7 @@ export function MonacoEditor({
         }
 
         editor.focus();
+        setContextMenuFromGutter(isGutterTarget);
         setContextMenuPosition({ x: event.event.posx, y: event.event.posy });
       }),
       editor.onKeyDown((event) => {
@@ -1437,6 +1464,20 @@ export function MonacoEditor({
         if (!isCurrentEditorSurface()) return;
         const mouseEvent = event.event;
         const markerElement = event.target.element;
+        // IDEA opens the annotated commit from the gutter label itself; the
+        // label sits in the line-number column, so it must not start a selection.
+        if (mouseEvent.leftButton && markerElement?.closest(".lithe-blame")) {
+          const lineNumber = event.target.position?.lineNumber;
+          if (lineNumber) {
+            mouseEvent.preventDefault();
+            mouseEvent.stopPropagation();
+            mouseSelectingRef.current = false;
+            mouseGestureStartRef.current = null;
+            setContextMenuPosition(null);
+            void openBlameCommitRef.current(lineNumber);
+            return;
+          }
+        }
         if (
           event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
           event.target.position &&
@@ -1559,17 +1600,14 @@ export function MonacoEditor({
         );
         if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
         mouseGestureStartRef.current = null;
-        scheduleInlineGitBlameRender();
       }),
       editor.onDidChangeCursorSelection(() => {
         if (!isCurrentEditorSurface()) return;
         if (suppressNextCursorSelectionSyncRef.current) {
           suppressNextCursorSelectionSyncRef.current = false;
-          scheduleInlineGitBlameRender();
           return;
         }
         syncCursorAndSelection();
-        scheduleInlineGitBlameRender();
       }),
       definitionLinkGesture,
       editor.onDidScrollChange((event) => {
@@ -1606,7 +1644,6 @@ export function MonacoEditor({
       );
       if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
       mouseGestureStartRef.current = null;
-      scheduleInlineGitBlameRender();
     };
     window.addEventListener("mouseup", handleWindowMouseUp);
 
@@ -1652,7 +1689,6 @@ export function MonacoEditor({
         }
       }
     });
-    scheduleInlineGitBlameRender();
 
     const createdViewKey = viewStateKey ?? activeBufferId ?? "";
     const createdNavigationRevision = editorAPI.getOwnerNavigationRevision(createdViewKey);
@@ -1692,17 +1728,6 @@ export function MonacoEditor({
       if (hoverClampRaf !== null) {
         cancelAnimationFrame(hoverClampRaf);
       }
-      if (gitBlameRenderFrameRef.current !== null) {
-        cancelAnimationFrame(gitBlameRenderFrameRef.current);
-        gitBlameRenderFrameRef.current = null;
-      }
-      try {
-        gitBlameWidgetRef.current?.dispose();
-      } catch (error) {
-        console.error("Failed to dispose inline Git blame widget:", error);
-      }
-      gitBlameWidgetRef.current = null;
-      renderedGitBlameKeyRef.current = null;
       mouseSelectingRef.current = false;
       mouseGestureStartRef.current = null;
       createdEditorDisposable.dispose();
@@ -1778,7 +1803,6 @@ export function MonacoEditor({
     workspaceId,
     scrollable,
     alwaysConsumeMouseWheel,
-    scheduleInlineGitBlameRender,
     selectEntireModel,
     semanticTokens,
     setScrollForBuffer,
@@ -2295,10 +2319,35 @@ export function MonacoEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
+    editor.updateOptions({
+      lineNumbers:
+        lineNumbers || blameGutterEntriesRef.current.size > 0
+          ? lineNumberFormatter
+          : "off",
+      lineNumbersMinChars:
+        blameGutterEntriesRef.current.size > 0
+          ? BLAME_LINE_NUMBER_CHARS
+          : DEFAULT_LINE_NUMBER_CHARS,
+    });
+    // The formatter keeps its identity, so Monaco holds the line-number HTML it
+    // rendered before. Repaint only when the annotation set actually changed.
+    if (appliedBlameGutterEntriesRef.current !== blameGutterEntries) {
+      appliedBlameGutterEntriesRef.current = blameGutterEntries;
+      editor.render(true);
+    }
+  }, [blameGutterEntries, lineNumberFormatter, lineNumbers]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
     if (!vimModeEnabled || !vimRelativeLineNumbers || lineNumberMap) return;
 
     editor.updateOptions({
-      lineNumbers: lineNumbers ? lineNumberFormatter : "off",
+      lineNumbers:
+        lineNumbers || blameGutterEntriesRef.current.size > 0
+          ? lineNumberFormatter
+          : "off",
     });
   }, [
     cursorPosition.line,
@@ -2348,7 +2397,14 @@ export function MonacoEditor({
       tabSize,
       readOnly: readOnly || isPreviewMode,
       domReadOnly: readOnly || isPreviewMode,
-      lineNumbers: lineNumbers ? lineNumberFormatter : "off",
+      lineNumbers:
+        lineNumbers || blameGutterEntriesRef.current.size > 0
+          ? lineNumberFormatter
+          : "off",
+      lineNumbersMinChars:
+        blameGutterEntriesRef.current.size > 0
+          ? BLAME_LINE_NUMBER_CHARS
+          : DEFAULT_LINE_NUMBER_CHARS,
       minimap: { enabled: minimapEnabled },
       fontLigatures: editorFontLigatures,
       disableMonospaceOptimizations: true,
@@ -2511,10 +2567,6 @@ export function MonacoEditor({
 
     decorationsRef.current = editor.deltaDecorations(decorationsRef.current, decorations);
   }, [currentHighlightIndex, highlightMatches]);
-
-  useEffect(() => {
-    scheduleInlineGitBlameRender();
-  }, [renderInlineGitBlame, scheduleInlineGitBlameRender]);
 
   useEffect(() => {
     gitGutterControllerRef.current?.setBase(gitGutterBase?.lines ?? null);
@@ -2700,6 +2752,18 @@ export function MonacoEditor({
                   }
                 : undefined
             }
+            onToggleBlame={
+              contextMenuFromGutter &&
+              blameFileEligible &&
+              !lineHistoryFileUntracked &&
+              setBlameVisible
+                ? () => {
+                    setContextMenuPosition(null);
+                    setBlameVisible(!blameVisible);
+                  }
+                : undefined
+            }
+            blameVisible={blameVisible}
             onDuplicate={canEdit ? () => executeEditorCommand("editor.duplicateLine") : undefined}
             onSelectNextOccurrence={() => executeEditorCommand("editor.selectNextOccurrence")}
             onSelectAllOccurrences={() => executeEditorCommand("editor.selectAllOccurrences")}

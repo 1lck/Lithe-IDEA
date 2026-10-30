@@ -84,17 +84,31 @@
   outline: 1px solid color-mix(in srgb, var(--primary, #4f8cff) 72%, white 8%);
 }
 
-.monaco-editor-shell .monaco-inline-git-blame {
-  color: var(--subtle-foreground, rgba(128, 128, 128, 0.78));
-  opacity: 0.8;
+/* Git blame annotation inside the line-number column, mirroring IDEA and the
+   macOS workbench: the author/date label floats left of the number, and the
+   number keeps its right-aligned position so stacks stay scannable. */
+.monaco-editor-shell .monaco-editor .line-numbers .lithe-blame {
+  display: inline-block;
+  float: left;
+  max-width: calc(100% - 5ch);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  pointer-events: none;
-  user-select: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--subtle-foreground, rgba(128, 128, 128, 0.78));
 }
 
-/* Java gutter markers — four IDEA icons, chosen by relation × direction.
-   Copyright 2000-2021 JetBrains s.r.o. Apache 2.0 licence.
-   SVG sources: platform/icons/src/gutter/ in intellij-community. */
+.monaco-editor-shell .monaco-editor .line-numbers .lithe-blame:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+
+.monaco-editor-shell .monaco-editor .line-numbers .lithe-blame-line {
+  display: inline-block;
+  min-width: 4ch;
+  text-align: right;
+}
 
 .monaco-editor-shell .lithe-java-implementation-glyph {
   cursor: pointer;
