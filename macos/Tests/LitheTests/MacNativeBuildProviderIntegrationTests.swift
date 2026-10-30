@@ -13,7 +13,7 @@ import Testing
 struct MacNativeBuildProviderIntegrationTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
                    "Requires the stage D Maven package and selected Java/Maven"))
-    func runProfileUsesItsRealMavenModelAndReturnsTheSameImportWithoutChangingDefaults() async throws {
+    func runProfileUsesOneMavenModelAndSavedGenerationTracksDefaultProfileChanges() async throws {
         let environment = ProcessInfo.processInfo.environment
         let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
         let java = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_JAVA"]))
@@ -26,7 +26,7 @@ struct MacNativeBuildProviderIntegrationTests {
         for path in ["nested/checks", "nested/test inputs"] {
             try files.createDirectory(at: workspace.appendingPathComponent(path), withIntermediateDirectories: true)
         }
-        try Data("class Main {}".utf8).write(to: workspace.appendingPathComponent("nested/checks/Main.java"))
+        try Data("class Main { public static void main(String[] args) {} }".utf8).write(to: workspace.appendingPathComponent("nested/checks/Main.java"))
         try Data("selected=${selected.value}".utf8).write(to: workspace.appendingPathComponent("nested/test inputs/runtime.properties"))
         try Data("""
         <project><modelVersion>4.0.0</modelVersion><groupId>smoke</groupId><artifactId>app</artifactId><version>1</version>
@@ -77,6 +77,27 @@ struct MacNativeBuildProviderIntegrationTests {
             let ownership = try build.runProjectOwnership()
             #expect(ownership.first?.mavenReactorPath == "nested")
             #expect(ownership.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
+            let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(defaults: defaults))
+            _ = try store.generate(at: workspace, files: [workspace.appendingPathComponent("nested/checks/Main.java")], modulePaths: [],
+                javaEntrypoints: JavaEntrypoints(entries: [JavaEntrypoint(sourcePath: "nested/checks/Main.java", mainClass: "Main")]), projectOwnership: ownership)
+            #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
+            let entryID = try #require(build.entries.first?.id)
+            func currentOwnership() async throws -> [LitheCoreContracts.RunProjectOwnership] {
+                _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+                try await build.prepareLanguageTestModels(allModels: true, workspace: workspace)
+                _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+                return try build.runProjectOwnership()
+            }
+            // These are explicit edits of Build defaults after the temporary Run
+            // has completed. POM bytes stay unchanged throughout A → B → A.
+            build.setOption(entryID, optionID: "profiles", value: .array([.string("run-only")]))
+            let changed = try await currentOwnership()
+            #expect(changed.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "testSource" } == true)
+            #expect(store.inspectProviderGeneration(at: workspace, projectOwnership: changed).diagnostics.contains { $0.code == "staleProviderModel" })
+            build.setOption(entryID, optionID: "profiles", value: .array([]))
+            let restored = try await currentOwnership()
+            #expect(restored == ownership)
+            #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: restored).diagnostics.contains { $0.code == "staleProviderModel" })
             outcome = .success(())
         } catch { outcome = .failure(error) }
         build.stop(); sessions.retainProviders { _ in false }

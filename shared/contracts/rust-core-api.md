@@ -3166,6 +3166,18 @@ ownership, Core never reads Wrapper properties or checks scripts to fill these
 fields. Multiple reactor roots do not select one global Wrapper. The platform
 continues to resolve each Run's actual tool independently. Legacy Maven launch
 planning still needs migration. See `fixtures/run-configuration/provider-project-ownership.json`.
+The generated document records optional `generator.providerFingerprint`, a
+SHA-256 identity of the validated projection, with projects and roots sorted.
+It covers project labels, ownership, source roles, frameworks and requirement
+facts, but never environment values or native configuration secrets.
+`runConfig.inspect` accepts the same optional `projectOwnership` and emits
+`staleProviderModel` when current facts differ or a legacy generated document
+has no provider identity. `checkFingerprint: false` skips file hashing only;
+this model comparison remains active. Explicit `[]` represents disabled/missing
+providers, while omission preserves existing Windows callers. A return to the
+same semantic facts matches again; asynchronous host publication still needs
+its independent monotonic operation revision to reject ABA replies.
+
 Java configurations with the same class and module name in independent reactors
 remain distinct; a common reactor retains its existing configuration IDs.
  When Java tooling is still preparing, omission

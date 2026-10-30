@@ -46,10 +46,20 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         checkFingerprint: Bool,
         javaEntrypoints: JavaEntrypoints?
     ) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: checkFingerprint, javaEntrypoints: javaEntrypoints, projectOwnership: nil)
+    }
+
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil, projectOwnership: projectOwnership)
+    }
+
+    private func inspect(at projectURL: URL, checkFingerprint: Bool, javaEntrypoints: JavaEntrypoints?,
+                         projectOwnership: [RunProjectOwnership]?) -> ProjectRunConfigurationInspection {
         switch core.inspectRunConfiguration(
             at: projectURL,
             checkFingerprint: checkFingerprint,
-            javaEntrypoints: javaEntrypoints
+            javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership
         ) {
         case .success(let payload):
             return ProjectRunConfigurationInspection(
@@ -454,7 +464,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             return RunConfigurationDiagnostic(
                 configurationID: value["id"],
                 code: code,
-                message: message,
+                message: code == "staleProviderModel" ? L10n.string("Build provider model changed. Regenerate Run configurations before running.") : message,
                 toolchain: value["toolchain"]
             )
         }

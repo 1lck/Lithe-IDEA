@@ -11,6 +11,7 @@
       "required": ["fingerprint"],
       "properties": {
         "fingerprint": { "type": "string", "pattern": "^sha256:" },
+        "providerFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "unreadablePaths": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "inputs": {
           "type": "object",

@@ -133,6 +133,10 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     /// Advances on every regeneration so a JDT freshness answer computed against
     /// the previous document cannot be attached to the new one.
     private var generationRevision = 0
+    private var providerInspectionRevision: UInt64 = 0
+    private var providerInspectionTask: Task<Void, Never>?
+    private var providerInspectionOwner = UUID()
+    private var providerInspectionRequested = false
     private var selectedConfigurationIDsByProject: [String: String] = [:]
     private var lastRunConfiguration: RunConfiguration?
     private var lastCurrentFileURL: URL?
@@ -295,6 +299,84 @@ package final class RunService: ObservableObject, BuildRunLaunching {
 
     package func configureBuildProjectOwnership(_ ownership: @escaping () throws -> [RunProjectOwnership]?) {
         buildProjectOwnership = ownership
+    }
+
+    package func cancelProviderGenerationInspection() {
+        providerInspectionRevision &+= 1
+        providerInspectionOwner = UUID()
+        providerInspectionRequested = false
+        providerInspectionTask?.cancel(); providerInspectionTask = nil
+    }
+
+    package func requestProviderGenerationInspection() {
+        providerInspectionRevision &+= 1
+        providerInspectionRequested = true
+        guard providerInspectionTask == nil else { return }
+        let owner = providerInspectionOwner
+        providerInspectionTask = Task { [weak self] in
+            while let self, !Task.isCancelled, self.providerInspectionOwner == owner,
+                  self.providerInspectionRequested {
+                self.providerInspectionRequested = false
+                await self.refreshProviderGeneration()
+            }
+            if let self, self.providerInspectionOwner == owner { self.providerInspectionTask = nil }
+        }
+    }
+
+    /// Build notifications may arrive during import/model publication. Inspect
+    /// off the main actor, and drop replies after any newer input or workspace.
+    package func refreshProviderGeneration() async {
+        providerInspectionRevision &+= 1
+        let ticket = providerInspectionRevision
+        guard configurationStatus == .ready, let projectURL,
+              configurations.contains(where: { $0.requiresProviderGeneration }) else { return }
+        let loadID = projectLoadID, revision = generationRevision
+        let ownership: [RunProjectOwnership]
+        do { guard let current = try buildProjectOwnership() else { return }; ownership = current }
+        catch {
+            publishProviderDiagnostics([RunConfigurationDiagnostic(configurationID: nil, code: "providerModelNotReady",
+                message: L10n.string("Load the current build model and enable its provider before running this configuration."))])
+            return
+        }
+        let operations = runConfigurationOperations
+        let inspection = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: operations.inspectProviderGeneration(at: projectURL, projectOwnership: ownership))
+            }
+        }
+        guard !Task.isCancelled, providerInspectionRevision == ticket, projectLoadID == loadID,
+              generationRevision == revision, self.projectURL == projectURL else { return }
+        if case .invalid(let message) = inspection.status {
+            publishProviderDiagnostics([RunConfigurationDiagnostic(configurationID: nil, code: "providerModelNotReady", message: message)])
+        } else { publishProviderDiagnostics(inspection.diagnostics.filter { $0.code == "staleProviderModel" }) }
+    }
+
+    private func publishProviderDiagnostics(_ diagnostics: [RunConfigurationDiagnostic]) {
+        configurationDiagnostics.removeAll { ["staleProviderModel", "providerModelNotReady"].contains($0.code) }
+        configurationDiagnostics += diagnostics
+    }
+
+    /// Called immediately before every generated Java/Maven launch, including
+    /// Agent and service entry points. Displayed diagnostics are never authority.
+    package func validateProviderGeneration(for configuration: RunConfiguration) throws {
+        guard configuration.requiresProviderGeneration else { return }
+        providerInspectionRevision &+= 1
+        guard let projectURL else { throw CancellationError() }
+        do {
+            guard let ownership = try buildProjectOwnership() else { return }
+            let inspection = runConfigurationOperations.inspectProviderGeneration(at: projectURL, projectOwnership: ownership)
+            if case .invalid(let message) = inspection.status {
+                throw RunConfigurationOperationFailure(message: message)
+            }
+            let diagnostics = inspection.diagnostics.filter { $0.code == "staleProviderModel" }
+            publishProviderDiagnostics(diagnostics)
+            if let first = diagnostics.first { throw RunConfigurationOperationFailure(message: first.message) }
+        } catch {
+            if error is CancellationError {
+                throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration."))
+            }
+            throw error
+        }
     }
 
     /// A language capability explicitly opts into the dependency browser.
@@ -463,6 +545,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         files: [URL],
         snapshotID: UUID? = nil
     ) async {
+        cancelProviderGenerationInspection()
         // An overlapping load may still expose the initial Current File placeholder.
         // Only a completed load owns a selection worth preserving on reload.
         if !isLoadingProject, let currentProject = self.projectURL {
@@ -560,6 +643,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         projectLoadState = snapshotID
             .map { .ready(workspace: workspace, snapshotID: $0) }
             ?? .bound(workspace: workspace)
+        await refreshProviderGeneration()
     }
 
     /// Adds what JDT reports about the generated Java entries.
@@ -593,7 +677,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         at projectURL: URL,
         resolution: [RunConfigurationDiagnostic]
     ) -> [RunConfigurationDiagnostic] {
-        let freshness = configurationDiagnostics.filter { $0.code == "staleFingerprint" }
+        let freshness = configurationDiagnostics.filter { ["staleFingerprint", "staleProviderModel", "providerModelNotReady"].contains($0.code) }
         let inspected = runConfigurationOperations.inspect(
             at: projectURL,
             checkFingerprint: false,
@@ -993,6 +1077,8 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     ) {
         if configuration.buildProvider != nil { startBuildProviderRun(configuration); return }
         stop()
+        do { try validateProviderGeneration(for: configuration) }
+        catch { fail(error.localizedDescription); return }
         output = ""
         lastExitCode = nil
         primaryExecutionID = UUID().uuidString
@@ -1173,6 +1259,8 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             fail(L10n.string("No runnable services were detected in this project."))
             return
         }
+        do { for configuration in serviceConfigurations { try validateProviderGeneration(for: configuration) } }
+        catch { fail(error.localizedDescription); return }
         stopAllServices()
         moduleSessions = []
         for configuration in serviceConfigurations {
@@ -1246,6 +1334,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func reset() {
+        cancelProviderGenerationInspection()
         stop()
         stopAllServices()
         projectLoadID = UUID()
@@ -1858,6 +1947,12 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         guard configurationStatus == .ready,
               let projectURL else { return }
         moduleSessions.removeAll { $0.id == configuration.id }
+        do { try validateProviderGeneration(for: configuration) }
+        catch {
+            moduleSessions.append(RunSession(id: configuration.id, configurationID: configuration.id,
+                title: configuration.name, output: error.localizedDescription + "\n", isRunning: false, exitCode: 1))
+            return
+        }
         if let diagnostic = blockingToolchainDiagnostic(for: configuration) {
             moduleSessions.append(RunSession(
                 id: configuration.id,

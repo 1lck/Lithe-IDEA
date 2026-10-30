@@ -41,6 +41,9 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
             buildSystems?.entries.filter { $0.modelState == .loaded && !$0.isReloadRequired }.compactMap(\.model) ?? []
         }
         run.configureBuildProjectOwnership { [weak buildSystems] in try buildSystems?.runProjectOwnership() ?? [] }
+        buildSystems?.runGenerationInputsChanged.sink { [weak run] in
+            run?.requestProviderGenerationInspection()
+        }.store(in: &activityObservers)
 
     }
 
@@ -78,9 +81,12 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     /// run that launched them, so they are stopped here as well: nothing the
     /// IDE started may keep running after the session that owns it is gone.
     package func stop() {
+        // Provider teardown publishes input changes; detach before cancelling
+        // inspections so shutdown cannot enqueue new work in the stopped graph.
+        activityObservers.removeAll()
+        run.cancelProviderGenerationInspection()
         run.stop(); run.stopAllServices(); tests.stop(); buildSystems?.stop()
         releaseLeases()
-        activityObservers.removeAll()
     }
 
     private func releaseLeases() {

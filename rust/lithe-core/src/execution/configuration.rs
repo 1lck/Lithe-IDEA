@@ -14,7 +14,7 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "15";
+const GENERATOR_REVISION: &str = "16";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -41,6 +41,9 @@ pub struct InspectRequest {
     /// Java entries still match them; omitted while JDT is not ready.
     #[serde(default)]
     pub java_entrypoints: Option<JavaEntrypointFacts>,
+    /// Current enabled Provider facts; omission leaves legacy clients unchanged.
+    #[serde(default)]
+    pub project_ownership: Option<Vec<super::project_ownership::RunProjectOwnership>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -366,6 +369,9 @@ fn migrate_configuration_value(item: &mut Value) {
 /// or to `path` for a Java source that only counts by presence.
 pub struct GeneratorMetadata {
     pub fingerprint: String,
+    /// Identity of the Provider facts that generated this document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_fingerprint: Option<String>,
     /// Unreadable inputs retained as unknown; a partial baseline cannot prove freshness.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub unreadable_paths: BTreeSet<String>,
@@ -563,6 +569,20 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
                 "code": "staleFingerprint",
                 "message": message
             }));
+        }
+    }
+    if let Some(projects) = &request.project_ownership {
+        super::project_ownership::validate(projects)?;
+        if let Some(document) = generated.as_ref() {
+            let expected = super::project_ownership::fingerprint(projects);
+            if document
+                .generator
+                .as_ref()
+                .and_then(|metadata| metadata.provider_fingerprint.as_deref())
+                != Some(expected.as_str())
+            {
+                diagnostics.push(json!({"code":"staleProviderModel", "message":"Build provider model changed; regenerate Run configurations"}));
+            }
         }
     }
     if let (Some(document), Some(current)) = (generated.as_ref(), request.java_entrypoints.as_ref())
@@ -888,6 +908,10 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let generated = RunConfigurationDocument {
         version: VERSION,
         generator: Some(GeneratorMetadata {
+            provider_fingerprint: request
+                .project_ownership
+                .as_deref()
+                .map(super::project_ownership::fingerprint),
             fingerprint: fingerprint_from_inputs(&snapshot.inputs),
             inputs: snapshot.inputs,
             unreadable_paths: snapshot.unreadable_paths,

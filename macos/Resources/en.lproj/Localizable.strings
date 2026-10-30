@@ -481,6 +481,7 @@
 "Build output" = "Build output";
 "Build plugins are unavailable" = "Build plugins are unavailable";
 "Build provider" = "Build provider";
+"Build provider model changed. Regenerate Run configurations before running." = "Build provider model changed. Regenerate Run configurations before running.";
 "Build system" = "Build system";
 "Build, Execution, Deployment" = "Build, Execution, Deployment";
 "Build, run and debug" = "Build, run and debug";
@@ -8209,6 +8210,7 @@
 "native.staged.variant2" = "Staged";
 "native.stagedChanges" = "Staged changes";
 "native.stagedFilesChangedBeforeGenerationFinished" = "Staged files changed before generation finished";
+"native.staleProviderRunGeneration" = "Build provider model changed. Regenerate Run configurations before running.";
 "native.staleRecord" = "Stale record";
 "native.standard" = "Standard";
 "native.startADebugSessionToRunDebuggerCommands" = "Start a debug session to run debugger commands";

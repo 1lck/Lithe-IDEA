@@ -201,7 +201,7 @@ struct RunView: View {
                 "exclamationmark.triangle.fill"
             )
         }
-        if let diagnostic = feature.configurationDiagnostics.first(where: { $0.code == "staleFingerprint" }) {
+        if let diagnostic = feature.configurationDiagnostics.first(where: { ["staleFingerprint", "staleProviderModel", "providerModelNotReady"].contains($0.code) }) {
             return (
                 runText("Run configurations may be out of date"),
                 diagnostic.message,
@@ -277,7 +277,7 @@ struct RunView: View {
         LitheBanner(status: .neutralMuted, layout: .editor, iconStatus: .warning) {
             Text(notice.title).litheBannerTitle()
             Text(notice.message).lineLimit(2)
-            if feature.configurationDiagnostics.contains(where: { $0.code == "staleFingerprint" }) {
+            if feature.configurationDiagnostics.contains(where: { ["staleFingerprint", "staleProviderModel"].contains($0.code) }) {
                 Button("Identify Again") { feature.requestRunConfigurationGeneration() }
             } else if feature.blockingToolchainDiagnostic != nil {
                 Button("Project · JDK & Maven") { model.showSettings(category: .project) }

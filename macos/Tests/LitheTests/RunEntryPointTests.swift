@@ -1209,6 +1209,12 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
         releases.forEach { $0.open() }
     }
 
+    // Generation identity checks have their own tests; this fake gates only
+    // workspace inventory inspections, never unrelated model validation.
+    func inspectProviderGeneration(at _: URL, projectOwnership _: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         lock.lock()
         inspectCalls += 1
@@ -1341,6 +1347,12 @@ private final class InventoryRecordingGatedRunConfigurationOperations: RunConfig
 
     func releaseAll() {
         releases.forEach { $0.open() }
+    }
+
+    // Generation identity checks have their own tests; this fake gates only
+    // workspace inventory inspections, never unrelated model validation.
+    func inspectProviderGeneration(at _: URL, projectOwnership _: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
 
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {

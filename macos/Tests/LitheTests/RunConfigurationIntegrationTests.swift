@@ -41,6 +41,12 @@ struct RunConfigurationIntegrationTests {
             #expect(extensions["maven"]?["module"] as? String == item["module"])
             #expect(extensions["java"]?["sourceSet"] as? String == item["sourceSet"])
         }
+        let metadata = try #require(document["generator"] as? [String: Any])
+        #expect((metadata["providerFingerprint"] as? String)?.hasPrefix("sha256:") == true)
+        #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
+        #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership.reversed()).diagnostics.contains { $0.code == "staleProviderModel" })
+        #expect(store.inspectProviderGeneration(at: root, projectOwnership: []).diagnostics.contains { $0.code == "staleProviderModel" })
+        #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
         let requirementsData = try Data(contentsOf: root.appendingPathComponent(".lithe/toolchains/requirements.json"))
         let requirements = try #require(JSONSerialization.jsonObject(with: requirementsData) as? [String: Any])
         let tools = try #require(requirements["toolchains"] as? [String: [String: Any]])

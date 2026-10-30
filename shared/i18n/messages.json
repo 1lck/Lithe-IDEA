@@ -90843,6 +90843,17 @@
         "key": "Update the Maven Build plugin before generating Run configurations.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.staleProviderRunGeneration",
+      "description": "Native UI: a saved Run generation belongs to a previous build Provider model.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build provider model changed. Regenerate Run configurations before running.",
+        "arguments": []
+      }
     }
   ]
 }

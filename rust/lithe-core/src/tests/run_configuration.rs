@@ -4701,6 +4701,70 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
             .iter()
             .any(|c| c["id"] == id));
     }
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_vec(&output["data"]["generated"]).unwrap(),
+    )
+    .unwrap();
+    let inspect = |projects: Option<Value>| -> Value {
+        let mut payload = serde_json::json!({"root":root,"checkFingerprint":false});
+        if let Some(projects) = projects {
+            payload["projectOwnership"] = projects;
+        }
+        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"inspect-provider", "command":"runConfig.inspect", "payload":payload}).to_string())).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"]["diagnostics"].clone()
+    };
+    let stale = |diagnostics: Value| {
+        diagnostics
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["code"] == "staleProviderModel")
+    };
+    let original = fixture["projectOwnership"].clone();
+    assert!(!stale(inspect(Some(original.clone()))));
+    let mut reordered = original.as_array().unwrap().clone();
+    reordered.reverse();
+    for project in &mut reordered {
+        project["contentRoots"].as_array_mut().unwrap().reverse();
+    }
+    assert!(!stale(inspect(Some(serde_json::json!(reordered)))));
+    for (field, value) in [
+        ("name", serde_json::json!("renamed")),
+        ("mavenRunProvider", Value::Null),
+        ("minimumJavaVersion", serde_json::json!("23")),
+        ("mavenMinimumVersion", serde_json::json!("4.0.0")),
+        ("mavenWrapper", serde_json::json!("alpha/mvnw.cmd")),
+        ("contentRoots", serde_json::json!([])),
+    ] {
+        let mut changed = original.clone();
+        changed[1][field] = value;
+        assert!(stale(inspect(Some(changed))), "{field}");
+    }
+    let mut moved = original.clone(); moved[1]["mavenReactorPath"] = serde_json::json!(".");
+    assert!(stale(inspect(Some(moved))));
+    assert!(stale(inspect(Some(serde_json::json!([])))));
+    assert!(
+        !stale(inspect(Some(original.clone()))),
+        "Returning from Profile B to A must match the persisted A facts"
+    );
+    let mut legacy = output["data"]["generated"].clone();
+    legacy["generator"]
+        .as_object_mut()
+        .unwrap()
+        .remove("providerFingerprint");
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_vec(&legacy).unwrap(),
+    )
+    .unwrap();
+    assert!(stale(inspect(Some(original))));
+    assert!(
+        !stale(inspect(None)),
+        "Legacy consumers that omit provider facts remain compatible"
+    );
     let first_cmd = output["data"]["generated"]["generator"]["inputs"]["alpha/mvnw.cmd"].clone();
     assert!(first_cmd
         .as_str()

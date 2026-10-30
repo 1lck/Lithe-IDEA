@@ -507,6 +507,7 @@ extension AppModel {
         let buildInputs: UInt64?
         let javaImport: JavaLanguageImportConfiguration?
         do {
+            if let selectedConfiguration { try await prepareCurrentProviderGeneration(configuration: selectedConfiguration, identity: identity) }
             if let selectedConfiguration, selectedConfiguration.usesJavaProjectPreparation {
                 javaImport = try await prepareJavaBuildResources(configuration: selectedConfiguration, fileURL: fileURL, identity: identity)
             } else { try await prepareBuildLanguageImport(); javaImport = nil }

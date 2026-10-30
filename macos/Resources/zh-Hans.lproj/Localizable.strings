@@ -481,6 +481,7 @@
 "Build output" = "构建输出";
 "Build plugins are unavailable" = "构建插件不可用";
 "Build provider" = "构建 Provider";
+"Build provider model changed. Regenerate Run configurations before running." = "构建 Provider 模型已更改。请重新生成运行配置后再运行。";
 "Build system" = "构建系统";
 "Build, Execution, Deployment" = "构建、执行、部署";
 "Build, run and debug" = "构建、运行与调试";
@@ -8209,6 +8210,7 @@
 "native.staged.variant2" = "已暂存";
 "native.stagedChanges" = "已暂存更改";
 "native.stagedFilesChangedBeforeGenerationFinished" = "生成完成前，已暂存的文件发生了变化";
+"native.staleProviderRunGeneration" = "构建 Provider 模型已更改。请重新生成运行配置后再运行。";
 "native.staleRecord" = "陈旧记录";
 "native.standard" = "标准";
 "native.startADebugSessionToRunDebuggerCommands" = "启动调试会话后即可运行调试器命令";

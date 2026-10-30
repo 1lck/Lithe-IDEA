@@ -10,6 +10,7 @@ extension AppModel {
         for configuration: RunConfiguration,
         identity: WorkspaceIdentity
     ) async throws -> JavaDebugLaunchTarget? {
+        try await prepareCurrentProviderGeneration(configuration: configuration, identity: identity)
         guard configuration.usesJavaProjectPreparation else { return nil }
         guard let workspaceURL,
               let sourceURL = runWorkflowCoordinator.sourceURLForDebug(
@@ -36,6 +37,15 @@ extension AppModel {
             modulePaths: target.modulePaths, classPaths: target.classPaths, buildPrepared: true)
     }
 
+    func prepareCurrentProviderGeneration(configuration: RunConfiguration, identity: WorkspaceIdentity) async throws {
+        guard configuration.requiresProviderGeneration else { return }
+        try await prepareBuildLanguageImport()
+        guard let builds = buildSystemsFeatureIfActive, let run = runFeatureIfActive else { throw CancellationError() }
+        try await builds.prepareRunGenerationModels(workspace: identity.url)
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+        try run.validateProviderGeneration(for: configuration)
+    }
+
     /// Java owns this public task convention; Maven owns the resource semantics.
     @discardableResult
     func prepareJavaBuildResources(configuration: RunConfiguration, fileURL: URL, identity: WorkspaceIdentity) async throws -> JavaLanguageImportConfiguration {
@@ -43,6 +53,7 @@ extension AppModel {
         guard isCurrentWorkspace(identity), await saveAllDocuments(), isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
         try await prepareBuildLanguageImport()
         guard let builds = buildSystemsFeatureIfActive, let run = runFeatureIfActive else { throw CancellationError() }
+        try await prepareCurrentProviderGeneration(configuration: configuration, identity: identity)
         let options = run.options(for: configuration)
         var overrides: [String: ToolingJSONValue] = [:]
         if !options.activeProfiles.isEmpty { overrides["profiles"] = .array(options.activeProfiles.sorted().map(ToolingJSONValue.string)) }

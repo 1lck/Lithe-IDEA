@@ -39,6 +39,10 @@
         {
           "path": "alpha/app/custom-checks",
           "kind": "testSource"
+        },
+        {
+          "path": "alpha/app/generated-checks",
+          "kind": "generatedTestSource"
         }
       ],
       "name": "app",

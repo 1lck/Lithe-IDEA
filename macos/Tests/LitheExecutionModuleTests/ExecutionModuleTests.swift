@@ -9,6 +9,101 @@ import Testing
 @MainActor
 struct ExecutionModuleTests {
     @Test
+    func staleProviderGenerationBlocksPrimaryServicesAndAgentPathsAndClearsAfterABA() async throws {
+        let operations = FreshnessRecordingRunConfigurationOperations()
+        operations.staleProviderModel = true
+        let primary = TestStreamingProcess()
+        var created = 0
+        let service = RunService(runtime: TestRuntime(), process: primary,
+            processFactory: { created += 1; return TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback))
+        defer { service.reset() }
+        var pending = false
+        service.configureBuildProjectOwnership {
+            if pending { throw CancellationError() }
+            return []
+        }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
+        let configuration = try #require(service.configurations.first { $0.id == "Custom" })
+        #expect(service.configurationDiagnostics.contains { $0.code == "staleProviderModel" })
+        service.run(configuration: configuration, currentFileURL: nil)
+        #expect(!service.isRunning)
+        service.startConfiguration(configuration)
+        #expect(service.moduleSessions.first?.exitCode == 1)
+        service.runAllServices()
+        #expect(created == 0)
+        #expect(throws: (any Error).self) { try service.validateProviderGeneration(for: configuration) }
+        operations.staleProviderModel = false
+        await service.refreshProviderGeneration()
+        #expect(!service.configurationDiagnostics.contains { $0.code == "staleProviderModel" })
+        pending = true
+        await service.refreshProviderGeneration()
+        #expect(service.configurationDiagnostics.contains { $0.code == "providerModelNotReady" })
+        #expect(throws: (any Error).self) { try service.validateProviderGeneration(for: configuration) }
+        pending = false
+        await service.refreshProviderGeneration()
+        #expect(!service.configurationDiagnostics.contains { ["staleProviderModel", "providerModelNotReady"].contains($0.code) })
+        try service.validateProviderGeneration(for: configuration)
+        #expect(!operations.providerInspections.isEmpty)
+        #expect(created == 0)
+    }
+
+    @Test(arguments: ["inputs", "workspace", "reset"])
+    func lateProviderInspectionCannotReplaceNewerInputWorkspaceOrReset(change: String) async throws {
+        let operations = FreshnessRecordingRunConfigurationOperations()
+        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback))
+        service.configureBuildProjectOwnership { [] }
+        let gate = InventoryInspectionGate()
+        defer { service.reset(); gate.release.signal(); gate.entered.continuation.finish() }
+        await service.loadProject(at: URL(fileURLWithPath: "/old"), files: [])
+        operations.providerInspectionGate = gate
+        let old = Task { await service.refreshProviderGeneration() }
+        defer { old.cancel(); gate.release.signal() }
+        try await awaitSignal(gate.entered.stream)
+        operations.providerInspectionGate = nil
+        operations.staleProviderModel = true
+        if change == "inputs" { await service.refreshProviderGeneration() }
+        else if change == "workspace" { await service.loadProject(at: URL(fileURLWithPath: "/new"), files: []) }
+        else { service.reset() }
+        let expected = service.configurationDiagnostics
+        gate.release.signal()
+        await old.value
+        #expect(service.configurationDiagnostics == expected)
+        if change != "reset" { #expect(expected.contains { $0.code == "staleProviderModel" }) }
+    }
+
+    @Test
+    func providerGenerationNotificationsCoalesceBehindOneOwnedInspection() async throws {
+        let operations = FreshnessRecordingRunConfigurationOperations()
+        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback))
+        service.configureBuildProjectOwnership { [] }
+        let gate = InventoryInspectionGate()
+        defer { service.reset(); gate.release.signal(); gate.entered.continuation.finish() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
+        let baseline = operations.providerInspections.count
+        operations.providerInspectionGate = gate
+        service.requestProviderGenerationInspection()
+        try await awaitSignal(gate.entered.stream)
+        operations.providerInspectionGate = nil
+        operations.staleProviderModel = true
+        for _ in 0..<100 { service.requestProviderGenerationInspection() }
+        #expect(operations.providerInspections.count == baseline + 1, "No second worker may start while the first is held")
+        gate.release.signal()
+        try await awaitTestValue(service.$configurationDiagnostics) { $0.contains { $0.code == "staleProviderModel" } }
+        #expect(operations.providerInspections.count == baseline + 2, "All pending changes need only one current read")
+    }
+
+    @Test
     func backendTestsPreserveProjectIdentityAndRerunWithFreshFactsWithoutAHostProcess() async throws {
         var processes = 0
         let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: {
@@ -1830,6 +1925,21 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
 /// so only project loads may request it (issue #507).
 private final class FreshnessRecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
     var inputsChanged = true
+    var staleProviderModel = false
+    var providerInspectionGate: InventoryInspectionGate?
+    private(set) var providerInspections: [[RunProjectOwnership]] = []
+    func inspectProviderGeneration(at _: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        providerInspections.append(projectOwnership)
+        let stale = staleProviderModel
+        if let gate = providerInspectionGate {
+            gate.entered.continuation.yield(())
+            // The synchronous port runs on RunService's utility queue; the
+            // test releases it and every assertion path has cleanup/deadline.
+            if gate.release.wait(timeout: .now() + 2) != .success { Issue.record("Provider inspection gate expired") }
+        }
+        return ProjectRunConfigurationInspection(status: .ready, diagnostics: stale
+            ? [RunConfigurationDiagnostic(configurationID: nil, code: "staleProviderModel", message: "regenerate")] : [])
+    }
     private(set) var fingerprintChecks: [Bool] = []
     private(set) var comparedEntrypoints: [JavaEntrypoints] = []
     private let custom = RunConfiguration(

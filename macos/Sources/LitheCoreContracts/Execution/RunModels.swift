@@ -249,6 +249,15 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
 
     package var usesCurrentEditorFile: Bool { kind == .currentFile }
 
+    /// These persisted configurations depend on current Provider generation facts.
+    package var requiresProviderGeneration: Bool {
+        guard buildProvider == nil else { return false }
+        switch kind {
+        case .javaMain, .mavenModule, .mavenFramework: return true
+        case .currentFile, .process: return false
+        }
+    }
+
     /// Only launches backed by a JDT project wait for workspace preparation.
     package var usesJavaProjectPreparation: Bool {
         (kind == .javaMain || kind == .springBoot) && mavenReactorPath != nil

@@ -273,3 +273,19 @@ pub(super) fn services(
         })
         .collect()
 }
+
+/// Stable identity for all facts consumed by generation, independent of list order.
+pub(super) fn fingerprint(projects: &[RunProjectOwnership]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut projects = projects.iter().collect::<Vec<_>>();
+    projects.sort_by(|left, right| left.path.cmp(&right.path));
+    let canonical = projects.into_iter().map(|project| {
+        let roots = project.content_roots.iter().map(|root| (&root.path, &root.kind)).collect::<BTreeSet<_>>();
+        serde_json::json!({"path":project.path,"name":project.name,"mavenReactorPath":project.maven_reactor_path,
+            "mavenRunProvider":project.maven_run_provider,"minimumJavaVersion":project.minimum_java_version,
+            "mavenMinimumVersion":project.maven_minimum_version,"mavenWrapper":project.maven_wrapper,"contentRoots":roots})
+    }).collect::<Vec<_>>();
+    let bytes =
+        serde_json::to_vec(&canonical).expect("Provider ownership contains only JSON-safe values");
+    format!("sha256:{:x}", Sha256::digest(bytes))
+}

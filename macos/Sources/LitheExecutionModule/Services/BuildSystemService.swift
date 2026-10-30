@@ -111,7 +111,11 @@ package final class BuildSystemService: ObservableObject {
     /// Rust Core refuses larger output.
     private static let decodedOutputLimit = 32 * 1024 * 1024
 
-    @Published package private(set) var entries: [BuildSystemEntry] = []
+    /// Emitted after input storage changes, so subscribers never read willSet values.
+    package let runGenerationInputsChanged = PassthroughSubject<Void, Never>()
+    @Published package private(set) var entries: [BuildSystemEntry] = [] {
+        didSet { runGenerationInputsChanged.send() }
+    }
     @Published package private(set) var isDetecting = false
     /// Manifests Core refused and build systems another plugin answers for.
     @Published package private(set) var issues: [String] = []
@@ -138,9 +142,13 @@ package final class BuildSystemService: ObservableObject {
     }
     package private(set) var workspaceURL: URL?
     /// Nil while detection is pending. An empty value means no plugin import.
-    @Published package private(set) var languageImport: JavaLanguageImportConfiguration?
+    @Published package private(set) var languageImport: JavaLanguageImportConfiguration? {
+        didSet { runGenerationInputsChanged.send() }
+    }
     private var languageImportsByRoot: [String: JavaLanguageImportConfiguration] = [:]
-    private var languageImportsByEntryID: [String: BuildLanguageImport] = [:]
+    private var languageImportsByEntryID: [String: BuildLanguageImport] = [:] {
+        didSet { runGenerationInputsChanged.send() }
+    }
     package var onLanguageImportChanged: ((URL) -> Void)?
     private var languageImportFailure: String?
     private var detectionID: UUID?

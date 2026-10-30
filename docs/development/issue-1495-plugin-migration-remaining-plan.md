@@ -139,10 +139,14 @@ reactor。1399 项普通 Core 计时、286 项 Swift、4 项生产 Provider 集�
 Core→Maven 和 Maven 常规集成通过，包清单不变。上一轮固定组合 CI 暴露旧模型
 全等断言漏列新增字段，已更新断言并在本地完整常规集成通过；修正后的 [最低运行时 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40983512456) 已在 Java 8、当前 Maven 和 3.6.3 通过（Core b70929c、SDK 19fbda5、Maven 072960c）。Wrapper 来源也已迁入后端；旧启动规划、Windows 及正式发行仍待完成。
 
-下一批启动迁移还必须处理生成结果的模型身份：Provider Profile/模型变化不能让
-已删除的框架配置继续被视为当前配置。生成时的文件指纹不等于当前 Provider 模型
-指纹；需要在持久层记录模型投影身份、在检查/执行时比较当前输入，并覆盖 Profile
-变化、ABA、禁用插件和重新打开工作区，不能只依赖旧 POM 文件哈希。
+生成结果的模型身份已接通：持久层记录当前工程投影摘要，列表及启动比较当前
+Provider 输入；文件指纹、语义摘要与异步操作代次分别处理文件变化、配置变化和
+ABA 迟到结果。289 项 Swift、4 项生产 macOS Provider 与 1399 项普通 Core
+计时通过，另显式执行 3 项真实 JDT。POM 未变的默认 Profile A→B→A 使生成
+过期/恢复，7.496 秒；后台检查串行且只留一次最新待办，100 次通知不会积压。
+主 Run、服务单项/批量、Agent 共用入口和 Debug 准备拒绝过期事实，视图复用既有
+警告与重新识别动作。旧框架/模块启动规划、Windows Provider/旧消费者和正式
+发行/完整平台验收仍未完成。
 
 Wrapper 补充验收（2026-10-30）：原生 properties/脚本元数据、脚本/配置缓存撤销、
 宿主同步观察、单根相对路径与独立 reactor 隔离均接通。指纹对脚本和其他文件使用
@@ -150,3 +154,10 @@ Wrapper 补充验收（2026-10-30）：原生 properties/脚本元数据、脚�
 4 项生产 Provider、19 项真实 Core→Maven、17 项缓存、16 项受控原生与 16 项
 常规 Maven 检查通过；最终开发包再次通过 3 项真实 JDT（16.199/8.056/6.940 秒，
 含 Cargo 启动），关闭后包/JDT 清单不变且无进程残留。
+
+Wrapper 固定提交组合的 [Java 8 / 两种 Maven CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40990047639) 已通过（Core 25ef13d、SDK afcc133、Maven 00208cd）；后续生成身份增量不沿用此提交证据。
+
+生成身份收尾：当前 SDK 源码 6 项 E2E、完整 Rust crates、Core/契约边界和最终
+24 项 Swift bridge 通过。关闭图时先撤销订阅，避免停止 Provider 的通知排入新
+检查；后续 4 项生命周期复验通过。首次早期 AskPass 触发 5 秒连接期限，串行
+复验在相同期限内 4.359 秒通过；未放宽超时。

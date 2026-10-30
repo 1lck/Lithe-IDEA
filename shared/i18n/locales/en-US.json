@@ -9520,7 +9520,8 @@
     "remote.pluginHostUnsupported": "This host cannot receive a compatible plugin package. Update the remote server.",
     "remote.pluginApprovalRequired": "The remote plugin package changes approved commands or permissions. Install and approve that version first.",
     "remote.pluginPlatformUnavailable": "Plugin {plugin} has no approved package for {platform}. Install a compatible plugin version.",
-    "native.updateMavenBeforeRunGeneration": "Update the Maven Build plugin before generating Run configurations."
+    "native.updateMavenBeforeRunGeneration": "Update the Maven Build plugin before generating Run configurations.",
+    "native.staleProviderRunGeneration": "Build provider model changed. Regenerate Run configurations before running."
   },
   "overrides": {
     "windows": {

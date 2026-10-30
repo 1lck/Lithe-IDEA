@@ -356,6 +356,8 @@ package protocol RunConfigurationOperations: Sendable {
     /// Saves project defaults without modifying any service or requiring generated configurations.
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
+    /// Checks generated facts against the current Provider snapshot without hashing source files.
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection
     /// `checkFingerprint: false` validates the documents without reading project
     /// inputs. `javaEntrypoints`, JDT's current answer, additionally reports
     /// whether the generated Java entries still match it.
@@ -413,6 +415,9 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil)
+    }
     func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?) throws -> RunConfigurationGenerationResult {
         try generate(at: projectURL, files: files, modulePaths: modulePaths,
             javaEntrypoints: javaEntrypoints, projectOwnership: nil)

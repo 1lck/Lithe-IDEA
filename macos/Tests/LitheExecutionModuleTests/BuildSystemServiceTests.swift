@@ -2826,7 +2826,7 @@ struct BuildSystemServiceTests {
     ) throws -> BuildSystemInstance {
         let featureList = features.map { "\"\($0)\"" }.joined(separator: ", ")
         let model = """
-        {"projects": [{"id": "\(id)", "path": ".", "name": "\(id)"}],
+        {"projects": [{"id": "\(id)", "path": ".", "name": "\(id)", "properties": {"run.modelVersion": "1"}}],
          "optionValues": {"features": [\(featureList)]}}
         """
         return try decode(BuildSystemInstance.self, """
