@@ -1862,8 +1862,11 @@ granted services as `lsp.startServer.hostServices` (from the launch plan's
   negotiated version 1 or a method version 2 does not define (`-32601`,
   `plugin.host.unavailable`), a service the plugin is not granted (`-32601`
   in version 2, `-32010` from version 3, `plugin.host.permissionDenied`),
-  and malformed params (`-32602`, `plugin.host.invalidParams`). The code is
-  in `error.data.code`.
+  and malformed params (`-32602`, `plugin.host.invalidParams`; from
+  version 3 a field the method does not define is `-32018`,
+  `plugin.host.unsupportedOption`, see
+  [Extending version 3](#extending-version-3)). The code is in
+  `error.data.code`.
 - An accepted request becomes the runtime event `hostRequest` with `method`
   and `result: { hostRequestID, service, params }`. The host answers it with
   `lsp.hostResponse { sessionId, hostRequestID, result? | error: { message } }`;
@@ -1972,7 +1975,7 @@ notifications.
   | `plugin.host.timeout` | `-32015` | The host's deadline passed |
   | `plugin.host.notFound` | `-32016` | The named resource does not exist |
   | `plugin.host.readOnly` | `-32017` | The resource or workspace cannot be written |
-  | `plugin.host.unsupportedOption` | `-32018` | The host does not implement a requested option |
+  | `plugin.host.unsupportedOption` | `-32018` | The host does not implement a requested option; `details.option` names the field |
   | `plugin.host.preconditionFailed` | `-32019` | A state the request requires does not hold, such as a missing user confirmation |
   | `plugin.host.busy` | `-32020` | The resource is in use; retry later |
   | `plugin.host.rateLimited` | `-32021` | Too many requests in a period; retry after `details.retryAfterMilliseconds` when given |
@@ -2029,14 +2032,56 @@ then never sees them.
   `invalid_request`. `fixtures/function-protocol.json`
   (`hostNotifications`) holds the cases.
 
+### Extending version 3
+
+From version 3, host capabilities are added within the version, and a
+backend discovers them with `getCapabilities` instead of a version number. A later host adds, without a
+new version:
+
+- a service with its methods and notifications, granted by a new manifest
+  permission, or a method or notification of an existing service;
+- an optional field of request params (an *option*) whose absence keeps the
+  earlier behavior, or a field of a result, a notification, `details`, or
+  `limits`;
+- a failure code, which takes the next unused JSON-RPC number after
+  `-32021`; a number never changes meaning.
+
+A new protocol version is needed only for a change an existing backend
+would misread: removing or renaming a method, notification, or field,
+changing a field's meaning or type, making an option required, changing a
+code's number, or weakening an ordering or lifecycle guarantee above.
+
+So that a version 3 backend works with every host of version 3:
+
+- It calls a method only when `getCapabilities.services` lists it; another
+  is `-32601`, `plugin.host.unavailable`.
+- It ignores result, notification, `details`, and `limits` fields it does
+  not know, and any `lithe/host/*` notification it does not know.
+- Core refuses a field the method does not define with `-32018`,
+  `plugin.host.unsupportedOption`, and `details: { option }` naming it, before
+  the host sees the request; the backend may retry without that option. A
+  service whose params Core does not type answers the same way itself.
+- It treats a JSON-RPC number it does not know as a host failure, and
+  branches on `error.data.code` when it knows that code.
+- A package whose backend needs a new service declares the new permission.
+  A host that does not know the permission refuses the package at install
+  (`plugin.permission.unknown`), so a permission is never granted or
+  ignored silently.
+
+`fixtures/function-protocol.json` (`hostRequests`) holds the
+unsupported-option cases.
+
 ### Compatibility
 
 - Packages of every API level are unchanged: functions add no manifest field.
 - A backend written before this protocol does not answer `litheFunctions`.
   It keeps serving its language and its `litheBuild` requests, receives no
   function calls, and its function requests are answered with `-32601`.
-- A new host capability or wire field the other side must not ignore needs a
-  new protocol version, offered next to the old one.
+- Up to version 3, every protocol version added host capabilities. From
+  version 3 a new host capability or optional field is added within the
+  version ([Extending version 3](#extending-version-3)); only a change an
+  existing backend would misread needs a new protocol version, offered next
+  to the old one.
 - A backend that answers `version: 1` keeps working unchanged: version 2
   only adds host services. A backend that answers `version: 2` keeps
   working unchanged: version 3 only adds methods, notifications, the call
@@ -2149,7 +2194,8 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.function.recursiveCall` | Core | A backend asked the host to dispatch a domain operation or function |
 | `plugin.host.unavailable` | Core | A backend asked for a host capability the negotiated protocol does not offer |
 | `plugin.host.permissionDenied` | Core | A backend asked for a [host service](#host-services-protocol-version-2) its plugin's permissions do not grant |
-| `plugin.host.invalidParams` | Core | A host-service request has malformed or unknown params |
+| `plugin.host.invalidParams` | Core | A host-service request has malformed params, or (before version 3) unknown ones |
+| `plugin.host.unsupportedOption` | Core, Host | From version 3, a host-service request names a field the host does not implement; `details.option` names it |
 | `plugin.host.failed` | Core | The host could not complete a host-service request, or (before version 3) too many were unanswered |
 | `plugin.host.contextExpired` | Host | The request names a workspace context that closed or has a newer generation |
 | `plugin.host.authorityUnsupported` | Host | The context's authority (for example a remote workspace) does not implement the operation |
@@ -2157,6 +2203,11 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.host.limitExceeded` | Core, Host | A host limit on size, count, or rate was exceeded |
 | `plugin.host.cancelled` | Core, Host | The backend cancelled the host request, or the host stopped it |
 | `plugin.host.timeout` | Host | The host's own deadline for the operation passed |
+| `plugin.host.notFound` | Host | The named resource does not exist |
+| `plugin.host.readOnly` | Host | The resource or workspace cannot be written |
+| `plugin.host.preconditionFailed` | Host | A state the request requires does not hold |
+| `plugin.host.busy` | Host | The resource is in use; retry later |
+| `plugin.host.rateLimited` | Host | Too many requests in a period |
 | `plugin.backend.exited` | Host | A page's call, or a host operation for the backend, ended because the backend process exited |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or

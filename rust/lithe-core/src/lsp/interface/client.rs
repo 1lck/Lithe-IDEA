@@ -584,12 +584,18 @@ pub(super) fn client_apply_server_message_for_plugin(
                             error: None,
                         })
                     }
-                    Err(refusal) => responses.push(json_rpc_error_with_code(
-                        id,
-                        refusal.rpc_code,
-                        refusal.message,
-                        refusal.code,
-                    )?),
+                    Err(refusal) => {
+                        let mut data = json!({ "code": refusal.code });
+                        if let Some(details) = refusal.details {
+                            data["details"] = details;
+                        }
+                        responses.push(json_rpc_error_with_data(
+                            id,
+                            refusal.rpc_code,
+                            refusal.message,
+                            data,
+                        )?)
+                    }
                 }
             }
             _ => {

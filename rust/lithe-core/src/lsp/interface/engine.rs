@@ -13308,6 +13308,37 @@ public class Main {
             .all(|event| event.kind != "hostRequest"));
     }
 
+    /// From version 3 a field a method does not define is answered as an
+    /// unsupported option naming it, so a backend can retry without it; the
+    /// host never sees the request.
+    #[test]
+    fn an_unknown_option_is_named_to_a_version_3_backend() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "folders",
+            "method": "lithe/host/workspace/getFolders",
+            "params": {
+                "context": { "contextID": "w-1", "generation": 1 },
+                "includeHidden": true
+            }
+        }));
+        let reply = await_reply(&harness, "folders");
+        assert_eq!(reply["error"]["code"], -32018);
+        assert_eq!(
+            reply["error"]["data"]["code"],
+            "plugin.host.unsupportedOption"
+        );
+        assert_eq!(
+            reply["error"]["data"]["details"],
+            json!({ "option": "includeHidden" })
+        );
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "hostRequest"));
+    }
+
     /// From version 3 a host failure's code reaches the backend when it is
     /// one a host may report; an unknown code is `plugin.host.failed`.
     #[test]

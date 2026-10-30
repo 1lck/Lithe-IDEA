@@ -413,6 +413,9 @@ pub(crate) struct HostRequestRefusal {
     /// Stable contract code, sent as `error.data.code`.
     pub code: &'static str,
     pub message: &'static str,
+    /// Sent as `error.data.details`, such as the `option` a host does not
+    /// support.
+    pub details: Option<Value>,
 }
 
 /// Where an accepted `lithe/host/*` request goes.
@@ -437,8 +440,9 @@ pub(crate) enum HostParams {
     Context,
     /// Any object whose `context`, when present, is a well-formed
     /// reference. The service checks the rest and answers
-    /// `plugin.host.invalidParams` itself; for methods whose params Core
-    /// cannot type without owning their domain.
+    /// `plugin.host.invalidParams` or, for a field it does not know,
+    /// `plugin.host.unsupportedOption` itself; for methods whose params
+    /// Core cannot type without owning their domain.
     // No row of version 3 uses it yet; the file, editor, and window services
     // that follow add their rows with it.
     #[allow(dead_code)]
@@ -522,7 +526,10 @@ fn is_implicit_service(service: &str) -> bool {
 /// `version` is the negotiated protocol version (0 when not negotiated) and
 /// `granted` the services the plugin's permissions grant the session. The
 /// params are checked here, so the host only ever sees a well-formed
-/// request, and unknown params are refused so a later version can add them.
+/// request. From version 3 a field the method does not define is
+/// `plugin.host.unsupportedOption` naming it, so a later host can add it as
+/// an option without a new version and a backend can tell an option this
+/// host lacks from a malformed request.
 pub(crate) fn host_request(
     method: &str,
     params: Option<&Value>,
@@ -537,6 +544,7 @@ pub(crate) fn host_request(
             rpc_code: -32601,
             code: codes::HOST_UNAVAILABLE,
             message: "The host offers no such service to this plugin process.",
+            details: None,
         });
     };
     if !is_implicit_service(entry.service) && !granted.contains(entry.service) {
@@ -549,9 +557,10 @@ pub(crate) fn host_request(
             },
             code: codes::HOST_PERMISSION_DENIED,
             message: "The plugin does not declare the permission for this host service.",
+            details: None,
         });
     }
-    check_host_params(entry.params, params)?;
+    check_host_params(entry.params, params, version)?;
     if entry.method == GET_CAPABILITIES {
         return Ok(HostRoute::Answer(capabilities_answer(version, granted)));
     }
@@ -747,11 +756,16 @@ fn is_command_id(value: &str) -> bool {
         })
 }
 
-fn check_host_params(rule: HostParams, params: Option<&Value>) -> Result<(), HostRequestRefusal> {
+fn check_host_params(
+    rule: HostParams,
+    params: Option<&Value>,
+    version: u64,
+) -> Result<(), HostRequestRefusal> {
     let invalid = |message| HostRequestRefusal {
         rpc_code: -32602,
         code: codes::HOST_INVALID_PARAMS,
         message,
+        details: None,
     };
     let empty = serde_json::Map::new();
     let params = match params {
@@ -774,8 +788,17 @@ fn check_host_params(rule: HostParams, params: Option<&Value>) -> Result<(), Hos
             };
         }
     };
-    if params.keys().any(|key| !allowed.contains(&key.as_str())) {
-        return Err(invalid("Params name a field this service does not define."));
+    if let Some(option) = params.keys().find(|key| !allowed.contains(&key.as_str())) {
+        // Version 2 answered every unknown field as malformed params.
+        if version < CONTEXT_VERSION {
+            return Err(invalid("Params name a field this service does not define."));
+        }
+        return Err(HostRequestRefusal {
+            rpc_code: host_rpc_code(codes::HOST_UNSUPPORTED_OPTION),
+            code: codes::HOST_UNSUPPORTED_OPTION,
+            message: "Params name an option this host does not support.",
+            details: Some(json!({ "option": option })),
+        });
     }
     match rule {
         HostParams::Credential { with_secret } => {
@@ -1260,6 +1283,12 @@ mod tests {
                     let refusal = outcome.expect_err(name(&case));
                     assert_eq!(refusal.code, expected["code"], "{}", name(&case));
                     assert_eq!(refusal.rpc_code, expected["rpcCode"], "{}", name(&case));
+                    assert_eq!(
+                        refusal.details.as_ref(),
+                        expected.get("details"),
+                        "{}",
+                        name(&case)
+                    );
                 }
             }
         }

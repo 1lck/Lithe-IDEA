@@ -85,7 +85,7 @@ Core 的 `lsp.functionRequest` 和 `lithe/build/*` 请求是同步把消息写�
 
 - **没有真实需求**：Maven、Gradle 的第一批函数只需要读 Provider 已经算好的状态。真正需要“请宿主跑进程”的场景，要等 PR 4 把 Maven 插件迁过来才能确认参数形状。
 - **权限还没定**：进程能力意味着插件后端能在用户机器上执行任意命令。这需要和安装审查、工作区信任、`executesProjectCode` 一起设计，不能只加一个方法名。
-- **兼容成本低**：契约已经规定宿主能力要随新的协议版本逐个开放。现在不开放，以后加也不会破坏旧插件。
+- **兼容成本低**：契约已经规定宿主能力要随新的协议版本逐个开放。现在不开放，以后加也不会破坏旧插件。（协议 3 起改为版本内新增、靠 `getCapabilities` 发现，见[插件后端的工作区上下文](2026-10-30-plugin-backend-workspace-context.md)。）
 
 所以版本 1 继续对所有 `lithe/host/*` 请求返回 `plugin.host.unavailable`。
 

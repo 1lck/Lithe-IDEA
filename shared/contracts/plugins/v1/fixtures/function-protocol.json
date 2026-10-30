@@ -351,12 +351,28 @@
       "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
     },
     {
-      "name": "unknown params are invalid so a later version can add them",
+      "name": "version 2 answers an unknown field as invalid params",
       "version": 2,
       "hostServices": ["credentials"],
       "method": "lithe/host/credentials/get",
       "params": { "key": "connection.prod", "scope": "global" },
       "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "from version 3 an unknown field is an option this host does not support",
+      "version": 3,
+      "hostServices": ["credentials"],
+      "method": "lithe/host/credentials/get",
+      "params": { "key": "connection.prod", "scope": "global" },
+      "expected": { "rpcCode": -32018, "code": "plugin.host.unsupportedOption", "details": { "option": "scope" } }
+    },
+    {
+      "name": "a context method names the option it does not support",
+      "version": 3,
+      "hostServices": ["workspace"],
+      "method": "lithe/host/workspace/getFolders",
+      "params": { "context": { "contextID": "w-3f2a", "generation": 1 }, "includeHidden": true },
+      "expected": { "rpcCode": -32018, "code": "plugin.host.unsupportedOption", "details": { "option": "includeHidden" } }
     },
     {
       "name": "capability discovery needs version 3",
@@ -402,12 +418,12 @@
       }
     },
     {
-      "name": "capability discovery takes no params",
+      "name": "capability discovery takes no options yet",
       "version": 3,
       "hostServices": [],
       "method": "lithe/host/getCapabilities",
       "params": { "services": ["credentials"] },
-      "expected": { "rpcCode": -32602, "code": "plugin.host.invalidParams" }
+      "expected": { "rpcCode": -32018, "code": "plugin.host.unsupportedOption", "details": { "option": "services" } }
     },
     {
       "name": "listing workspace contexts is forwarded when workspace.metadata is granted",
