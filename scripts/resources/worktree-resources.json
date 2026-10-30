@@ -114,17 +114,15 @@
       "reason": "Preferences, Keychain/Credential Manager entries, caches, plugins, MCP connection locks, logs, recovery state and first-launch import snapshots must never be copied between worktrees or packaged. Build copy stages always reject them. Only platform startup adapters may perform a one-time independent Stable settings/workspace import into an empty Dev profile, with a versioned completion marker; existing Dev data is preserved. OS-vault credentials, updater state, caches, indexes, logs and runtime locks are excluded from that import. Platform adapters resolve writable roots outside signed distribution resources; do not add a download-cache validator for user state. OS cleanup owns temporary/cache eviction; persistent state belongs to its distribution until the user removes it."
     },
     {
-      "id": "autobuild-plugin-mirror-staging",
+      "id": "autobuild-publication-staging",
       "reusable": false,
       "locations": [
-        "<RUNNER_TEMP>/lithe-autobuild-<invocation>/marketplace/",
-        "<RUNNER_TEMP>/lithe-autobuild-<invocation>/plugins/",
         "<RUNNER_TEMP>/lithe-autobuild-<invocation>/baselines/",
         "<RUNNER_TEMP>/lithe-autobuild-<invocation>/verification/",
         "<RUNNER_TEMP>/lithe-autobuild-<invocation>/autobuild-publication.json"
       ],
-      "identity": "Exact preview source SHA, pinned marketplace index SHA-256, official organization release/tag/asset current build/ISO timestamp and this publication invocation; baselines/AutoBuild and baselines/preview-0.3.0 separately hold architecture appcasts for strict publication-time ordering while the legacy release remains; only AutoBuild holds the downloaded publication checkpoint; the generated checkpoint binds source, version, build, timestamp and sorted target asset SHA-256/size for exact-plan recovery. Existing signed ZIP bytes are architecture variants selected by the pinned index, independent of local toolchain. No reusable worktree identity stamp.",
-      "reason": "publish-autobuild.mjs downloads existing official plugin ZIPs through bounded gh calls and verifies index SHA-256 before release mutation; generated checksum sidecars, local/downloaded autobuild-publication.json and remote verification downloads belong only to this invocation. The persistent release checkpoint is downloaded afresh, never a shared local cache. The helper removes this exact mkdtemp directory in finally on success or failure. Never copy or share at any worktree reuse stage; no runtime bundle, plugin key, canonical marketplace URL or upstream release is modified."
+      "identity": "Exact preview source SHA, application release/tag/asset, current build/ISO timestamp and this publication invocation; baselines/AutoBuild and baselines/preview-0.3.0 separately hold architecture appcasts for strict publication-time ordering while the legacy release remains; only AutoBuild holds the downloaded publication checkpoint; the generated checkpoint binds source, version, build, timestamp and sorted target asset SHA-256/size for exact-plan recovery. Application artifacts retain their platform/architecture identity and are verified without rebuilding. No reusable worktree identity stamp.",
+      "reason": "publish-autobuild.mjs validates application identities and checksums before release mutation; local/downloaded autobuild-publication.json, baseline appcasts and remote verification downloads belong only to this invocation. Plugin catalogs and packages are not read or mirrored. The persistent release checkpoint is downloaded afresh, never a shared local cache. The helper removes this exact mkdtemp directory in finally on success or failure. Never copy or share at any worktree reuse stage; no runtime bundle, plugin key, canonical marketplace URL or upstream release is modified."
     },
     {
       "id": "sparkle-baseline-staging",

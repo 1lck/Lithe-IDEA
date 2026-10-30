@@ -239,6 +239,70 @@ test("a menu item with children opens a nested submenu", async () => {
   expect(select).toHaveBeenCalledTimes(1);
 });
 
+test("keyboard navigation opens a submenu row and activates a nested action", async () => {
+  const chooseEditor = mock(() => {});
+  const rollback = mock(() => {});
+  const keydown = (key: string) =>
+    act(async () =>
+      document
+        .querySelector('[role="menu"]')!
+        .dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true })),
+    );
+  function Parent() {
+    const [open, setOpen] = useState(true);
+    return (
+      <Dropdown
+        isOpen={open}
+        animated={false}
+        point={{ x: 40, y: 60 }}
+        onClose={() => setOpen(false)}
+        items={[
+          { id: "rollback", label: "Rollback", onClick: rollback },
+          {
+            id: "diff-source",
+            label: "Choose diff source",
+            onClick: () => {},
+            children: [
+              { id: "diff-base", label: "Base", onClick: () => {} },
+              { id: "diff-editor", label: "Editor", onClick: chooseEditor },
+            ],
+          },
+        ]}
+      />
+    );
+  }
+  await render(<Parent />);
+
+  const rows = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+  const highlighted = () =>
+    rows().filter((row) => row.className.split(/\s+/).includes("bg-accent"));
+
+  await keydown("End");
+  expect(highlighted().map((row) => row.textContent)).toEqual(["Choose diff source"]);
+
+  // Enter opens the submenu instead of closing the menu through the row's no-op handler.
+  await keydown("Enter");
+  expect(document.querySelectorAll('[role="menu"]').length).toBe(2);
+  expect(highlighted().map((row) => row.textContent)).toEqual(["Choose diff source", "Base"]);
+
+  await keydown("ArrowDown");
+  expect(highlighted().map((row) => row.textContent)).toEqual(["Choose diff source", "Editor"]);
+
+  // ArrowLeft returns to the parent row and closes only the submenu.
+  await keydown("ArrowLeft");
+  const trigger = rows().find((row) => row.textContent === "Choose diff source")!;
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+  // ArrowRight reopens the submenu; Enter activates the highlighted nested action.
+  await keydown("ArrowRight");
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  await keydown("ArrowDown");
+  await keydown("Enter");
+  expect(chooseEditor).toHaveBeenCalledTimes(1);
+  expect(rollback).toHaveBeenCalledTimes(0);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+});
+
 test("keyboard focus highlights, scrolls to, and activates grouped menu rows", async () => {
   const selectAll = mock(() => {});
   const selectDev = mock(() => {});

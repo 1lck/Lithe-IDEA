@@ -11,6 +11,7 @@
 
 use super::store;
 use super::ScannedPackage;
+use crate::blocking::run_blocking;
 use serde::Serialize;
 use serde_json::Value;
 use std::cell::Cell;
@@ -51,8 +52,20 @@ pub struct ResolvedLaunch {
 
 /// Resolves the launch plan of the enabled declarative plugin that owns
 /// `file_path`, or `None` when no accepted plugin claims the file.
+///
+/// Resolution reads plugin settings, prepares state directories and probes the
+/// server executable.
 #[tauri::command]
-pub fn declarative_plugins_language_launch(
+pub async fn declarative_plugins_language_launch(
+    app: AppHandle,
+    window: WebviewWindow,
+    file_path: String,
+    workspace_path: String,
+) -> Result<Option<ResolvedLaunch>, String> {
+    run_blocking(move || resolve_language_launch(app, window, file_path, workspace_path)).await
+}
+
+fn resolve_language_launch(
     app: AppHandle,
     window: WebviewWindow,
     file_path: String,

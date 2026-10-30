@@ -1,4 +1,4 @@
-use super::support::{jdt_entrypoints, temporary_root};
+use super::support::{jdt_entrypoints, seed_generated, seed_requirements, temporary_root};
 use crate::execute_json;
 use serde_json::Value;
 use std::fs;
@@ -260,11 +260,7 @@ fn detected_services_produce_runnable_launch_plans() {
         "configurations": generated_configurations(&root)
     });
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&generated).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(&generated).unwrap());
 
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -343,17 +339,12 @@ fn every_builtin_detector_produces_a_launch_plan() {
         "configurations": configurations
     });
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&generated).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(&generated).unwrap());
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-    fs::write(
-        root.join(".lithe/toolchains/requirements.json"),
+    seed_requirements(
+        &root,
         r#"{"version":1,"toolchains":{"project-jdk":{"type":"java"},"project-maven":{"type":"maven","java":"project-jdk"},"project-gradle":{"type":"gradle","java":"project-jdk"}}}"#,
-    )
-    .unwrap();
+    );
 
     for (provider, id) in [
         ("npm.script", "npm.script:node/dev"),
@@ -1421,14 +1412,13 @@ fn framework_launch_plans_use_each_goal_s_own_property_names() {
         "<project><artifactId>demo</artifactId></project>",
     )
     .unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[
             {"id":"quarkus","name":"Quarkus","provider":"quarkus.maven","execution":"service","confidence":"declared","toolchains":{"java":"project-jdk","maven":"project-maven"},"cwd":".","debug":{"adapter":"jdwp"},"extensions":{"maven":{"module":"api","jvmArguments":["-Xmx2g"],"programArguments":["--dev"]}}},
             {"id":"micronaut","name":"Micronaut","provider":"micronaut.maven","execution":"service","confidence":"declared","toolchains":{"java":"project-jdk","maven":"project-maven"},"cwd":".","debug":{"adapter":"jdwp"},"extensions":{"maven":{"module":"api","jvmArguments":["-Xmx2g"],"programArguments":["--dev"]}}}
         ]}"#,
-    )
-    .unwrap();
+    );
 
     let arguments = |id: &str, debug_port: Value| {
         let plan: Value = serde_json::from_str(&execute_json(

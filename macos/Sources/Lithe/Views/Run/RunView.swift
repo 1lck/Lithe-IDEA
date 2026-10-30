@@ -159,12 +159,6 @@ struct RunView: View {
                     Button("Open Configuration") {
                         model.openRunConfiguration(relativePath: feature.recoveryPath)
                     }
-                    if canRegenerateBrokenFile {
-                        Button("Regenerate") {
-                            feature.requestRunConfigurationGeneration()
-                        }
-                        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
-                    }
                 }
             } else if feature.recoveryAction == .upgradeApplication {
                 Label("Update Lithe to use this configuration version.", systemImage: "arrow.down.app")
@@ -186,11 +180,6 @@ struct RunView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
-    }
-
-    private var canRegenerateBrokenFile: Bool {
-        feature.recoveryPath == ".lithe/run/generated.json"
-            || feature.recoveryPath == ".lithe/toolchains/requirements.json"
     }
 
     private var configurationNotice: (title: String, message: String, systemImage: String)? {
@@ -296,7 +285,7 @@ struct RunView: View {
     private var configurationSetupMessage: String {
         switch feature.configurationStatus {
         case .missing:
-            runText("Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.")
+            runText("Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.")
         case .invalid(let message):
             message
         case .ready:

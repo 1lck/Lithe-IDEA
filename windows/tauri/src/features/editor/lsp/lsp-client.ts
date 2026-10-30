@@ -4,6 +4,8 @@ import {
   invokeLsp as invoke,
   isLspSemanticCommandSupported,
   ownsLspSession,
+  type LspDiagnosticsBatch,
+  type LspDiagnosticsPublication,
 } from "@/platform/lsp-core-adapter";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
@@ -21,6 +23,7 @@ import type {
 } from "vscode-languageserver-protocol";
 import {
   convertLSPDiagnostic,
+  type OwnerDiagnosticsUpdate,
   useDiagnosticsStore,
 } from "@/features/diagnostics/stores/diagnostics.store";
 import type {
@@ -485,7 +488,10 @@ export class LspClient {
    * their entries instead of leaving empty rows behind, and so that a very
    * large workspace cannot grow the store without limit.
    */
-  private retainWorkspaceDiagnostics(filePath: string, diagnosticCount: number): boolean {
+  private retainWorkspaceDiagnostics(
+    filePath: string,
+    diagnosticCount: number,
+  ): "store" | "clear" | "ignore" {
     const trackingKey = trackedFileKey(filePath);
     const isDocumentOpen = this.isDocumentOpen(filePath);
     const decision = decideWorkspaceDiagnostics({
@@ -498,8 +504,7 @@ export class LspClient {
 
     if (decision === "clear") {
       this.workspaceDiagnosticFiles.delete(trackingKey);
-      useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
-      return false;
+      return "clear";
     }
 
     if (decision === "ignore") {
@@ -511,21 +516,22 @@ export class LspClient {
             `dropping diagnostics for additional unopened files such as ${filePath}`,
         );
       }
-      return false;
+      return "ignore";
     }
 
     if (!isDocumentOpen) this.workspaceDiagnosticFiles.set(trackingKey, filePath);
-    return true;
+    return "store";
   }
 
   /** Drops diagnostics kept for unopened files under a workspace being closed. */
   private clearWorkspaceDiagnostics(workspacePath: string): void {
-    const { clearDiagnosticsForOwner } = useDiagnosticsStore.getState().actions;
+    const updates: OwnerDiagnosticsUpdate[] = [];
     for (const [trackingKey, filePath] of this.workspaceDiagnosticFiles) {
       if (!pathStartsWithRoot(filePath, workspacePath)) continue;
       this.workspaceDiagnosticFiles.delete(trackingKey);
-      clearDiagnosticsForOwner(filePath, "lsp");
+      updates.push({ filePath, diagnostics: null });
     }
+    useDiagnosticsStore.getState().actions.applyOwnerDiagnostics("lsp", updates);
     this.workspaceDiagnosticLimitReported = false;
   }
 
@@ -569,83 +575,82 @@ export class LspClient {
     return LspClient.instance;
   }
 
+  /**
+   * Applies one Core drain of `publishDiagnostics` payloads with a single store
+   * update. The path context is read once per batch, not once per file.
+   */
+  private applyDiagnosticsBatch(publications: readonly LspDiagnosticsPublication[]): void {
+    if (publications.length === 0) return;
+    const sourceBufferPaths = useBufferStore
+      .getState()
+      .buffers.filter(shouldStartLsp)
+      .map((buffer) => buffer.path);
+    const openDocumentPaths = new Set(
+      [...this.documents.values()]
+        .filter((document) => document.phase === "open")
+        .map((document) => document.filePath),
+    );
+    const workspaceRoots = this.activeWorkspaceRoots();
+    const updates: OwnerDiagnosticsUpdate[] = [];
+
+    for (const publication of publications) {
+      const { uri } = publication;
+      if (!uri) {
+        logger.error("LSPClient", "No uri in diagnostics payload:", publication);
+        continue;
+      }
+      const diagnostics = (publication.diagnostics ?? []) as PublishDiagnosticsParams["diagnostics"];
+      const publishedFilePath = filePathFromUri(uri);
+      const filePath = resolvePublishedDiagnosticsFilePath(
+        publishedFilePath,
+        sourceBufferPaths,
+        openDocumentPaths,
+        workspaceRoots,
+      );
+      if (!filePath) {
+        logger.debug(
+          "LSPClient",
+          `Ignoring diagnostics outside the open workspaces: ${publishedFilePath}`,
+        );
+        continue;
+      }
+
+      const retention = this.retainWorkspaceDiagnostics(filePath, diagnostics.length);
+      if (retention === "clear") {
+        updates.push({ filePath, diagnostics: null });
+        continue;
+      }
+      if (retention === "ignore") continue;
+
+      const publishedVersion = publication.version;
+      const currentVersion = this.documents.get(trackedFileKey(filePath))?.version;
+      if (
+        typeof publishedVersion === "number" &&
+        typeof currentVersion === "number" &&
+        publishedVersion < currentVersion
+      ) {
+        logger.debug(
+          "LSPClient",
+          `Ignoring stale diagnostics for ${filePath}: ${publishedVersion} < ${currentVersion}`,
+        );
+        continue;
+      }
+
+      updates.push({
+        filePath,
+        diagnostics: diagnostics.map((diagnostic) => convertLSPDiagnostic(filePath, diagnostic)),
+      });
+    }
+
+    useDiagnosticsStore.getState().actions.applyOwnerDiagnostics("lsp", updates);
+  }
+
   private async setupDiagnosticsListener() {
     try {
       logger.debug("LSPClient", "Setting up diagnostics listener");
-      const unlisten = await listen<PublishDiagnosticsParams>("lsp://diagnostics", (event) => {
+      const unlisten = await listen<LspDiagnosticsBatch>("lsp://diagnostics", (event) => {
         try {
-          if (!event.payload) {
-            logger.error("LSPClient", "No payload in diagnostics event");
-            return;
-          }
-
-          const { uri, diagnostics } = event.payload;
-
-          if (!uri) {
-            logger.error("LSPClient", "No uri in diagnostics payload:", event.payload);
-            return;
-          }
-
-          logger.debug("LSPClient", `Received diagnostics for ${uri}:`, diagnostics);
-
-          const publishedFilePath = filePathFromUri(uri);
-          const sourceBufferPaths = useBufferStore
-            .getState()
-            .buffers.filter(shouldStartLsp)
-            .map((buffer) => buffer.path);
-          const filePath = resolvePublishedDiagnosticsFilePath(
-            publishedFilePath,
-            sourceBufferPaths,
-            new Set(
-              [...this.documents.values()]
-                .filter((document) => document.phase === "open")
-                .map((document) => document.filePath),
-            ),
-            this.activeWorkspaceRoots(),
-          );
-
-          if (!filePath) {
-            logger.debug(
-              "LSPClient",
-              `Ignoring diagnostics outside the open workspaces: ${publishedFilePath}`,
-            );
-            return;
-          }
-
-          if (!this.retainWorkspaceDiagnostics(filePath, diagnostics?.length ?? 0)) return;
-
-          const publishedVersion = event.payload.version;
-          const currentVersion = this.documents.get(trackedFileKey(filePath))?.version;
-          if (
-            typeof publishedVersion === "number" &&
-            typeof currentVersion === "number" &&
-            publishedVersion < currentVersion
-          ) {
-            logger.debug(
-              "LSPClient",
-              `Ignoring stale diagnostics for ${filePath}: ${publishedVersion} < ${currentVersion}`,
-            );
-            return;
-          }
-
-          // Convert LSP diagnostics to our internal format
-          const diagnosticsList = diagnostics || [];
-          const convertedDiagnostics = diagnosticsList.map((d) =>
-            convertLSPDiagnostic(filePath, d),
-          );
-          logger.debug(
-            "LSPClient",
-            `Converted ${convertedDiagnostics.length} diagnostics for ${filePath}`,
-          );
-
-          // Update diagnostics store
-          const { setDiagnostics } = useDiagnosticsStore.getState().actions;
-          setDiagnostics(filePath, convertedDiagnostics, "lsp");
-
-          logger.debug(
-            "LSPClient",
-            `Updated diagnostics for ${filePath}: ${convertedDiagnostics.length} items`,
-          );
+          this.applyDiagnosticsBatch(event.payload?.publications ?? []);
         } catch (innerError) {
           logger.error("LSPClient", "Error processing diagnostics event:", innerError);
         }

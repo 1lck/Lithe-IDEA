@@ -109,6 +109,26 @@ struct MybatisFeatureModelTests {
         #expect(operations.requestedFiles == [[javaURL, xmlURL]])
     }
 
+    @Test
+    func unpairedAndTemporarilyMissingMapperEditsRemainEligible() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let javaURL = root.appendingPathComponent("src/main/java/demo/UserMapper.java")
+        let xmlURL = root.appendingPathComponent("src/main/resources/mapper/UserMapper.xml")
+        let feature = MybatisFeatureModel(operations: MybatisTestOperations(result: index(
+            javaURL: javaURL,
+            xmlURL: xmlURL
+        )))
+        await feature.load(workspaceURL: root, files: [javaURL, xmlURL])
+
+        #expect(feature.editChangesIndex(javaURL))
+        #expect(feature.editChangesIndex(root.appendingPathComponent("src/main/resources/mapper/OrderMapper.xml")))
+        #expect(feature.editChangesIndex(root.appendingPathComponent("src/main/java/demo/NewMapper.java")))
+        feature.reset()
+        #expect(feature.statements.isEmpty)
+        #expect(feature.editChangesIndex(javaURL))
+        #expect(!feature.editChangesIndex(root.appendingPathComponent("README.md")))
+    }
+
     /// A newer schedule supersedes the pending one so a burst of reloads cannot
     /// publish a stale index.
     @Test

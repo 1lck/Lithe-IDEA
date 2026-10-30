@@ -1151,10 +1151,14 @@ pub(super) fn bridge_error(code: &str, message: impl Into<String>) -> String {
 /// Returning the canonical target also avoids re-resolving the original link
 /// using stale file-tree metadata in `handleFileSelect`.
 #[tauri::command]
-pub fn declarative_plugins_web_resolve_file(
+pub async fn declarative_plugins_web_resolve_file(
     workspace_path: PathBuf,
     path: PathBuf,
 ) -> Result<String, String> {
+    crate::blocking::run_blocking(move || resolve_workspace_file(workspace_path, path)).await
+}
+
+fn resolve_workspace_file(workspace_path: PathBuf, path: PathBuf) -> Result<String, String> {
     let root = workspace_path.canonicalize().map_err(|error| {
         bridge_error(
             "plugin.web.forbidden",
@@ -1795,32 +1799,19 @@ mod tests {
         std::fs::create_dir(&outside).unwrap();
         std::fs::write(inside.join("file.txt"), "inside").unwrap();
         std::fs::write(outside.join("file.txt"), "outside").unwrap();
-        assert!(
-            declarative_plugins_web_resolve_file(workspace.clone(), "inside/file.txt".into())
-                .is_ok()
-        );
-        assert!(
-            declarative_plugins_web_resolve_file(workspace.clone(), outside.join("file.txt"))
-                .is_err()
-        );
+        assert!(resolve_workspace_file(workspace.clone(), "inside/file.txt".into()).is_ok());
+        assert!(resolve_workspace_file(workspace.clone(), outside.join("file.txt")).is_err());
         link_directory(&inside, &workspace.join("inside-link"));
         link_directory(&outside, &workspace.join("outside-link"));
         let resolved =
-            declarative_plugins_web_resolve_file(workspace.clone(), "inside-link/file.txt".into())
-                .unwrap();
+            resolve_workspace_file(workspace.clone(), "inside-link/file.txt".into()).unwrap();
         assert!(resolved.ends_with("/inside/file.txt"));
-        assert!(declarative_plugins_web_resolve_file(
-            workspace.clone(),
-            "outside-link/file.txt".into()
-        )
-        .is_err());
+        assert!(resolve_workspace_file(workspace.clone(), "outside-link/file.txt".into()).is_err());
         // Canonicalize both sides so a workspace opened through a link works.
         link_directory(&workspace, &root.0.join("linked-root"));
-        assert!(declarative_plugins_web_resolve_file(
-            root.0.join("linked-root"),
-            "inside/file.txt".into()
-        )
-        .is_ok());
+        assert!(
+            resolve_workspace_file(root.0.join("linked-root"), "inside/file.txt".into()).is_ok()
+        );
     }
 
     fn link_directory(target: &Path, link: &Path) {

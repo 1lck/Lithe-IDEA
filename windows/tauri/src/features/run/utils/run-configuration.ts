@@ -152,22 +152,10 @@ export function recoveryActionForError(code: string | undefined): RunRecoveryAct
 
 export function recoveryPathFromMessage(message: string): string | undefined {
   return [
-    ".lithe/run/generated.json",
     ".lithe/run/configurations.json",
     ".lithe/run/local.json",
-    ".lithe/toolchains/requirements.json",
     ".lithe/project.json",
   ].find((path) => message.includes(path));
-}
-
-export function defaultGeneratedConfigurationId(generated: unknown): string | undefined {
-  const configurations = Array.isArray((generated as { configurations?: unknown[] } | null)?.configurations)
-    ? ((generated as { configurations: Array<{ id?: string; provider?: string }> }).configurations)
-    : [];
-  const framework = configurations.find((configuration) =>
-    ["spring-boot.maven", "quarkus.maven", "micronaut.maven"].includes(configuration.provider ?? ""),
-  );
-  return framework?.id ?? configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)?.id;
 }
 
 export function workspaceRelativePath(root: string, filePath: string): string | undefined {

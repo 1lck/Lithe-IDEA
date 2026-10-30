@@ -207,11 +207,25 @@ test("the real subprocess is stopped and reaped on cancellation", { timeout: 500
   await assert.rejects(result, /cancelled subprocess/);
 });
 
-test("stable release budgets leave room beyond compilation and bound Sparkle", { timeout: 5000 }, async () => {
-  const workflow = await readFile(new URL("../../../.github/workflows/release-macos.yml", import.meta.url), "utf8");
-  assert.match(workflow, /name: Build \$\{\{ matrix.architecture \}\} release[\s\S]*?timeout-minutes: 75/);
-  assert.match(workflow, /name: Build and package the App\n\s+timeout-minutes: 35/);
-  assert.match(workflow, /name: Generate signed Sparkle updates\n\s+timeout-minutes: 30/);
-  const packaging = await readFile(new URL("./create-sparkle-update.sh", import.meta.url), "utf8");
-  assert.match(packaging, /node scripts\/release\/sparkle\/download-sparkle-baseline\.mjs "\$GITHUB_REPOSITORY" "\$tag" "\$name" "\$archives"/);
-});
+for (const { channel, file, buildName, packagingStep, sparkleStep } of [
+  {
+    channel: "stable", file: "release-macos.yml", buildName: "release",
+    packagingStep: "Build and package the App", sparkleStep: "Generate signed Sparkle updates",
+  },
+  {
+    channel: "AutoBuild", file: "release-preview-macos.yml", buildName: "preview",
+    packagingStep: "Build and package the preview app", sparkleStep: "Generate signed preview updates",
+  },
+]) {
+  test(`${channel} release budgets leave room beyond compilation and bound Sparkle`, { timeout: 5000 }, async () => {
+    const workflow = await readFile(new URL(`../../../.github/workflows/${file}`, import.meta.url), "utf8");
+    const build = workflow.split("\n  build:\n")[1]?.split(/\n  [\w-]+:\n/)[0];
+    assert.ok(build, "Expected the macOS build job");
+    assert.ok(build.includes(`name: Build \${{ matrix.architecture }} ${buildName}`));
+    assert.match(build, /^    timeout-minutes: 75$/m);
+    assert.ok(build.includes(`- name: ${packagingStep}\n        timeout-minutes: 35\n`));
+    assert.ok(build.includes(`- name: ${sparkleStep}\n        timeout-minutes: 30\n`));
+    const packaging = await readFile(new URL("./create-sparkle-update.sh", import.meta.url), "utf8");
+    assert.match(packaging, /node scripts\/release\/sparkle\/download-sparkle-baseline\.mjs "\$GITHUB_REPOSITORY" "\$tag" "\$name" "\$archives"/);
+  });
+}

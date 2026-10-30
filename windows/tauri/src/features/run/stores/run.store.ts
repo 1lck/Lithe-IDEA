@@ -23,7 +23,6 @@ import {
   resolveRunLaunch,
   startRunProcess,
   stopRunProcess,
-  writeGeneratedRunDocuments,
   writeRunDocuments,
   writeRunStdin,
 } from "../api/run-host-api";
@@ -46,7 +45,6 @@ import {
   type RunProcessInstance,
 } from "../types/run.types";
 import {
-  defaultGeneratedConfigurationId,
   blockingToolchainDiagnosticForConfiguration,
   mapDiagnostics,
   mapCoreToolchain,
@@ -143,7 +141,15 @@ interface RunState {
   effectiveRuntimeExecutablePaths: Record<string, string>;
   actions: {
     loadProject: (root: string) => Promise<void>;
-    generate: (root: string, requestedEntrypoint?: JavaEntrypoint) => Promise<void>;
+    /**
+     * Identifies the project's run entries. `automatic` marks identification
+     * the store starts itself, which reports only problems, not the count.
+     */
+    generate: (
+      root: string,
+      requestedEntrypoint?: JavaEntrypoint,
+      options?: { automatic?: boolean },
+    ) => Promise<void>;
     selectConfiguration: (id: string | null) => void;
     selectSession: (id: string | null) => void;
     editConfiguration: (id: string | null) => void;
@@ -196,7 +202,6 @@ export interface RunStoreDependencies {
   whenJavaProjectPrepared?: typeof whenJavaProjectPrepared;
   listJavaSources?: typeof listJavaSources;
   generateRunConfiguration?: typeof generateRunConfiguration;
-  writeGeneratedRunDocuments?: typeof writeGeneratedRunDocuments;
 }
 
 // Explicit import of a legacy run toolchain into blank Maven settings. Load and
@@ -283,7 +288,7 @@ function mergeJavaPath(
 
 type RunProjectSnapshot =
   | { status: "missing"; diagnostics: RunDiagnostic[] }
-  | ({ status: "ready" } & ResolvedRunProject);
+  | ({ status: "ready"; requiresGeneration: boolean } & ResolvedRunProject);
 
 type ReadyRunState = Pick<
   RunState,
@@ -376,6 +381,7 @@ async function readRunProjectSnapshot(
   return {
     status: "ready",
     ...resolved,
+    requiresGeneration: inspection.requiresGeneration === true,
     diagnostics: [...inspectionDiagnostics, ...resolved.diagnostics],
   };
 }
@@ -593,16 +599,22 @@ export const createRunStore = (
           const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies, false);
           if (revision !== projectLoadRevision || get().root !== root) return;
           if (snapshot.status === "missing") {
+            // Detected entries live in Core's memory, not in the workspace, so
+            // a project this process has not identified yet is identified now.
             set({
               status: "missing",
               recoveryAction: "regenerate",
               diagnostics: snapshot.diagnostics,
               configurations: [],
-              isLoading: false,
             });
+            await get().actions.generate(root, undefined, { automatic: true });
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
+          if (snapshot.requiresGeneration) {
+            await get().actions.generate(root, undefined, { automatic: true });
+            return;
+          }
           const ownsSnapshot = () =>
             revision === projectLoadRevision &&
             get().root === root &&
@@ -664,7 +676,7 @@ export const createRunStore = (
         }
       },
 
-      generate: (root, requestedEntrypoint) => {
+      generate: (root, requestedEntrypoint, options) => {
         const task = (async () => {
           cancelJavaRefresh();
           cancelEntrypointCheck();
@@ -709,20 +721,17 @@ export const createRunStore = (
               ),
             );
             if (!isCurrent()) return;
-            await (dependencies.writeGeneratedRunDocuments ?? writeGeneratedRunDocuments)({
-              root,
-              generated: generated.generated,
-              toolchainRequirements: generated.toolchainRequirements,
-              defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
-            });
-            if (!isCurrent()) return;
             const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(
               root,
               workspaceId,
             );
             if (!isCurrent()) return;
             const notice =
-              generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
+              generated.entryCount === 0
+                ? "no-entries"
+                : options?.automatic
+                  ? null
+                  : `generated:${generated.entryCount}`;
             const hasJavaEntries = resolved.configurations.some(
               (configuration) => configuration.provider === "java.main",
             );
@@ -741,7 +750,7 @@ export const createRunStore = (
                 dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared
               )(root, () => {
                 stopWaitingForJavaProject = null;
-                if (get().root === root) void get().actions.generate(root);
+                if (get().root === root) void get().actions.generate(root, undefined, options);
               });
             }
             set({
@@ -1385,7 +1394,12 @@ export const createRunStore = (
             return writeRunDocuments(root, documents);
           },
           reload: async () => {
-            const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);
+            let snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);
+            if (snapshot.status === "missing" || snapshot.requiresGeneration) {
+              // Saving does not need the detected layer, but showing the result does.
+              await get().actions.generate(root, undefined, { automatic: true });
+              snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);
+            }
             if (snapshot.status === "missing") {
               throw new Error(
                 snapshot.diagnostics[0]?.message ?? "Run configuration is not ready.",

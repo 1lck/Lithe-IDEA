@@ -142,6 +142,161 @@ pub(crate) fn write_object_snapshot(
 fn write_guarded(path: &Path, values: &Map<String, Value>, expected: &Store) -> Result<(), String> {
     write_guarded_checked(path, values, expected, None, || Ok(()), || Ok(()))
 }
+
+// Called under WRITES, just like replacement. Resetting the last project
+// override retains the exact-byte conflict boundary.
+fn publish_settings_store(
+    path: &Path,
+    values: &Map<String, Value>,
+    expected: &Store,
+    project: bool,
+) -> Result<(), String> {
+    if !project || !values.is_empty() {
+        return write_guarded(path, values, expected);
+    }
+    if let Some(parent) = path.parent() {
+        plain_source(parent, true)?;
+    }
+    plain_source(path, true)?;
+    #[cfg(windows)]
+    {
+        delete_project_file(path, expected, |file| set_delete_disposition(file, true))
+    }
+    #[cfg(not(windows))]
+    {
+        if read_store(path)?.identity != expected.identity {
+            return Err("plugin.settings.conflict".into());
+        }
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound && expected.identity.is_none() =>
+            {
+                Ok(())
+            }
+            Err(_) => Err("plugin.settings.writeFailed".into()),
+        }
+    }
+}
+
+#[cfg(windows)]
+fn open_delete_source(
+    path: &Path,
+    expected: &Store,
+    exclusive: bool,
+) -> Result<Option<std::fs::File>, String> {
+    use std::io::Read;
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_READ, FILE_SHARE_READ,
+    };
+    if let Some(parent) = path.parent() {
+        plain_source(parent, true)?;
+    }
+    plain_source(path, true)?;
+    let mut file = match std::fs::OpenOptions::new()
+        .read(true)
+        .access_mode(FILE_GENERIC_READ | DELETE)
+        .share_mode(if exclusive { 0 } else { FILE_SHARE_READ })
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return if expected.identity.is_none() {
+                Ok(None)
+            } else {
+                Err("plugin.settings.conflict".into())
+            }
+        }
+        Err(_) => return Err("plugin.settings.writeFailed".into()),
+    };
+    let metadata = file.metadata().map_err(|_| "plugin.settings.readFailed")?;
+    if !metadata.is_file()
+        || metadata.permissions().readonly()
+        || metadata.file_attributes() & 0x400 != 0
+    {
+        return Err("plugin.settings.readOnlySource".into());
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|_| "plugin.settings.readFailed")?;
+    if expected.identity != Some(format!("{:x}", Sha256::digest(bytes))) {
+        return Err("plugin.settings.conflict".into());
+    }
+    Ok(Some(file))
+}
+
+#[cfg(windows)]
+fn set_delete_disposition(file: &std::fs::File, posix: bool) -> Result<(), u32> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileDispositionInfo, FileDispositionInfoEx, SetFileInformationByHandle,
+        FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO,
+        FILE_DISPOSITION_INFO_EX,
+    };
+    // SAFETY: the caller owns this live, verified ordinary file handle with
+    // DELETE access. Each class receives its matching structure and exact size.
+    let result = unsafe {
+        if posix {
+            let info = FILE_DISPOSITION_INFO_EX {
+                Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
+            };
+            SetFileInformationByHandle(
+                file.as_raw_handle(),
+                FileDispositionInfoEx,
+                (&info as *const FILE_DISPOSITION_INFO_EX).cast(),
+                std::mem::size_of_val(&info) as u32,
+            )
+        } else {
+            let info = FILE_DISPOSITION_INFO { DeleteFile: true };
+            SetFileInformationByHandle(
+                file.as_raw_handle(),
+                FileDispositionInfo,
+                (&info as *const FILE_DISPOSITION_INFO).cast(),
+                std::mem::size_of_val(&info) as u32,
+            )
+        }
+    };
+    if result != 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32)
+    }
+}
+
+#[cfg(windows)]
+fn delete_project_file(
+    path: &Path,
+    expected: &Store,
+    posix: impl FnOnce(&std::fs::File) -> Result<(), u32>,
+) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::{
+        ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED,
+    };
+    let Some(file) = open_delete_source(path, expected, false)? else {
+        return Ok(());
+    };
+    match posix(&file) {
+        Ok(()) => {
+            drop(file);
+            Ok(())
+        }
+        Err(ERROR_INVALID_FUNCTION | ERROR_INVALID_PARAMETER | ERROR_NOT_SUPPORTED) => {
+            // Legacy deletion must not become pending behind an existing reader:
+            // close and reopen exclusively, then revalidate these exact bytes.
+            drop(file);
+            let Some(file) = open_delete_source(path, expected, true)? else {
+                return Ok(());
+            };
+            set_delete_disposition(&file, false).map_err(|_| "plugin.settings.writeFailed")?;
+            drop(file);
+            Ok(())
+        }
+        Err(_) => Err("plugin.settings.writeFailed".into()),
+    }
+}
+
 fn write_guarded_checked(
     path: &Path,
     values: &Map<String, Value>,
@@ -585,7 +740,7 @@ pub(super) fn store(
     {
         values.remove(plugin);
     }
-    write_guarded(&path, &values, source)?;
+    publish_settings_store(&path, &values, source, scope == "project")?;
     snapshot(app, plugin, root)
 }
 

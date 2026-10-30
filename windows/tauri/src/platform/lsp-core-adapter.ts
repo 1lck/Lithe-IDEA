@@ -424,13 +424,6 @@ async function dispatchRuntimeEvent(event: RuntimeEvent, workspacePath?: string)
       });
     }
   }
-  if (event.type === "diagnostics" && event.uri) {
-    await emit("lsp://diagnostics", {
-      uri: event.uri,
-      version: event.version,
-      diagnostics: normalizeCoreValue(event.diagnostics ?? []),
-    });
-  }
   if (event.type === "stateChanged" && event.state === "failed") {
     await emit("lsp://server-crashed", {});
   }
@@ -530,15 +523,49 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   }
 }
 
+/** One `textDocument/publishDiagnostics` payload as the editor receives it. */
+export interface LspDiagnosticsPublication {
+  uri: string;
+  version?: number;
+  diagnostics: unknown;
+}
+
+/** Payload of `lsp://diagnostics`: every document whose diagnostics changed in one Core drain. */
+export interface LspDiagnosticsBatch {
+  publications: LspDiagnosticsPublication[];
+}
+
 async function poll(session: Session, timeoutMilliseconds = 30_000): Promise<RuntimeEvent[]> {
-  const response = await core<{ events: RuntimeEvent[]; projectPreparation?: ProjectPreparation }>(
-    "lsp.waitEvents",
-    {
-      sessionId: session.id,
-      timeoutMilliseconds,
-    },
-  );
-  for (const event of response.events) await dispatchSessionEvent(session, event);
+  const response = await core<{ events: RuntimeEvent[]; projectPreparation?: ProjectPreparation }>("lsp.waitEvents", {
+    sessionId: session.id,
+    timeoutMilliseconds,
+  });
+  // A publication replaces the document's previous diagnostics, so a drain
+  // only needs the newest one per URI. Delivering them as one event keeps a
+  // workspace import, which publishes for thousands of files, from costing an
+  // IPC round trip and a store update per file while requests wait behind them.
+  const diagnostics = new Map<string, RuntimeEvent>();
+  const flushDiagnostics = async () => {
+    if (diagnostics.size === 0) return;
+    const publications = [...diagnostics].map(([uri, event]) => ({
+      uri,
+      version: event.version,
+      diagnostics: normalizeCoreValue(event.diagnostics ?? []),
+    }));
+    diagnostics.clear();
+    await emit("lsp://diagnostics", { publications } satisfies LspDiagnosticsBatch);
+  };
+  for (const event of response.events) {
+    if (event.type === "diagnostics") {
+      if (event.uri) diagnostics.set(event.uri, event);
+      continue;
+    }
+    // Diagnostics published before a lifecycle change reach the editor first,
+    // as they did when each one was forwarded on its own.
+    if (event.type === "stateChanged") await flushDiagnostics();
+    await dispatchSessionEvent(session, event);
+  }
+  await flushDiagnostics();
   if (session.languageId === "java" && response.projectPreparation) {
     updateProjectPreparation(session.workspacePath, session.id, response.projectPreparation);
   }

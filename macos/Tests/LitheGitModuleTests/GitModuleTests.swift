@@ -251,6 +251,214 @@ struct GitModuleTests {
     }
 
     @Test
+    func worktreeRegistryRefreshUpdatesLinkedStatusWithoutReopeningHistory() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [])
+        let commits = (0..<80).map { makeTestCommit(hash: "worktree-\($0)", subject: "Commit \($0)") }
+        let pages = WorktreeHistoryPageProbe(pages: [GitHistoryPage(commits: commits, nextCursor: "older", hasMore: true)])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { probe.snapshot($0) },
+            historyValue: GitHistorySnapshot(references: [], commits: Array(commits.prefix(30)), hasMore: true),
+            worktreeHistoryProbe: pages)), worktreesProvider: { _ in [worktree] })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset(); pages.releaseAll() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        await feature.inspectWorktree(worktree)
+        await feature.loadMoreWorktreeHistory(for: worktree)
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+
+        // Editing a file does not change the registry record or HEAD task identity.
+        probe.replaceChanges([change])
+        await feature.refreshWorktrees()
+        #expect(feature.gitWorktreeInspection?.changes == [change])
+        #expect(feature.gitWorktreeInspection?.commits == commits)
+        #expect(feature.gitWorktreeInspection?.hasMoreCommits == true)
+        #expect(pages.requests.count == 1 && pages.closed.isEmpty)
+        let version = feature.gitWorktreeInspectionVersion
+        await feature.refreshWorktrees()
+        #expect(feature.gitWorktreeInspectionVersion == version, "Unchanged status must retain presentation identity")
+
+        probe.failSnapshots()
+        await feature.refreshWorktrees()
+        #expect(feature.gitWorktreeInspection?.changes == [change], "An unreadable index must not masquerade as clean")
+        #expect(feature.worktreeChangesError != nil)
+        #expect(feature.gitWorktreeInspection?.commits == commits)
+    }
+
+    @Test
+    func workspaceRefreshUpdatesCurrentWorktreeStatusWithoutReopeningHistory() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = GitWorktree(path: root.path, head: "head", branch: "refs/heads/main", isCurrent: true,
+            isPrimary: true, isBare: false, isDetached: false, isLocked: false, lockReason: nil,
+            isPrunable: false, pruneReason: nil)
+        let change = GitChange(repositoryRoot: root, path: "file.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let snapshots = UntrackedDirectorySnapshots(GitSnapshot(repositoryRoot: root, branch: "main", changes: []))
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { _ in await snapshots.current() },
+            worktreesProvider: { _ in [worktree] }, repositoryRootsProvider: { _ in [root] })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.inspectWorktree(worktree)
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+        await snapshots.replace(with: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]))
+        await feature.refreshGit()
+        #expect(feature.gitWorktreeInspection?.changes == [change])
+        let version = feature.gitWorktreeInspectionVersion
+        await feature.refreshGit()
+        #expect(feature.gitWorktreeInspectionVersion == version)
+        await snapshots.replace(with: GitSnapshot(repositoryRoot: root, branch: "main", changes: []))
+        await feature.refreshGit()
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+        #expect(feature.gitWorktreeInspection?.hasLoadedChanges == true)
+    }
+
+    @Test
+    func worktreeCommitFeatureKeepsChangeListsAndCommitScopeInsideSelectedCheckout() async throws {
+        let primary = makeTestWorktree(path: "/workspace", branch: "main")
+        let linked = makeTestWorktree(path: "/workspace/.worktrees/linked", branch: "feature/linked")
+        let nested = linked.url.appendingPathComponent("nested")
+        let change = GitChange(repositoryRoot: linked.url, path: "config.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: " ")
+        let primaryChange = GitChange(repositoryRoot: primary.url, path: "main.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: " ")
+        let probe = WorkspaceCommitProbe()
+        let storage = ChangelistStorageProbe()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotsByRoot: [primary.path: GitSnapshot(repositoryRoot: primary.url, branch: "main", changes: [primaryChange]),
+                linked.path: GitSnapshot(repositoryRoot: linked.url, branch: "feature/linked", changes: [change])],
+            repositoryRoots: [primary.url, linked.url, nested], workspaceCommitProbe: probe)),
+            changelistStorage: storage, worktreesProvider: { _ in [primary, linked] })
+        feature.configure(workspaceURLProvider: { primary.url }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        await feature.inspectWorktree(linked)
+        let scoped = feature.commitFeature(for: linked)
+        #expect(feature.commitFeature(for: linked) === scoped)
+        #expect(scoped.gitRepositoryRoot == linked.url && scoped.availableRepositoryRoots == [linked.url])
+        #expect(scoped.gitChanges == [change] && feature.gitRepositoryRoot == primary.url)
+        #expect(scoped.saveChangelistName("Local config") == nil)
+        let list = try #require(scoped.changelists.lists.last?.id)
+        scoped.moveChanges([change, primaryChange], toChangelist: list)
+        #expect(scoped.changelists.listID(for: change) == list)
+        #expect(scoped.changelists.listID(for: primaryChange) == GitLocalChangelists.defaultID)
+        #expect(scoped.changelistCommitError != nil)
+        #expect(await !scoped.commitStagedChanges(message: "wrong list", amend: false))
+        #expect(probe.requests.isEmpty)
+        scoped.activateChangelist(list)
+        #expect(await !scoped.commitAndPushStagedChanges(message: "linked only", amend: true))
+        let request = try #require(probe.requests.first)
+        #expect(request.repositories == [GitWorkspaceRepositoryBinding(id: ".", root: linked.path)])
+        #expect(request.message == "linked only" && request.amend && request.push)
+        #expect(request.pathScope?.include == true && request.pathScope?.paths["."] == [change.path])
+        #expect(storage.states[linked.url]?.activeID == list)
+        #expect(feature.changelists.lists.count == 1)
+        await scoped.refreshGit()
+        #expect(scoped.availableRepositoryRoots == [linked.url] && scoped.gitChanges == [change])
+        #expect(feature.gitRepositoryRoot == primary.url)
+    }
+
+    @Test
+    func worktreeCommitFeatureSharesMainCheckoutMetadataAndResetInvalidatesSessions() async throws {
+        let worktree = makeTestWorktree(path: "/workspace", branch: "main")
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: worktree.url, branch: "main", changes: []), repositoryRoots: [worktree.url])),
+            changelistStorage: ChangelistStorageProbe(), worktreesProvider: { _ in [worktree] })
+        feature.configure(workspaceURLProvider: { worktree.url }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let scoped = feature.commitFeature(for: worktree)
+        #expect(scoped.saveChangelistName("Shared") == nil)
+        #expect(feature.changelists == scoped.changelists)
+        #expect(feature.saveChangelistName("From sidebar") == nil)
+        #expect(scoped.changelists == feature.changelists)
+        scoped.changelistStorageFailed = true
+        #expect(feature.changelistStorageFailed && feature.changelistEditingDisabled)
+        feature.changelistStorageFailed = false
+        #expect(!scoped.changelistStorageFailed)
+        scoped.isCommitting = true
+        #expect(feature.changelistEditingDisabled)
+        #expect(feature.beginSetStaging(feature.gitChanges, staged: true).isEmpty)
+        scoped.isCommitting = false
+        let sharedLists = feature.changelists
+        feature.reset()
+        #expect(scoped.gitRepositoryRoot == nil && scoped.gitChanges.isEmpty)
+        #expect(scoped.changelists == GitLocalChangelists() && sharedLists.lists.count == 3)
+        await scoped.refreshGit()
+        #expect(scoped.gitRepositoryRoot == nil, "An editor retained across workspace switches cannot reopen the old checkout")
+        #expect(feature.commitFeature(for: worktree) !== scoped)
+    }
+
+    @Test
+    func worktreeCommitPreparationBlocksDirectDiffIndexMutations() async throws {
+        let worktree = makeTestWorktree(path: "/workspace/A", branch: "main")
+        let change = GitChange(repositoryRoot: worktree.url, path: "tracked.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: "M")
+        let hunk = DiffHunk(id: "h1", header: "@@ -1 +1 @@", patch: "confirmed patch")
+        let state = try #require(workspacePreparation().session.states["A/B"])
+        let plan = GitWorkspaceCommitPlan(repositories: [GitWorkspaceRepositoryBinding(id: ".", root: worktree.path)],
+            message: "commit", amend: false, push: false, includeParentReferences: true, isRetry: false,
+            orderedIds: ["."], propagatedRelations: [], dependencyRelations: [], states: [".": state],
+            committedIds: [], pendingPushIds: [])
+        let session = GitWorkspaceCommitSession(plan: plan, states: [".": state], results: [:], blocked: [],
+            cursor: 0, commandFailed: false, finished: false, succeeded: false, canRetry: true)
+        let preparation = GitWorkspaceCommitPreparation(session: session, reviewChanged: false, requiresConfirmation: false)
+        var completed = session
+        completed.finished = true; completed.succeeded = true; completed.canRetry = false; completed.cursor = 1
+        completed.results = [".": GitWorkspaceRepositoryResult(committed: true, pushed: false, status: "committed", detail: "")]
+        let prepared = GitModuleTestGate(), releasePreparation = GitModuleTestGate()
+        let probe = WorkspaceCommitProbe(preparations: [preparation], steps: [completed],
+            prepareStarted: prepared, prepareRelease: releasePreparation)
+        let mutations = WorktreeChangesProbe(root: worktree.url, changes: [change])
+        let patches = PushMessageRecorder()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: worktree.url, branch: "main", changes: [change]),
+            repositoryRoots: [worktree.url], applyPatchHandler: { _, _, mode in
+                patches.record(mode)
+                return GitProcessResult(output: "", exitCode: 0)
+            }, stageHandler: { mutations.mutate($0, action: "stage") },
+            unstageHandler: { mutations.mutate($0, action: "unstage") }, workspaceCommitProbe: probe)),
+            worktreesProvider: { _ in [worktree] })
+        feature.configure(workspaceURLProvider: { worktree.url }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let scoped = feature.commitFeature(for: worktree)
+        var succeeded = false
+        let commit = Task { succeeded = await scoped.commitStagedChanges(message: "commit", amend: false) }
+        defer { releasePreparation.open(); commit.cancel(); feature.reset() }
+        try #require(await prepared.waitUntilOpen(), "Scoped commit did not reach its prepared-plan gate")
+        #expect(scoped.isCommitting && !feature.isCommitting && feature.isWorktreeCommitBlocked)
+        #expect(probe.requests.first?.repositories == [GitWorkspaceRepositoryBinding(id: ".", root: worktree.path)])
+        await feature.stageChange(change)
+        await feature.unstageChange(change)
+        await feature.stageDiffHunk(hunk, in: change)
+        await feature.unstageDiffHunk(hunk, in: change)
+        #expect(mutations.calls.isEmpty)
+        #expect(patches.values.isEmpty)
+        releasePreparation.open()
+        try #require(await waitForGitTaskCompletion(commit))
+        #expect(succeeded && probe.stepCount == 1 && !feature.isWorktreeCommitBlocked)
+        await feature.stageChange(change)
+        await feature.unstageChange(change)
+        await feature.stageDiffHunk(hunk, in: change)
+        await feature.unstageDiffHunk(hunk, in: change)
+        #expect(mutations.calls.map(\.action) == ["stage", "unstage"])
+        #expect(patches.values == ["stage", "unstage"])
+    }
+
+    @Test
     func worktreeChangesStageUnstageDiscardUseSelectedCheckoutAndPreserveHistory() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let worktree = makeTestWorktree(path: "/linked", branch: "feature/linked")
@@ -5501,6 +5709,7 @@ private final class WorktreeChangesProbe: @unchecked Sendable {
     private var snapshotsFail = false
     init(root: URL, changes: [GitChange]) { self.root = root; self.changes = changes }
     var calls: [Call] { lock.withLock { recorded } }
+    func replaceChanges(_ changes: [GitChange]) { lock.withLock { self.changes = changes } }
     func failSnapshots() { lock.withLock { snapshotsFail = true } }
     func snapshot(_ target: URL) -> GitSnapshot? {
         lock.withLock {
@@ -5963,16 +6172,24 @@ private final class WorkspaceCommitProbe: @unchecked Sendable {
     private var recordedSteps = 0
     private let started: GitModuleTestGate?
     private let release: GitModuleTestGate?
+    private let prepareStarted: GitModuleTestGate?
+    private let prepareRelease: GitModuleTestGate?
     init(preparations: [GitWorkspaceCommitPreparation] = [], steps: [GitWorkspaceCommitSession] = [],
-        started: GitModuleTestGate? = nil, release: GitModuleTestGate? = nil) {
+        started: GitModuleTestGate? = nil, release: GitModuleTestGate? = nil,
+        prepareStarted: GitModuleTestGate? = nil, prepareRelease: GitModuleTestGate? = nil) {
         self.preparations = preparations; self.steps = steps
         self.started = started; self.release = release
+        self.prepareStarted = prepareStarted; self.prepareRelease = prepareRelease
     }
     func prepare(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         recordedRequests.append(request)
-        guard !preparations.isEmpty else { return .failure(GitWorkspaceCommitFailure("No scripted preparation")) }
-        return .success(preparations.removeFirst())
+        let preparation = preparations.isEmpty ? nil : preparations.removeFirst()
+        lock.unlock()
+        prepareStarted?.open()
+        guard prepareRelease?.waitSynchronously() ?? true else { return .failure(GitWorkspaceCommitFailure("Preparation gate timed out")) }
+        guard let preparation else { return .failure(GitWorkspaceCommitFailure("No scripted preparation")) }
+        return .success(preparation)
     }
     func step() -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure> {
         started?.open()

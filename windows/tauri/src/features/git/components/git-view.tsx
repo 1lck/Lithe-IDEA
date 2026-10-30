@@ -11,7 +11,7 @@ import {
   commitDiffWritePending,
   subscribeCommitDiffWrites,
 } from "../runtime/commit-diff-write-state";
-import { changelistCommitScope, fileChangelist } from "../utils/git-changelists";
+import { changelistCommitScope, EMPTY_CHANGELISTS, fileChangelist } from "../utils/git-changelists";
 import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -233,9 +233,15 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return new Map(commits.map((commit) => [commit.hash, commit] as const));
   }, [commits]);
   const changelistWorkspace = repoPath ?? activeRepoPath ?? "";
-  const changelists = useGitChangelistsStore((state) =>
+  const storedChangelists = useGitChangelistsStore((state) =>
     workspaceChangelists(state, changelistWorkspace),
   );
+  const showChangelists = useSettingsStore((state) => state.settings.showGitChangelists);
+  const showParentReferences = useSettingsStore((state) => state.settings.showGitParentReferences);
+  // With ChangeLists hidden every change belongs to the default list, so the active list,
+  // the staged-in-another-list guard and the commit path scope no longer narrow a commit.
+  // Stored assignments are kept untouched and apply again once the setting is re-enabled.
+  const changelists = showChangelists ? storedChangelists : EMPTY_CHANGELISTS;
   const gitChangesFolderView = useSettingsStore((state) => state.settings.gitChangesFolderView);
   // Diff file navigation follows the rows the Commit panel actually shows.
   const orderedWorkingTreeFiles = useMemo(
@@ -265,9 +271,10 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       .getState()
       .rememberRenames(changelistWorkspace, gitStatus?.files ?? [], activeRepoPath ?? undefined);
   }, [changelistWorkspace, gitStatus?.files, activeRepoPath]);
-  const changelistsUnavailable = useGitChangelistsStore((state) =>
+  const storageUnavailable = useGitChangelistsStore((state) =>
     isChangelistsUnavailable(state, changelistWorkspace),
   );
+  const changelistsUnavailable = showChangelists && storageUnavailable;
   const workflow = useWorkspaceCommitStore((state) => state.workflow);
   const batch = useSyncExternalStore(workflow.subscribe, workflow.getState, workflow.getState);
   const diffWritePending = useSyncExternalStore(
@@ -860,6 +867,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                   disabled={changelistsBusy || changelistsUnavailable}
                   includeParentReferences={includeParentReferences}
                   onIncludeParentReferencesChange={setIncludeParentReferences}
+                  showChangelists={showChangelists}
+                  showParentReferences={showParentReferences}
                 />
               }
               toolbarLeading={renderRefreshButton()}
@@ -891,7 +900,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                   </span>
                 </div>
               }
-              changelists={changelists}
+              changelists={showChangelists ? changelists : undefined}
+              showChangelistGroups={showChangelists}
               changelistsDisabled={changelistsBusy}
               stagingDisabled={changelistsUnavailable || changelistsBusy}
               onMoveToChangelist={(files, id) => {
@@ -902,6 +912,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               }}
               files={visibleGitFiles}
               repositoryCount={repositoryPaths.length}
+              repositoryPaths={repositoryPaths}
               collapsedFolders={collapsedStatusFolders}
               onCollapsedFoldersChange={(folders) =>
                 updateSourceControlSession({ collapsedFolders: [...folders].sort() })
@@ -949,7 +960,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
             />
 
             <GitCommitPanel
-              includeParentReferences={includeParentReferences}
+              // A hidden option cannot be unchecked, so it counts as its default (on).
+              includeParentReferences={showParentReferences ? includeParentReferences : true}
               pathScope={pathScope}
               commitScopeError={
                 changelistsUnavailable

@@ -374,10 +374,7 @@ pub async fn declarative_plugins_start_execution(
         "executable": plan.executable, "workingDirectory": plan.working_directory,
     }))
     .map_err(|_| "plugin.execution.invalidPlan")?;
-    let resolved =
-        tauri::async_runtime::spawn_blocking(move || crate::run::run_resolve_launch(args))
-            .await
-            .map_err(|error| error.to_string())??;
+    let resolved = crate::run::run_resolve_launch(args).await?;
     let checked = prepare_current(
         &app,
         window.label(),

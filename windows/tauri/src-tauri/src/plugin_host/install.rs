@@ -171,10 +171,14 @@ pub(crate) fn marketplace_previous_record(
 /// directory; nothing is installed and nothing outside the snapshot is
 /// written.
 #[tauri::command]
-pub fn declarative_plugins_prepare_disk_install(
+pub async fn declarative_plugins_prepare_disk_install(
     app: AppHandle,
     source_path: String,
 ) -> Result<PreparedInstall, String> {
+    crate::blocking::run_blocking(move || prepare_disk_install(app, source_path)).await
+}
+
+fn prepare_disk_install(app: AppHandle, source_path: String) -> Result<PreparedInstall, String> {
     let temporary_root = snapshot_root(&app)?;
     std::fs::create_dir_all(&temporary_root).map_err(|error| error.to_string())?;
     let session_id = format!("{}{}", SNAPSHOT_PREFIX, uuid_like_suffix());
@@ -701,17 +705,20 @@ fn confirm_install_snapshot(
 
 /// Abandons an installation review and removes its private snapshot.
 #[tauri::command]
-pub fn declarative_plugins_cancel_disk_install(
+pub async fn declarative_plugins_cancel_disk_install(
     app: AppHandle,
     session_id: String,
 ) -> Result<(), String> {
-    let temporary_root = snapshot_root(&app)?;
-    let snapshot = snapshot_path(&app, &session_id)?;
-    if snapshot.exists() {
-        std::fs::remove_dir_all(snapshot).map_err(|error| error.to_string())?;
-    }
-    discard_source_metadata(&temporary_root, &session_id);
-    Ok(())
+    crate::blocking::run_blocking(move || {
+        let temporary_root = snapshot_root(&app)?;
+        let snapshot = snapshot_path(&app, &session_id)?;
+        if snapshot.exists() {
+            std::fs::remove_dir_all(snapshot).map_err(|error| error.to_string())?;
+        }
+        discard_source_metadata(&temporary_root, &session_id);
+        Ok(())
+    })
+    .await
 }
 
 fn snapshot_path(app: &AppHandle, session_id: &str) -> Result<PathBuf, String> {

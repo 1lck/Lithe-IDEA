@@ -146,6 +146,8 @@ pub(super) fn set_enabled(
 }
 
 fn options() -> OpenOptions {
+    // Only the Unix branch mutates the options; silence unused_mut on Windows builds.
+    #[allow(unused_mut)]
     let mut options = OpenOptions::new();
     #[cfg(unix)]
     {

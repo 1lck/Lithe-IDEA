@@ -1,6 +1,32 @@
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(windows)]
+#[test]
+fn unsupported_posix_delete_reopens_exclusively_and_never_leaves_pending_deletion() {
+    use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_NOT_SUPPORTED};
+    let root = TempRoot::new();
+    let path = root.file();
+    let _transaction = WRITES.lock().unwrap();
+    let original = r#"{"plugin":{"text":"old"}}"#;
+    std::fs::write(&path, original).unwrap();
+    let before = read_store(&path).unwrap();
+    let reader = std::fs::File::open(&path).unwrap();
+    assert!(delete_project_file(&path, &before, |_| Err(ERROR_NOT_SUPPORTED)).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    drop(reader);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        original,
+        "failure must not schedule a late delete"
+    );
+    assert!(delete_project_file(&path, &before, |_| Err(ERROR_ACCESS_DENIED)).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    delete_project_file(&path, &before, |_| Err(ERROR_NOT_SUPPORTED)).unwrap();
+    assert!(read_store(&path).unwrap().identity.is_none());
+    assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
+}
+
 struct TempRoot(PathBuf);
 impl TempRoot {
     fn new() -> Self {
@@ -21,6 +47,122 @@ impl Drop for TempRoot {
     fn drop(&mut self) {
         std::fs::remove_dir_all(&self.0).expect("remove isolated settings root");
     }
+}
+
+#[test]
+fn project_reset_unlinks_only_the_last_override_and_missing_reset_is_read_only() {
+    let root = TempRoot::new();
+    let path = root.file();
+    let _transaction = WRITES.lock().unwrap();
+    let missing = read_store(&path).unwrap();
+    publish_settings_store(&path, &Map::new(), &missing, true).unwrap();
+    assert!(!path.exists());
+    let explicit = json!({"plugin": {"text": ""}}).as_object().unwrap().clone();
+    publish_settings_store(&path, &explicit, &missing, true).unwrap();
+    assert_eq!(read_store(&path).unwrap().values, explicit);
+    let before = read_store(&path).unwrap();
+    publish_settings_store(&path, &Map::new(), &before, true).unwrap();
+    assert!(!path.exists());
+    assert!(read_store(&path).unwrap().identity.is_none());
+    assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
+}
+
+#[test]
+fn project_reset_rejects_external_byte_edits_without_deleting_them() {
+    let root = TempRoot::new();
+    let path = root.file();
+    let _transaction = WRITES.lock().unwrap();
+    std::fs::write(&path, r#"{"plugin":{"text":""}}"#).unwrap();
+    let before = read_store(&path).unwrap();
+    let external = "{\n  \"plugin\": {\"text\": \"\"}\n}\n";
+    std::fs::write(&path, external).unwrap();
+    assert_eq!(
+        publish_settings_store(&path, &Map::new(), &before, true).unwrap_err(),
+        "plugin.settings.conflict"
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), external);
+    assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn project_reset_is_visible_immediately_while_an_existing_reader_finishes() {
+    use std::io::Read;
+    let root = TempRoot::new();
+    let path = root.file();
+    let _transaction = WRITES.lock().unwrap();
+    let original = r#"{"plugin":{"text":"old"}}"#;
+    std::fs::write(&path, original).unwrap();
+    let before = read_store(&path).unwrap();
+    let mut reader = std::fs::File::open(&path).unwrap();
+    publish_settings_store(&path, &Map::new(), &before, true).unwrap();
+    assert!(read_store(&path).unwrap().identity.is_none());
+    let mut bytes = String::new();
+    reader.read_to_string(&mut bytes).unwrap();
+    assert_eq!(bytes, original);
+    drop(reader);
+    assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
+}
+
+#[test]
+fn concurrent_setting_transactions_read_the_previous_committed_values() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let root = TempRoot::new();
+    let path = root.file();
+    let deadline = Duration::from_secs(2);
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let first_path = &path;
+        let first_done = done_tx.clone();
+        let first = scope.spawn(move || {
+            let _transaction = WRITES.lock().unwrap();
+            let before = read_store(first_path).unwrap();
+            entered_tx.send(()).unwrap();
+            release_rx
+                .recv_timeout(deadline)
+                .expect("release first write");
+            let values = Map::from_iter([("first".into(), json!(1))]);
+            first_done
+                .send(publish_settings_store(first_path, &values, &before, true))
+                .unwrap();
+        });
+        entered_rx
+            .recv_timeout(deadline)
+            .expect("first transaction entered");
+        let second_path = &path;
+        let second = scope.spawn(move || {
+            started_tx.send(()).unwrap();
+            let _transaction = WRITES.lock().unwrap();
+            let before = read_store(second_path).unwrap();
+            assert_eq!(before.values.get("first"), Some(&json!(1)));
+            let mut values = before.values.clone();
+            values.insert("second".into(), json!(2));
+            done_tx
+                .send(publish_settings_store(second_path, &values, &before, true))
+                .unwrap();
+        });
+        started_rx
+            .recv_timeout(deadline)
+            .expect("second transaction started");
+        release_tx.send(()).unwrap();
+        for _ in 0..2 {
+            done_rx
+                .recv_timeout(deadline)
+                .expect("transaction finished")
+                .unwrap();
+        }
+        first.join().unwrap();
+        second.join().unwrap();
+    });
+    assert_eq!(
+        read_store(&path).unwrap().values,
+        json!({"first":1,"second":2}).as_object().unwrap().clone()
+    );
+    assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 1);
 }
 
 #[test]

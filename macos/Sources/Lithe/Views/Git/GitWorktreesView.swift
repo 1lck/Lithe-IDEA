@@ -402,7 +402,7 @@ struct GitWorktreesView: View {
     }
 
     private func detailHeader(_ worktree: GitWorktree) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 10) {
                 Text(worktree.isPrimary ? gitLocalizedFormat("Main Worktree", locale: locale) : worktree.displayName)
                     .font(Visual.title)
@@ -439,7 +439,7 @@ struct GitWorktreesView: View {
             }
         }
         .padding(.horizontal, 12)
-        .frame(height: 60)
+        .frame(height: 50)
     }
 
     private var detailTabs: some View {
@@ -485,7 +485,6 @@ struct GitWorktreesView: View {
             .litheScrollViewChrome()
         case .changes:
             changesSection(worktree)
-                .padding(12)
         case .history:
             historySection(worktree)
                 .padding(12)
@@ -598,7 +597,8 @@ struct GitWorktreesView: View {
                 inspectionState
             } else {
                 GitWorktreeChangesView(feature: feature, worktree: worktree,
-                    snapshot: projectedChangesSnapshot, actions: actions)
+                    snapshot: projectedChangesSnapshot, actions: actions,
+                    commitSession: actions.commitSession?(worktree), hasBackgroundImage: background.hasImage)
                     .id(worktree.id)
             }
         } else {
@@ -625,22 +625,16 @@ struct GitWorktreesView: View {
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .padding(.vertical, 8)
                         } else {
-                            GitWorktreeRowsScrollView(
+                            GitWorktreeHistoryList(
                                 snapshot: snapshot,
                                 contextID: worktree.id + "\u{0}" + query,
                                 canLoadMore: query.isEmpty && inspection.hasMoreCommits
                                     && snapshot.identity == .history(inspectionVersion: feature.gitWorktreeInspectionVersion, query: historySearchText),
                                 isLoadingMore: feature.isLoadingMoreWorktreeHistory,
                                 loadMoreFailed: feature.worktreeHistoryPageFailed,
-                                onLoadMore: { Task { await feature.loadMoreWorktreeHistory(for: worktree, automatically: true) } }
+                                onLoadMore: { Task { await feature.loadMoreWorktreeHistory(for: worktree, automatically: true) } },
+                                onRetry: { Task { await feature.loadMoreWorktreeHistory(for: worktree) } }
                             )
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                        if query.isEmpty && inspection.hasMoreCommits {
-                            GitWorktreeHistoryFooter(
-                                isLoading: feature.isLoadingMoreWorktreeHistory,
-                                failed: feature.worktreeHistoryPageFailed,
-                                onLoad: { Task { await feature.loadMoreWorktreeHistory(for: worktree) } })
                         }
                     }
                 }
@@ -1101,35 +1095,37 @@ private struct WorktreeChangesProjectionIdentity: Hashable {
     let inspectionVersion: Int
 }
 
-/// The row under the history list while older commits exist. It is always the same height, so the
-/// viewport never changes at a page boundary, and idle it offers the next page, as the Git Log
-/// footer does, instead of leaving a blank band under the list.
-struct GitWorktreeHistoryFooter: View {
-    let isLoading: Bool
-    let failed: Bool
-    let onLoad: () -> Void
+/// Paging feedback overlays the viewport instead of reserving a permanent footer row.
+struct GitWorktreeHistoryList: View {
+    let snapshot: GitWorktreeRowsSnapshot
+    let contextID: String
+    let canLoadMore: Bool
+    let isLoadingMore: Bool
+    let loadMoreFailed: Bool
+    let onLoadMore: () -> Void
+    let onRetry: () -> Void
 
     var body: some View {
-        HStack {
-            Spacer()
-            if isLoading {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading commits…")
-                        .font(LitheTheme.uiFont(size: 12.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-            } else if failed {
-                Button("Could not load older commits. Refresh history", action: onLoad)
+        GitWorktreeRowsScrollView(
+            snapshot: snapshot, contextID: contextID, canLoadMore: canLoadMore,
+            isLoadingMore: isLoadingMore, loadMoreFailed: loadMoreFailed, onLoadMore: onLoadMore
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+            if canLoadMore && loadMoreFailed {
+                Button("Could not load older commits. Refresh history", action: onRetry)
                     .buttonStyle(.link)
-                    .accessibilityIdentifier("worktree-history-load-more")
-            } else {
-                Button("Load more commits", action: onLoad)
-                    .buttonStyle(.link)
-                    .accessibilityIdentifier("worktree-history-load-more")
+                    .padding(6)
+                    .background(LitheTheme.editor)
+                    .accessibilityIdentifier("worktree-history-retry")
+            } else if canLoadMore && isLoadingMore {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(6)
+                    .background(LitheTheme.editor)
+                    .accessibilityLabel("Loading commits…")
+                    .allowsHitTesting(false)
             }
-            Spacer()
         }
-        .frame(height: GitWorktreeRowsView.rowHeight)
     }
 }

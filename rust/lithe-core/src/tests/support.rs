@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     OnceLock,
@@ -12,6 +12,20 @@ pub(super) fn fixture() -> Value {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/fixtures/search/basic.json");
     serde_json::from_str(&fs::read_to_string(fixture_path).expect("fixture should be readable"))
         .expect("fixture should be valid JSON")
+}
+
+/// Installs `document` as the run configurations a host generated for `root`
+/// this session. `root` must exist: the layer is keyed by its canonical path.
+pub(crate) fn seed_generated(root: &Path, document: impl ToString) {
+    let document = serde_json::from_str(&document.to_string()).expect("generated fixture");
+    crate::execution::generated_layer::seed(root, Some(document), None);
+}
+
+/// Installs `requirements` as the toolchain requirements generated for `root`.
+pub(crate) fn seed_requirements(root: &Path, requirements: impl ToString) {
+    let requirements =
+        serde_json::from_str(&requirements.to_string()).expect("requirements fixture");
+    crate::execution::generated_layer::seed(root, None, Some(requirements));
 }
 
 pub(crate) fn temporary_root(label: &str) -> PathBuf {

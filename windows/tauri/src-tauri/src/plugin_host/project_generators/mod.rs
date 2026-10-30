@@ -184,13 +184,12 @@ pub async fn declarative_plugins_generator_catalog(
     window: WebviewWindow,
 ) -> Result<Value> {
     scope(&window)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        super::declarative_plugins_rescan(app.clone())
-            .map_err(|_| Error::new("generator.coreFailed"))?;
-        catalog::load(&app)
-    })
-    .await
-    .map_err(|_| Error::new("generator.workerFailed"))?
+    super::declarative_plugins_rescan(app.clone())
+        .await
+        .map_err(|_| Error::new("generator.coreFailed"))?;
+    tauri::async_runtime::spawn_blocking(move || catalog::load(&app))
+        .await
+        .map_err(|_| Error::new("generator.workerFailed"))?
 }
 
 #[tauri::command]

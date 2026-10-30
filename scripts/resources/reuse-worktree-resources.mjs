@@ -106,6 +106,8 @@ async function readRegistry() {
   // receipts use frontend-install-state's refusal route; process identity is not a cache stamp.
   // Controlled action-group/form-grid/controls-input/workbench/tree browser scratch, ownership state, copied logs and expected-red evidence use
   // native-browser-regression-state's refusal route; no build stamp or validator applies.
+  // AutoBuild publication checkpoints and baseline downloads are invocation-owned,
+  // not reusable build inputs, even without plugin mirror staging.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

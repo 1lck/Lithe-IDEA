@@ -709,7 +709,8 @@ fn client_change_document_emits_incremental_ranges_when_the_server_supports_them
             .open_documents
             .get("file:///tmp/project/main.rs")
             .unwrap()
-            .text,
+            .text
+            .as_ref(),
         "fn main(launch) {}\n"
     );
     let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
@@ -776,7 +777,7 @@ fn client_change_document_replays_multi_change_batches_end_to_start() {
         .open_documents
         .get("file:///tmp/project/multi.rs")
         .unwrap();
-    assert_eq!(document.text, "aXbc\nd");
+    assert_eq!(document.text.as_ref(), "aXbc\nd");
 
     let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
     let content_changes = did_change["params"]["contentChanges"].as_array().unwrap();
@@ -819,7 +820,7 @@ fn client_change_document_replays_multi_change_batches_end_to_start() {
         ],
     )
     .unwrap();
-    assert_eq!(replayed, document.text);
+    assert_eq!(replayed, document.text.as_ref());
 
     // Left-to-right sequential apply of the original Monaco order diverges,
     // which is exactly the bug the end-to-start wire order prevents.
@@ -855,7 +856,7 @@ fn client_change_document_replays_multi_change_batches_end_to_start() {
         ],
     )
     .unwrap();
-    assert_ne!(diverged, document.text);
+    assert_ne!(diverged, document.text.as_ref());
 }
 
 #[test]
@@ -910,7 +911,8 @@ fn client_change_document_falls_back_to_full_sync_for_overlapping_ranges() {
             .open_documents
             .get("file:///tmp/project/overlap.rs")
             .unwrap()
-            .text,
+            .text
+            .as_ref(),
         "Z"
     );
     let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
@@ -1288,6 +1290,52 @@ fn client_state_keeps_legacy_diagnostics_shape_compatible() {
     assert!(serialized.get("diagnosticVersions").is_none());
 }
 
+// The engine copies the client state for every request, document change, and
+// server message while holding the session locks. Servers publish diagnostics
+// for every file during a project import, so copying the open documents' text
+// each time stalled completion and navigation behind the import.
+#[test]
+fn client_core_reduction_shares_open_document_text() {
+    let uri = "file:///tmp/project/Main.java";
+    let mut state = LspClientState {
+        initialized: true,
+        ..LspClientState::default()
+    };
+    state.open_documents.insert(
+        uri.to_string(),
+        LspClientDocument {
+            uri: uri.to_string(),
+            language_id: "java".to_string(),
+            version: 1,
+            text: "class Main {}\n".into(),
+        },
+    );
+
+    let reduced = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: state.clone(),
+        message: json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": { "uri": "file:///tmp/project/Other.java", "diagnostics": [] }
+        })
+        .to_string(),
+    })
+    .unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        &state.open_documents[uri].text,
+        &reduced.state.open_documents[uri].text
+    ));
+
+    // Hosts and fixtures still see the text as a plain JSON string.
+    let serialized = serde_json::to_value(&reduced.state).unwrap();
+    assert_eq!(serialized["openDocuments"][uri]["text"], "class Main {}\n");
+    let restored: LspClientState = serde_json::from_value(serialized).unwrap();
+    assert_eq!(
+        restored.open_documents[uri].text.as_ref(),
+        "class Main {}\n"
+    );
+}
+
 #[test]
 fn client_core_waits_for_shutdown_response_before_exiting() {
     let mut state = LspClientState {
@@ -1301,7 +1349,7 @@ fn client_core_waits_for_shutdown_response_before_exiting() {
             uri: "file:///tmp/project/main.go".to_string(),
             language_id: "go".to_string(),
             version: 1,
-            text: "package main\n".to_string(),
+            text: "package main\n".into(),
         },
     );
 

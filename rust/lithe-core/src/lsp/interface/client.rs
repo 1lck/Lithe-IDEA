@@ -151,7 +151,7 @@ pub fn client_open_document(
         uri: request.uri.clone(),
         language_id: request.language_id,
         version: 1,
-        text: request.text,
+        text: request.text.into(),
     };
     let message = json_rpc_notification(
         "textDocument/didOpen",
@@ -231,7 +231,7 @@ pub fn client_change_document(
     };
     let mut document = document;
     document.version += 1;
-    document.text = next_text;
+    document.text = next_text.into();
     let message = json_rpc_notification(
         "textDocument/didChange",
         json!({
@@ -346,19 +346,22 @@ fn client_feature_request_with_document_ownership(
 pub fn client_apply_server_message(
     request: ClientApplyServerMessageRequest,
 ) -> Result<LspClientResponse, CoreError> {
-    client_apply_server_message_for_plugin(request, false)
-}
-
-/// Applies function protocol messages only for sessions with a runtime-owned plugin identity.
-pub(super) fn client_apply_server_message_for_plugin(
-    request: ClientApplyServerMessageRequest,
-    plugin_owned: bool,
-) -> Result<LspClientResponse, CoreError> {
-    let mut state = request.state;
     let message: Value = serde_json::from_str(&request.message).map_err(|error| {
         CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP server JSON message")
             .with_details(error.to_string())
     })?;
+    client_apply_server_message_for_plugin(request.state, &message, false)
+}
+
+/// Applies function protocol messages only for sessions with a runtime-owned plugin identity.
+///
+/// Takes the message already parsed: the engine parses each server message once,
+/// outside the session state lock, and reduces it while holding that lock.
+pub(super) fn client_apply_server_message_for_plugin(
+    mut state: LspClientState,
+    message: &Value,
+    plugin_owned: bool,
+) -> Result<LspClientResponse, CoreError> {
     let mut responses = Vec::new();
     let mut events = Vec::new();
 
