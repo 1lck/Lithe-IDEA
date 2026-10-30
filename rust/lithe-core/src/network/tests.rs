@@ -58,3 +58,29 @@ fn passwords_keep_every_character_while_identifiers_are_trimmed() {
     assert_eq!(policy["username"], json!("lithe"));
     assert_eq!(policy["password"], json!(" s p "));
 }
+
+#[test]
+fn saved_password_cannot_be_rebound_by_changing_the_endpoint_or_account() {
+    let mut request = json!({
+        "mode": "custom", "proxyType": "http", "host": "proxy.example", "port": 3128,
+        "username": "lithe", "password": "sample-value",
+        "passwordIdentity": {
+            "proxyType": "http", "host": " Proxy.Example ", "port": 3128, "username": " lithe "
+        }
+    });
+    assert_eq!(policy_for(request.clone())["password"], request["password"]);
+    for (field, value) in [
+        ("host", json!("other.example")),
+        ("port", json!(8080)),
+        ("username", json!("Lithe")),
+        ("proxyType", json!("socks5")),
+    ] {
+        let mut changed = request.clone();
+        changed[field] = value;
+        assert_eq!(policy_for(changed)["password"], "", "changed {field}");
+    }
+    request["host"] = json!("other.example");
+    request.as_object_mut().unwrap().remove("passwordIdentity");
+    // A new explicit password belongs to the candidate the user entered.
+    assert_eq!(policy_for(request.clone())["password"], request["password"]);
+}

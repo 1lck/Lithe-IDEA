@@ -587,8 +587,8 @@ struct LitheApp: App {
             diagnosticSink: { message in
                 Self.appendApplicationLog(applicationLogWriter, message: message)
             },
-            proxySessionPolicy: { [networkSessionProvider] configuration in
-                networkSessionProvider.applyPolicy(to: configuration)
+            sessionFactory: { [networkSessionProvider] configuration in
+                networkSessionProvider.makeSession(configuration: configuration)
             }
         )
         _updateChecker = StateObject(wrappedValue: updateChecker)

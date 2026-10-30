@@ -19,9 +19,9 @@ final class MacGitHubHTTPTransport: GitHubHTTPTransport, @unchecked Sendable {
 
     /// Resolved per request so a proxy settings change takes effect without
     /// recreating the transport.
-    private let sessionProvider: @Sendable () -> URLSession
+    private let sessionProvider: @Sendable () -> MacNetworkSessionLease
 
-    init(sessionProvider: @escaping @Sendable () -> URLSession = { .shared }) {
+    init(sessionProvider: @escaping @Sendable () -> MacNetworkSessionLease = { MacNetworkSessionLease() }) {
         self.sessionProvider = sessionProvider
     }
 
@@ -49,7 +49,9 @@ final class MacGitHubHTTPTransport: GitHubHTTPTransport, @unchecked Sendable {
         if plan.requiresAuthentication, let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await sessionProvider().data(for: request)
+        let lease = sessionProvider()
+        defer { withExtendedLifetime(lease) {} }
+        let (data, response) = try await lease.session.data(for: request)
         guard let response = response as? HTTPURLResponse else {
             throw TransportError.invalidResponse
         }

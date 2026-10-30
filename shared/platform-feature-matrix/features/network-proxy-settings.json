@@ -5,7 +5,7 @@
   "capability": "在设置 › 外观与行为 › 网络配置应用自身 HTTP 流量的代理：跟随系统、不走代理、自定义代理服务器（HTTP/SOCKS5、服务器地址、端口、可选用户名与 Keychain 保存的密码、逗号分隔的排除列表），并提供有界的测试连接；插件市场、GitHub、AI 提供方与稳定版回滚下载经统一会话工厂解析代理策略，配置变化后对新请求生效",
   "macos": {
     "implementationStatus": "implemented",
-    "verificationStatus": "verified",
+    "verificationStatus": "pending",
     "evidence": [
       "macos/Sources/Lithe/Models/Settings/NetworkProxyPreferences.swift",
       "macos/Sources/Lithe/Models/Settings/AppSettings.swift",
@@ -19,7 +19,9 @@
       "macos/Sources/Lithe/Models/AppModel/AppModel+NetworkSettings.swift",
       "macos/Sources/Lithe/Views/App/NetworkSettingsView.swift",
       "macos/Tests/LitheTests/NetworkProxySettingsTests.swift",
-      "macos/Tests/LitheTests/MacNetworkSessionProviderTests.swift"
+      "macos/Tests/LitheTests/MacNetworkSessionProviderTests.swift",
+      "macos/Tests/LitheTests/MacNetworkProxyTesterTests.swift",
+      "rust/lithe-core/src/network/tests.rs"
     ]
   },
   "windows": {
@@ -30,6 +32,6 @@
     ]
   },
   "owner": "Settings",
-  "notes": "设置模型（模式/类型/地址/端口/用户名/排除列表）走 AppSettings 的 KeyValueStore 端口持久化；密码不入偏好存储，由组合根经 MacKeychainSecureStore 加载并推入 NetworkProxyPreferences 线程安全快照，保存走 AppModel 的 SecureStore 端口。MacNetworkSessionProvider 按快照缓存会话并在配置变化时 finishTasksAndInvalidate 旧会话，同时暴露 applyPolicy 供自带超时的稳定版回滚下载复用同一策略；三个 URLSession 传输（插件市场、GitHub、AI HTTPS）改为按请求解析 sessionProvider，故设置变化对新请求生效、无需重建服务。自定义未填完整地址/端口时按跟随系统处理，不静默断网。认证质询由 MacProxySessionDelegate 应答（Basic/Digest/NTLM，previousFailureCount 为 0 时），错误凭据不会循环重试。排除列表映射 kCFNetworkProxiesExceptionsList；SOCKS5 使用独立字典键。测试连接经端口 NetworkProxyChecking 由 MacNetworkProxyTester 实现，HEAD https://github.com、10 秒超时、不抛错只回结果。明确不接管：Sparkle 更新（SPUDownloader 写死 defaultSessionConfiguration 且无注入 API，天然跟随系统代理，跟随系统档行为不变）、AI 明文 HTTP 的 NWConnection 分支、Agent/git CLI 子进程、JVM 依赖下载。Windows 是独立的 Tauri/reqwest 网络栈，本条目标记平台专属，由后续 PR 接入。",
-  "verification": "已完成实机验收（2026-10-29，macOS 15.8.1 Intel，打包构建）：设置 › 外观与行为 › 网络三档切换生效；自定义 HTTP 代理 + 测试连接返回成功耗时，错误端口返回失败原因；保存后重启保留且密码经 Keychain 不回显；经自定义代理完成插件市场访问与安装。自动化：运行 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests' 与 ./scripts/macos/test/test-macos.sh --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests|AppSettingsTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests'；运行前后对比安装目录文件清单与哈希，确认运行时未写入发行目录。"
+  "notes": "设置模型（模式/类型/地址/端口/用户名/排除列表）走 AppSettings 的 KeyValueStore 端口持久化；密码不入偏好存储，由组合根经 MacKeychainSecureStore 加载并推入 NetworkProxyPreferences 线程安全快照，保存走 AppModel 的 SecureStore 端口。MacNetworkSessionProvider 按快照缓存会话；配置变化时只替换缓存，覆盖完整请求和流消费的租约释放后才 finishTasksAndInvalidate 旧会话；稳定版回滚通过 makeSession 复用代理与认证装配，同时保留自带超时；三个 URLSession 传输（插件市场、GitHub、AI HTTPS）改为按请求解析 sessionProvider，故设置变化对新请求生效、无需重建服务。自定义未填完整地址/端口时按跟随系统处理，不静默断网。认证质询由 MacProxySessionDelegate 应答（Basic/Digest/NTLM，previousFailureCount 为 0 时），错误凭据不会循环重试。排除列表映射 kCFNetworkProxiesExceptionsList；SOCKS5 使用独立字典键。测试连接经端口 NetworkProxyChecking 由 MacNetworkProxyTester 实现，HEAD https://github.com、10 秒超时、不抛错只回结果。明确不接管：Sparkle 更新（SPUDownloader 写死 defaultSessionConfiguration 且无注入 API，天然跟随系统代理，跟随系统档行为不变）、AI 明文 HTTP 的 NWConnection 分支、Agent/git CLI 子进程、JVM 依赖下载。Windows 是独立的 Tauri/reqwest 网络栈，本条目标记平台专属，由后续 PR 接入。 2026-10-30 评审修复：钥匙串将代理身份与密码原子保存，Rust 校验身份后才复用已存密码；旧版无身份密码要求重新输入。三个传输改用覆盖完整响应消费的会话租约，最后拥有者释放才退役；稳定版回滚使用同一工厂装配认证并保留独立超时。测试连接增加资源总超时与视图取消/过期结果隔离。",
+  "verification": "已完成实机验收（2026-10-29，macOS 15.8.1 Intel，打包构建）：设置 › 外观与行为 › 网络三档切换生效；自定义 HTTP 代理 + 测试连接返回成功耗时，错误端口返回失败原因；保存后重启保留且密码经 Keychain 不回显；经自定义代理完成插件市场访问与安装。自动化：运行 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests' 与 ./scripts/macos/test/test-macos.sh --filter 'NetworkProxySettingsTests|MacNetworkSessionProviderTests|AppSettingsTests|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests'；运行前后对比安装目录文件清单与哈希，确认运行时未写入发行目录。 本次安全与生命周期修复的真实认证代理/完整产品流程尚待复验，不沿用原实机验收作为新行为的 verified 证据。 本次修复本地验证：Swift 6.3.3 + macOS 26.5 SDK，逐项计时运行 8 套件 85 测试全过；Rust Core 1373 单元测试与 32 集成测试全过，网络策略 4 项另有逐项计时；i18n 35 项测试、语言/生成检查、共享契约、服务边界、bundle 只读、Agent Notes 与 Windows 静态边界门禁通过。"
 }

@@ -276,23 +276,37 @@ final class AppSettings: ObservableObject {
         networkProxyPreferences.update(configuration)
     }
 
-    /// The password a connectivity check should use: an explicit draft wins;
-    /// otherwise the saved Keychain password keeps an already working proxy
-    /// verifiable after the save cleared the field.
-    func effectiveNetworkProxyPassword(draft: String) -> String {
-        draft.isEmpty ? networkProxyPreferences.snapshot.password : draft
+    /// Drafts retain the saved credential's identity. Only a newly typed
+    /// password is unbound; Rust decides whether a saved one matches this draft.
+    func networkProxyCandidate(type: NetworkProxyType, host: String, port: Int,
+                               username: String, passwordDraft: String) -> NetworkProxyConfiguration {
+        var configuration = networkProxyPreferences.snapshot
+        configuration.mode = .custom
+        configuration.type = type
+        configuration.host = host
+        configuration.port = port
+        configuration.username = username
+        if !passwordDraft.isEmpty {
+            configuration.password = passwordDraft
+            configuration.passwordIdentity = nil
+        }
+        return configuration
     }
 
-    /// The password lives in the Keychain, never in defaults; callers merge
-    /// it into the live snapshot after loading or changing it.
-    func updateNetworkProxyPassword(_ password: String) {
+    /// Loading must use the identity stored with the secret, not today's
+    /// mutable endpoint. This also prevents rebinding after a failed save.
+    func updateNetworkProxyCredential(_ credential: NetworkProxyCredential?) {
+        networkProxyCredential = credential
         var configuration = networkProxyPreferences.snapshot
-        configuration.password = password
+        configuration.password = credential?.password ?? ""
+        configuration.passwordIdentity = credential?.identity
         networkProxyPreferences.update(configuration)
     }
 
+    @Published private(set) var networkProxyCredential: NetworkProxyCredential? = nil
+
     var networkProxyHasSavedPassword: Bool {
-        !networkProxyPreferences.snapshot.password.isEmpty
+        networkProxyCredential?.password.isEmpty == false
     }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }

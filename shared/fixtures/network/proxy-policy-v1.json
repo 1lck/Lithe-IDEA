@@ -10,7 +10,9 @@
         "port": 3128,
         "username": "lithe",
         "password": "secret",
-        "exclusions": ["127.0.0.1"]
+        "exclusions": [
+          "127.0.0.1"
+        ]
       },
       "expected": {
         "policy": "system",
@@ -51,7 +53,11 @@
         "port": 7890,
         "username": " lithe ",
         "password": "s ecret",
-        "exclusions": [" 127.0.0.1 ", "", " *.internal.example "]
+        "exclusions": [
+          " 127.0.0.1 ",
+          "",
+          " *.internal.example "
+        ]
       },
       "expected": {
         "policy": "custom",
@@ -60,7 +66,10 @@
         "port": 7890,
         "username": "lithe",
         "password": "s ecret",
-        "exclusions": ["127.0.0.1", "*.internal.example"],
+        "exclusions": [
+          "127.0.0.1",
+          "*.internal.example"
+        ],
         "configured": true
       }
     },
@@ -135,6 +144,141 @@
         "password": "",
         "exclusions": [],
         "configured": false
+      }
+    },
+    {
+      "name": "savedPasswordMatches",
+      "request": {
+        "mode": "custom",
+        "proxyType": "http",
+        "host": "proxy.example",
+        "port": 3128,
+        "username": "lithe",
+        "password": "sample-value",
+        "passwordIdentity": {
+          "proxyType": "http",
+          "host": " Proxy.Example ",
+          "port": 3128,
+          "username": " lithe "
+        }
+      },
+      "expected": {
+        "proxyType": "http",
+        "host": "proxy.example",
+        "port": 3128,
+        "username": "lithe",
+        "password": "sample-value",
+        "policy": "custom",
+        "configured": true,
+        "exclusions": []
+      }
+    },
+    {
+      "name": "savedPasswordOtherHost",
+      "request": {
+        "mode": "custom",
+        "proxyType": "http",
+        "host": "other.example",
+        "port": 3128,
+        "username": "lithe",
+        "password": "sample-value",
+        "passwordIdentity": {
+          "proxyType": "http",
+          "host": " Proxy.Example ",
+          "port": 3128,
+          "username": " lithe "
+        }
+      },
+      "expected": {
+        "proxyType": "http",
+        "host": "other.example",
+        "port": 3128,
+        "username": "lithe",
+        "password": "",
+        "policy": "custom",
+        "configured": true,
+        "exclusions": []
+      }
+    },
+    {
+      "name": "savedPasswordOtherPort",
+      "request": {
+        "mode": "custom",
+        "proxyType": "http",
+        "host": "proxy.example",
+        "port": 8080,
+        "username": "lithe",
+        "password": "sample-value",
+        "passwordIdentity": {
+          "proxyType": "http",
+          "host": " Proxy.Example ",
+          "port": 3128,
+          "username": " lithe "
+        }
+      },
+      "expected": {
+        "proxyType": "http",
+        "host": "proxy.example",
+        "port": 8080,
+        "username": "lithe",
+        "password": "",
+        "policy": "custom",
+        "configured": true,
+        "exclusions": []
+      }
+    },
+    {
+      "name": "savedPasswordOtherUser",
+      "request": {
+        "mode": "custom",
+        "proxyType": "http",
+        "host": "proxy.example",
+        "port": 3128,
+        "username": "other",
+        "password": "sample-value",
+        "passwordIdentity": {
+          "proxyType": "http",
+          "host": " Proxy.Example ",
+          "port": 3128,
+          "username": " lithe "
+        }
+      },
+      "expected": {
+        "proxyType": "http",
+        "host": "proxy.example",
+        "port": 3128,
+        "username": "other",
+        "password": "",
+        "policy": "custom",
+        "configured": true,
+        "exclusions": []
+      }
+    },
+    {
+      "name": "savedPasswordOtherType",
+      "request": {
+        "mode": "custom",
+        "proxyType": "socks5",
+        "host": "proxy.example",
+        "port": 3128,
+        "username": "lithe",
+        "password": "sample-value",
+        "passwordIdentity": {
+          "proxyType": "http",
+          "host": " Proxy.Example ",
+          "port": 3128,
+          "username": " lithe "
+        }
+      },
+      "expected": {
+        "proxyType": "socks5",
+        "host": "proxy.example",
+        "port": 3128,
+        "username": "lithe",
+        "password": "",
+        "policy": "custom",
+        "configured": true,
+        "exclusions": []
       }
     }
   ]

@@ -12,29 +12,29 @@ struct MacNetworkProxyTester: NetworkProxyChecking {
     /// the live session factory would.
     private let policyResolver: @Sendable (NetworkProxyConfiguration) -> RustCoreBridge.NetworkProxyPolicyPlan?
 
+    private let sessionFactory: @Sendable (URLSessionConfiguration, RustCoreBridge.NetworkProxyPolicyPlan) -> MacNetworkSessionLease
+
     init(
+        sessionFactory: @escaping @Sendable (URLSessionConfiguration, RustCoreBridge.NetworkProxyPolicyPlan) -> MacNetworkSessionLease = {
+            MacNetworkSessionProvider.makeSession(configuration: $0, plan: $1)
+        },
         policyResolver: @escaping @Sendable (NetworkProxyConfiguration) -> RustCoreBridge.NetworkProxyPolicyPlan?
     ) {
+        self.sessionFactory = sessionFactory
         self.policyResolver = policyResolver
     }
 
-    func check(
-        type: NetworkProxyType,
-        host: String,
-        port: Int,
-        username: String,
-        password: String
-    ) async -> NetworkProxyCheckOutcome {
-        var configuration = NetworkProxyConfiguration()
-        configuration.mode = .custom
-        configuration.type = type
-        configuration.host = host
-        configuration.port = port
-        configuration.username = username
-        configuration.password = password
+    static func checkConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        return configuration
+    }
+
+    func check(configuration: NetworkProxyConfiguration) async -> NetworkProxyCheckOutcome {
         // Validated before Core sees the request: an incomplete candidate is
         // a user-input problem, not a policy that silently bypasses the proxy.
-        guard (1...65_535).contains(port), !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard (1...65_535).contains(configuration.port), !configuration.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return NetworkProxyCheckOutcome(
                 succeeded: false, elapsedMilliseconds: 0,
                 detail: L10n.string("Enter a server address and a port between 1 and 65535 first.")
@@ -46,19 +46,12 @@ struct MacNetworkProxyTester: NetworkProxyChecking {
                 detail: L10n.string("Enter a server address and a port between 1 and 65535 first.")
             )
         }
-        let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.timeoutIntervalForRequest = Self.timeout
-        if let proxyDictionary = MacNetworkSessionProvider.proxyDictionary(for: plan) {
-            sessionConfiguration.connectionProxyDictionary = proxyDictionary
+        let lease = sessionFactory(Self.checkConfiguration(), plan)
+        let session = lease.session
+        defer {
+            session.invalidateAndCancel()
+            withExtendedLifetime(lease) {}
         }
-        let delegate = MacProxySessionDelegate(credential: .init(
-            host: plan.host,
-            port: plan.port,
-            username: plan.username,
-            password: plan.password
-        ))
-        let session = URLSession(configuration: sessionConfiguration, delegate: delegate, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
 
         var request = URLRequest(url: Self.targetURL)
         request.httpMethod = "HEAD"

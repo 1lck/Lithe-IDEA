@@ -21,6 +21,8 @@ struct NetworkSettingsView: View {
     @State private var password = ""
     @State private var exclusions = ""
     @State private var checkInFlight = false
+    @State private var checkTask: Task<Void, Never>?
+    @State private var checkID = UUID()
     @State private var checkOutcome: NetworkProxyCheckOutcome?
     @State private var saveMessage: String?
 
@@ -64,7 +66,7 @@ struct NetworkSettingsView: View {
                             .frame(maxWidth: 320)
                     }
                     row("Password", info: settings.networkProxyHasSavedPassword
-                        ? "A password is saved. Type a new one to replace it; saving an empty field keeps the saved password."
+                        ? "A password is saved for its original proxy. An empty field reuses it only when the proxy type, address, port and username match."
                         : "Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files.") {
                         HStack(spacing: 6) {
                             LitheTextField("Optional", text: $password, secure: true)
@@ -91,6 +93,13 @@ struct NetworkSettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear { syncDrafts() }
+        .onDisappear { cancelCheck() }
+        .onChange(of: settings.networkProxyMode) { _ in cancelCheck() }
+        .onChange(of: proxyType) { _ in invalidateCheck() }
+        .onChange(of: host) { _ in invalidateCheck() }
+        .onChange(of: port) { _ in invalidateCheck() }
+        .onChange(of: username) { _ in invalidateCheck() }
+        .onChange(of: password) { _ in invalidateCheck() }
         .onChange(of: settings.networkProxyType) { _ in syncDrafts() }
         .onChange(of: settings.networkProxyHost) { _ in syncDrafts() }
         .onChange(of: settings.networkProxyPort) { _ in syncDrafts() }
@@ -199,6 +208,7 @@ struct NetworkSettingsView: View {
     /// Keychain, so resetting clears it too; a stale check result goes with
     /// the values it was measured against.
     private func resetDrafts() {
+        cancelCheck()
         syncDrafts()
         password = ""
         saveMessage = nil
@@ -215,20 +225,32 @@ struct NetworkSettingsView: View {
         }
         checkOutcome = nil
         checkInFlight = true
-        // An empty password field means "keep the saved password", so the
-        // check verifies the configuration a save would produce.
-        let effectivePassword = settings.effectiveNetworkProxyPassword(draft: password)
-        Task {
-            let outcome = await model.checkProxyConnection(
-                type: proxyType,
-                host: trimmedHost,
-                port: parsedPort,
-                username: username.trimmingCharacters(in: .whitespacesAndNewlines),
-                password: effectivePassword
-            )
+        // Keep the saved password bound to its original proxy identity.
+        let candidate = settings.networkProxyCandidate(
+            type: proxyType, host: trimmedHost, port: parsedPort,
+            username: username.trimmingCharacters(in: .whitespacesAndNewlines), passwordDraft: password
+        )
+        let id = UUID()
+        checkID = id
+        checkTask = Task {
+            let outcome = await model.checkProxyConnection(configuration: candidate)
+            guard !Task.isCancelled, checkID == id else { return }
+            checkTask = nil
             checkOutcome = outcome
             checkInFlight = false
         }
+    }
+
+    private func invalidateCheck() {
+        cancelCheck()
+        checkOutcome = nil
+    }
+
+    private func cancelCheck() {
+        checkID = UUID()
+        checkTask?.cancel()
+        checkTask = nil
+        checkInFlight = false
     }
 
     private func row<Content: View>(

@@ -72050,12 +72050,12 @@
     },
     {
       "id": "settings.network.info.passwordSaved",
-      "description": "Native UI: A password is saved. Type a new one to replace it; saving an empty field keeps the saved password.",
+      "description": "Native UI: A password is saved for its original proxy. An empty field reuses it only when the proxy type, address, port and username match.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "A password is saved. Type a new one to replace it; saving an empty field keeps the saved password.",
+        "key": "A password is saved for its original proxy. An empty field reuses it only when the proxy type, address, port and username match.",
         "arguments": []
       }
     },

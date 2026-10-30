@@ -7,9 +7,9 @@ struct MacURLSessionTransport: AIHTTPTransport {
     /// Resolved per request so a proxy settings change takes effect without
     /// recreating the transport. The plaintext HTTP branch bypasses
     /// URLSession (`NWConnection`) and therefore never uses a proxy.
-    let sessionProvider: @Sendable () -> URLSession
+    let sessionProvider: @Sendable () -> MacNetworkSessionLease
 
-    init(sessionProvider: @escaping @Sendable () -> URLSession = { .shared }) {
+    init(sessionProvider: @escaping @Sendable () -> MacNetworkSessionLease = { MacNetworkSessionLease() }) {
         self.sessionProvider = sessionProvider
     }
 
@@ -29,7 +29,9 @@ struct MacURLSessionTransport: AIHTTPTransport {
                 urlRequest.setValue(value, forHTTPHeaderField: key)
             }
 
-            let (data, response) = try await sessionProvider().data(for: urlRequest)
+            let lease = sessionProvider()
+            defer { withExtendedLifetime(lease) {} }
+            let (data, response) = try await lease.session.data(for: urlRequest)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw AIHTTPTransportError.invalidResponse
             }

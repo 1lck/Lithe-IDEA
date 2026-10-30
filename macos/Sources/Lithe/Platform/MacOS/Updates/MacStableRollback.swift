@@ -26,10 +26,12 @@ final class MacStableRollback: ObservableObject {
     private let diagnosticSink: @Sendable (String) -> Void
 
     init(diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) },
-         proxyPolicy: @escaping @Sendable (URLSessionConfiguration) -> Void = { _ in },
+         sessionFactory: @escaping @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease = {
+             MacNetworkSessionProvider.makeSession(configuration: $0, plan: nil)
+         },
          loadPackage: PackageLoader? = nil) {
         self.loadPackage = loadPackage ?? { bundle, preparing in
-            try await StableRollbackPackage.download(bundle: bundle, preparing: preparing, applyProxyPolicy: proxyPolicy)
+            try await StableRollbackPackage.download(bundle: bundle, preparing: preparing, sessionFactory: sessionFactory)
         }
         self.diagnosticSink = diagnosticSink
     }
@@ -161,7 +163,9 @@ struct StableRollbackPackage: Sendable {
 
     static func download(bundle: Bundle,
                          preparing: @escaping @Sendable () async -> Void,
-                         applyProxyPolicy: @escaping @Sendable (URLSessionConfiguration) -> Void = { _ in }) async throws -> Self {
+                         sessionFactory: @escaping @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease = {
+                             MacNetworkSessionProvider.makeSession(configuration: $0, plan: nil)
+                         }) async throws -> Self {
         let target = bundle.bundleURL.resolvingSymlinksInPath()
         guard target.pathExtension == "app", let identifier = bundle.bundleIdentifier,
               let architecture = UpdateArchitecture.current else { throw UpdateCheckError.notAppBundle }
@@ -170,12 +174,9 @@ struct StableRollbackPackage: Sendable {
         guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
             throw StableRollbackFailure.cannotReplace
         }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 1800
-        applyProxyPolicy(configuration)
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
+        let lease = makeDownloadSession(using: sessionFactory)
+        defer { lease.session.invalidateAndCancel() }
+        let session = lease.session
         let (data, response) = try await session.data(from: UpdateEndpointConfiguration.productionManifestURL)
         try validateResponse(response)
         let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data).validated()
@@ -190,6 +191,15 @@ struct StableRollbackPackage: Sendable {
         await preparing()
         return try await prepare(download: download, asset: asset, version: manifest.version,
             target: target, identifier: identifier, architecture: architecture, publicKey: publicKey)
+    }
+
+    static func makeDownloadSession(
+        using factory: @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease
+    ) -> MacNetworkSessionLease {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 1800
+        return factory(configuration)
     }
 
     private static func validateResponse(_ response: URLResponse) throws {

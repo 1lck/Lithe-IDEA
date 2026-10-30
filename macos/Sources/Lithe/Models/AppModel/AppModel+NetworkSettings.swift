@@ -18,9 +18,15 @@ extension AppModel {
             if password.isEmpty {
                 try store.delete(key: AppSettings.networkProxyPasswordKey)
             } else {
-                try store.write(password, key: AppSettings.networkProxyPasswordKey)
+                let credential = NetworkProxyCredential(
+                    identity: NetworkProxyIdentity(configuration: settings.networkProxyPreferences.snapshot),
+                    password: password
+                )
+                try credential.save(to: store, key: AppSettings.networkProxyPasswordKey)
+                settings.updateNetworkProxyCredential(credential)
+                return nil
             }
-            settings.updateNetworkProxyPassword(password)
+            settings.updateNetworkProxyCredential(nil)
             return nil
         } catch {
             return error.localizedDescription
@@ -34,14 +40,8 @@ extension AppModel {
     }
 
     /// Runs the bounded connectivity check through the drafted proxy values.
-    func checkProxyConnection(
-        type: NetworkProxyType,
-        host: String,
-        port: Int,
-        username: String,
-        password: String
-    ) async -> NetworkProxyCheckOutcome? {
+    func checkProxyConnection(configuration: NetworkProxyConfiguration) async -> NetworkProxyCheckOutcome? {
         guard let checker = services.proxyConnectionChecker else { return nil }
-        return await checker.check(type: type, host: host, port: port, username: username, password: password)
+        return await checker.check(configuration: configuration)
     }
 }

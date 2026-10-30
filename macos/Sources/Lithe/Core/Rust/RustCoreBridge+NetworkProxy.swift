@@ -33,6 +33,7 @@ extension RustCoreBridge {
         let port: Int
         let username: String
         let password: String
+        let passwordIdentity: NetworkProxyIdentity?
         let exclusions: [String]
     }
 
@@ -49,6 +50,7 @@ extension RustCoreBridge {
                 port: configuration.port,
                 username: configuration.username,
                 password: configuration.password,
+                passwordIdentity: configuration.passwordIdentity,
                 exclusions: configuration.exclusions
             )
         )

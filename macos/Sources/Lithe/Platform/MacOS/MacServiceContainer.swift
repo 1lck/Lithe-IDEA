@@ -123,8 +123,8 @@ final class MacServiceContainer {
                 }
             )
         let proxyPasswordStore = MacKeychainSecureStore(service: fileStorage.identity.keychainService("proxy"))
-        if let storedProxyPassword = proxyPasswordStore.read(key: AppSettings.networkProxyPasswordKey) {
-            settings.updateNetworkProxyPassword(storedProxyPassword)
+        if let credential = NetworkProxyCredential.load(from: proxyPasswordStore, key: AppSettings.networkProxyPasswordKey) {
+            settings.updateNetworkProxyCredential(credential)
         }
         let proxyConnectionChecker = MacNetworkProxyTester(policyResolver: { [rustCore] configuration in
             rustCore.networkProxyPolicy(from: configuration)
@@ -155,7 +155,7 @@ final class MacServiceContainer {
         let secureStore = MacLocalSecretStore()
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
-            transport: MacGitHubHTTPTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.currentSession() }),
+            transport: MacGitHubHTTPTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.acquireSession() }),
             configuration: MacGitHubConfiguration(),
             secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("github")),
             git: MacGitHubGitOperations(core: rustCore)
@@ -281,7 +281,7 @@ final class MacServiceContainer {
         }
         let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
-        let proxySessionProvider: @Sendable () -> URLSession = { [networkSessionProvider] in networkSessionProvider.currentSession() }
+        let proxySessionProvider: @Sendable () -> MacNetworkSessionLease = { [networkSessionProvider] in networkSessionProvider.acquireSession() }
         #if DEBUG
         pluginMarketplaceTransport = MacPluginMarketplaceFixtureTransport.fromEnvironment()
             ?? MacURLSessionPluginMarketplaceTransport(sessionProvider: proxySessionProvider)
@@ -317,7 +317,7 @@ final class MacServiceContainer {
             ) {
                 AIAssistanceModule(
                     transportFactory: {
-                        MacURLSessionTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.currentSession() })
+                        MacURLSessionTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.acquireSession() })
                     },
                     credentialResolver: credentialResolver
                 )

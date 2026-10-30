@@ -118,15 +118,15 @@ struct MacNetworkSessionProviderTests {
         let preferences = NetworkProxyPreferences()
         let current = PlanBox(plan(policy: .system, configured: false))
         let provider = MacNetworkSessionProvider(preferences: preferences) { _ in current.value }
-        let first = provider.currentSession()
-        #expect(provider.currentSession() === first)
+        let first = provider.acquireSession()
+        #expect(provider.acquireSession().session === first.session)
 
         current.value = plan(policy: .custom, proxyType: .http, host: "proxy.example", port: 3128, configured: true)
-        let second = provider.currentSession()
-        #expect(second !== first)
+        let second = provider.acquireSession()
+        #expect(second.session !== first.session)
 
         // An identical plan keeps the session built for it.
-        #expect(provider.currentSession() === second)
+        #expect(provider.acquireSession().session === second.session)
     }
 
     @Test
@@ -134,38 +134,77 @@ struct MacNetworkSessionProviderTests {
         let preferences = NetworkProxyPreferences()
         let current = PlanBox(plan(policy: .direct, configured: true))
         let provider = MacNetworkSessionProvider(preferences: preferences) { _ in current.value }
-        #expect(provider.currentSession().configuration.connectionProxyDictionary?.isEmpty == true)
+        #expect(provider.acquireSession().session.configuration.connectionProxyDictionary?.isEmpty == true)
 
         current.value = plan(policy: .custom, proxyType: .http, host: "proxy.example", port: 3128, configured: true)
-        let dictionary = provider.currentSession().configuration.connectionProxyDictionary
+        let dictionary = provider.acquireSession().session.configuration.connectionProxyDictionary
         #expect(dictionary?[kCFNetworkProxiesHTTPEnable as AnyHashable] as? Bool == true)
 
         current.value = plan(policy: .system, configured: false)
-        #expect(provider.currentSession().configuration.connectionProxyDictionary == nil)
+        #expect(provider.acquireSession().session.configuration.connectionProxyDictionary == nil)
+    }
+
+    @Test(arguments: [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLAuthenticationMethodNTLM])
+    func callerOwnedSessionsKeepTimeoutsAndAuthenticationTogether(method: String) throws {
+        let preferences = NetworkProxyPreferences()
+        let provider = provider(preferences: preferences, plan: plan(
+            policy: .custom, host: "proxy.example", port: 3128,
+            username: "lithe", password: "secret", configured: true
+        ))
+        let lease = StableRollbackPackage.makeDownloadSession { provider.makeSession(configuration: $0) }
+        defer { withExtendedLifetime(lease) {} }
+        #expect(lease.session.configuration.timeoutIntervalForRequest == 60)
+        #expect(lease.session.configuration.timeoutIntervalForResource == 1800)
+        #expect(lease.session.configuration.urlCredentialStorage == nil)
+        let delegate = try #require(lease.session.delegate as? MacProxySessionDelegate)
+        #expect(disposition(delegate, for: proxyChallenge(host: "proxy.example", port: 3128, method: method)) == .useCredential)
+        #expect(disposition(delegate, for: proxyChallenge(host: "other.example", port: 3128)) == .performDefaultHandling)
     }
 
     @Test
-    func applyPolicySharesOneImplementationWithCallerOwnedConfigurations() {
+    func replacingTheCacheBeforeTaskCreationKeepsTheOldLeaseUsable() {
         let preferences = NetworkProxyPreferences()
-        let current = PlanBox(plan(policy: .custom, proxyType: .http, host: "proxy.example", port: 3128, configured: true))
+        let current = PlanBox(plan(policy: .direct, configured: true))
         let provider = MacNetworkSessionProvider(preferences: preferences) { _ in current.value }
-
-        let rollbackConfiguration = URLSessionConfiguration.ephemeral
-        provider.applyPolicy(to: rollbackConfiguration)
-        #expect(rollbackConfiguration.connectionProxyDictionary?[kCFNetworkProxiesHTTPProxy as AnyHashable] as? String == "proxy.example")
-
+        let first = provider.acquireSession()
+        defer { withExtendedLifetime(first) {} }
         current.value = plan(policy: .system, configured: false)
-        let untouched = URLSessionConfiguration.ephemeral
-        provider.applyPolicy(to: untouched)
-        #expect(untouched.connectionProxyDictionary == nil)
+        let replacement = provider.acquireSession()
+        defer { withExtendedLifetime(replacement) {} }
+        #expect(first.session !== replacement.session)
+        // This event ordering reproduces the race without sleeps or sockets:
+        // A acquires, B replaces the cache, A only then creates its task.
+        let task = first.session.dataTask(with: URL(string: "https://example.invalid")!)
+        defer { task.cancel() }
+        #expect(task.state == .suspended)
+    }
+
+    @Test
+    func aLeaseOutlivesItsProviderAndStillAllowsTaskCreation() {
+        let lease: MacNetworkSessionLease
+        do {
+            let provider = provider(preferences: NetworkProxyPreferences(), plan: plan(policy: .direct, configured: true))
+            lease = provider.acquireSession()
+        }
+        defer { withExtendedLifetime(lease) {} }
+        let task = lease.session.dataTask(with: URL(string: "https://example.invalid")!)
+        defer { task.cancel() }
+        #expect(task.state == .suspended)
+    }
+
+    @Test
+    func connectionCheckBoundsBothIdleAndTotalTime() {
+        let configuration = MacNetworkProxyTester.checkConfiguration()
+        #expect(configuration.timeoutIntervalForRequest == 10)
+        #expect(configuration.timeoutIntervalForResource == 10)
     }
 
     // MARK: Credential scoping (review P1)
 
-    private func proxyChallenge(host: String, port: Int, previousFailureCount: Int = 0) -> URLAuthenticationChallenge {
+    private func proxyChallenge(host: String, port: Int, previousFailureCount: Int = 0, method: String = NSURLAuthenticationMethodHTTPBasic) -> URLAuthenticationChallenge {
         let space = URLProtectionSpace(
             proxyHost: host, port: port, type: "http",
-            realm: nil, authenticationMethod: NSURLAuthenticationMethodHTTPBasic
+            realm: nil, authenticationMethod: method
         )
         return URLAuthenticationChallenge(
             protectionSpace: space, proposedCredential: nil, previousFailureCount: previousFailureCount,
@@ -178,7 +217,9 @@ struct MacNetworkSessionProviderTests {
         for challenge: URLAuthenticationChallenge
     ) -> URLSession.AuthChallengeDisposition {
         let inertSession = URLSession(configuration: .ephemeral)
+        defer { inertSession.invalidateAndCancel() }
         let task = inertSession.dataTask(with: URL(string: "https://github.com")!)
+        defer { task.cancel() }
         var observed: URLSession.AuthChallengeDisposition?
         delegate.urlSession(inertSession, task: task, didReceive: challenge) { result, _ in
             observed = result
@@ -250,11 +291,12 @@ struct MacNetworkSessionProviderTests {
             username: "lithe", password: "secret", configured: true
         ))
         let provider = MacNetworkSessionProvider(preferences: preferences) { _ in current.value }
-        _ = provider.currentSession()
+        _ = provider.acquireSession()
 
         current.value = plan(policy: .system, configured: false)
-        let systemSession = provider.currentSession()
-        #expect(systemSession.configuration.connectionProxyDictionary == nil)
+        let systemSession = provider.acquireSession()
+        #expect(systemSession.session.configuration.connectionProxyDictionary == nil)
+        #expect(systemSession.session.delegate == nil)
     }
 }
 

@@ -1,18 +1,38 @@
 import CFNetwork
 import Foundation
 
-/// Builds the URL sessions used by the app's own HTTP traffic, applying the
-/// proxy policy Rust Core normalizes from `NetworkProxyPreferences`. Sessions
-/// are cached per resolved plan and rebuilt when settings change; in-flight
-/// tasks of a replaced session finish instead of being cancelled.
+/// A request keeps its lease through response consumption. The cache may
+/// replace its entry, but the old session only retires after its last user.
+final class MacNetworkSessionLease: @unchecked Sendable {
+    let session: URLSession
+    private let owner: MacNetworkSessionEntry?
+
+    fileprivate init(entry: MacNetworkSessionEntry) {
+        session = entry.session
+        owner = entry
+    }
+
+    /// Non-owning wrapper for the system shared session or a test-owned session.
+    init(session: URLSession = .shared) {
+        self.session = session
+        owner = nil
+    }
+}
+
+fileprivate final class MacNetworkSessionEntry: @unchecked Sendable {
+    let session: URLSession
+    init(session: URLSession) { self.session = session }
+    deinit { session.finishTasksAndInvalidate() }
+}
+
+/// Rust resolves the policy; this adapter owns session caching and native
+/// authentication. ARC leases keep replacement atomic with request ownership.
 final class MacNetworkSessionProvider: @unchecked Sendable {
     private let preferences: NetworkProxyPreferences
-    /// Resolves the snapshot into the normalized policy. Production wires
-    /// this to `RustCoreBridge.networkProxyPolicy`; tests inject plans.
     private let policyResolver: @Sendable (NetworkProxyConfiguration) -> RustCoreBridge.NetworkProxyPolicyPlan?
     private let lock = NSLock()
     private var cachedPlan: RustCoreBridge.NetworkProxyPolicyPlan?
-    private var cachedSession: URLSession?
+    private var cachedEntry: MacNetworkSessionEntry?
 
     init(
         preferences: NetworkProxyPreferences,
@@ -22,61 +42,47 @@ final class MacNetworkSessionProvider: @unchecked Sendable {
         self.policyResolver = policyResolver
     }
 
-    /// A session whose configuration reflects the resolved plan. Callers
-    /// resolve it per request; a settings change swaps in a new session on
-    /// the next call.
-    func currentSession() -> URLSession {
-        guard let plan = policyResolver(preferences.snapshot) else {
-            // Without a plan (Core rejected the request) the only safe
-            // behavior is the system default resolution.
-            return .shared
-        }
+    func acquireSession() -> MacNetworkSessionLease {
         lock.lock()
         defer { lock.unlock() }
-        if let cachedSession, cachedPlan == plan {
-            return cachedSession
+        let plan = policyResolver(preferences.snapshot)
+        if let cachedEntry, cachedPlan == plan {
+            return MacNetworkSessionLease(entry: cachedEntry)
         }
-        cachedSession?.finishTasksAndInvalidate()
-        let session = URLSession(
-            configuration: Self.makeConfiguration(plan),
-            delegate: Self.makeDelegate(plan),
-            delegateQueue: nil
-        )
-        cachedSession = session
+        let entry = Self.makeEntry(configuration: .default, plan: plan)
+        cachedEntry = entry
         cachedPlan = plan
-        return session
+        return MacNetworkSessionLease(entry: entry)
     }
 
-    /// Applies the resolved policy to a configuration the caller owns, so
-    /// flows that need their own timeouts (the stable rollback downloader)
-    /// share one policy implementation.
-    func applyPolicy(to configuration: URLSessionConfiguration) {
-        guard let plan = policyResolver(preferences.snapshot) else { return }
-        if let proxyDictionary = Self.proxyDictionary(for: plan) {
-            configuration.connectionProxyDictionary = proxyDictionary
-        }
+    /// Caller-owned timeouts, identical proxy and authentication policy. Used
+    /// by rollback downloads; the lease owns this uncached session's cleanup.
+    func makeSession(configuration: URLSessionConfiguration) -> MacNetworkSessionLease {
+        Self.makeSession(configuration: configuration, plan: policyResolver(preferences.snapshot))
     }
 
-    private static func makeConfiguration(_ plan: RustCoreBridge.NetworkProxyPolicyPlan) -> URLSessionConfiguration {
-        let sessionConfiguration = URLSessionConfiguration.default
-        if let proxyDictionary = proxyDictionary(for: plan) {
-            sessionConfiguration.connectionProxyDictionary = proxyDictionary
-        }
-        return sessionConfiguration
+    static func makeSession(configuration: URLSessionConfiguration,
+                            plan: RustCoreBridge.NetworkProxyPolicyPlan?) -> MacNetworkSessionLease {
+        MacNetworkSessionLease(entry: makeEntry(configuration: configuration, plan: plan))
     }
 
-    private static func makeDelegate(_ plan: RustCoreBridge.NetworkProxyPolicyPlan) -> MacProxySessionDelegate? {
-        guard plan.policy == .custom, plan.configured, !plan.username.isEmpty else {
-            // System and direct modes must never answer a proxy challenge:
-            // stored custom credentials belong to their own server only.
-            return nil
+    private static func makeEntry(configuration: URLSessionConfiguration,
+                                  plan: RustCoreBridge.NetworkProxyPolicyPlan?) -> MacNetworkSessionEntry {
+        configuration.connectionProxyDictionary = plan.flatMap { proxyDictionary(for: $0) }
+        let delegate: MacProxySessionDelegate?
+        if let plan, plan.policy == .custom, plan.configured, !plan.username.isEmpty {
+            delegate = MacProxySessionDelegate(
+                expectedProxyHost: plan.host, expectedProxyPort: plan.port,
+                username: plan.username, password: plan.password
+            )
+            // Custom credentials must not survive in a process-wide store.
+            configuration.urlCredentialStorage = nil
+        } else {
+            delegate = nil
         }
-        return MacProxySessionDelegate(
-            expectedProxyHost: plan.host,
-            expectedProxyPort: plan.port,
-            username: plan.username,
-            password: plan.password
-        )
+        return MacNetworkSessionEntry(session: URLSession(
+            configuration: configuration, delegate: delegate, delegateQueue: nil
+        ))
     }
 
     /// The CFNetwork proxy dictionary for a normalized plan. `nil` leaves the
@@ -163,7 +169,7 @@ final class MacProxySessionDelegate: NSObject, URLSessionTaskDelegate {
         // Credentials must only reach the proxy they belong to, never another
         // system proxy that happens to challenge in the same process.
         let matchesBoundProxy = credential.map { bound in
-            space.host == bound.host && space.port == bound.port
+            space.host.caseInsensitiveCompare(bound.host) == .orderedSame && space.port == bound.port
         } ?? false
         let isProxyCredentialChallenge = isProxySpace
             && matchesBoundProxy
@@ -177,7 +183,7 @@ final class MacProxySessionDelegate: NSObject, URLSessionTaskDelegate {
         }
         completionHandler(
             .useCredential,
-            URLCredential(user: credential.username, password: credential.password, persistence: .forSession)
+            URLCredential(user: credential.username, password: credential.password, persistence: .none)
         )
     }
 }

@@ -9567,7 +9567,7 @@
     "settings.network.info.host": "代理服务器的主机名或 IP 地址，例如 127.0.0.1。",
     "settings.network.info.port": "代理服务器的端口，例如 7890。",
     "settings.network.info.username": "代理无需认证时留空。",
-    "settings.network.info.passwordSaved": "已保存密码。输入新密码可替换；保持为空并保存不会清除已保存的密码。",
+    "settings.network.info.passwordSaved": "密码已绑定到原代理。仅当代理类型、地址、端口和用户名一致时，空密码框才会复用已存密码。",
     "settings.network.info.password": "代理无需认证时留空。密码保存在钥匙串中，不会写入设置文件。",
     "settings.network.info.exclusions": "不经过代理的地址，用逗号分隔。支持通配符域名，例如 *.internal.example。",
     "git.rollback.title": "回滚更改",

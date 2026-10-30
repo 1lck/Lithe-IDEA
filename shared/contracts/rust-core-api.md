@@ -2176,11 +2176,23 @@ canonical behavior for that migration. Deterministic cases are pinned by
 `network.proxyPolicy` normalizes the stored proxy settings into the policy a
 network stack must apply. It accepts `{ "mode": "system" | "direct" |
 "custom", "proxyType"?: "http" | "socks5", "host"?: string, "port"?: number,
-"username"?: string, "password"?: string, "exclusions"?: string[] }` (`port`
-must fit in 16 bits, otherwise the request is rejected with
-`invalid_request`) and returns `{ "policy": "system" | "direct" | "custom",
-"proxyType", "host", "port", "username", "password", "exclusions",
-"configured" }`. Hosts and usernames are trimmed, empty exclusion entries are
+"username"?: string, "password"?: string, "passwordIdentity"?: {
+"proxyType": "http" | "socks5", "host": string, "port": number,
+"username": string }, "exclusions"?: string[] }` (`port` must fit in 16 bits,
+otherwise the request is rejected with `invalid_request`) and returns
+`{ "policy": "system" | "direct" | "custom", "proxyType", "host", "port",
+"username", "password", "exclusions", "configured" }`.
+
+An optional `passwordIdentity` binds a restored password to its saved proxy
+type, host, port and username; a mismatch removes the password. Host matching
+is ASCII case-insensitive after trimming; usernames are case-sensitive after
+trimming. Omit the identity only for a password explicitly entered for this
+candidate, never for a restored secret. Hosts persist the identity together
+with the secret in the OS credential vault, not as independently mutable
+preferences. Legacy unscoped saved passwords require re-entry rather than
+being rebound to the current endpoint.
+
+Hosts and usernames are trimmed, empty exclusion entries are
 dropped, and passwords keep every character. A custom server without a host
 or port normalizes to `policy: "system"` with `configured: false`; system and
 direct never carry credentials, so hosts can forward the plan to their network

@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import Testing
 @testable import Lithe
 
@@ -82,7 +83,9 @@ struct NetworkProxySettingsTests {
     func passwordNeverEntersTheKeyValueStoreButReachesTheSnapshot() {
         let store = NetworkProxyTestStore()
         let settings = AppSettings(store: store)
-        settings.updateNetworkProxyPassword("secret")
+        settings.updateNetworkProxyCredential(NetworkProxyCredential(
+            identity: NetworkProxyIdentity(configuration: settings.networkProxyPreferences.snapshot), password: "secret"
+        ))
         #expect(settings.networkProxyPreferences.snapshot.password == "secret")
         #expect(settings.networkProxyHasSavedPassword)
         for (key, value) in store.storedValues {
@@ -90,22 +93,69 @@ struct NetworkProxySettingsTests {
             #expect(!value.contains("secret"), "the password leaked through \(key)")
         }
 
-        settings.updateNetworkProxyPassword("")
+        settings.updateNetworkProxyCredential(nil)
         #expect(settings.networkProxyPreferences.snapshot.password.isEmpty)
         #expect(!settings.networkProxyHasSavedPassword)
     }
 
-    /// Regression for the review P2: after a save clears the password field,
-    /// the connectivity check must still verify the saved password instead of
-    /// authenticating with an empty one.
     @Test
-    func effectivePasswordPrefersTheDraftAndFallsBackToTheSavedOne() {
-        let settings = AppSettings(store: NetworkProxyTestStore())
-        settings.updateNetworkProxyPassword("saved-secret")
-
-        #expect(settings.effectiveNetworkProxyPassword(draft: "") == "saved-secret")
-        #expect(settings.effectiveNetworkProxyPassword(draft: "typed-secret") == "typed-secret")
+    func keychainRecordKeepsIdentityAndRejectsUnscopedLegacySecrets() throws {
+        let store = ProxyCredentialTestStore()
+        let settings = configuredSettings(store: NetworkProxyTestStore())
+        let credential = NetworkProxyCredential(
+            identity: NetworkProxyIdentity(configuration: settings.networkProxyPreferences.snapshot), password: "sample-value"
+        )
+        try credential.save(to: store, key: AppSettings.networkProxyPasswordKey)
+        #expect(NetworkProxyCredential.load(from: store, key: AppSettings.networkProxyPasswordKey) == credential)
+        store.rejectWrites = true
+        #expect(throws: ProxyCredentialTestStore.WriteFailure.self) {
+            try NetworkProxyCredential(identity: credential.identity, password: "replacement").save(
+                to: store, key: AppSettings.networkProxyPasswordKey
+            )
+        }
+        #expect(NetworkProxyCredential.load(from: store, key: AppSettings.networkProxyPasswordKey) == credential)
+        store.value = "legacy-unbound-secret"
+        #expect(NetworkProxyCredential.load(from: store, key: AppSettings.networkProxyPasswordKey) == nil)
     }
+
+    @Test
+    func savedPasswordOnlyFollowsItsOriginalProxyIdentity() throws {
+        let settings = configuredSettings(store: NetworkProxyTestStore())
+        let credential = NetworkProxyCredential(
+            identity: NetworkProxyIdentity(configuration: settings.networkProxyPreferences.snapshot), password: "saved-secret"
+        )
+        settings.updateNetworkProxyCredential(credential)
+        let bridge = RustCoreBridge()
+        func candidate(host: String = "127.0.0.1", port: Int = 7890,
+                       username: String = "lithe", type: NetworkProxyType = .socks5,
+                       draft: String = "") -> NetworkProxyConfiguration {
+            settings.networkProxyCandidate(type: type, host: host, port: port, username: username, passwordDraft: draft)
+        }
+        #expect(bridge.networkProxyPolicy(from: candidate())?.password == credential.password)
+        for changed in [candidate(host: "other.example"), candidate(port: 8080),
+                        candidate(username: "other"), candidate(type: .http)] {
+            #expect(bridge.networkProxyPolicy(from: changed)?.password == "")
+        }
+        #expect(bridge.networkProxyPolicy(from: candidate(host: "other.example", draft: "new-secret"))?.password == "new-secret")
+
+        // Saving an endpoint without a new secret must not rebind the saved
+        // password, either immediately or after restoring the Keychain record.
+        settings.networkProxyHost = "other.example"
+        #expect(bridge.networkProxyPolicy(from: settings.networkProxyPreferences.snapshot)?.password == "")
+        let restored = AppSettings(store: NetworkProxyTestStore())
+        restored.networkProxyMode = .custom
+        restored.networkProxyType = .socks5
+        restored.networkProxyHost = "other.example"
+        restored.networkProxyPort = 7890
+        restored.networkProxyUsername = "lithe"
+        restored.updateNetworkProxyCredential(try JSONDecoder().decode(
+            NetworkProxyCredential.self, from: JSONEncoder().encode(credential)
+        ))
+        #expect(bridge.networkProxyPolicy(from: restored.networkProxyPreferences.snapshot)?.password == "")
+        restored.networkProxyHost = "127.0.0.1"
+        #expect(bridge.networkProxyPolicy(from: restored.networkProxyPreferences.snapshot)?.password == credential.password)
+    }
+
 }
 
 private final class NetworkProxyTestStore: KeyValueStore, @unchecked Sendable {
@@ -118,4 +168,16 @@ private final class NetworkProxyTestStore: KeyValueStore, @unchecked Sendable {
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+private final class ProxyCredentialTestStore: SecureStore, @unchecked Sendable {
+    struct WriteFailure: Error {}
+    var value: String?
+    var rejectWrites = false
+    func read(key: String) -> String? { value }
+    func write(_ value: String, key: String) throws {
+        if rejectWrites { throw WriteFailure() }
+        self.value = value
+    }
+    func delete(key: String) throws { value = nil }
 }

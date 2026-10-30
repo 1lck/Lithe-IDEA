@@ -50,8 +50,22 @@ pub struct NetworkProxyPolicyRequest {
     pub username: String,
     #[serde(default)]
     pub password: String,
+    /// Identity stored with a restored password; absent for an explicit draft.
+    #[serde(default)]
+    pub password_identity: Option<NetworkProxyIdentity>,
     #[serde(default)]
     pub exclusions: Vec<String>,
+}
+
+/// The endpoint and account that own a saved proxy password. Hosts persist
+/// this together with the secret; changing preferences must not rebind it.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkProxyIdentity {
+    pub proxy_type: NetworkProxyType,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
 }
 
 /// The policy kind a network stack must apply after normalization.
@@ -116,13 +130,24 @@ pub fn proxy_policy(request: NetworkProxyPolicyRequest) -> NetworkProxyPolicy {
             if !configured {
                 return empty;
             }
+            let username = request.username.trim();
+            let password_matches = request.password_identity.as_ref().is_none_or(|identity| {
+                identity.proxy_type == proxy_type
+                    && identity.host.trim().eq_ignore_ascii_case(host)
+                    && identity.port == request.port
+                    && identity.username.trim() == username
+            });
             NetworkProxyPolicy {
                 policy: NetworkProxyPolicyKind::Custom,
                 proxy_type,
                 host: host.to_string(),
                 port: request.port,
-                username: request.username.trim().to_string(),
-                password: request.password,
+                username: username.to_string(),
+                password: if password_matches {
+                    request.password
+                } else {
+                    String::new()
+                },
                 exclusions,
                 configured: true,
             }

@@ -9567,7 +9567,7 @@
     "settings.network.info.host": "The proxy server's host name or IP address, for example 127.0.0.1.",
     "settings.network.info.port": "The proxy server's port, for example 7890.",
     "settings.network.info.username": "Leave empty when the proxy does not require authentication.",
-    "settings.network.info.passwordSaved": "A password is saved. Type a new one to replace it; saving an empty field keeps the saved password.",
+    "settings.network.info.passwordSaved": "A password is saved for its original proxy. An empty field reuses it only when the proxy type, address, port and username match.",
     "settings.network.info.password": "Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files.",
     "settings.network.info.exclusions": "Addresses that bypass the proxy, separated by commas. Entries support wildcard domains such as *.internal.example.",
     "git.rollback.title": "Rollback Changes",

@@ -64,11 +64,11 @@ struct MacURLSessionPluginMarketplaceTransport: MacPluginMarketplaceTransport {
     private static let writeChunkBytes = 256 * 1024
     /// Resolved per request so a proxy settings change takes effect without
     /// recreating the transport.
-    let sessionProvider: @Sendable () -> URLSession
+    let sessionProvider: @Sendable () -> MacNetworkSessionLease
     private let temporaryDirectory: URL
 
     init(
-        sessionProvider: @escaping @Sendable () -> URLSession = { .shared },
+        sessionProvider: @escaping @Sendable () -> MacNetworkSessionLease = { MacNetworkSessionLease() },
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) {
         self.sessionProvider = sessionProvider
@@ -90,7 +90,9 @@ struct MacURLSessionPluginMarketplaceTransport: MacPluginMarketplaceTransport {
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.timeoutInterval = Self.requestTimeout
-        let (bytes, response) = try await sessionProvider().bytes(for: request)
+        let lease = sessionProvider()
+        defer { withExtendedLifetime(lease) {} }
+        let (bytes, response) = try await lease.session.bytes(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {
             bytes.task.cancel()

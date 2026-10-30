@@ -14,11 +14,5 @@ struct NetworkProxyCheckOutcome: Equatable, Sendable {
 protocol NetworkProxyChecking: Sendable {
     /// Performs one bounded request through the given proxy settings. The
     /// check never throws; failures come back as outcomes.
-    func check(
-        type: NetworkProxyType,
-        host: String,
-        port: Int,
-        username: String,
-        password: String
-    ) async -> NetworkProxyCheckOutcome
+    func check(configuration: NetworkProxyConfiguration) async -> NetworkProxyCheckOutcome
 }
