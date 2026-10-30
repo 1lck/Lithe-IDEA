@@ -276,11 +276,21 @@ struct LanguageNavigationCoordinatorTests {
             kind: .definitions,
             values: [location],
             documentURL: url,
+            position: LanguageServerPosition(line: 0, utf16Column: 0),
             supportsImplementation: true
         )
 
         #expect(decision.shouldRequestImplementations)
         #expect(decision.originalValues.count == 1)
+        // A call to another method in this file is not a self declaration.
+        for position in [LanguageServerPosition(line: 1, utf16Column: 0),
+                         LanguageServerPosition(line: 0, utf16Column: 1)] {
+            #expect(!coordinator.implementationFallbackDecision(
+                method: "textDocument/definition", kind: .definitions, values: [location],
+                documentURL: url, position: position, supportsImplementation: true
+            ).shouldRequestImplementations)
+        }
+
     }
 }
 
