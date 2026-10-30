@@ -10,9 +10,6 @@ import { Dropdown, useDropdownMenu } from "@/ui/dropdown";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
 import { showIdeaNotification } from "@/ui/idea-notification";
 import { tryWriteClipboardText } from "@/utils/clipboard";
-
-/** Upper bound on extra pages a reveal walks before giving up. */
-const MAX_REVEAL_PAGE_ATTEMPTS = 20;
 import { useTranslation } from "@/i18n/locale-provider";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -92,6 +89,9 @@ type DirectReferenceAction = Extract<
   | "pullRebaseIntoCurrent"
   | "pullMergeIntoCurrent"
 >;
+
+/** Upper bound on extra pages a reveal walks before giving up. */
+const MAX_REVEAL_PAGE_ATTEMPTS = 20;
 
 export function GitLogToolWindow() {
   const { t } = useTranslation();
