@@ -4372,6 +4372,56 @@ struct EditorDocumentTests {
             WorkspaceFileChange(fileURL: created, kind: .created),
             WorkspaceFileChange(fileURL: removed, kind: .deleted),
         ])
+        projectedChanges.removeAll()
+        let refreshesAfterMutation = gitRefreshCount
+        watcher.emit([created.path, removed.path])
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            gitRefreshCount > refreshesAfterMutation
+        }, "The second batch did not finish")
+        // The committed inventory must classify the new file as changed and
+        // must no longer report the already removed file as deleted.
+        #expect(projectedChanges == [WorkspaceFileChange(fileURL: created, kind: .changed)])
+        #expect(operations.snapshotCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func largeExternalEditBatchUsesInventoryMembershipWithoutRescanning() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-large-external-batch")
+        let directory = workspace.appendingPathComponent("src/nested")
+        let files = (0..<4_000).map { directory.appendingPathComponent("File\($0).java") }
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true], files: files, isLazy: true
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var gitRefreshCount = 0
+        var changes: [WorkspaceFileChange] = []
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(
+                paths: files.map(\.path), directories: [directory.path]
+            ),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshCount += 1 },
+            notifyWorkspaceFileChanges: { changes.append(contentsOf: $0) },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+        let initialRefreshes = gitRefreshCount
+        // Include a below-unloaded directory and an alias of an existing file.
+        // The timing harness bounds this fixed-size regression for quadratic lookup.
+        watcher.emit(files.map(\.path) + [directory.path, directory.path + "/./File0.java"])
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            gitRefreshCount > initialRefreshes
+        }, "The large edit batch did not finish")
+        #expect(operations.snapshotCount == 1)
+        #expect(model.projectFiles == files)
+        #expect(changes.filter { $0.kind == .changed }.count == files.count)
+        #expect(changes.filter { $0.fileURL == files[0] }.count == 1)
     }
 
     @Test
