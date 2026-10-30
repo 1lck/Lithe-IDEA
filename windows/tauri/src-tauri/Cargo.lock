@@ -2952,7 +2952,9 @@ dependencies = [
  "notify-debouncer-full",
  "notify-debouncer-mini",
  "serde",
+ "serde_json",
  "sha2",
+ "url",
  "windows 0.61.3",
  "windows-sys 0.61.2",
 ]

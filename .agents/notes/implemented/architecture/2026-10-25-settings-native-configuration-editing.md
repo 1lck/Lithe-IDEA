@@ -57,6 +57,13 @@ Profiles/settings/仓库和其生产消费者仍须在阶段 D 的完整纵向�
 XML 节点绑定都来自插件；宿主只负责草稿、明确保存目标、生命周期、平台写入及回读。
 这条链路已接入 macOS，但不表示 #1495 阶段 D 的全部旧 Maven 消费者已经删除。
 
+Windows 已补服务层读取和原生文件准备/提交 adapter，原始 XML 不经过 WebView。
+保存使用当前读取回执，并在原生提交前检查配置代次，之后通过 Provider 回读生效值；
+注释、秘密节点和权限由 Core XML 编辑及既有文档替换模块保留。外部修改、并发创建、
+链接换向、只读安装来源、未修改继承值和取消有对应文件/服务回归。该增量尚未接入
+设置页的草稿与确认控件，也未迁移 Windows 旧配置或完成 Windows 原生验收，不能
+据此开放 Build 能力或删除旧 Maven 设置路径。
+
 Maven 插件观察所选 Maven 的官方 `EventSpy`（构建事件观察接口），在
 `SettingsBuildingRequest` 开始时记录实际来源与字节哈希，从 `SettingsBuildingResult`
 取得原始合并事实，再在 reactor（多模块工程）读取前导出非敏感配置。最终命令行覆盖值

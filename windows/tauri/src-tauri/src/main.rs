@@ -146,6 +146,7 @@ fn main() {
             app.manage(run::RunProcessManager::default());
             app.manage(debug::DebugAdapterManager::default());
             app.manage(plugin_host::PluginHostState::default());
+            app.manage(plugin_host::build_configuration::NativeConfigurationWrites::default());
             app.manage(plugin_host::web::WebPageHostState::default());
             app.manage(plugin_host::lifecycle::LifecycleState::default());
             run::cleanup_legacy_appdata(app.handle());
@@ -166,6 +167,7 @@ fn main() {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 plugin_host::web::forget_window_appearance(window.app_handle(), window.label());
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
+                plugin_host::build_configuration::close_window(window.app_handle(), window.label());
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
@@ -313,6 +315,9 @@ fn main() {
                             plugin_host::launch::declarative_plugins_language_launch,
                             plugin_host::build::declarative_plugins_build_launch,
                             plugin_host::build_tools::declarative_plugins_build_tool,
+                            plugin_host::build_configuration::declarative_plugins_build_prepare_configuration,
+                            plugin_host::build_configuration::declarative_plugins_build_commit_configuration,
+                            plugin_host::build_configuration::declarative_plugins_build_cancel_configuration,
                             plugin_host::launch::declarative_plugins_language_owner,
                             plugin_host::install::declarative_plugins_prepare_disk_install,
                             plugin_host::install::declarative_plugins_confirm_disk_install,

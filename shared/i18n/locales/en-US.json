@@ -9663,7 +9663,8 @@
     "build.errors.wrongPlugin": "The Build tool belongs to another plugin.",
     "build.errors.unsupportedSource": "This Build model source has not been connected to the Windows workflow.",
     "build.errors.cleanupFailed": "Build Provider cleanup failed.",
-    "build.errors.projectToolRequiresAction": "Use the project tool explicitly to read this configuration."
+    "build.errors.projectToolRequiresAction": "Use the project tool explicitly to read this configuration.",
+    "build.errors.invalidConfiguration": "The native configuration could not be validated. Reload before saving; your draft has been kept."
   },
   "overrides": {
     "windows": {

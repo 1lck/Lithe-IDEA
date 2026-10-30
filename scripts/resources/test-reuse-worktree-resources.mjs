@@ -311,6 +311,8 @@ try {
     assert.ok(resource.locations.some(location => location.endsWith("configuration-*/repository")));
     assert.ok(resource.locations.some(location => location.endsWith("maven-snapshot.json")));
     assert.ok(resource.locations.some(location => location.includes(".<filename>.lithe-<uuid>")));
+    assert.ok(resource.locations.includes("<native-configuration-parent>/.lithe-document-<pid>-<sequence>.tmp"));
+    assert.ok(resource.locations.includes("<windows-native-host-memory>/native-configuration/<window>/<operation-id>"));
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes(resource.id));

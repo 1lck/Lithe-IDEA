@@ -423,6 +423,8 @@
         "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/run-*/configuration.json",
         "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/maven-snapshot.json",
         "<native-configuration-parent>/.<filename>.lithe-<uuid>",
+        "<native-configuration-parent>/.lithe-document-<pid>-<sequence>.tmp",
+        "<windows-native-host-memory>/native-configuration/<window>/<operation-id>",
         ".artifacts/test-stability/native-configuration-ui/*.png"
       ],
       "identity": "Native configuration source revisions and effective values belong to the selected upstream session, source paths and exact native bytes; they are mutable runtime state without a version/platform/architecture/toolchain build identity stamp. Native UI evidence additionally depends on source revision, fixture, theme and viewport and is regenerated per test run.",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { WindowsBuildProviderWorkspace, type BuildInstance, type BuildModel, type BuildToolContext } from "./build-provider-workspace";
+import { WindowsBuildProviderWorkspace, type BuildInstance, type BuildModel, type BuildToolContext, type BuildNativeConfiguration } from "./build-provider-workspace";
 import type { buildCore } from "@/platform/build-core-api";
 import { createTranslator } from "@/i18n/locale";
 
@@ -10,6 +10,10 @@ const model: BuildModel = { projects: [{ id: "service", name: "Service", path: "
 const context: BuildToolContext = { manifest: { id: instance.pluginID }, pluginDirectory: "C:/plugin",
   workspaceStateDirectory: "C:/state", tool: { executable: "C:/maven/mvn.cmd" },
   environment: { JAVA_HOME: "C:/selected-jdk", PATH: "C:/selected-jdk/bin" }, executesProjectCode: false };
+const configuration: BuildNativeConfiguration = { format: "litheBuildConfiguration", version: 1, sources: [{ id: "user", scope: "user",
+  uri: "file:///C:/fixture/settings.xml", revision: "sha256:" + "a".repeat(64), writable: true, rootElement: { name: "settings", namespace: "" },
+  fields: [{ id: "localRepository", kind: "directory", value: null, effectiveValue: "inherited repository", effectiveSource: "default", path: ["localRepository"] }] }] };
+const edits = { sourceID: "user", revision: configuration.sources[0]!.revision, values: { localRepository: "saved repository" } };
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -21,11 +25,13 @@ function fixture() {
   type Ports = NonNullable<ConstructorParameters<typeof WindowsBuildProviderWorkspace>[1]>;
   type Request = Parameters<Ports["providers"]["send"]>[1];
   const coreCalls: Array<{ command: string; request: Record<string, unknown> }> = [];
-  const sent: Request[] = [], stopped: string[] = [];
+  const sent: Request[] = [], stopped: string[] = [], fileCalls: string[] = [];
   let tools = structuredClone(context), revision = 0;
   let toolGate: Promise<BuildToolContext> | undefined, coreGate: { command: string; promise: Promise<unknown> } | undefined;
   let providerGate: Promise<unknown> | undefined, stopFailure = false;
-  const entered = { tool: deferred<void>(), provider: deferred<void>(), decode: deferred<void>() };
+  let prepareGate: Promise<boolean> | undefined, commitGate: Promise<void> | undefined, commitFailure = false;
+  let nativeConfiguration = structuredClone(configuration);
+  const entered = { tool: deferred<void>(), provider: deferred<void>(), decode: deferred<void>(), prepare: deferred<void>(), commit: deferred<void>() };
   const core = (async (command: string, _manifest: unknown, _system: string, request: Record<string, unknown>) => {
     coreCalls.push({ command, request: structuredClone(request) });
     if (coreGate?.command === command) { entered.decode.resolve(); return await coreGate.promise; }
@@ -36,7 +42,7 @@ function fixture() {
     if (command === "build.decodeDiagnostics") return { diagnostics: [{ message: "compile error", line: 3 }] };
     if (command === "build.decodeTestResults") return { results: { failed: 1, suites: [{ name: "FailedTest" }] } };
     if (command === "build.decodeTestDiscovery") return { discovery: { tests: [{ id: "opaque-selector", suite: "A", case: "method" }] } };
-    if (command === "build.decodeConfiguration") return { configuration: { format: "litheBuildConfiguration", version: 1, sources: [] } };
+    if (command === "build.decodeConfiguration") return { configuration: structuredClone(nativeConfiguration) };
     throw new Error(`Unexpected Core command ${command}`);
   }) as typeof buildCore;
   const workspace = new WindowsBuildProviderWorkspace("C:/work", {
@@ -52,12 +58,25 @@ function fixture() {
       },
       stop: async target => { stopped.push(target.pluginId); if (stopFailure) throw new Error("process retained"); },
     },
+    configurationFiles: {
+      prepare: async () => { fileCalls.push("prepare"); entered.prepare.resolve(); return await prepareGate ?? true; },
+      commit: async () => {
+        fileCalls.push("commit");
+        entered.commit.resolve(); if (commitGate) await commitGate;
+        if (commitFailure) throw Object.assign(new Error("build.configuration.conflict"), { code: "build.configuration.conflict" });
+        nativeConfiguration.sources[0]!.fields[0]!.value = "upstream readback";
+        nativeConfiguration.sources[0]!.revision = "sha256:" + "b".repeat(64);
+      },
+      cancel: async () => { fileCalls.push("cancel"); },
+    },
   });
-  return { workspace, coreCalls, sent, stopped, entered,
+  return { workspace, coreCalls, sent, stopped, entered, fileCalls,
     tools: (value: BuildToolContext) => { tools = value; }, holdTools: (value: Promise<BuildToolContext> | undefined) => { toolGate = value; },
     holdProvider: (value: Promise<unknown> | undefined) => { providerGate = value; },
     holdCore: (command: string, promise: Promise<unknown>) => { coreGate = { command, promise }; },
-    revoke: () => { revision++; }, failStop: () => { stopFailure = true; } };
+    revoke: () => { revision++; }, failStop: () => { stopFailure = true; },
+    holdPrepare: (gate: Promise<boolean>) => { prepareGate = gate; }, holdCommit: (gate: Promise<void>) => { commitGate = gate; },
+    failCommit: () => { commitFailure = true; } };
 }
 
 describe("Windows Build Provider workspace operations", () => {
@@ -65,10 +84,103 @@ describe("Windows Build Provider workspace operations", () => {
     const f = fixture();
     try {
       const result = await f.workspace.readConfiguration(instance).completion;
-      expect(result).toMatchObject({ format: "litheBuildConfiguration", sources: [] });
+      expect(result).toMatchObject({ format: "litheBuildConfiguration", sources: [{ id: "user" }] });
       expect(f.workspace.model(instance)).toBeUndefined();
       expect(f.coreCalls.map(call => call.command)).toEqual(["build.configurationPlan", "build.decodeConfiguration"]);
       expect(Object.keys(f.coreCalls[1]!.request)).toEqual(["result"]);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("configuration save commits only the current read receipt and returns upstream readback", async () => {
+    const f = fixture();
+    try {
+      await f.workspace.loadModel(instance).completion;
+      const snapshot = await f.workspace.readConfiguration(instance).completion;
+      const result = await f.workspace.saveConfiguration(instance, snapshot, edits).completion;
+      expect(f.fileCalls).toEqual(["prepare", "commit", "cancel"]);
+      expect(result.sources[0]!.fields[0]!.value).toBe("upstream readback");
+      expect(f.workspace.model(instance)).toBeUndefined();
+      expect(f.coreCalls.filter(call => call.command === "build.configurationPlan")).toHaveLength(2);
+      await expect(f.workspace.saveConfiguration(instance, snapshot, edits).completion).rejects.toMatchObject({ code: "cancelled" });
+      expect(f.fileCalls).toHaveLength(3);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("a changed tool rejects configuration save before native file preparation", async () => {
+    const f = fixture();
+    try {
+      const snapshot = await f.workspace.readConfiguration(instance).completion;
+      f.tools({ ...context, tool: { executable: "C:/new-maven/mvn.cmd" } });
+      await expect(f.workspace.saveConfiguration(instance, snapshot, edits).completion).rejects.toMatchObject({ code: "cancelled" });
+      expect(f.fileCalls).toHaveLength(0);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("a write already committing invalidates sibling models after its caller cancels", async () => {
+    const f = fixture(), gate = deferred<void>(), sibling = { ...instance, root: "other" };
+    let settled: Promise<unknown> | undefined;
+    try {
+      await f.workspace.loadModel(instance).completion;
+      await f.workspace.loadModel(sibling).completion;
+      const snapshot = await f.workspace.readConfiguration(instance).completion;
+      f.holdCommit(gate.promise);
+      const operation = f.workspace.saveConfiguration(instance, snapshot, edits);
+      settled = operation.completion.catch(error => error.code);
+      await f.entered.commit.promise; f.workspace.cancel(operation.operationID);
+      expect(await settled).toBe("cancelled");
+      const previousRequests = f.sent.length;
+      gate.resolve();
+      await expect(f.workspace.executeTask(sibling, "compile").completion).rejects.toThrow();
+      expect(f.workspace.model(instance)).toBeUndefined(); expect(f.workspace.model(sibling)).toBeUndefined();
+      expect(f.sent).toHaveLength(previousRequests);
+      expect(f.fileCalls).toEqual(["prepare", "commit", "cancel"]);
+    } finally { gate.resolve(); await settled; await f.workspace.dispose(); }
+  }, 5000);
+
+  test("cancelling native preparation retains its late token for cleanup and never commits", async () => {
+    const f = fixture(), gate = deferred<boolean>();
+    let settled: Promise<unknown> | undefined;
+    try {
+      const snapshot = await f.workspace.readConfiguration(instance).completion;
+      f.holdPrepare(gate.promise);
+      const operation = f.workspace.saveConfiguration(instance, snapshot, edits);
+      settled = operation.completion.catch(error => error.code);
+      await f.entered.prepare.promise;
+      f.workspace.cancel(operation.operationID);
+      expect(await settled).toBe("cancelled");
+      gate.resolve(true); await f.workspace.dispose();
+      expect(f.fileCalls).toEqual(["prepare", "cancel"]);
+    } finally { gate.resolve(true); await settled; await f.workspace.dispose(); }
+  }, 5000);
+
+  test("configuration ABA during native preparation revokes the write and releases its token", async () => {
+    const f = fixture(), gate = deferred<boolean>();
+    let settled: Promise<unknown> | undefined;
+    try {
+      const snapshot = await f.workspace.readConfiguration(instance).completion;
+      f.holdPrepare(gate.promise);
+      settled = f.workspace.saveConfiguration(instance, snapshot, edits).completion.catch(error => error.code);
+      await f.entered.prepare.promise;
+      f.workspace.invalidate({ ...instance, options: { profiles: ["other"] } });
+      expect(await settled).toBe("cancelled");
+      gate.resolve(true); await f.workspace.dispose();
+      expect(f.fileCalls).toEqual(["prepare", "cancel"]);
+    } finally { gate.resolve(true); await settled; await f.workspace.dispose(); }
+  }, 5000);
+
+  test("an unchanged draft never commits or rereads while a disk conflict preserves the failed operation", async () => {
+    const f = fixture();
+    try {
+      const snapshot = await f.workspace.readConfiguration(instance).completion;
+      f.holdPrepare(Promise.resolve(false));
+      expect(await f.workspace.saveConfiguration(instance, snapshot, edits).completion).toEqual(snapshot);
+      expect(f.fileCalls).toEqual(["prepare", "cancel"]);
+      f.holdPrepare(Promise.resolve(true)); f.failCommit();
+      const failed = f.workspace.saveConfiguration(instance, snapshot, edits);
+      await expect(failed.completion).rejects.toMatchObject({ code: "build.configuration.conflict", message: expect.stringContaining("draft has been kept") });
+      expect(f.fileCalls).toEqual(["prepare", "cancel", "prepare", "commit", "cancel"]);
+      expect(f.coreCalls.filter(call => call.command === "build.configurationPlan")).toHaveLength(1);
+      expect(f.workspace.operations().find(operation => operation.id === failed.operationID)?.phase).toBe("failed");
     } finally { await f.workspace.dispose(); }
   }, 5000);
 

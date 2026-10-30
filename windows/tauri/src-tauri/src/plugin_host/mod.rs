@@ -11,6 +11,7 @@
 pub mod install;
 pub mod build;
 pub mod build_tools;
+pub mod build_configuration;
 #[cfg(test)]
 mod install_tests;
 pub mod launch;

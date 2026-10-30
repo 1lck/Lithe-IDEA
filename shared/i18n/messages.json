@@ -91373,7 +91373,8 @@
       "id": "native.nativeConfigurationDiskConflict",
       "description": "Native build configuration: Native configuration changed on disk. Reload before saving; your draft has been kept.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Native configuration changed on disk. Reload before saving; your draft has been kept.",
@@ -91384,7 +91385,8 @@
       "id": "native.nativeConfigurationSourceReadOnly",
       "description": "Native build configuration: This native configuration source is read-only. Installed applications and plugin packages cannot be edited.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.",
@@ -91395,7 +91397,8 @@
       "id": "native.nativeConfigurationFileRequired",
       "description": "Native build configuration: The native configuration must be a writable UTF-8 XML file smaller than 2 MB.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The native configuration must be a writable UTF-8 XML file smaller than 2 MB.",
@@ -92332,6 +92335,13 @@
     {
       "id": "build.errors.projectToolRequiresAction",
       "description": "Windows native Build settings require an explicit project tool read",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.invalidConfiguration",
+      "description": "Windows native Build configuration validation failure",
       "platforms": [
         "windows"
       ]

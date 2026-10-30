@@ -9663,7 +9663,8 @@
     "build.errors.wrongPlugin": "构建工具属于其他插件。",
     "build.errors.unsupportedSource": "此构建模型来源尚未接入 Windows 工作流。",
     "build.errors.cleanupFailed": "构建 Provider 清理失败。",
-    "build.errors.projectToolRequiresAction": "请明确选择使用项目工具来读取此配置。"
+    "build.errors.projectToolRequiresAction": "请明确选择使用项目工具来读取此配置。",
+    "build.errors.invalidConfiguration": "无法验证原生配置。请重新加载后保存，草稿已保留。"
   },
   "overrides": {
     "macos": {

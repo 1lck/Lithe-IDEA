@@ -1,4 +1,5 @@
 pub mod document_file;
+pub mod native_configuration;
 pub mod document_watcher;
 use anyhow::{Context, Result, bail};
 pub mod git_watcher;
