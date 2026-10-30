@@ -32,7 +32,7 @@ function blame(lines: GitBlameLine[]): GitBlame {
 const options = { language: "en-US", uncommittedLabel: "Uncommitted" };
 
 describe("git blame gutter entries", () => {
-  test("labels only the first line of a commit block", () => {
+  test("labels every line, including neighbours from the same commit", () => {
     const entries = buildGitBlameGutterEntries(
       blame([
         blameLine({ line_number: 1 }),
@@ -42,25 +42,13 @@ describe("git blame gutter entries", () => {
       options,
     );
 
-    expect(entries.get(1)?.text.startsWith("Ada, ")).toBe(true);
-    // Repeating the same author on every line of a block would bury the numbers.
-    expect(entries.get(2)?.text).toBe("");
-    expect(entries.get(3)?.text.startsWith("Ada, ")).toBe(true);
+    // IDEA annotates each line; a blank gutter on the second line of a block
+    // reads as missing attribution rather than as shared authorship.
+    for (const lineNumber of [1, 2, 3]) {
+      expect(entries.get(lineNumber)?.text.startsWith("Ada, ")).toBe(true);
+    }
     expect(entries.get(2)?.commitHash).toBe(FIRST);
-  });
-
-  test("labels the same commit again when its lines are not contiguous", () => {
-    const entries = buildGitBlameGutterEntries(
-      blame([
-        blameLine({ line_number: 1 }),
-        blameLine({ line_number: 2, commit_hash: SECOND }),
-        blameLine({ line_number: 3 }),
-      ]),
-      options,
-    );
-
-    expect(entries.get(1)?.text).not.toBe("");
-    expect(entries.get(3)?.text).not.toBe("");
+    expect(entries.get(3)?.commitHash).toBe(SECOND);
   });
 
   test("uses the uncommitted label and drops the hash from its tooltip", () => {
@@ -85,7 +73,7 @@ describe("git blame gutter entries", () => {
 
     expect([...entries.keys()]).toEqual([1, 2]);
     expect(entries.get(1)?.text).not.toBe("");
-    expect(entries.get(2)?.text).toBe("");
+    expect(entries.get(2)?.text).not.toBe("");
   });
 });
 
@@ -101,20 +89,7 @@ describe("git blame gutter markup", () => {
     expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
   });
 
-  test("keeps the number column in place for continuation lines", () => {
-    const entries = buildGitBlameGutterEntries(
-      blame([blameLine({ line_number: 1 }), blameLine({ line_number: 2 })]),
-      options,
-    );
-
-    // A zero-width placeholder holds the annotation column so the number does
-    // not shift between the first and later lines of one block; the tooltip
-    // stays, so hovering a continuation line still names its commit.
-    expect(entries.get(2)?.text).toBe("");
-    expect(gitBlameGutterHtml(entries.get(2)!)).toContain(">&#8203;</span>");
-  });
-
-  test("escapes the tooltip only when a short hash is present", () => {
+  test("escapes the tooltip and carries the short hash", () => {
     expect(escapeGitBlameHtml('a "b" <c>')).toBe("a &quot;b&quot; &lt;c&gt;");
     const entries = buildGitBlameGutterEntries(blame([blameLine({ line_number: 1 })]), options);
     expect(gitBlameGutterHtml(entries.get(1)!)).toContain(`· ${FIRST.slice(0, 8)}`);

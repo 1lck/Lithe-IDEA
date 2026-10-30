@@ -84,13 +84,14 @@
   outline: 1px solid color-mix(in srgb, var(--primary, #4f8cff) 72%, white 8%);
 }
 
-/* Git blame annotation inside the line-number column, mirroring IDEA and the
-   macOS workbench: the author/date label floats left of the number, and the
-   number keeps its right-aligned position so stacks stay scannable. */
+/* Git blame annotation inside the line-number column, laid out the way IDEA
+   does: the author/date label sits right-aligned immediately left of the
+   number, so long names grow the column instead of leaving a gap, and the
+   numbers keep one right edge. */
 .monaco-editor-shell .monaco-editor .line-numbers .lithe-blame {
   display: inline-block;
-  float: left;
-  max-width: calc(100% - 5ch);
+  max-width: calc(100% - 6ch);
+  margin-right: 1.5ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -18,6 +18,7 @@ import {
   MagnifyingGlassIcon as Search,
   TrashIcon as Trash2,
   TextTIcon as Type,
+  UserIcon as User,
 } from "@/ui/icons";
 import type { MenuItem } from "@/ui/dropdown";
 import Keybinding from "@/features/keymaps/components/keybinding";
@@ -337,13 +338,18 @@ export function buildEditorContextMenuItems({
       disabled: isDisabled(onLineHistory),
       onClick: onLineHistory ?? noop,
     },
-    {
-      id: "toggle-blame",
-      label: t(blameVisible ? "git.blame.hide" : "git.blame.annotate"),
-      icon: <FileText />,
-      disabled: isDisabled(onToggleBlame),
-      onClick: onToggleBlame ?? noop,
-    },
+    // IDEA offers annotate only from the line-number gutter, so the content
+    // menu must not show a dead entry for it.
+    ...(onToggleBlame
+      ? [
+          {
+            id: "toggle-blame",
+            label: t(blameVisible ? "git.blame.hide" : "git.blame.annotate"),
+            icon: <User />,
+            onClick: onToggleBlame,
+          },
+        ]
+      : []),
     {
       id: "bookmark",
       label: t("editor.toggleBookmark"),
