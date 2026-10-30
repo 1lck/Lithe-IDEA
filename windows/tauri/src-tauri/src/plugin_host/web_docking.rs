@@ -12,6 +12,34 @@ const MAX_WORKSPACE_ID_BYTES: usize = 1024;
 const MAX_WORKSPACE_PATH_BYTES: usize = 32768;
 const MAX_MOUNT_SLOTS: usize = 128;
 
+#[derive(Default)]
+struct PendingLayout(std::sync::atomic::AtomicU8);
+
+impl PendingLayout {
+    const PENDING: u8 = 0;
+    const RUNNING: u8 = 1;
+    const CANCELLED: u8 = 2;
+
+    fn start(&self) -> bool {
+        self.transition(Self::RUNNING)
+    }
+
+    fn cancel(&self) -> bool {
+        self.transition(Self::CANCELLED)
+    }
+
+    fn transition(&self, next: u8) -> bool {
+        self.0
+            .compare_exchange(
+                Self::PENDING,
+                next,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .is_ok()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct MountOwner {
     pub id: String,
@@ -468,6 +496,32 @@ fn apply_bounds(view: &tauri::WebviewWindow, bounds: PhysicalBounds) -> Result<(
         .map_err(|error| error.to_string())
 }
 
+#[cfg(windows)]
+fn raise_child(view: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+    let hwnd = view.hwnd().map_err(|error| error.to_string())?;
+    // SAFETY: the layout callback runs on the window's UI thread and owns this
+    // live WS_CHILD. HWND_TOP changes only sibling order, without activation or
+    // a global topmost window. Otherwise Wry's main webview covers this child.
+    if unsafe {
+        SetWindowPos(
+            hwnd.0,
+            HWND_TOP,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
 fn apply_layout_revision(
     owner: &mut PageOwner,
     mount_id: &str,
@@ -523,24 +577,64 @@ pub async fn declarative_plugins_layout_web_window(
     let view = app
         .get_webview_window(&owned_label(&owner))
         .ok_or("plugin.web.staleMount")?;
-    let mut owners = state.owners.lock().expect("page owners");
-    let current = owners
-        .get_mut(&owned_label(&owner))
-        .ok_or("plugin.web.staleMount")?;
-    apply_layout_revision(current, &mount_id, revision, || {
-        if let Some(bounds) = bounds {
-            apply_bounds(&view, bounds)?;
-            view.show().map_err(|error| error.to_string())?;
-            if focus {
-                view.as_ref()
-                    .set_focus()
-                    .map_err(|error| error.to_string())?;
+    let (sender, mut receiver) = tokio::sync::oneshot::channel();
+    let pending = Arc::new(PendingLayout::default());
+    let queued = pending.clone();
+    let layout_app = app.clone();
+    // Apply geometry, visibility and sibling order in one UI-thread turn.
+    // Never synchronously send Win32 messages while an async caller holds the
+    // owner lock; the UI thread may itself be releasing that owner.
+    view.clone()
+        .run_on_main_thread(move || {
+            if sender.is_closed() {
+                return;
             }
-        } else {
-            view.hide().map_err(|error| error.to_string())?;
+            let result = (|| {
+                let state = layout_app.state::<WebPageHostState>();
+                check_request(&state, &owner)?;
+                let mut owners = state.owners.lock().expect("page owners");
+                let current = owners
+                    .get_mut(&owned_label(&owner))
+                    .ok_or("plugin.web.staleMount")?;
+                apply_layout_revision(current, &mount_id, revision, || {
+                    // The timeout can expire while this turn waits for the
+                    // owner lock. Only one side may commit to start or cancel.
+                    if !queued.start() {
+                        return Err("plugin.web.staleMount".into());
+                    }
+                    if let Some(bounds) = bounds {
+                        apply_bounds(&view, bounds)?;
+                        view.show().map_err(|error| error.to_string())?;
+                        #[cfg(windows)]
+                        raise_child(&view)?;
+                        if focus {
+                            view.as_ref()
+                                .set_focus()
+                                .map_err(|error| error.to_string())?;
+                        }
+                    } else {
+                        view.hide().map_err(|error| error.to_string())?;
+                    }
+                    Ok(())
+                })
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    let result = match tokio::time::timeout(std::time::Duration::from_secs(5), &mut receiver).await
+    {
+        Ok(result) => result,
+        Err(_) if pending.cancel() => {
+            return Err(bridge_error(
+                "plugin.web.invalidRequest",
+                "dock layout timed out",
+            ));
         }
-        Ok(())
-    })
+        // Once the synchronous UI turn has begun, observe its actual result.
+        // Reporting cancellation here would permit a visible late side effect.
+        Err(_) => receiver.await,
+    };
+    result.map_err(|_| bridge_error("plugin.web.staleMount", "dock layout was cancelled"))?
 }
 
 /// Closing needs the precise receipt even after package/workspace revocation.

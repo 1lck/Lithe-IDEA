@@ -1,6 +1,27 @@
 //! Deterministic ownership, ordering and physical-geometry regressions.
 use super::*;
 
+#[test]
+fn cancelled_queued_layout_cannot_start_after_waiting_for_an_owner() {
+    let layout = PendingLayout::default();
+    assert!(layout.cancel());
+    assert!(
+        !layout.start(),
+        "an expired queued layout must have no native effect"
+    );
+}
+
+#[test]
+fn started_layout_cannot_report_cancellation_before_its_result() {
+    let layout = PendingLayout::default();
+    assert!(layout.start());
+    assert!(
+        !layout.cancel(),
+        "a started UI turn must deliver its real result"
+    );
+    assert!(!layout.start(), "a UI turn may start only once");
+}
+
 fn owner(id: &str) -> PageOwner {
     let mut owner = PageOwner {
         generation: 1,
