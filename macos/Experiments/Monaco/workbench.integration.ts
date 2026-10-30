@@ -18,7 +18,7 @@ import { CancellationTokenSource, CancellationToken } from "monaco-editor/esm/vs
 import { ready } from "./workbench";
 import { IStandaloneThemeService } from "monaco-editor/esm/vs/editor/standalone/common/standaloneTheme.js";
 import { TokenMetadata } from "monaco-editor/esm/vs/editor/common/encodedTokenAttributes.js";
-import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
+import { acquireEditorModelSource } from "@lithe/editor/model-source";
 import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
 import { mouseInputCases } from "./mouse-input.integration";
 import { contextMenuCases } from "./context-menu.integration";
@@ -218,8 +218,9 @@ async function verify() {
       assert(acquireEditorModelSource(model, text) === source, "multiple views created competing source mirrors");
       model.pushEditOperations([], [{ range: new Range(2, 1, 2, 6), text: "new" }], () => null);
       assert(source.content === "first\r\nnew\nlast\rtail", "Windows mirror normalized untouched source newlines");
-      const position = sourcePositionAt(source.content, source.content.indexOf("tail"));
-      assert(position.line === 3 && position.column === 0, "Windows LSP source position ignored CR");
+      model.pushEditOperations([], [{ range: new Range(4, 2, 4, 2), text: "!" }], () => null);
+      const position = source.lastChange?.changes[0]?.start;
+      assert(position?.line === 3 && position.column === 0, "Windows LSP source position ignored CR");
       source.replace("external\rnew\n");
       assert(source.lastChange?.external, "external replacement escaped source suppression");
       model.pushEditOperations([], [{ range: new Range(2, 1, 2, 4), text: "edited" }], () => null);
