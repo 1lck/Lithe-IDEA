@@ -24,8 +24,15 @@ enum MacApplicationEntryPoint {
             return
         }
         #endif
+        // First, while this is the only thread: `setenv` races with concurrent readers.
+        let refreshLoginShellEnvironment = MacLoginShellEnvironment.activate(
+            cacheURL: MacFileStorage().cacheDirectory().appendingPathComponent("login-path")
+        )
         // Before any subprocess starts, so every descendant inherits the scope.
         MacProcessInstance.activate()
+        if let refreshLoginShellEnvironment {
+            DispatchQueue.global(qos: .utility).async(execute: refreshLoginShellEnvironment)
+        }
         LitheApp.main()
     }
 }
