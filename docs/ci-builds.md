@@ -803,6 +803,12 @@ Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app
 任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
 排除路由直接拒绝，由 `scripts/resources/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
 
+插件宿主的 `<app-support>/Lithe/PluginHost/root-id.key` 是安装级密钥，
+`<app-support>/Lithe/PluginState/<plugin-id>/backend/workspaces/<workspace-digest>/`
+是按插件、工作区归属的可变状态。二者都没有版本/平台/架构/工具链复用身份，
+任何复制阶段都不得共享；`excludedResources.plugin-host-runtime-state` 走拒绝路由，
+由资源复用测试验证。运行期仅写平台 Application Support，不改签名包或 Sparkle 源基线。
+
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity
 stamp 后才能加入注册表，不能仅凭目录存在就跨 worktree 复制。

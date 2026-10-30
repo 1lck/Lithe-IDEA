@@ -2068,15 +2068,26 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let functionID: String
         }
 
+        struct Context: Encodable {
+            let contextID: String
+            let generation: Int
+        }
+
         let sessionId: String
         let function: Reference
         let params: ToolingJSONValue
         let timeoutMilliseconds: Int
+        /// Omitted when nil, so Core sees the version 2 request shape.
+        let context: Context?
     }
 
     private struct LspHostResponseRequest: Encodable {
         struct Failure: Encodable {
             let message: String
+            /// Omitted when nil.
+            let code: String?
+            /// Omitted when nil.
+            let details: ToolingJSONValue?
         }
 
         let sessionId: String
@@ -4074,6 +4085,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         pluginID: String,
         functionID: String,
         params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference? = nil,
         timeout: TimeInterval
     ) -> Result<LspOperationPayload, CoreCallError> {
         executeResult(
@@ -4082,7 +4094,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 sessionId: sessionID,
                 function: .init(pluginID: pluginID, functionID: functionID),
                 params: params,
-                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout)),
+                context: context.map { .init(contextID: $0.contextID, generation: $0.generation) }
             )
         )
     }
@@ -4092,7 +4105,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         sessionID: String,
         hostRequestID: String,
         result: ToolingJSONValue?,
-        failureMessage: String?
+        failureMessage: String?,
+        failureCode: String? = nil,
+        failureDetails: ToolingJSONValue? = nil
     ) -> Result<Void, CoreCallError> {
         executeVoid(
             command: "lsp.hostResponse",
@@ -4100,9 +4115,32 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 sessionId: sessionID,
                 hostRequestID: hostRequestID,
                 result: failureMessage == nil ? (result ?? .null) : nil,
-                error: failureMessage.map { .init(message: $0) }
+                error: failureMessage.map { .init(message: $0, code: failureCode, details: failureDetails) }
             )
         )
+    }
+
+    private struct LspHostNotifyRequest: Encodable {
+        let sessionId: String
+        let method: String
+        let params: ToolingJSONValue
+    }
+
+    private struct LspHostNotifyResponse: Decodable {
+        let delivered: Bool
+    }
+
+    /// Sends a plugin backend one host notification. `false` when the
+    /// backend negotiated a function protocol without the notification.
+    func lspHostNotify(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, CoreCallError> {
+        executeResult(
+            command: "lsp.hostNotify",
+            payload: LspHostNotifyRequest(sessionId: sessionID, method: method, params: params)
+        ).map { (response: LspHostNotifyResponse) in response.delivered }
     }
 
     /// Cancels a pending operation. Its completion event still arrives, carrying

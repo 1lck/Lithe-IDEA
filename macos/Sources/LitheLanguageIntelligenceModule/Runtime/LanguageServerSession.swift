@@ -123,6 +123,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// it once through `respond(to:with:)`; without an owner the request is
     /// refused so the backend never waits for an answer that cannot come.
     package var onHostRequest: ((PluginHostRequest) -> Void)?
+    /// Receives the ID of a host request the backend cancelled with
+    /// `$/cancelRequest` (function protocol 3). Core has already answered
+    /// the backend; the owner stops the work and sends no answer.
+    package var onHostRequestCancelled: ((String) -> Void)?
     /// The VCS provider the process negotiated in `initialize`, as Core's
     /// `vcsProvider` event reported it; nil for every other session.
     package private(set) var vcsNegotiation: VcsProviderNegotiation?
@@ -882,6 +886,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package func invokeFunction(
         _ functionID: String,
         params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference? = nil,
         timeout: TimeInterval,
         progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
     ) async throws -> ToolingJSONValue {
@@ -896,7 +901,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let operation: LanguageServerRuntimeOperation
         switch await send(timeout: timeout, { core in
             core.requestPluginFunction(
-                sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+                sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params,
+                context: context, timeout: timeout
             )
         }) {
         case .success(let started): operation = started
@@ -931,9 +937,30 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// it is sent off the main actor like a request.
     package func respond(to requestID: String, with outcome: Result<ToolingJSONValue, PluginHostRequestFailure>) {
         guard let sessionID else { return }
-        let core = core
-        Task.detached(priority: .userInitiated) {
-            _ = core.respondToPluginHostRequest(sessionID: sessionID, hostRequestID: requestID, outcome: outcome)
+        Task { @MainActor [self] in
+            _ = await send(timeout: requestTimeout) { core in
+                core.respondToPluginHostRequest(sessionID: sessionID, hostRequestID: requestID, outcome: outcome)
+            }
+            sendsInFlight -= 1
+        }
+    }
+
+    /// Sends the backend one host notification. Core writes it to the
+    /// backend's input like an answer, so it is sent off the main actor.
+    /// `false` is an expected protocol downgrade (keep the backend alive);
+    /// `nil` means the session ended or the transport/Core refused the send.
+    package func notify(method: String, params: ToolingJSONValue) async -> Bool? {
+        guard let sessionID, case .ready = state, !Task.isCancelled else { return nil }
+        let result = await send(timeout: requestTimeout) { core in
+            core.notifyPluginBackend(sessionID: sessionID, method: method, params: params)
+        }
+        sendsInFlight -= 1
+        switch result {
+        case .success(let delivered):
+            return delivered
+        case .failure(let failure):
+            onLog?(.warning, "Plugin host notification was not delivered", failure.message, nil)
+            return nil
         }
     }
 
@@ -960,12 +987,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// A write that is still blocked when the call's timeout passes, or
     /// `stuckSendGrace` after the caller was cancelled, ends the process:
     /// the write then fails and Core fails the session.
-    private func send(
+    private func send<Value: Sendable>(
         timeout: TimeInterval,
-        _ request: @escaping @Sendable (any LanguageServerRuntimeCore) -> Result<
-            LanguageServerRuntimeOperation, LanguageServerRuntimeFailure
-        >
-    ) async -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        _ request: @escaping @Sendable (any LanguageServerRuntimeCore) -> Result<Value, LanguageServerRuntimeFailure>
+    ) async -> Result<Value, LanguageServerRuntimeFailure> {
         sendsInFlight += 1
         // A drain that started before this send must finish before the request
         // is written; its events then cannot include this request's reply.
@@ -1404,6 +1429,11 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 onHostRequest(request)
             } else {
                 respond(to: id, with: .failure(PluginHostRequestFailure(message: "The host serves no requests of this process.")))
+            }
+            return false
+        case "hostRequestCancelled":
+            if case .object(let object)? = event.result, case .string(let id)? = object["hostRequestID"] {
+                onHostRequestCancelled?(id)
             }
             return false
         case "vcsProvider":

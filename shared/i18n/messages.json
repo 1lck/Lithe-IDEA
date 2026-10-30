@@ -92235,6 +92235,345 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "native.thePluginBackendIsNoLongerRunning",
+      "description": "Native UI: The plugin backend is no longer running.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin backend is no longer running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.onlyHtmlAndHtmFilesCanBeShownInABrowser",
+      "description": "Native UI: Only .html and .htm files can be shown in a browser.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only .html and .htm files can be shown in a browser.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWindowNowShowsADifferentWorkspaceThanTheOneThisCallWasMadeFor",
+      "description": "Native UI: The window now shows a different workspace than the one this call was made for.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The window now shows a different workspace than the one this call was made for.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileHasUnsavedChangesSaveItFirstBecauseTheBrowserShowsTheSavedFile",
+      "description": "Native UI: The file has unsaved changes. Save it first, because the browser shows the saved file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file has unsaved changes. Save it first, because the browser shows the saved file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisPluginSentMessagesTooQuickly",
+      "description": "Native UI: This plugin sent messages too quickly.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This plugin sent messages too quickly.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginIsNotAllowedToUseTheHostService",
+      "description": "Native UI: The plugin is not allowed to use the host service %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin is not allowed to use the host service %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theMessageTextOrItsButtonsAreEmptyTooLongOrTooMany",
+      "description": "Native UI: The message text or its buttons are empty, too long, or too many.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The message text or its buttons are empty, too long, or too many.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkspaceContextReferenceIsMalformed",
+      "description": "Native UI: The workspace context reference is malformed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace context reference is malformed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theParamsOfMustNameASubscriptionID",
+      "description": "Native UI: The params of %@ must name a subscriptionID.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The params of %@ must name a subscriptionID.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.argSentMessagesTooQuicklySoSomeWereNotShown",
+      "description": "Native UI: %@ sent messages too quickly, so some were not shown.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ sent messages too quickly, so some were not shown.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theResourcePathMustBeRelativeUseSeparatorsAndNotContainOr",
+      "description": "Native UI: The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\".",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\".",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.linesAndColumnsStartAtAndARangeMustNotEndBeforeItStarts",
+      "description": "Native UI: Lines and columns start at 1, and a range must not end before it starts.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lines and columns start at 1, and a range must not end before it starts.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHostDoesNotSupportTheRequestedOptionYet",
+      "description": "Native UI: The host does not support the requested option yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host does not support the requested option yet.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteWorkspacesAreNotSupportedByThisOperationYet",
+      "description": "Native UI: Remote workspaces are not supported by this operation yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remote workspaces are not supported by this operation yet.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theResourceIsOutsideTheWorkspace",
+      "description": "Native UI: The resource is outside the workspace.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource is outside the workspace.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileIsNotOpenInThisWindow",
+      "description": "Native UI: The file is not open in this window.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file is not open in this window.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory",
+      "description": "Native UI: The host could not create the plugin's workspace state directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host could not create the plugin's workspace state directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theParamsOfMustBeAnObject",
+      "description": "Native UI: The params of %@ must be an object.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The params of %@ must be an object.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theResourceDoesNotExist",
+      "description": "Native UI: The resource does not exist.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource does not exist.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theResourceIsNotARegularFile",
+      "description": "Native UI: The resource is not a regular file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource is not a regular file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWindowIsClosedOrHasNoWorkspaceOpen",
+      "description": "Native UI: The window is closed or has no workspace open.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The window is closed or has no workspace open.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileCouldNotBeOpenedAsATextDocument",
+      "description": "Native UI: The file could not be opened as a text document.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file could not be opened as a text document.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.onlyHttpAndHttpsAddressesWithAHostNameCanBeOpened",
+      "description": "Native UI: Only http and https addresses with a host name can be opened.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only http and https addresses with a host name can be opened.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theResourceNamesARootThisWindowDoesNotOffer",
+      "description": "Native UI: The resource names a root this window does not offer.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource names a root this window does not offer.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkspaceContextIsNoLongerCurrent",
+      "description": "Native UI: The workspace context is no longer current. Ask the host for it again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace context is no longer current. Ask the host for it again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noWebBrowserCouldBeOpened",
+      "description": "Native UI: No web browser could be opened.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No web browser could be opened.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisPluginAlreadyHasTooManyMessagesWaiting",
+      "description": "Native UI: This plugin already has too many messages waiting.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This plugin already has too many messages waiting.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.host.requestFailed",
+      "description": "Generic sanitized host API failure; structured code and details identify the recovery action.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin host request could not be completed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.host.invalidParameters",
+      "description": "Invalid public plugin host request parameters.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin host request parameters are invalid.",
+        "arguments": []
+      }
     }
   ]
 }

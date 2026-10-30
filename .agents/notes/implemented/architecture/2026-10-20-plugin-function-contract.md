@@ -37,7 +37,7 @@ Issue #1351 要把 Maven、Gradle 这类插件从“只给声明”推进到“�
 
 ### 2. 禁止回调自己
 
-后端向宿主请求 `lithe/function/invoke` 或任何 `lithe/build/*`，Core 直接回 JSON-RPC `-32601`，`data.code` 是 `plugin.function.recursiveCall`。宿主能力只开放进程运行、输出、存储这类原语，不开放“再进入某个领域注册表”的入口：Maven 处理器需要跑 Maven，应当请求宿主的进程能力，而不是请求宿主“执行 Maven 任务”。版本 1 一个宿主能力都没有开放，`lithe/host/*` 一律是 `plugin.host.unavailable`；每个宿主能力加入时要和参数、权限、所属操作一起进入新的协议版本。
+后端向宿主请求 `lithe/function/invoke` 或任何 `lithe/build/*`，Core 直接回 JSON-RPC `-32601`，`data.code` 是 `plugin.function.recursiveCall`。宿主能力只开放进程运行、输出、存储这类原语，不开放“再进入某个领域注册表”的入口：Maven 处理器需要跑 Maven，应当请求宿主的进程能力，而不是请求宿主“执行 Maven 任务”。版本 1 一个宿主能力都没有开放，`lithe/host/*` 一律是 `plugin.host.unavailable`；协议 2 和 3 的宿主能力都随新的协议版本开放，每个都带着参数、权限和所属操作；从协议 3 起，新的宿主能力改为在协议 3 内新增，后端用 `getCapabilities` 发现，见[插件后端的工作区上下文](2026-10-30-plugin-backend-workspace-context.md)的“协议 3 内只增不改”。
 
 ### 3. 引用、注册与撤回
 
@@ -69,7 +69,7 @@ Issue #1351 要把 Maven、Gradle 这类插件从“只给声明”推进到“�
 
 - 所有 API 级别的旧插件包不变：函数没有新增清单字段。
 - 不认识 `litheFunctions` 的后端照常服务语言和 `litheBuild`，不会收到函数调用；它发来的函数请求得到 `-32601`。
-- 对方不能忽略的新字段或新宿主能力，只能放进新的协议版本，与旧版本一起提供。
+- 对方不能忽略的新字段，只能放进新的协议版本，与旧版本一起提供。宿主能力从协议 3 起在版本内新增，靠 `getCapabilities` 发现，不再单独升版本。
 
 ### 正确做法
 

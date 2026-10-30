@@ -72,6 +72,10 @@ final class MacPlatformUI: PlatformUI {
         try await MacHTMLBrowserOpener().open(url)
     }
 
+    func openWebURLInBrowser(_ url: URL) async throws {
+        try await MacHTMLBrowserOpener().openWeb(url)
+    }
+
     func copyToClipboard(_ value: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)

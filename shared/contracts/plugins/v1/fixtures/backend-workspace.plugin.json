@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.workspacebackend",
+  "displayName": "Workspace Backend",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "backend": 2,
+    "serverProcess": 1
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "backend.launch",
+    "workspace.metadata"
+  ],
+  "activationEvents": [
+    "onWorkspaceOpen"
+  ],
+  "languages": [],
+  "backend": {
+    "launch": {
+      "kind": "packaged",
+      "path": "bin/backend"
+    },
+    "arguments": [
+      "--state",
+      "${stateDir}"
+    ]
+  }
+}
