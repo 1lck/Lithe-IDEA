@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LitheModuleAPI
 
 /// Why the upstream update download stopped. Sparkle only sees the loopback
 /// connection, so the relay keeps the real cause for the error message.
@@ -36,6 +37,24 @@ enum UpdateDownloadFailure: Equatable, Sendable {
         case .tlsOrProxyFailure: return .tlsOrProxyFailure
         case .httpStatus(let status): return .httpStatus(status)
         case .invalidResponse: return .invalidResponse
+        }
+    }
+
+    /// Names `host` for network causes when the person chose a mirror; the
+    /// official source keeps the GitHub wording.
+    func message(host: String?) -> String {
+        guard let host else { return checkError.userMessage }
+        switch self {
+        case .timedOut:
+            return String(format: L10n.string("The connection to %@ timed out. Check your proxy or VPN connection and try again."), host)
+        case .connectionFailed:
+            return String(format: L10n.string("%@ could not be reached. Check your internet, proxy, or VPN connection and try again."), host)
+        case .tlsOrProxyFailure:
+            return String(format: L10n.string("A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings."), host)
+        case .httpStatus(let status):
+            return String(format: L10n.string("%@ returned HTTP %@."), host, String(status))
+        case .invalidResponse:
+            return String(format: L10n.string("%@ returned an unexpected response."), host)
         }
     }
 

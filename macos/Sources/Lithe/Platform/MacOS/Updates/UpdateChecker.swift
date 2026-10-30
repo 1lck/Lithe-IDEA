@@ -149,12 +149,29 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var selectedChannel: AppUpdateChannel
     private let preferences: UserDefaults
     private var pendingChannel: AppUpdateChannel?
+    /// The saved mirror base, re-read from preferences after every change.
+    @Published private(set) var customUpdateSourceBase: URL?
+    private var pendingSourceChange: URL??
     var installedChannel: AppUpdateChannel { isPreview ? .autobuild : .stable }
     var needsChannelInstallation: Bool { selectedChannel.requiresFullInstallation(from: installedChannel) }
     var selectedReleaseURL: URL { selectedChannel.releaseURL(info: bundle.infoDictionary ?? [:]) }
     var canChangeChannel: Bool {
-        !isBusy && !isInstalling && pendingChannel == nil
+        !isBusy && !isInstalling && pendingChannel == nil && pendingSourceChange == nil
             && (updater?.sessionInProgress != true || userDriver?.hasPendingReply == true)
+    }
+    /// The official stable feed for this Mac, or nil for builds without one.
+    var defaultStableFeed: URL? {
+        AppUpdateChannel.stable.feedURL(info: bundle.infoDictionary ?? [:], architecture: Self.architecture)
+            .flatMap(URL.init(string:))
+    }
+    /// AutoBuild always uses the official source, so the setting only applies
+    /// to a stable build that stays on the stable channel.
+    var canCustomizeUpdateSource: Bool { !isPreview && selectedChannel == .stable && defaultStableFeed != nil }
+    /// The source updates use right now; the default when customizing is unavailable.
+    var effectiveUpdateSource: AppUpdateSource? {
+        defaultStableFeed.map {
+            AppUpdateSource(defaultFeed: $0, customBase: canCustomizeUpdateSource ? customUpdateSourceBase : nil)
+        }
     }
     var isPreview: Bool { buildIdentity.isPreview }
     var versionDescription: String {
@@ -205,6 +222,9 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         stableRollback = MacStableRollback(diagnosticSink: diagnosticSink, sessionFactory: sessionFactory)
         self.bundle = bundle
         buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
+        customUpdateSourceBase = AppUpdateChannel.stable.feedURL(info: bundle.infoDictionary ?? [:],
+            architecture: Self.architecture).flatMap(URL.init(string:))
+            .flatMap { AppUpdateSource.saved(in: preferences, defaultFeed: $0).customBase }
         currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         super.init()
         rollbackObservation = stableRollback.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
@@ -229,6 +249,41 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
             applyChannel(channel)
         }
         return true
+    }
+
+    /// Saves a mirror base, or the default when `base` is nil, after the caller
+    /// tested it. A waiting offer from the old source is dismissed first.
+    @discardableResult
+    func applyUpdateSource(_ base: URL?) -> Bool {
+        guard canChangeChannel, canCustomizeUpdateSource else { return false }
+        if let reply = userDriver?.takeReply() {
+            pendingSourceChange = .some(base)
+            reply(.dismiss)
+        } else {
+            storeUpdateSource(base)
+        }
+        return true
+    }
+
+    private func storeUpdateSource(_ base: URL?) {
+        if let base, base != defaultStableFeed?.deletingLastPathComponent() {
+            preferences.set(base.absoluteString, forKey: AppUpdateSource.preferenceKey)
+        } else {
+            preferences.removeObject(forKey: AppUpdateSource.preferenceKey)
+        }
+        customUpdateSourceBase = defaultStableFeed.flatMap { AppUpdateSource.saved(in: preferences, defaultFeed: $0).customBase }
+        updateInfo = nil
+        notice = nil
+        status = .idle
+        updater?.resetUpdateCycle()
+    }
+
+    /// Fetches a candidate source's feed and newest archive without saving it.
+    func testUpdateSource(_ base: URL) async -> UpdateSourceProbeResult {
+        guard let defaultStableFeed else { return .failed(UpdateCheckError.invalidResponse.userMessage) }
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        return await UpdateSourceProbe.run(AppUpdateSource(defaultFeed: defaultStableFeed, customBase: base), session: session)
     }
 
     private func applyChannel(_ channel: AppUpdateChannel) {
@@ -271,7 +326,11 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
                     self?.installationWaitingForTermination(waiting)
                 }
                 driver.downloadFailureMessage = { [weak self] error in
-                    self?.downloadFailure(for: error).map(Self.downloadFailureMessage)
+                    guard let self else { return nil }
+                    if let failure = self.downloadFailure(for: error) {
+                        return Self.downloadFailureMessage(failure, mirrorHost: self.mirrorHost)
+                    }
+                    return self.mirrorFeedFailureMessage(for: error)
                 }
                 driver.downloadProgress = { [weak self] progress in
                     guard let self, let info = self.updateInfo else { return }
@@ -380,13 +439,17 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         status = .checking
     }
 
-    func feedURLString(for updater: SPUUpdater) -> String? {
+    static var architecture: String {
         #if arch(arm64)
-        let architecture = "arm64"
+        "arm64"
         #else
-        let architecture = "x86_64"
+        "x86_64"
         #endif
-        return selectedChannel.feedURL(info: bundle.infoDictionary ?? [:], architecture: architecture)
+    }
+
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        if canCustomizeUpdateSource, let source = effectiveUpdateSource { return source.feedURL.absoluteString }
+        return selectedChannel.feedURL(info: bundle.infoDictionary ?? [:], architecture: Self.architecture)
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
@@ -407,7 +470,9 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         isChecking = false
         isInstalling = true
         status = .downloading(version: item.displayVersionString, progress: .initial)
-        if let url = request.url, let relayed = downloadRelay?.relayURL(for: url) { request.url = relayed }
+        guard let url = request.url else { return }
+        let upstream = effectiveUpdateSource?.downloadURL(for: url) ?? url
+        if let relayed = downloadRelay?.relayURL(for: upstream) { request.url = relayed } else { request.url = upstream }
     }
 
     /// The network cause of a failed archive download. The relay's record wins
@@ -422,8 +487,22 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         return UpdateDownloadFailure(underlying)
     }
 
-    static func downloadFailureMessage(_ failure: UpdateDownloadFailure) -> String {
-        failure.checkError.userMessage + " "
+    /// A mirror's appcast could not be fetched. Sparkle's own wording does not
+    /// say which server failed, which matters once the person picked one.
+    func mirrorFeedFailureMessage(for error: Error) -> String? {
+        let error = error as NSError
+        guard let mirrorHost, error.domain == SUSparkleErrorDomain,
+              error.code == Int(SUError.appcastError.rawValue) else { return nil }
+        let failure = (error.userInfo[NSUnderlyingErrorKey] as? Error).flatMap(UpdateDownloadFailure.init)
+            ?? .invalidResponse
+        return failure.message(host: mirrorHost)
+    }
+
+    /// Failure messages name the mirror instead of GitHub when one is in use.
+    private var mirrorHost: String? { effectiveUpdateSource.flatMap { $0.isCustom ? $0.host : nil } }
+
+    static func downloadFailureMessage(_ failure: UpdateDownloadFailure, mirrorHost: String? = nil) -> String {
+        failure.message(host: mirrorHost) + " "
             + L10n.string("Downloaded data was kept. Try again to resume from where it stopped.")
     }
 
@@ -443,6 +522,10 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
             if let channel = pendingChannel {
                 pendingChannel = nil
                 applyChannel(channel)
+            }
+            if let base = pendingSourceChange {
+                pendingSourceChange = nil
+                storeUpdateSource(base)
             }
             if rollbackRequested {
                 rollbackRequested = false
@@ -464,7 +547,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
                         [SUError.installationCanceledError.rawValue, SUError.installationAuthorizeLaterError.rawValue].contains(Int32(nsError.code)) {
                 status = .idle
             } else if let failure = downloadFailure(for: error) {
-                status = .failed(code: failure.checkError.code, message: Self.downloadFailureMessage(failure))
+                status = .failed(code: failure.checkError.code, message: Self.downloadFailureMessage(failure, mirrorHost: mirrorHost))
             } else {
                 status = .failed(code: .installFailed, message: error.localizedDescription)
             }

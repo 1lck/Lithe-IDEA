@@ -1454,6 +1454,10 @@ struct SettingsView: View {
                 UpdateChannelControl()
             }
 
+            group("Update source", info: "Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.") {
+                UpdateSourceControl()
+            }
+
             group("Update status") {
                 updateStatusDescription
                 StableRollbackControl()
