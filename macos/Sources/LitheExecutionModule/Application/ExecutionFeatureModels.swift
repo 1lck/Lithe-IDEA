@@ -80,10 +80,14 @@ package final class RunFeatureModel: ObservableObject {
     /// Provider applications and Current File use the primary output stream.
     package var selectedProjectSessionID: String? {
         guard let configuration = selectedConfiguration, configuration.kind != .currentFile else { return nil }
+        if service.providerDebugConfigurationID == configuration.id { return nil }
         return configuration.id
     }
     package var isSelectedConfigurationRunning: Bool {
         guard let configuration = selectedConfiguration else { return false }
+        if service.providerDebugConfigurationID == configuration.id {
+            return isRunning && lastConfiguration?.id == configuration.id
+        }
         if configuration.kind != .currentFile && configuration.buildProvider == nil {
             return moduleSessions.contains { $0.configurationID == configuration.id && $0.isRunning }
         }
@@ -101,8 +105,9 @@ package final class RunFeatureModel: ObservableObject {
     package var primaryExecutionID: String? { service.primaryExecutionID }
     package var providerDebugEnded: AnyPublisher<String, Never> { service.providerDebugEnded.eraseToAnyPublisher() }
     package func prepareProviderDebug(_ configuration: RunConfiguration, port: UInt16,
+        languageImport: @escaping @MainActor (BuildLanguageImport) async throws -> Void = { _ in },
         isCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> String {
-        try await service.prepareProviderDebug(configuration, port: port, isCurrent: isCurrent)
+        try await service.prepareProviderDebug(configuration, port: port, languageImport: languageImport, isCurrent: isCurrent)
     }
     package func isProviderDebugActive(_ operation: String) -> Bool { service.isProviderDebugActive(operation) }
     package func providerDebugProcessID(_ operation: String) -> Int32? { service.providerDebugProcessID(operation) }

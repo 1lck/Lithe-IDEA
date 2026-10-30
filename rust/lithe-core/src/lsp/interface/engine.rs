@@ -16,6 +16,9 @@ use super::{
 use crate::lsp::languages::java_entrypoints::{
     java_entrypoints_command, normalize_java_entrypoints,
 };
+use crate::lsp::languages::java_launch::{
+    JavaLaunchAction, JavaLaunchFailure, JavaLaunchPreparation,
+};
 use crate::lsp::languages::java_main_methods::{
     java_main_methods_command, normalize_java_main_methods,
 };
@@ -230,6 +233,15 @@ pub struct SyncDocumentRequest {
     pub content_changes: Vec<LspDocumentContentChange>,
 }
 
+/// A host-confirmed disk save, carrying the exact saved text rather than newer edits.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveDocumentRequest {
+    pub session_id: String,
+    pub uri: String,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Core-owned document synchronization state returned after an editor update.
@@ -374,12 +386,29 @@ pub struct SemanticRequest {
     pub range: Option<LspRange>,
     #[serde(default)]
     pub diagnostics: Vec<LspClientDiagnostic>,
+    /// LSP completion trigger context; validated by the shared request mapper.
+    #[serde(default)]
+    pub completion_context: Option<Value>,
     #[serde(default)]
     pub completion_item: Option<Value>,
     #[serde(default)]
     pub code_action: Option<Value>,
     #[serde(default)]
     pub command: Option<Value>,
+}
+
+/// One saved Java source to prepare through the owning JDT session.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct JavaPrepareLaunchRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// Absolute native path used only for the upstream build request.
+    pub source_path: String,
+    /// Optional persisted selector to disambiguate multiple mains in one source.
+    #[serde(default)]
+    pub main_class: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -730,6 +759,10 @@ struct SessionState {
     /// Serialized, configuration-gated `vscode.java.buildWorkspace` calls.
     java_builds: JavaBuildCoordinator,
     java_entrypoint_waiters: VecDeque<JavaEntrypointWaiter>,
+    /// Launch attempts share their operation ID across discovery, build and classpath.
+    java_launches: BTreeMap<String, JavaLaunchPreparation>,
+    /// Already allocated classpath requests; the bounded writer sends only live ones.
+    java_launch_messages: Vec<(String, Vec<String>)>,
     java_build_timeout: Duration,
     /// Deadline cancellations awaiting the outbound worker, never written by the monitor.
     deadline_cancellations: Vec<String>,
@@ -1181,6 +1214,14 @@ pub fn sync_document(request: SyncDocumentRequest) -> Result<SyncDocumentRespons
         .sync_document(request)
 }
 
+/// Notifies an interested server after a successful native save. Returns false
+/// for unopened documents, unsupported saves, or a save superseded by new edits.
+pub fn save_document(request: SaveDocumentRequest) -> Result<bool, CoreError> {
+    engine()
+        .session(&request.session_id)?
+        .save_document(request)
+}
+
 /// Forwards external source and build-configuration changes without restarting
 /// the server or invalidating its durable workspace state.
 pub fn workspace_files_changed(request: WorkspaceFilesChangedRequest) -> Result<(), CoreError> {
@@ -1216,6 +1257,7 @@ pub fn java_navigation_markers(
             new_name: None,
             range: None,
             diagnostics: Vec::new(),
+            completion_context: None,
             completion_item: None,
             code_action: None,
             command: None,
@@ -1266,6 +1308,7 @@ pub fn java_resolve_navigation(
             new_name: None,
             range: None,
             diagnostics: Vec::new(),
+            completion_context: None,
             completion_item: None,
             code_action: None,
             command: None,
@@ -1293,6 +1336,20 @@ pub fn semantic_request(request: SemanticRequest) -> Result<OperationResponse, C
     engine()
         .session(&request.session_id)?
         .request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
+/// Prepares a Java launch as one cancellable operation in the owning session.
+pub fn java_prepare_launch(
+    request: JavaPrepareLaunchRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .prepare_java_launch(request, operation_id.clone())?;
     Ok(OperationResponse { operation_id })
 }
 
@@ -1723,6 +1780,8 @@ impl LspEngine {
                 maven_profile_request_generations: BTreeMap::new(),
                 java_builds: JavaBuildCoordinator::default(),
                 java_entrypoint_waiters: VecDeque::new(),
+                java_launches: BTreeMap::new(),
+                java_launch_messages: Vec::new(),
                 java_build_timeout,
                 deadline_cancellations: Vec::new(),
                 maintenance_write_deadline: None,
@@ -1843,6 +1902,36 @@ impl LspEngine {
 }
 
 impl RuntimeSession {
+    fn save_document(&self, request: SaveDocumentRequest) -> Result<bool, CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let message = {
+            let state = self.lock_state()?;
+            ensure_not_terminal(state.lifecycle)?;
+            if state.lifecycle != LspLifecycleState::Ready {
+                return Ok(false);
+            }
+            let Some(include_text) = state.client.text_document_save_include_text else {
+                return Ok(false);
+            };
+            let Some(document) = state.client.open_documents.get(&request.uri) else {
+                return Ok(false);
+            };
+            // JDT discards and reloads its working copy on didSave. A delayed
+            // save must not discard a newer editor revision already synchronized.
+            if *document.text != request.text {
+                return Ok(false);
+            }
+            let mut params = json!({"textDocument": {"uri": request.uri}});
+            if include_text {
+                params["text"] = json!(request.text);
+            }
+            json!({"jsonrpc": "2.0", "method": "textDocument/didSave", "params": params})
+                .to_string()
+        };
+        self.send_messages_or_fail(&outbound_order, vec![message], "saveDocument")?;
+        Ok(true)
+    }
+
     fn workspace_files_changed(&self, changes: Vec<WorkspaceFileChange>) -> Result<(), CoreError> {
         if changes.is_empty() {
             return Ok(());
@@ -2055,6 +2144,98 @@ impl RuntimeSession {
             None,
         );
         Ok(true)
+    }
+
+    /// Allocates the first request and attempt atomically, so cancellation always
+    /// finds the current upstream request or the existing build coordinator waiter.
+    fn prepare_java_launch(
+        &self,
+        request: JavaPrepareLaunchRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        if self.provider_id != "java" {
+            return Err(CoreError::new(
+                ErrorCode::NotSupported,
+                "Java launch preparation requires the Java language service.",
+            ));
+        }
+        let canonical_root = canonical_workspace_root(&self.root_uri);
+        let preparation = JavaLaunchPreparation::new(
+            &self.root_uri,
+            canonical_root.as_deref(),
+            request.source_path,
+            request.main_class,
+        )
+        .map_err(|message| CoreError::new(ErrorCode::InvalidRequest, message))?;
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+                || state.java_launches.contains_key(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            let now = Instant::now();
+            if java_configuration_running(&mut state, now) {
+                if state.java_entrypoint_waiters.len() >= 128 {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Java entry-point discovery queue is full.",
+                    ));
+                }
+                let deadline = now + state.java_build_timeout;
+                state
+                    .java_entrypoint_waiters
+                    .push_back(JavaEntrypointWaiter {
+                        operation_id: operation_id.clone(),
+                        created_at: now,
+                        deadline,
+                    });
+                state.java_launches.insert(operation_id, preparation);
+                return Ok(());
+            }
+            let response = allocate_raw_request(
+                state.client.clone(),
+                "workspace/executeCommand",
+                java_entrypoints_command(&java_entrypoint_scope_uri(&self.root_uri)),
+            )?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            let timeout = state.request_timeout;
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::JavaEntrypoints,
+                    operation_id: Some(operation_id.clone()),
+                    method: "workspace/executeCommand".to_string(),
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id.clone(), request_id.clone());
+            state.java_launches.insert(operation_id, preparation);
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
     }
 
     fn request(&self, request: SemanticRequest, operation_id: String) -> Result<(), CoreError> {
@@ -2780,6 +2961,7 @@ impl RuntimeSession {
                         new_name: request.new_name,
                         range: request.range,
                         diagnostics: request.diagnostics,
+                        completion_context: request.completion_context,
                         completion_item: request.completion_item,
                         code_action: request.code_action,
                         command: request.command,
@@ -4737,6 +4919,7 @@ impl RuntimeSession {
         if !self.lock_state().is_ok_and(|state| {
             state.java_builds.has_queued()
                 || !state.java_entrypoint_waiters.is_empty()
+                || !state.java_launch_messages.is_empty()
                 || !state.deadline_cancellations.is_empty()
                 || (state.maven_profile_update_pending
                     && state.lifecycle == LspLifecycleState::Ready
@@ -4782,6 +4965,12 @@ impl RuntimeSession {
             })
             .collect();
         messages.extend(profile_messages);
+        for (request_id, queued) in std::mem::take(&mut state.java_launch_messages) {
+            // Cancellation or timeout can win before the writer acquires its lock.
+            if state.pending.contains_key(&request_id) {
+                messages.extend(queued);
+            }
+        }
         messages.extend(self.dispatch_java_build_locked(&mut state, Instant::now()));
         messages.extend(self.dispatch_java_entrypoints_locked(&mut state, Instant::now()));
         if messages.is_empty() {
@@ -5835,6 +6024,87 @@ fn push_request_event(
     result: Option<Value>,
     error: Option<LspRuntimeError>,
 ) {
+    let (result, error) = if let Some(mut preparation) = state.java_launches.remove(operation_id) {
+        match preparation.advance(result, error) {
+            Ok(JavaLaunchAction::Build(command)) => {
+                state.java_builds.enqueue(
+                    operation_id.to_string(),
+                    command,
+                    Instant::now(),
+                    state.java_build_timeout,
+                );
+                state
+                    .java_launches
+                    .insert(operation_id.to_string(), preparation);
+                return;
+            }
+            Ok(JavaLaunchAction::Classpath(command)) => {
+                match allocate_raw_request(
+                    state.client.clone(),
+                    "workspace/executeCommand",
+                    command,
+                ) {
+                    Ok(response) => {
+                        let request_id = (response.state.next_request_id - 1).to_string();
+                        let now = Instant::now();
+                        state.client = response.state;
+                        state.pending.insert(
+                            request_id.clone(),
+                            PendingRequest {
+                                kind: PendingKind::Feature,
+                                operation_id: Some(operation_id.to_string()),
+                                method: "workspace/executeCommand".to_string(),
+                                document_uri: None,
+                                document_version: None,
+                                created_at: now,
+                                deadline: now + state.request_timeout,
+                            },
+                        );
+                        state
+                            .request_by_operation
+                            .insert(operation_id.to_string(), request_id.clone());
+                        state
+                            .java_launch_messages
+                            .push((request_id, response.messages));
+                        state
+                            .java_launches
+                            .insert(operation_id.to_string(), preparation);
+                        return;
+                    }
+                    Err(error) => (
+                        None,
+                        Some(runtime_error(
+                            session,
+                            "invalidServerResult",
+                            "javaLaunch",
+                            Some(method),
+                            None,
+                            &error.message,
+                            None,
+                            None,
+                        )),
+                    ),
+                }
+            }
+            Ok(JavaLaunchAction::Complete(result)) => (Some(result), None),
+            Err(JavaLaunchFailure::Upstream(error)) => (None, Some(error)),
+            Err(JavaLaunchFailure::Invalid(message)) => (
+                None,
+                Some(runtime_error(
+                    session,
+                    "invalidServerResult",
+                    "javaLaunch",
+                    Some(method),
+                    None,
+                    message,
+                    None,
+                    None,
+                )),
+            ),
+        }
+    } else {
+        (result, error)
+    };
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
@@ -6727,6 +6997,7 @@ fn clear_function_registry(session: &RuntimeSession, state: &mut SessionState) {
 fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     clear_runtime_diagnostics(session, state);
     state.client.initialized = false;
+    state.client.text_document_save_include_text = None;
     state.client.shutdown_requested = false;
     state.client.server_capabilities.clear();
     state.client.open_documents.clear();
@@ -6741,6 +7012,8 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.java_navigation_marker_cache.clear();
     state.java_builds = JavaBuildCoordinator::default();
     state.java_entrypoint_waiters.clear();
+    state.java_launches.clear();
+    state.java_launch_messages.clear();
     state.deadline_cancellations.clear();
     state.maintenance_write_deadline = None;
     state.pending_workspace_file_changes.clear();
@@ -7067,6 +7340,7 @@ mod tests {
                         new_name: None,
                         range: None,
                         diagnostics: Vec::new(),
+                        completion_context: None,
                         completion_item: None,
                         code_action: None,
                         command: None,
@@ -7092,6 +7366,7 @@ mod tests {
                         new_name: None,
                         range: None,
                         diagnostics: Vec::new(),
+                        completion_context: None,
                         completion_item: None,
                         code_action: None,
                         command: Some(command),
@@ -7205,6 +7480,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -9133,6 +9409,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -9199,6 +9476,7 @@ mod tests {
                         new_name: None,
                         range: None,
                         diagnostics: Vec::new(),
+                        completion_context: None,
                         completion_item: None,
                         code_action: None,
                         command: None,
@@ -9332,6 +9610,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: Some(json!({
@@ -9513,6 +9792,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -9566,6 +9846,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -9578,6 +9859,56 @@ mod tests {
             .await_request("workspace/executeCommand")
             .expect("main-class discovery should reach JDT LS");
         (operation_id, request_id)
+    }
+
+    #[test]
+    fn document_saves_honor_server_options_and_never_replace_newer_editor_text() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/lsp/document-save-v1.json"
+        )))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let option = &case["saveOption"];
+            let mut harness = Harness::start(|_| {});
+            let mut capabilities = ready_capabilities();
+            capabilities["textDocumentSync"] = json!({"change": 1, "save": option});
+            harness.server.complete_initialize(capabilities);
+            harness.await_state(LspLifecycleState::Ready);
+            let uri = case["uri"].as_str().unwrap();
+            let saved_text = case["savedText"].as_str().unwrap();
+            harness.sync(uri, saved_text);
+            let saved = || SaveDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: uri.to_string(),
+                text: saved_text.to_string(),
+            };
+            let supported = case["sent"].as_bool().unwrap();
+            assert_eq!(harness.session().save_document(saved()).unwrap(), supported);
+            if supported {
+                let notification = harness
+                    .server
+                    .await_notification_at("textDocument/didSave", 0)
+                    .unwrap();
+                assert_eq!(notification["params"]["textDocument"]["uri"], uri);
+                assert_eq!(
+                    notification["params"].get("text"),
+                    case["includeText"]
+                        .as_bool()
+                        .unwrap()
+                        .then_some(&json!(saved_text))
+                );
+            }
+            harness.sync(uri, "newer unsaved edit");
+            assert!(!harness.session().save_document(saved()).unwrap());
+            let session = harness.session();
+            let state = session.lock_state().unwrap();
+            assert_eq!(
+                state.client.open_documents[uri].text.as_ref(),
+                "newer unsaved edit"
+            );
+            assert_eq!(state.client.open_documents[uri].version, 2);
+        }
     }
 
     fn java_entrypoints_harness() -> Harness {
@@ -9604,6 +9935,7 @@ mod tests {
                 new_name: None,
                 range: None,
                 diagnostics: Vec::new(),
+                completion_context: None,
                 completion_item: None,
                 code_action: None,
                 command: None,
@@ -9700,6 +10032,292 @@ mod tests {
             queue_java_entrypoints(&harness, &format!("queued-{index}")).unwrap();
         }
         assert!(queue_java_entrypoints(&harness, "overflow").is_err());
+    }
+
+    fn begin_java_launch(harness: &Harness) -> (String, String) {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .prepare_java_launch(
+                JavaPrepareLaunchRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    source_path: "/workspace/app/src/TestMain.java".to_string(),
+                    main_class: Some("demo.TestMain".to_string()),
+                },
+                operation_id.clone(),
+            )
+            .expect("Java launch should start");
+        let discovery = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .expect("entry request");
+        (operation_id, discovery)
+    }
+
+    fn answer_java_launch_entries(harness: &Harness, request_id: &str) {
+        harness.server.send(json!({"jsonrpc": "2.0", "id": request_id, "result": [
+            {"mainClass": "demo.Other", "projectName": "app", "filePath": "/workspace/app/src/TestMain.java"},
+            {"mainClass": "test.module/demo.TestMain", "projectName": "app", "filePath": "/workspace/app/src/TestMain.java"},
+            {"mainClass": "demo.TestMain", "projectName": "lib", "filePath": "/workspace/lib/src/TestMain.java"}
+        ]}));
+    }
+
+    /// The composed operation must wait for the same import barrier as discovery.
+    #[test]
+    fn java_launch_preparation_waits_for_configuration_and_reclaims_queued_attempts() {
+        for outcome in ["launch", "cancel", "timeout", "stop"] {
+            let mut harness = java_entrypoints_harness();
+            let session = harness.session();
+            session.lock_state().unwrap().maven_profile_status = MavenProfileTaskStatus::Running;
+            session
+                .prepare_java_launch(
+                    JavaPrepareLaunchRequest {
+                        session_id: harness.session_id.clone(),
+                        operation_id: Some(outcome.into()),
+                        source_path: "/workspace/app/src/TestMain.java".into(),
+                        main_class: Some("demo.TestMain".into()),
+                    },
+                    outcome.into(),
+                )
+                .unwrap();
+            session.pump_outbound_maintenance();
+            assert!(!harness
+                .server
+                .messages()
+                .iter()
+                .any(|message| message["method"] == "workspace/executeCommand"));
+            match outcome {
+                "launch" => {
+                    session.lock_state().unwrap().maven_profile_status =
+                        MavenProfileTaskStatus::Succeeded;
+                    session.pump_outbound_maintenance();
+                    let request = harness
+                        .server
+                        .await_request("workspace/executeCommand")
+                        .unwrap();
+                    answer_java_launch_entries(&harness, &request);
+                    harness
+                        .server
+                        .await_request_at("workspace/executeCommand", 1)
+                        .unwrap();
+                    session.cancel_operation(outcome).unwrap();
+                }
+                "cancel" => session.cancel_operation(outcome).unwrap(),
+                "timeout" => session.expire_deadlines_at(Instant::now() + Duration::from_secs(601)),
+                _ => session.stop().unwrap(),
+            }
+            let event = harness.await_event(|event| {
+                event.operation_id.as_deref() == Some(outcome) && event.kind == "requestCompleted"
+            });
+            assert!(event.error.is_some(), "{outcome}: {event:?}");
+            let state = session.lock_state().unwrap();
+            assert!(state.java_entrypoint_waiters.is_empty());
+            assert!(!state.java_launches.contains_key(outcome));
+        }
+    }
+
+    #[test]
+    fn java_launch_preparation_owns_selection_build_and_classpath_under_one_operation() {
+        let mut harness = java_entrypoints_harness();
+        let (operation, discovery) = begin_java_launch(&harness);
+        answer_java_launch_entries(&harness, &discovery);
+        let build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 1)
+            .expect("build request");
+        let request = harness.written_request(&build);
+        assert_eq!(request["params"]["command"], "vscode.java.buildWorkspace");
+        let payload: Value =
+            serde_json::from_str(request["params"]["arguments"][0].as_str().unwrap()).unwrap();
+        assert_eq!(
+            payload,
+            json!({"mainClass": "test.module/demo.TestMain", "projectName": "app",
+            "filePath": "/workspace/app/src/TestMain.java", "isFullBuild": false})
+        );
+        assert!(!harness
+            .poll()
+            .iter()
+            .any(|event| event.operation_id.as_deref() == Some(&operation)));
+        harness
+            .server
+            .send(json!({"jsonrpc": "2.0", "id": build, "result": 1}));
+        let paths = harness
+            .server
+            .await_request_at("workspace/executeCommand", 2)
+            .expect("classpath request");
+        assert_eq!(
+            harness.written_request(&paths)["params"],
+            json!({
+                "command": "vscode.java.resolveClasspath", "arguments": ["test.module/demo.TestMain", "app"]
+            })
+        );
+        harness.server.send(json!({"jsonrpc": "2.0", "id": paths, "result": [
+            ["/workspace/app/custom-modules"], ["/workspace/app/custom-tests", "/cache/junit.jar"]
+        ]}));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(&operation))
+            .clone();
+        assert!(event.error.is_none(), "{event:?}");
+        assert_eq!(
+            event.result.unwrap(),
+            json!({"kind": "ready", "target": {
+                "mainClass": "test.module/demo.TestMain", "projectName": "app",
+                "modulePaths": ["/workspace/app/custom-modules"], "classPaths": ["/workspace/app/custom-tests", "/cache/junit.jar"]
+            }})
+        );
+        assert_eq!(
+            harness
+                .poll()
+                .iter()
+                .filter(|event| event.operation_id.as_deref() == Some(&operation))
+                .count(),
+            1
+        );
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+        assert!(harness
+            .session()
+            .lock_state()
+            .unwrap()
+            .java_launches
+            .is_empty());
+    }
+
+    #[test]
+    fn java_launch_preparation_preserves_failed_build_evidence_with_resolved_paths() {
+        for (status, code) in [(0, "javaBuildFailed"), (2, "javaBuildCompilationErrors")] {
+            let mut harness = java_entrypoints_harness();
+            let (operation, discovery) = begin_java_launch(&harness);
+            answer_java_launch_entries(&harness, &discovery);
+            let build = harness
+                .server
+                .await_request_at("workspace/executeCommand", 1)
+                .expect("build request");
+            harness
+                .server
+                .send(json!({"jsonrpc": "2.0", "id": build, "result": status}));
+            let paths = harness
+                .server
+                .await_request_at("workspace/executeCommand", 2)
+                .expect("classpath request after terminal build");
+            harness.server.send(
+                json!({"jsonrpc": "2.0", "id": paths, "result": [[], ["/workspace/app/out"]]}),
+            );
+            let event =
+                harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
+            assert!(event.error.is_none());
+            let result = event.result.as_ref().unwrap();
+            assert_eq!(result["kind"], "buildFailed");
+            assert_eq!(result["failure"]["code"], code);
+            assert_eq!(result["failure"]["report"]["markerScope"], "launchTarget");
+            assert_eq!(
+                result["target"]["classPaths"],
+                json!(["/workspace/app/out"])
+            );
+        }
+    }
+
+    #[test]
+    fn java_launch_preparation_rejects_cancelled_build_without_resolving_paths() {
+        let mut harness = java_entrypoints_harness();
+        let (operation, discovery) = begin_java_launch(&harness);
+        answer_java_launch_entries(&harness, &discovery);
+        let build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 1)
+            .expect("build request");
+        harness
+            .server
+            .send(json!({"jsonrpc": "2.0", "id": build, "result": 3}));
+        let event = harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
+        assert_eq!(event.error.as_ref().unwrap().code, "javaBuildCancelled");
+        assert!(event.result.is_none());
+        assert!(harness
+            .session()
+            .lock_state()
+            .unwrap()
+            .java_launches
+            .is_empty());
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|message| message["params"]["command"] == "vscode.java.resolveClasspath"));
+    }
+
+    #[test]
+    fn java_launch_preparation_cancel_during_build_ignores_its_late_success() {
+        let mut harness = java_entrypoints_harness();
+        let (operation, discovery) = begin_java_launch(&harness);
+        answer_java_launch_entries(&harness, &discovery);
+        let build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 1)
+            .expect("build request");
+        harness
+            .session()
+            .cancel_operation(&operation)
+            .expect("cancel composed launch");
+        let event = harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
+        assert_eq!(event.error.as_ref().unwrap().code, "requestCancelled");
+        harness
+            .server
+            .send(json!({"jsonrpc": "2.0", "id": build, "result": 1}));
+        // The log is emitted after the late build answer was processed; no sleep
+        // or negative timeout is used to infer that no next stage was scheduled.
+        harness
+            .await_event(|event| event.message.as_deref() == Some("Java project build finished"));
+        assert!(harness
+            .session()
+            .lock_state()
+            .unwrap()
+            .java_launches
+            .is_empty());
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|message| message["params"]["command"] == "vscode.java.resolveClasspath"));
+        assert_eq!(
+            harness
+                .poll()
+                .iter()
+                .filter(|event| event.operation_id.as_deref() == Some(&operation))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn java_launch_preparation_rejects_malformed_classpath_instead_of_dropping_entries() {
+        for paths in [
+            json!([[], []]),
+            json!([[], [42]]),
+            json!([[], [" "]]),
+            json!([null, ["/out"]]),
+        ] {
+            let mut harness = java_entrypoints_harness();
+            let (operation, discovery) = begin_java_launch(&harness);
+            answer_java_launch_entries(&harness, &discovery);
+            let build = harness
+                .server
+                .await_request_at("workspace/executeCommand", 1)
+                .expect("build request");
+            harness
+                .server
+                .send(json!({"jsonrpc": "2.0", "id": build, "result": 1}));
+            let request = harness
+                .server
+                .await_request_at("workspace/executeCommand", 2)
+                .expect("classpath request");
+            harness
+                .server
+                .send(json!({"jsonrpc": "2.0", "id": request, "result": paths}));
+            let event =
+                harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
+            assert_eq!(event.error.as_ref().unwrap().code, "invalidServerResult");
+            assert!(event.result.is_none());
+        }
     }
 
     #[test]
@@ -9975,6 +10593,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10003,6 +10622,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10087,6 +10707,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10177,6 +10798,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10220,6 +10842,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10383,6 +11006,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10697,6 +11321,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10843,6 +11468,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10962,6 +11588,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -11037,6 +11664,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -11115,6 +11743,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -11204,6 +11833,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,

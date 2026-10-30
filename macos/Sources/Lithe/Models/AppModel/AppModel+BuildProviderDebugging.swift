@@ -19,19 +19,29 @@ extension AppModel {
             guard services.remoteConnections?.workspaces.contains(identity.url) != true else {
                 throw RunConfigurationOperationFailure(message: L10n.string("Framework service debugging is not available in remote workspaces yet."))
             }
-            guard await saveAllDocuments(), isCurrentWorkspace(identity), !Task.isCancelled,
+            try await saveJavaWorkspaceForLaunch(identity: identity)
+            guard isCurrentWorkspace(identity), !Task.isCancelled,
                   let debug = genericDebugFeatureIfActive else { throw CancellationError() }
+            runWorkflowCoordinator.reapplySelectedConfiguration(run)
             try await prepareCurrentProviderGeneration(configuration: configuration, identity: identity)
-            _ = try await languageSessionsForWorkspaceMaintenance(for: identity)
+            let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
+            var javaRevision: UInt64?
             let revision = buildSystemsFeatureIfActive?.inputRevision
             let current: @MainActor @Sendable () -> Bool = { [weak self, weak run] in
                 guard let self, let run else { return false }
                 return self.isCurrentWorkspace(identity) && !Task.isCancelled
                     && run.selectedConfiguration == configuration && self.buildSystemsFeatureIfActive?.inputRevision == revision
+                    && (javaRevision == nil || sessions.javaImportRevision == javaRevision)
             }
             guard current() else { throw CancellationError() }
             let port = try debugPortAvailabilityChecker.unusedLoopbackPort()
-            let launched = try await run.prepareProviderDebug(configuration, port: port, isCurrent: current)
+            let launched = try await run.prepareProviderDebug(configuration, port: port, languageImport: { [weak self] imported in
+                guard let self, current(), case .maven(let context) = imported else { throw CancellationError() }
+                let defaults = try self.javaLanguageImportConfiguration(rootURL: identity.url)
+                try await sessions.applyJavaRunImport(rootURL: identity.url,
+                    languageImport: .init(mavenContext: context, javaGradle: defaults.javaGradle))
+                javaRevision = sessions.javaImportRevision
+            }, isCurrent: current)
             operation = launched
             showToolWindow(.run)
             try await debugPortAvailabilityChecker.waitForLoopbackListener(port, processID: { run.providerDebugProcessID(launched) }) {

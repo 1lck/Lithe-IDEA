@@ -43,10 +43,10 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         run.configureBuildProjectOwnership { [weak buildSystems] in try buildSystems?.runProjectOwnership() ?? [] }
         run.configureProviderConfigurationRuns(source: { [weak buildSystems] inputs, root in
             buildSystems?.configurationRunSource(inputs: inputs, instanceRoot: root)
-        }) { [weak buildSystems] inputs, root, workspace, hints, current, progress in
+        }) { [weak buildSystems] inputs, root, workspace, hints, current, progress, languageImport in
             guard let buildSystems else { throw CancellationError() }
             return try await buildSystems.prepareConfigurationRun(inputs: inputs, instanceRoot: root, workspace: workspace,
-                tool: hints, isCurrent: current, progress: progress)
+                tool: hints, isCurrent: current, progress: progress, onLanguageImport: languageImport)
         }
 
         buildSystems?.providerSourcesChanged.sink { [weak run] sources in

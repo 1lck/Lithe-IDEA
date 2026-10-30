@@ -6,6 +6,98 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+/// A Maven goal is not evidence of a launchable application. Only confirmed
+/// production entries can promote that exact module to a Spring service.
+#[test]
+fn spring_services_require_unique_confirmed_entries_in_their_own_module() {
+    let root = temporary_root("spring-confirmed-services");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            crate::execution::generated_layer::forget(&self.0);
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    let modules = ["app", "library", "library/nested", "ambiguous", "test-only"];
+    let declarations = modules
+        .iter()
+        .map(|module| format!("<module>{module}</module>"))
+        .collect::<String>();
+    fs::write(root.join("pom.xml"), format!(
+        "<project><groupId>example</groupId><artifactId>parent</artifactId><version>1</version><packaging>pom</packaging><modules>{declarations}</modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
+    )).unwrap();
+    for module in modules {
+        fs::create_dir_all(root.join(module)).unwrap();
+        let parent = if module.contains('/') {
+            "../../pom.xml"
+        } else {
+            "../pom.xml"
+        };
+        fs::write(root.join(module).join("pom.xml"), format!(
+            "<project><parent><groupId>example</groupId><artifactId>parent</artifactId><version>1</version><relativePath>{parent}</relativePath></parent><artifactId>{}</artifactId></project>", module.replace('/', "-")
+        )).unwrap();
+    }
+    let sources = [
+        ("app/src/main/java/App.java", "App", true),
+        ("library/src/main/java/Tool.java", "Tool", false),
+        ("library/nested/src/main/java/Nested.java", "Nested", true),
+        ("ambiguous/src/main/java/First.java", "First", true),
+        ("ambiguous/src/main/java/Second.java", "Second", true),
+        ("test-only/src/test/java/TestApp.java", "TestApp", true),
+    ];
+    for (path, class, spring) in sources {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let annotation = if spring {
+            "@SpringBootApplication "
+        } else {
+            ""
+        };
+        fs::write(
+            path,
+            format!("{annotation}class {class} {{ public static void main(String[] args) {{}} }}"),
+        )
+        .unwrap();
+    }
+    let paths = sources.iter().map(|(path, _, _)| *path).collect::<Vec<_>>();
+    let facts = sources
+        .iter()
+        .map(|(path, class, _)| (*path, *class))
+        .collect::<Vec<_>>();
+    let generated = generate_with(&root, &paths, Some(jdt_entrypoints(&facts)));
+    assert_eq!(generated["ok"], true, "{generated}");
+    let entries = generated["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap();
+    let services = entries
+        .iter()
+        .filter(|entry| entry["provider"] == "spring-boot.maven")
+        .map(|entry| entry["extensions"]["maven"]["module"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(services, ["app", "library/nested"]);
+    // Classification must not suppress JDT's test, utility or ambiguous mains.
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|entry| entry["provider"] == "java.main")
+            .count(),
+        sources.len()
+    );
+    let pending = generate_with(&root, &paths, None);
+    assert_eq!(
+        pending["data"]["generated"]["configurations"],
+        generated["data"]["generated"]["configurations"]
+    );
+    let removed = generate_with(&root, &paths, Some(jdt_entrypoints(&[])));
+    assert!(!removed["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["provider"] == "spring-boot.maven"));
+}
+
 #[test]
 fn subproject_toolchain_paths_roundtrip_and_reject_invalid_scope_keys() {
     let root = temporary_root("subproject-toolchain-paths");
@@ -128,6 +220,13 @@ fn saved_provider_tasks_do_not_suppress_detection_after_restart() {
         <artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
     )
     .unwrap();
+    let source = "src/main/java/App.java";
+    fs::create_dir_all(root.join("src/main/java")).unwrap();
+    fs::write(
+        root.join(source),
+        "@SpringBootApplication class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
     let call = |command: &str, mut payload: Value| -> Value {
         payload["root"] = serde_json::json!(root);
         let response: Value = serde_json::from_str(&execute_json(
@@ -162,7 +261,7 @@ fn saved_provider_tasks_do_not_suppress_detection_after_restart() {
         assert_eq!(inspected["requiresGeneration"], true);
         call(
             "runConfig.generate",
-            serde_json::json!({"paths":["pom.xml"]}),
+            serde_json::json!({"paths":["pom.xml",source],"javaEntrypoints":jdt_entrypoints(&[(source,"App")])}),
         );
         let inspected = call(
             "runConfig.inspect",
@@ -327,7 +426,7 @@ fn run_configuration_commands_generate_merge_and_plan() {
     fs::write(root.join("src/main/java/com/example/App.java"), "package com.example; @SpringBootApplication class App { public static void main(String[] args) {} }").expect("source should be writable");
     fs::write(root.join("pom.xml"), "<project><artifactId>demo</artifactId><properties><maven.compiler.release>21</maven.compiler.release></properties><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>").expect("pom should be writable");
 
-    let request = serde_json::json!({"id":"generate","command":"runConfig.generate","payload":{"root":root,"paths":["src/main/java/com/example/App.java"],"modulePaths":[]}});
+    let request = serde_json::json!({"id":"generate","command":"runConfig.generate","payload":{"root":root,"paths":["src/main/java/com/example/App.java"],"modulePaths":[],"javaEntrypoints":jdt_entrypoints(&[("src/main/java/com/example/App.java","com.example.App")])}});
     let generated: Value = serde_json::from_str(&execute_json(&request.to_string()))
         .expect("generate response should be JSON");
     assert_eq!(generated["ok"], true);

@@ -506,13 +506,14 @@ extension AppModel {
                 portChecker: debugPortAvailabilityChecker,
                 resolveJavaTarget: { [weak self] in
                     guard let self else { return nil }
+                    try await self.saveJavaWorkspaceForLaunch(identity: identity)
                     let operation = self.buildSystemsFeatureIfActive?.operation?.id
                     let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
                     let preparation: JavaLaunchPreparation
                     if let javaImport {
-                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL, languageImport: javaImport)
+                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL, languageImport: javaImport, mainClass: selectedConfiguration?.mainClass)
                     } else {
-                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL)
+                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL, mainClass: selectedConfiguration?.mainClass)
                     }
                     let javaRevision = sessions.javaImportRevision
                     let target = try await self.resolveJavaLaunchPreparation(

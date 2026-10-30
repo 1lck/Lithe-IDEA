@@ -332,6 +332,8 @@ pub enum CoreCommand {
     LspUpdateWorkspaceConfiguration,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
+    /// Reports a successful native document save (`lsp.saveDocument`).
+    LspSaveDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
     LspWorkspaceFilesChanged,
     /// Closes a synchronized document (`lsp.closeDocument`).
@@ -348,6 +350,8 @@ pub enum CoreCommand {
     LspHostResponse,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
     JavaNavigationMarkers,
+    /// Queues shared Java entry selection, build and classpath preparation (`java.prepareLaunch`).
+    JavaPrepareLaunch,
     /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
     JavaResolveNavigation,
     /// Cancels one pending semantic request (`lsp.cancelOperation`).
@@ -687,6 +691,7 @@ impl CoreCommand {
             "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.updateWorkspaceConfiguration" => Some(Self::LspUpdateWorkspaceConfiguration),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
+            "lsp.saveDocument" => Some(Self::LspSaveDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
             "lsp.request" => Some(Self::LspRequest),
@@ -695,6 +700,7 @@ impl CoreCommand {
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "lsp.hostResponse" => Some(Self::LspHostResponse),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
+            "java.prepareLaunch" => Some(Self::JavaPrepareLaunch),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
             "lsp.waitEvents" => Some(Self::LspWaitEvents),

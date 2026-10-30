@@ -228,7 +228,7 @@ public struct DebugSteppingFilters: Codable, Equatable, Sendable {
 
 /// JDT LS-owned identity for one Java launch target. `mainClass` may include
 /// the JPMS module prefix (`module/name.Type`) required by Java Debug Server.
-public struct JavaDebugLaunchTarget: Hashable, Sendable {
+public struct JavaDebugLaunchTarget: Codable, Hashable, Sendable {
     public let mainClass: String
     public let projectName: String?
     public let modulePaths: [String]
@@ -253,6 +253,20 @@ public struct JavaDebugLaunchTarget: Hashable, Sendable {
         self.classPaths = classPaths
         self.buildPrepared = buildPrepared
     }
+
+    private enum CodingKeys: String, CodingKey { case mainClass, projectName, modulePaths, classPaths, buildPrepared }
+
+    /// Core's shared Java preparation has no host resource receipt. An absent
+    /// receipt must retain Maven preparation rather than bypass it.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(mainClass: try values.decode(String.self, forKey: .mainClass),
+            projectName: try values.decodeIfPresent(String.self, forKey: .projectName),
+            modulePaths: try values.decode([String].self, forKey: .modulePaths),
+            classPaths: try values.decode([String].self, forKey: .classPaths),
+            buildPrepared: try values.decodeIfPresent(Bool.self, forKey: .buildPrepared) ?? false)
+    }
+
 }
 
 /// Java test runner family reported by the JDT LS Java Test extension.

@@ -936,7 +936,7 @@ same invocation resolver; explicit invalid tool/runtime selection is a failure,
 never permission for independent discovery. It must reject stale project facts
 rather than guess a target.
 
-The host offers `litheBuild.versions: [9, 8, 7, 6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
+The host offers `litheBuild.versions: [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
 and its progress notification to the two version 1 methods. A process that
 chooses version 1 cannot receive execution; unsupported negotiation fails
 explicitly. A plugin that needs this behavior declares capability version 2
@@ -992,7 +992,7 @@ widening the test run. Paths, scopes and declared filters are validated before
 the request is sent. The host's report project list only resolves report globs;
 it is not a second backend project model.
 
-Only a process choosing protocol version 3 or 4 receives `lithe/build/test`.
+Only a process choosing protocol version 3 or newer receives `lithe/build/test`.
 Versions 1 and 2 explicitly refuse tests. Version 3 retains every version 2
 task behavior. Tests use the same Core-assigned operation identity,
 `lithe/build/progress`, tool hint, bounded `{ exitCode, output }` result,
@@ -1013,7 +1013,7 @@ Provider tests may additionally declare `discovery: true`. This requires both
 `build.testDiscoveryPlan` accepts the common plan fields and optional `refresh`
 and `tool`, returning a request for the whole instance:
 `lithe/build/discoverTests` with its effective options. Project/output-file
-selection is refused. This method also requires protocol version 3 or 4 and uses
+selection is refused. This method also requires protocol version 3 or newer and uses
 the existing bounded request/cancellation lifecycle, without execution progress.
 
 The provider returns `{ "format": "litheTestDiscovery", "version": 1,

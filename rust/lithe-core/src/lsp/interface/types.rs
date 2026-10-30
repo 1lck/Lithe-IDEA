@@ -124,6 +124,9 @@ pub struct LspClientState {
     #[serde(default)]
     /// Server `TextDocumentSyncKind`, used to choose full or incremental `didChange`.
     pub text_document_sync: LspTextDocumentSyncKind,
+    /// `None` means saves were not requested; `Some` is the server's includeText flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_document_save_include_text: Option<bool>,
     #[serde(default)]
     pub open_documents: BTreeMap<String, LspClientDocument>,
     #[serde(default)]
@@ -163,6 +166,7 @@ impl Default for LspClientState {
             server_capabilities: Vec::new(),
             semantic_token_providers: BTreeMap::new(),
             text_document_sync: LspTextDocumentSyncKind::Full,
+            text_document_save_include_text: None,
             open_documents: BTreeMap::new(),
             pending_requests: BTreeMap::new(),
             pending_semantic_legends: BTreeMap::new(),
@@ -294,6 +298,9 @@ pub struct ClientFeatureRequest {
     pub range: Option<LspRange>,
     #[serde(default)]
     pub diagnostics: Vec<LspClientDiagnostic>,
+    /// LSP completion trigger context; validated by the shared request mapper.
+    #[serde(default)]
+    pub completion_context: Option<Value>,
     #[serde(default)]
     pub completion_item: Option<Value>,
     #[serde(default)]

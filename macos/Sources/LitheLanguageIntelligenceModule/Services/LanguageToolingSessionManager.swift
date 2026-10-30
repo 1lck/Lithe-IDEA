@@ -77,7 +77,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
     /// inputs. Keep this with the session so a pure Gradle start stays nil.
     private var languageServerMavenContexts: [String: MavenLaunchContext] = [:]
     /// Ephemeral import changes also revoke in-flight launch metadata (including ABA).
-    package private(set) var javaImportRevision: UInt64 = 0
+    private var javaPreparationCancellations: [UUID: @MainActor () -> Void] = [:]
+    package private(set) var javaImportRevision: UInt64 = 0 {
+        didSet { for cancel in javaPreparationCancellations.values { cancel() } }
+    }
     private var languageServerWorkspaceFingerprints: [String: String] = [:]
     private var languageServerSessionIdentities: [String: ObjectIdentifier] = [:]
     private var diagnosticsByProviderID: [String: [URL: [LanguageServerDiagnostic]]] = [:]
@@ -613,16 +616,17 @@ package final class LanguageToolingSessionManager: ObservableObject,
     /// by both Run and Debug. Java Debug Server owns these project-model rules.
     package func prepareJavaRunLaunchTarget(
         fileURL: URL,
-        rootURL: URL
+        rootURL: URL,
+        mainClass: String? = nil
     ) async throws -> JavaLaunchPreparation {
-        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL, mainClass: mainClass)
     }
 
     /// The exact options of the successful build preparation, without saving
     /// a project override or reconstructing a second Maven configuration.
     package func prepareJavaRunLaunchTarget(fileURL: URL, rootURL: URL,
-                                            languageImport: JavaLanguageImportConfiguration) async throws -> JavaLaunchPreparation {
-        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL, languageImport: languageImport)
+                                            languageImport: JavaLanguageImportConfiguration, mainClass: String? = nil) async throws -> JavaLaunchPreparation {
+        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL, mainClass: mainClass, languageImport: languageImport)
     }
 
     /// Rebuilds the original running target without allowing a failed build to proceed.
@@ -722,15 +726,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     private func prepareJavaLaunchTarget(
-        fileURL: URL,
-        rootURL: URL,
+        fileURL: URL, rootURL: URL, mainClass: String? = nil,
         languageImport: JavaLanguageImportConfiguration? = nil
     ) async throws -> JavaLaunchPreparation {
         let normalizedRoot = rootURL.standardizedFileURL
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         try prepareJavaImportSession(rootURL: normalizedRoot, override: languageImport)
-        let revision = javaImportRevision
-        let sessionIdentity = languageServerSessionIdentities["java"]
+        let revision = javaImportRevision, sessionIdentity = languageServerSessionIdentities["java"]
         func checkInputs() throws {
             try Task.checkCancellation()
             guard javaImportRevision == revision, languageServerRoots["java"] == normalizedRoot,
@@ -738,99 +740,37 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
         try checkInputs()
-        // JDT decides which classes are launchable; Core normalizes its answer
-        // into workspace-relative entries, so the target is the entry generated
-        // from this exact source file.
-        let entrypoints = try await javaEntrypoints(in: normalizedRoot)
-        try checkInputs()
-        let relativeSource = Self.workspaceRelativePath(of: resolvedFile, in: normalizedRoot)
-        let exactMatches = entrypoints.entries.filter { $0.sourcePath == relativeSource }
-        guard exactMatches.count == 1 else {
-            let message = exactMatches.isEmpty
-                ? "No Java main method was found in \(resolvedFile.lastPathComponent)."
-                : "More than one Java main method was found in \(resolvedFile.lastPathComponent)."
-            throw LanguageToolingSessionError.toolingUnavailable(message)
+        guard let session = languageServers["java"], session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
         }
-        let selected = JavaDebugLaunchTarget(
-            mainClass: exactMatches[0].mainClass,
-            projectName: exactMatches[0].projectName
-        )
-        let buildPayload = JavaWorkspaceBuildRequest(
-            mainClass: selected.mainClass,
-            projectName: selected.projectName,
-            filePath: resolvedFile.path,
-            isFullBuild: false
-        )
-        let buildData = try JSONEncoder().encode(buildPayload)
-        guard let buildJSON = String(data: buildData, encoding: .utf8) else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java workspace build request could not be encoded."
-            )
-        }
-        var buildFailure: JavaLaunchBuildFailure?
-        do {
-            let buildValue = try await executeJavaCommand(
-                "vscode.java.buildWorkspace",
-                arguments: [.string(buildJSON)],
-                rootURL: normalizedRoot
-            )
-            let buildStatus: Int?
-            switch buildValue {
-            case .integer(let value): buildStatus = value
-            case .string(let value): buildStatus = Int(value)
-            default: buildStatus = nil
-            }
-            guard buildStatus == 1 else {
-                throw LanguageToolingSessionError.toolingUnavailable(
-                    "The Java language service returned an unexpected project build status."
-                )
-            }
-        } catch let failure as LanguageServerRequestFailure {
-            let error = failure.runtimeError
-            guard error.code == "javaBuildCompilationErrors" || error.code == "javaBuildFailed" else {
-                throw failure
-            }
-            buildFailure = JavaLaunchBuildFailure(
-                code: error.code,
-                message: failure.localizedDescription,
-                report: error.javaBuildReport
-            )
+        let preparation = try await awaitJavaPreparation {
+            try await session.prepareJavaLaunch(fileURL: resolvedFile, mainClass: mainClass)
         }
         try checkInputs()
-        // Explicit runtime scope excludes test Main classes (issue #379).
-        // Omit it so Java Debug Server selects paths from the owning project.
-        let classpathValue = try await executeJavaCommand(
-            "vscode.java.resolveClasspath",
-            arguments: [
-                .string(selected.mainClass),
-                .string(selected.projectName ?? ""),
-            ],
-            rootURL: normalizedRoot
-        )
-        try checkInputs()
-        guard case .array(let pathGroups) = classpathValue,
-              pathGroups.count == 2 else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned an invalid runtime classpath."
-            )
-        }
-        let modulePaths = Self.stringValues(pathGroups[0])
-        let classPaths = Self.stringValues(pathGroups[1])
-        guard !modulePaths.isEmpty || !classPaths.isEmpty else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service could not resolve the runtime classpath."
-            )
-        }
-        let target = JavaDebugLaunchTarget(
-            mainClass: selected.mainClass,
-            projectName: selected.projectName,
-            modulePaths: modulePaths,
-            classPaths: classPaths
-        )
-        if let buildFailure {
-            return .buildFailed(target: target, failure: buildFailure)
-        }
-        return .ready(target)
+        return preparation
+    }
+
+    /// Framework goals build with Maven; only synchronize the same import and
+    /// await Core's configuration barrier, without a second JDT build or launch.
+    package func applyJavaRunImport(rootURL: URL, languageImport: JavaLanguageImportConfiguration) async throws {
+        let root = rootURL.standardizedFileURL
+        try prepareJavaImportSession(rootURL: root, override: languageImport)
+        let revision = javaImportRevision, identity = languageServerSessionIdentities["java"]
+        try await waitUntilLanguageServerReady(providerID: "java", rootURL: root)
+        guard javaImportRevision == revision, languageServerRoots["java"] == root,
+              languageServerSessionIdentities["java"] == identity,
+              let session = languageServers["java"], session.isRunning else { throw CancellationError() }
+        _ = try await awaitJavaPreparation { try await session.javaEntrypoints() }
+        try Task.checkCancellation()
+        guard javaImportRevision == revision, languageServerRoots["java"] == root,
+              languageServerSessionIdentities["java"] == identity else { throw CancellationError() }
+    }
+
+    private func awaitJavaPreparation<T: Sendable>(_ operation: @escaping @MainActor () async throws -> T) async throws -> T {
+        let id = UUID(), task = Task { try await operation() }
+        javaPreparationCancellations[id] = { task.cancel() }
+        defer { javaPreparationCancellations[id] = nil; task.cancel() }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
     /// Resolves one Java source file or discovered test item through the Java
@@ -1152,6 +1092,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
         if providerID == "java" { scheduleJavaDependencyRefresh(after: changes) }
     }
 
+    package func notifyDocumentSaved(_ fileURL: URL, text: String, currentText: String) throws {
+        let fileURL = fileURL.standardizedFileURL
+        guard let session = languageServerSession(for: fileURL),
+              let descriptor = catalog.provider(for: fileURL) else { return }
+        // Flush editor state before didSave, including edits made during the
+        // disk write. Core must see the newer revision to reject a stale save.
+        try session.synchronize(fileURL: fileURL, text: currentText,
+            languageID: extensionLanguageIdentifiers[descriptor.id]
+                ?? descriptor.languageIdentifier(for: fileURL))
+        try session.notifyDocumentSaved(fileURL, text: text)
+    }
+
     package func closeDocument(_ fileURL: URL) {
         let standardizedURL = fileURL.standardizedFileURL
         clearDiagnostics(for: standardizedURL)
@@ -1386,17 +1338,27 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func completions(
+        fileURL: URL, text: String, position: LanguageServerPosition, rootURL: URL,
+        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) throws {
+        try completionList(fileURL: fileURL, text: text, position: position, rootURL: rootURL) {
+            completion($0.map(\.items))
+        }
+    }
+
+    package func completionList(
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
         rootURL: URL,
-        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+        completionContext: LanguageServerCompletionContext? = nil,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
     ) throws {
         let context = featureContext(
             fileURL: fileURL,
             text: text,
             position: position,
-            rootURL: rootURL
+            rootURL: rootURL, completionContext: completionContext
         )
         let providers = featureProviders(for: .completion, context: context)
         guard !providers.isEmpty else {
@@ -1407,6 +1369,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             index: 0,
             context: context,
             items: [],
+            isIncomplete: false,
             seenLabels: [],
             completion: completion
         )
@@ -1979,7 +1942,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
-        rootURL: URL?
+        rootURL: URL?,
+        completionContext: LanguageServerCompletionContext? = nil
     ) -> LanguageFeatureRequestContext {
         let descriptor = catalog.provider(for: fileURL)
         return LanguageFeatureRequestContext(
@@ -1987,7 +1951,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             text: text,
             position: position,
             languageID: descriptor?.languageIdentifier(for: fileURL),
-            workspaceURL: rootURL
+            workspaceURL: rootURL, completionContext: completionContext
         )
     }
 
@@ -2010,20 +1974,21 @@ package final class LanguageToolingSessionManager: ObservableObject,
         index: Int,
         context: LanguageFeatureRequestContext,
         items: [LanguageServerCompletionItem],
+        isIncomplete: Bool,
         seenLabels: Set<String>,
-        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
     ) {
         guard index < providers.count else {
-            completion(.success(items))
+            completion(.success(LanguageServerCompletionList(items: items, isIncomplete: isIncomplete)))
             return
         }
         do {
-            try providers[index].completions(in: context) { [self] result in
+            try providers[index].completionList(in: context) { [self] result in
                 switch result {
                 case .success(let providerItems):
                     var merged = items
                     var labels = seenLabels
-                    for item in providerItems where labels.insert(item.label).inserted {
+                    for item in providerItems.items where labels.insert(item.label).inserted {
                         merged.append(item)
                     }
                     routeCompletions(
@@ -2031,6 +1996,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                         index: index + 1,
                         context: context,
                         items: merged,
+                        isIncomplete: isIncomplete || providerItems.isIncomplete,
                         seenLabels: labels,
                         completion: completion
                     )

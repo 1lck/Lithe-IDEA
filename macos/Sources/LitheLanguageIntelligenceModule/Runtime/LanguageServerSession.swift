@@ -6,7 +6,9 @@ package struct LanguageServerRequestFailure: LocalizedError, Equatable, Sendable
     package let runtimeError: LanguageServerRuntimeError
 
     package var errorDescription: String? {
-        var message = runtimeError.message
+        // Core's primary message belongs to Lithe; the upstream detail below
+        // remains verbatim and is never treated as a translation key.
+        var message = L10n.string(key: runtimeError.message)
         if let underlying = runtimeError.underlyingMessage, !underlying.isEmpty {
             message += ": \(underlying)"
         }
@@ -494,6 +496,15 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    package func notifyDocumentSaved(_ fileURL: URL, text: String) throws {
+        guard startupGeneration == nil, let sessionID else { return }
+        switch core.saveLanguageServerDocument(sessionID: sessionID, fileURL: fileURL, text: text) {
+        case .success: break
+        case .failure(let error):
+            throw LanguageServerRuntimeSessionError.documentSyncFailed(error.userMessage)
+        }
+    }
+
     package func closeDocument(_ fileURL: URL) {
         if let removed = startingDocuments.removeValue(forKey: fileURL.standardizedFileURL) {
             startingDocumentBytes -= removed.text.utf8.count
@@ -584,10 +595,19 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         position: LanguageServerPosition,
         completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
     ) throws {
-        try request(.completion, fileURL: fileURL, position: position) { result in
+        try completionList(fileURL: fileURL, position: position, context: nil) {
+            completion($0.map(\.items))
+        }
+    }
+
+    package func completionList(
+        fileURL: URL, position: LanguageServerPosition, context: LanguageServerCompletionContext?,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
+    ) throws {
+        try request(.completion, fileURL: fileURL, position: position, completionContext: context) { result in
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: CompletionPayload.self)
-            }.map { $0.makeModels() })
+            }.map { LanguageServerCompletionList(items: $0.makeModels(), isIncomplete: $0.isIncomplete ?? false) })
         }
     }
 
@@ -744,7 +764,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             core.requestLanguageServerOperation(
                 sessionID: sessionID, operation: .executeCommand, fileURL: nil,
                 virtualURI: nil, position: nil, newName: nil, range: nil,
-                diagnostics: [], completionItem: nil, codeAction: nil, command: command
+                diagnostics: [], completionContext: nil, completionItem: nil, codeAction: nil, command: command
             )
         }) {
         case .success(let started): operation = started
@@ -991,6 +1011,56 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         )
     }
 
+    /// Waits for Core's composed preparation; cancellation addresses the same
+    /// operation throughout entry discovery, build and classpath resolution.
+    package func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation {
+        try Task.checkCancellation()
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        let operation: LanguageServerRuntimeOperation
+        switch await send(timeout: requestTimeout, { core in
+            core.prepareJavaLaunch(sessionID: sessionID, fileURL: fileURL, mainClass: mainClass)
+        }) {
+        case .success(let started): operation = started
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        let preparation: JavaLaunchPreparation = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(operation, name: "java.prepareLaunch") { result in
+                    continuation.resume(with: result.flatMap {
+                        Self.decodeEventResult($0, as: JavaLaunchPayload.self)
+                    }.flatMap { payload in
+                        switch payload.kind {
+                        case .ready: return .success(.ready(payload.target))
+                        case .buildFailed:
+                            guard let failure = payload.failure else {
+                                return .failure(LanguageServerRuntimeSessionError.missingResult)
+                            }
+                            return .success(.buildFailed(target: payload.target, failure: JavaLaunchBuildFailure(
+                                code: failure.code, message: L10n.string(key: failure.message), report: failure.report)))
+                        }
+                    })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
+        }
+        try Task.checkCancellation()
+        return preparation
+    }
+
+    private struct JavaLaunchPayload: Decodable {
+        enum Kind: String, Decodable { case ready, buildFailed }
+        let kind: Kind
+        let target: JavaDebugLaunchTarget
+        let failure: JavaLaunchBuildFailure?
+    }
+
     /// Asks JDT, through Core, which classes in the workspace can be launched.
     package func javaEntrypoints() async throws -> JavaEntrypoints {
         try Task.checkCancellation()
@@ -999,7 +1069,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         switch await send(timeout: requestTimeout, { core in
             core.requestLanguageServerOperation(sessionID: sessionID, operation: .javaEntrypoints, fileURL: nil,
                 virtualURI: nil, position: nil, newName: nil, range: nil, diagnostics: [],
-                completionItem: nil, codeAction: nil, command: nil)
+                completionContext: nil, completionItem: nil, codeAction: nil, command: nil)
         }) {
         case .success(let started): operation = started
         case .failure(let error):
@@ -1191,6 +1261,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         newName: String? = nil,
         range: LanguageServerRange? = nil,
         diagnostics: [LanguageServerDiagnostic] = [],
+        completionContext: LanguageServerCompletionContext? = nil,
         completionItem: LanguageServerCompletionItem? = nil,
         codeAction: LanguageServerCodeAction? = nil,
         command: LanguageServerCommand? = nil,
@@ -1208,6 +1279,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             newName: newName,
             range: range,
             diagnostics: diagnostics,
+            completionContext: completionContext,
             completionItem: completionItem,
             codeAction: codeAction,
             command: command
@@ -1721,6 +1793,7 @@ private struct CompletionItemPayload: Decodable {
 }
 
 private struct CompletionPayload: Decodable {
+    let isIncomplete: Bool?
     let items: [CompletionItemPayload]
     func makeModels() -> [LanguageServerCompletionItem] { items.map { $0.makeModel() } }
 }

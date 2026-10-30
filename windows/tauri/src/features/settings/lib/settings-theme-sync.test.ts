@@ -4,6 +4,7 @@ import { themeRegistry } from "@/extensions/themes/theme-registry";
 import * as native from "@/platform/tauri-core";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { getDefaultSettingsSnapshot } from "../config/default-settings";
+import { nativeWindowBackground } from "@/features/window/utils/native-window-background";
 import { applySettingSideEffect } from "./settings-effects";
 
 test("system theme releases a manual WebView appearance and tracks OS changes without leaking listeners", async () => {
@@ -18,6 +19,7 @@ test("system theme releases a manual WebView appearance and tracks OS changes wi
   let osDark = true;
   let webViewDark = false;
   let nativeMode = "light";
+  let nativeBackground = null as string | null;
   const mediaQuery = {
     get matches() { return webViewDark; },
     addEventListener: (_event: string, callback: () => void) => { listeners.add(callback); },
@@ -27,6 +29,7 @@ test("system theme releases a manual WebView appearance and tracks OS changes wi
   const invoke = spyOn(native, "invoke").mockImplementation(async <T>(command: string, args?: Parameters<typeof native.invoke>[1]) => {
     if (command !== "set_native_window_appearance") throw new Error(`Unexpected native command: ${command}`);
     nativeMode = (args as { themeType: string }).themeType;
+    nativeBackground = (args as { backgroundColor: string | null }).backgroundColor;
     // WebView2 sees the forced window theme until the native override is released.
     webViewDark = nativeMode === "system" ? osDark : nativeMode === "dark";
     return undefined as T;
@@ -48,6 +51,9 @@ test("system theme releases a manual WebView appearance and tracks OS changes wi
     await apply("theme");
     expect(appliedTheme()).toBe(light.id);
     expect(webViewDark).toBe(false);
+    // The host paints the next windows in the applied theme instead of WebView2 white.
+    expect(nativeBackground).toBe(nativeWindowBackground(light.cssVariables["--background"]));
+    expect(nativeBackground).not.toBeNull();
 
     settings.syncSystemTheme = true;
     await apply("syncSystemTheme");

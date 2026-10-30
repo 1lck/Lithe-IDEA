@@ -154,6 +154,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private var moduleOperationIDs: [String: String] = [:]
     private var primaryProviderSource: BuildSystemPluginSource?
     private var providerDebugOperationID: String?
+    private var providerDebugPreparation: (id: UUID, cancel: @MainActor () -> Void)?
+    /// Keeps the primary preparation/output visible after this debug process ends.
+    package private(set) var providerDebugConfigurationID: String?
     private var activeProcessID: Int32?
     package let providerDebugEnded = PassthroughSubject<String, Never>()
     private var moduleProviderSources: [String: BuildSystemPluginSource] = [:]
@@ -170,14 +173,16 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private var providerPrimaryPreparation: Task<Void, Never>?
     private var providerModulePreparations: [String: Task<Void, Never>] = [:]
     private typealias ConfigurationRunPreparer = @MainActor (ProviderLaunchInputs, String, URL, BuildProviderHints,
-        @escaping @MainActor @Sendable () -> Bool, @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> BuildRunPreparation
+        @escaping @MainActor @Sendable () -> Bool, @escaping @MainActor @Sendable (BuildProviderProgress) -> Void,
+        @escaping @MainActor (BuildLanguageImport) async throws -> Void) async throws -> BuildRunPreparation
     private var configurationRunPreparer: ConfigurationRunPreparer?
     private var configurationRunSource: (@MainActor (ProviderLaunchInputs, String) -> BuildSystemPluginSource?)?
 
     package func configureProviderConfigurationRuns(
         source: (@MainActor (ProviderLaunchInputs, String) -> BuildSystemPluginSource?)? = nil,
         _ prepare: @escaping @MainActor (ProviderLaunchInputs, String, URL, BuildProviderHints,
-        @escaping @MainActor @Sendable () -> Bool, @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> BuildRunPreparation) {
+        @escaping @MainActor @Sendable () -> Bool, @escaping @MainActor @Sendable (BuildProviderProgress) -> Void,
+        @escaping @MainActor (BuildLanguageImport) async throws -> Void) async throws -> BuildRunPreparation) {
         configurationRunPreparer = prepare
         configurationRunSource = source
     }
@@ -190,12 +195,29 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     /// Debug uses the same canonical inputs and process owner as Run. Only the
     /// selected loopback port crosses the domain boundary, never Maven flags.
     package func prepareProviderDebug(_ configuration: RunConfiguration, port: UInt16,
+        languageImport: @escaping @MainActor (BuildLanguageImport) async throws -> Void = { _ in },
         isCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> String {
-        guard configuration.usesProviderFrameworkLaunch, let workspace = projectURL,
-              let prepare = configurationRunPreparer else { throw CancellationError() }
+        guard configuration.usesProviderFrameworkLaunch, projectURL != nil, configurationRunPreparer != nil else { throw CancellationError() }
         stop()
+        let owner = UUID()
+        let task = Task {
+            try Task.checkCancellation()
+            guard self.providerDebugPreparation?.id == owner else { throw CancellationError() }
+            return try await self.prepareProviderDebugExecution(configuration, port: port, languageImport: languageImport, isCurrent: isCurrent)
+        }
+        providerDebugPreparation = (owner, { task.cancel() })
+        defer { if providerDebugPreparation?.id == owner { providerDebugPreparation = nil } }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
+
+    private func prepareProviderDebugExecution(_ configuration: RunConfiguration, port: UInt16,
+        languageImport: @escaping @MainActor (BuildLanguageImport) async throws -> Void,
+        isCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> String {
+        guard let workspace = projectURL, let prepare = configurationRunPreparer else { throw CancellationError() }
         let identity = UUID().uuidString, load = projectLoadID, revision = providerLaunchRevision, generated = generationRevision
         primaryExecutionID = identity; providerDebugOperationID = identity
+        providerDebugConfigurationID = configuration.id
+        lastRunConfiguration = configuration; selectedConfigurationID = configuration.id
         isRunning = true; isPreparingBuildRun = true; runningTitle = configuration.name
         output = ""; lastExitCode = nil
         var transferred = false
@@ -218,14 +240,21 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         let inputs = ProviderLaunchInputs(buildSystemID: original.buildSystemID, provider: original.provider,
             projectPath: original.projectPath, launchOptions: choices, optionOverrides: original.optionOverrides, reference: original.reference)
         let tool = try buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: root)
-        let prepared = try await prepare(inputs, root, workspace, tool, valid) { [weak self] value in
+        let prepared = try await prepare(inputs, root, workspace, tool, valid, { [weak self] value in
             if valid() { self?.append(value.output ?? value.message.map { $0 + "\n" } ?? "") }
+        }) { value in
+            guard valid() else { throw CancellationError() }
+            try await languageImport(value)
+            guard valid() else { throw CancellationError() }
         }
         let latest = try await Task.detached(priority: .userInitiated) {
             try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: root)
         }.value
         guard valid(), latest == original else { throw CancellationError() }
         try validateProviderGeneration(for: configuration)
+        // Handoff is synchronous. Internal process replacement must not cancel
+        // the preparation that has just produced this process.
+        providerDebugPreparation = nil
         let operation = try launchPreparedRun(prepared, workspaceURL: workspace, title: configuration.name,
             configuration: configuration, retainingIdentity: identity)
         providerDebugOperationID = operation
@@ -242,7 +271,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func stopProviderDebug() {
-        if providerDebugOperationID != nil { stop() }
+        if providerDebugOperationID != nil || providerDebugPreparation != nil { stop() }
     }
 
     /// Each service owns its own preparation; a second Start never replaces another service's work.
@@ -286,11 +315,11 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                 let tool = configuration.buildProvider == nil
                     ? try self.buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: providerRoot)
                     : BuildProviderHints()
-                let prepared = try await prepare(inputs, providerRoot, workspace, tool, current) { [weak self] value in
+                let prepared = try await prepare(inputs, providerRoot, workspace, tool, current, { [weak self] value in
                     guard let self, current() else { return }
                     let text = value.output ?? value.message.map { $0 + "\n" } ?? ""
                     if primary { self.append(text) } else { self.appendModuleOutput(text, sessionID: configuration.id) }
-                }
+                }) { _ in }
                 let latest = try await Task.detached(priority: .userInitiated) {
                     try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: providerRoot)
                 }.value
@@ -1185,6 +1214,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
 
     private func launchPreparedRun(_ preparation: BuildRunPreparation, workspaceURL: URL, title: String,
                                   configuration: RunConfiguration?, retainingIdentity: String?) throws -> String {
+        if retainingIdentity == nil { providerDebugConfigurationID = nil }
         let plan = preparation.launchPlan
         let workspace = workspaceURL.standardizedFileURL
         if let projectURL, projectURL != workspace { throw CancellationError() }
@@ -1266,6 +1296,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         currentFileURL: URL?,
         javaLaunch: JavaDebugLaunchTarget? = nil
     ) {
+        providerDebugConfigurationID = nil
         if configuration.buildProvider != nil && !needsProviderLaunch(configuration, javaLaunch: javaLaunch) { startBuildProviderRun(configuration); return }
         stop()
         do { try validateProviderGeneration(for: configuration) }
@@ -1449,6 +1480,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     package func runAllServices(
         javaLaunches: [String: JavaDebugLaunchTarget] = [:]
     ) {
+        providerDebugConfigurationID = nil
         let serviceConfigurations = configurations.filter { $0.execution == .service }
         guard !serviceConfigurations.isEmpty else {
             fail(L10n.string("No runnable services were detected in this project."))
@@ -1467,6 +1499,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         _ configuration: RunConfiguration,
         javaLaunch: JavaDebugLaunchTarget? = nil
     ) {
+        providerDebugConfigurationID = nil
         if configuration.buildProvider != nil && !needsProviderLaunch(configuration, javaLaunch: javaLaunch) { startBuildProviderRun(configuration); return }
         guard configuration.kind != .currentFile else { return }
         stopModule(sessionID: configuration.id)
@@ -1478,6 +1511,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func restartModule(_ session: RunSession) {
+        providerDebugConfigurationID = nil
         guard let configuration = configurations.first(where: { $0.id == session.configurationID }) else { return }
         stopModule(sessionID: session.id)
         moduleSessions.removeAll { $0.id == session.id }
@@ -1515,6 +1549,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func stop() {
+        providerDebugPreparation?.cancel(); providerDebugPreparation = nil
         activeProcessID = nil
         let debugOperation = providerDebugOperationID
         providerDebugOperationID = nil
@@ -1537,6 +1572,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func reset() {
+        providerDebugConfigurationID = nil
         cancelProviderGenerationInspection()
         stop()
         stopAllServices()

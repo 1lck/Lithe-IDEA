@@ -1110,7 +1110,8 @@ package final class BuildSystemService: ObservableObject {
     /// Independent service preparations share provider sessions, never the single Build task slot.
     package func prepareConfigurationRun(inputs: ProviderLaunchInputs, instanceRoot: String, workspace: URL,
         tool: BuildProviderHints, isCurrent: @escaping @MainActor @Sendable () -> Bool,
-        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> BuildRunPreparation {
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void,
+        onLanguageImport: @escaping @MainActor (BuildLanguageImport) async throws -> Void = { _ in }) async throws -> BuildRunPreparation {
         guard workspace.standardizedFileURL == workspaceURL, let providers else { throw CancellationError() }
         let candidates = entries.filter { $0.instance.root == instanceRoot && $0.instance.buildSystemID == inputs.buildSystemID
             && (inputs.reference == nil || inputs.reference?.pluginID == $0.instance.pluginID)
@@ -1174,6 +1175,15 @@ package final class BuildSystemService: ObservableObject {
                 && (inputs.reference == nil || $0.id == inputs.reference?.run)
                 && ($0.targetTags.isEmpty || !Set($0.targetTags).isDisjoint(with: selected.tags)) }
             guard runs.count == 1, let run = runs.first else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            if inputs.launchOptions.debug != nil {
+                let resolution = try planner.resolveOptions(entry.target, options: context.options, modelValues: model.optionValues)
+                guard let imported = try planner.languageImport(entry.target, workspaceURL: workspace, root: context.root,
+                    options: Self.effectiveOptionValues(resolution, stored: context.options), executableURL: launchTool.toolExecutable)
+                else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+                guard valid() else { throw CancellationError() }
+                try await onLanguageImport(imported)
+                guard valid() else { throw CancellationError() }
+            }
             let request = try planner.prepareRunPlan(entry.target, context: context, run: run.id, project: BuildSelection(project: project),
                 selectedTarget: BuildSelection(target: selected), userArguments: [], workspaceURL: workspace, launchOptions: inputs.launchOptions)
             let prepared = try await providers.prepareRun(Self.request(request, with: launchTool), on: target, timeout: Self.modelTimeout) { value in

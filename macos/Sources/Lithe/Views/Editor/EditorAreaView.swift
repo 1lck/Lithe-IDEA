@@ -1175,6 +1175,9 @@ struct EditorAreaView: View {
     }
 
     private func repositoryDiffTitle(_ id: UUID) -> String {
+        if let diff = model.editorTabOrderFeature.providerDiffs[id] {
+            return L10n.string("Repository Diff: \(diff.fileURL.lastPathComponent)")
+        }
         guard let session = model.gitFeatureIfActive?.repositoryDiffSessions[id] else { return L10n.string("Repository Diff") }
         if let comparison = session.branchComparison {
             let target = comparison.targetReference?.shortName ?? L10n.string("Working Tree")
@@ -1189,7 +1192,9 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private func repositoryDiffContent(_ id: UUID) -> some View {
-        if let feature = model.gitFeatureIfActive, let session = feature.repositoryDiffSessions[id] {
+        if let diff = model.editorTabOrderFeature.providerDiffs[id] {
+            VcsFileDiffContent(diff: diff, fontFamily: settings.editorFontFamily)
+        } else if let feature = model.gitFeatureIfActive, let session = feature.repositoryDiffSessions[id] {
             RepositoryDiffSessionView(feature: feature, session: session, fontFamily: settings.editorFontFamily)
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)

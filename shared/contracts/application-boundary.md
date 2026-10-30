@@ -695,10 +695,18 @@ source target, Java Debug Server builds the owning project and resolves its
 runtime classpath/module path, Core projects those structured paths into a
 direct JDK launch, and the Run host starts that one JVM. Maven still defines the
 project model, but Run never sends either target through a reactor-wide Java
-launch goal. A Spring Boot service without a resolved Java entry source retains
+launch goal. A user-authored or legacy Spring Boot service without a resolved Java entry source retains
 its Maven-goal compatibility path. Run and Debug share the Java preparation path
 so module selection, generated sources, test-source mains, and dependency paths
 do not drift.
+
+Both platforms use `java.prepareLaunch` for source-specific entry selection,
+the serialized JDT build, and runtime path resolution. One operation ID owns all
+three phases and their cancellation; a cancelled or timed-out attempt cannot
+advance on a late upstream reply. Hosts save dirty workspace documents before
+preparation and abort on any save failure. JDT remains the authority for project
+membership and paths; Core retains only the current attempt's intermediate
+results. Native adapters still own JDK discovery and process execution.
 
 An unsuccessful Java launch build is evidence, not an unconditional host veto.
 For `javaBuildCompilationErrors` and `javaBuildFailed`, the language boundary

@@ -97,7 +97,7 @@ struct AppModelSettingsChangesTests {
             guard case .loaded(let snapshot) = result else { Issue.record("Snapshot was not applied"); return }
             identities.insert(snapshot.id)
             let input = model.languageToolingFeature.projectUsageInput(workspaceURL: model.workspaceURL, snapshot: snapshot)
-            let ready = await awaitChange(on: usage) { usage.summary(for: input.request) != nil }
+            let ready = await usagePageRendered(host) { usage.summary(for: input.request) != nil }
             try #require(ready, "Mounted LSP page did not reload snapshot \(snapshot.id)")
             let summary = try #require(usage.summary(for: input.request))
             #expect(summary.pluginIDs == expectedPlugin.map { Set([$0]) } ?? [])
@@ -165,6 +165,22 @@ struct AppModelSettingsChangesTests {
         release.open()
         #expect(await awaitChange(on: usage) { usage.state == .ready })
     }
+}
+
+@MainActor
+private func usagePageRendered(_ host: NSView, until condition: () -> Bool) async -> Bool {
+    // The CLI runner has no persistent AppKit event loop. Drive native render
+    // turns so SwiftUI can start its .task; model observation alone cannot do so.
+    func renderFrame() { CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true) }
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(5))
+    repeat {
+        host.layoutSubtreeIfNeeded()
+        renderFrame()
+        if condition() { return true }
+        await Task.yield()
+    } while clock.now < deadline
+    return condition()
 }
 
 @MainActor

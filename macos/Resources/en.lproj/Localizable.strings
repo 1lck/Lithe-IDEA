@@ -243,6 +243,7 @@
 "Add to %@" = "Add to %@";
 "Add to Another Conversation" = "Add to Another Conversation";
 "Add to Current Conversation · %@" = "Add to Current Conversation · %@";
+"Add to VCS" = "Add to VCS";
 "Add to Watches" = "Add to Watches";
 "Add to favorites" = "Add to favorites";
 "Add tool windows and commands to the workbench" = "Add tool windows and commands to the workbench";
@@ -251,6 +252,7 @@
 "Added" = "Added";
 "Added by plugins" = "Added by plugins";
 "Added memory usage visibility to the status bar." = "Added memory usage visibility to the status bar.";
+"Adding to VCS…" = "Adding to VCS…";
 "Additional Search Paths" = "Additional Search Paths";
 "Additional class patterns" = "Additional class patterns";
 "Additions" = "Additions";
@@ -796,6 +798,7 @@
 "Comment posted" = "Comment posted";
 "Comments" = "Comments";
 "Commit" = "Commit";
+"Commit Files…" = "Commit Files…";
 "Commit History" = "Commit History";
 "Commit History (%lld)" = "Commit History (%lld)";
 "Commit Message" = "Commit Message";
@@ -845,6 +848,7 @@
 "Complete commit message" = "Complete commit message";
 "Complete sign-in in your browser. Your credentials are managed by Codex." = "Complete sign-in in your browser. Your credentials are managed by Codex.";
 "Completed" = "Completed";
+"Completion trigger character is required" = "Completion trigger character is required";
 "Completions" = "Completions";
 "Compression is unavailable. Showing complete retained output." = "Compression is unavailable. Showing complete retained output.";
 "Concise" = "Concise";
@@ -1000,6 +1004,7 @@
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "Could not read the selected built-in background." = "Could not read the selected built-in background.";
 "Could not read this file" = "Could not read this file";
+"Could not refresh Git status. Refresh to verify the changes." = "Could not refresh Git status. Refresh to verify the changes.";
 "Could not register Lithe MCP in %@: %@" = "Could not register Lithe MCP in %@: %@";
 "Could not remove Lithe MCP from %@: %@" = "Could not remove Lithe MCP from %@: %@";
 "Could not restore local history" = "Could not restore local history";
@@ -1125,6 +1130,7 @@
 "Delete ChangeList" = "Delete ChangeList";
 "Delete ChangeList?" = "Delete ChangeList?";
 "Delete Chat" = "Delete Chat";
+"Delete Files" = "Delete Files";
 "Delete Hook?" = "Delete Hook?";
 "Delete Selected Branch" = "Delete Selected Branch";
 "Delete Tag…" = "Delete Tag…";
@@ -1132,6 +1138,7 @@
 "Delete branch?" = "Delete branch?";
 "Delete chat" = "Delete chat";
 "Delete collected application logs?" = "Delete collected application logs?";
+"Delete local copies of added files" = "Delete local copies of added files";
 "Delete only Lithe-managed logs in the active directory across all modules and sessions. Filters do not limit this action. New events will continue to be recorded." = "Delete only Lithe-managed logs in the active directory across all modules and sessions. Filters do not limit this action. New events will continue to be recorded.";
 "Delete provider" = "Delete provider";
 "Delete tag '%@'?" = "Delete tag '%@'?";
@@ -1141,6 +1148,8 @@
 "Deleted branch '%@'" = "Deleted branch '%@'";
 "Deleted references: %@" = "Deleted references: %@";
 "Deleted tag '%@'" = "Deleted tag '%@'";
+"Delete…" = "Delete…";
+"Deleting…" = "Deleting…";
 "Deletions" = "Deletions";
 "Deny" = "Deny";
 "Dependencies" = "Dependencies";
@@ -1762,6 +1771,7 @@
 "Include" = "Include";
 "Include a short body when useful" = "Include a short body when useful";
 "Include in commit" = "Include in commit";
+"Include in rollback" = "Include in rollback";
 "Include non-project items" = "Include non-project items";
 "Include the URL path when Git looks up HTTP credentials." = "Include the URL path when Git looks up HTTP credentials.";
 "Increase Font Size" = "Increase Font Size";
@@ -1847,8 +1857,10 @@
 "Invalid JSON. Check the configuration format." = "Invalid JSON. Check the configuration format.";
 "Invalid JVM heap counters." = "Invalid JVM heap counters.";
 "Invalid JVM performance output." = "Invalid JVM performance output.";
+"Invalid Java launch preparation request" = "Invalid Java launch preparation request";
 "Invalid MCP tool configuration" = "Invalid MCP tool configuration";
 "Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”)." = "Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”).";
+"Invalid completion trigger kind" = "Invalid completion trigger kind";
 "Invalid plugin icon resource: %@" = "Invalid plugin icon resource: %@";
 "Invalid plugin web entry: %@" = "Invalid plugin web entry: %@";
 "Invalid shared instruction request." = "Invalid shared instruction request.";
@@ -1874,6 +1886,9 @@
 "Java entries appear after the Java language service lists runnable classes." = "Java entries appear after the Java language service lists runnable classes.";
 "Java entries could not be refreshed" = "Java entries could not be refreshed";
 "Java entry-point freshness check failed" = "Java entry-point freshness check failed";
+"Java launch preparation is not supported by this runtime." = "Java launch preparation is not supported by this runtime.";
+"Java launch preparation requires the Java language service." = "Java launch preparation requires the Java language service.";
+"Java launch stopped because modified files could not be saved." = "Java launch stopped because modified files could not be saved.";
 "Java main-method discovery is not supported by this language server." = "Java main-method discovery is not supported by this language server.";
 "Java navigation is available for .java files" = "Java navigation is available for .java files";
 "Java navigation is idle" = "Java navigation is idle";
@@ -3204,8 +3219,11 @@
 "Roll back Agent changes?" = "Roll back Agent changes?";
 "Roll back all" = "Roll back all";
 "Roll back the selected changes?" = "Roll back the selected changes?";
+"Rollback" = "Rollback";
+"Rollback Changes" = "Rollback Changes";
 "Rollback could not restore the changed file. It remains at %@. Restore it manually before retrying." = "Rollback could not restore the changed file. It remains at %@. Restore it manually before retrying.";
 "Rollback could not verify the moved file. Check the Trash before retrying." = "Rollback could not verify the moved file. Check the Trash before retrying.";
+"Rolled back %@" = "Rolled back %@";
 "Rolling back…" = "Rolling back…";
 "Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting." = "Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting.";
 "Ruby Support" = "Ruby Support";
@@ -3464,6 +3482,7 @@
 "Show Conflict Files" = "Show Conflict Files";
 "Show Dependencies" = "Show Dependencies";
 "Show Diff" = "Show Diff";
+"Show Diff in New Tab" = "Show Diff in New Tab";
 "Show Diff with Working Tree" = "Show Diff with Working Tree";
 "Show Disassembly" = "Show Disassembly";
 "Show Editor Preview" = "Show Editor Preview";
@@ -3583,6 +3602,7 @@
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Some dependencies are not shown." = "Some dependencies are not shown.";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
+"Some selected files belong to another version control root. Refresh and select them again." = "Some selected files belong to another version control root. Refresh and select them again.";
 "Some special files could not be copied" = "Some special files could not be copied";
 "Sort by Last Updated" = "Sort by Last Updated";
 "Sort by Name" = "Sort by Name";
@@ -3618,6 +3638,7 @@
 "Stage this change block" = "Stage this change block";
 "Stage your files in Changes, enter a commit message, and create the first commit." = "Stage your files in Changes, enter a commit message, and create the first commit.";
 "Staged" = "Staged";
+"Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe." = "Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe.";
 "Staged changes" = "Staged changes";
 "Staged files changed before generation finished" = "Staged files changed before generation finished";
 "Stale record" = "Stale record";
@@ -3830,8 +3851,16 @@
 "The Java Support plugin does not provide %@. Reinstall the plugin." = "The Java Support plugin does not provide %@. Reinstall the plugin.";
 "The Java argument file could not be encoded as UTF-8." = "The Java argument file could not be encoded as UTF-8.";
 "The Java language server did not take the Maven configuration: %@" = "The Java language server did not take the Maven configuration: %@";
+"The Java language service could not complete the project build. Check the Java language server log for the build error." = "The Java language service could not complete the project build. Check the Java language server log for the build error.";
+"The Java language service could not identify one launch target for this source file." = "The Java language service could not identify one launch target for this source file.";
 "The Java language service could not resolve a main class for this file." = "The Java language service could not resolve a main class for this file.";
 "The Java language service failed to prepare the project." = "The Java language service failed to prepare the project.";
+"The Java language service returned an invalid runtime classpath." = "The Java language service returned an invalid runtime classpath.";
+"The Java language service returned an unexpected project build status." = "The Java language service returned an unexpected project build status.";
+"The Java language service returned an unknown project build status." = "The Java language service returned an unknown project build status.";
+"The Java language service returned no runtime paths." = "The Java language service returned no runtime paths.";
+"The Java project build reported compilation errors." = "The Java project build reported compilation errors.";
+"The Java project build was cancelled before it finished." = "The Java project build was cancelled before it finished.";
 "The Java source for %@ could not be resolved." = "The Java source for %@ could not be resolved.";
 "The Java test result listener did not become ready in time." = "The Java test result listener did not become ready in time.";
 "The Lithe server was installed on this host." = "The Lithe server was installed on this host.";
@@ -4035,6 +4064,7 @@
 "The selected branch diff is sent to the active AI provider when you generate." = "The selected branch diff is sent to the active AI provider when you generate.";
 "The selected branches have no textual changes to summarize." = "The selected branches have no textual changes to summarize.";
 "The selected built-in background is unavailable in this build." = "The selected built-in background is unavailable in this build.";
+"The selected changes changed. Reopen the rollback dialog and review them again." = "The selected changes changed. Reopen the rollback dialog and review them again.";
 "The selected file changed before generation finished" = "The selected file changed before generation finished";
 "The selected file has no textual diff to summarize." = "The selected file has no textual diff to summarize.";
 "The selected file must be inside the current workspace." = "The selected file must be inside the current workspace.";
@@ -4058,6 +4088,7 @@
 "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.";
 "The staged changes have no textual diff to summarize." = "The staged changes have no textual diff to summarize.";
 "The staged changes will be committed and the current branch will be pushed to its configured remote." = "The staged changes will be committed and the current branch will be pushed to its configured remote.";
+"The staged files changed. Review the checked files before committing." = "The staged files changed. Review the checked files before committing.";
 "The stopped source file is no longer available: %@" = "The stopped source file is no longer available: %@";
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.";
 "The terminal directory is outside the remote workspace." = "The terminal directory is outside the remote workspace.";
@@ -4079,6 +4110,7 @@
 "The version control client could not be run. Check that it is installed." = "The version control client could not be run. Check that it is installed.";
 "The version control provider failed to start." = "The version control provider failed to start.";
 "The version control provider stopped before it was ready." = "The version control provider stopped before it was ready.";
+"The version control provider will delete these files and record their removal. They may not be moved to Trash." = "The version control provider will delete these files and record their removal. They may not be moved to Trash.";
 "The working copy is locked by an interrupted action. Run Cleanup, then try again." = "The working copy is locked by an interrupted action. Run Cleanup, then try again.";
 "The working copy is out of date. Update it, then commit again." = "The working copy is out of date. Update it, then commit again.";
 "The working copy was cleaned up." = "The working copy was cleaned up.";
@@ -4096,6 +4128,7 @@
 "These are the options Lithe will use for the next ordinary Fetch." = "These are the options Lithe will use for the next ordinary Fetch.";
 "These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "These choices apply to this Fetch only. Git configuration and credentials remain unchanged.";
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team.";
+"These files will be moved to the macOS Trash." = "These files will be moved to the macOS Trash.";
 "These overrides affect only this run configuration. Clear a path to inherit the project environment." = "These overrides affect only this run configuration. Clear a path to inherit the project environment.";
 "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running." = "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running.";
 "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore.";
@@ -4685,6 +4718,14 @@
 "git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
 "git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";
 "git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";
+"git.rollback.confirm" = "Rollback";
+"git.rollback.deleteAdded" = "Delete local copies of added files";
+"git.rollback.include" = "Include in rollback";
+"git.rollback.stale" = "The selected changes changed. Reopen the rollback dialog and review them again.";
+"git.rollback.success" = "Rolled back %1$@";
+"git.rollback.title" = "Rollback Changes";
+"git.rollback.warning" = "Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe.";
+"git.status.refreshFailed" = "Could not refresh Git status. Refresh to verify the changes.";
 "git.unifiedView" = "Unified view";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "ide.build.busy" = "A build operation is already active";
@@ -4695,8 +4736,22 @@
 "ide.build.restart" = "Use Build execute to start another build";
 "ide.build.selectionExpired" = "The build selection is no longer available";
 "ide.build.unavailable" = "Build plugins are unavailable";
+"java.launch.error.buildCancelled" = "The Java project build was cancelled before it finished.";
+"java.launch.error.buildFailed" = "The Java language service could not complete the project build. Check the Java language server log for the build error.";
+"java.launch.error.buildStatus" = "The Java language service returned an unexpected project build status.";
+"java.launch.error.classpathEmpty" = "The Java language service returned no runtime paths.";
+"java.launch.error.classpathInvalid" = "The Java language service returned an invalid runtime classpath.";
+"java.launch.error.compilation" = "The Java project build reported compilation errors.";
+"java.launch.error.provider" = "Java launch preparation requires the Java language service.";
+"java.launch.error.request" = "Invalid Java launch preparation request";
+"java.launch.error.save" = "Java launch stopped because modified files could not be saved.";
+"java.launch.error.target" = "The Java language service could not identify one launch target for this source file.";
+"java.launch.error.unknownBuildStatus" = "The Java language service returned an unknown project build status.";
+"java.launch.error.unsupported" = "Java launch preparation is not supported by this runtime.";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
+"lsp.completion.invalidTriggerKind" = "Invalid completion trigger kind";
+"lsp.completion.missingTriggerCharacter" = "Completion trigger character is required";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
 "macos.buildProvider.jvmDebugPortTimeout" = "The framework did not open its JVM debug port before the deadline. Check the Run output.";
@@ -9306,6 +9361,17 @@
 "ui.retry" = "Retry";
 "ui.save" = "Save";
 "upstream commit(s)" = "upstream commit(s)";
+"vcs.commitFiles.addToVcs" = "Add to VCS";
+"vcs.commitFiles.adding" = "Adding to VCS…";
+"vcs.commitFiles.commitFiles" = "Commit Files…";
+"vcs.commitFiles.deleteAction" = "Delete…";
+"vcs.commitFiles.deleteTitle" = "Delete Files";
+"vcs.commitFiles.deleting" = "Deleting…";
+"vcs.commitFiles.diffNewTab" = "Show Diff in New Tab";
+"vcs.commitFiles.ownershipChanged" = "Some selected files belong to another version control root. Refresh and select them again.";
+"vcs.commitFiles.stagingChanged" = "The staged files changed. Review the checked files before committing.";
+"vcs.commitFiles.trashWarning" = "These files will be moved to the macOS Trash.";
+"vcs.commitFiles.vcsDeleteWarning" = "The version control provider will delete these files and record their removal. They may not be moved to Trash.";
 "version managed from %@" = "version managed from %@";
 "— Click the Run icon in the editor gutter" = "— Click the Run icon in the editor gutter";
 "— Launch a" = "— Launch a";

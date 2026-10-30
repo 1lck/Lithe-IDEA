@@ -14,7 +14,7 @@ use std::path::{Component, Path, PathBuf};
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when the detected layer changes; stale cached facts must regenerate.
-const GENERATOR_REVISION: &str = "17";
+const GENERATOR_REVISION: &str = "18";
 
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
@@ -703,13 +703,6 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .into_iter()
         .map(|path| workspace_maven_path(maven_relative_path, &path))
         .collect();
-    let module_paths = match &request.project_ownership {
-        Some(projects) => projects
-            .iter()
-            .map(|project| project.path.clone())
-            .collect(),
-        None => inferred_maven_module_paths(&root, &paths, configured_module_paths),
-    };
     // Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
     let (mut java_entrypoints, java_entrypoints_origin) = match request.java_entrypoints {
         Some(facts) => (facts, "languageService"),
@@ -726,16 +719,30 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     java_entrypoints
         .entries
         .retain(|entry| !is_nested_checkout_path(&entry.source_path));
+    // Module ownership must follow the confirmed source set, even when the
+    // caller passes an empty or partial editor file list.
+    let entry_sources = java_entrypoints
+        .entries
+        .iter()
+        .map(|entry| entry.source_path.clone())
+        .collect::<Vec<_>>();
+    let module_paths = match &request.project_ownership {
+        Some(projects) => projects
+            .iter()
+            .map(|project| project.path.clone())
+            .collect(),
+        None => inferred_maven_module_paths(&root, &entry_sources, configured_module_paths),
+    };
     let scanned = crate::languages::run_configurations_from_entrypoints(
         &root,
         &java_entrypoints,
         &module_paths,
     )?;
-    let annotated_main_classes = scanned
-        .main_classes
+    let spring_entrypoints = scanned
+        .configurations
         .iter()
-        .filter(|value| value.is_spring_boot)
-        .map(|value| (value.path.clone(), value.qualified_name.clone()))
+        .filter(|value| value.kind == "springBoot")
+        .cloned()
         .collect::<Vec<_>>();
     let mut maven_owners = BTreeMap::<Option<String>, Option<(PathBuf, String)>>::new();
     let configurations = scanned
@@ -884,9 +891,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 .filter(|item| !claimed.contains(&item.id)),
         );
     }
-    adopt_annotated_main_classes(
+    retain_confirmed_spring_services(
         &mut detected,
-        &annotated_main_classes,
+        &spring_entrypoints,
         maven_relative_path,
         request.project_ownership.as_deref(),
     );
@@ -1233,61 +1240,61 @@ fn java_module_identity(module: Option<&str>) -> String {
     }
 }
 
-/// Copies a scanned `@SpringBootApplication` class onto the module that declares
-/// the Maven plugin.
-///
-/// The detector knows a module is a service but not which class boots it. A
-/// unique scanned source lets the language service select the exact target; two
-/// candidates remain ambiguous and must not be guessed.
-fn adopt_annotated_main_classes(
-    configurations: &mut [RunConfiguration],
-    annotated: &[(String, String)],
+/// Keeps a Spring service only when JDT confirmed a unique application entry
+/// in that exact module. An applied (possibly inherited) Maven plugin is only
+/// a launch capability, never proof that a library module is an application.
+/// Ambiguous modules retain their individually selectable Java entries.
+fn retain_confirmed_spring_services(
+    configurations: &mut Vec<RunConfiguration>,
+    entries: &[crate::protocol::JavaRunConfigurationResponse],
     maven_root: Option<&str>,
     projects: Option<&[super::project_ownership::RunProjectOwnership]>,
 ) {
-    for configuration in configurations
-        .iter_mut()
-        .filter(|item| item.provider == "spring-boot.maven")
-    {
+    configurations.retain_mut(|configuration| {
+        if configuration.provider != "spring-boot.maven" {
+            return true;
+        }
         let Some(module) = configuration.module() else {
-            continue;
+            return false;
         };
-        // Exactly one candidate under the module, or none: two classes in one
-        // module is ambiguous, and guessing would start the wrong service.
-        let mut matches = annotated
-            .iter()
-            .filter(|(path, _)| match projects {
-                Some(projects) => {
-                    super::project_ownership::owner(projects, path).is_some_and(|owner| {
-                        owner.maven_reactor_path.as_deref() == Some(configuration.cwd.as_str())
-                            && owner.path == workspace_maven_path(Some(&configuration.cwd), &module)
-                    })
-                }
-                None => within_maven_module(path, &module, maven_root),
-            })
-            .map(|(path, qualified_name)| (path, qualified_name));
-        let Some((source_path, main_class)) = matches.next() else {
-            continue;
+        let workspace_module = workspace_maven_path(maven_root, &module);
+        let mut matches = entries.iter().filter(|entry| match projects {
+            Some(projects) => super::project_ownership::owner(projects, &entry.source_path)
+                .is_some_and(|owner| {
+                    owner.maven_reactor_path.as_deref() == Some(configuration.cwd.as_str())
+                        && owner.path == workspace_maven_path(Some(&configuration.cwd), &module)
+                        && owner.source_set(&entry.source_path)
+                            != crate::protocol::JavaSourceSetResponse::Test
+                }),
+            None => {
+                java_module_identity(entry.module_path.as_deref()) == workspace_module
+                    && entry.source_set != crate::protocol::JavaSourceSetResponse::Test
+            }
+        });
+        let Some(entry) = matches.next() else {
+            return false;
         };
         if matches.next().is_some() {
-            continue;
+            return false;
         }
         let maven = configuration
             .extensions
             .entry("maven".to_string())
             .or_insert_with(|| json!({}));
         if let Some(object) = maven.as_object_mut() {
-            object.insert("mainClass".to_string(), json!(main_class));
+            object.insert("mainClass".to_string(), json!(entry.main_class));
         }
-        configuration
-            .extensions
-            .insert("java".to_string(), json!({ "source": source_path }));
-    }
-}
-
-fn within_maven_module(path: &str, module: &str, maven_root: Option<&str>) -> bool {
-    let workspace_module = workspace_maven_path(maven_root, module);
-    workspace_module == "." || path.starts_with(&format!("{workspace_module}/"))
+        let source_set = projects
+            .and_then(|projects| super::project_ownership::owner(projects, &entry.source_path))
+            .map_or(entry.source_set, |owner| {
+                owner.source_set(&entry.source_path)
+            });
+        configuration.extensions.insert(
+            "java".to_string(),
+            json!({ "source": entry.source_path, "sourceSet": source_set }),
+        );
+        true
+    });
 }
 
 /// Translates detector output into the run-configuration contract.

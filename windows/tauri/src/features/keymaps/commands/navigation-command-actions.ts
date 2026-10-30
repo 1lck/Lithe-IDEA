@@ -21,6 +21,11 @@ import {
 } from "@/features/editor/lsp/lsp-document-target";
 import { definitionLocationsFromCommandArgs } from "@/features/editor/lsp/definition-navigation-hint";
 import { navigationLocationPresentation } from "@/features/editor/lsp/navigation-location-presentation";
+import {
+  sharedSlowRequestNotice,
+  withSlowRequestNotice,
+} from "@/features/editor/lsp/slow-request-notice";
+import { getImportProgress } from "@/features/run/stores/language-server-progress.store";
 import type { LspDocumentAvailability, LspLocation } from "@/features/editor/lsp/lsp-client";
 import {
   normalizeJavaImplementationMarkers,
@@ -81,6 +86,10 @@ type LspNavigationClient = {
 };
 
 const NAVIGATION_LANGUAGE_SERVER_TOAST_ID = "navigation-language-server-readiness";
+const NAVIGATION_PENDING_TOAST_ID = "navigation-request-pending";
+const navigationPendingNotice = sharedSlowRequestNotice(() =>
+  toast.dismiss(NAVIGATION_PENDING_TOAST_ID),
+);
 
 const getCurrentTranslator = () =>
   createTranslator(useSettingsStore.getState().settings.displayLanguage);
@@ -92,6 +101,17 @@ function translateNavigationLabel(label: string): string {
   if (label === "type definition") return t("navigation.typeDefinition");
   if (label === "reference") return t("navigation.reference");
   return label;
+}
+
+function pendingNavigationNotice(label: string) {
+  return navigationPendingNotice(() =>
+    toast.loading(
+      getCurrentTranslator()("navigation.resolving", {
+        target: translateNavigationLabel(label),
+      }),
+      { id: NAVIGATION_PENDING_TOAST_ID },
+    ),
+  );
 }
 
 function activeEditorNavigationContext() {
@@ -129,8 +149,14 @@ function navigationBlockMessage(
   const t = getCurrentTranslator();
   const name = languageDisplayName(block.languageId);
   switch (block.reason) {
-    case "preparing":
-      return t("lsp.preparingNamed", { name });
+    case "preparing": {
+      const root = useProjectStore.getState().rootFolderPath;
+      const percent =
+        root && block.languageId ? getImportProgress(root, block.languageId)?.percent : undefined;
+      return percent === undefined
+        ? t("lsp.preparingNamed", { name })
+        : t("navigation.waitingForImport", { name, percent });
+    }
     case "failed":
       return t("lsp.failedNamed", { name });
     case "unsupported":
@@ -422,7 +448,10 @@ async function goToActiveLspLocation(
   const hasPreResolvedLocations = preResolvedLocations !== undefined;
   let locations = hasPreResolvedLocations
     ? preResolvedLocations
-    : await resolveLocations(lspClient, documentTarget, requestLine, requestCharacter);
+    : await withSlowRequestNotice(
+        resolveLocations(lspClient, documentTarget, requestLine, requestCharacter),
+        pendingNavigationNotice(label),
+      );
 
   if (
     (!locations || locations.length === 0) &&

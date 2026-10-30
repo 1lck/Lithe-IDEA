@@ -354,7 +354,7 @@ struct IdeCapabilitiesTests {
         let fixture = try ProviderCapabilityExecutionFixture(execution: .service)
         defer { fixture.remove() }
         let entered = TestGate(), release = TestGate(), launched = TestGate()
-        fixture.run.configureProviderConfigurationRuns { inputs, _, _, _, _, _ in
+        fixture.run.configureProviderConfigurationRuns { inputs, _, _, _, _, _, _ in
             #expect(inputs.reference == fixture.reference)
             entered.open()
             guard await release.waitUntilOpen(timeout: .seconds(5)) else { throw CancellationError() }

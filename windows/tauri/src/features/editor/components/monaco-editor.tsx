@@ -605,14 +605,14 @@ export function MonacoEditor({
     }
 
     const blameContent = blameLine.is_uncommitted
-      ? "  Uncommitted changes"
+      ? `  ${t("git.uncommittedChanges")}`
       : `  ${blameLine.author}, ${formatRelativeTime(blameLine.time)}`;
     const decorationKey = `${filePath}:${lineNumber}:${blameLine.commit_hash}:${blameContent}`;
     if (renderedGitBlameKeyRef.current === decorationKey) return;
 
     widget.show(lineNumber, model.getLineMaxColumn(lineNumber), blameContent);
     renderedGitBlameKeyRef.current = decorationKey;
-  }, [filePath, getBlameForLine, inlineGitBlameEnabled, isActiveSurface]);
+  }, [filePath, getBlameForLine, inlineGitBlameEnabled, isActiveSurface, t]);
   renderInlineGitBlameRef.current = renderInlineGitBlame;
 
   const scheduleInlineGitBlameRender = useCallback(() => {

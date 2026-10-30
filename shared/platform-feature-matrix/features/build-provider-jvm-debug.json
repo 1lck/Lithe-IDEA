@@ -12,7 +12,10 @@
       "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
       "shared/contracts/plugins/v1/fixtures/build-jvm-debug-options.json",
       "rust/lithe-core/src/tests/build_systems.rs",
-      "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift"
+      "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+      "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
+      "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

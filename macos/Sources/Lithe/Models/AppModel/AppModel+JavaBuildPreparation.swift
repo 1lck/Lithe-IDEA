@@ -10,8 +10,11 @@ extension AppModel {
         for configuration: RunConfiguration,
         identity: WorkspaceIdentity
     ) async throws -> JavaDebugLaunchTarget? {
-        try await prepareCurrentProviderGeneration(configuration: configuration, identity: identity)
-        guard configuration.usesJavaProjectPreparation else { return nil }
+        guard configuration.usesJavaProjectPreparation else {
+            try await prepareCurrentProviderGeneration(configuration: configuration, identity: identity)
+            return nil
+        }
+        try await saveJavaWorkspaceForLaunch(identity: identity)
         guard let workspaceURL,
               let sourceURL = runWorkflowCoordinator.sourceURLForDebug(
                 configuration: configuration,
@@ -23,12 +26,13 @@ extension AppModel {
                 message: L10n.string("The Java source for \(configuration.name) could not be resolved.")
             )
         }
+        try await prepareCurrentProviderGeneration(configuration: configuration, identity: identity)
         let languageImport = try await prepareJavaBuildResources(configuration: configuration, fileURL: sourceURL, identity: identity)
         let revision = buildSystemsFeatureIfActive?.inputRevision
         let operation = buildSystemsFeatureIfActive?.operation?.id
         let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
         guard isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
-        let preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: sourceURL, rootURL: workspaceURL, languageImport: languageImport)
+        let preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: sourceURL, rootURL: workspaceURL, languageImport: languageImport, mainClass: configuration.mainClass)
         let javaRevision = sessions.javaImportRevision
         let target = try await resolveJavaLaunchPreparation(preparation, identity: identity)
         guard isCurrentWorkspace(identity), !Task.isCancelled, buildSystemsFeatureIfActive?.inputRevision == revision,

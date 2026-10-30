@@ -8,7 +8,7 @@ import Testing
 
 @MainActor
 struct ExecutionModuleTests {
-    @Test(arguments: ["launch", "stop", "reset", "disable", "changed"])
+    @Test(arguments: ["launch", "stop", "reset", "disable", "changed", "cancel"])
     func providerDebugKeepsCanonicalInputsAndOwnsItsProcessAcrossCancellation(outcome: String) async throws {
         let owner = BuildSystemPluginSource(pluginID: "dev.first", manifest: Data(), packageURL: URL(fileURLWithPath: "/fixture/first"), buildSystems: [])
         let operations = ProviderChoicesRunOperations(), gate = ProviderPreparationGate(), process = TestStreamingProcess()
@@ -19,37 +19,49 @@ struct ExecutionModuleTests {
             languageRunProviders: .standard(catalog: .compatibilityFallback))
         service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
         var current = true
+        var imports = 0
+        var cancelled = false
         var ended: [String] = []
         let observation = service.providerDebugEnded.sink { ended.append($0) }
-        service.configureProviderConfigurationRuns(source: { _, _ in owner }) { inputs, _, _, _, _, _ in
+        service.configureProviderConfigurationRuns(source: { _, _ in owner }) { inputs, _, _, _, _, _, languageImport in
             #expect(inputs.launchOptions.debug == .init(port: 51235))
             #expect(inputs.launchOptions.arguments == ["a b", "雪"])
             gate.entered.continuation.yield(())
             let waiter = Task { try await awaitSignal(gate.release.stream) }
             defer { waiter.cancel() }
             try await waiter.value
+            cancelled = Task.isCancelled
+            try await languageImport(.maven(.init(reactorPath: ".", profiles: ["run-only"], settingsPath: nil, skipTests: false, mavenExecutablePath: "/test", javaHomePath: nil)))
             return try JSONDecoder().decode(BuildRunPreparation.self, from: Data(#"{"executable":{"kind":"toolchain","value":"project-maven"},"arguments":["prepared-debug"],"workingDirectory":".","environment":{}}"#.utf8))
         }
         await service.loadProject(at: root, files: [])
-        let task = Task { try await service.prepareProviderDebug(operations.configurations[0], port: 51235, isCurrent: { current }) }
+        let task = Task { try await service.prepareProviderDebug(operations.configurations[0], port: 51235, languageImport: { value in
+            guard case .maven(let context) = value else { throw CancellationError() }
+            #expect(context.profiles == ["run-only"]); imports += 1
+        }, isCurrent: { current }) }
+        let feature = RunFeatureModel(service: service)
         defer { task.cancel(); gate.release.continuation.yield(()); service.reset(); observation.cancel() }
         try await awaitSignal(gate.entered.stream)
+        #expect(feature.selectedProjectSessionID == nil && feature.isSelectedConfigurationRunning)
         if outcome == "stop" { service.stopProviderDebug() }
         if outcome == "reset" { service.reset() }
         if outcome == "disable" { service.retainProviderConfigurations([]) }
         if outcome == "changed" { current = false }
+        if outcome == "cancel" { task.cancel() }
         gate.release.continuation.yield(())
         if outcome == "launch" {
             let operation = try await task.value
-            #expect(service.isProviderDebugActive(operation))
+            #expect(service.isProviderDebugActive(operation) && imports == 1)
             #expect(process.startRequests.first?.arguments == ["prepared-debug"])
             service.retainProviderConfigurations([])
             #expect(!service.isProviderDebugActive(operation) && !process.isRunning)
+            #expect(feature.selectedProjectSessionID == nil && !feature.isSelectedConfigurationRunning)
             #expect(ended.filter { $0 == operation }.count == 1)
         } else {
             do { _ = try await task.value; Issue.record("Stale debug preparation launched") }
             catch is CancellationError { }
-            #expect(process.startRequests.isEmpty && !service.isRunning)
+            #expect(process.startRequests.isEmpty && !service.isRunning && imports == 0)
+            #expect(cancelled == (outcome != "changed"))
         }
     }
 
@@ -70,7 +82,7 @@ struct ExecutionModuleTests {
             languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset(); first.release.continuation.yield(()); second.release.continuation.yield(()); replacement.release.continuation.yield(()); started.continuation.finish() }
         service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
-        service.configureProviderConfigurationRuns(source: { inputs, _ in inputs.projectPath == "second" ? secondOwner : firstOwner }) { inputs, _, _, _, current, progress in
+        service.configureProviderConfigurationRuns(source: { inputs, _ in inputs.projectPath == "second" ? secondOwner : firstOwner }) { inputs, _, _, _, current, progress, _ in
             let count = calls[inputs.projectPath, default: 0]; calls[inputs.projectPath] = count + 1
             let gate = inputs.projectPath == "second" ? second : (count == 0 ? first : replacement)
             gate.entered.continuation.yield(())
@@ -127,7 +139,7 @@ struct ExecutionModuleTests {
             languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset(); gate.release.continuation.yield(()); started.continuation.finish() }
         service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
-        service.configureProviderConfigurationRuns(source: { _, _ in firstOwner }) { inputs, _, _, _, _, _ in
+        service.configureProviderConfigurationRuns(source: { _, _ in firstOwner }) { inputs, _, _, _, _, _, _ in
             #expect(inputs.launchOptions.arguments == ["a b", "雪"])
             gate.entered.continuation.yield(())
             let waiter = Task { try await awaitSignal(gate.release.stream) }

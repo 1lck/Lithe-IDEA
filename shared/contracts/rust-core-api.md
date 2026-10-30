@@ -1040,6 +1040,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.updateWorkspaceConfiguration` | Replace the plugin configuration a running plugin-owned session answers `workspace/configuration` with, and announce it |
 | `lsp.updateMavenConfiguration` | Send a changed Maven context to a running Java session, or force JDT LS to re-resolve its Maven projects |
 | `lsp.syncDocument` | Open a document or apply a full-text or incremental `didChange` with monotonic versions |
+| `lsp.saveDocument` | Report a confirmed disk save with its exact saved text, honoring server save options |
 | `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
 | `lsp.closeDocument` | Close a document and clear its diagnostics |
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
@@ -1047,6 +1048,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
+| `java.prepareLaunch` | Prepare a saved Java source through shared entry selection, serialized build and runtime path resolution |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
 | `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
@@ -2793,6 +2795,21 @@ the change is a full-text replacement. The response is
 `{ documentVersion, changed }`; submitting identical full text returns
 `changed: false`, preserves the version, and emits no LSP notification.
 
+`lsp.saveDocument` accepts `{ sessionId, uri, text }` after a successful native
+save and returns `{ sent }`. The text is the exact saved snapshot, not the latest
+possibly dirty buffer. Core sends `textDocument/didSave` only for an open,
+ready document when the server advertised `textDocumentSync.save`; it includes
+text only when `includeText` was requested. Unsupported saves, unopened documents
+and snapshots superseded by newer synchronized edits return `sent: false` without
+changing the document version or contents. Failed native saves never call this
+operation. The host flushes current editor text before the save, including
+edits made while the native write was in flight. Before launch, hosts retry
+save notifications for clean open buffers and propagate transport failures
+instead of treating disk persistence alone as launch readiness.
+This is distinct from `didChange`: JDT reloads its on-disk working copy on save,
+which makes a subsequent Java launch build observe saved dependency edits.
+Shared cases: `shared/fixtures/lsp/document-save-v1.json`.
+
 `lsp.workspaceFilesChanged` accepts a session ID and ordered file URI changes
 whose `kind` is `created`, `changed`, or `deleted`. It emits one
 `workspace/didChangeWatchedFiles` notification. Open documents remain owned by
@@ -2997,6 +3014,28 @@ session-owned worker. The deadline monitor never writes to stdin. A background
 write that exceeds `requestTimeoutMilliseconds` fails the session with
 `transportFailed` at stage `outboundMaintenance` and terminates the server to
 release the stalled pipe; the Java build deadline still bounds queue and build time.
+`java.prepareLaunch` accepts `{ sessionId, operationId?, sourcePath, mainClass? }`.
+`sourcePath` is the absolute saved source path at the native boundary.
+Core owns one operation across JDT entry-point discovery, the existing serialized
+build coordinator, and classpath resolution. The source must be inside the session
+workspace; an optional configured class disambiguates multiple entries in that
+exact file (including JDT's module prefix). Core does not infer entry points or paths.
+Discovery and classpath each use the session request deadline; the build retains
+its independent queue-inclusive deadline. The host fallback deadline covers all
+three phases plus event-delivery grace.
+
+Only the final `requestCompleted` event is published to the host, with either
+`{ kind: "ready", target: { mainClass, projectName?, modulePaths, classPaths } }`
+or `{ kind: "buildFailed", target, failure: { code, message, report } }`.
+Only the two terminal build failures above can produce the latter.
+Cancellation, timeout, invalid replies and transport failures remain operation
+errors. Cancelling the operation cancels its current phase; a late build answer
+retains the existing coordinator semantics and never starts classpath resolution.
+Runtime path groups must contain nonblank strings, with at least one path overall.
+Hosts save documents before submitting and own the final launch decision, JDK
+discovery and native process. Run plan/toolchain selection remain in existing Core
+operations. See `shared/fixtures/lsp/java-launch-preparation-v1.json`.
+
 The `semanticTokens` operation uses the open document URI and normal version,
 timeout, and cancellation rules. Its result is
 `{ tokenTypes, tokenModifiers, tokens: [{ line, startChar, length, tokenType, tokenModifiers }] }`.
@@ -3421,6 +3460,16 @@ On Windows, Node-backed commands resolve their package-manager shim from the
 selected Node installation. They do not fall back to a PATH shim from another
 installation, and Windows executable extensions take precedence over extensionless
 shell scripts.
+
+Automatic Spring service generation requires both an applied Maven plugin and
+exactly one JDT-confirmed, Spring-classified non-test entry in the same module.
+An inherited plugin alone cannot promote a library to a runnable service.
+Nested-module entries do not promote their parent. Ambiguous, utility and test
+mains remain independently selectable Java entries. Module assignment consumes
+the confirmed source set even when the caller supplies no editor paths.
+Absent discovery may reuse previously confirmed entries; an explicit empty result
+removes automatic services. Existing service IDs and user-authored Maven-goal
+compatibility configurations retain their established meaning.
 
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, optional `debugPort`, and optional
@@ -4045,6 +4094,18 @@ index remains unchanged. The default false retains tracked-only unstaged export;
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
 reviewed by the amendment editor. See [Rebase sessions](git-rebase-session.md).
+
+Completion requests accept optional `completionContext` with LSP `triggerKind`
+(`1` invoked, `2` trigger character, `3` incomplete-list refresh) and
+`triggerCharacter` (required and one character for kind `2`). Missing context
+means invoked. Core validates and maps this into LSP `params.context`.
+Completion results carry `{ items, isIncomplete }`; array and null server results
+are complete. The flag is list-scoped and survives empty lists and host provider
+merging. Both Monaco adapters set `CompletionList.incomplete` and forward Monaco's
+trigger context, so continued typing can request additional candidates instead of
+filtering a partial cache. Existing document-version, cancellation and attachment
+checks still reject obsolete results. The fixture is
+`shared/fixtures/lsp/completion-refresh-v1.json`.
 
 Completion items returned by the LSP client and runtime preserve `insertTextFormat`
 (`1` for plain text, `2` for snippets; absent values default to `1`). Hosts retain
