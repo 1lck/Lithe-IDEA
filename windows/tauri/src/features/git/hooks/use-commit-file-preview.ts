@@ -5,6 +5,7 @@ import type { GitDiff } from "../types/git.types";
 import { mapGitReadsInBatches } from "../utils/git-async-batch";
 import {
   aggregateSelectedCommitDiffs,
+  commitFilePreviewHash,
   type GitCommitSelectionDiff,
 } from "../utils/git-commit-selection-diff";
 import { createCommitFileDiffPreview } from "../utils/multi-file-diff";
@@ -32,14 +33,13 @@ export function useCommitFilePreview(
       const requestId = requests.current.begin();
       try {
         let diffs: readonly GitDiff[] | null;
-        let commitHash: string;
+        const commitHash = commitFilePreviewHash(selection);
         let label: string;
         let fileKeys: string[] | undefined;
         let fileLabels: string[] | undefined;
         let fileRevisions: DiffRevisionPair[];
         if (selection.kind === "commit") {
           diffs = await getCommitDiff(repoPath, selection.commit.hash);
-          commitHash = selection.commit.hash;
           label = selection.commit.shortHash;
           fileRevisions = (diffs ?? []).map(() => ({
             before: selection.commit.parentHashes[0] ?? null,
@@ -47,7 +47,6 @@ export function useCommitFilePreview(
           }));
         } else if (selection.kind === "range") {
           diffs = await getRefDiff(repoPath, selection.baseRef, selection.targetRef);
-          commitHash = `${selection.baseRef ?? "root"}..${selection.targetRef}`;
           label = `${selection.oldest.shortHash}..${selection.newest.shortHash}`;
           fileRevisions = (diffs ?? []).map(() => ({ before: selection.baseRef, after: selection.targetRef }));
         } else {
@@ -66,7 +65,6 @@ export function useCommitFilePreview(
             before: commit.parentHashes[0] ?? null,
             after: commit.hash,
           })));
-          commitHash = selection.commits[0]?.hash ?? "selection";
           label = String(selection.commits.length);
         }
         if (!requests.current.isCurrent(requestId) || !diffs) return;

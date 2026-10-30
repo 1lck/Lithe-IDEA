@@ -258,7 +258,7 @@ const defaultDependencies: LombokNavigationDependencies = {
     const response = await executeCore<{ files: string[] }>({
       id: crypto.randomUUID(),
       command: "workspace.snapshot",
-      payload: { root },
+      payload: { root, includeTree: false },
     });
     return coreData(response).files;
   },

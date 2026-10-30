@@ -4,14 +4,16 @@ package struct FileVisibilityRules: Hashable, Sendable {
     /// VCS metadata (`.git`, `.svn`) is hidden like IDEA's default ignore
     /// list; providers watch their own metadata directories.
     package static let builtInHiddenDirectories = [
-        ".git", ".svn", ".worktree", ".worktrees", ".build", ".swiftpm", "node_modules", "target", "build",
-        "DerivedData", ".gradle", ".next", "dist", "coverage", "design-qa-artifacts", ".artifacts"
+        ".git", ".svn", ".worktree", ".worktrees", ".build", ".swiftpm", "node_modules", ".venv", "venv",
+        "__pycache__", "target", "build", "DerivedData", ".gradle", ".next", "dist", "coverage",
+        "design-qa-artifacts", ".artifacts"
     ]
     /// Names and globs omitted from the project tree, search index, watchers,
     /// and Local History. LSP-generated artifacts are not built-in; users can
     /// add them once via the Hidden paths recommended-rules actions.
     package static let builtInHiddenFilePatterns = [
         ".DS_Store",
+        "*.pyc",
         ".lithe/run/local.json",
     ]
 

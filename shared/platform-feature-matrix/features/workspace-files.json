@@ -17,18 +17,27 @@
       "macos/Tests/LitheGitModuleTests/GitModuleTests.swift",
       "macos/Sources/Lithe/Theme/LitheIcons.swift",
       "macos/Tests/LitheTests/ProjectTreeLayoutMetricsTests.swift",
-      "macos/Tests/LitheTests/IDEAIconRasterizationTests.swift"
+      "macos/Tests/LitheTests/IDEAIconRasterizationTests.swift",
+      "macos/Sources/LitheCoreContracts/Workspace/FileVisibilityRules.swift",
+      "rust/lithe-core/src/project/files.rs",
+      "rust/lithe-core/src/tests/project.rs",
+      ".agents/notes/implemented/feature/2026-10-29-skip-python-environments-in-workspace-scans.md"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/file-system"
+      "windows/tauri/src/features/file-system",
+      "windows/tauri/src/features/file-search/lib/file-search-api.ts",
+      "windows/tauri/src/features/file-search/lib/file-search-api.test.ts",
+      "rust/lithe-core/src/project/files.rs",
+      "rust/lithe-core/src/tests/project.rs",
+      ".agents/notes/implemented/feature/2026-10-29-skip-python-environments-in-workspace-scans.md"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Workspace",
-  "verification": "新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。 macOS 新建文件与目录复用居中无边框 LitheCenteredPopup，主窗口移动/关闭及失焦取消保持原行为；创建输入框保留原有 plain 样式、13pt 字体、IDEA NewItemSimplePopupPanel 的 32pt 高度及 13pt 输入留白，聚焦时无独立边框和底色；focusedNewItemFieldBlendsIntoPopup 验证深浅模式实际聚焦渲染，文件重命名输入框使用共享 litheSettingsTextField，检查初始焦点、中文输入、空名称拒绝与 Enter 提交。 macOS 共享居中弹窗需在单次点击后立即显示，关闭和重新打开无需其他交互；重复点击不得新增窗口，取消或卸载后不得显示过期弹窗。原生 SwiftUI 状态回归由 LitheCenteredPopupTests 覆盖。 macOS 项目树包压缩读取结果在有界内存中消费复用；验证同一包展开不重复列目录、并发展开与定位共用请求、取消一个等待者不影响另一个，以及文件事件、刷新、过滤规则变化、切换或关闭工作区后不应用旧结果；深层包名与全树转换保持一致。实际项目分别检查首次展开、再次展开、大目录、快速展开收起和定位，记录交互耗时；Windows 保留现有目录加载路径。 目录名称双击在第二次按下时开始展开，松开不重复切换；验证修饰键多选、拖动、文件双击、方向键、定位及切换 Dependencies 后的展开状态保留；无关 AppModel 更新不得重新生成可见树。 macOS 单子目录链自动连续展开且保留各级行，遇到文件、兄弟项、隐藏目录或空目录停止，手动收起不会被无关更新重开；空目录及仅含过滤项的目录无展开箭头，新增文件后恢复内容；验证原版 IDEA 明暗图标、Compose 文件图标和共享树间距。 目录名称只取自身 Git 状态，子文件的删除和冲突不得染红祖先目录，精确文件状态保持；检查本机 IDEA 展开箭头资源与实际留白。 单子目录链在一个后台请求中准备完成后一次发布，首次可见行与箭头状态直接使用整条链的展开集合，不出现 docker 再到 database-validation 的中间帧；校验分叉不预取、失败不发布半链、64 层深度上限和包压缩列表复用。 Project 顶部新增 IDEA 原版全部展开/全部收起：遍历所有分支但不重建文件库存；收起保留项目根并取消在途展开，取消/切换工作区不应用旧状态；定位、刷新、展开/收起随整个项目区悬停显示。 共享 IDEA SVG 渲染先生成 4x 透明位图再按原逻辑尺寸显示；真实 chevronRight/Down、expandAll/collapseAll 在深浅模式和 1x/2x 保持边缘对称，实际检查端点、转角及工具栏按钮原动作。 连续展开探测省略不可读或消失的子路径时，普通目录与压缩包保留可读父层和未加载末端，同批其他目录仍可发布；取消仍拒绝发布。"
+  "verification": "新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。 macOS 新建文件与目录复用居中无边框 LitheCenteredPopup，主窗口移动/关闭及失焦取消保持原行为；创建输入框保留原有 plain 样式、13pt 字体、IDEA NewItemSimplePopupPanel 的 32pt 高度及 13pt 输入留白，聚焦时无独立边框和底色；focusedNewItemFieldBlendsIntoPopup 验证深浅模式实际聚焦渲染，文件重命名输入框使用共享 litheSettingsTextField，检查初始焦点、中文输入、空名称拒绝与 Enter 提交。 macOS 共享居中弹窗需在单次点击后立即显示，关闭和重新打开无需其他交互；重复点击不得新增窗口，取消或卸载后不得显示过期弹窗。原生 SwiftUI 状态回归由 LitheCenteredPopupTests 覆盖。 macOS 项目树包压缩读取结果在有界内存中消费复用；验证同一包展开不重复列目录、并发展开与定位共用请求、取消一个等待者不影响另一个，以及文件事件、刷新、过滤规则变化、切换或关闭工作区后不应用旧结果；深层包名与全树转换保持一致。实际项目分别检查首次展开、再次展开、大目录、快速展开收起和定位，记录交互耗时；Windows 保留现有目录加载路径。 目录名称双击在第二次按下时开始展开，松开不重复切换；验证修饰键多选、拖动、文件双击、方向键、定位及切换 Dependencies 后的展开状态保留；无关 AppModel 更新不得重新生成可见树。 macOS 单子目录链自动连续展开且保留各级行，遇到文件、兄弟项、隐藏目录或空目录停止，手动收起不会被无关更新重开；空目录及仅含过滤项的目录无展开箭头，新增文件后恢复内容；验证原版 IDEA 明暗图标、Compose 文件图标和共享树间距。 目录名称只取自身 Git 状态，子文件的删除和冲突不得染红祖先目录，精确文件状态保持；检查本机 IDEA 展开箭头资源与实际留白。 单子目录链在一个后台请求中准备完成后一次发布，首次可见行与箭头状态直接使用整条链的展开集合，不出现 docker 再到 database-validation 的中间帧；校验分叉不预取、失败不发布半链、64 层深度上限和包压缩列表复用。 Project 顶部新增 IDEA 原版全部展开/全部收起：遍历所有分支但不重建文件库存；收起保留项目根并取消在途展开，取消/切换工作区不应用旧状态；定位、刷新、展开/收起随整个项目区悬停显示。 共享 IDEA SVG 渲染先生成 4x 透明位图再按原逻辑尺寸显示；真实 chevronRight/Down、expandAll/collapseAll 在深浅模式和 1x/2x 保持边缘对称，实际检查端点、转角及工具栏按钮原动作。 连续展开探测省略不可读或消失的子路径时，普通目录与压缩包保留可读父层和未加载末端，同批其他目录仍可发布；取消仍拒绝发布。 工作区扫描默认跳过 .venv、venv、__pycache__ 目录和 *.pyc 文件：在含 Python 虚拟环境的项目中打开工作区，确认快速打开、全局搜索和 Spring/MyBatis/Maven 索引不再出现这些路径，且普通源码文件不受影响；macOS 文件树不再显示 .venv，设置页内置隐藏规则列表包含这四项；Windows 文件树仍能看到 .venv（由前端隐藏路径设置控制），其 __pycache__ 与 *.pyc 默认已隐藏。Windows 请求快照时只取文件清单（includeTree: false），打开项目后观察内存不再因整棵树的序列化而出现额外高峰，实机验收 pending。"
 }

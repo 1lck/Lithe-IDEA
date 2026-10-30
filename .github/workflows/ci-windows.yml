@@ -600,6 +600,11 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-quick-open-number-input.json -- src/features/quick-open/hooks/use-file-loader.test.tsx src/features/quick-open/hooks/use-file-search.test.tsx src/ui/number-input.test.tsx src/features/settings/components/editor-settings-routing.test.tsx
 
+      - name: Test workspace snapshot file-list request
+        shell: pwsh
+        # Isolated step: this suite installs a process-wide Tauri boundary mock.
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-search-snapshot.json -- src/features/file-search/lib/file-search-api.test.ts
+
       - name: Test wheel scroll animation and container wheel ownership
         shell: pwsh
         timeout-minutes: 3

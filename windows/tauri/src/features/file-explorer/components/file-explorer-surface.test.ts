@@ -44,3 +44,11 @@ test("file explorer chrome uses the editor background token", async () => {
   expect(fileExplorerHeaderStyles).not.toContain("background-color: var(--surface)");
   expect(fileExplorerSource).toContain('<SidebarPanel className="relative">');
 });
+
+test("project file tree rows do not paint a hover highlight", async () => {
+  const styles = await Bun.file(new URL("../styles/file-explorer-tree.css", import.meta.url)).text();
+
+  expect(styles).toMatch(
+    /\.file-explorer-shell \.file-tree-container \[data-sidebar-tree-row\]:hover::before \{[^}]*background-color: transparent;/s,
+  );
+});
