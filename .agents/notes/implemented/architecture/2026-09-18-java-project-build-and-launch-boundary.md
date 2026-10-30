@@ -87,10 +87,12 @@ Run 和 Debug 共用同一套 Java 项目准备逻辑。配置中的 Maven 信�
 导入、Profile、settings.xml 和项目模型；Maven 工具窗口、框架 goal、测试与显式
 Maven 任务仍走 Maven 启动计划。
 
-Spring Boot 检测仍由 Maven 插件决定“它是不是服务”，不会把普通依赖模块误报成
-服务。扫描到唯一的 `@SpringBootApplication` 源码后，配置同时记录入口类和源码；
-此时 Run 走上述 JDT 直启流程。没有 Java 入口源码的特殊项目（例如入口不在可见
-Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
+Maven 插件只提供 Spring Boot 服务候选；自动服务还要求同模块恰好有一个
+JDT 已确认、被分类为 Spring Boot 的非测试入口，再记录入口类和源码并走上述
+JDT 直启流程。继承插件的库模块、只有测试入口的模块和入口位于子模块的父模块
+不会因此成为服务；多入口保留独立 Java 配置。具体规则见
+[Java 入口点归属](2026-09-21-java-entrypoints-owned-by-jdt.md)。没有入口源码的
+用户自建或旧版配置仍保留 Maven goal 兼容路径，自动发现不再生成这类候选。
 生成器 revision 随这项行为提升，旧工作区会自动重新生成配置，不要求用户删除
 `.lithe/run/generated.json`。
 

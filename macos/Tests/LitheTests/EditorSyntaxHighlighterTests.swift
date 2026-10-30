@@ -40,6 +40,18 @@ struct EditorSyntaxHighlighterTests {
     }
 
     @Test
+    func javaImportFoldingUsesCoreStructureWithoutLanguageServer() throws {
+        let operations = RustJavaMavenOperations(core: RustCoreBridge())
+        let source = "package demo;\n\nimport java.util.List;\nimport java.util.Map;\nimport static java.util.Collections.emptyList;\n\nclass Probe {\n  void run() {}\n}"
+        let structure = try #require(operations.structure(source: source, declarationSources: []))
+        let imports = try #require(structure.foldRegions.first { $0.kind == .imports })
+        #expect(imports.startLine == 2 && imports.endLine == 4)
+        #expect(structure.foldRegions.contains { $0.kind == .type })
+        let single = try #require(operations.structure(source: "import java.util.List;\nclass Probe {}", declarationSources: []))
+        #expect(!single.foldRegions.contains { $0.kind == .imports })
+    }
+
+    @Test
     func javaStructurePayloadDecodesPortableUtf16Highlights() throws {
         let payload = try JSONDecoder().decode(
             RustCoreBridge.JavaStructurePayload.self,
