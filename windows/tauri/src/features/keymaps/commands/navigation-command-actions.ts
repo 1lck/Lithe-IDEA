@@ -21,7 +21,10 @@ import {
 } from "@/features/editor/lsp/lsp-document-target";
 import { definitionLocationsFromCommandArgs } from "@/features/editor/lsp/definition-navigation-hint";
 import { navigationLocationPresentation } from "@/features/editor/lsp/navigation-location-presentation";
-import { withSlowRequestNotice } from "@/features/editor/lsp/slow-request-notice";
+import {
+  sharedSlowRequestNotice,
+  withSlowRequestNotice,
+} from "@/features/editor/lsp/slow-request-notice";
 import { getImportProgress } from "@/features/run/stores/language-server-progress.store";
 import type { LspDocumentAvailability, LspLocation } from "@/features/editor/lsp/lsp-client";
 import {
@@ -84,6 +87,9 @@ type LspNavigationClient = {
 
 const NAVIGATION_LANGUAGE_SERVER_TOAST_ID = "navigation-language-server-readiness";
 const NAVIGATION_PENDING_TOAST_ID = "navigation-request-pending";
+const navigationPendingNotice = sharedSlowRequestNotice(() =>
+  toast.dismiss(NAVIGATION_PENDING_TOAST_ID),
+);
 
 const getCurrentTranslator = () =>
   createTranslator(useSettingsStore.getState().settings.displayLanguage);
@@ -95,6 +101,17 @@ function translateNavigationLabel(label: string): string {
   if (label === "type definition") return t("navigation.typeDefinition");
   if (label === "reference") return t("navigation.reference");
   return label;
+}
+
+function pendingNavigationNotice(label: string) {
+  return navigationPendingNotice(() =>
+    toast.loading(
+      getCurrentTranslator()("navigation.resolving", {
+        target: translateNavigationLabel(label),
+      }),
+      { id: NAVIGATION_PENDING_TOAST_ID },
+    ),
+  );
 }
 
 function activeEditorNavigationContext() {
@@ -433,16 +450,7 @@ async function goToActiveLspLocation(
     ? preResolvedLocations
     : await withSlowRequestNotice(
         resolveLocations(lspClient, documentTarget, requestLine, requestCharacter),
-        {
-          show: () =>
-            toast.loading(
-              getCurrentTranslator()("navigation.resolving", {
-                target: translateNavigationLabel(label),
-              }),
-              { id: NAVIGATION_PENDING_TOAST_ID },
-            ),
-          dismiss: () => toast.dismiss(NAVIGATION_PENDING_TOAST_ID),
-        },
+        pendingNavigationNotice(label),
       );
 
   if (

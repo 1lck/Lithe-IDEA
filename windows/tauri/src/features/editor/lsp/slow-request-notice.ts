@@ -39,3 +39,22 @@ export async function withSlowRequestNotice<T>(
     if (shown) notice.dismiss();
   }
 }
+
+/**
+ * One visible notice shared by overlapping slow requests: each request that
+ * shows it holds it, and it closes once the last holder settles. Letting each
+ * request close it would hide the notice while another one still waits.
+ */
+export function sharedSlowRequestNotice(dismiss: () => void) {
+  let holders = 0;
+  return (show: () => void): SlowRequestNotice => ({
+    show: () => {
+      holders += 1;
+      show();
+    },
+    dismiss: () => {
+      holders -= 1;
+      if (holders === 0) dismiss();
+    },
+  });
+}

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { withSlowRequestNotice } from "./slow-request-notice";
+import { sharedSlowRequestNotice, withSlowRequestNotice } from "./slow-request-notice";
 
 function manualTimers() {
   const pending = new Map<number, () => void>();
@@ -78,5 +78,40 @@ test("a failed slow request still dismisses the notice", async () => {
   clock.elapse();
   request.reject(new Error("timed out"));
   await expect(running).rejects.toThrow("timed out");
+  expect(events).toEqual(["show", "dismiss"]);
+});
+
+test("overlapping slow requests close the shared notice after the last one", async () => {
+  const clock = manualTimers();
+  const events: string[] = [];
+  const shared = sharedSlowRequestNotice(() => events.push("dismiss"));
+  const notice = () => shared(() => events.push("show"));
+  const first = deferred<string>();
+  const second = deferred<string>();
+  const running = [
+    withSlowRequestNotice(first.promise, notice(), 300, clock.timers),
+    withSlowRequestNotice(second.promise, notice(), 300, clock.timers),
+  ];
+  clock.elapse();
+  first.resolve("first");
+  await running[0];
+  expect(events).toEqual(["show", "show"]);
+  second.resolve("second");
+  await running[1];
+  expect(events).toEqual(["show", "show", "dismiss"]);
+});
+
+test("a fast request does not close a notice an earlier slow request shows", async () => {
+  const clock = manualTimers();
+  const events: string[] = [];
+  const shared = sharedSlowRequestNotice(() => events.push("dismiss"));
+  const notice = () => shared(() => events.push("show"));
+  const slow = deferred<string>();
+  const running = withSlowRequestNotice(slow.promise, notice(), 300, clock.timers);
+  clock.elapse();
+  await withSlowRequestNotice(Promise.resolve("fast"), notice(), 300, clock.timers);
+  expect(events).toEqual(["show"]);
+  slow.resolve("slow");
+  await running;
   expect(events).toEqual(["show", "dismiss"]);
 });
