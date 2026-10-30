@@ -213,3 +213,32 @@ export function getExternalFileDropRoute(
   }
   return "global";
 }
+
+export interface DropListenerScope {
+  readonly disposed: boolean;
+  add: (release: () => void) => void;
+  dispose: () => void;
+}
+
+/**
+ * Owns listeners that are registered asynchronously. Native registration awaits
+ * an IPC round trip, so an effect can clean up before it resolves; a listener
+ * arriving after that is released at once instead of leaking.
+ */
+export function createDropListenerScope(): DropListenerScope {
+  const releases: Array<() => void> = [];
+  let disposed = false;
+  return {
+    get disposed() {
+      return disposed;
+    },
+    add(release) {
+      if (disposed) release();
+      else releases.push(release);
+    },
+    dispose() {
+      disposed = true;
+      for (const release of releases.splice(0)) release();
+    },
+  };
+}
