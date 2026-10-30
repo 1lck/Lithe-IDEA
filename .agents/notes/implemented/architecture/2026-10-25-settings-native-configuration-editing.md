@@ -35,11 +35,64 @@
 
 发行包、安装目录和无写入权限的配置保持只读。需要改变继承值时，明确让用户选择受支持的可写覆盖层，不自动提权，也不绕过发行包只读规则。真正属于 Lithe 的偏好仍可写入应用存储，但须标明作用范围，不能伪装成工具原生配置。
 
+### 项目和子项目的本机工具选择
+
+项目 JDK、Maven 和 Maven JDK 的本机选择，以及各子项目的路径覆盖，都保存在
+已有的 `.lithe/run/local.json`。子项目路径覆盖按工作区相对根标识；编辑 A 的 JDK
+不改变 B，也不替换项目默认值。页面只从这份文档回显，保存后再次读取；旧偏好里的
+`moduleOverrides`（按子项目保存的工具路径）不能在打开设置页时重新覆盖文档。
+
+激活工作区时才允许一次性迁移。已有项目默认值继续优先；旧版文档尚未保存子项目
+选择时补迁旧子项目值，已经保存（包括显式清空）的子项目选择不被旧值复活。目标读回
+成功后才删除旧偏好字段，非法相对根和写入失败保留源数据。Run 编辑器保存配置时保留
+子项目映射，不将这些本机绝对路径写入团队配置或发行包。
+
+这只完成项目设置偏好的这一部分迁移；旧 MavenService 按 reactor 保存的工具路径、
+Profiles/settings/仓库和其生产消费者仍须在阶段 D 的完整纵向切换中迁移并删除。
+
+### Build Provider 的原生来源编辑
+
+构建插件以公共 `buildProviders: 7` 注册原生配置读取，仍复用已有工作区 Provider 会话。
+宿主从清单推导通用构建设置页，不为 Maven 增加专用页面。自动读取遇到项目 Wrapper 或无法确定工具来源时先停止，只有用户明确点击“使用项目工具读取”后才运行；自动发现失败不能悄悄交给 Provider 运行 Wrapper 或触发冷下载。来源、可编辑原值、合并生效值、
+XML 节点绑定都来自插件；宿主只负责草稿、明确保存目标、生命周期、平台写入及回读。
+这条链路已接入 macOS，但不表示 #1495 阶段 D 的全部旧 Maven 消费者已经删除。
+
+Maven 插件观察所选 Maven 的官方 `EventSpy`（构建事件观察接口），在
+`SettingsBuildingRequest` 开始时记录实际来源与字节哈希，从 `SettingsBuildingResult`
+取得原始合并事实，再在 reactor（多模块工程）读取前导出非敏感配置。最终命令行覆盖值
+来自执行请求。不能将 `MavenSession.getSettings()` 当成覆盖前的设置：当前 Maven 的
+`SettingsAdapter` 会直接回显已包含 CLI 覆盖的执行请求。
+上游依据是 [Maven 3.9.16 的配置处理入口](https://github.com/apache/maven/blob/maven-3.9.16/maven-embedder/src/main/java/org/apache/maven/cli/configuration/SettingsXmlConfigurationProcessor.java)。
+捕获来源、读取结束或源路径/哈希不一致时明确失败；不在 Lithe 维护另一套优先级和 Profiles 合并。
+
+完整原生 XML 不经过 Provider RPC、网页、模型共享或可观察界面状态。macOS 文件 adapter
+将原始字节交给 Core 内部的纯编辑操作，由已有 `quick-xml` 处理获准的直接节点，拒绝
+DTD、含糊绑定和超限文档。Core 不读写文件，也不认识 Maven 字段的业务语义。平台 adapter
+保护 app bundle 与全部插件安装目录，用条件原子替换保留原权限、扩展属性、注释和秘密节点。
+多个来源选择同一文件时，只能作为完全一致的只读别名展示，不能借用户作用域改写安装来源。
+
+草稿以原值为基线，继承值直接填入控件但不产生覆盖；用户显式启用覆盖后才进入编辑集。
+保存前重新确认工作区、包、设置与单调递增的选项修订号，选项 A→B→A 也会撤销旧保存。
+文件本身另以原字节进行冲突检查。保存后撤销构建、测试和语言导入事实，再调用同一
+Provider 读取实际生效值及已发布的源哈希；回读失败保留草稿并要求重载，不能把草稿当成结果。
+
+探针目录和实际来源哈希缓存只写平台的工作区状态，调用结束清理临时输出，不跨工作树复用。
+配置探针还观察 Maven 官方发布的完整 `MavenExecutionRequest`，在上游已填入默认值、
+尚未创建仓库会话时记录生效结果。仅把这次探针的仓库管理器改到操作拥有的私有临时目录，
+随后在工程导入前退出；不能因打开设置页或保存回读而创建真实用户仓库。早先仅在
+`afterSessionStart` 导出已经太晚，Maven 会先创建所选目录。两种路径的非敏感字段仍由
+同一官方请求提供，不重算优先级。依据是 [Maven 3.9.16 的 CLI 执行顺序](https://github.com/apache/maven/blob/maven-3.9.16/maven-embedder/src/main/java/org/apache/maven/cli/MavenCli.java)。
+
+Maven 模型缓存版本 2 保存上游实际选中的来源，即使来源由带空格路径的 `.mvn/maven.config`
+指定，外部编辑或删除也会使缓存失效；不以宿主猜测的默认路径代替上游事实。
+
 ## 考虑过的备选方案
 
 - 只提示默认路径、要求用户重新填写：省去读取逻辑，但无法证明显示值与工具一致，也增加误操作，因此不作为非敏感配置的默认交互。
 - 所有字段每次按键或失焦立即保存：省掉一次确认，却容易破坏共享配置、保存未完成输入或复活重置前草稿；原生文件编辑不采用。
 - 把整份配置复制到应用存储再接管：制造第二份真源和升级兼容成本。优先复用上游解析与编辑能力；确需隔离运行时配置时，沿用已有专门契约并清楚标注范围，不冒充原文件编辑。
+- 用私有插件函数读写整份原生文件：使宿主猜测领域参数，也把凭据送入 RPC；采用公共只读配置投影，原始字节只在平台 adapter 与 Core 纯编辑操作间流动。
+- 重新运行 SettingsBuilder 后与会话 Settings 比较：会话已经包含命令行覆盖，合法覆盖会被误判为文件变化；改为观察 Maven 自己的原始构建事件并校验原字节身份。
 
 ## 后果
 
@@ -51,6 +104,7 @@
 - 补充敏感字段不泄露、外部修改冲突、文件缺失或无权限、写入失败保留草稿，以及恢复默认后立即失焦、切页或关闭不写回旧值。测试使用临时目录或隔离存储，不读取或修改开发者真实配置。
 - 按目标平台执行原生交互测试和真实工作流；单元测试通过不能替代整页验收。记录未完成的设置页迁移，不把政策当运行时证据。
 - 运行 `./scripts/agent-notes/verify-agent-notes.sh`；有产品实现改动时执行对应测试、`./scripts/architecture/verify-service-boundaries.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和功能矩阵检查。
+- `BuildNativeConfigurationTests` 覆盖继承/取消、XML 内容与权限/扩展属性保留、外部写入、缺失文件、只读根和符号链接目标变化；`BuildSystemServiceTests` 覆盖选项 ABA、旧工作区回复及回读失败。`MacNativeBuildProviderIntegrationTests` 的显式 stage D 场景使用真实 Maven、SDK、Core、Provider 会话和平台文件 adapter；其通过情况仍以实际计时报告为准。
 
 ## 适用范围
 

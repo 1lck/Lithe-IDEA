@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/build-project-options-v1.schema.json",
+  "title": "Lithe team Build options",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "systems"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "systems": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9-]{1,64}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "options": {
+            "$ref": "#/$defs/values"
+          },
+          "instanceDefaults": {
+            "$ref": "#/$defs/values"
+          },
+          "instances": {
+            "type": "object",
+            "maxProperties": 256,
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "pattern": "^(?:\\.|(?!/)(?!.*//)(?!.*/$)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^\\\\:\\x00-\\x1f\\x7f]+)$"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/values"
+            }
+          },
+          "savedChoices": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "values": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "maxProperties": 256,
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9_.-]{1,128}$"
+      }
+    }
+  }
+}

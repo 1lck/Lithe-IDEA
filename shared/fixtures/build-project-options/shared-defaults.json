@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "systems": {
+    "maven": {
+      "options": {},
+      "instanceDefaults": {
+        "profiles": [
+          "ci"
+        ],
+        "skipTests": false
+      },
+      "instances": {
+        "services/a": {
+          "offline": true
+        }
+      },
+      "savedChoices": {
+        "profiles": [
+          "ci",
+          "manual"
+        ]
+      }
+    }
+  }
+}

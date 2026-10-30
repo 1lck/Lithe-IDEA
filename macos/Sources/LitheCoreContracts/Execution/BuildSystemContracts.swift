@@ -73,15 +73,20 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
 
     /// The display part of an option declaration. Values, kinds, and
     /// choices come from `build.resolveOptions`.
+    public enum OptionScope: String, Equatable, Sendable, Decodable {
+        case workspace, instance
+    }
+
     public struct Option: Equatable, Identifiable, Sendable {
         public let id: String
+        public let scope: OptionScope
         /// Nil for an option shown only in the option list, and for a
         /// placement from a newer contract this host does not know.
         public let presentation: OptionPresentation?
         public let icon: PluginUIIcon?
 
-        public init(id: String, presentation: OptionPresentation? = nil, icon: PluginUIIcon? = nil) {
-            self.id = id; self.presentation = presentation; self.icon = icon
+        public init(id: String, presentation: OptionPresentation? = nil, icon: PluginUIIcon? = nil, scope: OptionScope = .workspace) {
+            self.id = id; self.presentation = presentation; self.icon = icon; self.scope = scope
         }
     }
 
@@ -102,13 +107,16 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public let testScopes: [BuildScope]
     /// Tags a target must carry to run its tests.
     public let testTargetTags: [String]
+    /// Reports arrive with the completing provider operation; no host file discovery.
+    public let providerTestReports: Bool
     public struct ProviderRun: Equatable, Identifiable, Sendable {
         public let id: String
         public let displayName: String
         public let targetTags: [String]
         public let debugAdapter: String?
-        public init(id: String, displayName: String, targetTags: [String], debugAdapter: String? = nil) {
-            self.id = id; self.displayName = displayName; self.targetTags = targetTags; self.debugAdapter = debugAdapter
+        public let execution: BuildExecution
+        public init(id: String, displayName: String, targetTags: [String], debugAdapter: String? = nil, execution: BuildExecution = .application) {
+            self.id = id; self.displayName = displayName; self.targetTags = targetTags; self.debugAdapter = debugAdapter; self.execution = execution
         }
     }
     /// Optional public producer identities; never installation dependencies or private function access.
@@ -121,22 +129,28 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public let modelInputs: [ModelInput]
     public let providerRuns: [ProviderRun]
     public let testDiscovery: Bool
+    public let testSelectorKinds: [String]
     /// Empty when the build system lists no dependencies.
     public let dependencyScopes: [BuildScope]
     /// The build system declares a provider launch. Installation verifies
     /// its packaged files before the provider can ever start.
     public let declaresProvider: Bool
+    /// The provider exposes source-backed, non-sensitive native configuration.
+    public let nativeConfiguration: Bool
 
     public init(
         id: String, displayName: String, icon: PluginUIIcon? = nil, modelSource: ModelSource?,
         options: [Option] = [], tasks: [Task], testScopes: [BuildScope], testTargetTags: [String] = [],
-        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = [], sharesModel: Bool = false, modelInputs: [ModelInput] = []
+        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = [], sharesModel: Bool = false, modelInputs: [ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false, testSelectorKinds: [String] = []
     ) {
         self.id = id; self.displayName = displayName; self.icon = icon; self.modelSource = modelSource
         self.options = options; self.tasks = tasks
         self.testScopes = testScopes; self.testTargetTags = testTargetTags; self.dependencyScopes = dependencyScopes
         self.declaresProvider = declaresProvider
+        self.nativeConfiguration = nativeConfiguration
+        self.providerTestReports = providerTestReports
         self.testDiscovery = testDiscovery
+        self.testSelectorKinds = testSelectorKinds
         self.sharesModel = sharesModel; self.modelInputs = modelInputs
         self.providerRuns = providerRuns
     }
@@ -485,6 +499,7 @@ package struct BuildInvocation: Equatable, Sendable {
     /// earlier successful candidate still wins over a later setting.
     package var hasExplicitExecutableSelection: Bool {
         (executables + runtimeDependencies.flatMap(\.executables)).contains {
+            if case .toolchain = $0 { return true }
             if case .setting(_, let path) = $0 { return path.map { !$0.isEmpty } ?? false }
             return false
         }
@@ -517,10 +532,13 @@ package struct ResolvedBuildTool: Equatable, Sendable {
     /// True for a wrapper inside the project, whatever the plugin declares.
     package let executesProjectCode: Bool
     package let version: String?
+    /// Only selected runtime/tool lookup inputs; never the complete host environment.
+    package let providerEnvironment: [String: String]
 
-    package init(executableURL: URL, environment: [String: String], executesProjectCode: Bool, version: String?) {
+    package init(executableURL: URL, environment: [String: String], executesProjectCode: Bool, version: String?, providerEnvironment: [String: String] = [:]) {
         self.executableURL = executableURL; self.environment = environment
         self.executesProjectCode = executesProjectCode; self.version = version
+        self.providerEnvironment = providerEnvironment
     }
 }
 
@@ -584,10 +602,11 @@ package struct BuildResolvedOption: Equatable, Identifiable, Sendable, Decodable
     package let displayName: String
     /// Nil for a kind this host does not know; such an option is not shown.
     package let kind: Kind?
+    package let scope: DeclarativeBuildSystem.OptionScope
     package let value: ToolingJSONValue
     /// `user` when the value came from the stored options.
     package let source: String
-    package let choices: [Choice]
+    package var choices: [Choice]
     package let allowCustom: Bool
 
     package init(from decoder: Decoder) throws {
@@ -595,13 +614,14 @@ package struct BuildResolvedOption: Equatable, Identifiable, Sendable, Decodable
         id = try values.decode(String.self, forKey: .id)
         displayName = try values.decode(String.self, forKey: .displayName)
         kind = Kind(rawValue: try values.decode(String.self, forKey: .kind))
+        scope = try values.decodeIfPresent(DeclarativeBuildSystem.OptionScope.self, forKey: .scope) ?? .workspace
         value = try values.decodeIfPresent(ToolingJSONValue.self, forKey: .value) ?? .null
         source = try values.decodeIfPresent(String.self, forKey: .source) ?? "unset"
         choices = try values.decodeIfPresent([Choice].self, forKey: .choices) ?? []
         allowCustom = try values.decodeIfPresent(Bool.self, forKey: .allowCustom) ?? false
     }
 
-    private enum CodingKeys: String, CodingKey { case id, displayName, kind, value, source, choices, allowCustom }
+    private enum CodingKeys: String, CodingKey { case id, displayName, kind, scope, value, source, choices, allowCustom }
 }
 
 package struct BuildOptionsResolution: Equatable, Sendable, Decodable {
@@ -616,11 +636,27 @@ package struct BuildOptionsResolution: Equatable, Sendable, Decodable {
 /// it is stored separately so sibling-only choices survive.
 @MainActor
 package protocol BuildOptionsStoring: AnyObject {
-    func options(workspaceURL: URL, buildSystemID: String) -> [String: ToolingJSONValue]
-    func setOptions(_ options: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String)
+    /// Transfers retired platform preferences only after passive instance discovery.
+    /// A changed destination forces detection to restart before publishing inputs.
+    func migrateLegacyConfiguration(workspaceURL: URL, instances: [BuildSystemInstance]) throws -> Bool
+    func options(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue]
+    func setOptions(_ options: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String) throws
+    /// Independent values for options declared with scope=instance, keyed by root.
+    func instanceOptions(workspaceURL: URL, buildSystemID: String) throws -> [String: [String: ToolingJSONValue]]
+    func setInstanceOptions(_ options: [String: [String: ToolingJSONValue]], workspaceURL: URL, buildSystemID: String) throws
+    /// Workspace defaults, including machine-local differences, overridden by root values.
+    func instanceDefaults(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue]
+    /// Unselected user-defined choices, offered only by options that permit custom values.
+    func savedChoices(workspaceURL: URL, buildSystemID: String) throws -> [String: [String]]
     /// Option IDs explicitly cleared at each workspace-relative instance root.
-    func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) -> [String: Set<String>]
-    func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String)
+    func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) throws -> [String: Set<String>]
+    func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String) throws
+}
+
+package extension BuildOptionsStoring {
+    func migrateLegacyConfiguration(workspaceURL: URL, instances: [BuildSystemInstance]) throws -> Bool { false }
+    func savedChoices(workspaceURL: URL, buildSystemID: String) throws -> [String: [String]] { [:] }
+    func instanceDefaults(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue] { [:] }
 }
 
 // MARK: Plans
@@ -699,13 +735,18 @@ package struct BuildTaskRequest: Equatable, Sendable {
     package let target: BuildSelection?
     package let modelTask: BuildSelection?
     package let userArguments: [String]
+    /// Per-operation values; never persisted or used to replace current model facts.
+    package let optionOverrides: [String: ToolingJSONValue]
+    package let tool: BuildProviderHints?
 
     package init(
         task: String, project: BuildSelection? = nil, target: BuildSelection? = nil,
-        modelTask: BuildSelection? = nil, userArguments: [String] = []
+        modelTask: BuildSelection? = nil, userArguments: [String] = [],
+        optionOverrides: [String: ToolingJSONValue] = [:], tool: BuildProviderHints? = nil
     ) {
         self.task = task; self.project = project; self.target = target
         self.modelTask = modelTask; self.userArguments = userArguments
+        self.optionOverrides = optionOverrides; self.tool = tool
     }
 }
 
@@ -729,13 +770,30 @@ package struct BuildProviderRunReference: Codable, Hashable, Sendable {
     package let projectID: String
     package let targetID: String
     package let userArguments: [String]
+    package let execution: BuildExecution?
     package init(pluginID: String, buildSystemID: String, root: String, run: String,
-                 projectID: String, targetID: String, userArguments: [String] = []) {
+                 projectID: String, targetID: String, userArguments: [String] = [], execution: BuildExecution? = nil) {
         self.pluginID = pluginID; self.buildSystemID = buildSystemID; self.root = root; self.run = run
-        self.projectID = projectID; self.targetID = targetID; self.userArguments = userArguments
+        self.projectID = projectID; self.targetID = targetID; self.userArguments = userArguments; self.execution = execution
     }
     package var request: BuildRunRequest {
         BuildRunRequest(run: run, projectID: projectID, targetID: targetID, userArguments: userArguments)
+    }
+}
+
+/// Version-10 user choices. Providers own their interpretation and the host owns the process.
+package struct BuildLaunchOptions: Codable, Equatable, Sendable {
+    package let execution: BuildExecution
+    package var runtimeArguments: [String]
+    package var arguments: [String]
+    package var environment: [String: String]
+    package var workingDirectory: String?
+    package var entrypoint: String?
+
+    package init(execution: BuildExecution, runtimeArguments: [String] = [], arguments: [String] = [],
+                 environment: [String: String] = [:], workingDirectory: String? = nil, entrypoint: String? = nil) {
+        self.execution = execution; self.runtimeArguments = runtimeArguments; self.arguments = arguments
+        self.environment = environment; self.workingDirectory = workingDirectory; self.entrypoint = entrypoint
     }
 }
 
@@ -774,6 +832,8 @@ package protocol BuildRunLaunching: AnyObject {
 }
 
 package struct BuildTestRequest: Equatable, Sendable {
+    package let selectorKind: String?
+    package let selectors: [String]
     package let project: BuildSelection?
     package let target: BuildSelection?
     package let suite: String?
@@ -785,10 +845,12 @@ package struct BuildTestRequest: Equatable, Sendable {
 
     package init(
         project: BuildSelection? = nil, target: BuildSelection? = nil, suite: String? = nil,
-        testCase: String? = nil, userArguments: [String] = [], projects: [String] = []
+        testCase: String? = nil, userArguments: [String] = [], projects: [String] = [],
+        selectorKind: String? = nil, selectors: [String] = []
     ) {
         self.project = project; self.target = target; self.suite = suite; self.testCase = testCase
         self.userArguments = userArguments; self.projects = projects
+        self.selectorKind = selectorKind; self.selectors = selectors
     }
 }
 
@@ -875,9 +937,11 @@ package struct BuildProviderHints: Equatable, Sendable {
     /// The build tool resolved from the build system's invocation, so the
     /// provider need not repeat the lookup. Nil when resolution failed.
     package let toolExecutable: URL?
+    package let toolEnvironment: [String: String]
 
-    package init(reason: BuildLoadReason = .initial, toolExecutable: URL? = nil) {
+    package init(reason: BuildLoadReason = .initial, toolExecutable: URL? = nil, toolEnvironment: [String: String] = [:]) {
         self.reason = reason; self.toolExecutable = toolExecutable
+        self.toolEnvironment = toolEnvironment
     }
 }
 
@@ -893,6 +957,7 @@ package struct BuildTestPlan: Equatable, Sendable {
     package enum Results: Equatable, Sendable {
         case reports(decoder: String, patterns: [String])
         case hostIntegration
+        case provider
     }
 
     package let execution: BuildOutputPlan
@@ -914,11 +979,20 @@ package enum BuildCommandOutput: Equatable, Sendable {
 }
 
 package struct BuildTestResults: Equatable, Sendable, Decodable {
+    /// Completed backend scope, independent of opaque language selectors.
+    package struct Coverage: Equatable, Sendable, Decodable {
+        package let project: String
+        package let suite: String?
+        package let testCase: String?
+        private enum CodingKeys: String, CodingKey { case project, suite; case testCase = "case" }
+    }
+    package let coverage: [Coverage]?
     package struct TestCase: Equatable, Identifiable, Sendable, Decodable {
         package enum Status: String, Equatable, Sendable {
             case passed, failed, error, skipped
         }
 
+        package let project: String?
         package let suite: String
         package let name: String
         package let status: Status
@@ -928,10 +1002,11 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
         package let path: String?
         package let line: Int?
         package let invocations: Int
-        package var id: String { suite + "#" + name }
+        package var id: String { (project.map { $0 + ":" } ?? "") + suite + "#" + name }
 
         package init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
+            project = try values.decodeIfPresent(String.self, forKey: .project)
             suite = try values.decode(String.self, forKey: .suite)
             name = try values.decode(String.self, forKey: .case)
             status = Status(rawValue: try values.decode(String.self, forKey: .status)) ?? .error
@@ -943,7 +1018,7 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case suite, `case`, status, message, durationMillis, path, line, invocations
+            case project, suite, `case`, status, message, durationMillis, path, line, invocations
         }
     }
 
@@ -967,15 +1042,16 @@ package struct BuildTestResultsRequest: Equatable, Sendable {
     package let project: String?
     package let projects: [String]
     package let output: String
+    package let result: ToolingJSONValue?
     package let notBefore: Date?
     package let suite: String?
 
     package init(
         workspaceURL: URL, root: String, project: String?, projects: [String], output: String,
-        notBefore: Date?, suite: String?
+        notBefore: Date?, suite: String?, result: ToolingJSONValue? = nil
     ) {
         self.workspaceURL = workspaceURL; self.root = root; self.project = project
-        self.projects = projects; self.output = output; self.notBefore = notBefore; self.suite = suite
+        self.projects = projects; self.output = output; self.notBefore = notBefore; self.suite = suite; self.result = result
     }
 }
 
@@ -1053,11 +1129,16 @@ package enum BuildLanguageImport: Equatable, Sendable, Decodable {
 /// `DeclarativePluginRejection`. Detection, decoding, and fingerprints read
 /// workspace files, so callers keep them off the main actor.
 package protocol BuildSystemPlanning: Sendable {
+    func configurationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints) throws -> BuildProviderRequest
+    func decodeConfiguration(_ target: BuildSystemTarget, result: ToolingJSONValue) throws -> BuildNativeConfiguration
+    func editConfigurationDocument(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits, document: String?) throws -> BuildNativeConfigurationDocumentEdit
     func resolveModelInputs(_ target: BuildSystemTarget, revision: UInt64, sources: [BuildModelInputSource]) throws -> ToolingJSONValue
     func detect(
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
-        options: [String: [String: ToolingJSONValue]]
+        options: [String: [String: ToolingJSONValue]],
+        instanceOptions: [String: [String: [String: ToolingJSONValue]]],
+        instanceDefaults: [String: [String: ToolingJSONValue]]
     ) throws -> BuildDetection
     func languageImport(
         _ target: BuildSystemTarget,
@@ -1086,9 +1167,10 @@ package protocol BuildSystemPlanning: Sendable {
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
         -> BuildTestPlan
     func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
-                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String],
+                        workspaceURL: URL?, launchOptions: BuildLaunchOptions?) throws -> BuildProviderRequest
     func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
-                              result: ToolingJSONValue) throws -> BuildRunPreparation
+                              result: ToolingJSONValue, launchOptions: BuildLaunchOptions?) throws -> BuildRunPreparation
     func prepareDebugPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
                           project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest
     func decodeDebugPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String, run: String,
@@ -1146,7 +1228,11 @@ package struct BuildProviderExecutionResult: Codable, Equatable, Sendable {
     package let exitCode: Int32
     package let output: String
 
-    package init(exitCode: Int32, output: String) { self.exitCode = exitCode; self.output = output }
+    /// A provider-owned canonical report, still validated by the shared decoder.
+    package let testResults: ToolingJSONValue?
+    package init(exitCode: Int32, output: String, testResults: ToolingJSONValue? = nil) {
+        self.exitCode = exitCode; self.output = output; self.testResults = testResults
+    }
 }
 
 // MARK: Provider processes
@@ -1175,6 +1261,8 @@ package struct BuildProviderTarget: Hashable, Sendable {
 /// to the host alone, over its own stdio channel.
 @MainActor
 package protocol BuildProviderRequesting: AnyObject {
+    /// Host-observed process root for owned worker sampling; never a backend-supplied PID.
+    func processID(for target: BuildProviderTarget) -> Int32?
     /// The provider's reply, still undecoded. Cancelling the task cancels
     /// the request in the process.
     func send(
@@ -1210,6 +1298,7 @@ package protocol BuildProviderRequesting: AnyObject {
 }
 
 package extension BuildProviderRequesting {
+    func processID(for _: BuildProviderTarget) -> Int32? { nil }
     func prepareDebug(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
                       progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue {
         throw PluginFunctionFailure(code: "plugin.build.unavailable", message: L10n.string("The build provider returned an invalid launch plan."))
@@ -1325,4 +1414,18 @@ package protocol BuildCommandRunning: Sendable {
         _ request: BuildCommandRequest,
         onOutput: @escaping @Sendable (String) -> Void
     ) async throws -> BuildCommandResult
+}
+
+// Legacy application callers retain version-4 preparation without inventing user choices.
+package extension BuildSystemPlanning {
+    func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+        try prepareRunPlan(target, context: context, run: run, project: project, selectedTarget: selectedTarget,
+                           userArguments: userArguments, workspaceURL: nil, launchOptions: nil)
+    }
+
+    func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
+                              result: ToolingJSONValue) throws -> BuildRunPreparation {
+        try decodeRunPreparation(target, workspaceURL: workspaceURL, root: root, result: result, launchOptions: nil)
+    }
 }

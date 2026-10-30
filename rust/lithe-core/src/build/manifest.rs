@@ -67,6 +67,9 @@ pub(crate) struct BuildSystemDeclaration {
     pub(crate) provider: Option<ProviderDeclaration>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) options: Vec<OptionDeclaration>,
+    /// Native non-sensitive settings and generic write bindings from the engine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) configuration: Option<super::configuration::ConfigurationDeclaration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) model: Option<ModelSource>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -253,13 +256,16 @@ pub(crate) struct VersionProbe {
     pub(crate) pattern: String,
 }
 
-/// A build dimension the user chooses, stored per workspace by the host.
+/// A build dimension the user chooses, stored in its declared scope by the host.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OptionDeclaration {
     pub(crate) id: String,
     pub(crate) display_name: String,
     pub(crate) kind: OptionKind,
+    /// Instance values belong to one detected root, never to its siblings.
+    #[serde(default, skip_serializing_if = "OptionScope::is_workspace")]
+    pub(crate) scope: OptionScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) default: Option<Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -283,6 +289,21 @@ pub(crate) struct OptionDeclaration {
     /// Icon of a `toolbar` toggle; display only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) icon: Option<UIIcon>,
+}
+
+/// Persistence boundary of an option. Existing declarations remain workspace-wide.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum OptionScope {
+    #[default]
+    Workspace,
+    Instance,
+}
+
+impl OptionScope {
+    fn is_workspace(&self) -> bool {
+        *self == Self::Workspace
+    }
 }
 
 /// Where a host offers an option besides its option list. Neither placement
@@ -693,6 +714,18 @@ pub(crate) enum WorkingDirectory {
     Root,
 }
 
+fn is_test_selector_kind(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 120
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+}
+
 /// How tests run and how their results are read.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -703,6 +736,9 @@ pub(crate) struct TestDeclaration {
     pub(crate) target_tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) filters: Vec<TestFilter>,
+    /// Public opaque selector namespaces interpreted only by the owning backend.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) selector_kinds: Vec<String>,
     /// Omitted for argv templates; provider sends a typed test request.
     #[serde(default, skip_serializing_if = "TaskSource::is_command")]
     pub(crate) source: TaskSource,
@@ -729,6 +765,8 @@ pub(crate) enum TestFilter {
     deny_unknown_fields
 )]
 pub(crate) enum TestResultsSource {
+    /// A canonical document returned by the same provider test operation.
+    Provider,
     /// JUnit XML report files, globbed relative to the project directory.
     JunitXml {
         reports: Vec<String>,
@@ -947,6 +985,8 @@ pub(crate) struct DeclarationContext<'a> {
     pub(crate) debug_adapters: &'a [crate::debug::adapters::DebugAdapterDeclaration],
     pub(crate) plugin_api_version: u32,
     pub(crate) build_systems_version: u32,
+    /// Version 2 binds candidates to the host's canonical project toolchains.
+    pub(crate) executable_resolution_version: u32,
     /// Admission version for provider execution; independent of wire negotiation.
     pub(crate) build_providers_version: u32,
     pub(crate) model_inputs_version: u32,
@@ -1239,7 +1279,7 @@ impl BuildSystemDeclaration {
         self.validate_integration(field, context.official)?;
         self.validate_provider(field, context)?;
         self.validate_detection(field)?;
-        let option_ids = self.validate_options(field)?;
+        let option_ids = self.validate_options(field, context.build_systems_version)?;
         super::model_inputs::validate_declaration(
             self,
             context.model_inputs_version,
@@ -1344,7 +1384,8 @@ impl BuildSystemDeclaration {
             .test
             .as_ref()
             .is_some_and(|test| test.source == TaskSource::Provider);
-        let uses = matches!(self.model, Some(ModelSource::Provider))
+        let uses = self.configuration.is_some()
+            || matches!(self.model, Some(ModelSource::Provider))
             || provider_runs
             || matches!(self.dependencies, Some(DependenciesSource::Provider { .. }))
             || provider_tests
@@ -1359,6 +1400,15 @@ impl BuildSystemDeclaration {
             }
             return Ok(());
         };
+        if self.configuration.is_some()
+            && (context.build_providers_version < 7
+                || !matches!(provider, ProviderDeclaration::Process(_)))
+        {
+            return Err(invalid(
+                &field,
+                "Native configuration requires buildProviders 7 and an owned provider process.",
+            ));
+        }
         if !uses {
             return Err(invalid(
                 field,
@@ -1376,8 +1426,42 @@ impl BuildSystemDeclaration {
                 super::debug_preparation::adapter(run, context.debug_adapters)?;
             }
         }
+        if matches!(
+            self.test.as_ref().and_then(|test| test.results.as_ref()),
+            Some(TestResultsSource::Provider)
+        ) && context.build_providers_version < 8
+        {
+            return Err(invalid(
+                &field,
+                "Provider-owned test reports require buildProviders 8.",
+            ));
+        }
+        if self
+            .test
+            .as_ref()
+            .is_some_and(|test| !test.selector_kinds.is_empty())
+            && context.build_providers_version < 9
+        {
+            return Err(invalid(
+                &field,
+                "Opaque test selectors require buildProviders 9.",
+            ));
+        }
         if provider_tests && context.build_providers_version < 3 {
             return Err(invalid(&field, "Provider tests require buildProviders 3."));
+        }
+        if context.build_providers_version < 10
+            && self.run.iter().any(|run| {
+                run.source == TaskSource::Provider
+                    && run
+                        .execution
+                        .is_some_and(|execution| execution != BuildExecution::Application)
+            })
+        {
+            return Err(invalid(
+                &field,
+                "Provider service/task preparation requires buildProviders 10.",
+            ));
         }
         if provider_runs && context.build_providers_version < 4 {
             return Err(invalid(
@@ -1447,7 +1531,7 @@ impl BuildSystemDeclaration {
         Ok(())
     }
 
-    fn validate_options(&mut self, field: &str) -> Validation<BTreeSet<String>> {
+    fn validate_options(&mut self, field: &str, version: u32) -> Validation<BTreeSet<String>> {
         if self.options.len() > MAX_LIST {
             return Err(invalid(format!("{field}.options"), "Too many options."));
         }
@@ -1455,6 +1539,12 @@ impl BuildSystemDeclaration {
         for (index, option) in self.options.iter_mut().enumerate() {
             let field = format!("{field}.options[{index}]");
             option.validate(&field)?;
+            if option.scope == OptionScope::Instance && version < 3 {
+                return Err(invalid(
+                    format!("{field}.scope"),
+                    "Instance options require buildSystems 3.",
+                ));
+            }
             if !ids.insert(option.id.clone()) {
                 return Err(invalid(
                     format!("{field}.id"),
@@ -1526,7 +1616,13 @@ impl BuildSystemDeclaration {
                 // The host finds these with the user's own runtime settings
                 // (the JDK chosen for the project, for example); a plugin
                 // must not route around that choice.
-                if !runtime.executables.is_empty() || runtime.version.is_some() {
+                let toolchain = runtime.executables.len() == 1
+                    && matches!(
+                        runtime.executables[0].source,
+                        ExecutableSource::Toolchain { .. }
+                    )
+                    && context.executable_resolution_version >= 2;
+                if (!runtime.executables.is_empty() && !toolchain) || runtime.version.is_some() {
                     return Err(invalid(
                         field,
                         format!(
@@ -1534,6 +1630,14 @@ impl BuildSystemDeclaration {
                             runtime.id
                         ),
                     ));
+                }
+                if toolchain {
+                    check_candidate(
+                        &mut runtime.executables[0],
+                        &format!("{field}.executables[0]"),
+                        &invocation.environment_inputs,
+                        &BTreeSet::new(),
+                    )?;
                 }
                 continue;
             }
@@ -1596,6 +1700,14 @@ impl BuildSystemDeclaration {
         {
             crate::plugins::executables::ordered_indices(list, &location)?;
             for candidate in list {
+                if matches!(candidate.source, ExecutableSource::Toolchain { .. })
+                    && context.executable_resolution_version < 2
+                {
+                    return Err(invalid(
+                        &location,
+                        "Toolchain candidates require executableResolution 2.",
+                    ));
+                }
                 if let ExecutableSource::Setting { setting_id } = &candidate.source {
                     if !context.declared_settings.is_executable(setting_id) {
                         return Err(invalid(&location, "A setting candidate needs a global file setting with effect reload or nextRun."));
@@ -1824,7 +1936,12 @@ impl BuildSystemDeclaration {
                     "Run IDs are unique identifiers that start with a letter.",
                 ));
             }
-            if run.debug.is_some() && run.source != TaskSource::Provider {
+            if run.debug.is_some()
+                && (run.source != TaskSource::Provider
+                    || run
+                        .execution
+                        .is_some_and(|execution| execution != BuildExecution::Application))
+            {
                 return Err(invalid(
                     &field,
                     "Debug preparation requires a provider run.",
@@ -1840,14 +1957,14 @@ impl BuildSystemDeclaration {
                     || run.from_tasks.is_some()
                     || !run.arguments.is_empty()
                     || !run.extension.is_empty()
-                    || run
-                        .execution
-                        .is_some_and(|execution| execution != BuildExecution::Application)
                     || run.name.as_ref().is_some_and(|name| {
                         name.trim().is_empty() || name.len() > MAX_TEXT || name.contains("${")
                     })
                 {
-                    return Err(invalid(&field, "Provider runs require target tags, application execution, and no host command templates."));
+                    return Err(invalid(
+                        &field,
+                        "Provider runs require target tags and no host command templates.",
+                    ));
                 }
                 let from = run.from_targets.as_mut().expect("validated target source");
                 from.tags = sorted_unique(std::mem::take(&mut from.tags));
@@ -1964,6 +2081,22 @@ impl BuildSystemDeclaration {
             &[Scope::Workspace, Scope::Project, Scope::Target],
         )?;
         check_target_tags(&mut test.target_tags, &test.scopes, &field)?;
+        let distinct_selector_kinds: BTreeSet<_> = test.selector_kinds.iter().collect();
+        if !test.selector_kinds.is_empty()
+            && (test.source != TaskSource::Provider
+                || test.selector_kinds.len() > 16
+                || distinct_selector_kinds.len() != test.selector_kinds.len()
+                || test
+                    .selector_kinds
+                    .iter()
+                    .any(|kind| !is_test_selector_kind(kind)))
+        {
+            return Err(invalid(
+                &field,
+                "Test selectorKinds require a provider and bounded identifiers.",
+            ));
+        }
+        test.selector_kinds.sort();
         test.filters.sort();
         test.filters.dedup();
         if test.discovery
@@ -1986,6 +2119,12 @@ impl BuildSystemDeclaration {
                 ));
             }
         } else {
+            if matches!(test.results, Some(TestResultsSource::Provider)) {
+                return Err(invalid(
+                    &field,
+                    "Provider-owned reports require provider test execution.",
+                ));
+            }
             check_argument_count(&test.arguments, &format!("{field}.arguments"))?;
             template::validate_arguments(
                 &test.arguments,
@@ -2211,6 +2350,14 @@ fn check_candidate(
         ExecutableSource::Setting { setting_id } => {
             if !is_setting_identifier(setting_id) {
                 return Err(invalid(format!("{field}.settingID"), "Invalid setting ID."));
+            }
+        }
+        ExecutableSource::Toolchain { toolchain_id } => {
+            if !is_entry_identifier(toolchain_id) {
+                return Err(invalid(
+                    format!("{field}.toolchainID"),
+                    "Invalid toolchain ID.",
+                ));
             }
         }
         ExecutableSource::Runtime { runtime, .. } => {

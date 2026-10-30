@@ -27,5 +27,9 @@
     "requiresGeneration": true,
     "configurationCount": 1,
     "provider": "build.provider"
-  }
+  },
+  "executionKinds": [
+    "service",
+    "task"
+  ]
 }

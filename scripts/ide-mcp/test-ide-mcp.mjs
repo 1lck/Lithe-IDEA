@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const executable = process.env.LITHE_MCP_TEST_EXECUTABLE || path.join(root,"rust/target/debug", process.platform === "win32" ? "lithe-mcp.exe" : "lithe-mcp");
 
+const exposure = JSON.parse(await readFile(path.join(root,"shared/fixtures/ide-api/host-tool-exposure.json"),"utf8"));
 const fixture = JSON.parse(await readFile(path.join(root,"shared/fixtures/ide-api/mcp-protocol.json"),"utf8"));
 for (const mode of fixture.modes) {
 test(`stdio MCP ${mode}: discovery, calls and tool failures`, {timeout:15000}, async t => {
@@ -29,7 +30,7 @@ test(`stdio MCP ${mode}: discovery, calls and tool failures`, {timeout:15000}, a
   await new Promise((resolve,reject)=>{server.once("error",reject);server.listen(0,"127.0.0.1",resolve);});
   t.after(()=>{server.closeAllConnections();server.close();});
   const connection = path.join(directory,"connection.json");
-  await writeFile(connection,JSON.stringify({endpoint:`http://127.0.0.1:${server.address().port}/call`,token:"fixture-private-token"}),{mode:0o600});
+  await writeFile(connection,JSON.stringify({endpoint:`http://127.0.0.1:${server.address().port}/call`,token:"fixture-private-token", toolExposure: [...exposure.macos, ...exposure.windows.filter(tool => !exposure.macos.some(item => item.name === tool.name))]}),{mode:0o600});
   const child = spawn(executable,["--connection",connection],{stdio:["pipe","pipe","pipe"]});
   const pending = new Map();
   let stderr = "";
@@ -79,13 +80,26 @@ test(`stdio MCP ${mode}: discovery, calls and tool failures`, {timeout:15000}, a
   assert.equal(listed.result.ttlMs,fixture.cachePolicy.ttlMs);
   assert.equal(listed.result.cacheScope,fixture.cachePolicy.cacheScope);
   assert.equal(listed.result.tools.length,fixture.toolCount);
+  for (const name of fixture.providerTools) {
+    assert.ok(listed.result.tools.some(tool=>tool.name===name), `Missing public Build tool: ${name}`);
+  }
   assert.ok(listed.result.tools.some(tool=>tool.name==="lithe_environment_configure"));
   assert.ok(listed.result.tools.some(tool=>tool.name==="lithe_operation_output"));
   assert.ok(!listed.result.tools.some(tool=>/write_file|shell/.test(tool.name)));
+  // The helper re-reads this grant's current capability selection; it never
+  // advertises another platform's retired tools or argument fields.
+  const descriptor = JSON.parse(await readFile(connection, "utf8"));
+  descriptor.toolExposure = exposure.macos;
+  await writeFile(connection, JSON.stringify(descriptor), {mode:0o600});
+  const selected = await send("tools/list", params);
+  assert.equal(selected.result.tools.length, exposure.macos.length);
+  assert.ok(!selected.result.tools.some(tool => tool.name.startsWith("lithe_maven_")));
+  const environment = selected.result.tools.find(tool => tool.name === "lithe_environment_configure");
+  assert.deepEqual(Object.keys(environment.inputSchema.properties).sort(), ["javaHomePath", "mavenExecutablePath", "mavenJavaHomePath"].sort());
   const inspected = await send("tools/call",{...params,name:"lithe_project_inspect",arguments:{}});
   assert.equal(inspected.result.structuredContent.workspaceID,"fixture-project");
   assert.notEqual(inspected.result.isError,true,"a nullable domain error field is a successful inspection");
-  const denied = await send("tools/call",{...params,name:"lithe_maven_execute",arguments:{goals:["verify"]}});
+  const denied = await send("tools/call",{...params,name:"lithe_build_execute",arguments:{instanceID:"fixture",taskID:"build"}});
   assert.equal(denied.result.isError,true);
   assert.equal(denied.result.structuredContent.error.code,"PERMISSION_DENIED");
   assert.equal(requests.length,2);

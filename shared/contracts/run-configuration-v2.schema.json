@@ -11,6 +11,7 @@
       "required": ["fingerprint"],
       "properties": {
         "fingerprint": { "type": "string", "pattern": "^sha256:" },
+        "providerFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "unreadablePaths": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "inputs": {
           "type": "object",
@@ -38,6 +39,21 @@
             "javaHomePath": { "type": "string" }
           },
           "additionalProperties": false
+        },
+        "pathOverrides": {
+          "type": "object",
+          "description": "Machine-local subproject selections, keyed by normalized workspace-relative root. Empty fields inherit project defaults. Hosts preserve the map when saving individual run configurations.",
+          "maxProperties": 256,
+          "propertyNames": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?!/)(?!.*//)(?!.*/$)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^\\\\:\\x00-\\x1f\\x7f]+$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "javaHomePath": { "type": "string", "maxLength": 4096 },
+              "mavenExecutablePath": { "type": "string", "maxLength": 4096 },
+              "mavenJavaHomePath": { "type": "string", "maxLength": 4096 }
+            }
+          }
         }
       },
       "additionalProperties": false
@@ -63,6 +79,7 @@
         "targetID"
       ],
       "properties": {
+        "execution": { "enum": ["application", "service", "task"] },
         "pluginID": {
           "type": "string",
           "minLength": 1,
@@ -147,7 +164,7 @@
         "then": {
           "required": ["extensions"],
           "properties": {
-            "execution": { "const": "application" },
+            "execution": { "enum": ["application", "service", "task"] },
             "command": false,
             "args": { "maxItems": 0 },
             "env": { "maxProperties": 0 },

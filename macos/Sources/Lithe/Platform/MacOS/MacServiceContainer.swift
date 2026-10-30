@@ -341,7 +341,7 @@ final class MacServiceContainer {
         }
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
-            store: store,
+            settingsStore: MacProjectRuntimeSettingsStore(core: rustCore, storage: fileStorage, preferences: store),
             toolDiscovery: MacRuntimeToolDiscovery(),
             javaSelector: rustCore,
             workspaceRuntime: { root in
@@ -597,7 +597,8 @@ final class MacServiceContainer {
                             remoteFiles: remoteOperations,
                             remoteProcesses: remoteOperations
                         ),
-                        optionsStore: MacBuildOptionsStore(store: store),
+                        optionsStore: MacBuildOptionsStore(store: store, storage: fileStorage,
+                            immutableRoots: [Bundle.main.bundleURL] + pluginPackageStore.runtimeReadOnlyDirectories),
                         stateLocator: MacRemoteBuildStateLocator(local: MacBuildSystemStateLocator(
                             directories: MacPluginStateDirectories(fileStorage: fileStorage),
                             fileStorage: fileStorage
@@ -607,6 +608,11 @@ final class MacServiceContainer {
                             registry: remoteWorkspaces, host: remoteOperations),
                         providers: buildProviderSessions,
                         runLauncher: runService,
+                        nativeConfigurationFiles: MacBuildNativeConfigurationStore(
+                            storage: fileStorage, planner: RustBuildSystemOperations(core: rustCore),
+                            immutableRoots: [Bundle.main.bundleURL] + pluginPackageStore.runtimeReadOnlyDirectories
+                                + pluginStartup.registeredPlugins.map(\.packageURL)
+                        ),
                         settings: { pluginSettings.values(forPlugin: $0) },
                         sources: {
                             // Enablement is read on every detection, so turning a
@@ -627,57 +633,22 @@ final class MacServiceContainer {
                         }
                     )
                     let graph = ExecutionFeatureGraph(
-                        maven: MavenService(
-                            runtimeService: runtimeService,
-                            process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
-                            dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
-                            mavenOperations: javaMavenOperations,
-                            configurationStore: MacMavenConfigurationStore(storage: fileStorage),
-                            dependencyOutputs: MacMavenDependencyOutputStore()
-                        ),
                         run: runService,
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,
                             registry: languagePackRegistry.testProviders,
                             executableResolver: executableResolver,
                             processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
-                            extensionRequiredLanguageIDs: testExtensionLanguageIDs,
-                            resultParser: { output, rootURL, reports in
-                                javaMavenOperations.mavenTestResults(
-                                    output: output,
-                                    projectRoot: rootURL,
-                                    reports: reports
-                                )
-                            }
+                            extensionRequiredLanguageIDs: testExtensionLanguageIDs
                         ),
                         buildSystems: buildSystems
                     )
-                    let mavenFeature = graph.mavenFeature
-                    graph.run.configureLanguageDependencyProvider { [weak mavenFeature] languageID, workspace, serviceID in
+                    graph.run.configureLanguageDependencyProvider { languageID, workspace, serviceID in
                         let capabilityID: ModuleCapabilityID = languageID == "java"
                             ? .languageIntelligence : .languageServerExtension(languageID)
                         guard let provider = moduleRuntime.capability(capabilityID)
                             as? any LanguageDependencyProviding else { return nil }
-                        let snapshot = provider.dependencySnapshot(workspaceURL: workspace, serviceID: serviceID)
-                        guard languageID == "java", snapshot?.dependencyRoots.isEmpty != false,
-                              let mavenFeature,
-                              let project = mavenFeature.project,
-                              project.rootURL.standardizedFileURL == workspace.standardizedFileURL,
-                              !mavenFeature.isProjectReloadRequired else { return snapshot }
-                        let modules = ["."] + project.allModules.map(\.relativePath)
-                        let roots = modules.flatMap {
-                            mavenFeature.resolvedDependencyArtifactPaths(
-                                modulePath: $0,
-                                defaultRepositoryURL: mavenRepositoryURL
-                            )
-                        }.filter { fileStorage.fileExists(at: $0) }
-                        guard !roots.isEmpty else { return snapshot }
-                        return LanguageDependencySnapshot(
-                            sourceRoots: snapshot?.sourceRoots ?? [],
-                            binaryRoots: snapshot?.binaryRoots ?? [],
-                            dependencyRoots: Array(Set(roots)).sorted { $0.path < $1.path },
-                            virtualDocuments: snapshot?.virtualDocuments ?? []
-                        )
+                        return provider.dependencySnapshot(workspaceURL: workspace, serviceID: serviceID)
                     }
                     return graph
                 })
@@ -924,6 +895,8 @@ final class MacServiceContainer {
                 pluginWebPageLifecycle.enable(id.rawValue)
             },
             beforePackageReplacement: { id in
+                (moduleRuntime.capability(.executionWorkspace) as? ExecutionModuleCapability)?
+                    .buildSystemsFeature?.pluginPackageWillChange(id.rawValue)
                 pluginWebPageLifecycle.packageWillChange(id.rawValue)
                 pluginBackends.packageWillChange(id.rawValue)
                 // The running provider still executes the old files; the
@@ -1159,7 +1132,7 @@ final class MacServiceContainer {
                 }
             },
             recordJavaHome: { root, home in
-                await runtimeService.presetJavaHome(home, for: root)
+                try await runtimeService.presetJavaHome(home, for: root)
             }
         )
         let installedPlugins = pluginStartup.registeredPlugins

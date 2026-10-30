@@ -495,7 +495,6 @@ extension AppModel {
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         let selectedConfiguration = runFeature.selectedConfiguration
-        let mavenContext = mavenFeatureIfActive?.launchContext
         // Debug is the second execution mode for the Run selection. Re-apply
         // the selection here so its project-scoped Java runtime override is
         // active even when the Run panel was never opened in this session.
@@ -505,7 +504,14 @@ extension AppModel {
         }
         var javaUpdateTarget: JavaDebugLaunchTarget?
         let configuration: DebugLaunchConfiguration
+        let buildInputs: UInt64?
+        let javaImport: JavaLanguageImportConfiguration?
         do {
+            if let selectedConfiguration { try await prepareCurrentProviderGeneration(configuration: selectedConfiguration, identity: identity) }
+            if let selectedConfiguration, selectedConfiguration.usesJavaProjectPreparation {
+                javaImport = try await prepareJavaBuildResources(configuration: selectedConfiguration, fileURL: fileURL, identity: identity)
+            } else { try await prepareBuildLanguageImport(); javaImport = nil }
+            buildInputs = buildSystemsFeatureIfActive?.inputRevision
             configuration = try await featureGraph.debugLaunchPreparation.prepare(
                 provider: provider,
                 fileURL: fileURL,
@@ -515,17 +521,26 @@ extension AppModel {
                 portChecker: debugPortAvailabilityChecker,
                 resolveJavaTarget: { [weak self] in
                     guard let self else { return nil }
+                    let operation = self.buildSystemsFeatureIfActive?.operation?.id
                     let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
-                    let preparation = try await sessions.prepareJavaRunLaunchTarget(
-                        fileURL: fileURL,
-                        rootURL: workspaceURL
-                    )
+                    let preparation: JavaLaunchPreparation
+                    if let javaImport {
+                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL, languageImport: javaImport)
+                    } else {
+                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL)
+                    }
+                    let javaRevision = sessions.javaImportRevision
                     let target = try await self.resolveJavaLaunchPreparation(
                         preparation,
                         identity: identity
                     )
-                    javaUpdateTarget = target
-                    return target
+                    guard !Task.isCancelled, self.isCurrentWorkspace(identity), self.buildSystemsFeatureIfActive?.operation?.id == operation,
+                          sessions.javaImportRevision == javaRevision else { throw CancellationError() }
+                    let prepared = JavaDebugLaunchTarget(mainClass: target.mainClass, projectName: target.projectName,
+                        modulePaths: target.modulePaths, classPaths: target.classPaths,
+                        buildPrepared: selectedConfiguration?.usesJavaProjectPreparation == true)
+                    javaUpdateTarget = prepared
+                    return prepared
                 }
             )
         } catch is CancellationError {
@@ -536,7 +551,7 @@ extension AppModel {
             return
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled,
-              mavenFeatureIfActive?.launchContext == mavenContext,
+              buildSystemsFeatureIfActive?.inputRevision == buildInputs,
               runFeature.selectedConfiguration == selectedConfiguration else { return }
         guard featureGraph.debugLaunchPreparation.start(
             configuration: configuration,

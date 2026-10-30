@@ -1,6 +1,6 @@
 import Foundation
 
-protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Sendable {
+protocol JavaMavenOperations: RunServerPortParsing, Sendable {
     /// Core's shared projection of JDT answers and test outcomes into editor
     /// Run markers; `nil` when Core rejected the input.
     func javaRunMarkers(
@@ -13,14 +13,6 @@ protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Send
         files: [URL],
         changedFiles: [URL]
     ) -> JavaWorkspacePolicyResult?
-    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject?
-    func mavenLaunchPlan(
-        at rootURL: URL,
-        context: MavenLaunchContext,
-        module: String?,
-        goals: [String]
-    ) throws -> MavenLaunchPlan
-    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
     func codeVision(
         at rootURL: URL,
         targetPath: String,
@@ -56,18 +48,6 @@ extension JavaMavenOperations {
         testItems _: [JavaTestItem],
         testCases _: [MavenTestCaseOutcome]
     ) -> [JavaRunMarker]? { nil }
-
-    func mavenLaunchPlan(
-        at _: URL,
-        context _: MavenLaunchContext,
-        module _: String?,
-        goals _: [String]
-    ) throws -> MavenLaunchPlan {
-        throw MavenOperationError(
-            code: "not_supported",
-            message: "Maven launch planning is unavailable."
-        )
-    }
 
     func javaWorkspacePolicy(
         at _: URL,
@@ -169,130 +149,6 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
         )
     }
 
-    func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
-        let root = rootURL.standardizedFileURL
-        let rootComponents = root.pathComponents
-        let paths = files.compactMap { fileURL -> String? in
-            let file = fileURL.standardizedFileURL
-            guard file.lastPathComponent.lowercased() == "pom.xml",
-                  file.pathComponents.starts(with: rootComponents) else { return nil }
-            return file.pathComponents
-                .dropFirst(rootComponents.count)
-                .joined(separator: "/")
-        }
-        return try core.scanMavenResult(at: root, paths: paths)
-            .mapError(MavenOperationError.init)
-            .get()?
-            .makeProject(workspaceRootURL: root)
-    }
-
-    func mavenLaunchPlan(
-        at rootURL: URL,
-        context: MavenLaunchContext,
-        module: String?,
-        goals: [String]
-    ) throws -> MavenLaunchPlan {
-        try core.mavenLaunchPlan(
-            at: rootURL,
-            context: context,
-            module: module,
-            goals: goals
-        )
-        .mapError(MavenOperationError.init)
-        .get()
-        .makeModel()
-    }
-
-    func mavenDependencyPlan(
-        at rootURL: URL,
-        context: MavenLaunchContext,
-        module: String?,
-        outputFile: URL
-    ) throws -> MavenLaunchPlan {
-        try core.mavenDependencyPlan(
-            at: rootURL,
-            context: context,
-            module: module,
-            outputFile: outputFile
-        )
-            .mapError(MavenOperationError.init)
-            .get()
-            .makeModel()
-    }
-
-    func mavenDependencies(modulePath: String, outputFile: URL) throws -> MavenDependencyTree {
-        try core.mavenDependencies(modulePath: modulePath, outputFile: outputFile)
-            .mapError(MavenOperationError.init)
-            .get()
-            .makeModel()
-    }
-
-    func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] {
-        guard let payload = core.mavenDiagnostics(at: projectRoot, output: output) else { return [] }
-        return payload.issues.map { issue in
-            let fileURL = issue.path.hasPrefix("/")
-                ? URL(fileURLWithPath: issue.path)
-                : projectRoot.appendingPathComponent(issue.path).standardizedFileURL
-            return MavenBuildIssue(
-                id: fileURL.path + ":" + String(issue.line) + ":" + String(issue.column ?? 0) + ":" + issue.message,
-                fileURL: fileURL,
-                line: issue.line,
-                column: issue.column,
-                severity: MavenIssueSeverity(rawValue: issue.severity) ?? .warning,
-                message: issue.message
-            )
-        }
-    }
-
-    func mavenTestResults(output: String, projectRoot: URL) -> MavenTestResults? {
-        mavenTestResults(output: output, projectRoot: projectRoot, reports: nil)
-    }
-
-    func mavenTestResults(
-        output: String,
-        projectRoot: URL,
-        reports: MavenTestReportRequest?
-    ) -> MavenTestResults? {
-        guard let payload = try? core.mavenTestResults(
-            at: projectRoot,
-            output: output,
-            reports: reports
-        ).get() else {
-            return nil
-        }
-        let root = projectRoot.standardizedFileURL
-        let details = payload.failureDetails.map { detail in
-            let fileURL: URL?
-            if let path = detail.path, !path.isEmpty {
-                fileURL = path.hasPrefix("/")
-                    ? URL(fileURLWithPath: path).standardizedFileURL
-                    : root.appendingPathComponent(path).standardizedFileURL
-            } else {
-                fileURL = nil
-            }
-            return MavenTestFailureDetail(
-                id: [detail.kind, detail.name, detail.path ?? "", String(detail.line ?? 0)]
-                    .joined(separator: ":"),
-                name: detail.name,
-                kind: detail.kind,
-                message: detail.message,
-                fileURL: fileURL,
-                line: detail.line,
-                column: detail.column
-            )
-        }
-        return MavenTestResults(
-            testsRun: payload.testsRun,
-            failures: payload.failures,
-            errors: payload.errors,
-            skipped: payload.skipped,
-            passed: payload.passed,
-            success: payload.success,
-            failureDetails: details,
-            testCases: payload.testCases ?? []
-        )
-    }
-
     func javaRunMarkers(
         mainMethods: [JavaMainMethod],
         testItems: [JavaTestItem],
@@ -340,15 +196,6 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
 
     func serverPort(content: String, fileExtension: String) -> Int? {
         core.javaServerPort(content: content, fileExtension: fileExtension)?.port
-    }
-
-    func workspaceMavenModules(
-        in project: MavenProject?,
-        relativeTo root: URL
-    ) -> [(path: String, module: MavenModule)] {
-        project?.allModules.compactMap { module in
-            workspaceRelativePath(for: module.url, root: root).map { ($0, module) }
-        } ?? []
     }
 
     private func workspaceRelativePath(for url: URL, root: URL) -> String? {

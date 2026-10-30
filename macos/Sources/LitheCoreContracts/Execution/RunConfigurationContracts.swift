@@ -1,6 +1,30 @@
 import LitheModuleAPI
 import Foundation
 
+/// Read-only ownership projected from the current Provider model and import.
+/// Run generation must not reconstruct these facts from build descriptors.
+package struct RunProjectOwnership: Codable, Equatable, Sendable {
+    package struct SourceRoot: Codable, Equatable, Sendable {
+        package let path: String
+        package let kind: String
+        package init(path: String, kind: String) { self.path = path; self.kind = kind }
+    }
+    package let path: String
+    package let name: String?
+    package let mavenRunProvider: String?
+    package let minimumJavaVersion: String?
+    package let mavenMinimumVersion: String?
+    package let mavenWrapper: String?
+    package let mavenReactorPath: String?
+    package let contentRoots: [SourceRoot]
+    package init(path: String, mavenReactorPath: String?, contentRoots: [SourceRoot], name: String? = nil, mavenRunProvider: String? = nil, minimumJavaVersion: String? = nil, mavenMinimumVersion: String? = nil, mavenWrapper: String? = nil) {
+        self.mavenMinimumVersion = mavenMinimumVersion; self.mavenWrapper = mavenWrapper
+        self.minimumJavaVersion = minimumJavaVersion
+        self.name = name; self.mavenRunProvider = mavenRunProvider
+        self.path = path; self.mavenReactorPath = mavenReactorPath; self.contentRoots = contentRoots
+    }
+}
+
 package enum ProjectRunConfigurationStatus: Equatable, Sendable {
     case missing
     case ready
@@ -59,6 +83,7 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     /// Project defaults saved in the machine-local run layer. `nil` means that
     /// layer holds no defaults yet, which differs from explicitly automatic ones.
     package var projectToolchain: ProjectToolchainSelection? = nil
+    package var hasSavedToolchainPathOverrides = false
 
     package init(
         status: ProjectRunConfigurationStatus,
@@ -66,7 +91,9 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
         recoveryAction: RunConfigurationRecoveryAction = .none,
         recoveryPath: String? = nil,
         projectToolchain: ProjectToolchainSelection? = nil,
+        hasSavedToolchainPathOverrides: Bool = false,
         requiresGeneration: Bool = false
+
     ) {
         self.status = status
         self.requiresGeneration = requiresGeneration
@@ -74,6 +101,7 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
         self.recoveryAction = recoveryAction
         self.recoveryPath = recoveryPath
         self.projectToolchain = projectToolchain
+        self.hasSavedToolchainPathOverrides = hasSavedToolchainPathOverrides
     }
 }
 
@@ -283,26 +311,76 @@ package protocol RunConfigurationDocumentMutating: Sendable {
 }
 
 package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
+    package struct PathOverride: Codable, Equatable, Sendable {
+        package var javaHomePath: String
+        package var mavenExecutablePath: String
+        package var mavenJavaHomePath: String
+        package init(javaHomePath: String = "", mavenExecutablePath: String = "", mavenJavaHomePath: String = "") {
+            self.javaHomePath = javaHomePath
+            self.mavenExecutablePath = mavenExecutablePath
+            self.mavenJavaHomePath = mavenJavaHomePath
+        }
+        package init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            javaHomePath = try values.decodeIfPresent(String.self, forKey: .javaHomePath) ?? ""
+            mavenExecutablePath = try values.decodeIfPresent(String.self, forKey: .mavenExecutablePath) ?? ""
+            mavenJavaHomePath = try values.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
+        }
+        private enum CodingKeys: String, CodingKey { case javaHomePath, mavenExecutablePath, mavenJavaHomePath }
+    }
     package var javaHomePath = ""
     package var mavenExecutablePath = ""
     package var mavenJavaHomePath = ""
+    package var pathOverrides: [String: PathOverride] = [:]
 
     package init(
         javaHomePath: String = "",
         mavenExecutablePath: String = "",
-        mavenJavaHomePath: String = ""
+        mavenJavaHomePath: String = "",
+        pathOverrides: [String: PathOverride] = [:]
     ) {
         self.javaHomePath = javaHomePath
         self.mavenExecutablePath = mavenExecutablePath
         self.mavenJavaHomePath = mavenJavaHomePath
+        self.pathOverrides = pathOverrides
+    }
+
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        javaHomePath = try values.decodeIfPresent(String.self, forKey: .javaHomePath) ?? ""
+        mavenExecutablePath = try values.decodeIfPresent(String.self, forKey: .mavenExecutablePath) ?? ""
+        mavenJavaHomePath = try values.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
+        pathOverrides = try values.decodeIfPresent([String: PathOverride].self, forKey: .pathOverrides) ?? [:]
+    }
+
+    private enum CodingKeys: String, CodingKey { case javaHomePath, mavenExecutablePath, mavenJavaHomePath, pathOverrides }
+}
+
+/// Core resolves document layers without assembling the provider's command line.
+package struct ProviderLaunchInputs: Decodable, Equatable, Sendable {
+    package let reference: BuildProviderRunReference?
+    package let buildSystemID: String
+    package let provider: String
+    package let projectPath: String
+    package let launchOptions: BuildLaunchOptions
+    package let optionOverrides: [String: ToolingJSONValue]
+
+    package init(buildSystemID: String, provider: String, projectPath: String, launchOptions: BuildLaunchOptions,
+                 optionOverrides: [String: ToolingJSONValue] = [:], reference: BuildProviderRunReference? = nil) {
+        self.reference = reference
+        self.buildSystemID = buildSystemID; self.provider = provider; self.projectPath = projectPath
+        self.launchOptions = launchOptions; self.optionOverrides = optionOverrides
     }
 }
 
 package protocol RunConfigurationOperations: Sendable {
+    func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs
     func saveBuildProviderConfiguration(_ reference: BuildProviderRunReference, name: String, at projectURL: URL) throws -> String
     /// Saves project defaults without modifying any service or requiring generated configurations.
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
+    /// Checks generated facts against the current Provider snapshot without hashing source files.
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection
     /// `checkFingerprint: false` validates the documents without reading project
     /// inputs. `javaEntrypoints`, JDT's current answer, additionally reports
     /// whether the generated Java entries still match it.
@@ -317,7 +395,8 @@ package protocol RunConfigurationOperations: Sendable {
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]?
     ) throws -> RunConfigurationGenerationResult
     func resolve(
         at projectURL: URL,
@@ -359,6 +438,17 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs {
+        throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration."))
+    }
+
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil)
+    }
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?) throws -> RunConfigurationGenerationResult {
+        try generate(at: projectURL, files: files, modulePaths: modulePaths,
+            javaEntrypoints: javaEntrypoints, projectOwnership: nil)
+    }
     func saveBuildProviderConfiguration(_: BuildProviderRunReference, name: String, at _: URL) throws -> String {
         throw RunConfigurationOperationFailure(message: L10n.string("Saving build provider run configurations is unavailable."))
     }

@@ -2,13 +2,22 @@
   "id": "java-maven-project-settings",
   "area": "Java",
   "group": "Java/Maven",
-  "capability": "按项目配置 Maven 工具链、settings.xml 与本地仓库；项目默认值明确标注“本机 · 此项目”，运行配置区分本机保存与团队共享",
+  "capability": "项目与子项目工具链使用 canonical Run local.json；Maven 调用选项和原生 XML 归 Build Provider，旧配置只经校验、迁移和读回后清理",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift",
       "macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift",
       "macos/Sources/Lithe/Views/Run/JavaRunConfigurationEditorView.swift",
-      "macos/Resources/zh-Hans.lproj/Localizable.strings"
+      "macos/Resources/zh-Hans.lproj/Localizable.strings",
+      "macos/Sources/Lithe/Platform/MacOS/Persistence/MacProjectRuntimeSettingsStore.swift",
+      "macos/Sources/Lithe/Core/Ports/ProjectRuntimeSettingsStoring.swift",
+      "macos/Tests/LitheTests/ProjectRuntimePersistenceTests.swift",
+      "shared/fixtures/run-configuration/subproject-toolchains.json",
+      "macos/Sources/Lithe/Models/Runtime/ProjectRuntimeInventory.swift",
+      "macos/Tests/LitheTests/ProjectRuntimeSettingsTests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenConfigurationMigration.swift",
+      "macos/Tests/LitheTests/LegacyMavenConfigurationMigrationTests.swift",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -29,5 +38,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "在 macOS 项目设置和 Windows Maven 设置页分别切换两个项目，配置 Maven、JDK、settings.xml 与本地仓库，验证保存重开、自动检测展示及项目间隔离；Windows 还需验证写盘失败后可直接重试。 Windows 自定义 settings.xml 后，仓库留空应显示该文件中的目录；验证 XML 实体和 CDATA、继承的项目 JDK/Maven、切换项目丢弃未保存草稿；冷启动 Wrapper 不应触发下载，版本探测卡住时设置窗口保持响应并在超时后清理探测进程；Run 配置显式选择的 Maven/JDK 优先于项目设置，未设置的字段分别继承 Maven 设置；确认主任务与前置任务使用相同工具链，Maven 设置上下文缺失时仍保留显式覆盖，均未配置时交由平台自动发现。 双端中英文检查项目 JDK/Maven 页的“本机 · 此项目”副标题、默认继承与团队共享说明，以及运行配置的本机/项目保存范围；原有 JDK、Maven、项目环境关键词仍能搜索到页面。 Windows 成对配置读取和保存使用同一事务锁，验证并发保存不会争用临时文件或返回混合配置。"
+  "verification": "macOS 项目默认及子项目工具链只读取 canonical Run local.json，Maven 调用选项和 XML 在 Provider 设置中读取、编辑、确认并读回。315 项原生回归覆盖取消/重开/外部冲突、损坏偏好拒绝、迁移失败保留源、部分发布后改源拒绝、显式自动与新默认值优先，以及检测官方 reactor 后转移旧文件和运行偏好再重新检测。旧 XML 表单、解析器、MavenService/FeatureModel、POM 专属加载与 MacMavenConfigurationStore 已删除；Run 工程/源码根只读取当前模型。真实 Maven Agent compile 通过且插件包清单不变。尚须完整设置 UI、正式包和 Windows 原生验收；Windows 当前仍保留独立 Maven 设置/存储，覆盖配置隔离、XML 实体/CDATA、保存冲突、Wrapper 不被动执行和工具选择失败，不把 macOS 结果当作 Windows 证据。 Windows 成对配置读取和保存使用同一事务锁，并覆盖并发保存和失败重试。"
+
 }

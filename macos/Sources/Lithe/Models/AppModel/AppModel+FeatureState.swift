@@ -381,54 +381,27 @@ extension AppModel {
 
     func prepareProjectRuntimeSettings() async {
         await runtimeFeature.refreshAvailableRuntimes()
-        if let identity = currentWorkspaceIdentity,
-           let run = await activateExecutionModule()?.runFeature,
-           isCurrentWorkspace(identity) {
-            // Seed the form from the saved project toolchain, not the empty value a
-            // Run feature holds while it is still reading this project's documents.
-            _ = await ensureRunProjectReady(run, for: identity)
-            if isCurrentWorkspace(identity) { adoptSavedProjectToolchain(from: run, workspace: identity.url) }
-        }
         runtimeFeature.prepare(
             workspaceName: projectName,
             workspaceURL: workspaceURL,
             files: projectFiles,
-            mavenProject: mavenFeatureIfActive?.project,
-            toolchain: runFeatureIfActive?.projectToolchain,
-            mavenSettingsPath: mavenFeatureIfActive?.settingsPath,
-            mavenLocalRepositoryPath: mavenFeatureIfActive?.localRepositoryPath,
-            mavenExecutablePath: mavenFeatureIfActive?.mavenExecutablePath,
-            mavenJavaHomePath: mavenFeatureIfActive?.javaHomePath
+            buildSources: buildSystemsFeatureIfActive?.entries.map { entry in
+                ProjectRuntimeInventory.BuildSource(id: entry.id, root: entry.instance.root,
+                    displayName: entry.instance.displayName,
+                    usesJava: services.pluginCatalog.languageSupports.values.contains { ownership in
+                        let support = ownership.declaration
+                        return support.id == "java" && support.recognizesProject(
+                            fileNames: entry.instance.markers.map { URL(fileURLWithPath: $0).lastPathComponent })
+                    },
+                    model: entry.modelState == .loaded && !entry.isReloadRequired ? entry.model : nil)
+            } ?? [],
+            languageSupports: services.pluginCatalog.languageSupports.values.map(\.declaration)
+                .filter { !languageToolingFeature.isDisabled($0.id) }
         )
     }
 
-    /// `.lithe/run/local.json` owns the project JDK and Maven defaults; the runtime
-    /// settings only mirror them. A layer without saved defaults keeps the current
-    /// settings, which the next save writes into the layer.
-    func adoptSavedProjectToolchain(from run: RunFeatureModel, workspace: URL) {
-        guard !run.isLoadingProject,
-              run.projectLoadState.hasLoadedDocuments(for: workspace),
-              let saved = run.savedProjectToolchain else { return }
-        runtimeFeature.adoptProjectToolchain(saved)
-    }
-
-    func persistProjectRuntimeSettings() {
-        let settings = runtimeFeature.settings
-        if let maven = mavenFeatureIfActive {
-            maven.updateLocalConfiguration(
-                settingsPath: settings.mavenSettingsPath,
-                localRepositoryPath: settings.mavenLocalRepositoryPath,
-                mavenExecutablePath: settings.mavenExecutableOverride,
-                javaHomePath: settings.mavenJavaHomePath
-            )
-        }
-        // Closing Settings persists without an edit. Until the Run feature has read
-        // this project's documents, its toolchain is unknown, and saving would
-        // overwrite the project defaults with whatever the form was seeded from.
-        guard let workspaceURL,
-              let run = runFeatureIfActive,
-              !run.isLoadingProject,
-              run.projectLoadState.hasLoadedDocuments(for: workspaceURL) else { return }
-        _ = run.saveProjectToolchain(runtimeFeature.projectToolchainSelection)
+    func persistProjectRuntimeSettings() async {
+        guard currentWorkspaceIdentity != nil, runtimeFeature.saveSettings() else { return }
+        runtimeFeature.finishSaving()
     }
 }

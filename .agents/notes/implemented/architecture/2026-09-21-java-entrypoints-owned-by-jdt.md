@@ -98,6 +98,61 @@ Windows 会先同步当前编辑文档再请求该操作。两端都不再解析
   比对。输入指纹不再对全部 Java 源码做内容哈希（见
   `.agents/notes/implemented/bug-fix/2026-09-22-run-panel-fingerprint-loading.md`）。
 
+### 阶段 D 的运行生成归属
+
+macOS 在生成配置前等待当前 Build 模型与导入，随后把模型的项目路径、Maven
+reactor 根及该项目的主/测试源码根交给 Core。Core 只校验、选取上游已经发布的
+归属，不再沿 Java 源码祖先寻找 POM，也不按 `src/test` 推断已提供模型的源码集。
+同一工作区有两个独立 reactor、都含 `app` 和同名 Main 类时，用工作区内完整
+模块路径区分配置；同一个 reactor 里原有配置 ID 保持稳定，避免丢失覆盖。原来已被合并成单个 ID 的多 reactor 记录无法确定归属时，旧覆盖由
+现有 orphan 诊断保留，不能猜测性地挂到其中一个新配置。
+
+`projectOwnership: []` 是明确的空模型，不能偷偷用 POM 补齐；不传该字段才保留
+现有 Windows 消费者的兼容路径。快照未准备好、失效或截断时宿主拒绝生成，
+工作区或 Build 代次变化后拒绝旧 JDT 答复。只转交声明 Java 导入的 Provider 模型，
+其他构建插件不能凭共享目录占用 Java 项目。Maven 后端现在从生效的
+`MavenProject.getBuildPlugins()` 识别框架，包含当前 Profile 和父 POM 继承；
+仅放在插件管理（pluginManagement）中的插件不算已经应用。模型通过公开属性
+`run.modelVersion` / `run.provider` 发布结果，宿主只投影项目名和服务标识。
+Core 收到当前快照后关闭旧 POM 框架检测，只生成与既有配置 ID 一致的服务。
+旧插件缺少模型版本时明确要求更新，不能退回宿主解析；后端缓存指纹包含扩展 JAR
+字节，更新扩展也会使旧快照失效。Java 编译版本要求也改由 Maven 的执行计划计算器
+（`LifecycleExecutionPlanCalculator`）及参数解析器提供：只计算到 `test-compile`，
+不执行目标；在克隆的会话里检查所有实际 compiler execution 的 release，或
+source/target，包含 Profile、继承、测试专用版本和自定义执行。不可解析时记录
+诊断并保持未知，不能再按 POM 属性名猜测。Core 只校验标准化版本并取当前工程的
+最高要求；本机 `.java-version` 不得降低已知编译下限。
+
+编译计划接口在 Maven 内部包中，3.6.3 已提供相同签名；扩展仍按 3.6.3 编译，
+升级时必须运行最低版本真实集成。已否决宿主正则和独立解析 compiler XML：它们
+不能重现 execution 合并和参数默认值。模型使用原有 Maven 本地仓库解析描述符，
+不新增缓存目录；状态和下载物不进入插件包，安装文件清单验证保持有效。
+Wrapper 的存在和发行版本也由 Maven 后端读取选定 reactor 的原生文件后发布。
+Java `Properties` 负责转义和注释语义，分发 URL 仅提取可识别发行文件名；自定义
+文件名保持未知。读取有 1 MiB 硬上限，不执行脚本，不导出可能含凭据的完整 URL。
+脚本与 properties 都参与后端指纹和宿主同步观察；脚本替换/删除必须撤销缓存。
+宿主把脚本投影成工作区相对路径；两个独立 reactor 不共用全局 Wrapper，实际
+Run 仍由平台按其 cwd 和工具选择解析。Windows `.cmd` 也参与生成指纹。
+这些模型事实继续使用现有仓库、状态与包生命周期，不新增资源目录；Core 收到
+快照时不读取 Wrapper 文件补齐。旧 Maven 启动规划仍待迁移，不能据此声称整个生成器已移出 Core。
+
+生成文档还记录模型摘要（`generator.providerFingerprint`）。文件没有改变不代表
+Profile 或插件仍然相同，所以检查与启动必须比较当前工程投影，不能只看文件指纹。
+项目和源码根排序不影响摘要，工程名、归属、角色、框架及工具要求变化都会使它
+过期；老文档缺少摘要时提示重新生成。摘要不含环境值或配置秘密。
+
+macOS 在模型存储提交后发事件，Run 列表异步检查；工作区、生成或模型变化会撤销
+旧答复；连续通知只保留一个在途检查和一次待处理读取，不累积后台文件检查。模型未加载、截断或失效时显示等待提示。真正启动前还要同步确认当前模型，
+覆盖主 Run、服务单项/批量、Agent 共用入口和 Java Debug 准备，不能把屏幕上的
+诊断当作授权。切回原 Profile 可以重新匹配同一份生成文档，但不能让旧异步任务
+借 ABA 变化发布结果；操作代次与语义摘要解决的是不同问题。
+
+正确例子：Maven 模型把 `custom-checks` 声明为测试源码，即按测试源码生成配置。
+不要因为路径里没有 `test` 就改成主源码，也不要遇到损坏的 POM 就覆盖上游提供的
+已验证工程归属。共享 fixture 在损坏 POM 下同时验证两条 reactor、同名类、自定义
+源码角色和空模型；Swift 使用真实 Core bridge 验证同一份 fixture。该 fixture 只证明 Core 不解析 POM；
+生产宿主仍须在 POM 变化后撤销旧模型，不能借此复用失效快照。
+
 ### 不要这样做
 
 - 不要在 Core 或平台代码里写“main 方法长什么样”“测试注解叫什么”的规则，
@@ -132,6 +187,43 @@ Windows 会先同步当前编辑文档再请求该操作。两端都不再解析
 的正则、引用计数、参数提示另开 issue。
 
 ## 验证
+
+- 生成身份增量：1399 项普通 Core 计时通过，源码根排序与归属变化的最终定向
+  复验也通过；289 项 Swift（含迟到检查的输入/工作区/重置三种顺序、100 次通知
+  合并为一次后续读取）通过。新异步用例均为 1 毫秒，生产 Swift bridge fixture
+  42 毫秒，关闭时先移除订阅再停止 Provider，后续 4 项生命周期定向复验通过。
+  当前源码 SDK E2E 6 项、完整 Rust crates、Core/共享/服务/Windows 边界及最终
+  C ABI/24 项 Swift bridge 通过。首轮应用早期 AskPass 辅助进程未在 5 秒内连接，
+  串行复验在相同期限下 4.359 秒通过，没有延长超时。4 项真实 macOS Provider 集成通过；默认 Profile A→B→A 在 POM
+  不变时使已存生成过期/恢复，7.496 秒。另显式执行 3 项真实 JDT，含 Cargo
+  进程的计时 26.984/13.763/10.486 秒，验证过滤资源和运行路径仍到达实际 JVM，
+  退出后安装包清单不变。旧失败计时保留作诊断，后续 complete/native 报告是通过依据。
+- Wrapper 增量：1399 项含真实 JDT 的 Core/集成、286 项 Swift、4 项生产
+  Provider 和完整 Rust/24 项 bridge 通过。共享 Core fixture 21 毫秒验证双根不
+  共用 Wrapper、单根 Windows 脚本及 `.cmd` 内容变化影响指纹；Swift fixture
+  33 毫秒。真实 Core→Maven 19 项、缓存 17 项、受控原生 16 项、常规 Maven
+  16 项通过；Wrapper 原生 properties、脚本缓存撤销和超限文件拒绝 3.739 秒。
+  后端指纹改为有单文件 64 MiB 上限的流式哈希，避免新增脚本输入触发整文件分配。
+  最终包再次执行 3 项真实 JDT，含 Cargo 启动的计时为 16.199/8.056/6.940 秒；
+  退出、安装目录文件清单和进程清理均通过。HTML 由现有有界进程/报告入口生成，
+  每项命令 600 秒期限，目标测试本身继续使用原有 JDT 操作期限。
+- 编译要求增量：1399 项含真实 JDT 的 Core/集成计时、286 项 Swift、4 项生产
+  Provider 集成和完整 Rust/24 项 bridge 通过。真实 Core→Maven 18 项通过，
+  编译计划场景 2.964 秒，覆盖 Profile/testRelease、自定义 execution、模块覆盖、
+  Maven 将缺失表达式视为未设置、非法语言版本保持未知，以及损坏 POM 不改变
+  已提供要求。Core fixture 19 毫秒，生产 Swift bridge 21 毫秒。
+  Provider→JDT→JVM 场景 17.038 秒；普通入口与链接工作区分别 10.750/6.433 秒。
+- 框架识别增量：1399 项 Core 计时、286 项 Swift、4 项生产 macOS Provider 集成、
+  C ABI/24 项 bridge 及完整 Rust crates 通过。共享 fixture 经 Core 22 毫秒和
+  真实 Swift bridge 32 毫秒验证；缺少后端元数据的模型拒绝生成，2 毫秒。
+  真实 Core→Maven 17 项通过，其中 Profile/继承、仅插件管理及损坏 POM 下的框架
+  配置生成 2.127 秒；退出后包文件清单不变。该轮普通 Core 计时没有启用真实 JDT，
+  真实 JDT 的证据仍是下述专用集成记录；不能把早退用例当成新的 JDT 运行证据。
+- 2026-10-30 的归属生成增量通过 1399 项 Core/集成计时与 285 项 Swift 回归。
+  新共享 fixture 的 Core 用例 17 毫秒；Swift 使用生产存储和真实 Core bridge，验证
+  生成文档的 reactor、模块、同名配置 ID 与源码角色。Windows Cargo 检查与同一
+  preview 基线保持相同的两项 macOS 平台错误，无新增 Rust 调用类型错误，不代表
+  Windows 实机通过。当前源码快照的 SDK E2E 6 项通过。
 
 - Rust 单元与契约测试覆盖入口点和测试项的版本化规范化、错误结果、Windows 路径、
   Maven 多模块同名类，以及旧生成结果在 JDT 未就绪时的保留。

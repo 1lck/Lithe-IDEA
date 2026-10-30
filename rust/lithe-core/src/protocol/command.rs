@@ -120,6 +120,12 @@ pub enum CoreCommand {
     BuildTestPlan,
     /// Plans typed provider run preparation (`build.prepareRunPlan`).
     BuildPrepareRunPlan,
+    /// Plans source-backed configuration reads (`build.configurationPlan`).
+    BuildConfigurationPlan,
+    /// Validates non-sensitive native facts (`build.decodeConfiguration`).
+    BuildDecodeConfiguration,
+    /// Edits approved XML fields without file I/O (`build.editConfigurationDocument`).
+    BuildEditConfigurationDocument,
     /// Resolves optional public build inputs (`build.resolveModelInputs`).
     BuildResolveModelInputs,
     /// Plans native debug preparation (`build.prepareDebugPlan`).
@@ -368,6 +374,8 @@ pub enum CoreCommand {
     RunConfigCreateUserConfiguration,
     /// Produces the process plan for one configuration (`runConfig.createLaunchPlan`).
     RunConfigCreateLaunchPlan,
+    /// Resolves user choices for a provider-owned launch (`runConfig.providerLaunchInputs`).
+    RunConfigProviderLaunchInputs,
     /// Counts workspace uses of Java declarations (`java.codeVision`).
     JavaCodeVision,
     /// Resolves a package-qualified Java class name (`java.className`).
@@ -577,6 +585,9 @@ impl CoreCommand {
             "build.prepareDebugPlan" => Some(Self::BuildPrepareDebugPlan),
             "build.decodeDebugPreparation" => Some(Self::BuildDecodeDebugPreparation),
             "build.resolveModelInputs" => Some(Self::BuildResolveModelInputs),
+            "build.configurationPlan" => Some(Self::BuildConfigurationPlan),
+            "build.editConfigurationDocument" => Some(Self::BuildEditConfigurationDocument),
+            "build.decodeConfiguration" => Some(Self::BuildDecodeConfiguration),
             "build.prepareRunPlan" => Some(Self::BuildPrepareRunPlan),
             "build.decodeRunPreparation" => Some(Self::BuildDecodeRunPreparation),
             "build.testDiscoveryPlan" => Some(Self::BuildTestDiscoveryPlan),
@@ -696,6 +707,7 @@ impl CoreCommand {
             "runConfig.saveEditorChanges" => Some(Self::RunConfigSaveEditorChanges),
             "runConfig.createUserConfiguration" => Some(Self::RunConfigCreateUserConfiguration),
             "runConfig.createLaunchPlan" => Some(Self::RunConfigCreateLaunchPlan),
+            "runConfig.providerLaunchInputs" => Some(Self::RunConfigProviderLaunchInputs),
             "java.codeVision" => Some(Self::JavaCodeVision),
             "java.className" => Some(Self::JavaClassName),
             "java.sourceDefinition" => Some(Self::JavaSourceDefinition),

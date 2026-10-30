@@ -11,14 +11,18 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     func detect(
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
-        options: [String: [String: ToolingJSONValue]]
+        options: [String: [String: ToolingJSONValue]],
+        instanceOptions: [String: [String: [String: ToolingJSONValue]]] = [:],
+        instanceDefaults: [String: [String: ToolingJSONValue]] = [:]
     ) throws -> BuildDetection {
         let outcome: Outcome<DetectionResult> = try execute(
             "build.detect",
             payload: DetectPayload(
                 workspaceRoot: workspaceURL.path,
                 plugins: try sources.map { DetectPayload.Plugin(manifest: try Self.json($0.manifest)) },
-                options: options
+                options: options,
+                instanceOptions: instanceOptions,
+                instanceDefaults: instanceDefaults
             )
         )
         return outcome.value.detection
@@ -84,6 +88,31 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         return outcome.value.modelInputs
     }
 
+    func configurationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints) throws -> BuildProviderRequest {
+        let outcome: Outcome<PlanResult> = try execute("build.configurationPlan", target: target,
+            request: OutputRequest(context: context, project: nil, outputFile: nil, hints: hints))
+        guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
+            throw PluginFunctionFailure(code: "plugin.build.unavailable", message: L10n.string("Native configuration is unavailable."))
+        }
+        return request
+    }
+
+    func decodeConfiguration(_ target: BuildSystemTarget, result: ToolingJSONValue) throws -> BuildNativeConfiguration {
+        struct Request: Encodable { let result: ToolingJSONValue }
+        struct Reply: Decodable { let configuration: BuildNativeConfiguration }
+        let outcome: Outcome<Reply> = try execute("build.decodeConfiguration", target: target, request: Request(result: result))
+        return outcome.value.configuration
+    }
+
+    func editConfigurationDocument(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
+                                   edits: BuildNativeConfigurationEdits, document: String?) throws -> BuildNativeConfigurationDocumentEdit {
+        struct Request: Encodable { let snapshot: BuildNativeConfiguration; let edits: BuildNativeConfigurationEdits; let document: String? }
+        struct Reply: Decodable { let edit: BuildNativeConfigurationDocumentEdit }
+        let outcome: Outcome<Reply> = try execute("build.editConfigurationDocument", target: target,
+            request: Request(snapshot: snapshot, edits: edits, document: document))
+        return outcome.value.edit
+    }
+
     func modelPlan(
         _ target: BuildSystemTarget,
         context: BuildPlanContext,
@@ -131,9 +160,10 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     }
 
     func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
-                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String],
+                        workspaceURL: URL? = nil, launchOptions: BuildLaunchOptions? = nil) throws -> BuildProviderRequest {
         try preparationPlan(target, context: context, run: run, project: project, selectedTarget: selectedTarget,
-                            userArguments: userArguments, command: "build.prepareRunPlan")
+                            userArguments: userArguments, command: "build.prepareRunPlan", workspaceURL: workspaceURL, launchOptions: launchOptions)
     }
 
     func prepareDebugPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
@@ -143,7 +173,8 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     }
 
     private func preparationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
-                                 project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String], command: String) throws -> BuildProviderRequest {
+                                 project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String], command: String,
+                                 workspaceURL: URL? = nil, launchOptions: BuildLaunchOptions? = nil) throws -> BuildProviderRequest {
         struct Request: Encodable {
             let root: String
             let pluginDirectory: String?
@@ -154,11 +185,13 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             let project: BuildSelection
             let target: BuildSelection
             let userArguments: [String]
+            let workspaceRoot: String?
+            let launchOptions: BuildLaunchOptions?
         }
         let outcome: Outcome<PlanResult> = try execute(command, target: target,
             request: Request(root: context.root, pluginDirectory: context.pluginDirectory?.path,
                              workspaceStateDirectory: context.workspaceStateDirectory?.path, modelInputs: context.modelInputs, options: context.options, run: run,
-                             project: project, target: selectedTarget, userArguments: userArguments))
+                             project: project, target: selectedTarget, userArguments: userArguments, workspaceRoot: workspaceURL?.path, launchOptions: launchOptions))
         guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
             throw DeclarativePluginRejection(code: "plugin.build.invalidOutput", message: L10n.string("The build provider returned an invalid launch plan."))
         }
@@ -166,11 +199,11 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     }
 
     func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
-                              result: ToolingJSONValue) throws -> BuildRunPreparation {
-        struct Request: Encodable { let workspaceRoot: String; let root: String; let result: ToolingJSONValue }
+                              result: ToolingJSONValue, launchOptions: BuildLaunchOptions? = nil) throws -> BuildRunPreparation {
+        struct Request: Encodable { let workspaceRoot: String; let root: String; let result: ToolingJSONValue; let launchOptions: BuildLaunchOptions? }
         struct Reply: Decodable { let launch: BuildRunPreparation }
         let outcome: Outcome<Reply> = try execute("build.decodeRunPreparation", target: target,
-            request: Request(workspaceRoot: workspaceURL.path, root: root, result: result))
+            request: Request(workspaceRoot: workspaceURL.path, root: root, result: result, launchOptions: launchOptions))
         return outcome.value.launch
     }
 
@@ -250,6 +283,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
                 project: request.project,
                 projects: request.projects,
                 output: request.output,
+                result: request.result,
                 notBeforeMillis: request.notBefore.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) },
                 suite: request.suite
             )
@@ -364,6 +398,8 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let workspaceRoot: String
         let plugins: [Plugin]
         let options: [String: [String: ToolingJSONValue]]
+        let instanceOptions: [String: [String: [String: ToolingJSONValue]]]
+        let instanceDefaults: [String: [String: ToolingJSONValue]]
     }
 
     private struct BuildPayload<Request: Encodable>: Encodable {
@@ -414,6 +450,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
 
         struct Tool: Encodable {
             let executable: String
+            let environment: [String: String]
         }
 
         init(context: BuildPlanContext, project: BuildSelection?, outputFile: URL?, hints: BuildProviderHints) {
@@ -425,7 +462,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             self.project = project
             self.outputFile = outputFile?.path
             refresh = hints.reason == .refresh
-            tool = hints.toolExecutable.map { Tool(executable: $0.path) }
+            tool = hints.toolExecutable.map { Tool(executable: $0.path, environment: hints.toolEnvironment) }
         }
     }
 
@@ -463,6 +500,8 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let modelInputs: ToolingJSONValue?
         let project: BuildSelection?
         let target: BuildSelection?
+        let selectorKind: String?
+        let selectors: [String]?
         let suite: String?
         let `case`: String?
         let userArguments: [String]
@@ -476,6 +515,8 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             workspaceStateDirectory = context.workspaceStateDirectory?.path
             project = request.project
             target = request.target
+            selectorKind = request.selectorKind
+            selectors = request.selectorKind == nil ? nil : request.selectors
             suite = request.suite
             `case` = request.testCase
             userArguments = request.userArguments
@@ -498,6 +539,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let project: String?
         let projects: [String]
         let output: String
+        let result: ToolingJSONValue?
         let notBeforeMillis: UInt64?
         let suite: String?
     }
@@ -576,9 +618,12 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let command: String?
         let runtime: String?
         let settingID: String?
+        let toolchainID: String?
+        let root: String?
 
         func executable() throws -> BuildInvocation.Executable {
             if kind == "setting", let settingID { return .setting(id: settingID, path: path) }
+            if kind == "toolchain", let toolchainID, let root { return .toolchain(id: toolchainID, root: root) }
             switch (kind, path, variable, command, runtime) {
             case ("projectFile", let path?, _, _, _):
                 return .projectFile(path: path, requires: requires ?? [])
@@ -639,9 +684,11 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let reports: [String]?
 
         var results: BuildTestPlan.Results {
-            decoder == "hostIntegration"
-                ? .hostIntegration
-                : .reports(decoder: decoder, patterns: reports ?? [])
+            switch decoder {
+            case "provider": .provider
+            case "hostIntegration": .hostIntegration
+            default: .reports(decoder: decoder, patterns: reports ?? [])
+            }
         }
     }
 

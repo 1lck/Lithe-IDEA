@@ -46,10 +46,20 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         checkFingerprint: Bool,
         javaEntrypoints: JavaEntrypoints?
     ) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: checkFingerprint, javaEntrypoints: javaEntrypoints, projectOwnership: nil)
+    }
+
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil, projectOwnership: projectOwnership)
+    }
+
+    private func inspect(at projectURL: URL, checkFingerprint: Bool, javaEntrypoints: JavaEntrypoints?,
+                         projectOwnership: [RunProjectOwnership]?) -> ProjectRunConfigurationInspection {
         switch core.inspectRunConfiguration(
             at: projectURL,
             checkFingerprint: checkFingerprint,
-            javaEntrypoints: javaEntrypoints
+            javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership
         ) {
         case .success(let payload):
             return ProjectRunConfigurationInspection(
@@ -60,10 +70,13 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     ProjectToolchainSelection(
                         javaHomePath: toolchain.java?.homePath ?? "",
                         mavenExecutablePath: toolchain.maven?.executablePath ?? "",
-                        mavenJavaHomePath: toolchain.maven?.javaHomePath ?? ""
+                        mavenJavaHomePath: toolchain.maven?.javaHomePath ?? "",
+                        pathOverrides: toolchain.pathOverrides ?? [:]
                     )
                 },
+                hasSavedToolchainPathOverrides: payload.toolchain?.pathOverrides != nil,
                 requiresGeneration: payload.requiresGeneration ?? (payload.status == "missing")
+
             )
         case .failure(let error):
             return ProjectRunConfigurationInspection(
@@ -81,7 +94,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         let root = projectURL.standardizedFileURL
         guard storage.metadata(for: root)?.isDirectory == true else { throw MacRunConfigurationStoreError.invalidProject }
@@ -95,7 +109,9 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             paths: paths,
             modulePaths: modulePaths,
             javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership,
             cacheDirectoryURL: storage.cacheDirectory()
+
         ).get()
         return RunConfigurationGenerationResult(entryCount: result.entryCount)
     }
@@ -148,9 +164,17 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             projectToolchain: ProjectToolchainSelection(
                 javaHomePath: payload.toolchain?.java?.homePath ?? "",
                 mavenExecutablePath: payload.toolchain?.maven?.executablePath ?? "",
-                mavenJavaHomePath: payload.toolchain?.maven?.javaHomePath ?? ""
+                mavenJavaHomePath: payload.toolchain?.maven?.javaHomePath ?? "",
+                pathOverrides: payload.toolchain?.pathOverrides ?? [:]
             )
         )
+    }
+
+    func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs {
+        switch core.providerLaunchInputs(at: projectURL, configurationID: configurationID, providerRoot: providerRoot) {
+        case .success(let value): return value
+        case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)
+        }
     }
 
     func launchPlan(
@@ -251,7 +275,16 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     }
 
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws {
+        let url = projectURL.appendingPathComponent(".lithe/run/local.json")
+        let expected = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
+        try saveProjectToolchain(toolchain, at: projectURL, expecting: expected)
+    }
+
+    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL, expecting expected: Data?) throws {
         let root = projectURL.standardizedFileURL
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        let current = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
+        guard current == expected else { throw ProjectRuntimeSettingsStoreError.conflict }
         let payload = try core.updateRunConfigurationOptions(
             at: root,
             configurationID: "",
@@ -265,11 +298,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         // Settings can be saved before generation creates the normal ignore file.
         // Protect machine paths before making the local document visible to Git.
         try ensureLocalRunIgnored(at: root)
-        try writeMutation(
-            RunConfigurationDocumentMutation(configurationID: nil, document: data),
-            to: root.appendingPathComponent(".lithe/run/local.json"),
-            root: root
-        )
+        try validateWriteTarget(url, root: root)
+        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard try storage.replaceData(data, at: url, expecting: expected) else {
+            throw ProjectRuntimeSettingsStoreError.conflict
+        }
+        MacFileWriteEventSuppression.markWritten(url)
     }
 
     func saveEditorChanges(
@@ -405,7 +439,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             return RunConfigurationDiagnostic(
                 configurationID: value["id"],
                 code: code,
-                message: message,
+                message: code == "staleProviderModel" ? L10n.string("Build provider model changed. Regenerate Run configurations before running.") : message,
                 toolchain: value["toolchain"]
             )
         }

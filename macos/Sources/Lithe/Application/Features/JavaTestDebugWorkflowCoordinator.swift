@@ -33,7 +33,7 @@ final class JavaTestDebugWorkflowCoordinator {
             guard let self, let state else { return }
             defer { state.finishDebugLaunch(operationID, stopResultServer: false) }
             guard state.isCurrentDebugLaunch(operationID) else { return }
-            guard await prepareDirtyDocument() else { return }
+            guard await prepareDirtyDocument(), state.isCurrentDebugLaunch(operationID) else { return }
 
             do {
                 let prepared = try await prepareLaunch()

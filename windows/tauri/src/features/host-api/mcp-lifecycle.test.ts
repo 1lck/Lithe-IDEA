@@ -3,6 +3,8 @@ import { McpConnectionManager, type McpConnectionState } from "./mcp-lifecycle";
 import { ideRequestTime } from "@/platform/ide-request-events";
 import { createTranslator } from "@/i18n/locale";
 import type { hostControl, IdeRequest } from "./ide-capabilities";
+import { ideToolExposure } from "./ide-tool-exposure";
+import toolExposureFixture from "../../../../../shared/fixtures/ide-api/host-tool-exposure.json";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -43,6 +45,7 @@ function fixture(clock?: () => number) {
   let delivered = true;
   let apiResult: unknown = {};
   const results: unknown[] = [];
+  const openArguments: Record<string, unknown>[] = [];
   let sequence = 0;
   let now = 0;
   const control = async (action: string, args?: Record<string, unknown>): Promise<unknown> => {
@@ -90,7 +93,8 @@ function fixture(clock?: () => number) {
       paths: async () => ({ directory: "fixture", helperPath: "fixture/helper" }),
       control: control as typeof hostControl,
       now: clock ?? (() => now),
-      open: async (_args, receive) => {
+      open: async (args, receive) => {
+        openArguments.push(args);
         const hostID = String(++sequence);
         receivers.set(hostID, receive);
         openStarted.resolve();
@@ -118,6 +122,7 @@ function fixture(clock?: () => number) {
     calls,
     responses,
     results,
+    openArguments,
     setResult: (result: unknown) => { apiResult = result; },
     setDelivered: (value: boolean) => { delivered = value; },    openStarted,
     finishOpen,
@@ -144,6 +149,18 @@ function fixture(clock?: () => number) {
   };
 }
 const permissions = { configure: true, execute: true };
+
+test("native connection publishes only the Windows workflows from the shared fixture", async () => {
+  const f = fixture();
+  f.finishOpen.resolve();
+  await f.manager.enable("project", "fixture", permissions);
+  expect(ideToolExposure).toEqual(toolExposureFixture.windows);
+  expect(f.openArguments).toEqual([{
+    directory: "fixture", helperPath: "fixture/helper", workspaceKey: "fixture",
+    permissions, toolExposure: toolExposureFixture.windows,
+  }]);
+  expect(ideToolExposure.some(({ name }) => name.startsWith("lithe_build_"))).toBe(false);
+}, 1000);
 
 test("closing during open revokes access and closes the late native host", async () => {
   const f = fixture();

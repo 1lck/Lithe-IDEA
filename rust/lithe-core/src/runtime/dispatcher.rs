@@ -304,6 +304,21 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::build::build_resolve_model_inputs_command,
         ),
+        CoreCommand::BuildEditConfigurationDocument => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_edit_configuration_document_command,
+        ),
+        CoreCommand::BuildConfigurationPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_configuration_plan_command,
+        ),
+        CoreCommand::BuildDecodeConfiguration => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_configuration_command,
+        ),
         CoreCommand::BuildPrepareRunPlan => plugin_response(
             id,
             parsed.payload,
@@ -2048,6 +2063,23 @@ fn execute(request: &str) -> CoreResponse {
                 .with_details(error.to_string())
             })
             .and_then(crate::execution::create_user_configuration)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigProviderLaunchInputs => {
+            match serde_json::from_value::<crate::execution::ProviderLaunchInputsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid provider launch input request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::execution::provider_launch_inputs)
             {
                 Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),

@@ -23,7 +23,7 @@ final class ProjectGenerationService: Sendable {
     let planner: any ProjectGeneratorPlanning
     private let platform: any ProjectGenerationPlatform
     private let initializeGitRepository: @Sendable (URL) -> String?
-    private let recordJavaHome: @Sendable (URL, String) async -> Void
+    private let recordJavaHome: @Sendable (URL, String) async throws -> Void
 
     /// - Parameters:
     ///   - initializeGitRepository: Creates a repository at the URL and
@@ -33,7 +33,7 @@ final class ProjectGenerationService: Sendable {
         planner: any ProjectGeneratorPlanning,
         platform: any ProjectGenerationPlatform,
         initializeGitRepository: @escaping @Sendable (URL) -> String?,
-        recordJavaHome: @escaping @Sendable (URL, String) async -> Void
+        recordJavaHome: @escaping @Sendable (URL, String) async throws -> Void
     ) {
         self.planner = planner
         self.platform = platform
@@ -98,7 +98,7 @@ final class ProjectGenerationService: Sendable {
         }
 
         for runtime in plan.runtimes where runtime.runtime == "java" {
-            await recordJavaHome(destination, runtime.home)
+            try await recordJavaHome(destination, runtime.home)
         }
         return CreatedProject(
             url: destination,

@@ -7,7 +7,7 @@
 //! projects without running a build tool.
 
 use super::decode::Workspace;
-use super::manifest::{BuildSystemDeclaration, ModelSource, Nesting};
+use super::manifest::{BuildSystemDeclaration, ModelSource, Nesting, OptionScope};
 use super::options;
 use super::outputs::{model_value, read_model, source_marker};
 use crate::plugins::declarative::{validate_manifest_value, PluginRejection, Validation};
@@ -25,6 +25,13 @@ pub(crate) struct DetectRequest {
     /// Stored option values by build-system ID, for run entries.
     #[serde(default)]
     pub(crate) options: BTreeMap<String, BTreeMap<String, Value>>,
+    /// Values by build-system ID and normalized instance root. Only options
+    /// declared with instance scope may read this map.
+    #[serde(default)]
+    pub(crate) instance_options: BTreeMap<String, BTreeMap<String, BTreeMap<String, Value>>>,
+    /// Team-owned defaults for instance-scoped options, before root overrides.
+    #[serde(default)]
+    pub(crate) instance_defaults: BTreeMap<String, BTreeMap<String, Value>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -186,7 +193,28 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
         let stored = request.options.get(&owner.declaration.id).unwrap_or(&empty);
         for (root, markers) in roots(owner.declaration, &directories) {
             if seen.insert((owner.declaration.id.clone(), root.clone())) {
-                instances.push(instance(owner, &workspace, &root, markers, stored));
+                let local = request
+                    .instance_options
+                    .get(&owner.declaration.id)
+                    .and_then(|roots| roots.get(&root));
+                let mut values = BTreeMap::new();
+                for option in &owner.declaration.options {
+                    let value = match option.scope {
+                        OptionScope::Workspace => stored.get(&option.id),
+                        OptionScope::Instance => {
+                            local.and_then(|values| values.get(&option.id)).or_else(|| {
+                                request
+                                    .instance_defaults
+                                    .get(&owner.declaration.id)
+                                    .and_then(|values| values.get(&option.id))
+                            })
+                        }
+                    };
+                    if let Some(value) = value {
+                        values.insert(option.id.clone(), value.clone());
+                    }
+                }
+                instances.push(instance(owner, &workspace, &root, markers, &values));
             }
         }
     }

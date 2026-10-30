@@ -5,36 +5,30 @@ import LitheModuleAPI
 
 @MainActor
 package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
-    package let maven: MavenService
     package let run: RunService
     package let tests: LanguageTestService
-    package let mavenFeature: MavenFeatureModel
     package let runFeature: RunFeatureModel
     package let projectDevelopment: ProjectDevelopmentFeatureModel
     /// Nil when the host runs no plugin build systems.
     package let buildSystems: BuildSystemService?
     package let buildSystemsFeature: BuildSystemsFeatureModel?
     private var activityObservers: Set<AnyCancellable> = []
-    private var mavenLease: ModuleLease?
     private var runLease: ModuleLease?
     private var testLease: ModuleLease?
     private var buildLease: ModuleLease?
 
     package init(
-        maven: MavenService,
         run: RunService,
         tests: LanguageTestService,
         buildSystems: BuildSystemService? = nil
     ) {
-        self.maven = maven; self.run = run; self.tests = tests
+        self.run = run; self.tests = tests
         self.buildSystems = buildSystems
         buildSystemsFeature = buildSystems.map(BuildSystemsFeatureModel.init(service:))
-        let mavenFeature = MavenFeatureModel(service: maven)
-        self.mavenFeature = mavenFeature
         runFeature = RunFeatureModel(service: run)
-        projectDevelopment = ProjectDevelopmentFeatureModel(mavenFeature: mavenFeature, runFeature: runFeature)
-        run.configureMavenContextProvider { [weak maven] in
-            maven?.launchContext
+        projectDevelopment = ProjectDevelopmentFeatureModel(runFeature: runFeature)
+        run.configureBuildLanguageImportProvider { [weak buildSystems] workspace, root in
+            try buildSystems?.languageImport(workspaceURL: workspace, root: root) ?? JavaLanguageImportConfiguration()
         }
         run.configureBuildProviderRuns(start: { [weak buildSystems] configuration, workspace in
             buildSystems?.runProviderConfiguration(configuration, workspace: workspace)
@@ -43,19 +37,29 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
             let message: String? = if case .failed(let message) = ended.state { message } else { nil }
             run?.finishBuildPreparation(ended.runID, message: message)
         }.store(in: &activityObservers)
-        maven.onProjectReloaded = { [weak run] workspace, project in
-            run?.acceptMavenProject(project, at: workspace)
+        run.configureBuildModels { [weak buildSystems] in
+            buildSystems?.entries.filter { $0.modelState == .loaded && !$0.isReloadRequired }.compactMap(\.model) ?? []
         }
-        maven.$dependencyStates.dropFirst().sink { [weak run] _ in
-            Task { @MainActor [weak run] in
-                run?.syncLanguageDependencyPaths(languageID: "java")
-            }
+        run.configureBuildProjectOwnership { [weak buildSystems] in try buildSystems?.runProjectOwnership() ?? [] }
+        run.configureProviderConfigurationRuns(source: { [weak buildSystems] inputs, root in
+            buildSystems?.configurationRunSource(inputs: inputs, instanceRoot: root)
+        }) { [weak buildSystems] inputs, root, workspace, hints, current, progress in
+            guard let buildSystems else { throw CancellationError() }
+            return try await buildSystems.prepareConfigurationRun(inputs: inputs, instanceRoot: root, workspace: workspace,
+                tool: hints, isCurrent: current, progress: progress)
+        }
+
+        buildSystems?.providerSourcesChanged.sink { [weak run] sources in
+            run?.retainProviderConfigurations(sources)
         }.store(in: &activityObservers)
+        buildSystems?.runGenerationInputsChanged.sink { [weak run] in
+            run?.requestProviderGenerationInspection()
+        }.store(in: &activityObservers)
+
     }
 
     package var isActive: Bool {
-        maven.isRunning || maven.isResolvingDependencies || maven.isReloading
-            || run.isRunning || run.hasRunningServices || tests.isRunning
+        run.isRunning || run.hasRunningServices || tests.isRunning
             || buildSystems?.hasActiveWork == true
     }
     package var hasActiveExecutionWork: Bool { isActive }
@@ -67,21 +71,6 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     }
 
     package func configureModuleLeases(acquire: @escaping @MainActor (String) -> ModuleLease) {
-        Publishers.CombineLatest3(maven.$taskState, maven.$dependencyStates, maven.$isReloading).map { state, dependencies, reloading in
-            let buildIsActive = switch state {
-            case .running, .stopping: true
-            case .idle, .cancelled, .failed: false
-            }
-            let dependenciesAreActive = dependencies.values.contains {
-                if case .loading = $0 { return true }
-                return false
-            }
-            return buildIsActive || dependenciesAreActive || reloading
-        }.removeDuplicates().sink { [weak self] active in
-            guard let self else { return }
-            if active, mavenLease == nil { mavenLease = acquire("Maven operation is running") }
-            if !active { mavenLease?.release(); mavenLease = nil }
-        }.store(in: &activityObservers)
         run.$isRunning.removeDuplicates().sink { [weak self] active in
             guard let self else { return }
             if active, runLease == nil { runLease = acquire("Run configuration is running") }
@@ -103,19 +92,20 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     /// run that launched them, so they are stopped here as well: nothing the
     /// IDE started may keep running after the session that owns it is gone.
     package func stop() {
-        maven.stop(); run.stop(); run.stopAllServices(); tests.stop(); buildSystems?.stop()
-        releaseLeases()
+        // Provider teardown publishes input changes; detach before cancelling
+        // inspections so shutdown cannot enqueue new work in the stopped graph.
         activityObservers.removeAll()
+        run.cancelProviderGenerationInspection()
+        run.stop(); run.stopAllServices(); tests.stop(); buildSystems?.stop()
+        releaseLeases()
     }
 
     private func releaseLeases() {
-        mavenLease?.release(); mavenLease = nil
         runLease?.release(); runLease = nil
         testLease?.release(); testLease = nil
         buildLease?.release(); buildLease = nil
     }
 }
-
 
 private struct ExecutionModuleSleepError: LocalizedError {
     let errorDescription: String? = "Build, run, or test work is still active."

@@ -13,9 +13,9 @@ use std::path::{Component, Path, PathBuf};
 
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
-// Bumped when generation changes what a workspace should contain: a detected
-// layer from an older generator is reported stale instead of trusted.
-const GENERATOR_REVISION: &str = "11";
+// Bumped when the detected layer changes; stale cached facts must regenerate.
+const GENERATOR_REVISION: &str = "17";
+
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -42,6 +42,9 @@ pub struct InspectRequest {
     /// Java entries still match them; omitted while JDT is not ready.
     #[serde(default)]
     pub java_entrypoints: Option<JavaEntrypointFacts>,
+    /// Current enabled Provider facts; omission leaves legacy clients unchanged.
+    #[serde(default)]
+    pub project_ownership: Option<Vec<super::project_ownership::RunProjectOwnership>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +56,10 @@ pub struct GenerateRequest {
     pub paths: Vec<String>,
     #[serde(default)]
     pub module_paths: Vec<String>,
+    /// Current provider ownership, including an authoritative empty snapshot.
+    /// Omitted retains compatibility for the existing Windows generator.
+    #[serde(default)]
+    pub project_ownership: Option<Vec<super::project_ownership::RunProjectOwnership>>,
     /// Launchable classes from the Java language service (`lsp.request`
     /// operation `javaEntrypoints`). Absent while that service is not ready:
     /// the previous generation's Java entries are carried forward instead of
@@ -116,10 +123,28 @@ pub struct LaunchPlanRequest {
     pub maven_context: Option<crate::project::MavenLaunchContextRequest>,
 }
 
+/// Resolves saved Run choices without assembling a build tool's command line.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderLaunchInputsRequest {
+    /// Canonical workspace owned by the native host.
+    pub root: String,
+    /// Stable identity resolved through the generated/team/local document layers.
+    pub configuration_id: String,
+    /// Current provider instance, supplied by the owning build model.
+    pub provider_root: String,
+    /// Optional host-owned replacement for the machine-local document.
+    #[serde(default)]
+    pub local_document: Option<Value>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Runtime path groups resolved by the Java project model before launch.
 pub struct JavaLaunchRequest {
+    /// Host receipt: the current provider task already prepared build resources.
+    #[serde(default)]
+    pub build_prepared: bool,
     pub main_class: String,
     #[serde(default)]
     pub class_paths: Vec<String>,
@@ -140,6 +165,25 @@ pub struct ToolchainPaths {
     /// Explicit executables for generic runtime toolchain IDs such as `project-node`.
     #[serde(default)]
     pub runtime_executable_paths: BTreeMap<String, String>,
+    /// Machine-local selections by subproject root. Absent preserves saved
+    /// selections; an explicit empty map clears them.
+    #[serde(default)]
+    pub path_overrides: Option<BTreeMap<String, PathToolchainOverride>>,
+}
+
+/// Tool paths owned by a subproject; empty fields inherit the project defaults.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PathToolchainOverride {
+    /// JDK home; empty inherits the project JDK.
+    #[serde(default)]
+    pub java_home_path: String,
+    /// Maven executable or wrapper selection; empty inherits the project choice.
+    #[serde(default)]
+    pub maven_executable_path: String,
+    /// Maven's JDK home; empty inherits the project Maven JDK.
+    #[serde(default)]
+    pub maven_java_home_path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -216,6 +260,9 @@ pub struct BuildProviderRunReference {
     pub project_id: String,
     #[serde(rename = "targetID")]
     pub target_id: String,
+    /// Omitted older references are applications; the current declaration must match at launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<Execution>,
     #[serde(default)]
     pub user_arguments: Vec<String>,
 }
@@ -230,7 +277,8 @@ impl BuildProviderRunReference {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
         };
-        if !identifier(&self.plugin_id)
+        if self.execution == Some(Execution::Group)
+            || !identifier(&self.plugin_id)
             || !identifier(&self.build_system_id)
             || !identifier(&self.run)
             || [&self.project_id, &self.target_id]
@@ -346,6 +394,9 @@ fn migrate_configuration_value(item: &mut Value) {
 /// or to `path` for a Java source that only counts by presence.
 pub struct GeneratorMetadata {
     pub fingerprint: String,
+    /// Identity of the Provider facts that generated this document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_fingerprint: Option<String>,
     /// Unreadable inputs retained as unknown; a partial baseline cannot prove freshness.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub unreadable_paths: BTreeSet<String>,
@@ -536,6 +587,20 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
             }));
         }
     }
+    if let Some(projects) = &request.project_ownership {
+        super::project_ownership::validate(projects)?;
+        if let Some(document) = generated {
+            let expected = super::project_ownership::fingerprint(projects);
+            if document
+                .generator
+                .as_ref()
+                .and_then(|metadata| metadata.provider_fingerprint.as_deref())
+                != Some(expected.as_str())
+            {
+                diagnostics.push(json!({"code":"staleProviderModel", "message":"Build provider model changed; regenerate Run configurations"}));
+            }
+        }
+    }
     if let (Some(document), Some(current)) = (generated, request.java_entrypoints.as_ref()) {
         // Source hashing no longer notices a main method added to an existing
         // class; JDT's answer does, and is cheaper than reading every source.
@@ -607,7 +672,17 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .collect::<Vec<_>>();
     paths.sort();
     paths.dedup();
-    let maven_root = crate::project::maven_root(&root, &paths)?;
+    if let Some(projects) = &request.project_ownership {
+        super::project_ownership::validate(projects)?;
+    }
+    let maven_root = match &request.project_ownership {
+        Some(projects) => projects
+            .iter()
+            .filter_map(|p| p.maven_reactor_path.as_ref())
+            .min_by_key(|path| (path.len(), *path))
+            .map(|path| (root.join(path), path.clone())),
+        None => crate::project::maven_root(&root, &paths)?,
+    };
     let maven_relative_path = maven_root
         .as_ref()
         .map(|(_, relative_path)| relative_path.as_str());
@@ -615,8 +690,8 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .iter()
         .any(|path| path.to_lowercase().ends_with(".java"));
     let has_maven_project = maven_relative_path.is_some()
-        || root.join("mvnw").is_file()
-        || root.join("mvnw.cmd").is_file();
+        || (request.project_ownership.is_none()
+            && (root.join("mvnw").is_file() || root.join("mvnw.cmd").is_file()));
     // A Gradle build needs the same JDK requirement as Maven, and its sources may
     // be Kotlin or Groovy rather than Java, so the build files count on their own.
     let has_gradle_project = ["build.gradle", "build.gradle.kts", "gradlew"]
@@ -628,7 +703,13 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .into_iter()
         .map(|path| workspace_maven_path(maven_relative_path, &path))
         .collect();
-    let module_paths = inferred_maven_module_paths(&root, &paths, configured_module_paths);
+    let module_paths = match &request.project_ownership {
+        Some(projects) => projects
+            .iter()
+            .map(|project| project.path.clone())
+            .collect(),
+        None => inferred_maven_module_paths(&root, &paths, configured_module_paths),
+    };
     // Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
     let (mut java_entrypoints, java_entrypoints_origin) = match request.java_entrypoints {
         Some(facts) => (facts, "languageService"),
@@ -660,7 +741,20 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let configurations = scanned
         .configurations
         .into_iter()
-        .map(|value| -> Result<RunConfiguration, CoreError> {
+        .map(|mut value| -> Result<RunConfiguration, CoreError> {
+            let model_owner = request
+                .project_ownership
+                .as_ref()
+                .and_then(|projects| super::project_ownership::owner(projects, &value.source_path));
+            if request.project_ownership.is_some() {
+                value.module_path = model_owner
+                    .filter(|owner| owner.path != ".")
+                    .map(|owner| owner.path.clone());
+                value.source_set = model_owner
+                    .map_or(crate::protocol::JavaSourceSetResponse::Other, |owner| {
+                        owner.source_set(&value.source_path)
+                    });
+            }
             let provider = match value.kind.as_str() {
                 "javaMain" | "springBoot" => "java.main",
                 "mavenModule" => "maven.module",
@@ -668,7 +762,11 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             };
             let id = java_configuration_id(&value);
             let owner_key = value.module_path.clone();
-            let maven_owner = if let Some(owner) = maven_owners.get(&owner_key) {
+            let maven_owner = if request.project_ownership.is_some() {
+                model_owner
+                    .and_then(|owner| owner.maven_reactor_path.as_ref())
+                    .map(|path| (root.join(path), path.clone()))
+            } else if let Some(owner) = maven_owners.get(&owner_key) {
                 owner.clone()
             } else {
                 let owner = maven_owner_for_module(
@@ -772,20 +870,58 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .collect::<BTreeSet<_>>();
     let mut detected = detected_configurations(
         &root,
-        maven_root.as_ref().map(|(path, _)| path.as_path()),
+        request
+            .project_ownership
+            .is_none()
+            .then(|| maven_root.as_ref().map(|(path, _)| path.as_path()))
+            .flatten(),
         &claimed,
     )?;
-    adopt_annotated_main_classes(&mut detected, &annotated_main_classes, maven_relative_path);
+    if let Some(projects) = &request.project_ownership {
+        detected.extend(
+            super::project_ownership::services(projects)
+                .into_iter()
+                .filter(|item| !claimed.contains(&item.id)),
+        );
+    }
+    adopt_annotated_main_classes(
+        &mut detected,
+        &annotated_main_classes,
+        maven_relative_path,
+        request.project_ownership.as_deref(),
+    );
     // Counts real entry points, not documents: the always-present "Current File"
     // fallback is excluded so an empty project still reports zero and the UI can
     // say so, while a detected npm service correctly reports one.
     configurations.extend(detected);
     let mut snapshot = project_inputs(&root, &java_entry_sources(&configurations))?;
     // Unknown subtrees cannot delete known configurations or baseline inputs.
+    // Invalid required documents still fail instead of being silently overwritten.
+    let authoritative_service_ids = request.project_ownership.as_ref().map(|_| {
+        configurations
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.provider.as_str(),
+                    "spring-boot.maven" | "quarkus.maven" | "micronaut.maven"
+                )
+            })
+            .map(|item| item.id.clone())
+            .collect::<BTreeSet<_>>()
+    });
+
     if !snapshot.unreadable_paths.is_empty() {
         if let Some(previous) = previous {
             retain_unknown_inputs(&mut configurations, &mut snapshot, previous);
         }
+    }
+    if let Some(ids) = authoritative_service_ids {
+        configurations.retain(|item| {
+            !matches!(
+                item.provider.as_str(),
+                "spring-boot.maven" | "quarkus.maven" | "micronaut.maven"
+            ) || ids.contains(&item.id)
+        });
     }
     disambiguate_configuration_names(&mut configurations);
     let entry_count = configurations
@@ -797,10 +933,15 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         maven_root.as_ref().map(|(path, _)| path.as_path()),
         has_java_ecosystem,
         &configurations,
+        request.project_ownership.as_deref(),
     )?;
     let generated = RunConfigurationDocument {
         version: VERSION,
         generator: Some(GeneratorMetadata {
+            provider_fingerprint: request
+                .project_ownership
+                .as_deref()
+                .map(super::project_ownership::fingerprint),
             fingerprint: fingerprint_from_inputs(&snapshot.inputs),
             inputs: snapshot.inputs,
             unreadable_paths: snapshot.unreadable_paths,
@@ -1038,13 +1179,13 @@ fn java_configuration_id(value: &crate::protocol::JavaRunConfigurationResponse) 
 /// main classes that belong to different modules. Repeated source paths within
 /// one module are genuine duplicates and still collapse to one configuration.
 fn deduplicate_java_configurations(configurations: Vec<RunConfiguration>) -> Vec<RunConfiguration> {
-    let mut grouped = BTreeMap::<String, BTreeMap<String, RunConfiguration>>::new();
+    let mut grouped = BTreeMap::<String, BTreeMap<(String, String), RunConfiguration>>::new();
     for configuration in configurations {
         let module = java_module_identity(configuration.module().as_deref());
         grouped
             .entry(configuration.id.clone())
             .or_default()
-            .entry(module)
+            .entry((configuration.cwd.clone(), module))
             .or_insert(configuration);
     }
 
@@ -1052,12 +1193,27 @@ fn deduplicate_java_configurations(configurations: Vec<RunConfiguration>) -> Vec
         .into_iter()
         .flat_map(|(base_id, modules)| {
             let has_module_collision = modules.len() > 1;
-            modules.into_iter().map(move |(module, mut configuration)| {
-                if has_module_collision {
-                    configuration.id = format!("{base_id}:{module}");
-                }
-                configuration
-            })
+            let separate_reactors = modules
+                .keys()
+                .map(|(root, _)| root)
+                .collect::<BTreeSet<_>>()
+                .len()
+                > 1;
+            modules
+                .into_iter()
+                .map(move |((root, module), mut configuration)| {
+                    if has_module_collision {
+                        // Preserve existing single-reactor IDs, but two independent
+                        // reactors can both have a module named `app` and main `Main`.
+                        let module = if separate_reactors {
+                            workspace_maven_path(Some(&root), &module)
+                        } else {
+                            module
+                        };
+                        configuration.id = format!("{base_id}:{module}");
+                    }
+                    configuration
+                })
         })
         .collect()
 }
@@ -1087,6 +1243,7 @@ fn adopt_annotated_main_classes(
     configurations: &mut [RunConfiguration],
     annotated: &[(String, String)],
     maven_root: Option<&str>,
+    projects: Option<&[super::project_ownership::RunProjectOwnership]>,
 ) {
     for configuration in configurations
         .iter_mut()
@@ -1099,7 +1256,15 @@ fn adopt_annotated_main_classes(
         // module is ambiguous, and guessing would start the wrong service.
         let mut matches = annotated
             .iter()
-            .filter(|(path, _)| within_maven_module(path, &module, maven_root))
+            .filter(|(path, _)| match projects {
+                Some(projects) => {
+                    super::project_ownership::owner(projects, path).is_some_and(|owner| {
+                        owner.maven_reactor_path.as_deref() == Some(configuration.cwd.as_str())
+                            && owner.path == workspace_maven_path(Some(&configuration.cwd), &module)
+                    })
+                }
+                None => within_maven_module(path, &module, maven_root),
+            })
             .map(|(path, qualified_name)| (path, qualified_name));
         let Some((source_path, main_class)) = matches.next() else {
             continue;
@@ -1514,6 +1679,15 @@ fn update_toolchain_document(
 ) -> Result<Value, CoreError> {
     let mut document = local_layer_document(root, local_document)?;
     validate_version_value(&document)?;
+    let overrides = toolchain
+        .path_overrides
+        .map(|value| json!(value))
+        .or_else(|| {
+            document
+                .get("toolchain")
+                .and_then(|value| value.get("pathOverrides"))
+                .cloned()
+        });
     document["toolchain"] = json!({
         "java": { "homePath": toolchain.java_home_path },
         "maven": {
@@ -1521,6 +1695,10 @@ fn update_toolchain_document(
             "javaHomePath": toolchain.maven_java_home_path
         }
     });
+    if let Some(overrides) = overrides {
+        document["toolchain"]["pathOverrides"] = overrides;
+    }
+    validate_toolchain_path_overrides(&document)?;
     Ok(document)
 }
 
@@ -1779,6 +1957,7 @@ fn create_build_provider_configuration(
     let encoded = serde_json::to_value(reference).expect("reference encodes");
     let mut identity = encoded.clone();
     identity.as_object_mut().unwrap().remove("userArguments");
+    identity.as_object_mut().unwrap().remove("execution");
     let items = document["configurations"]
         .as_array_mut()
         .ok_or_else(|| CoreError::new(ErrorCode::ParseFailed, "configurations must be an array"))?;
@@ -1789,6 +1968,7 @@ fn create_build_provider_configuration(
         let mut saved = item["extensions"]["build"].clone();
         if let Some(object) = saved.as_object_mut() {
             object.remove("userArguments");
+            object.remove("execution");
         }
         saved == identity
     });
@@ -1805,7 +1985,7 @@ fn create_build_provider_configuration(
             "Run configuration must be an object",
         )
     })?;
-    let managed = json!({"id":id,"name":name,"provider":"build.provider","execution":"application",
+    let managed = json!({"id":id,"name":name,"provider":"build.provider","execution":reference.execution.unwrap_or_default(),
         "cwd":reference.root,"confidence":"declared"});
     object.extend(
         managed
@@ -1990,6 +2170,117 @@ fn javac_compile_step(
         step["classpath"] = Value::Array(classpath.to_vec());
     }
     step
+}
+
+/// Extracts existing Run document values; framework goals and runtime semantics stay in providers.
+pub fn provider_launch_inputs(request: ProviderLaunchInputsRequest) -> Result<Value, CoreError> {
+    let root = existing_root(&request.root)?;
+    if invalid_relative_path(&request.provider_root)
+        || !project_directory_exists(&root, &request.provider_root)
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The provider instance leaves the workspace.",
+        ));
+    }
+    let explicit_cwd = configuration_override_has_key(
+        &root,
+        request.local_document.as_ref(),
+        &request.configuration_id,
+        "cwd",
+    )?;
+    let resolved = resolve(ResolveRequest {
+        root: request.root,
+        toolchain_candidates: Vec::new(),
+        local_document: request.local_document,
+    })?;
+    let config = resolved["configurations"]
+        .as_array()
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|value| value["id"] == request.configuration_id)
+        })
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Run configuration is unavailable.",
+            )
+        })?;
+    if config["provider"] == "build.provider" {
+        let reference: BuildProviderRunReference =
+            serde_json::from_value(config["extensions"]["build"].clone()).map_err(|_| {
+                CoreError::new(
+                    ErrorCode::ParseFailed,
+                    "Invalid build provider run reference",
+                )
+            })?;
+        reference.validate()?;
+        if reference.root != request.provider_root || config["disabled"] == true {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Run configuration belongs to a different provider instance or is disabled.",
+            ));
+        }
+        return Ok(
+            json!({"buildSystemID":reference.build_system_id,"provider":reference.run,"projectPath":reference.root,
+            "launchOptions":{"execution":reference.execution.unwrap_or_default(),"runtimeArguments":[],"arguments":reference.user_arguments,"environment":{}},
+            "optionOverrides":{},"reference":reference}),
+        );
+    }
+    let maven = &config["extensions"]["maven"];
+    if !maven.is_object() || config["provider"].as_str().is_none() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Run configuration has no provider-owned launch inputs.",
+        ));
+    }
+    if maven["reactorPath"]
+        .as_str()
+        .is_some_and(|path| path != request.provider_root)
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Run configuration belongs to a different provider instance.",
+        ));
+    }
+    let module = maven["module"].as_str().unwrap_or(".");
+    let project = workspace_maven_path(Some(&request.provider_root), module);
+    if invalid_relative_path(module) || !project_directory_exists(&root, &project) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Run configuration project is unavailable.",
+        ));
+    }
+    let mut options = json!({"execution":config["execution"],"runtimeArguments":maven["jvmArguments"].as_array().cloned().unwrap_or_default(),
+        "arguments":maven["programArguments"].as_array().cloned().unwrap_or_default(),"environment":config["env"]});
+    if explicit_cwd {
+        options["workingDirectory"] = config["cwd"].clone();
+    }
+    if let Some(main) = maven["mainClass"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+    {
+        options["entrypoint"] = json!(main);
+    }
+    if config["provider"] == "maven.module" {
+        let mut args = config["args"].as_array().cloned().unwrap_or_default();
+        args.extend(options["arguments"].as_array().cloned().unwrap_or_default());
+        options["arguments"] = json!(args);
+    }
+    let mut overrides = json!({});
+    if let Some(profiles) = maven["profiles"]
+        .as_array()
+        .filter(|values| !values.is_empty())
+    {
+        overrides["profiles"] = json!(profiles);
+    }
+    if let Some(skip) = maven["skipTests"].as_bool() {
+        overrides["skipTests"] = json!(skip);
+    }
+    Ok(
+        json!({"buildSystemID":"maven","provider":config["provider"],"projectPath":project,"launchOptions":options,"optionOverrides":overrides}),
+    )
 }
 
 /// Resolves one configuration into the exact executable, arguments, and environment.
@@ -2177,14 +2468,12 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         }
         arguments.push(json!(java_launch.main_class));
         arguments.extend(program_arguments);
-        // JDT's incremental build is not Maven's resource-processing phase.
-        // Maven owns filtering, custom resource roots and reactor dependencies.
-        let reactor_path = maven["reactorPath"].as_str().unwrap_or(".");
-        let mut context =
-            request
-                .maven_context
-                .clone()
-                .unwrap_or(crate::project::MavenLaunchContextRequest {
+        if !java_launch.build_prepared {
+            // JDT's incremental build is not Maven's resource-processing phase.
+            // Maven owns filtering, custom resource roots and reactor dependencies.
+            let reactor_path = maven["reactorPath"].as_str().unwrap_or(".");
+            let mut context = request.maven_context.clone().unwrap_or(
+                crate::project::MavenLaunchContextRequest {
                     version: 1,
                     reactor_path: reactor_path.to_string(),
                     profiles: Vec::new(),
@@ -2193,60 +2482,62 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                     skip_tests: false,
                     maven_executable_path: None,
                     java_home_path: None,
-                });
-        context.reactor_path = reactor_path.to_string();
-        let mut resource_module = maven["module"].as_str().map(str::to_string);
-        if let Some(module) = resource_module.as_deref().filter(|module| *module != ".") {
-            let reactor_root = workspace_root.join(reactor_path);
-            let declared = crate::project::declared_modules(&reactor_root)?;
-            if !declared
-                .iter()
-                .any(|candidate| candidate.relative_path == module)
-            {
-                // An independently imported child POM is not selectable with -pl.
-                // Let the shared planner validate its own project boundary instead.
-                context.reactor_path = format!("{reactor_path}/{module}");
-                resource_module = None;
+                },
+            );
+            context.reactor_path = reactor_path.to_string();
+            let mut resource_module = maven["module"].as_str().map(str::to_string);
+            if let Some(module) = resource_module.as_deref().filter(|module| *module != ".") {
+                let reactor_root = workspace_root.join(reactor_path);
+                let declared = crate::project::declared_modules(&reactor_root)?;
+                if !declared
+                    .iter()
+                    .any(|candidate| candidate.relative_path == module)
+                {
+                    // An independently imported child POM is not selectable with -pl.
+                    // Let the shared planner validate its own project boundary instead.
+                    context.reactor_path = format!("{reactor_path}/{module}");
+                    resource_module = None;
+                }
             }
+            if let Some(profiles) = maven["profiles"]
+                .as_array()
+                .filter(|items| !items.is_empty())
+            {
+                context.profiles = profiles
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect();
+            }
+            if let Some(skip_tests) = maven.get("skipTests").and_then(Value::as_bool) {
+                context.skip_tests = skip_tests;
+            }
+            let reactor_pom = workspace_root.join(&context.reactor_path).join("pom.xml");
+            let mut resource_arguments = vec![
+                "-f".to_string(),
+                reactor_pom.to_string_lossy().into_owned(),
+                "resources:resources".to_string(),
+            ];
+            if config["extensions"]["java"]["sourceSet"] == "test" {
+                resource_arguments.push("resources:testResources".to_string());
+            }
+            let resource_plan = crate::project::launch_plan_with_arguments(
+                request.root.clone(),
+                context,
+                resource_module,
+                resource_arguments,
+                true,
+            )?;
+            pre_launch_steps.push(json!({
+                "executable": resource_plan.executable,
+                "arguments": resource_plan.arguments,
+                // The reactor directory is the step's own resolution root: the host
+                // finds the project's Maven wrapper there even when the application
+                // working directory is overridden, and the absolute `-f` above keeps
+                // the POM anchored.
+                "workingDirectory": resource_plan.working_directory,
+            }));
         }
-        if let Some(profiles) = maven["profiles"]
-            .as_array()
-            .filter(|items| !items.is_empty())
-        {
-            context.profiles = profiles
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect();
-        }
-        if let Some(skip_tests) = maven.get("skipTests").and_then(Value::as_bool) {
-            context.skip_tests = skip_tests;
-        }
-        let reactor_pom = workspace_root.join(&context.reactor_path).join("pom.xml");
-        let mut resource_arguments = vec![
-            "-f".to_string(),
-            reactor_pom.to_string_lossy().into_owned(),
-            "resources:resources".to_string(),
-        ];
-        if config["extensions"]["java"]["sourceSet"] == "test" {
-            resource_arguments.push("resources:testResources".to_string());
-        }
-        let resource_plan = crate::project::launch_plan_with_arguments(
-            request.root.clone(),
-            context,
-            resource_module,
-            resource_arguments,
-            true,
-        )?;
-        pre_launch_steps.push(json!({
-            "executable": resource_plan.executable,
-            "arguments": resource_plan.arguments,
-            // The reactor directory is the step's own resolution root: the host
-            // finds the project's Maven wrapper there even when the application
-            // working directory is overridden, and the absolute `-f` above keeps
-            // the POM anchored.
-            "workingDirectory": resource_plan.working_directory,
-        }));
     } else if is_java_main {
         let source = config["extensions"]["java"]["source"]
             .as_str()
@@ -2614,7 +2905,48 @@ fn string_arguments(values: &[Value]) -> String {
 
 fn validate_version_value(document: &Value) -> Result<(), CoreError> {
     let version = document.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
-    validate_version(version)
+    validate_version(version)?;
+    validate_toolchain_path_overrides(document)
+}
+
+fn validate_toolchain_path_overrides(document: &Value) -> Result<(), CoreError> {
+    let Some(value) = document
+        .get("toolchain")
+        .and_then(|value| value.get("pathOverrides"))
+    else {
+        return Ok(());
+    };
+    let invalid = || {
+        CoreError::new(ErrorCode::InvalidRequest, "Subproject toolchain paths must use bounded workspace-relative roots and valid tool paths")
+    };
+    let overrides = value.as_object().ok_or_else(invalid)?;
+    if overrides.len() > 256 {
+        return Err(invalid());
+    }
+    for (path, value) in overrides {
+        if path.is_empty()
+            || path.len() > 1024
+            || path.contains(['\\', ':'])
+            || path.chars().any(char::is_control)
+            || path
+                .split('/')
+                .any(|part| part.is_empty() || matches!(part, "." | ".."))
+        {
+            return Err(invalid());
+        }
+        let paths: PathToolchainOverride =
+            serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+        for value in [
+            &paths.java_home_path,
+            &paths.maven_executable_path,
+            &paths.maven_java_home_path,
+        ] {
+            if value.len() > 4096 || value.trim() != value || value.chars().any(char::is_control) {
+                return Err(invalid());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_version(version: u32) -> Result<(), CoreError> {
@@ -2854,7 +3186,7 @@ fn validate_configuration(configuration: &RunConfiguration) -> Result<(), CoreEr
             || !configuration.env.is_empty()
             || !configuration.toolchains.is_empty()
             || configuration.debug.is_some()
-            || configuration.execution != Execution::Application
+            || configuration.execution != reference.execution.unwrap_or_default()
         {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
@@ -3128,7 +3460,7 @@ pub(super) fn read_requirements(
         || ["build.gradle", "build.gradle.kts", "gradlew", "mvnw"]
             .iter()
             .any(|name| root.join(name).is_file());
-    detect_requirements(root, maven_root.as_deref(), has_java_ecosystem, &[]).map(Some)
+    detect_requirements(root, maven_root.as_deref(), has_java_ecosystem, &[], None).map(Some)
 }
 
 fn read_local_toolchains(root: &Path) -> Result<Option<Value>, CoreError> {
@@ -3154,6 +3486,7 @@ fn detect_requirements(
     maven_root: Option<&Path>,
     has_java_ecosystem: bool,
     configurations: &[RunConfiguration],
+    projects: Option<&[super::project_ownership::RunProjectOwnership]>,
 ) -> Result<ToolchainRequirementsDocument, CoreError> {
     let mut jdk = ToolchainRequirement {
         kind: "java".to_string(),
@@ -3173,7 +3506,14 @@ fn detect_requirements(
     };
     let maven_root = maven_root.unwrap_or(root);
     let pom = maven_root.join("pom.xml");
-    if let Ok(text) = fs::read_to_string(pom) {
+    if let Some(projects) = projects {
+        jdk.minimum_version = projects
+            .iter()
+            .filter_map(|project| project.minimum_java_version.as_deref())
+            .filter_map(|value| value.parse::<u16>().ok())
+            .max()
+            .map(|value| value.to_string());
+    } else if let Ok(text) = fs::read_to_string(pom) {
         let re = regex::Regex::new(r"(?:maven.compiler.release|maven.compiler.source|maven.compiler.target|java.version)\s*>?\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)").unwrap();
         // Java 8 projects commonly declare `1.8`; keep the feature version
         // instead of the legacy `1` prefix.
@@ -3185,16 +3525,42 @@ fn detect_requirements(
     if let Some((version, vendor)) =
         declared_java_version(maven_root).or_else(|| declared_java_version(root))
     {
-        jdk.minimum_version = Some(version);
+        jdk.minimum_version = if projects.is_some() {
+            jdk.minimum_version
+                .as_deref()
+                .and_then(major_version)
+                .filter(|floor| version_parts(floor) > version_parts(&version))
+                .or(Some(version))
+        } else {
+            Some(version)
+        };
         jdk.preferred_vendor = vendor;
     }
-    if maven_root.join("mvnw").exists() {
-        maven.wrapper = Some("./mvnw".to_string());
+    if let Some(projects) = projects {
+        maven.minimum_version = highest_version(
+            projects
+                .iter()
+                .filter_map(|project| project.maven_minimum_version.clone())
+                .collect(),
+        );
+        let roots = projects
+            .iter()
+            .filter_map(|project| project.maven_reactor_path.as_deref())
+            .collect::<BTreeSet<_>>();
+        // One global requirement cannot select a Wrapper for two independent
+        // reactors. Their actual executable remains a per-Run platform choice.
+        if roots.len() == 1 {
+            maven.wrapper = projects
+                .iter()
+                .find_map(|project| project.maven_wrapper.clone());
+        }
+    } else {
+        if maven_root.join("mvnw").exists() {
+            maven.wrapper = Some("./mvnw".to_string());
+        }
+        // A distribution version is a floor, not an exact system Maven pin.
+        maven.minimum_version = maven_wrapper_version(maven_root);
     }
-    // Wrapper distribution is a floor for system Maven, not an exact pin. A
-    // newer installed Maven (for example 3.9.x against a 3.6.x wrapper URL)
-    // remains valid for launch planning and run diagnostics.
-    maven.minimum_version = maven_wrapper_version(maven_root);
     let mut toolchains = BTreeMap::new();
     let consumes = |toolchain: &str| {
         configurations.iter().any(|configuration| {
@@ -3207,7 +3573,15 @@ fn detect_requirements(
     if has_java_ecosystem || consumes("project-jdk") {
         toolchains.insert("project-jdk".to_string(), jdk);
     }
-    if maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file() {
+    if projects.map_or_else(
+        || maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file(),
+        |projects| {
+            projects
+                .iter()
+                .any(|project| project.maven_reactor_path.is_some())
+                || consumes("project-maven")
+        },
+    ) {
         toolchains.insert("project-maven".to_string(), maven);
     }
     if consumes("project-node") {
@@ -3507,6 +3881,7 @@ fn fingerprint_input(path: &Path) -> bool {
         path.file_name().and_then(|name| name.to_str()),
         Some(
             "pom.xml"
+                | "mvnw.cmd"
                 | "mvnw"
                 | "maven-wrapper.properties"
                 | ".java-version"

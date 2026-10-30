@@ -825,7 +825,7 @@
     {
       "name": "future capability version",
       "base": "build-static-file.plugin.json",
-      "edits": [{ "op": "set", "path": "/requires/buildSystems", "value": 3 }],
+      "edits": [{ "op": "set", "path": "/requires/buildSystems", "value": 4 }],
       "expectedCode": "plugin.api.unsupported"
     },
     {

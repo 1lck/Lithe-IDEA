@@ -91,19 +91,10 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     @Published var hasRunnableJavaMain = false
     @Published var hasJavaTests = false
     /// Prefer imported source-root roles over test-name or annotation guesses.
-    static func isTestSourceFile(_ url: URL, project: MavenProject?, hasTests: Bool) -> Bool {
+    static func isTestSourceFile(_ url: URL, importedSourceRootKind: String?, hasTests: Bool) -> Bool {
         let semanticFallback = hasTests && url.pathExtension.lowercased() == "java"
-        guard let project else { return semanticFallback }
-        let roots = [(project.rootURL, project.sourceRoots)] + project.allModules.map { ($0.url, $0.sourceRoots) }
-        let matches = roots.flatMap { base, roots in
-            roots.compactMap { root -> (String, MavenSourceRootKind)? in
-                let path = (root.path.hasPrefix("/") ? URL(fileURLWithPath: root.path)
-                    : base.appendingPathComponent(root.path, isDirectory: true)).standardizedFileURL.path
-                return url.standardizedFileURL.path.hasPrefix(path + "/") ? (path, root.kind) : nil
-            }
-        }
-        guard let kind = matches.max(by: { $0.0.count < $1.0.count })?.1 else { return semanticFallback }
-        return [.testJava, .testResources, .generatedTest].contains(kind)
+        guard let importedSourceRootKind else { return semanticFallback }
+        return ["testSource", "testResource", "generatedTestSource"].contains(importedSourceRootKind)
     }
 
     private(set) var externalDiskIdentity: String?

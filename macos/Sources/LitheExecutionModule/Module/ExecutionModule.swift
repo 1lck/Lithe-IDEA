@@ -3,7 +3,6 @@ import LitheModuleAPI
 
 @MainActor
 package protocol ExecutionServiceGraph: AnyObject {
-    var mavenFeature: MavenFeatureModel { get }
     var runFeature: RunFeatureModel { get }
     var tests: LanguageTestService { get }
     var projectDevelopment: ProjectDevelopmentFeatureModel { get }
@@ -16,13 +15,11 @@ package protocol ExecutionServiceGraph: AnyObject {
 
 @MainActor
 public final class ExecutionModuleCapability: NSObject {
-    package let mavenFeature: MavenFeatureModel
     package let runFeature: RunFeatureModel
     package let testService: LanguageTestService
     package let projectDevelopment: ProjectDevelopmentFeatureModel
     package let buildSystemsFeature: BuildSystemsFeatureModel?
     fileprivate init(graph: any ExecutionServiceGraph) {
-        mavenFeature = graph.mavenFeature
         runFeature = graph.runFeature
         testService = graph.tests
         projectDevelopment = graph.projectDevelopment

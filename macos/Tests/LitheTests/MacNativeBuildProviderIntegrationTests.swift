@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import LitheCoreContracts
+import LitheExecutionModule
 import LitheLanguageIntelligenceModule
 import Testing
 @testable import Lithe
@@ -10,6 +11,346 @@ import Testing
 @Suite("Native macOS build Provider integration", .serialized)
 @MainActor
 struct MacNativeBuildProviderIntegrationTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D Maven package and selected Java/Maven"))
+    func runProfileUsesOneMavenModelAndSavedGenerationTracksDefaultProfileChanges() async throws {
+        try await verifyRunConfigurationPreparation(savedTaskOnly: false)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D Maven package and selected Java/Maven"))
+    func savedProviderTaskUsesCurrentTypedInputsWithoutChangingBuildDefaults() async throws {
+        try await verifyRunConfigurationPreparation(savedTaskOnly: true)
+    }
+
+    private func verifyRunConfigurationPreparation(savedTaskOnly: Bool) async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
+        let java = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_JAVA"]))
+        let maven = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_MAVEN"]))
+        let files = FileManager.default
+        let scratch = files.temporaryDirectory.appendingPathComponent("lithe-native-run-profile-\(UUID().uuidString)")
+        try files.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: scratch) }
+        let workspace = scratch.appendingPathComponent("workspace")
+        for path in ["nested/checks", "nested/test inputs"] {
+            try files.createDirectory(at: workspace.appendingPathComponent(path), withIntermediateDirectories: true)
+        }
+        try Data("class Main { public static void main(String[] args) {} }".utf8).write(to: workspace.appendingPathComponent("nested/checks/Main.java"))
+        try Data("selected=${selected.value}".utf8).write(to: workspace.appendingPathComponent("nested/test inputs/runtime.properties"))
+        try Data("""
+        <project><modelVersion>4.0.0</modelVersion><groupId>smoke</groupId><artifactId>app</artifactId><version>1</version>
+        <properties><selected.sources>checks</selected.sources><selected.checks>inactive-checks</selected.checks></properties>
+        <build><sourceDirectory>${selected.sources}</sourceDirectory><testSourceDirectory>${selected.checks}</testSourceDirectory><testResources><testResource><directory>test inputs</directory>
+          <filtering>true</filtering></testResource></testResources></build>
+        <profiles><profile><id>run-only</id><properties><selected.value>current-profile</selected.value>
+          <selected.sources>inactive-sources</selected.sources><selected.checks>checks</selected.checks></properties>
+        </profile></profiles></project>
+        """.utf8).write(to: workspace.appendingPathComponent("nested/pom.xml"))
+        let before = try Self.inventory(package)
+        let core = RustCoreBridge(), storage = MacFileStorage()
+        let planner = RustBuildSystemOperations(core: core), declarations = RustDeclarativePluginOperations(core: core)
+        let descriptor = try declarations.validate(manifest: Data(contentsOf: package.appendingPathComponent("plugin.json")))
+        let source = BuildSystemPluginSource(pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
+            packageURL: package, buildSystems: descriptor.buildSystems)
+        let runtime = ExplicitProviderRuntime(java: java, environment: environment), released = TestGate()
+        let directories = MacPluginStateDirectories(rootURL: scratch.appendingPathComponent("state"))
+        let sessions = MacBuildProviderSessions(launchResolver: MacPluginLanguageServerLaunchResolver(planner: declarations,
+            directories: directories, settings: InMemoryPluginSettings()), tools: runtime, versionChecker: declarations,
+            runtime: runtime, core: core, processRegistry: nil, endBackendProcesses: { token, _ in
+                MacPluginBackendProcesses.end(token: token, gracePeriod: 0); released.open()
+            })
+        let domain = "lithe.native-run-profile.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let options = MacBuildOptionsStore(store: MacUserDefaultsStore(defaults: defaults))
+        let build = BuildSystemService(planner: planner, tools: ExplicitNativeConfigurationTool(maven: maven), optionsStore: options,
+            stateLocator: MacBuildSystemStateLocator(directories: directories, fileStorage: storage),
+            runner: MacBuildCommandRunner(), providers: sessions, sources: { [source] })
+        let outcome: Result<Void, Error>
+        do {
+            build.reset(workspaceURL: workspace)
+            let baseline = try await build.prepareLanguageImport(workspaceURL: workspace)
+            if savedTaskOnly {
+                try await build.prepareLanguageTestModels(allModels: true, workspace: workspace)
+                let taskPreparation = try await build.prepareConfigurationRun(inputs: ProviderLaunchInputs(
+                    buildSystemID: "maven", provider: "maven.module", projectPath: "nested",
+                    launchOptions: BuildLaunchOptions(execution: .task, arguments: ["validate"], environment: ["LITHE_RUN_VALUE": "雪"], workingDirectory: "."),
+                    optionOverrides: ["profiles": .array([.string("run-only")])]), instanceRoot: "nested", workspace: workspace,
+                    tool: BuildProviderHints(toolExecutable: maven, toolEnvironment: ["JAVA_HOME": java.deletingLastPathComponent().deletingLastPathComponent().path]),
+                    isCurrent: { true }, progress: { _ in })
+                #expect(taskPreparation.executable.value == "project-maven")
+                #expect(taskPreparation.arguments.contains("validate"))
+                #expect(taskPreparation.arguments.contains("-Prun-only"))
+                #expect(taskPreparation.workingDirectory == ".")
+                #expect(taskPreparation.environment["LITHE_RUN_VALUE"] == "雪")
+                #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
+                let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(defaults: defaults))
+                let moduleTarget = try #require(build.entries.first?.model?.targets.first { $0.name == "maven.module" })
+                let reference = BuildProviderRunReference(pluginID: source.pluginID, buildSystemID: "maven", root: "nested",
+                    run: "module", projectID: moduleTarget.projectID, targetID: moduleTarget.id, userArguments: ["validate"], execution: .task)
+                let savedID = try store.saveBuildProviderConfiguration(reference, name: "Validate module", at: workspace)
+                let savedInputs = try store.providerLaunchInputs(at: workspace, configurationID: savedID, providerRoot: "nested")
+                let savedPreparation = try await build.prepareConfigurationRun(inputs: savedInputs, instanceRoot: "nested", workspace: workspace,
+                    tool: BuildProviderHints(), isCurrent: { true }, progress: { _ in })
+                #expect(savedPreparation.arguments.last == "validate")
+                #expect(try store.resolve(at: workspace, toolchainCandidates: []).configurations.first?.configuration.execution == .task)
+                #expect(build.configurationRunSource(inputs: savedInputs, instanceRoot: "nested") == source)
+            } else {
+                let prepared = try await build.prepareLanguageRun(fileURL: workspace.appendingPathComponent("nested/checks/Main.java"),
+                    workspace: workspace, mainTask: "java-prepare-run-main", testTask: "java-prepare-run-test",
+                    optionOverrides: ["profiles": .array([.string("run-only")])],
+                    tool: { _ in BuildProviderHints(toolExecutable: maven,
+                        toolEnvironment: runtime.environment.filter { $0.key == "JAVA_HOME" || $0.key == "PATH" }) }, isCurrent: { true })
+                guard case .maven(let context)? = prepared else { throw NativeProviderIntegrationError.unexpectedCommand }
+                #expect(context.profiles == ["run-only"])
+                #expect(context.mavenExecutablePath == maven.path)
+                #expect(context.reactorPath == "nested")
+                #expect(try String(contentsOf: workspace.appendingPathComponent("nested/target/test-classes/runtime.properties"), encoding: .utf8) == "selected=current-profile")
+                #expect(build.entries.first?.model?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
+                #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
+                #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["nested"]?["profiles"] == nil)
+                let ownership = try build.runProjectOwnership()
+                #expect(ownership.first?.mavenReactorPath == "nested")
+                #expect(ownership.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
+                let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(defaults: defaults))
+                _ = try store.generate(at: workspace, files: [workspace.appendingPathComponent("nested/checks/Main.java")], modulePaths: [],
+                    javaEntrypoints: JavaEntrypoints(entries: [JavaEntrypoint(sourcePath: "nested/checks/Main.java", mainClass: "Main")]), projectOwnership: ownership)
+                #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
+                let entryID = try #require(build.entries.first?.id)
+                func currentOwnership() async throws -> [LitheCoreContracts.RunProjectOwnership] {
+                    _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+                    try await build.prepareLanguageTestModels(allModels: true, workspace: workspace)
+                    _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+                    return try build.runProjectOwnership()
+                }
+                // These are explicit edits of Build defaults after the temporary Run
+                // has completed. POM bytes stay unchanged throughout A → B → A.
+                build.setOption(entryID, optionID: "profiles", value: .array([.string("run-only")]))
+                let changed = try await currentOwnership()
+                #expect(changed.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "testSource" } == true)
+                #expect(store.inspectProviderGeneration(at: workspace, projectOwnership: changed).diagnostics.contains { $0.code == "staleProviderModel" })
+                build.setOption(entryID, optionID: "profiles", value: .array([]))
+                let restored = try await currentOwnership()
+                #expect(restored == ownership)
+                #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: restored).diagnostics.contains { $0.code == "staleProviderModel" })
+            }
+            outcome = .success(())
+        } catch { outcome = .failure(error) }
+        build.stop(); sessions.retainProviders { _ in false }
+        #expect(await released.waitUntilOpen(timeout: .seconds(5)))
+        #expect(try Self.inventory(package) == before)
+        try outcome.get()
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D native-configuration development package"))
+    func nativeSettingsStayIndependentAcrossReactorRoots() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
+        let java = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_JAVA"]))
+        let maven = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_MAVEN"]))
+        let files = FileManager.default
+        let scratch = files.temporaryDirectory.appendingPathComponent("lithe-native-reactor-settings-\(UUID().uuidString)")
+        try files.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: scratch) }
+        let workspace = scratch.appendingPathComponent("workspace")
+        for root in ["a", "b"] {
+            let directory = workspace.appendingPathComponent(root)
+            try files.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data("<broken>".utf8).write(to: directory.appendingPathComponent("pom.xml"))
+        }
+        let a = scratch.appendingPathComponent("a settings.xml")
+        let b = scratch.appendingPathComponent("b settings.xml")
+        let replacement = scratch.appendingPathComponent("replacement.xml")
+        for (url, name) in [(a, "a"), (b, "b"), (replacement, "replacement")] {
+            try Data("<settings><localRepository>\(scratch.appendingPathComponent(name + "-repository").path)</localRepository></settings>".utf8).write(to: url)
+        }
+        // The backend itself runs with the test-selected Java. Maven must use
+        // the distinct canonical selection for each reactor, transmitted as
+        // environment rather than inferred from the backend's java.home.
+        let javaHome = java.resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
+        var runtimeSettings = ProjectRuntimeSettings()
+        for root in ["a", "b"] {
+            let alias = scratch.appendingPathComponent("runtime-\(root)")
+            try files.createSymbolicLink(at: alias, withDestinationURL: javaHome)
+            runtimeSettings.setOverride(path: root, mavenExecutablePath: maven.path, mavenJavaHomePath: alias.path)
+        }
+        let bSettings = "<settings><localRepository>\(scratch.appendingPathComponent("b-repository").path)</localRepository><activeProfiles><activeProfile>${env.JAVA_HOME}</activeProfile></activeProfiles></settings>"
+        try Data(bSettings.utf8).write(to: b)
+        let before = try Self.inventory(package)
+        let core = RustCoreBridge()
+        let planner = RustBuildSystemOperations(core: core)
+        let declarations = RustDeclarativePluginOperations(core: core)
+        let descriptor = try declarations.validate(manifest: Data(contentsOf: package.appendingPathComponent("plugin.json")))
+        let source = BuildSystemPluginSource(pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
+            packageURL: package, buildSystems: descriptor.buildSystems)
+        let runtime = ExplicitProviderRuntime(java: java, environment: environment)
+        let released = TestGate()
+        let directories = MacPluginStateDirectories(rootURL: scratch.appendingPathComponent("state"))
+        let sessions = MacBuildProviderSessions(
+            launchResolver: MacPluginLanguageServerLaunchResolver(planner: declarations, directories: directories,
+                settings: InMemoryPluginSettings()), tools: runtime, versionChecker: declarations,
+            runtime: runtime, core: core, processRegistry: nil, endBackendProcesses: { token, _ in
+                MacPluginBackendProcesses.end(token: token, gracePeriod: 0); released.open()
+            })
+        let domain = "lithe.native-reactor-settings.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let options = MacBuildOptionsStore(store: MacUserDefaultsStore(defaults: defaults))
+        try options.setInstanceOptions(["a": ["settingsFile": .string(a.path)], "b": ["settingsFile": .string(b.path)]],
+            workspaceURL: workspace, buildSystemID: "maven")
+        let storage = MacFileStorage()
+        let preferences = MacUserDefaultsStore(defaults: defaults)
+        let runtimeStore = MacProjectRuntimeSettingsStore(core: core, storage: storage, preferences: preferences)
+        _ = try runtimeStore.save(runtimeSettings, at: workspace, expecting: runtimeStore.load(at: workspace, migrateLegacy: false))
+        let projectRuntime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), settingsStore: runtimeStore)
+        projectRuntime.openProject(at: workspace)
+        let build = BuildSystemService(planner: planner,
+            tools: MacBuildToolResolver(runtime: projectRuntime, processRunner: MacProcessRunner(), fileStorage: storage), optionsStore: options,
+            stateLocator: MacBuildSystemStateLocator(directories: directories, fileStorage: storage),
+            runner: MacBuildCommandRunner(), providers: sessions,
+            nativeConfigurationFiles: MacBuildNativeConfigurationStore(storage: storage, planner: planner,
+                immutableRoots: [package, Bundle.main.bundleURL]), sources: { [source] })
+        let outcome: Result<Void, Error>
+        do {
+            build.reset(workspaceURL: workspace)
+            _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+            #expect(build.entries.map(\.id) == ["maven:a", "maven:b"])
+            let firstA = try await build.readNativeConfiguration("maven:a")
+            let firstB = try await build.readNativeConfiguration("maven:b")
+            let userA = try #require(firstA.sources.first { $0.id == "user" })
+            let userB = try #require(firstB.sources.first { $0.id == "user" })
+            #expect(userA.uri == a.absoluteString)
+            #expect(userB.uri == b.absoluteString)
+            #expect(userB.fields.first { $0.id == "activeProfiles" }?.effectiveValue == .array([.string(scratch.appendingPathComponent("runtime-b").path)]))
+            let savedPath = scratch.appendingPathComponent("saved-a-repository").path
+            _ = try await build.saveNativeConfiguration("maven:a", snapshot: firstA,
+                edits: BuildNativeConfigurationEdits(sourceID: userA.id, revision: userA.revision,
+                    values: ["localRepository": .string(savedPath)]))
+            let freshB = try await build.readNativeConfiguration("maven:b")
+            #expect(freshB.sources.first { $0.id == "user" } == userB)
+            #expect(try String(contentsOf: b, encoding: .utf8) == bSettings)
+            _ = try build.configureOption("maven:a", optionID: "settingsFile", value: .string(replacement.path))
+            _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+            let changedA = try await build.readNativeConfiguration("maven:a")
+            let unchangedB = try await build.readNativeConfiguration("maven:b")
+            #expect(changedA.sources.first { $0.id == "user" }?.uri == replacement.absoluteString)
+            #expect(unchangedB.sources.first { $0.id == "user" } == userB)
+            #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["b"]?["settingsFile"] == .string(b.path))
+            #expect(!files.fileExists(atPath: workspace.appendingPathComponent("a/target").path))
+            #expect(!files.fileExists(atPath: workspace.appendingPathComponent("b/target").path))
+            for path in ["a-repository", "b-repository", "saved-a-repository", "replacement-repository"] {
+                #expect(!files.fileExists(atPath: scratch.appendingPathComponent(path).path))
+            }
+            outcome = .success(())
+        } catch { outcome = .failure(error) }
+        build.stop(); sessions.retainProviders { _ in false }
+        #expect(await released.waitUntilOpen(timeout: .seconds(5)))
+        #expect(try Self.inventory(package) == before)
+        try outcome.get()
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D native-configuration development package"))
+    func nativeSettingsUseProductionStorageReadBackAndRejectExternalChanges() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
+        let java = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_JAVA"]))
+        let maven = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_MAVEN"]))
+        let files = FileManager.default
+        let scratch = files.temporaryDirectory.appendingPathComponent("lithe-native-settings-workflow-\(UUID().uuidString)")
+        try files.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: scratch) }
+        let workspace = scratch.appendingPathComponent("workspace")
+        try files.createDirectory(at: workspace.appendingPathComponent(".mvn"), withIntermediateDirectories: true)
+        try Data("<broken>".utf8).write(to: workspace.appendingPathComponent("pom.xml"))
+        let user = scratch.appendingPathComponent("user settings.xml")
+        let global = scratch.appendingPathComponent("global.xml")
+        let inheritedRepository = scratch.appendingPathComponent("inherited-repository").path
+        let selectedRepository = scratch.appendingPathComponent("saved-repository").path
+        let original = "<settings><!--keep--><servers><server><password>test-secret-preserved</password></server></servers><activeProfiles><activeProfile>ci</activeProfile></activeProfiles></settings>"
+        try Data(original.utf8).write(to: user)
+        try Data("<settings><localRepository>\(inheritedRepository)</localRepository></settings>".utf8).write(to: global)
+        try Data("--global-settings=\(global.path)\n".utf8).write(to: workspace.appendingPathComponent(".mvn/maven.config"))
+        let before = try Self.inventory(package)
+        let core = RustCoreBridge()
+        let planner = RustBuildSystemOperations(core: core)
+        let declarations = RustDeclarativePluginOperations(core: core)
+        let descriptor = try declarations.validate(manifest: Data(contentsOf: package.appendingPathComponent("plugin.json")))
+        let source = BuildSystemPluginSource(pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
+            packageURL: package, buildSystems: descriptor.buildSystems)
+        let selectedRuntime = ExplicitProviderRuntime(java: java, environment: environment)
+        let released = TestGate()
+        let directories = MacPluginStateDirectories(rootURL: scratch.appendingPathComponent("state"))
+        let sessions = MacBuildProviderSessions(
+            launchResolver: MacPluginLanguageServerLaunchResolver(planner: declarations, directories: directories,
+                settings: InMemoryPluginSettings()), tools: selectedRuntime, versionChecker: declarations,
+            runtime: selectedRuntime, core: core, processRegistry: nil, endBackendProcesses: { token, _ in
+                MacPluginBackendProcesses.end(token: token, gracePeriod: 0); released.open()
+            })
+        let preferenceDomain = "lithe.native-settings.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: preferenceDomain))
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        let options = MacBuildOptionsStore(store: MacUserDefaultsStore(defaults: defaults))
+        try options.setOptions(["settingsFile": .string(user.path)], workspaceURL: workspace, buildSystemID: "maven")
+        let storage = MacFileStorage()
+        func service() -> BuildSystemService {
+            BuildSystemService(planner: planner, tools: ExplicitNativeConfigurationTool(maven: maven), optionsStore: options,
+                stateLocator: MacBuildSystemStateLocator(directories: directories, fileStorage: storage),
+                runner: MacBuildCommandRunner(), providers: sessions,
+                nativeConfigurationFiles: MacBuildNativeConfigurationStore(storage: storage, planner: planner,
+                    immutableRoots: [package, Bundle.main.bundleURL]), sources: { [source] })
+        }
+        let build = service()
+        var reopened: BuildSystemService?
+        let outcome: Result<Void, Error>
+        do {
+            build.reset(workspaceURL: workspace)
+            _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+            let entry = try #require(build.entries.first)
+            let first = try await build.readNativeConfiguration(entry.id)
+            let userSource = try #require(first.sources.first { $0.id == "user" })
+            let repository = try #require(userSource.fields.first { $0.id == "localRepository" })
+            #expect(repository.value == .null)
+            #expect(repository.effectiveValue == .string(inheritedRepository))
+            #expect(try String(contentsOf: user, encoding: .utf8) == original)
+            var draft = BuildNativeConfigurationDraft(source: userSource)
+            #expect(!draft.isDirty)
+            draft.setOverride(true, fieldID: repository.id)
+            draft.setValue(.string(selectedRepository), fieldID: repository.id)
+            let saved = try await build.saveNativeConfiguration(entry.id, snapshot: first, edits: draft.edits)
+            #expect(saved.sources.first { $0.id == "user" }?.fields.first { $0.id == "localRepository" }?.effectiveValue == .string(selectedRepository))
+            let savedText = try String(contentsOf: user, encoding: .utf8)
+            #expect(savedText.contains("<!--keep-->"))
+            #expect(savedText.contains("<password>test-secret-preserved</password>"))
+            #expect(!String(decoding: try JSONEncoder().encode(saved), as: UTF8.self).contains("test-secret-preserved"))
+            let current = try #require(saved.sources.first { $0.id == "user" })
+            let external = savedText + "\n<!-- external save -->"
+            try Data(external.utf8).write(to: user)
+            await #expect(throws: (any Error).self) {
+                try await build.saveNativeConfiguration(entry.id, snapshot: saved, edits: BuildNativeConfigurationEdits(
+                    sourceID: current.id, revision: current.revision, values: ["localRepository": .string("/obsolete")]))
+            }
+            #expect(try String(contentsOf: user, encoding: .utf8) == external)
+            build.stop()
+            let next = service(); reopened = next
+            next.reset(workspaceURL: workspace)
+            _ = try await next.prepareLanguageImport(workspaceURL: workspace)
+            let nextEntry = try #require(next.entries.first)
+            let fresh = try await next.readNativeConfiguration(nextEntry.id)
+            #expect(fresh.sources.first { $0.id == "user" }?.fields.first { $0.id == "localRepository" }?.value == .string(selectedRepository))
+            #expect(!files.fileExists(atPath: workspace.appendingPathComponent("target").path))
+            #expect(!files.fileExists(atPath: inheritedRepository))
+            #expect(!files.fileExists(atPath: selectedRepository))
+            outcome = .success(())
+        } catch { outcome = .failure(error) }
+        build.stop(); reopened?.stop(); sessions.retainProviders { _ in false }
+        #expect(await released.waitUntilOpen(timeout: .seconds(5)))
+        #expect(try Self.inventory(package) == before)
+        try outcome.get()
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_C_MAVEN_PACKAGE"] != nil,
                    "Requires an explicit development Maven package and tool paths"))
     func realMavenProviderBuildsAndTestsWithoutAPluginPage() async throws {
@@ -55,6 +396,7 @@ struct MacNativeBuildProviderIntegrationTests {
             let model = try operations.decodeModel(target, workspaceURL: workspace, root: context.root,
                 output: .providerResult(raw), options: context.options)
             #expect(Set(model.projects.map(\.name)) == ["reactor", "core", "app"])
+            #expect(try #require(sessions.processID(for: provider)) > 0)
             let project = try #require(model.projects.first { $0.name == "core" })
             let taskPlan = try operations.taskPlan(target, context: context,
                 request: BuildTaskRequest(task: "compile", project: BuildSelection(project: project)))
@@ -67,13 +409,13 @@ struct MacNativeBuildProviderIntegrationTests {
             #expect(built.output == progress.output)
             #expect(files.fileExists(atPath: workspace.appendingPathComponent("nested/core/target/classes/demo/core/Greeter.class").path))
             let testPlan = try operations.testPlan(target, context: context,
-                request: BuildTestRequest(project: BuildSelection(project: project), suite: "demo.core.GreeterTest", testCase: "greetsByName"))
+                request: BuildTestRequest(project: BuildSelection(project: project), selectorKind: "java.test.fullName", selectors: ["demo.core.GreeterTest#greetsByName()"]))
             guard case .provider(let test) = testPlan.execution else { throw NativeProviderIntegrationError.unexpectedCommand }
             let tested = try await sessions.execute(Self.withTool(test, maven: maven), on: provider, timeout: .seconds(20)) { _ in }
             #expect(tested.exitCode == 0)
             let results = try operations.decodeTestResults(target, request: BuildTestResultsRequest(workspaceURL: workspace,
                 root: context.root, project: project.path, projects: model.projects.map(\.path), output: tested.output,
-                notBefore: nil, suite: "demo.core.GreeterTest"))
+                notBefore: nil, suite: "demo.core.GreeterTest", result: tested.testResults))
             #expect(results.summary.total == 1)
             #expect(results.summary.failed == 0)
             #expect(results.tests.first?.name == "greetsByName")
@@ -109,12 +451,21 @@ struct MacNativeBuildProviderIntegrationTests {
 }
 
 private enum NativeProviderIntegrationError: Error { case unexpectedCommand }
+@MainActor
+private final class ExplicitNativeConfigurationTool: BuildToolResolving {
+    let maven: URL
+    init(maven: URL) { self.maven = maven }
+    func resolve(_ invocation: BuildInvocation, displayName: String, workspaceURL: URL,
+                 checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck) async throws -> ResolvedBuildTool {
+        ResolvedBuildTool(executableURL: maven, environment: [:], executesProjectCode: false, version: nil)
+    }
+}
 @MainActor private final class NativeProviderProgress { var output = "" }
 
 /// Explicit test-selected executable paths. All process/RPC execution is real;
 /// this port avoids reading or modifying the user's runtime preferences.
 @MainActor
-private final class ExplicitProviderRuntime: BuildToolResolving, LanguageToolRuntimePort {
+final class ExplicitProviderRuntime: BuildToolResolving, LanguageToolRuntimePort {
     let java: URL
     let environment: [String: String]
     init(java: URL, environment: [String: String]) {

@@ -200,24 +200,40 @@ pub(crate) fn build_decode_test_discovery_command(payload: Value) -> Result<Valu
 
 /// `build.prepareRunPlan`: validates a provider-owned target launch request.
 pub(crate) fn build_prepare_run_plan_command(payload: Value) -> Result<Value, CoreError> {
-    with_build_system(
+    with_manifest(
         payload,
         "build.prepareRunPlan",
         "plan",
-        |build_system, request: &super::run_preparation::PrepareRunRequest| {
-            super::run_preparation::plan(build_system, request)
+        |build_system, request: &super::run_preparation::PrepareRunRequest, manifest| {
+            super::run_preparation::plan(
+                build_system,
+                request,
+                manifest
+                    .requires()
+                    .get("buildProviders")
+                    .copied()
+                    .unwrap_or(1),
+            )
         },
     )
 }
 
 /// `build.decodeRunPreparation`: validates portable process launch data.
 pub(crate) fn build_decode_run_preparation_command(payload: Value) -> Result<Value, CoreError> {
-    with_build_system(
+    with_manifest(
         payload,
         "build.decodeRunPreparation",
         "launch",
-        |build_system, request: &super::run_preparation::DecodeRunPreparationRequest| {
-            super::run_preparation::decode(build_system, request)
+        |build_system, request: &super::run_preparation::DecodeRunPreparationRequest, manifest| {
+            super::run_preparation::decode(
+                build_system,
+                request,
+                manifest
+                    .requires()
+                    .get("buildProviders")
+                    .copied()
+                    .unwrap_or(1),
+            )
         },
     )
 }
@@ -335,6 +351,45 @@ pub(crate) fn build_resolve_model_inputs_command(payload: Value) -> Result<Value
         "modelInputs",
         |build, request: &super::model_inputs::ResolveRequest| {
             super::model_inputs::resolve(build, request)
+        },
+    )
+}
+
+/// `build.configurationPlan`: read native facts through the owning provider.
+pub(crate) fn build_configuration_plan_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.configurationPlan",
+        "plan",
+        |declaration, request: &OutputPlanRequest| super::configuration::plan(declaration, request),
+    )
+}
+
+/// `build.decodeConfiguration`: non-sensitive facts and bounded write bindings.
+pub(crate) fn build_decode_configuration_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeConfiguration",
+        "configuration",
+        |declaration, request: &super::configuration::DecodeConfigurationRequest| {
+            super::configuration::decode(declaration, request)
+        },
+    )
+}
+
+/// `build.editConfigurationDocument`: edits approved XML fields in host memory.
+pub(crate) fn build_edit_configuration_document_command(
+    payload: Value,
+) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.editConfigurationDocument",
+        "edit",
+        |declaration, request: &super::configuration_xml::EditConfigurationDocumentRequest| {
+            if declaration.configuration.is_none() {
+                return Err(plans::unavailable(declaration, "native configuration"));
+            }
+            super::configuration_xml::edit(request)
         },
     )
 }

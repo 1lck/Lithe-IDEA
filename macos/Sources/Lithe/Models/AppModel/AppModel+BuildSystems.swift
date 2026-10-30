@@ -56,23 +56,17 @@ extension AppModel {
 
     func javaLanguageImportConfiguration(rootURL: URL) throws -> JavaLanguageImportConfiguration {
         guard workspaceURL?.standardizedFileURL == rootURL.standardizedFileURL else { throw CancellationError() }
-        let pluginImport: JavaLanguageImportConfiguration
         if hasAvailableBuildSystemPlugins {
             guard let feature = buildSystemsFeatureIfActive,
                   feature.workspaceURL == rootURL.standardizedFileURL,
                   let configuration = feature.languageImport else {
                 throw RunConfigurationOperationFailure(message: L10n.string("Build-system language import is still preparing. Retry when project loading completes."))
             }
-            pluginImport = configuration
-        } else {
-            pluginImport = JavaLanguageImportConfiguration()
+            return configuration
         }
-        // Legacy Maven remains the compatibility source only when no plugin
-        // supplied that import kind; Run/Debug/Agent keep their existing owner.
-        return JavaLanguageImportConfiguration(
-            mavenContext: pluginImport.mavenContext ?? mavenFeatureIfActive?.launchContext,
-            javaGradle: pluginImport.javaGradle
-        )
+        // No enabled build plugin means no Lithe build override. In particular,
+        // retiring a plugin must not revive the old Maven service's settings.
+        return JavaLanguageImportConfiguration()
     }
 
     private func synchronizeBuildLanguageImport(at rootURL: URL) {

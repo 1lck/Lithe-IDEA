@@ -1139,12 +1139,15 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
 | `build.resolveModelInputs` | Validate enabled producer facts and project a bounded public model snapshot for a declared consumer |
 | `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
+| `build.configurationPlan` | Plan a read of the provider's non-sensitive native configuration (v7) |
+| `build.decodeConfiguration` | Validate native source identities, raw/effective values and XML bindings |
+| `build.editConfigurationDocument` | Pure host-only revision-guarded XML edits; native secret bytes never cross the provider wire |
 | `build.modelPlan` | Expand the command that prints a command-sourced build model, or the request a build provider answers |
 | `build.taskPlan` | Expand one declared or model task for a workspace, project, or target |
 | `build.testPlan` | Plan a test run for a scope, suite, or case and say where its reports will be |
 | `build.testDiscoveryPlan` | Plan opt-in Provider test discovery for an instance |
 | `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
-| `build.prepareRunPlan` | Plan Provider-owned application preparation from a model target |
+| `build.prepareRunPlan` | Plan Provider-owned application/service/task preparation from a model target |
 | `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
 | `build.prepareDebugPlan` | Plan same-plugin native debug preparation (Provider v5) |
 | `build.decodeDebugPreparation` | Validate an existing instance-contained native debug program and bounded process facts |
@@ -2824,6 +2827,11 @@ provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, o
 execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
 Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
 plan passed to `build.decodeRunPreparation` before native process startup. Version 5 adds `lithe/build/prepareDebug`: raw native executable facts pass through `build.decodeDebugPreparation` and the existing DebugAdapter Registry, not private functions or a second DAP engine.
+Version 10 adds typed `launchOptions` for this run method and host-owned service/task
+preparation. These options require explicit version-10 negotiation before a
+request is written. The decoder accepts a workspace cwd outside the instance
+only when it matches the same host-validated explicit option. Native debug
+preparation retains its existing application contract.
 Other methods are `invalid_request`; tasks on version 1
 and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
 Every session offers
@@ -2921,7 +2929,16 @@ virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
-projectName? }` entries plus diagnostics for unusable upstream records.
+projectName? }` entries plus diagnostics for unusable upstream records. Discovery
+waits behind pending Maven profile updates and JDT project-configuration jobs,
+using the same configuration barrier as the following Java build. Up to 128
+waiting discovery operations are allowed per session. Their deadlines include
+configuration waiting and the eventual upstream query, bounded by the session's
+Java build timeout. Cancellation before dispatch completes that operation without
+writing a JSON-RPC discovery request or cancellation; shutdown/failure settles
+every waiter. A completed profile update must precede discovery of source roots
+introduced by that profile.
+
 `javaTestItems` requires a file URI, invokes Java Test's
 `vscode.java.test.findTestTypesAndMethods`, and returns schema version 1 with a
 typed class/method tree. Each item carries the upstream identity, label, fully
@@ -3185,8 +3202,45 @@ toolchain payload with an empty `configurationId`; service overrides are untouch
 The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and
 never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
-relative `modulePaths`, and optional schema-versioned `javaEntrypoints` from the
-current `lsp.request` result. When Java tooling is still preparing, omission
+relative `modulePaths`, optional schema-versioned `javaEntrypoints` from the
+current `lsp.request` result, and optional `projectOwnership`. The latter is a
+host projection of current enabled Provider projects: `{ path,
+name?, mavenReactorPath?, mavenRunProvider?, minimumJavaVersion?, mavenMinimumVersion?, mavenWrapper?, contentRoots: [{ path, kind }] }`, using workspace-relative
+paths and the model's `source`/`testSource`/generated-source roles. Core validates
+project/root containment, unique project paths, roles and bounds (2,000 projects,
+10,000 content roots). When supplied, including `[]`, these facts own Java
+module/reactor membership and source sets: `modulePaths` and ancestor POM
+inference do not supplement them. An omitted snapshot retains the current
+Windows generator's legacy ownership path. `mavenRunProvider` is the Maven
+backend's effective framework selection (`spring-boot.maven`, `quarkus.maven`,
+`micronaut.maven`), requiring `name` and reactor ownership. Core projects existing
+service IDs and toolchain bindings without scanning POMs; duplicate labels use
+module paths within each reactor. This authoritative snapshot also disables the
+legacy Maven framework detector. `minimumJavaVersion` is an optional normalized Java feature version (1–999),
+owned by the upstream compiler model. When the snapshot is supplied, Core uses
+the highest known project floor and never parses POM compiler properties; a
+platform Java version file can raise but cannot lower that floor. Missing means
+unknown, not permission to infer. `mavenMinimumVersion` is a bounded numeric distribution floor and `mavenWrapper`
+is a workspace-relative script inside that project's reactor. With provider
+ownership, Core never reads Wrapper properties or checks scripts to fill these
+fields. Multiple reactor roots do not select one global Wrapper. The platform
+continues to resolve each Run's actual tool independently. Legacy Maven launch
+planning still needs migration. See `fixtures/run-configuration/provider-project-ownership.json`.
+The generated document records optional `generator.providerFingerprint`, a
+SHA-256 identity of the validated projection, with projects and roots sorted.
+It covers project labels, ownership, source roles, frameworks and requirement
+facts, but never environment values or native configuration secrets.
+`runConfig.inspect` accepts the same optional `projectOwnership` and emits
+`staleProviderModel` when current facts differ or a legacy generated document
+has no provider identity. `checkFingerprint: false` skips file hashing only;
+this model comparison remains active. Explicit `[]` represents disabled/missing
+providers, while omission preserves existing Windows callers. A return to the
+same semantic facts matches again; asynchronous host publication still needs
+its independent monotonic operation revision to reject ABA replies.
+
+Java configurations with the same class and module name in independent reactors
+remain distinct; a common reactor retains its existing configuration IDs.
+ When Java tooling is still preparing, omission
 retains the previous generated entrypoint facts instead of running a local
 scanner or replacing them with an empty list. Those previous facts come from
 this process's last generation, else from the optional `cacheDirectory` (an
@@ -3198,8 +3252,10 @@ layer for `inspect`, `resolve`, and `selectJava`; nothing is written into the
 workspace. `inspect` returns `requiresGeneration: true` while this process has
 no detected layer. Hosts identify the workspace when this flag is true or the
 status is `missing`; a saved provider task can make `status` be `ready` before
-detection, and must not suppress discovery of the remaining entries. Maven root
+detection, and must not suppress discovery of the remaining entries. Without
+`projectOwnership`, legacy Maven root
 discovery checks `pom.xml` along each supplied path's ancestor chain, so a
+
 reactor nested below the opened workspace does not depend on the platform
 including build descriptors in `paths`. Maven ownership is resolved per Java
 entry: standalone sources keep the JDK launch path, while entries from
@@ -3280,10 +3336,12 @@ per-configuration toolchain path overrides the corresponding project default.
 
 Provider applications can be explicitly saved with `runConfig.createUserConfiguration`
 using `{root,scope:"local",name,type:"buildProvider",build:{pluginID,buildSystemID,
-root,run,projectID,targetID,userArguments?}}`. Core upserts the existing local
+root,run,projectID,targetID,userArguments?,execution?}}`. Core upserts the existing local
 reference by selector identity and retains its `user:` ID, unrelated configurations
 and project toolchain defaults. `extensions.build` in Run v2 holds the typed
-reference; process commands, top-level args/environment/toolchains/debug are
+reference; optional execution is application/service/task and must match the current
+declaration before preparing (omitted older references mean application). The saved
+configuration retains that execution kind when reopened. Process commands, top-level args/environment/toolchains/debug are
 refused for `build.provider`. Current model membership is revalidated by the
 native build workflow before every preparation. No generated document is needed:
 `runConfig.inspect` recognizes explicit saved local references and `runConfig.resolve`
@@ -3292,6 +3350,15 @@ or an explicit saved Provider reference retains the existing missing state.
 The platform guards the source snapshot, atomically writes only the local layer,
 then re-reads the result. `shared/fixtures/run-configuration/build-provider.json`
 is the canonical persistence example.
+
+`runConfig.providerLaunchInputs` takes `{root,configurationId,providerRoot,localDocument?}`
+and resolves the same document layers for one preparation. It returns bounded typed
+`launchOptions`, explicit build-option overrides and project identity without planning
+a tool command. Saved `build.provider` selectors additionally return the exact typed
+`reference`; the native Build service revalidates its plugin, instance, run, project,
+target and execution against the current enabled model. Parameters must be read again
+before process launch, and an invalidated configuration or operation rejects late replies.
+
 
 `runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
 document transformations. They validate scope, paths, supported types, stable
@@ -3314,6 +3381,18 @@ When `updateOptions` carries a `toolchain` object (`javaHomePath`,
 `mavenExecutablePath`, `mavenJavaHomePath`), it writes the document-level
 global toolchain into the local layer instead of patching a configuration;
 project scope rejects this payload because toolchain paths are machine-local.
+
+The project toolchain may also carry `pathOverrides`, a map of normalized
+workspace-relative subproject roots to `{ javaHomePath?, mavenExecutablePath?,
+mavenJavaHomePath? }`. The map has at most 256 entries; roots reject absolute,
+parent, dot, empty-segment, drive, backslash and control-character forms. Empty
+fields inherit project defaults. This map lives only in `.lithe/run/local.json`
+and is returned by inspection/resolution; hosts preserve it when saving a run
+configuration or project defaults. An absent map identifies a document predating
+subproject migration; a saved empty map is an explicit choice. Old platform
+preferences are copied and read back before cleanup, with already saved choices
+remaining authoritative. See `shared/fixtures/run-configuration/subproject-toolchains.json`.
+
 
 `runConfig.saveEditorChanges` accepts the normal option-edit payload plus the
 required `toolchain` object. In addition to Java and Maven paths, that object
@@ -3355,7 +3434,13 @@ framework arguments, including `-am` for selected reactor modules. A
 project-owned `java.main` caller, or a `spring-boot.maven` caller whose generated
 configuration records a Java entry source, instead supplies `javaLaunch` with
 the exact JDT LS-selected `mainClass` plus structured `classPaths` and
-`modulePaths`. Core then produces a direct `project-jdk` launch; it never
+`modulePaths`. An optional `javaLaunch.buildPrepared: true` is a host receipt
+that the current build provider resource task completed before JDT launch
+resolution. Core then omits its legacy Maven resource pre-launch step and does
+not inspect POMs for that step. The host must recheck workspace/configuration
+generation and cancellation before handing off the launch; it cannot reuse a
+receipt from another operation. Missing/false retains compatibility for current
+Windows callers. See `fixtures/run-configuration/provider-prepared-java.json`. Core then produces a direct `project-jdk` launch; it never
 projects those Java entry points into a reactor-wide Maven launch goal. A Spring
 Boot configuration without a resolved Java entry source retains its Maven-goal
 compatibility path. It
@@ -3739,18 +3824,21 @@ and the directories are absolute host paths used only as substitution text.
 
 | Command | Request | Result |
 | --- | --- | --- |
-| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
+| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } }, instanceOptions?: { <buildSystemID>: { <root>: { <optionID>: value } } }, instanceDefaults?: { <buildSystemID>: { <optionID>: value } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
 | `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
 | `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/plugins/v1/README.md#optional-read-only-model-inputs-buildmodelinputs-1) |
-| `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, value, source, choices, allowCustom }], dropped, fingerprint }` |
+| `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, scope?, value, source, choices, allowCustom }], dropped, fingerprint }` |
+| `build.configurationPlan` | plan fields and optional host-selected `tool` | `plan.provider` for `lithe/build/configuration` (v7); no mutation, project or output-file parameters |
+| `build.decodeConfiguration` | `{ result }` | `configuration`: bounded `litheBuildConfiguration` v1 native sources/fields; see the plugin contract |
+| `build.editConfigurationDocument` | `{ snapshot, edits: { sourceID, revision, values }, document: string or null }` | `edit: { document, revision, changed }`; host-only native bytes, exact SHA-256 conflict check, generic XML edits with no filesystem access |
 | `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
 | `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | command `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint`; a provider task instead returns `provider: {method: "lithe/build/execute", params}` with effective options, selected task/entities, user arguments and effect metadata |
 | `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
 | `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true` (Provider v3), using the same effective options and effect metadata |
 | `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
-| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`; no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated |
-| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
+| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`, `launchOptions?`, `workspaceRoot?` (required for an explicit launch cwd); no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated; typed launch options and service/task execution require v10 |
+| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result`, same optional `launchOptions` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
 | `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug` (v5); no cross-package reference |
 | `build.decodeDebugPreparation` | `workspaceRoot`, instance `root`, selected `run`, raw `result` | `preparation` with declaration-owned `adapter`, normalized `root`, `program`, `arguments`, `workingDirectory`, `environment`; program is an existing regular file contained in the instance after canonicalization |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
@@ -3759,6 +3847,16 @@ and the directories are absolute host paths used only as substitution text.
 | `build.decodeDependencies` | `{ workspaceRoot, root, project?, output?, outputFile?, result? }` | `dependencies`: `{ project, dependencies: [{ name, group?, version?, scope?, properties?, children }], truncated }` |
 | `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
 | `build.languageImport` | `{ workspaceRoot, root, options?, executablePath? }` | `languageImport`: `null` without a `languageImport` declaration; `{ kind: "maven", mavenContext: { version, reactorPath, profiles, settingsPath?, localRepositoryPath?, mavenExecutablePath? } }` for `lsp.startServer.mavenContext` and `lsp.updateMavenConfiguration`; or `{ kind: "gradle", javaGradle: { wrapperPresent, offline, userHome? } }` for `lsp.startServer.javaGradle`, where `wrapperPresent` reports `gradle/wrapper/gradle-wrapper.properties` under `root` |
+
+`executableResolution: 2` adds `{ kind: "toolchain", toolchainID, root }` invocation
+candidates. Hosts resolve them through the same canonical project/subproject
+selection used by Run, preserving terminal failure and project-code identity.
+The optional plan hint `tool.environment` is a bounded string map (64 entries,
+valid environment names, 32768 bytes per value, no NUL). It merges into Provider
+`environment` before option contributions, for models, dependencies and native
+configuration; task/test hosts apply the same selected environment. Only selected
+lookup/runtime inputs cross this boundary, never the full process environment.
+
 
 `outputFile` is an absolute host-allocated path the host creates fresh for
 each run and removes afterwards; a command whose declaration writes to a
@@ -4247,6 +4345,10 @@ Fixtures live in `shared/fixtures/process-lifecycle/settle-v1.json`.
 `lithe-ide-host` adapter. This local host command is not remotely exposed. See
 [IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
 ownership, authorization, output cursors and shutdown semantics.
+Native `open` requires a `toolExposure` selection of canonical tools and optional
+argument names. This selection is stored with the connection and enforced before
+requests enter its queue. It can only narrow known schemas; it cannot define tool
+types or permissions. Both MCP discovery and native plugin validation use it.
 Native Rust hosts can attach an owner-checked, connection-lifetime callback using
 `attach_ide_request_dispatcher`; this is separate from the request-scoped Git/Agent
 progress callback. It forwards notification IDs only. `ideHost.control` action
@@ -4362,3 +4464,26 @@ The macOS settings surface offers search, refresh, file details, native open and
 reveal, creation and import. It keeps native loading separate from management
 and rejects stale results after project changes. Windows can use the same Core
 operations; the settings UI and Windows runtime validation remain pending.
+
+
+Team Build options use `shared/contracts/build-project-options-v1.schema.json`
+at `.lithe/build/options.json`. `options` holds workspace-scoped values;
+`instanceDefaults` applies to every detected root's instance-scoped options;
+`instances` overrides those defaults by normalized root. Platform-local values
+then override that root. Storage writes local differences only; passive detection
+never rewrites the shared document. Explicit local reset reveals the shared value.
+Malformed, unsupported, or inaccessible documents fail instead of becoming empty
+options. Source documents stay read-only during resolution; the host only writes
+one through guarded publication for an explicit edit or activation migration.
+`build.detect.instanceDefaults` receives this same team default snapshot before
+static model/run generation; hosts use the same merge in every subsequent plan.
+
+`savedChoices` preserves unselected custom choices. Hosts display them only when
+the resolved option permits custom values; they never change selection or upstream
+model facts. Storage validates bounded documents and preserves invalid originals.
+
+`build.decodeTestResults.request.result` accepts a canonical inline report only
+for `test.results.decoder=provider` (buildProviders 8). Provider replies carry
+`testResults` with the same execution. Core validates bounded case fields and
+workspace-relative paths and aggregates by optional project/suite/case identity;
+the host does not read tool-specific report directories for this decoder.

@@ -6,7 +6,6 @@
   "macos": {
     "evidence": [
       "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
-      "macos/Sources/LitheExecutionModule/Services/MavenService.swift",
       "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
       "macos/Sources/Lithe/Models/AppModel/AppModel+BuildSystems.swift",
       "macos/Sources/Lithe/Models/AppModel/AppModel+JavaIndex.swift",
@@ -15,7 +14,17 @@
       "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift",
       "macos/Sources/Lithe/Application/Composition/JavaLanguageServerPreparationCoordinator.swift",
       "macos/Tests/LitheTests/JavaLanguageServerRuntimeTests.swift",
-      "rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs"
+      "rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs",
+      "macos/Sources/LitheExecutionModule/Services/RunService.swift",
+      "macos/Sources/LitheExecutionModule/Module/ExecutionFeatureGraph.swift",
+      "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenConfigurationMigration.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Build/MacBuildOptionsStore.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+Debugging.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+JavaBuildPreparation.swift",
+      "macos/Sources/LitheExecutionModule/Services/BuildLanguageTests.swift",
+      "rust/lithe-core/src/lsp/interface/engine_real_jdt_maven_provider_tests.rs",
+      "macos/Tests/LitheTests/MacNativeBuildProviderIntegrationTests.swift"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
@@ -33,5 +42,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "macOS：内置 Maven 工具窗口已由构建插件窗口取代，pom.xml 依赖解析问题暂不在构建窗口中列出（编辑器诊断仍显示）；JDT 的 Maven 配置已优先消费 Core build.languageImport 归一化的插件选项，与原生插件窗口构建计划使用同一实例的生效值；检测、选项修改、模型加载和插件停用通过唯一回调发布，宿主不按插件名字反推设置。项目打开时在插件注册结束后等待导入，Java 运行时准备结束后、同步启动前再等待最新配置，覆盖首次等待结束后又被监听文件变化失效的顺序；选项发布时优先原地热更新，若会话因启动时没有 Maven 输入而拒绝更新，则通过 reloadJavaWorkspace 恢复重启。连续选项发布先取消并等待旧恢复清理，再应用最新输入；工作区关闭、同路径重开代次或停用 Java 会阻止旧任务继续启动。未声明对应导入输入时保留 MavenService 兼容设置；Maven 插件停用且兼容输入也为空时，仅向曾带 Maven 输入的同一活动会话发送空配置清除旧 Profiles/settings/仓库/工具路径，停止后释放记录，纯 Gradle 首次启动和重开保持无 Maven 输入。Gradle 输入经同一通路传递并在下次启动生效。macOS 与现有 Windows 路径均需验收：打开依赖尚未下载的 Maven 项目，在 Java 导入过程中修改 settings.xml、本地仓库或镜像并保存，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后重新加载，确认语言服务不重启而依赖重新解析；故意写错依赖版本，检查编辑器诊断和跳转，Windows 另检查原 Maven 问题列表；初始化期间设置不变时重新加载，就绪后仍执行一次强制更新；旧 profile 请求失败或超时期间切换 profile，确认最终应用最新选择；保存与重新加载交错时，已发送的 settings 副本保持可读。本次未执行真实 Java 导入或 Windows 验收，保持 pending。"
+  "verification": "macOS：内置 Maven 工具窗口已由构建插件窗口取代，pom.xml 依赖解析问题暂不在构建窗口中列出（编辑器诊断仍显示）；JDT 的 Maven 配置只消费 Core build.languageImport 归一化的插件选项，与原生插件窗口构建计划使用同一实例的生效值；检测、选项修改、模型加载和插件停用通过唯一回调发布，宿主不按插件名字反推设置。项目打开时在插件注册结束后等待导入，Java 运行时准备结束后、同步启动前再等待最新配置，覆盖首次等待结束后又被监听文件变化失效的顺序；选项发布时优先原地热更新，若会话因启动时没有 Maven 输入而拒绝更新，则通过 reloadJavaWorkspace 恢复重启。连续选项发布先取消并等待旧恢复清理，再应用最新输入；工作区关闭、同路径重开代次或停用 Java 会阻止旧任务继续启动。已删除 AppModel 的 MavenService 补值与语言会话的旧配置回调；导入读取失败明确报告且不发送空设置，恢复后仍能清除该会话以前的覆盖。没有启用 Build 插件时不注入 Lithe 构建覆盖；Maven 插件停用时，仅向曾带 Maven 输入的同一活动会话发送空配置清除旧 Profiles/settings/仓库/工具路径，停止后释放记录，纯 Gradle 首次启动和重开保持无 Maven 输入。Gradle 输入经同一通路传递并在下次启动生效。macOS 与现有 Windows 路径均需验收：打开依赖尚未下载的 Maven 项目，在 Java 导入过程中修改 settings.xml、本地仓库或镜像并保存，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后重新加载，确认语言服务不重启而依赖重新解析；故意写错依赖版本，检查编辑器诊断和跳转，Windows 另检查原 Maven 问题列表；初始化期间设置不变时重新加载，就绪后仍执行一次强制更新；旧 profile 请求失败或超时期间切换 profile，确认最终应用最新选择；保存与重新加载交错时，已发送的 settings 副本保持可读。本次未执行真实 Java 导入或 Windows 验收，保持 pending。 Run 准备已停用 MavenService 上下文回调，消费 Build 服务同一代、按 reactor 根隔离的导入值；普通运行和服务运行在选项失效/工作区替换期间拒绝规划旧输入，检测完成后才使用新值。Run 的工程模型、配置生成和 Maven 规划仍未迁移，保持 partial/pending。 阶段 D 删除旧 MavenService/配置存储及设置页 XML 读取，Provider 被动检测后执行受保护迁移；Debug 准备等待 Build 输入并核对同一代次，ABA 变化不能启动旧准备。 新增来源与代次回归已在315项原生计时中通过；不代表 Windows 或完整JDT多reactor流程已验证。 阶段 D 单次 Run Profile 增量：资源准备在原有操作身份内用临时选项/工具读取 Provider 当前模型，按该模型选资源角色，再返回同一份 build.languageImport；不保存或发布成默认模型。Run/Debug 的 JDT 冷启动或热更新使用该输入，入口发现等待 Profile/JDT 配置屏障，导入代次含 ABA 在发现/构建/路径和错误决策后拒绝旧结果；下次默认发现恢复当前 Build 输入。异步发现与 Java 命令取消只撤销对应 Core 操作。真实 JDT 从无入口源码根切换 Profile 后首次查询得到两项入口，两个真实 JVM 读取新过滤资源通过；宿主替身覆盖冷启动/热更新/配置变化/ABA/取消。运行生成、框架规划、正式包与 Windows Provider 仍 pending。"
 }

@@ -3,6 +3,64 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Native workflow implementations select which known tools they actually serve.
+/// A restricted argument list can only narrow the canonical input schema.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ToolExposure {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Vec<String>>,
+}
+
+/// Resolves a bounded host declaration without accepting caller-supplied schemas.
+/// Catalog order, permission hints, value types and required fields stay canonical.
+pub fn exposed_tools(exposure: &[ToolExposure]) -> Result<Vec<Value>, String> {
+    let catalog = tools();
+    if exposure.len() > catalog.len() {
+        return Err("Too many exposed IDE capabilities".into());
+    }
+    let mut selected = BTreeMap::new();
+    for item in exposure {
+        let known = catalog.iter().any(|tool| tool["name"] == item.name);
+        if !known
+            || selected
+                .insert(item.name.as_str(), item.arguments.as_ref())
+                .is_some()
+        {
+            return Err("Unknown or duplicate exposed IDE capability".into());
+        }
+    }
+    let mut result = Vec::new();
+    for mut tool in catalog {
+        let name = tool["name"].as_str().unwrap();
+        let Some(arguments) = selected.get(name) else {
+            continue;
+        };
+        if let Some(arguments) = arguments {
+            let properties = tool["inputSchema"]["properties"].as_object().unwrap();
+            let names: BTreeSet<_> = arguments.iter().map(String::as_str).collect();
+            if names.len() != arguments.len()
+                || !names.iter().all(|name| properties.contains_key(*name))
+                || !tool["inputSchema"]["required"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|name| names.contains(name.as_str().unwrap()))
+            {
+                return Err("Invalid exposed IDE argument selection".into());
+            }
+            tool["inputSchema"]["properties"]
+                .as_object_mut()
+                .unwrap()
+                .retain(|name, _| names.contains(name.as_str()));
+        }
+        result.push(tool);
+    }
+    Ok(result)
+}
 
 /// Authorization is granted by the IDE settings UI, never by tool arguments.
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -22,6 +80,10 @@ pub fn failure(code: &str, message: &str) -> Value {
 fn string() -> Value {
     json!({"type":"string", "maxLength":4096})
 }
+fn option_value() -> Value {
+    json!({"anyOf":[string(), {"type":"boolean"}, {"type":"null"},
+        {"type":"array","items":string(),"maxItems":64}]})
+}
 fn schema(properties: Value, required: &[&str]) -> Value {
     json!({"type":"object", "properties":properties, "required":required, "additionalProperties":false})
 }
@@ -35,7 +97,11 @@ pub fn tools() -> Vec<Value> {
         ("lithe_maven_inspect", "Read Maven modules, available/selected profiles, skip-tests setting and reload state.", "read", schema(json!({}), &[])),
         ("lithe_maven_configure", "Save Maven profiles and skip-tests settings through the existing IDE workflow. Requires configure permission.", "configure", schema(json!({"profiles":{"type":"array","items":string(),"maxItems":64},"skipTests":{"type":"boolean"}}), &[])),
         ("lithe_maven_reload", "Reload the Maven project and synchronize the existing Java language service. May resolve dependencies and execute project tooling. Requires execute permission.", "execute", schema(json!({}), &[])),
-        ("lithe_maven_execute", "Execute Maven goals through the IDE, using saved profiles and toolchains. Returns operationID for output/status/stop. May execute project code and access the network. Requires execute permission.", "execute", schema(json!({"goals":{"type":"array","items":string(),"minItems":1,"maxItems":32},"modulePath":string()}), &["goals"])),
+        ("lithe_maven_execute", "Windows Maven execution (macOS uses lithe_build_execute). Execute Maven goals through the IDE, using saved profiles and toolchains. Returns operationID for output/status/stop. May execute project code and access the network. Requires execute permission.", "execute", schema(json!({"goals":{"type":"array","items":string(),"minItems":1,"maxItems":32},"modulePath":string()}), &["goals"])),
+        ("lithe_build_inspect", "List detected build plugin instances, current project/target/model task identities and declared tasks. No tooling is executed.", "read", schema(json!({}), &[])),
+        ("lithe_build_reload", "Ask a detected build plugin to load or reload its project model. May execute project tooling and access the network. Inspect the model state before selecting projects. Requires execute permission.", "execute", schema(json!({"instanceID":string()}), &["instanceID"])),
+        ("lithe_build_configure", "Set one declared build option using the same instance editor and persistent store as the IDE. Read option IDs, kinds and effective values from build inspect. Null resets that option. Invalid values are refused. Native files use the explicit native configuration save workflow. Requires configure permission.", "configure", schema(json!({"instanceID":string(),"optionID":string(),"value":option_value()}), &["instanceID","optionID","value"])),
+        ("lithe_build_execute", "Execute a declared plugin build task through the same Build workflow as the IDE. Use identities from build inspect. Arguments are separate tokens interpreted by the plugin. Returns operationID for output/status/stop. May execute project code and access the network. Requires execute permission.", "execute", schema(json!({"instanceID":string(),"taskID":string(),"projectID":string(),"targetID":string(),"modelTaskID":string(),"userArguments":{"type":"array","items":string(),"maxItems":256}}), &["instanceID","taskID"])),
         ("lithe_run_list", "List saved runnable configurations and readiness. Environment variable values and launch arguments are not disclosed.", "read", schema(json!({}), &[])),
         ("lithe_run_start", "Start an existing IDE run configuration through the normal preparation/build workflow. Returns operationID; pending UI decisions remain in the IDE. Requires execute permission.", "execute", schema(json!({"configurationID":string()}), &["configurationID"])),
         ("lithe_run_restart", "Restart the exact named operation using its existing run configuration. An expired or replaced operation is rejected. Requires execute permission.", "execute", schema(json!({"operationID":string()}), &["operationID"])),
@@ -52,8 +118,29 @@ pub fn tools() -> Vec<Value> {
 
 /// Validates even calls made by in-process plugins; MCP schemas are not authorization.
 pub fn validate(name: &str, args: &Value, permissions: &Permissions) -> Result<(), Value> {
-    let tool = tools()
-        .into_iter()
+    validate_catalog(name, args, permissions, &tools())
+}
+
+/// Enforces the same native capability selection used by MCP discovery.
+pub fn validate_exposed(
+    name: &str,
+    args: &Value,
+    permissions: &Permissions,
+    exposure: &[ToolExposure],
+) -> Result<(), Value> {
+    let tools = exposed_tools(exposure)
+        .map_err(|_| failure("NOT_SUPPORTED", "Invalid IDE capability declaration"))?;
+    validate_catalog(name, args, permissions, &tools)
+}
+
+fn validate_catalog(
+    name: &str,
+    args: &Value,
+    permissions: &Permissions,
+    tools: &[Value],
+) -> Result<(), Value> {
+    let tool = tools
+        .iter()
         .find(|v| v["name"] == name)
         .ok_or_else(|| failure("NOT_SUPPORTED", "Unknown IDE capability"))?;
     let permission = tool["_meta"]["lithe/permission"].as_str().unwrap_or("read");
@@ -80,23 +167,7 @@ pub fn validate(name: &str, args: &Value, permissions: &Permissions) -> Result<(
     }
     for (key, value) in values {
         let spec = properties.get(key).ok_or_else(invalid)?;
-        let valid = match spec["type"].as_str() {
-            Some("string") => value
-                .as_str()
-                .is_some_and(|s| s.len() <= 4096 && !s.contains('\0')),
-            Some("boolean") => value.is_boolean(),
-            Some("array") => value.as_array().is_some_and(|a| {
-                a.len() <= spec["maxItems"].as_u64().unwrap_or(64) as usize
-                    && a.len() >= spec["minItems"].as_u64().unwrap_or(0) as usize
-                    && a.iter().all(|v| {
-                        v.as_str().is_some_and(|s| {
-                            !s.is_empty() && s.len() <= 4096 && !s.chars().any(char::is_control)
-                        })
-                    })
-            }),
-            _ => false,
-        };
-        if !valid {
+        if !valid_value(spec, value) {
             return Err(invalid());
         }
     }
@@ -136,6 +207,31 @@ pub fn validate(name: &str, args: &Value, permissions: &Permissions) -> Result<(
     Ok(())
 }
 
+/// Validate the catalog's bounded scalar/list union before native dispatch.
+/// No object, executable expression or arbitrary JSON enters build options.
+fn valid_value(spec: &Value, value: &Value) -> bool {
+    if let Some(variants) = spec["anyOf"].as_array() {
+        return variants.iter().any(|variant| valid_value(variant, value));
+    }
+    match spec["type"].as_str() {
+        Some("string") => value
+            .as_str()
+            .is_some_and(|s| s.len() <= 4096 && !s.contains('\0')),
+        Some("boolean") => value.is_boolean(),
+        Some("null") => value.is_null(),
+        Some("array") => value.as_array().is_some_and(|a| {
+            a.len() <= spec["maxItems"].as_u64().unwrap_or(64) as usize
+                && a.len() >= spec["minItems"].as_u64().unwrap_or(0) as usize
+                && a.iter().all(|v| {
+                    v.as_str().is_some_and(|s| {
+                        !s.is_empty() && s.len() <= 4096 && !s.chars().any(char::is_control)
+                    })
+                })
+        }),
+        _ => false,
+    }
+}
+
 /// Pages UTF-8 output with a prefix fingerprint so a trimmed/replaced buffer resets explicitly.
 pub fn output_page(mut snapshot: Value, cursor: Option<&str>) -> Value {
     let output = snapshot["output"].as_str().unwrap_or("").to_owned();
@@ -170,6 +266,68 @@ pub fn output_page(mut snapshot: Value, cursor: Option<&str>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_inventory_can_only_narrow_known_tools_and_their_argument_fields() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../shared/fixtures/ide-api/host-tool-exposure.json"
+        ))
+        .unwrap();
+        let permissions = Permissions {
+            configure: true,
+            execute: true,
+        };
+        for platform in ["macos", "windows"] {
+            let exposure: Vec<ToolExposure> =
+                serde_json::from_value(fixture[platform].clone()).unwrap();
+            assert_eq!(exposed_tools(&exposure).unwrap().len(), 13);
+        }
+        let exposure: Vec<ToolExposure> = serde_json::from_value(fixture["macos"].clone()).unwrap();
+        assert!(validate_exposed(
+            "lithe_environment_configure",
+            &json!({"javaHomePath":"/fixture/jdk"}),
+            &permissions,
+            &exposure
+        )
+        .is_ok());
+        assert_eq!(
+            validate_exposed(
+                "lithe_environment_configure",
+                &json!({"settingsPath":"/fixture/settings.xml"}),
+                &permissions,
+                &exposure
+            )
+            .unwrap_err()["error"]["code"],
+            "INVALID_ARGUMENTS"
+        );
+        assert_eq!(
+            validate_exposed(
+                "lithe_maven_configure",
+                &json!({"profiles":["ci"]}),
+                &permissions,
+                &exposure
+            )
+            .unwrap_err()["error"]["code"],
+            "NOT_SUPPORTED"
+        );
+        assert!(validate_exposed(
+            "lithe_build_execute",
+            &json!({"instanceID":"maven:.","taskID":"compile"}),
+            &Permissions::default(),
+            &exposure
+        )
+        .is_err());
+        for invalid in [
+            json!([{"name":"unknown"}]),
+            json!([{"name":"lithe_project_inspect"},{"name":"lithe_project_inspect"}]),
+            json!([{"name":"lithe_project_inspect","arguments":["shell"]}]),
+            json!([{"name":"lithe_build_execute","arguments":["instanceID"]}]),
+            json!([{"name":"lithe_environment_configure","arguments":["javaHomePath","javaHomePath"]}]),
+        ] {
+            let exposure: Vec<ToolExposure> = serde_json::from_value(invalid).unwrap();
+            assert!(exposed_tools(&exposure).is_err());
+        }
+    }
+
     #[test]
     fn shared_fixture_protects_the_plugin_and_mcp_contract() {
         let fixture: Value =
@@ -228,6 +386,67 @@ mod tests {
             &permissions
         )
         .is_ok());
+    }
+    #[test]
+    fn build_authorization_and_argument_validation_cannot_be_bypassed() {
+        assert!(validate(
+            "lithe_build_execute",
+            &json!({"instanceID":"maven@.","taskID":"verify"}),
+            &Permissions::default()
+        )
+        .is_err());
+        let permissions = Permissions {
+            execute: true,
+            configure: true,
+        };
+        for args in [
+            json!({"instanceID":"maven@."}),
+            json!({"instanceID":"maven@.","taskID":"verify","command":"mvn"}),
+            json!({"instanceID":"maven@.","taskID":"verify","userArguments":["bad\u{0000}argument"]}),
+            json!({"instanceID":"maven@.","taskID":"verify","confirmed":true}),
+        ] {
+            assert!(validate("lithe_build_execute", &args, &permissions).is_err());
+        }
+        assert!(validate("lithe_build_execute", &json!({"instanceID":"maven@.","taskID":"custom","projectID":"api","userArguments":["clean","verify"]}), &permissions).is_ok());
+    }
+    #[test]
+    fn build_options_require_configure_and_accept_only_bounded_declared_value_shapes() {
+        let permission = Permissions {
+            configure: true,
+            execute: false,
+        };
+        for value in [
+            Value::Null,
+            json!(true),
+            json!("/path with spaces/settings.xml"),
+            json!(["ci", "local"]),
+            json!([]),
+        ] {
+            let args = json!({"instanceID":"fixture@.","optionID":"profiles","value":value});
+            assert!(validate("lithe_build_configure", &args, &permission).is_ok());
+            assert!(validate("lithe_build_configure", &args, &Permissions::default()).is_err());
+        }
+        for value in [
+            json!({"path":"anything"}),
+            json!(42),
+            json!([true]),
+            json!(["bad\nvalue"]),
+            json!(vec!["v"; 65]),
+            json!("x".repeat(4097)),
+        ] {
+            assert!(validate(
+                "lithe_build_configure",
+                &json!({"instanceID":"fixture@.","optionID":"profiles","value":value}),
+                &permission
+            )
+            .is_err());
+        }
+        assert!(validate(
+            "lithe_build_configure",
+            &json!({"instanceID":"fixture@.","optionID":"profiles"}),
+            &permission
+        )
+        .is_err());
     }
     #[test]
     fn output_cursor_detects_clear_and_truncation_and_preserves_unicode() {

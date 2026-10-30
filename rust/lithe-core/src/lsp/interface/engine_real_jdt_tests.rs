@@ -13,6 +13,9 @@
 use super::tests::{await_real_smoke_ready, RealSmokeCleanup};
 use super::*;
 
+#[path = "engine_real_jdt_maven_provider_tests.rs"]
+mod maven_provider_tests;
+
 /// Paths an opt-in real JDT LS check needs, or `None` when not configured.
 struct RealJdtToolchain {
     root: PathBuf,
@@ -254,7 +257,9 @@ fn await_operation(
             .wait_events(remaining)
             .map_err(|error| error.message)?
         {
-            if event.operation_id.as_deref() != Some(operation_id) {
+            if event.operation_id.as_deref() != Some(operation_id)
+                || event.kind != "requestCompleted"
+            {
                 continue;
             }
             if let Some(error) = event.error {

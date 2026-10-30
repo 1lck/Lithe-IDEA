@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "macos": [
+    {
+      "name": "lithe_project_inspect"
+    },
+    {
+      "name": "lithe_environment_inspect"
+    },
+    {
+      "name": "lithe_environment_configure",
+      "arguments": [
+        "javaHomePath",
+        "mavenExecutablePath",
+        "mavenJavaHomePath"
+      ]
+    },
+    {
+      "name": "lithe_run_list"
+    },
+    {
+      "name": "lithe_run_start"
+    },
+    {
+      "name": "lithe_run_restart"
+    },
+    {
+      "name": "lithe_operations_list"
+    },
+    {
+      "name": "lithe_operation_output"
+    },
+    {
+      "name": "lithe_operation_stop"
+    },
+    {
+      "name": "lithe_build_inspect"
+    },
+    {
+      "name": "lithe_build_reload"
+    },
+    {
+      "name": "lithe_build_configure"
+    },
+    {
+      "name": "lithe_build_execute"
+    }
+  ],
+  "windows": [
+    {
+      "name": "lithe_project_inspect"
+    },
+    {
+      "name": "lithe_environment_inspect"
+    },
+    {
+      "name": "lithe_environment_configure"
+    },
+    {
+      "name": "lithe_run_list"
+    },
+    {
+      "name": "lithe_run_start"
+    },
+    {
+      "name": "lithe_run_restart"
+    },
+    {
+      "name": "lithe_operations_list"
+    },
+    {
+      "name": "lithe_operation_output"
+    },
+    {
+      "name": "lithe_operation_stop"
+    },
+    {
+      "name": "lithe_maven_inspect"
+    },
+    {
+      "name": "lithe_maven_configure"
+    },
+    {
+      "name": "lithe_maven_reload"
+    },
+    {
+      "name": "lithe_maven_execute"
+    }
+  ]
+}

@@ -121,7 +121,7 @@ struct BuildOutputView: View {
                     problemRow(
                         systemImage: "xmark.seal.fill",
                         color: LitheTheme.error,
-                        title: test.suite + " › " + test.name,
+                        title: (test.project.map { $0 + " › " } ?? "") + test.suite + " › " + test.name,
                         message: test.message ?? "",
                         path: test.path,
                         line: test.line ?? 1,

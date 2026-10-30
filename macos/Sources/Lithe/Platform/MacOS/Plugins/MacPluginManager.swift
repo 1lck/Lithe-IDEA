@@ -545,7 +545,7 @@ final class MacPluginManager: PluginManaging {
         PluginSettingsContributions(
             languages: descriptor.languages,
             languageServerIDs: descriptor.languageServers.map(\.languageID),
-            buildSystems: descriptor.buildSystems.map { .init(id: $0.id, displayName: $0.displayName) },
+            buildSystems: descriptor.buildSystems.map { .init(id: $0.id, displayName: $0.displayName, nativeConfiguration: $0.nativeConfiguration) },
             actions: descriptor.settingActions
         )
     }

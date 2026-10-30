@@ -2,7 +2,7 @@ import Foundation
 
 package struct RunSession: Identifiable, Hashable, Sendable {
     /// Stable for one execution; replacing the output slot creates a new identity.
-    package let executionID = UUID().uuidString
+    package let executionID: String
     package let id: String
     package let configurationID: String
     package let title: String
@@ -14,6 +14,7 @@ package struct RunSession: Identifiable, Hashable, Sendable {
     package var javaUpdateSource: URL?
 
     package init(
+        executionID: String = UUID().uuidString,
         id: String,
         configurationID: String,
         title: String,
@@ -21,6 +22,7 @@ package struct RunSession: Identifiable, Hashable, Sendable {
         isRunning: Bool,
         exitCode: Int32? = nil
     ) {
+        self.executionID = executionID
         self.id = id
         self.configurationID = configurationID
         self.title = title
@@ -248,6 +250,15 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
     package let buildProvider: BuildProviderRunReference?
 
     package var usesCurrentEditorFile: Bool { kind == .currentFile }
+
+    /// These persisted configurations depend on current Provider generation facts.
+    package var requiresProviderGeneration: Bool {
+        guard buildProvider == nil else { return false }
+        switch kind {
+        case .javaMain, .mavenModule, .mavenFramework: return true
+        case .currentFile, .process: return false
+        }
+    }
 
     /// Only launches backed by a JDT project wait for workspace preparation.
     package var usesJavaProjectPreparation: Bool {

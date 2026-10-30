@@ -44,6 +44,19 @@ package struct BuildRunEnd: Equatable, Sendable {
     }
 }
 
+/// The execution retained by the Build output slot, including after completion.
+/// Only this operation's output is exposed to callers; background model and
+/// dependency loads may share the UI console without changing its history.
+package struct BuildOperationSnapshot: Equatable, Sendable {
+    package let id: UUID
+    package let entryID: String
+    package let title: String
+    package var state: BuildRunState
+    package var exitCode: Int32?
+    package var output: String
+    package var processID: Int32? = nil
+}
+
 /// One detected instance with what the host has loaded for it.
 package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
     package let instance: BuildSystemInstance
@@ -98,7 +111,12 @@ package final class BuildSystemService: ObservableObject {
     /// Rust Core refuses larger output.
     private static let decodedOutputLimit = 32 * 1024 * 1024
 
-    @Published package private(set) var entries: [BuildSystemEntry] = []
+    /// Emitted after input storage changes, so subscribers never read willSet values.
+    package let runGenerationInputsChanged = PassthroughSubject<Void, Never>()
+    package let providerSourcesChanged = PassthroughSubject<[BuildSystemPluginSource], Never>()
+    @Published package private(set) var entries: [BuildSystemEntry] = [] {
+        didSet { runGenerationInputsChanged.send() }
+    }
     @Published package private(set) var isDetecting = false
     /// Manifests Core refused and build systems another plugin answers for.
     @Published package private(set) var issues: [String] = []
@@ -114,6 +132,7 @@ package final class BuildSystemService: ObservableObject {
     @Published package private(set) var outputRoots: [URL] = []
     @Published package private(set) var diagnostics: [BuildDiagnostic] = []
     @Published package private(set) var testResults: BuildTestResults?
+    @Published package private(set) var operation: BuildOperationSnapshot?
     @Published private var testDiscoveries: [String: BuildTestDiscoveryState] = [:]
     private var discoverySnapshots: [String: DiscoverySnapshot] = [:]
     private struct DiscoverySnapshot: Equatable {
@@ -124,7 +143,13 @@ package final class BuildSystemService: ObservableObject {
     }
     package private(set) var workspaceURL: URL?
     /// Nil while detection is pending. An empty value means no plugin import.
-    @Published package private(set) var languageImport: JavaLanguageImportConfiguration?
+    @Published package private(set) var languageImport: JavaLanguageImportConfiguration? {
+        didSet { runGenerationInputsChanged.send() }
+    }
+    private var languageImportsByRoot: [String: JavaLanguageImportConfiguration] = [:]
+    private var languageImportsByEntryID: [String: BuildLanguageImport] = [:] {
+        didSet { runGenerationInputsChanged.send() }
+    }
     package var onLanguageImportChanged: ((URL) -> Void)?
     private var languageImportFailure: String?
     private var detectionID: UUID?
@@ -142,7 +167,12 @@ package final class BuildSystemService: ObservableObject {
     private var preparedApplication: (source: BuildSystemPluginSource, operationID: String)?
     private let settings: @MainActor (String) -> [String: ToolingJSONValue]
     private let waitForRedetection: @Sendable () async throws -> Void
-    private let sources: @MainActor () -> [BuildSystemPluginSource]
+    private let registeredSources: @MainActor () -> [BuildSystemPluginSource]
+    // Startup registrations cannot describe a replacement package until restart.
+    private var replacedPluginIDs: Set<String> = []
+    private func sources() -> [BuildSystemPluginSource] {
+        registeredSources().filter { !replacedPluginIDs.contains($0.pluginID) }
+    }
 
     /// Bumped whenever the workspace changes, so late results are dropped.
     private var generation = 0
@@ -160,7 +190,13 @@ package final class BuildSystemService: ObservableObject {
     /// before the change can tell its result is based on older files.
     private var fileRevision = 0
     private var providerConfigurationRevision = 0
+    private var nativeOptionsRevisions: [String: Int] = [:]
+    private var nativeConfiguration: BuildNativeConfigurationCoordinator?
+    private var nativeObservation: AnyCancellable?
     private var modelInputRevision: UInt64 = 0
+    /// Revokes native consumers' prepared work when provider inputs change,
+    /// including a change away and back to identical option values.
+    package private(set) var inputRevision: UInt64 = 0
     private var providerRunID: UUID?
     private var preparingApplicationID: UUID?
     private var detectionTask: Task<Void, Never>?
@@ -208,6 +244,7 @@ package final class BuildSystemService: ObservableObject {
         runner: any BuildCommandRunning,
         providers: (any BuildProviderRequesting)? = nil,
         runLauncher: (any BuildRunLaunching)? = nil,
+        nativeConfigurationFiles: (any BuildNativeConfigurationStoring)? = nil,
         settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
         waitForRedetection: @escaping @Sendable () async throws -> Void = {
             try await Task.sleep(for: .milliseconds(500))
@@ -223,7 +260,15 @@ package final class BuildSystemService: ObservableObject {
         self.runLauncher = runLauncher
         self.settings = settings
         self.waitForRedetection = waitForRedetection
-        self.sources = sources
+        self.registeredSources = sources
+        let configuration = BuildNativeConfigurationCoordinator(
+            planner: planner, tools: tools, providers: providers, files: nativeConfigurationFiles,
+            context: { [weak self] id in try self?.nativeConfigurationContext(id) },
+            didSave: { [weak self] id in self?.nativeConfigurationDidSave(id) }
+        )
+        nativeConfiguration = configuration
+        configuration.onActivityChanged = { [weak self] in self?.refreshActivity() }
+        nativeObservation = configuration.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     /// Every run that ends, stopped or superseded runs included, so a caller
@@ -243,6 +288,58 @@ package final class BuildSystemService: ObservableObject {
         entries.first { $0.id == id }
     }
 
+    package func nativeConfigurationState(_ entryID: String) -> BuildNativeConfigurationState {
+        nativeConfiguration?.state(entryID) ?? BuildNativeConfigurationState()
+    }
+
+    @discardableResult
+    package func readNativeConfiguration(_ entryID: String, allowProjectTool: Bool = false) async throws -> BuildNativeConfiguration {
+        guard let nativeConfiguration else { throw BuildSystemServiceError(L10n.string("Native configuration is unavailable.")) }
+        return try await nativeConfiguration.read(entryID, allowProjectTool: allowProjectTool)
+    }
+
+    @discardableResult
+    package func saveNativeConfiguration(_ entryID: String, snapshot: BuildNativeConfiguration,
+                                         edits: BuildNativeConfigurationEdits) async throws -> BuildNativeConfiguration {
+        guard let nativeConfiguration else { throw BuildSystemServiceError(L10n.string("Native configuration is unavailable.")) }
+        return try await nativeConfiguration.save(entryID, snapshot: snapshot, edits: edits)
+    }
+
+    private func nativeConfigurationContext(_ entryID: String) throws -> BuildNativeConfigurationContext? {
+        guard let workspaceURL, let entry = entry(entryID), entry.declaration.nativeConfiguration,
+              sources().contains(entry.source) else { return nil }
+        return BuildNativeConfigurationContext(entryID: entryID, source: entry.source,
+            buildSystemID: entry.instance.buildSystemID, workspace: workspaceURL, generation: generation,
+            configurationRevision: providerConfigurationRevision,
+            optionsRevision: nativeOptionsRevisions[entry.instance.buildSystemID, default: 0],
+            settings: settings(entry.source.pluginID), plan: try planContext(entry, workspaceURL: workspaceURL))
+    }
+
+    private func nativeConfigurationDidSave(_ entryID: String) {
+        guard let entry = entry(entryID), let workspaceURL else { return }
+        let buildSystemID = entry.instance.buildSystemID
+        providerConfigurationRevision += 1
+        invalidateTestDiscovery(buildSystemID: buildSystemID)
+        if providerRunID != nil { stopRun() }
+        for affected in entries where affected.instance.buildSystemID == buildSystemID {
+            modelTasks.removeValue(forKey: affected.id)?.cancel()
+            for key in Array(dependencyTasks.keys) where Self.entryID(ofDependencyTask: key) == affected.id {
+                dependencyTasks.removeValue(forKey: key)?.cancel()
+            }
+            update(affected.id) {
+                $0.isReloadRequired = true
+                if $0.modelState == .loading { $0.modelState = $0.model == nil ? .notLoaded : .loaded }
+                $0.dependencies = [:]
+            }
+            modelRevisions[affected.id, default: 0] += 1
+            dependencyRevisions[affected.id, default: 0] += 1
+        }
+        invalidateProducerConfiguration(buildSystemID: buildSystemID)
+        // The selected path can stay the same while its native content changes.
+        // Language import must re-read that source before its next project sync.
+        onLanguageImportChanged?(workspaceURL)
+    }
+
     // MARK: Workspace
 
     /// Forgets the previous workspace and detects the new one.
@@ -256,6 +353,7 @@ package final class BuildSystemService: ObservableObject {
         entries = []
         modelRevisions = [:]
         modelConfigurationRevisions = [:]
+        nativeOptionsRevisions = [:]
         dependencyRevisions = [:]
         fileRevision = 0
         issues = []
@@ -263,6 +361,7 @@ package final class BuildSystemService: ObservableObject {
         runState = .idle
         runningTitle = nil
         clearOutput()
+        operation = nil
         detect()
     }
 
@@ -271,11 +370,14 @@ package final class BuildSystemService: ObservableObject {
     /// stale when the files it depends on changed.
     package func detect() {
         guard let workspaceURL else { return }
+        inputRevision += 1
         redetectTask?.cancel(); redetectTask = nil
         detectionTask?.cancel()
         let detectionID = UUID()
         self.detectionID = detectionID
         languageImport = nil
+        languageImportsByRoot = [:]
+        languageImportsByEntryID = [:]
         languageImportFailure = nil
         let sources = sources()
         guard !sources.isEmpty else {
@@ -286,18 +388,40 @@ package final class BuildSystemService: ObservableObject {
             return
         }
         isDetecting = true
-        let storedOptions = Dictionary(
-            sources.flatMap(\.buildSystems).map {
-                ($0.id, optionsStore.options(workspaceURL: workspaceURL, buildSystemID: $0.id))
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let emptyMultiSelectOptions = Dictionary(
-            sources.flatMap(\.buildSystems).map {
-                ($0.id, optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: $0.id))
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let storedOptions: [String: [String: ToolingJSONValue]]
+        let emptyMultiSelectOptions: [String: [String: Set<String>]]
+        let instanceOptions: [String: [String: [String: ToolingJSONValue]]]
+        let instanceDefaults: [String: [String: ToolingJSONValue]]
+        do {
+            storedOptions = Dictionary(
+                try sources.flatMap(\.buildSystems).map {
+                    ($0.id, try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: $0.id))
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+            emptyMultiSelectOptions = Dictionary(
+                try sources.flatMap(\.buildSystems).map {
+                    ($0.id, try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: $0.id))
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+            instanceOptions = Dictionary(
+                try sources.flatMap(\.buildSystems).map {
+                    ($0.id, try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: $0.id))
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+            instanceDefaults = Dictionary(
+                try sources.flatMap(\.buildSystems).map {
+                    ($0.id, try optionsStore.instanceDefaults(workspaceURL: workspaceURL, buildSystemID: $0.id))
+                }, uniquingKeysWith: { first, _ in first }
+            )
+        } catch {
+            entries = []
+            isDetecting = false
+            failLanguageImport(error)
+            return
+        }
         let previous = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
         let modelRevisions = modelRevisions
         let dependencyRevisions = dependencyRevisions
@@ -311,6 +435,8 @@ package final class BuildSystemService: ObservableObject {
                         workspaceURL: workspaceURL,
                         sources: sources,
                         storedOptions: storedOptions,
+                        instanceOptions: instanceOptions,
+                        instanceDefaults: instanceDefaults,
                         emptyMultiSelectOptions: emptyMultiSelectOptions,
                         previous: previous
                     )
@@ -321,6 +447,19 @@ package final class BuildSystemService: ObservableObject {
             self.isDetecting = false
             switch result {
             case .success(let detected):
+                do {
+                    let migrated = try self.optionsStore.migrateLegacyConfiguration(
+                        workspaceURL: workspaceURL, instances: detected.entries.map(\.instance))
+                    if try migrated || self.migrateInstanceOptions(entries: detected.entries, workspaceURL: workspaceURL) {
+                        self.detect()
+                        return
+                    }
+                } catch {
+                    self.entries = []
+                    self.issues = []
+                    self.failLanguageImport(error)
+                    return
+                }
                 let current = Dictionary(uniqueKeysWithValues: self.entries.map { ($0.id, $0) })
                 let publishedBefore = self.entries.filter { $0.declaration.sharesModel }
                 self.entries = detected.entries.map { detectedEntry in
@@ -351,12 +490,20 @@ package final class BuildSystemService: ObservableObject {
                 }
                 if publishedBefore != self.entries.filter({ $0.declaration.sharesModel }) { self.invalidateModelInputs() }
                 self.issues = detected.issues
-                self.persistDroppedOptions()
-                let inputs = self.entries.map { entry in
-                    LanguageImportInput(
-                        entry: entry,
-                        options: self.storedOptions(for: entry, workspaceURL: workspaceURL)
-                    )
+                let inputs: [LanguageImportInput]
+                do {
+                    try self.persistDroppedOptions()
+                    try self.restoreSavedChoices(workspaceURL: workspaceURL)
+                    inputs = try self.entries.map { entry in
+                        LanguageImportInput(
+                            entry: entry,
+                            options: try self.storedOptions(for: entry, workspaceURL: workspaceURL)
+                        )
+                    }
+                } catch {
+                    self.entries = []
+                    self.failLanguageImport(error)
+                    return
                 }
                 // Discovery is passive: importing a project cannot execute a
                 // wrapper or probe the build tool before user confirmation.
@@ -399,6 +546,10 @@ package final class BuildSystemService: ObservableObject {
                           !Task.isCancelled else { return }
                     switch configured {
                     case .success(let values):
+                        self.languageImportsByEntryID = values
+                        self.languageImportsByRoot = Dictionary(uniqueKeysWithValues: Set(inputs.map { $0.entry.instance.root }).map { root in
+                            (root, Self.workspaceImport(inputs: inputs.filter { $0.entry.instance.root == root }, imports: values))
+                        })
                         self.publishLanguageImport(Self.workspaceImport(inputs: inputs, imports: values), workspaceURL: workspaceURL)
                     case .failure(let error): self.failLanguageImport(error)
                     }
@@ -414,7 +565,16 @@ package final class BuildSystemService: ObservableObject {
 
     /// Ends what a now disabled plugin started and detects again with the
     /// plugins enabled now, so its instances leave the tool window.
+    package func pluginPackageWillChange(_ pluginID: String) {
+        replacedPluginIDs.insert(pluginID)
+        pluginsChanged()
+    }
+
     package func pluginsChanged() {
+        let enabledSources = sources()
+        providerSourcesChanged.send(enabledSources)
+        nativeConfiguration?.invalidate()
+        providerConfigurationRevision += 1
         for producer in entries where producer.declaration.sharesModel {
             modelConfigurationRevisions[producer.id, default: 0] += 1
         }
@@ -460,11 +620,18 @@ package final class BuildSystemService: ObservableObject {
             testDiscoveries = [:]
             discoverySnapshots = [:]
         }
-        let affected = entries.contains { entry in
+        let preferencesChanged = changed.contains(".lithe/build/options.json")
+        if preferencesChanged {
+            nativeConfiguration?.invalidate()
+            for id in Set(entries.map(\.instance.buildSystemID)) {
+                nativeOptionsRevisions[id, default: 0] += 1
+            }
+        }
+        let affected = preferencesChanged || entries.contains { entry in
             entry.sync?.watch.contains(where: changed.contains) == true
         }
         guard affected else { return }
-        for entry in entries where entry.declaration.sharesModel && entry.sync?.watch.contains(where: changed.contains) == true {
+        for entry in entries where entry.declaration.sharesModel && (preferencesChanged || entry.sync?.watch.contains(where: changed.contains) == true) {
             update(entry.id) { $0.isReloadRequired = true }
         }
         invalidateModelInputs()
@@ -475,6 +642,8 @@ package final class BuildSystemService: ObservableObject {
         detectionTask?.cancel(); detectionTask = nil
         detectionID = nil
         languageImport = nil
+        languageImportsByRoot = [:]
+        languageImportsByEntryID = [:]
         languageImportFailure = nil
         isDetecting = false
         redetectTask?.cancel()
@@ -488,6 +657,46 @@ package final class BuildSystemService: ObservableObject {
     }
 
     // MARK: Language import
+
+    /// Only current, complete upstream projects reach the generator. An empty
+    /// snapshot is authoritative when no build provider is enabled.
+    package func runProjectOwnership() throws -> [RunProjectOwnership] {
+        guard workspaceURL != nil, languageImport != nil else { throw CancellationError() }
+        return try entries.filter { $0.instance.modelSource != nil && languageImportsByEntryID[$0.id] != nil }.flatMap { entry in
+            guard entry.modelState == .loaded, !entry.isReloadRequired, let model = entry.model, !model.truncated else {
+                throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
+            }
+            let reactor: String?
+            if case .maven(let context)? = languageImportsByEntryID[entry.id] {
+                reactor = context.reactorPath
+            } else { reactor = nil }
+            return try model.projects.map { project in
+                if reactor != nil && project.properties["run.modelVersion"] != "1" {
+                    throw BuildSystemServiceError(L10n.string("Update the Maven Build plugin before generating Run configurations."))
+                }
+                return RunProjectOwnership(path: project.path, mavenReactorPath: reactor,
+                    contentRoots: model.contentRoots.filter { $0.projectID == project.id && ["source", "testSource", "generatedSource", "generatedTestSource"].contains($0.kind) }
+                        .map { RunProjectOwnership.SourceRoot(path: $0.path, kind: $0.kind) },
+                    name: project.name, mavenRunProvider: reactor == nil ? nil : project.properties["run.provider"],
+                    minimumJavaVersion: project.properties["java.minimumVersion"],
+                    mavenMinimumVersion: reactor == nil ? nil : project.properties["maven.minimumVersion"],
+                    mavenWrapper: project.properties["maven.wrapper"].flatMap { script in reactor.map { $0 == "." ? script : $0 + "/" + script } })
+            }
+        }
+    }
+
+
+    /// Run preparation uses the same accepted options as Java import, scoped to
+    /// its recorded build root. Pending detection must never reuse an old root.
+    package func languageImport(workspaceURL: URL, root: String?) throws -> JavaLanguageImportConfiguration {
+        guard self.workspaceURL == workspaceURL.standardizedFileURL else { throw CancellationError() }
+        if let languageImportFailure { throw BuildSystemServiceError(languageImportFailure) }
+        guard let languageImport else {
+            throw BuildSystemServiceError(L10n.string("Build-system language import is still preparing. Retry when project loading completes."))
+        }
+        guard let root else { return languageImport }
+        return languageImportsByRoot[root] ?? JavaLanguageImportConfiguration()
+    }
 
     /// Waits for the current detection, including option normalization. A
     /// cancelled waiter never cancels detection shared by other consumers.
@@ -591,6 +800,44 @@ package final class BuildSystemService: ObservableObject {
     /// Runs the model command of a command-sourced instance. Other sources
     /// are read again by detection. `reason` tells a provider whether it
     /// may answer from its own snapshot.
+    /// Explicit execution readiness joins the service-owned model work. The
+    /// model remains shared if this caller stops; its native deadline still applies.
+    package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, taskIDs: Set<String> = [], allModels: Bool = false, workspace: URL) async throws {
+        guard workspace.standardizedFileURL == workspaceURL else { throw CancellationError() }
+        let workspaceGeneration = generation
+        let configurationRevision = providerConfigurationRevision
+        let sourcesRevision = fileRevision
+        let ids = entries.filter { entry in
+            if allModels { return entry.instance.modelSource != nil && languageImportsByEntryID[entry.id] != nil }
+            if let reference { return entry.instance.pluginID == reference.pluginID && entry.instance.buildSystemID == reference.buildSystemID && entry.instance.root == reference.root }
+            return selectorKind.map(entry.declaration.testSelectorKinds.contains) ?? entry.declaration.tasks.contains { taskIDs.contains($0.id) }
+        }.map(\.id)
+        if ids.isEmpty { return }
+        let (changes, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let observation = $entries.sink { _ in continuation.yield(()) }
+        defer { observation.cancel(); continuation.finish() }
+        for id in ids {
+            guard let entry = entry(id) else { throw CancellationError() }
+            if entry.modelState != .loading && (entry.modelState != .loaded || entry.isReloadRequired) { loadModel(id) }
+        }
+        for await _ in changes {
+            try Task.checkCancellation()
+            guard workspace.standardizedFileURL == workspaceURL, generation == workspaceGeneration,
+                  providerConfigurationRevision == configurationRevision, fileRevision == sourcesRevision else { throw CancellationError() }
+            var ready = true
+            for id in ids {
+                guard let entry = entry(id) else { throw CancellationError() }
+                if case .failed(let message) = entry.modelState { throw BuildSystemServiceError(message) }
+                if entry.modelState != .loaded || entry.isReloadRequired {
+                    guard modelTasks[id] != nil else { throw CancellationError() }
+                    ready = false
+                }
+            }
+            if ready { return }
+        }
+        throw CancellationError()
+    }
+
     package func loadModel(_ entryID: String, reason: BuildLoadReason = .initial) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         if preparingApplicationID != nil, runEntryID == entryID { stopRun() }
@@ -647,7 +894,12 @@ package final class BuildSystemService: ObservableObject {
                     $0.dependencies = [:]
                 }
                 self.noteModelChanged(entryID)
-                self.refreshOptions(buildSystemID: entry.instance.buildSystemID)
+                do { try self.refreshOptions(buildSystemID: entry.instance.buildSystemID) }
+                catch {
+                    self.entries = []
+                    self.failLanguageImport(error)
+                    return
+                }
                 // Model-provided choices may remove an import option even
                 // when the user has not changed it. Discard any old snapshot.
                 self.detect()
@@ -763,12 +1015,15 @@ package final class BuildSystemService: ObservableObject {
               !entry.isReloadRequired, entry.modelState == .loaded,
               let project = model.projects.first(where: { $0.id == request.projectID }),
               let target = model.targets.first(where: { $0.id == request.targetID && $0.projectID == project.id }),
-              entry.declaration.providerRuns.contains(where: { $0.id == request.run && (debugLaunch == nil || $0.debugAdapter != nil) }) else { return nil }
+              let declaration = entry.declaration.providerRuns.first(where: { $0.id == request.run && (debugLaunch == nil || $0.debugAdapter != nil) }) else { return nil }
+        guard configuration?.buildProvider.map({ ($0.execution ?? .application) == declaration.execution }) ?? true else { return nil }
+        let launchOptions = declaration.execution == .application ? nil : BuildLaunchOptions(
+            execution: declaration.execution, arguments: request.userArguments)
         let origin = configuration ?? RunConfiguration(id: "build:" + entryID + ":" + request.run + ":" + request.targetID,
-            name: title, kind: .process(provider: "build.provider"), execution: .application, modulePath: nil, mainClass: nil,
+            name: title, kind: .process(provider: "build.provider"), execution: declaration.execution == .service ? .service : (declaration.execution == .task ? .task : .application), modulePath: nil, mainClass: nil,
             buildProvider: BuildProviderRunReference(pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
                 root: entry.instance.root, run: request.run, projectID: request.projectID, targetID: request.targetID,
-                userArguments: request.userArguments))
+                userArguments: request.userArguments, execution: declaration.execution == .application ? nil : declaration.execution))
         if debugLaunch == nil { stopPreparedApplication() }
         let sourceRevision = fileRevision
         return startRun(entryID, title: title) { service, run in
@@ -793,7 +1048,8 @@ package final class BuildSystemService: ObservableObject {
                     project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target), userArguments: request.userArguments)
             } else {
                 planned = try service.planner.prepareRunPlan(entry.target, context: context, run: request.run,
-                    project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target), userArguments: request.userArguments)
+                    project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target),
+                    userArguments: launchOptions == nil ? request.userArguments : [], workspaceURL: workspaceURL, launchOptions: launchOptions)
             }
             let validConfiguration = service.runValidity(.provider(planned), entry: entry, workspaceURL: workspaceURL, run: run)
             let isValid: @MainActor @Sendable () -> Bool = { [weak service] in
@@ -808,8 +1064,8 @@ package final class BuildSystemService: ObservableObject {
             guard isValid() else { throw CancellationError() }
             let progress: @MainActor @Sendable (BuildProviderProgress) -> Void = { [weak service] progress in
                 guard let service, isValid() else { return }
-                if let output = progress.output { service.appendOutput(output, in: service.outputDirectory(entry)) }
-                else if let message = progress.message { service.appendOutput(message + "\n", in: service.outputDirectory(entry)) }
+                if let output = progress.output { service.appendOutput(output, in: service.outputDirectory(entry), owner: .run(run)) }
+                else if let message = progress.message { service.appendOutput(message + "\n", in: service.outputDirectory(entry), owner: .run(run)) }
             }
             let providerTarget = Self.providerTarget(entry, workspaceURL: workspaceURL)
             let result: ToolingJSONValue
@@ -830,7 +1086,7 @@ package final class BuildSystemService: ObservableObject {
                 return 0
             }
             let preparation = try await Task.detached(priority: .userInitiated) {
-                try planner.decodeRunPreparation(entry.target, workspaceURL: workspaceURL, root: context.root, result: result)
+                try planner.decodeRunPreparation(entry.target, workspaceURL: workspaceURL, root: context.root, result: result, launchOptions: launchOptions)
             }.value
             guard isValid() else { throw CancellationError() }
             guard let launcher = service.runLauncher else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
@@ -840,6 +1096,107 @@ package final class BuildSystemService: ObservableObject {
             return 0
             }
         }
+    }
+
+    /// Capture the exact enabled package before any asynchronous preparation starts.
+    package func configurationRunSource(inputs: ProviderLaunchInputs, instanceRoot: String) -> BuildSystemPluginSource? {
+        let enabled = sources()
+        let candidates = entries.filter { $0.instance.root == instanceRoot && $0.instance.buildSystemID == inputs.buildSystemID
+            && (inputs.reference == nil || inputs.reference?.pluginID == $0.instance.pluginID)
+            && enabled.contains($0.source) }
+        return candidates.count == 1 ? candidates.first?.source : nil
+    }
+
+    /// Independent service preparations share provider sessions, never the single Build task slot.
+    package func prepareConfigurationRun(inputs: ProviderLaunchInputs, instanceRoot: String, workspace: URL,
+        tool: BuildProviderHints, isCurrent: @escaping @MainActor @Sendable () -> Bool,
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> BuildRunPreparation {
+        guard workspace.standardizedFileURL == workspaceURL, let providers else { throw CancellationError() }
+        let candidates = entries.filter { $0.instance.root == instanceRoot && $0.instance.buildSystemID == inputs.buildSystemID
+            && (inputs.reference == nil || inputs.reference?.pluginID == $0.instance.pluginID)
+            && $0.instance.modelSource == .provider && $0.declaration.providerRuns.contains(where: { $0.execution == inputs.launchOptions.execution }) }
+        guard candidates.count == 1, let entry = candidates.first, entry.modelState == .loaded, !entry.isReloadRequired else {
+            throw BuildSystemServiceError(Self.providerUnsupportedMessage)
+        }
+        let workspaceGeneration = generation, revision = providerConfigurationRevision, files = fileRevision
+        let initialModel = entry.model, launchSettings = settings(entry.source.pluginID)
+        let fingerprint = optionFingerprint(entry, workspaceURL: workspace)
+        let valid: @MainActor @Sendable () -> Bool = { [weak self] in
+            guard let self, !Task.isCancelled, isCurrent(), self.workspaceURL == workspace.standardizedFileURL,
+                  self.generation == workspaceGeneration, self.providerConfigurationRevision == revision, self.fileRevision == files,
+                  self.settings(entry.source.pluginID) == launchSettings, let current = self.entry(entry.id),
+                  current.source == entry.source, current.model == initialModel, current.modelState == .loaded, !current.isReloadRequired,
+                  self.sources().contains(entry.source), fingerprint != nil else { return false }
+            return self.optionFingerprint(current, workspaceURL: workspace) == fingerprint
+        }
+        return try await withPlanContext(entry, workspaceURL: workspace) { base, _ in
+            guard valid() else { throw CancellationError() }
+            let proposed = base.options.merging(inputs.optionOverrides) { _, value in value }
+            let resolution = try planner.resolveOptions(entry.target, options: proposed, modelValues: initialModel?.optionValues)
+            guard inputs.optionOverrides.allSatisfy({ key, value in
+                !resolution.dropped.contains(key) && resolution.options.contains { $0.id == key && $0.value == value }
+            }) else { throw BuildSystemServiceError(L10n.string("The build option value is invalid. Inspect its current kind and choices.")) }
+            let context = BuildPlanContext(root: base.root, options: proposed, pluginDirectory: base.pluginDirectory,
+                workspaceStateDirectory: base.workspaceStateDirectory, modelInputs: base.modelInputs)
+            let launchTool: BuildProviderHints
+            if tool.toolExecutable != nil { launchTool = tool }
+            else {
+                let planner = planner, target = entry.target
+                let invocation = try planner.invocationPlan(target, root: entry.instance.root, settings: launchSettings)
+                let selected = try await tools.resolve(invocation, displayName: entry.instance.displayName, workspaceURL: workspace) { runtime, output in
+                    try planner.checkToolVersion(target, runtime: runtime, output: output)
+                }
+                guard valid() else { throw CancellationError() }
+                launchTool = BuildProviderHints(toolExecutable: selected.executableURL, toolEnvironment: selected.providerEnvironment)
+            }
+            guard case .provider(let modelRequest) = try planner.modelPlan(entry.target, context: context, outputFile: nil, providerHints: launchTool) else {
+                throw BuildSystemServiceError(Self.providerUnsupportedMessage)
+            }
+            let target = Self.providerTarget(entry, workspaceURL: workspace)
+            let raw = try await providers.send(modelRequest, to: target, timeout: Self.modelTimeout)
+            guard valid(), modelInputsAreCurrent(modelRequest) else { throw CancellationError() }
+            let planner = planner
+            let model = try await Task.detached(priority: .userInitiated) {
+                try planner.decodeModel(entry.target, workspaceURL: workspace, root: context.root, output: .providerResult(raw), options: context.options)
+            }.value
+            guard valid(), !model.truncated,
+                  let project = model.projects.first(where: { project in
+                      if let reference = inputs.reference { return project.id == reference.projectID }
+                      return project.path == inputs.projectPath
+                  }) else { throw CancellationError() }
+            let targets = model.targets.filter { target in
+                guard target.projectID == project.id else { return false }
+                if let reference = inputs.reference { return target.id == reference.targetID }
+                return target.name == inputs.provider
+            }
+            guard targets.count == 1, let selected = targets.first else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            let runs = entry.declaration.providerRuns.filter { $0.execution == inputs.launchOptions.execution
+                && (inputs.reference == nil || $0.id == inputs.reference?.run)
+                && ($0.targetTags.isEmpty || !Set($0.targetTags).isDisjoint(with: selected.tags)) }
+            guard runs.count == 1, let run = runs.first else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            let request = try planner.prepareRunPlan(entry.target, context: context, run: run.id, project: BuildSelection(project: project),
+                selectedTarget: BuildSelection(target: selected), userArguments: [], workspaceURL: workspace, launchOptions: inputs.launchOptions)
+            let prepared = try await providers.prepareRun(Self.request(request, with: launchTool), on: target, timeout: Self.modelTimeout) { value in
+                if valid() { progress(value) }
+            }
+            guard valid(), modelInputsAreCurrent(request) else { throw CancellationError() }
+            let result = try await Task.detached(priority: .userInitiated) {
+                try planner.decodeRunPreparation(entry.target, workspaceURL: workspace, root: context.root, result: prepared, launchOptions: inputs.launchOptions)
+            }.value
+            guard valid() else { throw CancellationError() }
+            return result
+        }
+    }
+
+    /// A portable prepared plan must use the exact executable selected for its private model read.
+    private static func request(_ request: BuildProviderRequest, with hints: BuildProviderHints) throws -> BuildProviderRequest {
+        guard let executable = hints.toolExecutable, case .object(var params) = request.params else { throw CancellationError() }
+        params["tool"] = .object(["executable": .string(executable.path)])
+        var environment = hints.toolEnvironment.mapValues(ToolingJSONValue.string)
+        if case .object(let options)? = params["environment"] { environment.merge(options) { _, value in value } }
+        params["environment"] = .object(environment)
+        return BuildProviderRequest(method: request.method, params: .object(params), optionFingerprint: request.optionFingerprint,
+            executesProjectCode: request.executesProjectCode, mayUseNetwork: request.mayUseNetwork)
     }
 
     private func stopPreparedApplication() {
@@ -909,19 +1266,63 @@ package final class BuildSystemService: ObservableObject {
 
     /// Runs a declared task, or a model task through its template.
     @discardableResult
-    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
+    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String,
+                         onLanguageImport: (@MainActor (BuildLanguageImport?) -> Void)? = nil,
+                         selectFromModel: (@MainActor (BuildModel) throws -> BuildTaskRequest)? = nil) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID) else { return nil }
         return startRun(entryID, title: title) { service, run in
-            try await service.withPlanContext(entry, workspaceURL: workspaceURL) { context, _ in
-            let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
+            try await service.withPlanContext(entry, workspaceURL: workspaceURL, allocatesOutputFile: selectFromModel != nil) { base, outputFile in
+            let proposed = base.options.merging(request.optionOverrides) { _, override in override }
+            if !request.optionOverrides.isEmpty {
+                let resolution = try service.planner.resolveOptions(entry.target, options: proposed, modelValues: entry.model?.optionValues)
+                guard request.optionOverrides.allSatisfy({ key, value in
+                    !resolution.dropped.contains(key) && resolution.options.contains { $0.id == key && $0.value == value }
+                }) else { throw BuildSystemServiceError(L10n.string("The build option value is invalid. Inspect its current kind and choices.")) }
+            }
+            let context = BuildPlanContext(root: base.root, options: proposed, pluginDirectory: base.pluginDirectory,
+                workspaceStateDirectory: base.workspaceStateDirectory, modelInputs: base.modelInputs)
+            if let onLanguageImport {
+                onLanguageImport(try service.planner.languageImport(entry.target, workspaceURL: workspaceURL,
+                    root: context.root, options: context.options, executableURL: request.tool?.toolExecutable))
+            }
+            var selectedRequest = request
+            if let selectFromModel {
+                let model: BuildModel
+                if entry.instance.modelSource == .provider || entry.instance.modelSource == .command {
+                    let plan = try service.planner.modelPlan(entry.target, context: context, outputFile: outputFile,
+                        providerHints: request.tool ?? BuildProviderHints())
+                    let valid = service.runValidity(plan, entry: entry, workspaceURL: workspaceURL, run: run)
+                    let output = try await service.captureOutput(plan, entry: entry, workspaceURL: workspaceURL,
+                        outputFile: outputFile, title: title, timeout: Self.modelTimeout, owner: .run(run))
+                    let planner = service.planner, target = entry.target
+                    model = try await Task.detached(priority: .userInitiated) {
+                        try planner.decodeModel(target, workspaceURL: workspaceURL, root: context.root,
+                            output: output, options: context.options)
+                    }.value
+                    guard valid() else { throw CancellationError() }
+                } else if let loaded = entry.model { model = loaded }
+                else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+                selectedRequest = try selectFromModel(model)
+            }
+            let plan = try service.planner.taskPlan(entry.target, context: context, request: selectedRequest)
             let isValid = service.runValidity(plan, entry: entry, workspaceURL: workspaceURL, run: run)
             defer { if service.providerRunID == run.id { service.providerRunID = nil } }
-            let collected = try await service.runExecutionPlan(plan, entry: entry, workspaceURL: workspaceURL, run: run)
+            let collected = try await service.runExecutionPlan(plan, entry: entry, workspaceURL: workspaceURL, run: run, tool: request.tool)
             let diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
             // The decode runs after the command; a stop, replacement, or
             // workspace switch in between must not publish into the new state.
             guard isValid() else { throw CancellationError() }
             service.diagnostics = diagnostics
+            if entry.declaration.providerTestReports, let report = collected.testResults {
+                let target = entry.target
+                let planner = service.planner
+                let request = BuildTestResultsRequest(workspaceURL: workspaceURL, root: entry.instance.root,
+                    project: selectedRequest.project?.path, projects: entry.model?.projects.map(\.path) ?? [],
+                    output: collected.text, notBefore: nil, suite: nil, result: report)
+                let results = try await Task.detached(priority: .userInitiated) { try planner.decodeTestResults(target, request: request) }.value
+                guard isValid() else { throw CancellationError() }
+                service.testResults = results
+            }
             return collected.exitCode
             }
         }
@@ -935,7 +1336,7 @@ package final class BuildSystemService: ObservableObject {
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
             let isValid = service.runValidity(plan.execution, entry: entry, workspaceURL: workspaceURL, run: run)
             defer { if service.providerRunID == run.id { service.providerRunID = nil } }
-            if plan.results != nil, request.project == nil,
+            if plan.results != nil, plan.results != .provider, request.project == nil,
                entry.instance.modelSource != nil,
                entry.model == nil || entry.isReloadRequired {
                 // Report globs are relative to each project; without a current
@@ -961,7 +1362,8 @@ package final class BuildSystemService: ObservableObject {
                     projects: request.projects,
                     output: collected.text,
                     notBefore: started,
-                    suite: request.suite
+                    suite: request.suite,
+                    result: collected.testResults
                 )
                 let planner = service.planner
                 let target = entry.target
@@ -975,8 +1377,9 @@ package final class BuildSystemService: ObservableObject {
                     throw CancellationError()
                 } catch {
                     guard isValid() else { throw CancellationError() }
+                    if plan.results == .provider { throw error }
                     service.appendOutput(
-                        "\n" + error.localizedDescription + "\n", in: service.outputDirectory(entry)
+                        "\n" + error.localizedDescription + "\n", in: service.outputDirectory(entry), owner: .run(run)
                     )
                 }
             }
@@ -1002,16 +1405,21 @@ package final class BuildSystemService: ObservableObject {
         if runState == .running {
             runState = .cancelled
         }
+        if let ended, operation?.id == ended.runID { operation?.state = .cancelled }
         if let ended { runEnded.send(ended) }
     }
 
     /// Ends every process this service started.
     package func stop() {
+        inputRevision += 1
+        nativeConfiguration?.stop()
         stopPreparedApplication()
         detectionTask?.cancel(); detectionTask = nil
         detectionID = nil
         redetectTask?.cancel(); redetectTask = nil
         languageImport = nil
+        languageImportsByRoot = [:]
+        languageImportsByEntryID = [:]
         languageImportFailure = nil
         isDetecting = false
         finishImportWaiters(.failure(CancellationError()))
@@ -1038,6 +1446,7 @@ package final class BuildSystemService: ObservableObject {
         outputRoots = []
         diagnostics = []
         testResults = nil
+        operation?.output = ""
     }
 
     private func startRun(
@@ -1053,6 +1462,8 @@ package final class BuildSystemService: ObservableObject {
         runEntryID = entryID
         runState = .running
         runningTitle = title
+        operation = BuildOperationSnapshot(id: id, entryID: entryID, title: title,
+                                           state: .running, exitCode: nil, output: "")
         runTask = Task { [weak self] in
             guard let self, self.isCurrent(run) else { return }
             let state: BuildRunState
@@ -1071,13 +1482,15 @@ package final class BuildSystemService: ObservableObject {
             } catch {
                 if self.runID == id {
                     self.appendOutput(
-                        error.localizedDescription + "\n", in: self.outputDirectory(entryID: entryID)
+                        error.localizedDescription + "\n", in: self.outputDirectory(entryID: entryID), owner: .run(run)
                     )
                 }
                 state = .failed(error.localizedDescription)
             }
             guard self.runID == id else { return }
             self.runState = state
+            self.operation?.state = state
+            self.operation?.exitCode = exitCode
             self.runTask = nil
             self.runID = nil
             self.runEntryID = nil
@@ -1264,22 +1677,37 @@ package final class BuildSystemService: ObservableObject {
     }
 
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        do { try writeOption(entryID, optionID: optionID, value: value) }
+        catch { issues.append(error.localizedDescription) }
+    }
+
+    private func writeOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) throws {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         let buildSystemID = entry.instance.buildSystemID
+        nativeOptionsRevisions[buildSystemID, default: 0] += 1
+        nativeConfiguration?.invalidate(buildSystemID: buildSystemID)
         invalidateTestDiscovery(buildSystemID: buildSystemID)
         if providerRunID != nil, let runEntryID, self.entry(runEntryID)?.instance.buildSystemID == buildSystemID {
             stopRun()
         }
-        var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        stored[optionID] = value
-        var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        for root in Array(empty.keys) {
-            empty[root]?.remove(optionID)
-            if empty[root]?.isEmpty == true { empty[root] = nil }
+        if entry.declaration.options.first(where: { $0.id == optionID })?.scope == .instance {
+            var instances = try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            var stored = instances[entry.instance.root] ?? [:]
+            stored[optionID] = value
+            instances[entry.instance.root] = stored.isEmpty ? nil : stored
+            try optionsStore.setInstanceOptions(instances, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        } else {
+            var stored = try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            stored[optionID] = value
+            var empty = try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            for root in Array(empty.keys) {
+                empty[root]?.remove(optionID)
+                if empty[root]?.isEmpty == true { empty[root] = nil }
+            }
+            try optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            try optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         }
-        optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        refreshOptions(buildSystemID: buildSystemID)
+        try refreshOptions(buildSystemID: buildSystemID)
         if entry.declaration.sharesModel {
             invalidateProducerConfiguration(buildSystemID: buildSystemID)
         }
@@ -1293,24 +1721,35 @@ package final class BuildSystemService: ObservableObject {
     /// values would otherwise be rejected by Core and revive a non-empty default.
     /// Reset still removes the option's complete shared and instance overrides.
     package func setInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        do { try writeInstanceOption(entryID, optionID: optionID, value: value) }
+        catch { issues.append(error.localizedDescription) }
+    }
+
+    private func writeInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) throws {
         guard let workspaceURL, let entry = entry(entryID) else { return }
+        if entry.declaration.options.first(where: { $0.id == optionID })?.scope == .instance {
+            try writeOption(entryID, optionID: optionID, value: value)
+            return
+        }
         guard case .array(let next)? = value,
               let option = entry.options.first(where: { $0.id == optionID }), option.kind == .multiSelect,
               case .array(let visible) = option.value else {
-            setOption(entryID, optionID: optionID, value: value)
+            try writeOption(entryID, optionID: optionID, value: value)
             return
         }
         let buildSystemID = entry.instance.buildSystemID
+        nativeOptionsRevisions[buildSystemID, default: 0] += 1
+        nativeConfiguration?.invalidate(buildSystemID: buildSystemID)
         invalidateTestDiscovery(buildSystemID: buildSystemID)
         if providerRunID != nil, let runEntryID, self.entry(runEntryID)?.instance.buildSystemID == buildSystemID {
             stopRun()
         }
-        var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        var stored = try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         let values: [ToolingJSONValue]
         if case .array(let items)? = stored[optionID] { values = items } else { values = [] }
         let siblingValues = values.filter { !visible.contains($0) }
         stored[optionID] = .array(siblingValues + next.filter { !siblingValues.contains($0) })
-        var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        var empty = try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         let root = entry.instance.root
         if next.isEmpty {
             empty[root, default: []].insert(optionID)
@@ -1318,9 +1757,9 @@ package final class BuildSystemService: ObservableObject {
             empty[root]?.remove(optionID)
             if empty[root]?.isEmpty == true { empty[root] = nil }
         }
-        optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        refreshOptions(buildSystemID: buildSystemID)
+        try optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        try optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        try refreshOptions(buildSystemID: buildSystemID)
         if entry.declaration.sharesModel {
             invalidateProducerConfiguration(buildSystemID: buildSystemID)
         }
@@ -1334,10 +1773,70 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
-    private func refreshOptions(buildSystemID: String) {
+    /// A declaration upgrade can move a previously shared option to instance
+    /// scope. Copy every detected root first, preserve existing local choices,
+    /// and prove the destination before removing any source value. A second
+    /// detection then generates static models with the migrated input.
+    private func migrateInstanceOptions(entries: [BuildSystemEntry], workspaceURL: URL) throws -> Bool {
+        var changed = false
+        for buildSystemID in Set(entries.map(\.instance.buildSystemID)).sorted() {
+            let instances = entries.filter { $0.instance.buildSystemID == buildSystemID }
+            guard let declaration = instances.first?.declaration else { continue }
+            let shared = try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            let moving = Set(declaration.options.filter { $0.scope == .instance && shared[$0.id] != nil }.map(\.id))
+            guard !moving.isEmpty else { continue }
+            var local = try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            var empty = try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            let roots = Set(instances.map(\.instance.root)).union(empty.keys).union(local.keys)
+            let multiSelect = Set(instances.first?.options.filter { $0.kind == .multiSelect }.map(\.id) ?? [])
+            for root in roots.sorted() {
+                for id in moving where local[root]?[id] == nil {
+                    let isCleared = empty[root]?.contains(id) == true && multiSelect.contains(id)
+                    local[root, default: [:]][id] = isCleared ? .array([]) : shared[id]
+                }
+            }
+            try optionsStore.setInstanceOptions(local, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            guard try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID) == local,
+                  try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID) == shared else {
+                throw BuildSystemServiceError(L10n.string("Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry."))
+            }
+            let remaining = shared.filter { !moving.contains($0.key) }
+            try optionsStore.setOptions(remaining, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            guard try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID) == remaining else {
+                throw BuildSystemServiceError(L10n.string("Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry."))
+            }
+            for root in Array(empty.keys) {
+                empty[root]?.subtract(moving)
+                if empty[root]?.isEmpty == true { empty[root] = nil }
+            }
+            try optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            changed = true
+        }
+        return changed
+    }
+
+    /// Choices are presentation data, never selected values or model facts.
+    private func restoreSavedChoices(workspaceURL: URL) throws {
+        for system in Set(entries.map(\.instance.buildSystemID)).sorted() {
+            let saved = try optionsStore.savedChoices(workspaceURL: workspaceURL, buildSystemID: system)
+            for index in entries.indices where entries[index].instance.buildSystemID == system {
+                for option in entries[index].options.indices where entries[index].options[option].allowCustom {
+                    let existing = Set(entries[index].options[option].choices.map(\.value))
+                    let id = entries[index].options[option].id
+                    entries[index].options[option].choices += Array(Set(saved[id] ?? [])).sorted()
+                        .filter { !existing.contains($0) }.map { BuildResolvedOption.Choice(value: $0) }
+                }
+            }
+        }
+    }
+
+    private func refreshOptions(buildSystemID: String) throws {
         guard let workspaceURL else { return }
-        let stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        let empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let stored = try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let empty = try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        var instances = try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let defaults = try optionsStore.instanceDefaults(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let originalInstances = instances
         var resolutions: [BuildOptionsResolution] = []
         for index in entries.indices where entries[index].instance.buildSystemID == buildSystemID {
             let entry = entries[index]
@@ -1347,12 +1846,22 @@ package final class BuildSystemService: ObservableObject {
             // Shared storage is pruned against the shared value, never an
             // empty instance override that could hide a sibling's valid choice.
             resolutions.append(resolution)
-            let input = Self.applyingEmptySelections(
-                to: stored, optionIDs: empty[entry.instance.root] ?? [], options: resolution.options
+            let scoped = Self.scopedOptions(
+                declaration: entry.declaration, workspace: stored,
+                instance: defaults.merging(instances[entry.instance.root] ?? [:]) { _, root in root }
             )
-            entries[index].options = input == stored ? resolution.options : (
+            let input = Self.applyingEmptySelections(
+                to: scoped, optionIDs: empty[entry.instance.root] ?? [], options: resolution.options
+            )
+            let effective = input == stored ? resolution : (
                 try? planner.resolveOptions(entry.target, options: input, modelValues: entry.model?.optionValues)
-            )?.options ?? resolution.options
+            ) ?? resolution
+            entries[index].options = effective.options
+            if let local = instances[entry.instance.root] {
+                let declared = Set(entry.declaration.options.filter { $0.scope == .instance }.map(\.id))
+                let pruned = Self.mergedOptionValues(stored: local.filter { declared.contains($0.key) }, resolutions: [effective])
+                instances[entry.instance.root] = pruned.isEmpty ? nil : pruned
+            }
         }
         // Options are stored per workspace and build system, but a model
         // value is valid for one instance. Keep a value as long as any
@@ -1360,8 +1869,12 @@ package final class BuildSystemService: ObservableObject {
         // model, so one instance cannot delete another's selection.
         let merged = Self.mergedOptionValues(stored: stored, resolutions: resolutions)
         if merged != stored {
-            optionsStore.setOptions(merged, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            try optionsStore.setOptions(merged, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         }
+        if instances != originalInstances {
+            try optionsStore.setInstanceOptions(instances, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        }
+        try restoreSavedChoices(workspaceURL: workspaceURL)
     }
 
     /// Stored values reduced to the ones at least one instance still accepts.
@@ -1416,19 +1929,37 @@ package final class BuildSystemService: ObservableObject {
 
     /// Stores the effective values Core reported after detection, so a value
     /// the current model removed cannot stay in the options of the next plan.
-    private func persistDroppedOptions() {
+    private func persistDroppedOptions() throws {
         for buildSystemID in Set(entries.map(\.instance.buildSystemID)) {
-            refreshOptions(buildSystemID: buildSystemID)
+            try refreshOptions(buildSystemID: buildSystemID)
         }
     }
 
-    private func storedOptions(for entry: BuildSystemEntry, workspaceURL: URL) -> [String: ToolingJSONValue] {
+    private func storedOptions(for entry: BuildSystemEntry, workspaceURL: URL) throws -> [String: ToolingJSONValue] {
         let buildSystemID = entry.instance.buildSystemID
         return Self.applyingEmptySelections(
-            to: optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID),
-            optionIDs: optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)[entry.instance.root] ?? [],
+            to: Self.scopedOptions(
+                declaration: entry.declaration,
+                workspace: try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID),
+                instance: try optionsStore.instanceDefaults(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+                    .merging(optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)[entry.instance.root] ?? [:]) { _, root in root }
+            ),
+            optionIDs: try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)[entry.instance.root] ?? [],
             options: entry.options
         )
+    }
+
+    /// A scope is an ownership boundary: workspace values never act as hidden
+    /// overrides for instance options, nor can local data replace shared options.
+    nonisolated private static func scopedOptions(
+        declaration: DeclarativeBuildSystem,
+        workspace: [String: ToolingJSONValue], instance: [String: ToolingJSONValue]
+    ) -> [String: ToolingJSONValue] {
+        var values = workspace
+        for option in declaration.options where option.scope == .instance {
+            values[option.id] = instance[option.id]
+        }
+        return values
     }
 
     nonisolated private static func applyingEmptySelections(
@@ -1437,7 +1968,7 @@ package final class BuildSystemService: ObservableObject {
         var values = stored
         // A plugin update may change the kind; an old empty marker must not
         // turn a text or boolean option into an array.
-        for option in options where option.kind == .multiSelect && optionIDs.contains(option.id) {
+        for option in options where option.scope == .workspace && option.kind == .multiSelect && optionIDs.contains(option.id) {
             values[option.id] = .array([])
         }
         return values
@@ -1445,18 +1976,58 @@ package final class BuildSystemService: ObservableObject {
 
     // MARK: Commands
 
+    /// Agent and native callers share the instance editor. Invalid values must
+    /// fail before storage rather than silently reverting to a default.
+    package func configureOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) throws -> BuildResolvedOption {
+        guard let workspaceURL, let entry = entry(entryID), entry.options.contains(where: { $0.id == optionID }) else {
+            throw BuildSystemServiceError(L10n.string("The build option is no longer available. Reload the build instance."))
+        }
+        var proposed = try storedOptions(for: entry, workspaceURL: workspaceURL)
+        proposed[optionID] = value
+        let resolution = try planner.resolveOptions(entry.target, options: proposed, modelValues: entry.model?.optionValues)
+        guard let accepted = resolution.options.first(where: { $0.id == optionID }),
+              !resolution.dropped.contains(optionID), value == nil || accepted.value == value else {
+            throw BuildSystemServiceError(L10n.string("The build option value is invalid. Inspect its current kind and choices."))
+        }
+        try writeInstanceOption(entryID, optionID: optionID, value: value)
+        guard let saved = self.entry(entryID)?.options.first(where: { $0.id == optionID }), value == nil || saved.value == accepted.value else {
+            throw BuildSystemServiceError(L10n.string("The saved build option could not be verified. Reload before editing again."))
+        }
+        return saved
+    }
+
     private func optionFingerprint(_ entry: BuildSystemEntry, workspaceURL: URL) -> String? {
-        let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
+        guard let stored = try? storedOptions(for: entry, workspaceURL: workspaceURL) else { return nil }
         return (try? planner.resolveOptions(
             entry.target, options: stored, modelValues: entry.model?.optionValues
         ))?.fingerprint
+    }
+
+    private func planContext(_ entry: BuildSystemEntry, workspaceURL: URL) throws -> BuildPlanContext {
+        let stored = try storedOptions(for: entry, workspaceURL: workspaceURL)
+        let resolution = try? planner.resolveOptions(
+            entry.target, options: stored, modelValues: entry.model?.optionValues
+        )
+        return BuildPlanContext(
+            root: entry.instance.root,
+            // A plan gets only values Core still accepts for the current
+            // model; otherwise a removed Cargo feature would reach the argv.
+            options: Self.effectiveOptionValues(resolution, stored: stored),
+            pluginDirectory: entry.source.packageURL,
+            workspaceStateDirectory: try stateLocator.workspaceStateDirectory(
+                pluginID: entry.instance.pluginID,
+                buildSystemID: entry.instance.buildSystemID,
+                workspaceURL: workspaceURL
+            ),
+            modelInputs: try resolvedModelInputs(entry, workspaceURL: workspaceURL)
+        )
     }
 
     private func withPlanContext<Value>(
         _ entry: BuildSystemEntry, workspaceURL: URL, allocatesOutputFile: Bool = false,
         perform: (BuildPlanContext, URL?) async throws -> Value
     ) async throws -> Value {
-        let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
+        let stored = try storedOptions(for: entry, workspaceURL: workspaceURL)
         let resolution = try? planner.resolveOptions(
             entry.target, options: stored, modelValues: entry.model?.optionValues
         )
@@ -1490,8 +2061,8 @@ package final class BuildSystemService: ObservableObject {
         guard !consumer.declaration.modelInputs.isEmpty else { return nil }
         let enabled = sources()
         let required = Set(consumer.declaration.modelInputs.map(\.pluginID))
-        let facts = enabled.filter { required.contains($0.pluginID) }.map { source in
-            BuildModelInputSource(manifest: source.manifest, instances: entries.filter { $0.source == source && $0.declaration.sharesModel }.map { producer in
+        let facts = try enabled.filter { required.contains($0.pluginID) }.map { source in
+            BuildModelInputSource(manifest: source.manifest, instances: try entries.filter { $0.source == source && $0.declaration.sharesModel }.map { producer in
                 let state: String
                 switch producer.modelState {
                 case .loading: state = "loading"
@@ -1500,7 +2071,7 @@ package final class BuildSystemService: ObservableObject {
                 default: state = "stale"
                 }
                 return BuildModelInputSource.Instance(buildSystemID: producer.instance.buildSystemID, root: producer.instance.root,
-                    state: state, model: state == "ready" ? producer.model : nil, options: storedOptions(for: producer, workspaceURL: workspaceURL))
+                    state: state, model: state == "ready" ? producer.model : nil, options: try storedOptions(for: producer, workspaceURL: workspaceURL))
             })
         }
         return try planner.resolveModelInputs(consumer.target, revision: modelInputRevision, sources: facts)
@@ -1520,6 +2091,7 @@ package final class BuildSystemService: ObservableObject {
     /// Producers are independent in v1: consumers cannot re-export their inputs.
     /// Revoke consumers immediately; cancellation-ignoring replies still fail revision checks.
     private func invalidateModelInputs() {
+        inputRevision += 1
         modelInputRevision += 1
         let consumers = Set(entries.filter { !$0.declaration.modelInputs.isEmpty }.map(\.id))
         if let runEntryID, consumers.contains(runEntryID) { stopRun() }
@@ -1596,6 +2168,7 @@ package final class BuildSystemService: ObservableObject {
         let text: String
         /// Nil when the command timed out.
         let exitCode: Int32?
+        var testResults: ToolingJSONValue? = nil
     }
 
     /// Runs a task or test command; its output is the run's output.
@@ -1609,11 +2182,11 @@ package final class BuildSystemService: ObservableObject {
             plan, entry: entry, workspaceURL: workspaceURL, capturesStandardOutput: false, timeout: nil
         )
         let directory = outputDirectory(entry)
-        if canAppend(owner) { appendOutput(Self.commandLine(request), in: directory) }
+        if canAppend(owner) { appendOutput(Self.commandLine(request), in: directory, owner: owner) }
         let collector = OutputCollector(limit: Self.decodedOutputLimit)
         let result = try await run(request, owner: owner) { [weak self] chunk in
             collector.append(chunk)
-            self?.appendOutput(chunk, in: directory)
+            self?.appendOutput(chunk, in: directory, owner: owner)
         }
         let exitCode: Int32? = switch result.termination {
         case .exited(let code): code
@@ -1629,67 +2202,87 @@ package final class BuildSystemService: ObservableObject {
     ) -> @MainActor @Sendable () -> Bool {
         let revision = providerConfigurationRevision
         let launchSettings = settings(entry.source.pluginID)
+        let baseline = optionFingerprint(entry, workspaceURL: workspaceURL)
         return { [weak self] in
             guard let self, self.isCurrent(run) else { return false }
             guard case .provider(let request) = plan else { return true }
-            guard self.modelInputsAreCurrent(request), self.providerConfigurationRevision == revision,
+            guard let baseline, self.modelInputsAreCurrent(request), self.providerConfigurationRevision == revision,
                   self.settings(entry.source.pluginID) == launchSettings,
                   let current = self.entry(entry.id), current.source == entry.source else { return false }
-            return self.optionFingerprint(current, workspaceURL: workspaceURL) == request.optionFingerprint
+            return self.optionFingerprint(current, workspaceURL: workspaceURL) == baseline
         }
     }
 
     private func runExecutionPlan(
-        _ plan: BuildOutputPlan, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+        _ plan: BuildOutputPlan, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity, tool: BuildProviderHints? = nil
     ) async throws -> CollectedOutput {
         switch plan {
         case .process(let process):
             return try await runStreamedCommand(process, entry: entry, workspaceURL: workspaceURL, owner: .run(run))
         case .provider(let request):
-            return try await runProviderTask(request, entry: entry, workspaceURL: workspaceURL, run: run)
+            return try await runProviderTask(request, entry: entry, workspaceURL: workspaceURL, run: run, tool: tool)
         }
     }
 
     /// Provider tasks share model/dependency sessions, not plugin page sessions.
     /// Progress/results are bound to this run and its effective configuration.
     private func runProviderTask(
-        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity, tool: BuildProviderHints? = nil
     ) async throws -> CollectedOutput {
         guard let providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
         providerRunID = run.id
         let isValid = runValidity(.provider(request), entry: entry, workspaceURL: workspaceURL, run: run)
-        let planned = try await providerRequestWithTool(request, entry: entry, workspaceURL: workspaceURL, run: run)
+        let planned = try await providerRequestWithTool(request, entry: entry, workspaceURL: workspaceURL, run: run, override: tool)
         guard isValid() else { throw CancellationError() }
         let directory = outputDirectory(entry)
         let streamed = OutputCollector(limit: Self.decodedOutputLimit)
+        let target = Self.providerTarget(entry, workspaceURL: workspaceURL)
+        if isValid() { operation?.processID = providers.processID(for: target) }
         let result = try await providers.execute(
-            planned, on: Self.providerTarget(entry, workspaceURL: workspaceURL), timeout: .seconds(3600)
+            planned, on: target, timeout: .seconds(3600)
         ) { [weak self] progress in
             guard let self, isValid() else { return }
+            self.operation?.processID = providers.processID(for: target)
             if let text = progress.output {
                 streamed.append(text)
-                self.appendOutput(text, in: directory)
+                self.appendOutput(text, in: directory, owner: .run(run))
             } else if let message = progress.message {
-                self.appendOutput(message + "\n", in: directory)
+                self.appendOutput(message + "\n", in: directory, owner: .run(run))
             }
         }
         guard isValid() else { throw CancellationError() }
         if result.output.utf8.starts(with: streamed.text.utf8) {
-            appendOutput(String(decoding: result.output.utf8.dropFirst(streamed.text.utf8.count), as: UTF8.self), in: directory)
+            appendOutput(String(decoding: result.output.utf8.dropFirst(streamed.text.utf8.count), as: UTF8.self), in: directory, owner: .run(run))
         } else {
             // A malformed stream must not hide the final diagnostic output.
-            appendOutput(result.output, in: directory)
+            appendOutput(result.output, in: directory, owner: .run(run))
         }
-        return CollectedOutput(text: result.output, exitCode: result.exitCode)
+        return CollectedOutput(text: result.output, exitCode: result.exitCode, testResults: result.testResults)
     }
 
     private func providerRequestWithTool(
-        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity, override: BuildProviderHints? = nil
     ) async throws -> BuildProviderRequest {
+        if let override {
+            guard let executable = override.toolExecutable else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            var params = request.params
+            if case .object(var object) = params {
+                object["tool"] = .object(["executable": .string(executable.path)])
+                var environment = override.toolEnvironment.mapValues(ToolingJSONValue.string)
+                if case .object(let options)? = object["environment"] { environment.merge(options) { _, value in value } }
+                object["environment"] = .object(environment)
+                params = .object(object)
+            }
+            return BuildProviderRequest(method: request.method, params: params, optionFingerprint: request.optionFingerprint,
+                executesProjectCode: request.executesProjectCode, mayUseNetwork: request.mayUseNetwork)
+        }
         let tool = try await providerTool(entry, workspaceURL: workspaceURL, owner: .run(run))
         var params = request.params
         if let tool, case .object(var object) = params {
-            object["tool"] = .object(["executable": .string(tool.path)])
+            object["tool"] = .object(["executable": .string(tool.executableURL.path)])
+            var environment = tool.providerEnvironment.mapValues(ToolingJSONValue.string)
+            if case .object(let options)? = object["environment"] { environment.merge(options) { _, contribution in contribution } }
+            object["environment"] = .object(environment)
             params = .object(object)
         }
         return BuildProviderRequest(method: request.method, params: params, optionFingerprint: request.optionFingerprint,
@@ -1713,13 +2306,13 @@ package final class BuildSystemService: ObservableObject {
         guard let executable = try await providerTool(entry, workspaceURL: workspaceURL, owner: owner) else {
             return planned
         }
-        return try plan(BuildProviderHints(reason: reason, toolExecutable: executable))
+        return try plan(BuildProviderHints(reason: reason, toolExecutable: executable.executableURL, toolEnvironment: executable.providerEnvironment))
     }
 
     /// The executable the build system's invocation resolves to, as a run
     /// would use it. Automatic discovery may fall back to the provider's lookup;
     /// an explicit selection must fail rather than use a different installation.
-    private func providerTool(_ entry: BuildSystemEntry, workspaceURL: URL, owner: CommandOwner) async throws -> URL? {
+    private func providerTool(_ entry: BuildSystemEntry, workspaceURL: URL, owner: CommandOwner) async throws -> ResolvedBuildTool? {
         let planner = planner
         let target = entry.target
         let invocation = try planner.invocationPlan(
@@ -1731,7 +2324,7 @@ package final class BuildSystemService: ObservableObject {
                 invocation, displayName: entry.instance.displayName, workspaceURL: workspaceURL
             ) { runtime, output in
                 try planner.checkToolVersion(target, runtime: runtime, output: output)
-            }.executableURL
+            }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -1741,7 +2334,7 @@ package final class BuildSystemService: ObservableObject {
             if canAppend(owner) {
                 appendOutput(
                     "\n" + L10n.string("The provider looks up the build tool itself: \(error.localizedDescription)") + "\n",
-                    in: outputDirectory(entry)
+                    in: outputDirectory(entry), owner: owner
                 )
             }
             return nil
@@ -1849,8 +2442,15 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
-    private func appendOutput(_ chunk: String, in directory: URL?) {
+    private func appendOutput(_ chunk: String, in directory: URL?, owner: CommandOwner? = nil) {
         guard !chunk.isEmpty else { return }
+        if case .run(let run)? = owner, var snapshot = operation, snapshot.id == run.id, canAppend(.run(run)) {
+            snapshot.output += chunk
+            if snapshot.output.utf8.count > Self.visibleOutputLimit {
+                snapshot.output = String(snapshot.output.suffix(Self.visibleOutputLimit / 2))
+            }
+            operation = snapshot
+        }
         if let directory, !outputRoots.contains(directory) {
             outputRoots = (outputRoots + [directory]).sorted { $0.path < $1.path }
         }
@@ -1871,7 +2471,7 @@ package final class BuildSystemService: ObservableObject {
     }
 
     private func refreshActivity() {
-        let active = isRunning || isLoadingModel || isLoadingDependencies
+        let active = isRunning || isLoadingModel || isLoadingDependencies || nativeConfiguration?.isBusy == true
         if hasActiveWork != active { hasActiveWork = active }
     }
 
@@ -1924,10 +2524,12 @@ package final class BuildSystemService: ObservableObject {
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
         storedOptions: [String: [String: ToolingJSONValue]],
+        instanceOptions: [String: [String: [String: ToolingJSONValue]]],
+        instanceDefaults: [String: [String: ToolingJSONValue]],
         emptyMultiSelectOptions: [String: [String: Set<String>]],
         previous: [String: BuildSystemEntry]
     ) throws -> Detected {
-        let detection = try planner.detect(workspaceURL: workspaceURL, sources: sources, options: storedOptions)
+        let detection = try planner.detect(workspaceURL: workspaceURL, sources: sources, options: storedOptions, instanceOptions: instanceOptions, instanceDefaults: instanceDefaults)
         var issues = detection.rejected.map { rejected in
             let pluginID = sources.indices.contains(rejected.index) ? sources[rejected.index].pluginID : "?"
             return "\(pluginID): \(rejected.error.message)"
@@ -1939,7 +2541,11 @@ package final class BuildSystemService: ObservableObject {
             guard let source = sources.first(where: { $0.pluginID == instance.pluginID }),
                   let declaration = source.buildSystems.first(where: { $0.id == instance.buildSystemID })
             else { return nil }
-            let stored = storedOptions[instance.buildSystemID] ?? [:]
+            let stored = Self.scopedOptions(
+                declaration: declaration,
+                workspace: storedOptions[instance.buildSystemID] ?? [:],
+                instance: (instanceDefaults[instance.buildSystemID] ?? [:]).merging(instanceOptions[instance.buildSystemID]?[instance.root] ?? [:]) { _, root in root }
+            )
             let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID, workspaceURL: workspaceURL)
             let earlier = previous[instance.id]
             // The instance ID is the build-system ID plus its root, so another

@@ -1245,6 +1245,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let id: String
                 let presentation: String?
                 let icon: PluginUIIcon?
+                let scope: DeclarativeBuildSystem.OptionScope?
             }
             struct ProviderRun: Decodable {
                 struct Debug: Decodable { let adapter: String }
@@ -1253,12 +1254,16 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let id: String
                 let source: String?
                 let name: String?
+                let execution: BuildExecution?
                 let fromTargets: Targets?
             }
             struct Test: Decodable {
+                let selectorKinds: [String]?
+                struct Results: Decodable { let decoder: String }
                 let scopes: [BuildScope]
                 let targetTags: [String]?
                 let discovery: Bool?
+                let results: Results?
             }
 
             let id: String
@@ -1270,6 +1275,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let test: Test?
             let run: [ProviderRun]
             let dependencies: Source?
+            let nativeConfiguration: Bool
             let declaresProvider: Bool
             let sharesModel: Bool
             let modelInputs: [DeclarativeBuildSystem.ModelInput]
@@ -1285,13 +1291,14 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 test = try values.decodeIfPresent(Test.self, forKey: .test)
                 run = try values.decodeIfPresent([ProviderRun].self, forKey: .run) ?? []
                 dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
+                nativeConfiguration = values.contains(.configuration)
                 declaresProvider = values.contains(.provider)
                 sharesModel = values.contains(.modelSharing)
                 modelInputs = try values.decodeIfPresent([DeclarativeBuildSystem.ModelInput].self, forKey: .modelInputs) ?? []
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run, modelSharing, modelInputs
+                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run, modelSharing, modelInputs, configuration
             }
 
             func declaration() -> DeclarativeBuildSystem {
@@ -1304,7 +1311,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                         .init(
                             id: $0.id,
                             presentation: $0.presentation.flatMap(DeclarativeBuildSystem.OptionPresentation.init),
-                            icon: $0.icon
+                            icon: $0.icon,
+                            scope: $0.scope ?? .workspace
                         )
                     },
                     tasks: tasks.map {
@@ -1323,8 +1331,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     declaresProvider: declaresProvider,
                     testDiscovery: test?.discovery ?? false,
                     providerRuns: run.filter { $0.source == "provider" }.map {
-                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter)
-                    }, sharesModel: sharesModel, modelInputs: modelInputs
+                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter, execution: $0.execution ?? .application)
+                    }, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration,
+                    providerTestReports: test?.results?.decoder == "provider",
+                    testSelectorKinds: test?.selectorKinds ?? []
                 )
             }
         }

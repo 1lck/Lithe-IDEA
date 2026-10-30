@@ -8,6 +8,32 @@ import Testing
 @MainActor
 struct LanguageTestPresentationTests {
     @Test
+    func sameNamedResultsRetainTheirProjectsAndReportRerunSelectors() throws {
+        let a = BuildTestReference(pluginID: "org.example.build", buildSystemID: "build", root: ".", projectID: "a", suite: "demo.Same", testCase: "checks")
+        let b = BuildTestReference(pluginID: "org.example.build", buildSystemID: "build", root: ".", projectID: "b", suite: "demo.Same", testCase: "checks")
+        let outcomes = [
+            MavenTestCaseOutcome(className: "demo.Same", method: "checks", status: "passed", durationMillis: 10, project: "a", buildReference: a),
+            MavenTestCaseOutcome(className: "demo.Same", method: "checks", status: "failed", durationMillis: 20, project: "b", buildReference: b)
+        ]
+        let items = LanguageTestsView.synthesizeResultItems(from: outcomes, providerID: "java")
+        #expect(items.count == 4)
+        #expect(Set(items.map(\.id)).count == 4)
+        let first = try #require(items.first { $0.projectPath == "a" && $0.depth == 2 })
+        let second = try #require(items.first { $0.projectPath == "b" && $0.depth == 2 })
+        let statuses = LanguageTestsView.resultStatuses(outcomes)
+        #expect(statuses[LanguageTestsView.resultKey(first)] == "Passed")
+        #expect(statuses[LanguageTestsView.resultKey(second)] == "Failed")
+        let durations = LanguageTestsView.parseDurations(from: "", outcomes: outcomes)
+        #expect(durations[LanguageTestsView.resultKey(first)] == "10 ms")
+        #expect(durations[LanguageTestsView.resultKey(second)] == "20 ms")
+        #expect(first.buildReference == a)
+        #expect(second.buildReference == b)
+        #expect(items.first?.buildReference == a.suiteReference)
+        let scope = LanguageTestScope.testCase(identifier: "demo.Same#checks", fileURL: nil, buildReference: b)
+        #expect(scope.buildReference == b)
+    }
+
+    @Test
     func resultTreeUsesReportStatusesAndNormalizesMethodSelectors() {
         let statuses = LanguageTestsView.resultStatuses([
             MavenTestCaseOutcome(className: "demo.Example", method: "passes", status: "passed"),

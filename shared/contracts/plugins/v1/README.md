@@ -406,9 +406,10 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
-| `buildSystems` | Declarative build detection, models, and command plans | `1` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs | `1`, `2`, `3`, `4`, `5`, `6` |
+| `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options | `1`, `2`, `3` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports, v9 opaque semantic test selectors, v10 typed run options and service/task preparation | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
+| `executableResolution` | Shared executable candidate ordering and strict selection; v2 canonical project/subproject toolchain registry bindings | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
@@ -457,8 +458,8 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 - `hostCapabilities` has no effect on levels 1 and 2.
 
 The macOS host sends its capability table with validation, marketplace filtering
-and install review. It advertises `buildSystems: [1, 2]` and
-`buildProviders: [1, 2, 3, 4, 5, 6]`; native Provider models, dependencies, tasks, tests and launch preparation
+and install review. It advertises `buildSystems: [1, 2, 3]` and
+`buildProviders: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
 but admission must use the actual host table. Windows does not yet advertise
@@ -799,6 +800,20 @@ declaration are relative, use `/`, and stay inside their base directory
 | `layout` | `excluded` directories relative to each project, added to every project as `excluded` content roots. |
 | `languageImport` | The project import Lithe's Java language server performs for this build system: `kind` `maven` or `gradle`, and `options` mapping its settings to the plugin's own option IDs. `maven` has `profiles` (`multiSelect`), `settingsFile` (`file`) and `localRepository` (`directory`); `gradle` has `offline` (`boolean`) and `gradleUserHome` (`directory`). `build.languageImport` turns the user's values into the `mavenContext` or `javaGradle` input of `lsp.startServer`; settings without an option keep the language server's defaults. |
 
+With `requires.buildSystems: 3`, an option may declare `scope: "instance"`.
+Omitted scope (or `"workspace"`) keeps workspace/build-system storage. Instance
+values are independently persisted by normalized detected root: changing or
+resetting `a` cannot change `b`, even when both accept the same choices. Explicit
+`false`, `""`, and `[]` remain stored user values. The host merges only the
+matching scope before detection, static run generation, model/dependency/task
+requests, synchronization fingerprints, and language import. Instance data cannot
+override workspace options, and workspace values cannot silently override an
+instance option. When an existing option moves to instance scope, macOS copies its shared value
+to each detected or previously stored root, preserving explicit instance values
+and empty markers. It removes the shared representation only after readback, then
+redetects static models. Failure retains the source and blocks publishing defaults
+until retry; scope is not a fallback chain. See `fixtures/build-instance-options.plugin.json`.
+
 ### Presentation
 
 Each enabled build system gets a tool window of its own, titled with its
@@ -921,7 +936,7 @@ same invocation resolver; explicit invalid tool/runtime selection is a failure,
 never permission for independent discovery. It must reject stale project facts
 rather than guess a target.
 
-The host offers `litheBuild.versions: [6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
+The host offers `litheBuild.versions: [9, 8, 7, 6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
 and its progress notification to the two version 1 methods. A process that
 chooses version 1 cannot receive execution; unsupported negotiation fails
 explicitly. A plugin that needs this behavior declares capability version 2
@@ -1075,6 +1090,44 @@ Unknown fields are ignored. The host calls `build.decodeRunPreparation`
 with its workspace root, instance root and raw result; any malformed plan
 fails as `plugin.build.invalidOutput` before executable resolution.
 
+#### Typed run options and service/task preparation (version 10)
+
+Version 10 retains versions 1–9 and extends the same `lithe/build/prepareRun`
+method. A provider run may declare `execution: "service"` or `"task"` only
+with `requires.buildProviders: 10`. It still uses `fromTargets.tags`, never
+host command or extension templates. Preparation ends before the host starts
+the process; the host owns stdout/stderr, process identity, Stop and cleanup.
+This version does not introduce provider-owned background services.
+
+The optional `launchOptions` object contains required `execution`
+(`application`, `service` or `task`), `runtimeArguments` and `arguments`
+(string arrays), and `environment` (a string map). Optional `entrypoint` is an
+opaque nonempty string of at most 4,096 UTF-8 bytes without NUL; the owning
+provider validates its meaning. Optional `workingDirectory` is a nonempty
+workspace-relative directory, `.` allowed, without backslashes, absolute
+paths, empty components or `..`. Unknown option fields are refused. Argument
+and environment bounds match the launch result above, including empty argv
+values. Options describe resolved user choices; providers must preserve
+argument boundaries and cannot silently ignore unsupported choices.
+
+`execution` must match the run declaration (default `application`). Service
+and task preparation require `launchOptions`; legacy application preparation
+without it retains version 4 behavior. Hosts must reject options before
+sending them to a session that negotiated a version below 10. Both SDKs
+likewise reject unsupported or malformed options before invoking a handler.
+Build options, resolved tool hints and native settings remain their existing
+sources; launch options do not create a second profile or tool configuration.
+
+The host supplies `workspaceRoot` to `build.prepareRunPlan` when options contain
+an explicit working directory. Core validates it against the canonical workspace,
+including aliases, before preparation. The host passes the same options to
+`build.decodeRunPreparation`; the result must use exactly that directory.
+Only this explicit override may lie outside the selected instance. Without
+an override the original instance containment rule still applies. Other
+launch result validation and cancellation/stale-result behavior are unchanged.
+Canonical fixtures: `fixtures/build-provider-run-options.plugin.json` and
+`fixtures/build-run-options.json`.
+
 #### Native debug preparation (version 5)
 
 A provider run may additionally declare `debug: {"adapter":"native"}` with
@@ -1134,6 +1187,67 @@ Saving and running work before detector-generated Run configurations exist.
 Service coordination, debug target registration and Java/Maven migration remain
 separate. See `fixtures/build-provider-run-preparation.plugin.json`
 and `fixtures/build-run-preparation.json`.
+
+### Optional native configuration (buildProviders 7)
+
+An own-process provider may opt into `buildSystems[].configuration: {"source":"provider"}`
+with `requires.buildProviders: 7`. Shared language-server providers cannot opt in.
+`build.configurationPlan` uses the same selected instance/options/environment/tool
+snapshot as model loading and emits `lithe/build/configuration`. It has no project,
+output file, or mutation parameters. Wire versions below 7 refuse the method.
+The negotiated v7 server feature is `litheBuildConfiguration: true`; earlier methods
+retain their existing admission rules. Configuration reads are bounded requests
+with the existing cancellation, timeout, workspace and package ownership.
+
+`build.decodeConfiguration` validates `result` and returns `configuration`:
+`{"format":"litheBuildConfiguration","version":1,"sources":[...]}`. There are at most
+8 sources, each with a unique provider-owned `id`, `scope` (`installation`, `user`,
+`workspace`), file `uri`, exact byte `revision` (`missing` or `sha256:` plus 64 lower-case
+hex digits), `writable`, `rootElement: {name, namespace}`, and up to 64 `fields`.
+Installation sources are always read-only. Two scopes may alias one URI only when
+both are read-only and have identical revision, XML root and fields. File URIs
+cannot carry credentials, queries or fragments.
+
+Each field contains `id`, `kind` (`text`, `file`, `directory`, `boolean`, `stringList`),
+`value` (raw native value, or null for absent), `effectiveValue`, `effectiveSource`
+(an upstream technical origin ID), and `path` (one to four direct XML element names
+below the root). A string list additionally has `itemElement`, the direct repeated
+child name. Bindings cannot duplicate/overlap or address credential/secret fields;
+values and identifiers are bounded and kind-checked. Full native documents, secret
+values, credential-bearing URLs and private keys must never enter this response,
+logs or normal controls. Source discovery, interpolation, precedence and effective
+values belong to the selected upstream engine; Core does not infer them.
+
+The native host populates raw/inherited values, displays scope and target URI,
+maintains drafts, and requires explicit Save. Opening, cancelling, losing focus
+and leaving a page do not write native sources. Passive page reads refuse a
+project-owned executable (such as a cold Wrapper), and cannot silently delegate
+failed automatic tool discovery to the Provider. An explicit Read using project
+tool action authorizes that tooling; explicit Save also owns its required read-back. The confirmed edit is
+`{sourceID, revision, values:{<fieldID>:<new raw value or null>}}`; null removes only
+that native override. Unchanged inherited values must not create overrides.
+
+`build.editConfigurationDocument` is a **host/Core-only pure operation**, requiring
+`{snapshot, edits, document}` (document null for a missing source) and returning
+`edit: {document, revision, changed}`. Original bytes may contain unrelated secrets;
+never forward them to a Provider, UI, logger or model-sharing snapshot. Core checks
+the source revision before XML parsing, enforces UTF-8/2 MiB/64-depth bounds, rejects
+DTDs and ambiguous bindings, and edits only approved nodes in the declared namespace.
+Unrelated bytes, comments, attributes and secret nodes remain unchanged. A no-op
+creates no missing document. This operation performs no filesystem access.
+
+The platform adapter denies app/plugin installation roots, validates the selected
+file and canonical target, preserves metadata and performs guarded atomic publication
+against the original bytes. Before commit the operation must still own its workspace,
+package, settings and monotonic option revision. Conflicts retain the draft. After
+save the host invalidates build/test/language import facts and re-queries the owning
+provider; read-back must identify the saved source and exact published revision.
+A failed read-back is not a successful effective-value publication. Native probes,
+output files and mutable provider caches live only in workspace/platform state and
+are not cross-worktree reusable. Installed packages remain byte-for-byte unchanged.
+
+Fixtures: [declaration](fixtures/build-provider-configuration.plugin.json) and
+[native facts](fixtures/build-configuration.json).
 
 ### Optional read-only model inputs (buildModelInputs 1)
 
@@ -1208,6 +1322,46 @@ Java/Maven business migration remain separate work. Shared fixtures:
 `fixtures/build-model-producer.plugin.json` and
 `fixtures/build-model-consumer.plugin.json`.
 
+### Inline provider test reports (buildProviders 8)
+
+A provider test may declare `results: { "decoder": "provider" }` with
+`requires.buildProviders: 8`. Core adds `testResults: true` to the test request;
+wire versions below 8 refuse it before invocation. The reply includes
+`testResults: { "format": "litheTestResults", "version": 1, "tests": [...] }`
+next to `exitCode` and `output`. Ordinary execute replies may include the same
+report when the task also ran tests. Missing required or malformed reports fail
+explicitly; there is no host report-file fallback.
+
+Each case has `suite`, `case`, `status` (`passed`, `failed`, `error`, `skipped`),
+optional workspace-relative `project` and source `path`, one-based `line`,
+`durationMillis`, `message`, and `invocations` (default 1). A report contains at
+most 10,000 cases and 8 MiB UTF-8 JSON. Paths remain inside the selected build
+root, durations are nonnegative safe integers, and messages are bounded. Core
+validates and aggregates by project/suite/case, so identical names in distinct
+projects remain distinct; it computes summary/success from the cases. Repeated
+case durations are summed only if every invocation has a duration and the total
+is a safe integer; otherwise the aggregate duration is omitted.
+
+An optional `coverage: [{ "project": "module", "suite"?: "Suite", "case"?: "method" }]`
+records completed scopes. A missing case covers the entire suite; a missing suite
+covers the project (and forbids case). Scopes use canonical workspace-relative
+projects inside the instance root, at most 10,000 entries, and bounded nonempty
+suite/case names. Core sorts and deduplicates them. Hosts may replace old outcomes
+within those scopes; without coverage they replace only the returned exact cases.
+Providers must not claim a complete suite when upstream filters or interruption
+could have limited execution. Opaque selectors are never parsed by hosts to infer
+coverage.
+
+The provider owns report discovery, freshness and upstream format semantics.
+It must preserve reports from failing executions and reject unreadable/oversized
+reports instead of returning empty success. The host passes the reply to
+`build.decodeTestResults` as `request.result` with the same run/configuration
+identity, checks ownership again after decode, and only presents the result.
+Cancellation or configuration changes revoke late reports just like late output.
+The report is operation state in a platform-provided writable directory, never
+installed package state or a cross-worktree cache. Fixture:
+`fixtures/build-provider-reports.plugin.json`.
+
 ### Build providers
 
 Some tools expose their model only through their own API (the Gradle Tooling
@@ -1238,10 +1392,12 @@ with `buildSystemID`. For a provider source, `build.modelPlan` and
 | --- | --- |
 | `buildSystemID`, `root` | The instance. A model request always covers the whole instance. |
 | `options` | Effective option values by option ID. |
-| `optionArguments`, `environment` | What the options contribute, for a provider that runs the tool. |
+| `optionArguments`, `environment` | Arguments from options, and selected runtime/tool environment merged with option contributions (options win). The host does not forward its complete environment. Providers use this environment for every invocation and cache identity. |
 | `project` | Dependencies only: `{ name, path }` of the selected project, or `null` for the workspace. |
 | `refresh` | Optional; `true` when the user asked to reload (Reload, Retry, a page's `build.refresh`) or the host reloads after a `sync` file changed. The provider must then recompute instead of answering from a cache or snapshot of its own. Absent or `false` for a first load, which a provider may answer from a snapshot it still trusts. |
-| `tool` | Optional; `{ executable }`, the absolute path of the build tool the host resolved from the build system's `invocation` the same way a task run does (project wrapper, environment variable, `PATH`, the user's override), so the provider need not repeat the lookup. Absent when the host could not resolve it; the provider then looks the tool up itself. It is never a reason to fail the request. |
+| `tool` | Optional; `{ executable }`, the absolute path of the build tool the host resolved from the build system's `invocation` the same way a task run does (project wrapper, environment variable, `PATH`, the user's override), so the provider need not repeat the lookup. Absent when the host could not resolve it; the provider then looks the tool up itself. An explicit toolchain or path selection that cannot resolve fails before the Provider request; it cannot be dropped to trigger independent lookup. |
+
+The Core-only `tool` hint may include a bounded `environment` string map. Core merges it into the existing Provider `environment` parameter, with option contributions taking precedence; the wire `tool` remains `{ executable }`. This also applies to native configuration, tasks and tests. The backend process runtime and the selected build runtime are independent.
 
 The host passes `refresh` and `tool` in the `build.modelPlan` and
 `build.dependencyPlan` requests; Core validates `tool.executable` as an
@@ -1260,12 +1416,13 @@ The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
 can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [6, 5, 4, 3, 2, 1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [8, 7, 6, 5, 4, 3, 2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
   requests above with the params and result formats of this section;
   version 2 adds typed task execution; version 3 adds typed test execution
   and discovery; version 4 adds application run preparation; version 5 adds native debug preparation;
-  version 6 accepts the host's explicitly declared read-only model inputs.
+  version 6 accepts the host's explicitly declared read-only model inputs;
+  version 7 adds source-backed native configuration; version 8 adds inline test reports.
 - The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
   with the version it chose from that list. A provider that answers no
   version, or one the host did not offer, is not used for build requests; a
@@ -2244,7 +2401,7 @@ macOS 动作的可见、可用、勾选和激活中状态由宿主计算，不�
 仍可取消显示。多个窗口同时请求同一插件模块时只构造一次；禁用或关闭会取消
 并清理在途激活，旧的菜单或命令引用不能重新调用已禁用的贡献。
 
-#### Shared executable candidates (`executableResolution` 1)
+#### Shared executable candidates (`executableResolution` 1/2)
 
 Declare executable sources in `invocation.executables`, in preference order.
 Array order is the recommended form; no custom path setting is required for a
@@ -2325,6 +2482,21 @@ without it reject new-style plugins before decoding unknown fields. Published
 0.1.0/0.1.1 archives remain immutable; migration is a new plugin version.
 
 See [`build-tool-path.plugin.json`](fixtures/build-tool-path.plugin.json).
+
+With `executableResolution: 2`, a candidate may use
+`{ "kind": "toolchain", "toolchainID": "project-maven" }` (or another registered
+host toolchain ID). Core adds the normalized instance `root`; the native adapter
+uses the existing Run toolchain registry and canonical local project/subproject
+selection. Unavailable selections are terminal, including when a prerequisite
+runtime fails first; they cannot silently fall back to Provider discovery.
+Host-managed `java`, `node` or `go` dependencies may select one such candidate,
+while retaining Core's version probe. Maven declares `project-maven-jdk` for its
+Java dependency so the Maven JDK is distinct from the Provider's own runtime.
+Passive import uses a discovery-only registry route and performs no version or
+runtime probes. A toolchain that resolves to a project file remains project code,
+including through a symlink, and native configuration requires explicit Read
+before running it. See [`build-toolchains.plugin.json`](fixtures/build-toolchains.plugin.json).
+
 
 ### Host-rendered native content (`ui` 3, native schema 1)
 
@@ -2434,3 +2606,39 @@ Schema 1 loads the complete node set on refresh. Forms, lazy child data sources,
 multi-instance selectors, global function commands, native renderer factories
 and Windows rendering remain follow-up work under #1209; this subset does not
 claim completion of that whole issue.
+
+### Opaque semantic test selectors (buildProviders 9)
+
+Provider test declarations may advertise `selectorKinds`, up to 16 distinct public
+namespace identifiers (120 bytes each). These require `buildProviders: 9`. A test
+request may then carry `selectorKind` and `selectors` instead of `suite`/`case`.
+The namespace must be declared; at most 64 nonempty, control-free UTF-8 values of
+4096 bytes each are allowed. An empty list explicitly selects all tests within the
+request's normal project/workspace scope. Values remain opaque to the host and
+Core: only the owning language engine supplies semantic identities and the build
+backend translates them into its upstream runner's selection syntax. Providers
+must reject identities they cannot represent exactly, rather than widen execution.
+
+The wire session must explicitly negotiate version 9. Core and both SDKs reject
+these fields on older versions before dispatch; ignoring a filter is unsafe even
+when version 8 inline reports are supported. The operation identity, source/model
+and configuration validity, cancellation, progress, and inline report rules still
+apply. The shared example is `fixtures/build-provider-selectors.plugin.json`.
+
+### Java build preparation task convention
+
+A Java language workflow may request declared provider project tasks
+`java-prepare-run-main` and `java-prepare-run-test` through the existing
+`lithe/build/execute` method. They prepare respectively the project's main
+resources, or both main and test resources, before JDT resolves runtime paths.
+The current model's source roles choose the task and deepest owning project;
+filenames and POM contents are not host inputs. A missing task/provider fails
+explicitly. Task IDs are the public convention, not private function calls or
+command templates, and no new backend method is introduced.
+
+The build backend owns filtering, custom resource directories, profiles and
+reactor semantics. Hosts await successful completion, retain one operation
+identity through cancellation/configuration changes, and only then resolve and
+launch Java. Per-run option/tool overrides are ephemeral host inputs to the
+existing validated plan; they never mutate saved build defaults or claim that
+the persistent model reflects a different configuration.

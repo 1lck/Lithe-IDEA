@@ -74,6 +74,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private var pollTask: Task<Void, Never>?
     private var state: LanguageServerSessionState = .stopped
     private var processID: Int32?
+    /// Native runtime identity, available only while this owned session runs.
+    package var processIdentifier: Int32? { isRunning ? processID : nil }
     /// Requests being written off the main actor. Core writes a request to
     /// the server's stdin synchronously, and a server that stopped reading
     /// blocks that write, so plugin requests are sent from a background task.
@@ -990,6 +992,36 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     /// Asks JDT, through Core, which classes in the workspace can be launched.
+    package func javaEntrypoints() async throws -> JavaEntrypoints {
+        try Task.checkCancellation()
+        guard let sessionID, state == .ready else { throw LanguageServerRuntimeSessionError.notReady }
+        let operation: LanguageServerRuntimeOperation
+        switch await send(timeout: requestTimeout, { core in
+            core.requestLanguageServerOperation(sessionID: sessionID, operation: .javaEntrypoints, fileURL: nil,
+                virtualURI: nil, position: nil, newName: nil, range: nil, diagnostics: [],
+                completionItem: nil, codeAction: nil, command: nil)
+        }) {
+        case .success(let started): operation = started
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        let value: JavaEntrypoints = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(operation, name: LanguageServerOperation.javaEntrypoints.rawValue) { result in
+                    continuation.resume(with: result.flatMap { Self.decodeEventResult($0, as: JavaEntrypoints.self) })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
+        }
+        try Task.checkCancellation()
+        return value
+    }
+
+    /// Callback discovery is retained for presentation clients.
     package func javaEntrypoints(
         completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
     ) throws {

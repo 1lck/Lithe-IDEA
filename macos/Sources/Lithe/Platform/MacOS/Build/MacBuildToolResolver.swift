@@ -18,6 +18,7 @@ final class MacBuildToolResolver: BuildToolResolving {
     private let runtime: ProjectRuntimeService
     private let processRunner: any ProcessRunner
     private let fileStorage: any FileStorage
+    private let toolchains: RunToolchainRegistry
     private let registry: RemoteWorkspaceRegistry?
     private let remoteFiles: (any RemoteBuildFileProbing)?
     private let remoteProcesses: (any RemoteProcessRunning)?
@@ -26,7 +27,7 @@ final class MacBuildToolResolver: BuildToolResolving {
     private var probeOutputs: [String: String] = [:]
 
     init(runtime: ProjectRuntimeService, processRunner: any ProcessRunner, fileStorage: any FileStorage,
-         registry: RemoteWorkspaceRegistry? = nil, remoteFiles: (any RemoteBuildFileProbing)? = nil,
+         toolchains: RunToolchainRegistry? = nil, registry: RemoteWorkspaceRegistry? = nil, remoteFiles: (any RemoteBuildFileProbing)? = nil,
          remoteProcesses: (any RemoteProcessRunning)? = nil) {
         self.runtime = runtime
         self.processRunner = processRunner
@@ -34,6 +35,7 @@ final class MacBuildToolResolver: BuildToolResolving {
         self.registry = registry
         self.remoteFiles = remoteFiles
         self.remoteProcesses = remoteProcesses
+        self.toolchains = toolchains ?? .standard()
     }
 
     func resolve(
@@ -68,12 +70,12 @@ final class MacBuildToolResolver: BuildToolResolving {
             case .terminalFailure(let message): throw BuildToolResolutionError(message, terminal: true)
             case .resolved(let choices):
                 for choice in choices {
-                    var selectedEnvironment = environment
+                    var selectedEnvironment = environment.merging(choice.environment) { _, selected in selected }
                     if choice.terminal {
                         selectedEnvironment["PATH"] = choice.url.deletingLastPathComponent().path + ":" + (environment["PATH"] ?? "")
                     }
                     if choice.executesProjectCode {
-                        return ResolvedBuildTool(executableURL: choice.url, environment: selectedEnvironment, executesProjectCode: true, version: nil)
+                        return resolved(choice.url, environment: selectedEnvironment, projectCode: true, version: nil)
                     }
                     do {
                         if let tool = try await accept(choice.url, invocation: invocation, environment: selectedEnvironment,
@@ -92,7 +94,7 @@ final class MacBuildToolResolver: BuildToolResolving {
     func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? {
         guard registry?.contains(workspaceURL) != true else { return nil }
         let environment = runtime.processEnvironment()
-        let resolver = candidateResolver([:])
+        let resolver = candidateResolver([:], workspaceURL: workspaceURL, passive: true)
         for candidate in invocation.executables {
             // No runtime selection or version probes during passive import.
             switch resolver.resolve(candidate, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {
@@ -128,7 +130,7 @@ final class MacBuildToolResolver: BuildToolResolving {
         _ runtimes: [String: URL], candidates: [ExecutableCandidate], workspaceURL: URL,
         environment: [String: String]
     ) async throws -> ExecutableCandidateResolver {
-        guard let binding = registry?.resolve(workspaceURL)?.binding else { return candidateResolver(runtimes) }
+        guard let binding = registry?.resolve(workspaceURL)?.binding else { return candidateResolver(runtimes, workspaceURL: workspaceURL) }
         guard let remoteFiles else { throw CocoaError(.featureUnsupported) }
         var paths = Set<URL>()
         var commands: [String: [URL]] = [:]
@@ -147,6 +149,7 @@ final class MacBuildToolResolver: BuildToolResolving {
                 paths.formUnion(found)
             case .runtime(let id): if let url = runtimes[id] { paths.insert(url) }
             case .setting(_, let path): if let path, path.hasPrefix("/") { paths.insert(URL(fileURLWithPath: path)) }
+            case .toolchain: break // The workspace runtime's prepared snapshot owns these paths.
             }
         }
         let requested = paths.sorted { $0.path < $1.path }.map { url in
@@ -170,13 +173,40 @@ final class MacBuildToolResolver: BuildToolResolving {
         }
         try Task.checkCancellation()
         return ExecutableCandidateResolver(fileExists: { files[$0] != nil },
-            isExecutable: { files[$0]?.isExecutable == true }, commands: { commands[$0] ?? [] }, runtimes: { runtimes[$0] })
+            isExecutable: { files[$0]?.isExecutable == true }, commands: { commands[$0] ?? [] }, runtimes: { runtimes[$0] },
+            toolchains: candidateResolver(runtimes, workspaceURL: workspaceURL).toolchains)
     }
 
-    private func candidateResolver(_ runtimes: [String: URL]) -> ExecutableCandidateResolver {
+    private func candidateResolver(_ runtimes: [String: URL], workspaceURL: URL, passive: Bool = false) -> ExecutableCandidateResolver {
         ExecutableCandidateResolver(fileExists: { [fileStorage] in fileStorage.fileExists(at: $0) },
             isExecutable: { [fileStorage] in fileStorage.metadata(for: $0)?.isDirectory == false && fileStorage.isExecutable(at: $0) },
-            commands: { [self] in commandCandidates($0) }, runtimes: { runtimes[$0] })
+            commands: { [self] in commandCandidates($0) }, runtimes: { runtimes[$0] },
+            toolchains: { [self] id, root in
+                guard runtime.reloadSettings() else { return .terminalFailure(runtime.settingsError ?? "") }
+                let options = runtime.settings.overlay(onto: RunOptions(), workspaceRelativePath: root)
+                let project = root == "." ? workspaceURL : workspaceURL.appendingPathComponent(root)
+                do {
+                    let tool: ResolvedRunToolchain
+                    if passive {
+                        guard let selected = try toolchains.resolvePassive(identifier: id, projectURL: project, options: options, runtimeService: runtime) else {
+                            return .terminalFailure(L10n.string("The selected toolchain is unavailable."))
+                        }
+                        tool = selected
+                    } else {
+                        tool = try toolchains.resolve(identifier: id, projectURL: project, options: options, runtimeService: runtime)
+                    }
+                    guard fileStorage.isExecutable(at: tool.executableURL), fileStorage.metadata(for: tool.executableURL)?.isDirectory == false else {
+                        return .terminalFailure(L10n.string("The configured build tool is not executable: \(tool.executableURL.path)"))
+                    }
+                    // A registry selection can still be a repository wrapper.
+                    // Preserve its trust boundary even through a file alias.
+                    let roots = [workspaceURL.standardizedFileURL, workspaceURL.resolvingSymlinksInPath()]
+                    let paths = [tool.executableURL.standardizedFileURL, tool.executableURL.resolvingSymlinksInPath()]
+                    let projectCode = paths.contains { path in roots.contains { path.path == $0.path || path.path.hasPrefix($0.path + "/") } }
+                    return .resolved([ResolvedExecutableCandidate(url: tool.executableURL,
+                        executesProjectCode: projectCode, terminal: true, environment: tool.environment)])
+                } catch { return .terminalFailure(error.localizedDescription) }
+            })
     }
 
     /// Keeps a candidate when the build tool declares no minimum version or
@@ -190,7 +220,7 @@ final class MacBuildToolResolver: BuildToolResolving {
         problems: inout [String]
     ) async throws -> ResolvedBuildTool? {
         guard let arguments = invocation.versionArguments, let minimum = invocation.minimumVersion else {
-            return ResolvedBuildTool(executableURL: url, environment: environment, executesProjectCode: false, version: nil)
+            return resolved(url, environment: environment, projectCode: false, version: nil)
         }
         let output = try await probe(url, arguments: arguments, environment: environment, workspaceURL: workspaceURL)
         let check = try checkVersion(nil, output)
@@ -198,7 +228,14 @@ final class MacBuildToolResolver: BuildToolResolving {
             problems.append(Self.tooOldMessage(url.path, found: check.version, minimum: minimum))
             return nil
         }
-        return ResolvedBuildTool(executableURL: url, environment: environment, executesProjectCode: false, version: check.version)
+        return resolved(url, environment: environment, projectCode: false, version: check.version)
+    }
+
+    private func resolved(_ url: URL, environment: [String: String], projectCode: Bool, version: String?) -> ResolvedBuildTool {
+        let base = runtime.processEnvironment()
+        let inputs = environment.filter { key, value in key == "JAVA_HOME" || key == "PATH" || base[key] != value }
+        return ResolvedBuildTool(executableURL: url, environment: environment, executesProjectCode: projectCode,
+            version: version, providerEnvironment: inputs)
     }
 
     /// Resolves one runtime and puts it first on `PATH`. `java`, `node`, and
@@ -212,8 +249,8 @@ final class MacBuildToolResolver: BuildToolResolving {
         checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck
     ) async throws -> URL {
         let name = dependency.displayName ?? dependency.id
-        let javaHome = dependency.hostManaged && dependency.id == "java" ? runtime.javaHomeURL() : nil
-        let sources: [ExecutableCandidate] = dependency.hostManaged
+        let javaHome = dependency.hostManaged && dependency.id == "java" && dependency.executables.isEmpty ? runtime.javaHomeURL() : nil
+        let sources: [ExecutableCandidate] = dependency.hostManaged && dependency.executables.isEmpty
             ? (dependency.id == "java" ? [.runtime("java")] : [.command(dependency.id)])
             : dependency.executables
         let resolver = try await preparedResolver(javaHome.map { ["java": $0.appendingPathComponent("bin/java")] } ?? [:],
@@ -228,10 +265,10 @@ final class MacBuildToolResolver: BuildToolResolving {
                     // Probes and execution need the same PATH, including helpers
                     // next to a selected runtime. Failed candidates must not
                     // contribute their environment to the next choice.
-                    var selectedEnvironment = environment
+                    var selectedEnvironment = environment.merging(choice.environment) { _, selected in selected }
                     if let javaHome { selectedEnvironment["JAVA_HOME"] = javaHome.path }
                     let directory = choice.url.deletingLastPathComponent().path
-                    let path = environment["PATH"] ?? ""
+                    let path = selectedEnvironment["PATH"] ?? ""
                     selectedEnvironment["PATH"] = path.isEmpty ? directory : directory + ":" + path
                     if !choice.executesProjectCode,
                        let minimum = dependency.minimumVersion, let arguments = dependency.versionArguments {
@@ -272,7 +309,8 @@ final class MacBuildToolResolver: BuildToolResolving {
             return try captured.value()
         }
         let modified = fileStorage.metadata(for: url)?.modificationDate?.timeIntervalSince1970 ?? 0
-        let key = ([url.path, String(modified)] + arguments).joined(separator: "\u{1F}")
+        let inputs = environment.sorted { $0.key < $1.key }.map { $0.key + "=" + $0.value }
+        let key = ([url.path, String(modified)] + arguments + inputs).joined(separator: "\0")
         if let output = probeOutputs[key] { return output }
         let runner = processRunner
         let request = ProcessRequest(
@@ -319,60 +357,6 @@ private final class RemoteBuildProbeOutput: @unchecked Sendable {
             guard !overflowed else { throw CocoaError(.fileReadTooLarge) }
             return output
         }
-    }
-}
-
-/// Stored option values. They follow the build-system ID, as `build.detect`
-/// takes them, so a plugin update keeps the user's choices.
-@MainActor
-final class MacBuildOptionsStore: BuildOptionsStoring {
-    private static let keyPrefix = "BuildSystems.Options."
-    private let store: any KeyValueStore
-
-    init(store: any KeyValueStore) {
-        self.store = store
-    }
-
-    func options(workspaceURL: URL, buildSystemID: String) -> [String: ToolingJSONValue] {
-        guard let data = store.data(forKey: Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID)),
-              let options = try? JSONDecoder().decode([String: ToolingJSONValue].self, from: data) else {
-            return [:]
-        }
-        return options
-    }
-
-    func setOptions(_ options: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String) {
-        let key = Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        guard !options.isEmpty else {
-            store.set(nil, forKey: key)
-            return
-        }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        store.set(try? encoder.encode(options), forKey: key)
-    }
-
-    func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) -> [String: Set<String>] {
-        let key = Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID) + ".EmptyMultiSelect"
-        guard let data = store.data(forKey: key),
-              let options = try? JSONDecoder().decode([String: [String]].self, from: data) else { return [:] }
-        return options.mapValues { Set($0) }
-    }
-
-    func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String) {
-        let key = Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID) + ".EmptyMultiSelect"
-        let nonempty = options.filter { !$0.value.isEmpty }
-        guard !nonempty.isEmpty else {
-            store.set(nil, forKey: key)
-            return
-        }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        store.set(try? encoder.encode(nonempty.mapValues { $0.sorted() }), forKey: key)
-    }
-
-    private static func key(workspaceURL: URL, buildSystemID: String) -> String {
-        keyPrefix + buildSystemID + "." + MacPluginStateDirectories.workspaceDigest(workspaceURL)
     }
 }
 

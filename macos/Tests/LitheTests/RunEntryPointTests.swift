@@ -1073,7 +1073,8 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -1090,20 +1091,21 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
     )
 
     /// A service configuration so `runAllServiceConfigurations` has something to
-    /// launch after a deferred resume.
+    /// launch after a deferred resume. This fixture tests inventory deferral;
+    /// Maven preparation has its own model, Provider and lifecycle integration tests.
     static let serviceEntryPoint = RunConfiguration(
-        id: "spring-boot:demo.App",
-        name: "App (Spring Boot)",
-        kind: .mavenFramework(.springBoot),
+        id: "fixture-service:demo.App",
+        name: "App Service",
+        kind: .process(provider: "fixture.service"),
         execution: .service,
         modulePath: nil,
         mainClass: "demo.App"
     )
 
     static let serviceEntryPointB = RunConfiguration(
-        id: "spring-boot:demo.OtherApp",
+        id: "fixture-service:demo.OtherApp",
         name: "Other Service",
-        kind: .mavenFramework(.springBoot),
+        kind: .process(provider: "fixture.service"),
         execution: .service,
         modulePath: nil,
         mainClass: "demo.OtherApp"
@@ -1202,6 +1204,12 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
         releases.forEach { $0.open() }
     }
 
+    // Generation identity checks have their own tests; this fake gates only
+    // workspace inventory inspections, never unrelated model validation.
+    func inspectProviderGeneration(at _: URL, projectOwnership _: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         lock.lock()
         inspectCalls += 1
@@ -1219,7 +1227,8 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -1335,6 +1344,12 @@ private final class InventoryRecordingGatedRunConfigurationOperations: RunConfig
         releases.forEach { $0.open() }
     }
 
+    // Generation identity checks have their own tests; this fake gates only
+    // workspace inventory inspections, never unrelated model validation.
+    func inspectProviderGeneration(at _: URL, projectOwnership _: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
+    }
+
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         lock.lock()
         inspectCalls += 1
@@ -1349,7 +1364,8 @@ private final class InventoryRecordingGatedRunConfigurationOperations: RunConfig
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         lock.lock()
         inventories.append(files)

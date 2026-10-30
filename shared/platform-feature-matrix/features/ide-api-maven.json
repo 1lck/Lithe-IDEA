@@ -2,7 +2,7 @@
   "id": "ide-api-maven",
   "area": "AI",
   "group": "IDE MCP",
-  "capability": "插件与 MCP 读取 Maven 模块和 Profile，保存配置、重载并执行既有生命周期和插件目标",
+  "capability": "插件与 MCP 按平台实际工作流发现工具；macOS 通过通用 Build Provider 查询、配置和执行声明任务，移除旧 Maven Agent 接线及环境 XML 参数；Windows 保留现有 Maven 工具，不暴露未接通的 Build 工具",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -10,7 +10,13 @@
       "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
       "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
       "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
-      "rust/lithe-ide-host/src/lib.rs"
+      "rust/lithe-ide-host/src/lib.rs",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
+      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
+      "shared/contracts/ide-api/v1.md",
+      "shared/fixtures/ide-api/host-tool-exposure.json",
+      "rust/lithe-ide-host/src/catalog.rs",
+      "macos/Sources/Lithe/Application/Features/RuntimeSettingsFeatureModel.swift"
     ]
   },
   "windows": {
@@ -20,9 +26,12 @@
       "windows/tauri/src/features/host-api/ide-capabilities.ts",
       "windows/tauri/src/features/host-api/mcp-settings.tsx",
       "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
-      "rust/lithe-ide-host/src/lib.rs"
+      "rust/lithe-ide-host/src/lib.rs",
+      "windows/tauri/src/features/host-api/ide-tool-exposure.ts",
+      "windows/tauri/src/features/host-api/mcp-lifecycle.test.ts",
+      "shared/fixtures/ide-api/host-tool-exposure.json"
     ]
   },
   "owner": "Agent",
-  "verification": "双端对同一示例项目设置 Profile/skipTests，重载、执行 clean verify，核对按钮与 MCP 的命令、输出、失败和取消。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+  "verification": "macOS 用 lithe_build_inspect/reload 查询 Maven 插件实例及模型，执行 goal 任务并以独立参数数组传 clean verify；核对 UI/Agent 使用同一生效配置、最终退出码、完成后输出、取消、旧 ID 失效和同路径重开。确认旧 MavenService 任务执行和专属进程已删除。Windows 尚未接 Provider，新入口明确 NOT_AVAILABLE，现有 Maven 执行继续验证。配置、项目加载、依赖、Run/Java 协作完整迁移及真实安装包/Windows 流程仍待阶段 D 验收。 通用 Build 选项入口已通过真实 Maven Agent compile 场景、非法布尔值不落盘、Core 类型/大小/权限边界及实例多选清空/重置回归；Windows 的新入口明确不可用单元测试通过，实机仍 pending。 原生工具选择 fixture 覆盖 macOS/Windows 各 13 项，Rust 拒绝未知工具、扩大参数、移除必填项和权限越权；真实 stdio 的三种协议会话验证发现清单与 macOS 环境参数收窄，认证 HTTP 在入队前拒绝旧 Maven 工具。macOS 旧入口在模块激活前拒绝；Windows 原生验证仍 pending。 macOS 环境 API 无需执行模块或 Maven 工程即可读取和保存 canonical 工具选择，保留旧表单只读投影；未保存草稿返回 BUSY，损坏来源拒绝并保留字节。"
 }

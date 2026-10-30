@@ -56,7 +56,7 @@ pub(crate) fn plan(
     build: &BuildSystemDeclaration,
     request: &PrepareRunRequest,
 ) -> Validation<Value> {
-    let mut value = run_preparation::plan(build, request)?;
+    let mut value = run_preparation::plan(build, request, 5)?;
     if !build
         .run
         .iter()
@@ -110,6 +110,9 @@ pub(crate) fn decode(
             .read_path(&program)
             .is_some_and(|path| path.is_file() && path.starts_with(&instance))
     {
+        return Err(invalid());
+    }
+    if request.base.launch_options.is_some() {
         return Err(invalid());
     }
     let validated = run_preparation::process_fields(&request.base)?;

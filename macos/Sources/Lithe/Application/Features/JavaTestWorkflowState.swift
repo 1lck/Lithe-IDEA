@@ -42,7 +42,7 @@ final class JavaTestWorkflowState {
                     testIdentifier: nil
                 )
             )
-        case .testCase(let identifier, let url):
+        case .testCase(let identifier, let url, _):
             guard let url else {
                 return .rejected("The selected Java test has no source file")
             }
@@ -116,6 +116,27 @@ final class JavaTestWorkflowState {
             notify("Could not save \(document.url.lastPathComponent)")
             return false
         }
+    }
+
+    var runPreparationTask: Task<Void, Never>?
+    private var runPreparationID: UUID?
+
+    func beginRunPreparation() -> UUID {
+        cancelRunPreparation()
+        let id = UUID()
+        runPreparationID = id
+        return id
+    }
+    func isCurrentRunPreparation(_ id: UUID) -> Bool { runPreparationID == id && !Task.isCancelled }
+    func finishRunPreparation(_ id: UUID) {
+        guard runPreparationID == id else { return }
+        runPreparationID = nil
+        runPreparationTask = nil
+    }
+    func cancelRunPreparation() {
+        runPreparationID = nil
+        runPreparationTask?.cancel()
+        runPreparationTask = nil
     }
 
     var resultServer: (any JavaTestResultServing)?

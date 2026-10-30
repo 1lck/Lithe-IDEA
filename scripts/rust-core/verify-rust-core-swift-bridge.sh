@@ -71,6 +71,6 @@ LITHE_RUN_GIT_EXECUTION_INTEGRATION=1 \
     ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
     --suite-timeout-seconds 900 \
     --report .artifacts/test-stability/git-console-bridge.json \
-    -- --skip-build --filter 'MacGitHubGitOperationsTests|GitConsolePresentationBridgeTests|GitConsoleLifecycleBridgeTests|MavenDependencyTreeBridgeTests'
+    -- --skip-build --filter 'MacGitHubGitOperationsTests|GitConsolePresentationBridgeTests|GitConsoleLifecycleBridgeTests|RustBuildSystemOperationsTests'
 
 print "Rust Core Swift bridge verification passed: C ABI, linked symbols, and Git execution integration"

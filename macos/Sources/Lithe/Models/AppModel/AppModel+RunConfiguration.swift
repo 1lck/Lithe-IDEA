@@ -8,6 +8,7 @@ import LitheModuleAPI
 extension AppModel {
     func runBuildProviderApplication(entryID: String, request: BuildRunRequest, title: String) {
         guard let identity = currentWorkspaceIdentity, let feature = buildSystemsFeatureIfActive else { return }
+        runWorkflowCoordinator.cancelModuleOperation()
         guard feature.runApplication(entryID, request: request, title: title, beforePreparing: { [weak self] in
             guard let self, !Task.isCancelled, isCurrentWorkspace(identity),
                   await saveAllDocuments(), !Task.isCancelled, isCurrentWorkspace(identity) else { return false }
@@ -86,7 +87,7 @@ extension AppModel {
     func generateRunConfigurations(automatic: Bool = false) async {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         guard runFeature.recoveryAction != .upgradeApplication else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
@@ -113,7 +114,7 @@ extension AppModel {
             )
             return
         }
-        Task { [weak self] in await self?.runSelectedConfigurationAfterActivation() }
+        runWorkflowCoordinator.startRunAction { [weak self] in await self?.runSelectedConfigurationAfterActivation() }
     }
 
     /// Loads services for the workspace snapshot currently applied by the model.
@@ -155,7 +156,7 @@ extension AppModel {
         )
         loadVcsProviders(at: target)
         guard let execution = await activateExecutionModule() else { return }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         loadBuildSystems(execution)
         execution.tests.discover(workspaceURL: target, files: files)
         await execution.projectDevelopment.loadProject(
@@ -163,15 +164,15 @@ extension AppModel {
             files: files,
             snapshotID: snapshotID
         )
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         // Detected entries live in Core's memory, not in the workspace, so a
         // project this process has not identified yet is identified now.
         if snapshotID != nil,
            execution.runFeature.configurationStatus == .missing || execution.runFeature.requiresConfigurationGeneration {
             await generateFromJavaEntrypoints(execution.runFeature, for: identity, automatic: true)
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         }
-        adoptSavedProjectToolchain(from: execution.runFeature, workspace: target)
+
         checkJavaEntrypointFreshness(execution.runFeature, for: identity, files: files)
         guard resumesDeferredRunAction else { return }
         runWorkflowCoordinator.resumeDeferredAction(
@@ -212,14 +213,14 @@ extension AppModel {
     }
 
     func deferRunAction(_ kind: PendingRunAction.Kind, for identity: WorkspaceIdentity) {
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         runWorkflowCoordinator.deferAction(kind, for: identity)
     }
 
     private func runSelectedConfigurationAfterActivation() async {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
             clearPendingRunAction(for: identity)
@@ -250,7 +251,7 @@ extension AppModel {
         )) {
             return
         }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         guard await runWorkflowCoordinator.saveDirtyCurrentFileIfNeeded(
             configuration: configuration,
             document: activeDocument,
@@ -258,7 +259,7 @@ extension AppModel {
         ) else {
             return
         }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         let javaLaunch: JavaDebugLaunchTarget?
         do {
             javaLaunch = try await prepareJavaRunLaunch(
@@ -268,11 +269,11 @@ extension AppModel {
         } catch is CancellationError {
             return
         } catch {
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             showNotification(error.localizedDescription)
             return
         }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         if configuration.kind != .currentFile {
             runFeature.startConfiguration(configuration, javaLaunch: javaLaunch)
         } else {
@@ -288,11 +289,11 @@ extension AppModel {
             return
         }
         showToolWindow(.run)
-        Task { [weak self] in
+        runWorkflowCoordinator.startRunAction { [weak self] in
             guard let self else { return }
             guard let identity = currentWorkspaceIdentity else { return }
             guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             guard runFeature.lastConfiguration != nil else { return }
             switch await ensureRunProjectReady(runFeature, for: identity) {
             case .ready:
@@ -314,7 +315,7 @@ extension AppModel {
             )) {
                 return
             }
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             let document = documentFeature.editorDocuments.first {
                 $0.url.standardizedFileURL == runFeature.lastRunFileURL?.standardizedFileURL
             }
@@ -323,7 +324,7 @@ extension AppModel {
                 document: document,
                 saving: self
             ) else { return }
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             let javaLaunch: JavaDebugLaunchTarget?
             do {
                 javaLaunch = try await prepareJavaRunLaunch(
@@ -333,27 +334,27 @@ extension AppModel {
             } catch is CancellationError {
                 return
             } catch {
-                guard isCurrentWorkspace(identity) else { return }
+                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                 showNotification(error.localizedDescription)
                 return
             }
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             runFeature.restart(javaLaunch: javaLaunch)
         }
     }
 
     func startRunConfiguration(_ configuration: RunConfiguration) {
-        Task { [weak self] in
+        runWorkflowCoordinator.startRunAction { [weak self] in
             await self?.performStartRunConfiguration(configuration)
         }
     }
 
     func startSelectedServiceConfigurations(_ configurations: [RunConfiguration]) {
         guard !configurations.isEmpty else { return }
-        Task { [weak self] in
+        runWorkflowCoordinator.startRunAction { [weak self] in
             guard let self, let identity = currentWorkspaceIdentity else { return }
             guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             switch await ensureRunProjectReady(runFeature, for: identity) {
             case .ready:
                 clearPendingRunAction(for: identity)
@@ -373,7 +374,7 @@ extension AppModel {
             var preparedConfigurations: [(RunConfiguration, JavaDebugLaunchTarget?)] = []
             do {
                 for configuration in configurations {
-                    guard isCurrentWorkspace(identity) else { return }
+                    guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                     let target = try await prepareJavaRunLaunch(
                         for: configuration,
                         identity: identity
@@ -383,12 +384,12 @@ extension AppModel {
             } catch is CancellationError {
                 return
             } catch {
-                guard isCurrentWorkspace(identity) else { return }
+                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                 showNotification(error.localizedDescription)
                 return
             }
             for (configuration, javaLaunch) in preparedConfigurations {
-                guard isCurrentWorkspace(identity) else { return }
+                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                 runFeature.startConfiguration(configuration, javaLaunch: javaLaunch)
             }
             showToolWindow(.run)
@@ -399,7 +400,7 @@ extension AppModel {
     func performStartRunConfiguration(_ configuration: RunConfiguration, allowDeferred: Bool = true) async {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
             clearPendingRunAction(for: identity)
@@ -417,51 +418,24 @@ extension AppModel {
             currentFileURL: activeDocument?.url,
             runFeature: runFeature
         ) else { return }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         let javaLaunch: JavaDebugLaunchTarget?
         do {
             javaLaunch = try await prepareJavaRunLaunch(for: configuration, identity: identity)
         } catch is CancellationError {
             return
         } catch {
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             showNotification(error.localizedDescription)
             return
         }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         runFeature.startConfiguration(configuration, javaLaunch: javaLaunch)
         showToolWindow(.run)
     }
 
-    private func prepareJavaRunLaunch(
-        for configuration: RunConfiguration,
-        identity: WorkspaceIdentity
-    ) async throws -> JavaDebugLaunchTarget? {
-        guard configuration.usesJavaProjectPreparation else { return nil }
-        guard let workspaceURL,
-              let sourceURL = runWorkflowCoordinator.sourceURLForDebug(
-                configuration: configuration,
-                activeDocument: activeDocument,
-                projectFiles: projectFiles,
-                workspaceURL: workspaceURL
-              ) else {
-            throw RunConfigurationOperationFailure(
-                message: L10n.string("The Java source for \(configuration.name) could not be resolved.")
-            )
-        }
-        let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
-        guard isCurrentWorkspace(identity), !Task.isCancelled else {
-            throw CancellationError()
-        }
-        let preparation = try await sessions.prepareJavaRunLaunchTarget(
-            fileURL: sourceURL,
-            rootURL: workspaceURL
-        )
-        return try await resolveJavaLaunchPreparation(preparation, identity: identity)
-    }
-
     func startRunConfigurations(_ configurationIDs: [String]) {
-        Task { [weak self] in
+        runWorkflowCoordinator.startRunAction { [weak self] in
             await self?.performStartRunConfigurations(configurationIDs)
         }
     }
@@ -470,7 +444,7 @@ extension AppModel {
         let ids = Set(configurationIDs).sorted()
         guard !ids.isEmpty, let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
             clearPendingRunAction(for: identity)
@@ -481,7 +455,7 @@ extension AppModel {
             return
         }
         for id in ids {
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             guard let configuration = runFeature.configurations.first(where: { $0.id == id }),
                   !configuration.usesCurrentEditorFile,
                   !runFeature.moduleSessions.contains(where: { $0.id == id && $0.isRunning })
@@ -491,7 +465,7 @@ extension AppModel {
                 currentFileURL: nil,
                 runFeature: runFeature
             )
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             guard activated,
                   let current = runFeature.configurations.first(where: { $0.id == id }),
                   !runFeature.moduleSessions.contains(where: { $0.id == id && $0.isRunning })
@@ -501,12 +475,12 @@ extension AppModel {
                     for: current,
                     identity: identity
                 )
-                guard isCurrentWorkspace(identity) else { return }
+                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                 runFeature.startConfiguration(current, javaLaunch: javaLaunch)
             } catch is CancellationError {
                 return
             } catch {
-                guard isCurrentWorkspace(identity) else { return }
+                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                 showNotification(error.localizedDescription)
             }
         }
@@ -514,11 +488,11 @@ extension AppModel {
     }
 
     func runAllServiceConfigurations() {
-        Task { [weak self] in
+        runWorkflowCoordinator.startRunAction { [weak self] in
             guard let self else { return }
             guard let identity = currentWorkspaceIdentity else { return }
             guard let runFeature = await activateExecutionModule()?.runFeature else { return }
-            guard isCurrentWorkspace(identity) else { return }
+            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             switch await ensureRunProjectReady(runFeature, for: identity) {
             case .ready:
                 clearPendingRunAction(for: identity)
@@ -535,7 +509,7 @@ extension AppModel {
                     currentFileURL: nil,
                     runFeature: runFeature
                 ) else { return }
-                guard isCurrentWorkspace(identity) else { return }
+                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             }
             var javaLaunches: [String: JavaDebugLaunchTarget] = [:]
             do {
@@ -546,12 +520,12 @@ extension AppModel {
                     ) {
                         javaLaunches[configuration.id] = target
                     }
-                    guard isCurrentWorkspace(identity) else { return }
+                    guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                 }
             } catch is CancellationError {
                 return
             } catch {
-                guard isCurrentWorkspace(identity) else { return }
+                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
                 showNotification(error.localizedDescription)
                 return
             }
@@ -559,7 +533,11 @@ extension AppModel {
         }
     }
 
+    var isPreparingRun: Bool { runWorkflowCoordinator.isRunActionStarting }
+    var isPreparingExecution: Bool { runWorkflowCoordinator.isModuleOperationStarting }
+
     func stopSelectedRun() {
+        runWorkflowCoordinator.cancelModuleOperation()
         if let feature = runFeatureIfActive,
            let configuration = feature.selectedConfiguration,
            configuration.kind != .currentFile, configuration.buildProvider == nil {
@@ -569,7 +547,6 @@ extension AppModel {
             return
         }
         executionModuleCoordinator.stopFeatures(
-            maven: nil,
             run: runFeatureIfActive
         )
     }

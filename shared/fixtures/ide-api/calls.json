@@ -1,17 +1,115 @@
 {
   "version": 1,
   "accepted": [
-    {"name":"lithe_project_inspect","arguments":{}},
-    {"name":"lithe_environment_configure","arguments":{"javaHomePath":"","mavenExecutablePath":"mvnw"}},
-    {"name":"lithe_maven_execute","arguments":{"goals":["clean","verify"],"modulePath":"services/api"}},
-    {"name":"lithe_run_start","arguments":{"configurationID":"service-api"}},
-    {"name":"lithe_operation_output","arguments":{"operationID":"run:fixture-execution"}}
+    {
+      "name": "lithe_project_inspect",
+      "arguments": {}
+    },
+    {
+      "name": "lithe_environment_configure",
+      "arguments": {
+        "javaHomePath": "",
+        "mavenExecutablePath": "mvnw"
+      }
+    },
+    {
+      "name": "lithe_build_execute",
+      "arguments": {
+        "instanceID": "maven@.",
+        "taskID": "custom",
+        "projectID": "services/api",
+        "userArguments": [
+          "clean",
+          "verify"
+        ]
+      }
+    },
+    {
+      "name": "lithe_run_start",
+      "arguments": {
+        "configurationID": "service-api"
+      }
+    },
+    {
+      "name": "lithe_operation_output",
+      "arguments": {
+        "operationID": "run:fixture-execution"
+      }
+    },
+    {
+      "name": "lithe_build_inspect",
+      "arguments": {}
+    },
+    {
+      "name": "lithe_build_reload",
+      "arguments": {
+        "instanceID": "maven@."
+      }
+    },
+    {
+      "name": "lithe_maven_execute",
+      "arguments": {
+        "goals": [
+          "clean",
+          "verify"
+        ],
+        "modulePath": "services/api"
+      }
+    }
   ],
   "rejected": [
-    {"name":"lithe_environment_configure","arguments":{"apiKey":"never-return-a-secret"}},
-    {"name":"lithe_maven_execute","arguments":{"goals":["verify"],"modulePath":"../outside"}},
-    {"name":"lithe_maven_execute","arguments":{"goals":["verify && echo unexpected"]}},
-    {"name":"lithe_run_start","arguments":{"configurationID":23}},
-    {"name":"lithe_operation_stop","arguments":{"sessionID":"ambiguous-output-slot"}}
+    {
+      "name": "lithe_environment_configure",
+      "arguments": {
+        "apiKey": "never-return-a-secret"
+      }
+    },
+    {
+      "name": "lithe_build_execute",
+      "arguments": {
+        "instanceID": "maven@.",
+        "taskID": "verify",
+        "command": "mvn"
+      }
+    },
+    {
+      "name": "lithe_build_execute",
+      "arguments": {
+        "instanceID": "maven@.",
+        "taskID": "verify",
+        "userArguments": [
+          42
+        ]
+      }
+    },
+    {
+      "name": "lithe_run_start",
+      "arguments": {
+        "configurationID": 23
+      }
+    },
+    {
+      "name": "lithe_operation_stop",
+      "arguments": {
+        "sessionID": "ambiguous-output-slot"
+      }
+    },
+    {
+      "name": "lithe_maven_execute",
+      "arguments": {
+        "goals": [
+          "verify"
+        ],
+        "modulePath": "../outside"
+      }
+    },
+    {
+      "name": "lithe_maven_execute",
+      "arguments": {
+        "goals": [
+          "verify && echo unexpected"
+        ]
+      }
+    }
   ]
 }

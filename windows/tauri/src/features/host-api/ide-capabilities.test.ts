@@ -200,6 +200,20 @@ test("Maven profile configuration adds only undeclared profiles as custom entrie
   expect(saveLocalConfiguration).toHaveBeenCalledTimes(1);
 });
 
+test("Build Provider entry points are explicitly unavailable before Windows hosts providers", async () => {
+  const { api, dependencies } = fixture();
+  for (const [name, arguments_] of [
+    ["lithe_build_inspect", {}],
+    ["lithe_build_reload", { instanceID: "fixture" }],
+    ["lithe_build_configure", { instanceID: "fixture", optionID: "release", value: true }],
+    ["lithe_build_execute", { instanceID: "fixture", taskID: "build" }],
+  ] as const) {
+    expect(await api.call(name, arguments_)).toMatchObject({ error: { code: "NOT_AVAILABLE" } });
+  }
+  expect(dependencies.mavenLaunchContextForWorkspace).not.toHaveBeenCalled();
+  expect(dependencies.reloadMavenWorkspaceProjects).not.toHaveBeenCalled();
+});
+
 
 test("MCP deadline is rechecked after native validation before accepting a workflow", async () => {
   const { api, dependencies } = fixture();

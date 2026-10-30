@@ -3,190 +3,6 @@ import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
-/// UI-facing projection for Maven state and commands.
-/// The view layer does not depend on MavenService or its process adapter.
-@MainActor
-package final class MavenFeatureModel: ObservableObject {
-    private let service: MavenService
-    private var observation: AnyCancellable?
-
-    package init(service: MavenService) {
-        self.service = service
-        observation = service.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-    }
-
-    package var project: MavenProject? { service.project }
-    package var projectState: MavenProjectLoadState { service.projectState }
-    package var taskState: MavenTaskState { service.taskState }
-    package var outputOperationID: String? { service.outputOperationID }
-    package var isLoadingProject: Bool { service.isLoadingProject }
-    package var isRunning: Bool { service.isRunning }
-    package var runningTitle: String? { service.runningTitle }
-    package var output: String { service.output }
-    package var issues: [MavenBuildIssue] { service.issues }
-    package var lastExitCode: Int32? { service.lastExitCode }
-    package var availableProfiles: [MavenProfile] { service.availableProfiles }
-    package var selectedProfiles: Set<String> { service.selectedProfiles }
-    package var skipTests: Bool { service.skipTests }
-    package var settingsPath: String? { service.settingsPath }
-    package var localRepositoryPath: String? { service.localRepositoryPath }
-    package var mavenExecutablePath: String? { service.mavenExecutablePath }
-    package var javaHomePath: String? { service.javaHomePath }
-    package var configurationSaveError: String? { service.configurationSaveError }
-    package var javaConfigurationError: String? { service.javaConfigurationError }
-    /// Connects Maven configuration changes to the running Java language session.
-    package func configureJavaConfigurationSync(_ apply: @escaping @MainActor (URL) throws -> Bool) {
-        service.applyConfigurationToJava = apply
-    }
-    package var isReloadRequired: Bool { service.isReloadRequired }
-    package var isProjectReloadRequired: Bool { service.isProjectReloadRequired }
-    package var isReloading: Bool { service.isReloading }
-    package var reloadError: String? { service.reloadError }
-    package func markPomChanged(_ url: URL) { service.markPomChanged(url) }
-    package func reloadProject(
-        files: [URL], rescan: Bool,
-        synchronizeJava: @escaping @MainActor () async throws -> Void
-    ) async {
-        await service.reloadProject(files: files, rescan: rescan, synchronizeJava: synchronizeJava)
-    }
-    package var dependencyStates: [String: MavenDependencyLoadState] { service.dependencyStates }
-    package var isResolvingDependencies: Bool { service.isResolvingDependencies }
-    package var launchContext: MavenLaunchContext? { service.launchContext }
-
-    /// Projects artifacts from Maven's already-resolved dependency tree into
-    /// paths that the generic dependency Provider can display. It never starts
-    /// Maven or scans the local repository.
-    package func resolvedDependencyArtifactPaths(
-        modulePath: String,
-        defaultRepositoryURL: URL? = nil
-    ) -> [URL] {
-        guard case .ready(let dependencies) = service.dependencyState(for: modulePath) else {
-            return []
-        }
-        let repositoryURL: URL
-        if let repository = service.localRepositoryPath {
-            let expanded = (repository as NSString).expandingTildeInPath
-            repositoryURL = URL(
-                fileURLWithPath: expanded,
-                relativeTo: service.project?.rootURL
-            ).standardizedFileURL
-        } else if let defaultRepositoryURL {
-            repositoryURL = defaultRepositoryURL.standardizedFileURL
-        } else {
-            return []
-        }
-        var paths: Set<String> = []
-        for dependency in dependencies {
-            Self.collectResolvedArtifacts(
-                dependency,
-                repositoryURL: repositoryURL,
-                into: &paths
-            )
-        }
-        return paths.map { URL(fileURLWithPath: $0) }
-            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-    }
-
-    private static func collectResolvedArtifacts(
-        _ dependency: MavenDependency,
-        repositoryURL: URL,
-        into paths: inout Set<String>
-    ) {
-        if dependency.resolution == .resolved {
-            let groupPath = dependency.groupID.replacingOccurrences(of: ".", with: "/")
-            let classifier = dependency.classifier.map { "-\($0)" } ?? ""
-            let fileName = "\(dependency.artifactID)-\(dependency.version)\(classifier).\(dependency.type)"
-            paths.insert(
-                repositoryURL
-                    .appendingPathComponent(groupPath, isDirectory: true)
-                    .appendingPathComponent(dependency.artifactID, isDirectory: true)
-                    .appendingPathComponent(dependency.version, isDirectory: true)
-                    .appendingPathComponent(fileName)
-                    .standardizedFileURL.path
-            )
-        }
-        for child in dependency.children {
-            collectResolvedArtifacts(child, repositoryURL: repositoryURL, into: &paths)
-        }
-    }
-
-    package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
-        await service.loadProject(at: workspaceURL, files: files)
-    }
-
-    package func run(phase: MavenLifecyclePhase, module: MavenModule?) {
-        service.run(phase: phase, module: module)
-    }
-
-    package func runCustomGoal(_ value: String, module: MavenModule?) {
-        service.runCustomGoal(value, module: module)
-    }
-
-    package func setSelectedProfiles(_ profiles: Set<String>) {
-        service.setSelectedProfiles(profiles)
-    }
-
-    @discardableResult
-    package func addCustomProfile(_ value: String) -> Bool {
-        service.addCustomProfile(value)
-    }
-
-    package func restoreDefaultProfiles() {
-        service.restoreDefaultProfiles()
-    }
-
-    package func setSkipTests(_ enabled: Bool) {
-        service.setSkipTests(enabled)
-    }
-
-    package func saveConfiguration() async -> String? {
-        await service.saveConfiguration()
-    }
-
-    package func updateLocalConfiguration(
-        settingsPath: String?,
-        localRepositoryPath: String?,
-        mavenExecutablePath: String?,
-        javaHomePath: String?
-    ) {
-        service.updateLocalConfiguration(
-            settingsPath: settingsPath,
-            localRepositoryPath: localRepositoryPath,
-            mavenExecutablePath: mavenExecutablePath,
-            javaHomePath: javaHomePath
-        )
-    }
-
-    package func acknowledgeReload() {
-        service.acknowledgeReload()
-    }
-
-    package func dependencyState(for modulePath: String) -> MavenDependencyLoadState {
-        service.dependencyState(for: modulePath)
-    }
-
-    package func loadDependencies(for modulePath: String) {
-        service.loadDependencies(for: modulePath)
-    }
-
-    package func cancelDependencies(for modulePath: String) {
-        service.cancelDependencies(for: modulePath)
-    }
-
-    package func reset() { service.reset() }
-
-    package func stop() {
-        service.stop()
-    }
-
-    package func clearOutput() {
-        service.clearOutput()
-    }
-
-}
-
 /// UI-facing projection for language-neutral run configurations and process sessions.
 package enum RunConfigurationGenerationIntent: Sendable {
     case identifyOnly
@@ -339,6 +155,14 @@ package final class RunFeatureModel: ObservableObject {
     package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool { service.isProjectReady(for: workspace, snapshotID: snapshotID) }
     package func hasReadyInventory(for workspace: URL) -> Bool { service.hasReadyInventory(for: workspace) }
 
+    package func validateProviderGeneration(for configuration: RunConfiguration) throws {
+        try service.validateProviderGeneration(for: configuration)
+    }
+
+    package func buildProviderHints(for configuration: RunConfiguration, toolchain: String, workingDirectory: String) throws -> BuildProviderHints {
+        try service.buildProviderHints(for: configuration, toolchain: toolchain, workingDirectory: workingDirectory)
+    }
+
     package func options(for configuration: RunConfiguration) -> RunOptions {
         service.options(for: configuration)
     }
@@ -369,13 +193,11 @@ package final class RunFeatureModel: ObservableObject {
     @discardableResult
     package func saveEditorChanges(
         _ options: RunOptions,
-        toolchain: ProjectToolchainSelection,
         for configuration: RunConfiguration,
         scope: RunConfigurationSaveScope
     ) -> Bool {
         service.saveEditorChanges(
             options,
-            toolchain: toolchain,
             for: configuration,
             scope: scope
         )
@@ -419,10 +241,9 @@ package final class RunFeatureModel: ObservableObject {
     package func loadProject(
         at workspaceURL: URL,
         files: [URL],
-        mavenProject: MavenProject?,
         snapshotID: UUID? = nil
     ) async {
-        await service.loadProject(at: workspaceURL, files: files, mavenProject: mavenProject, snapshotID: snapshotID)
+        await service.loadProject(at: workspaceURL, files: files, snapshotID: snapshotID)
     }
 
     /// Adds JDT's view of the generated Java entries to the Run diagnostics.
@@ -479,32 +300,12 @@ package final class RunFeatureModel: ObservableObject {
 /// added here without changing the workspace/UI composition boundary.
 @MainActor
 package final class ProjectDevelopmentFeatureModel {
-    private let mavenFeature: MavenFeatureModel
     private let runFeature: RunFeatureModel
 
-    package init(mavenFeature: MavenFeatureModel, runFeature: RunFeatureModel) {
-        self.mavenFeature = mavenFeature
-        self.runFeature = runFeature
-    }
+    package init(runFeature: RunFeatureModel) { self.runFeature = runFeature }
 
     package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
-        // Maven is one build-system Provider, not a workspace prerequisite.
-        // Avoid scanning every project as Maven; non-Maven ecosystems should
-        // reach the generic run pipeline without paying for Java discovery.
-        let hasMavenDescriptor = files.contains { file in
-            file.lastPathComponent.lowercased() == "pom.xml"
-        }
-        if hasMavenDescriptor {
-            await mavenFeature.loadProject(at: workspaceURL, files: files)
-        } else if !mavenFeature.isProjectReloadRequired && !mavenFeature.isReloading {
-            mavenFeature.reset()
-        }
-        await runFeature.loadProject(
-            at: workspaceURL,
-            files: files,
-            mavenProject: mavenFeature.project,
-            snapshotID: snapshotID
-        )
+        await runFeature.loadProject(at: workspaceURL, files: files, snapshotID: snapshotID)
     }
 }
 

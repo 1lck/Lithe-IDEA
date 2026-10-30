@@ -38618,17 +38618,6 @@
       }
     },
     {
-      "id": "native.identifyTheProjectToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved",
-      "description": "Native UI: Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.generatePreview",
       "description": "Native UI: Generate Preview",
       "platforms": [
@@ -42772,17 +42761,6 @@
       }
     },
     {
-      "id": "native.litheNeedsToIdentifyTheProjectBeforeRunAndDebugAreAvailableProjectAndLocalOverridesWillNotBeChanged",
-      "description": "Native UI: Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.litheOfficial",
       "description": "Native UI: Lithe Official",
       "platforms": [
@@ -42867,17 +42845,6 @@
       ],
       "macos": {
         "key": "Lithe will download the update and restart after replacing the current app.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.litheWillLookForServicesAgainProjectAndLocalOverridesWillNotBeChanged",
-      "description": "Native UI: Lithe will look for services again. Project and local overrides will not be changed.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Lithe will look for services again. Project and local overrides will not be changed.",
         "arguments": []
       }
     },
@@ -56811,17 +56778,6 @@
       }
     },
     {
-      "id": "native.javaKeywordNavigationFilter",
-      "description": "Native UI: Skip definition lookups for Java keywords",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Skip definition lookups for Java keywords",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.showMinimap",
       "description": "Native UI: Show minimap",
       "platforms": [
@@ -69928,34 +69884,6 @@
     {
       "id": "settings.git.stagedFirstDescription",
       "description": "Windows UI: settings.git.stagedFirstDescription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.git.showChangelists",
-      "description": "Windows UI: settings.git.showChangelists",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.git.showChangelistsDescription",
-      "description": "Windows UI: settings.git.showChangelistsDescription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.git.showParentReferences",
-      "description": "Windows UI: settings.git.showParentReferences",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.git.showParentReferencesDescription",
-      "description": "Windows UI: settings.git.showParentReferencesDescription",
       "platforms": [
         "windows"
       ]
@@ -90295,6 +90223,368 @@
       }
     },
     {
+      "id": "ide.build.unavailable",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build plugins are unavailable",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.chooseInstance",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose a detected build instance",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.busy",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A build operation is already active",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.chooseTask",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose a declared build task",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.reloadSelection",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reload the build model before selecting a project, target or model task",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.selectionExpired",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build selection is no longer available",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.launchFailed",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build launch did not start",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.restart",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use Build execute to start another build",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.windowsUnavailable",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "ide.build.windowsUnavailable"
+      }
+    },
+    {
+      "id": "native.projectEnvironmentSettingsChangedOnDisk",
+      "description": "Native UI: Project environment settings changed on disk. Reload before saving; your draft has been kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project environment settings changed on disk. Reload before saving; your draft has been kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotVerifySavedProjectEnvironment",
+      "description": "Native UI: Could not verify the saved project environment settings. The previous preferences have been kept when possible.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not verify the saved project environment settings. The previous preferences have been kept when possible.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.projectEnvironmentSaveInProgress",
+      "description": "Native UI: Project environment settings are being saved. Wait before saving again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project environment settings are being saved. Wait before saving again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationUnavailable",
+      "description": "Native build configuration: Native configuration is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Native configuration is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationStale",
+      "description": "Native build configuration: Native configuration changed. Reload before saving; your draft has been kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Native configuration changed. Reload before saving; your draft has been kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationBusy",
+      "description": "Native build configuration: Native configuration is busy. Wait for the current operation to finish.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Native configuration is busy. Wait for the current operation to finish.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationReadBackFailed",
+      "description": "Native build configuration: Native configuration was saved, but its current effective values could not be verified. Reload before editing again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Native configuration was saved, but its current effective values could not be verified. Reload before editing again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationDiskConflict",
+      "description": "Native build configuration: Native configuration changed on disk. Reload before saving; your draft has been kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Native configuration changed on disk. Reload before saving; your draft has been kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationSourceReadOnly",
+      "description": "Native build configuration: This native configuration source is read-only. Installed applications and plugin packages cannot be edited.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationFileRequired",
+      "description": "Native build configuration: The native configuration must be a writable UTF-8 XML file smaller than 2 MB.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The native configuration must be a writable UTF-8 XML file smaller than 2 MB.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationTitle",
+      "description": "Native build configuration: Native configuration",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Native configuration",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationOpenProject",
+      "description": "Native build configuration: Open a project to read its native configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a project to read its native configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationNoInstance",
+      "description": "Native build configuration: This project has no matching build-system instance.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This project has no matching build-system instance.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationNotRead",
+      "description": "Native build configuration: No native configuration has been read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No native configuration has been read.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildOptionUnavailable",
+      "description": "Agent build configuration: The build option is no longer available. Reload the build instance.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build option is no longer available. Reload the build instance.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildOptionInvalid",
+      "description": "Agent build configuration: The build option value is invalid. Inspect its current kind and choices.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build option value is invalid. Inspect its current kind and choices.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildOptionReadBackFailed",
+      "description": "Agent build configuration: The saved build option could not be verified. Reload before editing again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The saved build option could not be verified. Reload before editing again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationExplicitRead",
+      "description": "Native build configuration: Reading configuration with this project tool requires an explicit action.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reading configuration with this project tool requires an explicit action.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nativeConfigurationReadUsingProjectTool",
+      "description": "Native build configuration: Read using project tool",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read using project tool",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildOptionMigrationCouldNotBeVerified",
+      "description": "Native UI: Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.selectedToolchainUnavailable",
+      "description": "Native UI: The selected toolchain is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected toolchain is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savedBuildOptionsInvalid",
+      "description": "Native UI: The saved build options are invalid. The original configuration has been kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The saved build options are invalid. The original configuration has been kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildOptionsSaveFailed",
+      "description": "Native UI: The build options could not be saved or verified. Reload before retrying.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build options could not be saved or verified. Reload before retrying.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildOptionsConflict",
+      "description": "Native UI: Build options changed on disk. Reload before saving; your changes have been kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build options changed on disk. Reload before saving; your changes have been kept.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.remoteTerminalAsyncStart",
       "description": "Remote terminal failure",
       "platforms": [
@@ -90498,6 +90788,100 @@
         "plugin": "string",
         "platform": "string"
       }
+    },
+    {
+      "id": "native.updateMavenBeforeRunGeneration",
+      "description": "Native UI: Maven model upgrade required for authoritative Run generation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Update the Maven Build plugin before generating Run configurations.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.staleProviderRunGeneration",
+      "description": "Native UI: a saved Run generation belongs to a previous build Provider model.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build provider model changed. Regenerate Run configurations before running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.identifyTheProjectToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved",
+      "description": "Native UI: Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.litheNeedsToIdentifyTheProjectBeforeRunAndDebugAreAvailableProjectAndLocalOverridesWillNotBeChanged",
+      "description": "Native UI: Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.litheWillLookForServicesAgainProjectAndLocalOverridesWillNotBeChanged",
+      "description": "Native UI: Lithe will look for services again. Project and local overrides will not be changed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe will look for services again. Project and local overrides will not be changed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaKeywordNavigationFilter",
+      "description": "Native UI: Skip definition lookups for Java keywords",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip definition lookups for Java keywords",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.git.showChangelists",
+      "description": "Windows UI: settings.git.showChangelists",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showChangelistsDescription",
+      "description": "Windows UI: settings.git.showChangelistsDescription",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showParentReferences",
+      "description": "Windows UI: settings.git.showParentReferences",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showParentReferencesDescription",
+      "description": "Windows UI: settings.git.showParentReferencesDescription",
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "id": "document.fileAccess.isHardLinkedChangesAreNotSavedAutomaticallySaveManuallyToChooseHowToUpdateTheFile",

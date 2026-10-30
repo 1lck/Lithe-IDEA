@@ -1,0 +1,17 @@
+{
+  "javaLaunch": {
+    "mainClass": "com.example.MainTests",
+    "classPaths": [
+      "/workspace/target/test-classes"
+    ],
+    "modulePaths": [],
+    "buildPrepared": true
+  },
+  "version": 1,
+  "expected": {
+    "arguments": [
+      "com.example.MainTests"
+    ],
+    "hasPreLaunchSteps": false
+  }
+}

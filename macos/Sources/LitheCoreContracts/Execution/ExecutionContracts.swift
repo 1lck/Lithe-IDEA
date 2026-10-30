@@ -274,14 +274,12 @@ package protocol RunRuntimePort: AnyObject {
     func javaHomeURL(overridePath: String?) -> URL?
     func mavenJavaHomeURL(overridePath: String?) -> URL?
     func runConfigurationToolchainCandidates(
-        for project: MavenProject?,
         projectRoot: URL?,
         javaHomeOverride: String?,
         mavenExecutableOverride: String?
     ) -> [ProjectToolchainCandidate]
     /// Project restoration awaits version probes instead of running them on the UI executor.
     func loadRunConfigurationToolchainCandidates(
-        for project: MavenProject?,
         projectRoot: URL?,
         javaHomeOverride: String?,
         mavenExecutableOverride: String?
@@ -336,6 +334,8 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
     package let testIdentifier: String?
     /// Visual nesting below the provider section; source files start at zero.
     package let depth: Int
+    package var projectPath: String?
+    package var buildReference: BuildTestReference?
 
     package init(
         id: String,
@@ -344,7 +344,7 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
         kind: LanguageTestItemKind,
         fileURL: URL?,
         testIdentifier: String? = nil,
-        depth: Int = 0
+        depth: Int = 0, projectPath: String? = nil, buildReference: BuildTestReference? = nil
     ) {
         self.id = id
         self.providerID = providerID
@@ -353,13 +353,38 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
         self.fileURL = fileURL
         self.testIdentifier = testIdentifier
         self.depth = max(0, depth)
+        self.projectPath = projectPath; self.buildReference = buildReference
+    }
+}
+
+/// A report-derived build selector. The current model is revalidated on every
+/// rerun; no executable, classpath, source path or cached launch is persisted.
+package struct BuildTestReference: Codable, Equatable, Sendable {
+    package let pluginID: String
+    package let buildSystemID: String
+    package let root: String
+    package let projectID: String
+    package let suite: String
+    package let testCase: String?
+
+    package init(pluginID: String, buildSystemID: String, root: String, projectID: String, suite: String, testCase: String?) {
+        self.pluginID = pluginID; self.buildSystemID = buildSystemID; self.root = root; self.projectID = projectID
+        self.suite = suite; self.testCase = testCase
+    }
+    package var suiteReference: Self {
+        Self(pluginID: pluginID, buildSystemID: buildSystemID, root: root, projectID: projectID, suite: suite, testCase: nil)
     }
 }
 
 package enum LanguageTestScope: Equatable, Sendable {
     case workspace
     case file(URL)
-    case testCase(identifier: String, fileURL: URL?)
+    case testCase(identifier: String, fileURL: URL?, buildReference: BuildTestReference? = nil)
+
+    package var buildReference: BuildTestReference? {
+        if case .testCase(_, _, let reference) = self { return reference }
+        return nil
+    }
 }
 
 package struct LanguageTestContext: Equatable, Sendable {

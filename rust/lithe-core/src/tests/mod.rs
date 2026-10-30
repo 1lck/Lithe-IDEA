@@ -1,4 +1,5 @@
 mod agent;
+mod build_configuration;
 mod build_runtime_versions;
 mod build_systems;
 mod community_build_plugins;

@@ -29,10 +29,10 @@
       "properties": {
         "backend": { "description": "Required exactly when backend is present: the plugin's own process serving its web pages.", "enum": [1] },
         "buildModelInputs": {"description": "Optional public model sharing between already enabled workspace plugins; no installation, private function, or process authority. Required exactly when modelSharing or modelInputs is used. Consumers require buildProviders 6. Version 1 producers cannot also consume inputs.", "enum": [1]},
-        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs.", "enum": [1, 2, 3, 4, 5, 6] },
-        "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1, 2] },
+        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs; version 7 non-sensitive native configuration sources; version 8 inline provider test reports; version 9 opaque semantic test selectors; version 10 typed run options and service/task preparation.", "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+        "buildSystems": { "description": "Declarative build detection, models, and command plans; v3 adds instance-scoped options; does not imply buildProviders support.", "enum": [1, 2, 3] },
         "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2] },
-        "executableResolution": { "enum": [1], "description": "Shared executable candidate ordering and strict selection." },
+        "executableResolution": { "enum": [1, 2], "description": "Shared executable candidate ordering and strict selection." },
     "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },
@@ -1745,6 +1745,77 @@
               }
             }
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "toolchainID"
+          ],
+          "properties": {
+            "kind": {
+              "const": "toolchain"
+            },
+            "toolchainID": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "insertBefore": {
+              "type": "string",
+              "minLength": 1
+            },
+            "insertAfter": {
+              "type": "string",
+              "minLength": 1
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "macos",
+                  "linux",
+                  "windows"
+                ]
+              }
+            }
+          },
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertBefore"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertAfter"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "insertBefore",
+                  "insertAfter"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -2082,6 +2153,7 @@
         "invocation"
       ],
       "properties": {
+        "configuration": {"type": "object", "additionalProperties": false, "required": ["source"], "properties": {"source": {"const": "provider"}}, "description": "Native non-sensitive configuration facts and generic XML edit bindings; requires buildProviders 7 and an owned provider."},
         "modelSharing": {"type": "object", "additionalProperties": false, "properties": {"options": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string"}}}, "description": "Opt into publishing normalized projects, targets and content roots, plus only these explicitly shared ordinary build option values. Never tasks, run plans, settings or optionValues."},
         "modelInputs": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["pluginID", "buildSystemID"], "properties": {"pluginID": {"type": "string"}, "buildSystemID": {"type": "string"}}}, "description": "Exact optional producer slots, sorted by Core. Missing or disabled producers are unavailable and never installed or activated automatically."},
         "id": {
@@ -2193,7 +2265,7 @@
                     "$ref": "#/$defs/buildVersionProbe"
                   }
                 },
-                "description": "java, node, and go are host-managed and take only id and minimumVersion; any other runtime declares its executables and version probe."
+                "description": "java, node, and go use host version probes. With executableResolution 2 they may select one toolchain candidate; otherwise they take only id and minimumVersion. Other runtimes declare their executables and version probe."
               }
             },
             "version": {
@@ -2244,6 +2316,10 @@
                 ]
               },
               "default": {},
+              "scope": {
+                "description": "Instance scope requires buildSystems 3; omitted means workspace. Hosts persist each detected root independently.",
+                "enum": ["workspace", "instance"]
+              },
               "choices": {
                 "type": "array",
                 "items": {
@@ -2493,7 +2569,7 @@
                 "properties": { "adapter": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "maxLength": 64 } }
               },
               "source": {
-                "description": "Provider-owned application preparation (buildProviders 4), fromTargets only, without host command templates.",
+                "description": "Provider-owned application preparation (buildProviders 4) or service/task preparation (buildProviders 10), fromTargets only, without host command templates.",
                 "enum": ["provider"]
               },
               "id": {
@@ -2594,6 +2670,11 @@
             "arguments"
           ],
           "properties": {
+            "selectorKinds": {
+              "type": "array", "maxItems": 16, "uniqueItems": true,
+              "description": "Public opaque semantic selector namespaces; provider tests and buildProviders 9 required.",
+              "items": {"type": "string", "maxLength": 120, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"}
+            },
             "discovery": {
               "type": "boolean",
               "description": "Opt in to lithe/build/discoverTests; requires provider test source and suite/case filters."
@@ -2661,6 +2742,18 @@
                   "properties": {
                     "decoder": {
                       "const": "hostIntegration"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "decoder"
+                  ],
+                  "properties": {
+                    "decoder": {
+                      "const": "provider"
                     }
                   }
                 }

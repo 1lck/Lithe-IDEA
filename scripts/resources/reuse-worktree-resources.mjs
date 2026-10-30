@@ -81,6 +81,14 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Build Provider snapshots remain under the excluded per-workspace PluginState
+  // owner, including after removing the old macOS Maven tree output allocator.
+  // They are mutable upstream state and must never gain a download validator.
+  // User-authored Build preferences, machine-local differences and source-identity migration receipts are never reusable.
+  // Private instance defaults and runtime-preference migration receipts follow that same refusal route.
+  // Per-operation Maven report snapshots have no reusable identity and must remain isolated.
+  // Native configuration probes (including their isolated repository manager), source-identity cache v2 and secret-bearing
+  // conditional replacement copies use the same explicit rejection route.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,

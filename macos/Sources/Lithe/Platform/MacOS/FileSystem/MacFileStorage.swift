@@ -106,13 +106,40 @@ struct MacFileStorage: FileStorage {
     /// can be compared with the planned snapshot. A plain "compare, then
     /// rename" still overwrites a save another program made in between.
     func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        try replaceData(data, at: url, expecting: expected, preservingMetadata: false)
+    }
+
+    func replaceDataPreservingMetadata(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        try replaceData(data, at: url, expecting: expected, preservingMetadata: true)
+    }
+
+    private func replaceData(_ data: Data, at url: URL, expecting expected: Data?, preservingMetadata: Bool) throws -> Bool {
         let temporary = url.deletingLastPathComponent().appendingPathComponent(
             ".\(url.lastPathComponent).lithe-\(UUID().uuidString)"
         )
 #if DEBUG
         if unsupportedExchangeForTesting { throw CocoaError(.featureUnsupported) }
 #endif
-        try prepareTemporaryFile(data, at: temporary)
+        if preservingMetadata, let expected {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard attributes[.type] as? FileAttributeType == .typeRegular,
+                  (attributes[.size] as? NSNumber)?.intValue == expected.count else { return false }
+            do {
+                // Copy first so ACLs, extended attributes and permissions stay
+                // with the native document; truncating the private copy keeps
+                // its metadata. The exchange below still checks displaced bytes.
+                try FileManager.default.copyItem(at: url, to: temporary)
+                try data.write(to: temporary, options: [])
+            } catch {
+                if FileManager.default.fileExists(atPath: temporary.path) {
+                    do { try FileManager.default.removeItem(at: temporary) }
+                    catch { throw FileStorageRetainedCopyError(destinationPath: url.path, retainedPath: temporary.path) }
+                }
+                throw error
+            }
+        } else {
+            try prepareTemporaryFile(data, at: temporary)
+        }
 #if DEBUG
         afterPreparingTemporaryForTesting?()
 #endif

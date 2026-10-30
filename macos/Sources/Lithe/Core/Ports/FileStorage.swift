@@ -53,6 +53,9 @@ protocol FileStorage: Sendable {
     /// restores the previous bytes when another writer got there first; a
     /// failed rollback keeps them in a hidden temporary file next to `url`.
     func replaceData(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool
+    /// Conditional native-configuration publication preserving the existing
+    /// file's metadata, including permissions. Missing files are private.
+    func replaceDataPreservingMetadata(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool
     /// Removes `url` only while it still matches `expected`. Returns `false`
     /// and leaves the file in place when another writer changed it.
     func removeData(at url: URL, expecting expected: Data) throws -> Bool
@@ -63,6 +66,9 @@ protocol FileStorage: Sendable {
 }
 
 extension FileStorage {
+    func replaceDataPreservingMetadata(_ data: Data, at url: URL, expecting expected: Data?) throws -> Bool {
+        throw CocoaError(.featureUnsupported)
+    }
     /// Every platform storage must provide a real compare-and-publish
     /// operation. A generic fallback would silently weaken the lost-update
     /// guarantee on a future adapter, so the port fails closed instead.

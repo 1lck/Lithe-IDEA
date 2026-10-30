@@ -726,8 +726,30 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
   复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
+Build Provider 原生配置探针的 `configuration-*/configuration.json`、模型读取时的
+`run-*/configuration.json` 及 Maven v2 模型缓存中的实际来源 URI/哈希，均属于当前
+插件/构建系统/工作区的可变状态。只读配置探针在 Maven 的完整执行请求发布后，记录上游生效事实，再把探针自己的仓库管理器改到
+`configuration-*/repository`，随后在读取工程前退出，不能因此创建实际选择的用户仓库目录。
+探针与模型读取的临时目录在调用结束后删除；模型缓存
+由 Provider 管理，并在原生来源变化时失效。源哈希不是构建 identity stamp，不能跨工作树
+复制。宿主保存原生 XML 时在目标旁准备的 `.<filename>.lithe-<uuid>` 可能含凭据，
+只归该条件替换操作所有；成功后清理，无法安全恢复时明确报告保留路径。资源清单
+`build-native-configuration-state` 和复用脚本的排除路由拒绝这些目录与临时副本，不进入
+任何下载验证或复制阶段。它们不写 app/plugin 安装资源，不影响签名与 Sparkle delta。原生配置控件的隔离截图保存在
+`.artifacts/test-stability/native-configuration-ui/*.png`，身份取决于源码、夹具、主题和视口，
+同样由排除路由拒绝跨工作树复制，按测试报告保留策略清理。
+
 可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关；自带运行时的 Java Support 见下文），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
 `<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。Go Support 和 PHP Support 已迁移为 Lithe Store 社区插件（`Lithe-IDEA/lithe-plugin-go`、`Lithe-IDEA/lithe-plugin-php`），不再由本仓库构建。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
+
+Maven 模型与依赖快照继续位于现有
+`<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/`。
+它属于具体插件、构建系统和工作区的可变上游状态，没有版本/平台/架构/工具链 identity stamp，
+复用清单 `official-plugin-packages` 和脚本的排除路由拒绝任何复制阶段共享。
+#1495 阶段 D 已删除 macOS 旧 Maven 依赖树临时文件 adapter；不再创建该专属目录，
+也不能把旧树文本当作新的 Provider 缓存或从其坐标推导 JAR 路径。
+Provider 状态经平台 adapter 写 Application Support；插件安装目录和发行 bundle 只读，
+不改变代码签名或 Sparkle delta 的源基线。
 
 ### Java Support 独立下载安装与迁移
 
@@ -834,3 +856,25 @@ CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker
 原生 UI 截图位于 `.artifacts/test-stability/hooks-ui/`，绑定本次源码、主题、
 语言和窗口尺寸，不作为可复用资源。运行 `node --test scripts/resources/test-reuse-worktree-resources.mjs`
 验证 `agent-hook-library-state` 被复用入口拒绝。
+
+
+共享 Build 调用偏好 `.lithe/build/options.json` 是用户维护的工作区文件，本机差异位于
+平台偏好的 `BuildSystems.Options.*` / `.Instances` / `.InstanceDefaults`。
+`.InstanceDefaults` 保留此工作区的本机默认值，供当前与之后出现的 reactor 继承，
+不把本机 settings/仓库路径写入团队文档；逐根保存的值优先于这些默认值。这些内容没有构建产物 identity stamp，
+不能作为资源从其他工作树复制、链接或发布；共享值随普通源文件流转，本机路径不转移。
+资源清单 `build-project-preferences` 与复用脚本直接拒绝它们。只有明确编辑或带原字节
+检查的一次性激活迁移可以写共享文件，普通检测和设置页读取不创建文件；不写 app 或插件
+安装目录，不改变签名与 Sparkle 增量基线。
+
+Maven 配置切换使用本机偏好的 `BuildSystems.Migrations.Maven.<workspace-digest>` 及 `.Runtime` 保存待迁移
+源文件的指纹。它只服务当前工作区的一次性恢复：目标全部读回、旧源按原字节移除后清理，
+部分写入后旧源被外部修改则停止自动删除。这个标记不保存原生 settings 文档，不可跨
+worktree 复用；由 `build-project-preferences` 排除项覆盖，不得作为下载缓存增加校验路由。
+
+Maven Provider 随每次任务收集的报告快照在宿主提供的 `workspaceStateDir/execution-*`，
+没有状态目录时在系统临时目录 `lithe-maven-execution-*`。已配置的 Surefire/Failsafe
+实例提供报告位置，私有目录只保留本次新报告、索引和字节哈希；操作返回、失败或取消
+完成后删除，崩溃残留沿用插件工作区状态清理。它不具备构建缓存 identity stamp，
+`maven-operation-report-snapshots` 排除项与脚本拒绝跨 worktree 复制、硬链接和符号链接。
+原始报告仍是上游写入工作区的输出，不可用于替代另一次运行；插件安装包始终只读。

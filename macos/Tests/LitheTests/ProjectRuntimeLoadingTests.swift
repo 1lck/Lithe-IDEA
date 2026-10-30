@@ -12,7 +12,7 @@ struct ProjectRuntimeLoadingTests {
         let service = ProjectRuntimeService(runtimeLocator: locator, store: LoadingEmptyStore())
         let root = URL(fileURLWithPath: "/fixture/workspace")
         service.openProject(at: root)
-        let load = Task { try await service.loadRunConfigurationToolchainCandidates(for: nil, projectRoot: root) }
+        let load = Task { try await service.loadRunConfigurationToolchainCandidates( projectRoot: root) }
         defer { locator.release(); start.finish(); load.cancel(); service.closeProject() }
         let received = await withTaskGroup(of: Bool.self) { group in
             group.addTask { for await _ in started { return true }; return false }

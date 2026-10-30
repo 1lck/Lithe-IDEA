@@ -117,6 +117,9 @@ final class MacPluginPackageStore {
     ]
     private let rootURL: URL
     private let bundledRootURL: URL?
+    /// Generic native editors must keep every installed package read-only,
+    /// including disabled plugins and versions staged for an update.
+    var runtimeReadOnlyDirectories: [URL] { [rootURL] + [bundledRootURL].compactMap { $0 } }
     /// Writable language-server state owned by installed plugins; removed
     /// together with the plugin so an uninstall leaves nothing behind.
     private let stateDirectories: MacPluginStateDirectories?

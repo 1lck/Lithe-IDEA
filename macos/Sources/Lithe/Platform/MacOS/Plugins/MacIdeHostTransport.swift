@@ -12,13 +12,14 @@ final class MacIdeHostTransport: IdeHostTransport {
         self.storage = storage
     }
 
-    func open(workspace: URL, permissions: [String: Bool]) throws -> [String: Any] {
+    func open(workspace: URL, permissions: [String: Bool], toolExposure: [[String: Any]]) throws -> [String: Any] {
         // Only the connection descriptor is writable. The signed helper remains in the bundle.
         let directory = storage.applicationSupportDirectory().appendingPathComponent("mcp", isDirectory: true)
         let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/lithe-mcp")
         return try control("open", arguments: [
             "directory": directory.path, "helperPath": helper.path,
-            "workspaceKey": workspace.standardizedFileURL.path, "permissions": permissions
+            "workspaceKey": workspace.standardizedFileURL.path, "permissions": permissions,
+            "toolExposure": toolExposure
         ])
     }
 

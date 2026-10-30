@@ -77,17 +77,64 @@ extension AppModel {
     }
 
     func runTest(providerID: String, scope: LanguageTestScope) {
-        guard let workspaceURL else { return }
+        guard let workspaceURL, let identity = currentWorkspaceIdentity else { return }
         activeTestTarget = ActiveTestTarget(providerID: providerID, scope: scope)
         showToolWindow(.tests)
-        Task { [weak self] in
-            guard let self, let execution = await activateExecutionModule() else { return }
+        let preparationID = javaTestWorkflowState.beginRunPreparation()
+        javaTestWorkflowState.runPreparationTask = Task { [weak self] in
+            guard let self else { return }
+            defer { javaTestWorkflowState.finishRunPreparation(preparationID) }
+            guard let execution = await activateExecutionModule(), javaTestWorkflowState.isCurrentRunPreparation(preparationID) else { return }
             if let ownership = services.pluginCatalog.languageSupports[providerID],
                !(await languageIntelligenceModuleCoordinator.activateTestExtension(
                    ownership.declaration,
                    testService: execution.tests
                )) {
                 return
+            }
+            guard isCurrentWorkspace(identity), javaTestWorkflowState.isCurrentRunPreparation(preparationID) else { return }
+            if providerID == "java" {
+                do { try await prepareBuildLanguageImport() }
+                catch {
+                    if !error.isCancellation { showNotification(error.localizedDescription) }
+                    return
+                }
+                guard isCurrentWorkspace(identity), javaTestWorkflowState.isCurrentRunPreparation(preparationID) else { return }
+                if let builds = execution.buildSystems,
+                   builds.entries.contains(where: { $0.declaration.testSelectorKinds.contains("java.test.fullName") }) {
+                    execution.tests.runUsingBackend(providerID: providerID, scope: scope, workspaceURL: workspaceURL,
+                        label: L10n.string("Tests")) { [weak self, weak builds] output, process in
+                        guard let self, let builds, isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+                        if let reference = scope.buildReference {
+                            return try await builds.performLanguageTests(reference: reference, workspace: workspaceURL, title: L10n.string("Tests"),
+                                isCurrent: { [weak self] in self?.isCurrentWorkspace(identity) == true }, beforePreparing: {
+                                    guard await self.saveAllDocuments(), self.isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+                                    try await self.prepareBuildLanguageImport()
+                                }, output: output, process: process)
+                        }
+                        let fileURL: URL?
+                        let identifier: String?
+                        switch scope {
+                        case .workspace: fileURL = nil; identifier = nil
+                        case .file(let file): fileURL = file; identifier = nil
+                        case .testCase(let value, let file, _):
+                            guard let file else { throw LanguageTestPlanError.unsupportedProvider("Java") }
+                            fileURL = file; identifier = value
+                        }
+                        return try await builds.performLanguageTests(selectorKind: "java.test.fullName", fileURL: fileURL,
+                            workspace: workspaceURL, title: L10n.string("Tests"), isCurrent: { [weak self] in
+                                self?.isCurrentWorkspace(identity) == true
+                            }, beforePreparing: {
+                                guard await self.saveAllDocuments(), self.isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+                                try await self.prepareBuildLanguageImport()
+                            }, prepareSelectors: {
+                                guard let fileURL else { return [] }
+                                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
+                                return try await sessions.javaBuildTestSelectors(fileURL: fileURL, identifier: identifier, rootURL: workspaceURL)
+                            }, output: output, process: process)
+                    }
+                    return
+                }
             }
             _ = execution.tests.run(
                 providerID: providerID,
@@ -136,13 +183,20 @@ extension AppModel {
                 if let selectedConfiguration = runFeature.selectedConfiguration {
                     runFeature.select(selectedConfiguration)
                 }
+                try await self.prepareBuildLanguageImport()
+                let revision = self.buildSystemsFeatureIfActive?.inputRevision
                 let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
-                return try await self.services.javaTestDebugLaunchService.prepare(
+                let prepared = try await self.services.javaTestDebugLaunchService.prepare(
                     fileURL: request.fileURL,
                     testIdentifier: request.testIdentifier,
                     rootURL: workspaceURL,
                     targetResolver: sessions
                 )
+                guard self.isCurrentWorkspace(identity), !Task.isCancelled, self.buildSystemsFeatureIfActive?.inputRevision == revision else {
+                    prepared.stop()
+                    throw CancellationError()
+                }
+                return prepared
             },
             startDebug: { [weak self] prepared in
                 guard let self, self.isCurrentWorkspace(identity), !Task.isCancelled,
@@ -180,6 +234,7 @@ extension AppModel {
     }
 
     func stopTests() {
+        javaTestWorkflowState.cancelRunPreparation()
         executionModuleCoordinator.stopTests(languageTestServiceIfActive)
     }
 
@@ -192,6 +247,7 @@ extension AppModel {
     }
 
     func cancelJavaTestWorkflows() {
+        javaTestWorkflowState.cancelRunPreparation()
         cancelLanguageTestDiscovery()
         cancelJavaTestDebugLaunch()
     }

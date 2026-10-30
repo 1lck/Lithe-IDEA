@@ -28,6 +28,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub(super) const MAX_TEST_CASES: usize = 10_000;
+// Durations cross JSON into JavaScript and must retain exact integer precision.
+const MAX_DURATION_MILLIS: u64 = 9_007_199_254_740_991;
 const MAX_DIAGNOSTICS: usize = 10_000;
 const MAX_DEPENDENCIES: usize = 10_000;
 const MAX_DEPENDENCY_DEPTH: usize = 64;
@@ -234,6 +236,9 @@ pub(crate) enum TestStatus {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TestCaseResult {
+    /// Provider-reported project identity; repeated class names in distinct projects remain distinct.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) project: Option<String>,
     pub(crate) suite: String,
     pub(crate) case: String,
     pub(crate) status: TestStatus,
@@ -262,6 +267,19 @@ struct CanonicalTestResults {
     version: u32,
     #[serde(default)]
     tests: Vec<TestCaseResult>,
+    #[serde(default)]
+    coverage: Vec<TestCoverage>,
+}
+
+/// Provider-owned completed scope; a missing suite covers its project, and a
+/// missing case covers its suite. Hosts never infer coverage from selectors.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+struct TestCoverage {
+    project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    suite: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    case: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -281,6 +299,9 @@ pub(crate) struct DecodeTestResultsRequest {
     /// The run's combined output.
     #[serde(default)]
     pub(crate) output: String,
+    /// Canonical result of this provider operation; never a filesystem fallback.
+    #[serde(default)]
+    pub(crate) result: Option<Value>,
     /// The run's start; earlier report files are ignored.
     #[serde(default)]
     pub(crate) not_before_millis: Option<u64>,
@@ -309,9 +330,9 @@ pub(crate) struct TestSummary {
 /// Merges invocations of the same case, keeping the most severe outcome and
 /// its first message.
 pub(crate) fn aggregate(cases: Vec<TestCaseResult>) -> Vec<TestCaseResult> {
-    let mut merged: BTreeMap<(String, String), TestCaseResult> = BTreeMap::new();
+    let mut merged: BTreeMap<(Option<String>, String, String), TestCaseResult> = BTreeMap::new();
     for case in cases {
-        let key = (case.suite.clone(), case.case.clone());
+        let key = (case.project.clone(), case.suite.clone(), case.case.clone());
         if !merged.contains_key(&key) && merged.len() >= MAX_TEST_CASES {
             continue;
         }
@@ -321,6 +342,12 @@ pub(crate) fn aggregate(cases: Vec<TestCaseResult>) -> Vec<TestCaseResult> {
             }
             Some(existing) => {
                 existing.invocations += case.invocations.max(1);
+                existing.duration_millis = existing
+                    .duration_millis
+                    .zip(case.duration_millis)
+                    .and_then(|(left, right)| left.checked_add(right))
+                    .filter(|total| *total <= MAX_DURATION_MILLIS);
+
                 if case.status > existing.status {
                     existing.status = case.status;
                     existing.message = case.message.or(existing.message.take());
@@ -368,7 +395,21 @@ pub(crate) fn decode_test_results(
         None => root.clone(),
     };
     decode::bounded_text(&request.output)?;
+    let mut coverage = Vec::new();
     let results = match source {
+        TestResultsSource::Provider => {
+            let (cases, scopes) = provider_test_cases(
+                request.result.as_ref().ok_or_else(|| {
+                    decode::invalid_output("The provider returned no test report.")
+                })?,
+                &root,
+            )?;
+            coverage = scopes;
+            TestResults {
+                cases,
+                summary: None,
+            }
+        }
         TestResultsSource::JunitXml { reports } => TestResults {
             cases: report_cases(
                 &workspace,
@@ -395,11 +436,85 @@ pub(crate) fn decode_test_results(
     };
     let cases = aggregate(results.cases);
     let summary = results.summary.unwrap_or_else(|| summary(&cases));
-    Ok(json!({
+    let mut result = json!({
         "tests": cases,
         "summary": summary,
         "success": summary.failed == 0 && summary.errors == 0,
-    }))
+    });
+    if !coverage.is_empty() {
+        result["coverage"] = json!(coverage);
+    }
+    Ok(result)
+}
+
+/// Validates an inline report without opening report files or inferring tool semantics.
+fn provider_test_cases(
+    value: &Value,
+    root: &str,
+) -> Validation<(Vec<TestCaseResult>, Vec<TestCoverage>)> {
+    let invalid = || decode::invalid_output("Invalid provider test report.");
+    if serde_json::to_vec(value).map_or(usize::MAX, |bytes| bytes.len()) > decode::MAX_OUTPUT_BYTES
+    {
+        return Err(invalid());
+    }
+    let mut document: CanonicalTestResults =
+        serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+    if document.format != "litheTestResults"
+        || document.version != CANONICAL_VERSION
+        || document.tests.len() > MAX_TEST_CASES
+        || document.coverage.len() > MAX_TEST_CASES
+    {
+        return Err(invalid());
+    }
+    for case in &document.tests {
+        if case.suite.is_empty()
+            || case.case.is_empty()
+            || case.suite.len() > 4096
+            || case.case.len() > 4096
+            || case.suite.chars().any(char::is_control)
+            || case.case.chars().any(char::is_control)
+            || case
+                .message
+                .as_ref()
+                .is_some_and(|value| value.len() > 65536 || value.contains('\0'))
+            || case.invocations == 0
+            || case.invocations > 1_000_000
+            || case
+                .duration_millis
+                .is_some_and(|value| value > MAX_DURATION_MILLIS)
+            || case
+                .line
+                .is_some_and(|line| line == 0 || line > i32::MAX as usize)
+        {
+            return Err(invalid());
+        }
+        for path in [&case.project, &case.path].into_iter().flatten() {
+            let normalized =
+                decode::request_path(path, "test report path").map_err(|_| invalid())?;
+            if normalized != *path || !decode::contains(root, &normalized) {
+                return Err(invalid());
+            }
+        }
+    }
+    for scope in &document.coverage {
+        let normalized =
+            decode::request_path(&scope.project, "test coverage project").map_err(|_| invalid())?;
+        if normalized != scope.project
+            || !decode::contains(root, &normalized)
+            || (scope.case.is_some() && scope.suite.is_none())
+            || [&scope.suite, &scope.case]
+                .into_iter()
+                .flatten()
+                .any(|value| {
+                    value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control)
+                })
+        {
+            return Err(invalid());
+        }
+    }
+    document.coverage.sort();
+    document.coverage.dedup();
+    Ok((document.tests, document.coverage))
 }
 
 /// Directories whose reports belong to the run: the selected project, or the
@@ -477,6 +592,10 @@ fn canonical_cases(text: &str, workspace: &Workspace, base: &str) -> Option<Vec<
                 case.message = case.message.as_deref().and_then(message_text);
                 case.path = case
                     .path
+                    .as_deref()
+                    .and_then(|path| workspace.relativize_reported(path, base));
+                case.project = case
+                    .project
                     .as_deref()
                     .and_then(|path| workspace.relativize_reported(path, base));
                 case.invocations = case.invocations.max(1);
@@ -585,6 +704,7 @@ fn junit_case(
         .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
         .map(|seconds| (seconds * 1000.0).round() as u64);
     TestCaseResult {
+        project: None,
         suite,
         case: attribute(element, b"name").unwrap_or_default(),
         status: TestStatus::Passed,

@@ -139,10 +139,11 @@
         "dist/verify/<arch>/<plugin-id>/",
         "dist/Lithe-Java-Support-<version>-darwin-<arch>.zip",
         ".artifacts/java-plugin-distribution/",
-        "<test-temp>/lithe-package-verification.*/published-index.fixture.json"
+        "<test-temp>/lithe-package-verification.*/published-index.fixture.json",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/"
       ],
-      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation. Independent release archives bind plugin version, darwin architecture, upstream input hashes, API/requires and final publisher signature; host-sealed bundled copies are a different origin, never a reusable package",
-      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage. Release verification extracts a separate copy and checks its publisher signature; delete per-run dist/verify and local integration output when no longer needed. Never transfer a sealed-origin exception to user-installed copies. Runtime installation versions stay read-only, preserving app signatures and Sparkle delta baselines. Distribution decisions read the current checkout index or explicit LITHE_OFFICIAL_PLUGIN_INDEX/--marketplace-index build input; synthetic packaging indexes are per-test fixtures, never reusable or publishable source indexes."
+      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation. Independent release archives bind plugin version, darwin architecture, upstream input hashes, API/requires and final publisher signature; host-sealed bundled copies are a different origin, never a reusable package Build Provider model/dependency snapshots and output state are mutable per-plugin/build-system/workspace inputs; they have no version/platform/architecture/toolchain identity stamp.",
+      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage. Release verification extracts a separate copy and checks its publisher signature; delete per-run dist/verify and local integration output when no longer needed. Never transfer a sealed-origin exception to user-installed copies. Runtime installation versions stay read-only, preserving app signatures and Sparkle delta baselines. Distribution decisions read the current checkout index or explicit LITHE_OFFICIAL_PLUGIN_INDEX/--marketplace-index build input; synthetic packaging indexes are per-test fixtures, never reusable or publishable source indexes. Maven uses existing Provider state instead of the removed macOS Maven dependency-tree temporary adapter. Never reconstruct a JAR path from a legacy tree."
     },
     {
       "id": "language-tools",
@@ -399,6 +400,60 @@
       "reason": "Connections and secrets belong to the user's profile and the keychain. Placeholder roots are empty directories that key per-project state for remote folders and hold no files. Remote installs live on the hosts and are verified by SHA-256 before reuse. Daemon socket, lock and log identity includes the session key and complete executable SHA-256, so rebuilding an unchanged version cannot reconnect to older code. None has a copy stage between worktrees, and none is written into the app bundle or installation directory."
     },
     {
+      "id": "shared-i18n",
+      "reusable": false,
+      "locations": [
+        "shared/i18n",
+        ".artifacts/i18n-windows/",
+        "macos/Resources/<locale>.lproj/Localizable.strings",
+        "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift",
+        "windows/tauri/src/i18n/shared.generated.ts"
+      ],
+      "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
+      "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/i18n/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
+    },
+    {
+      "id": "build-native-configuration-state",
+      "path": "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/configuration-*",
+      "reusable": false,
+      "locations": [
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/configuration-*/configuration.json",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/configuration-*/repository",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/run-*/configuration.json",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/maven-snapshot.json",
+        "<native-configuration-parent>/.<filename>.lithe-<uuid>",
+        ".artifacts/test-stability/native-configuration-ui/*.png"
+      ],
+      "identity": "Native configuration source revisions and effective values belong to the selected upstream session, source paths and exact native bytes; they are mutable runtime state without a version/platform/architecture/toolchain build identity stamp. Native UI evidence additionally depends on source revision, fixture, theme and viewport and is regenerated per test run.",
+      "reason": "The selected provider owns bounded configuration probes and removes their directories at operation end. Native XML bytes and credentials stay in the host file adapter; guarded adjacent temporary replacements preserve metadata and are removed on success or retained only for explicit error recovery. Maven cache v2 records actual upstream-selected source URI/hash identities and invalidates them after external edits. Never copy, symlink or publish this state between worktrees at any stage; installation resources remain read-only and Sparkle delta inputs are unchanged. Settings-only probes snapshot the upstream-populated execution request before repository-session creation and redirect only their own repository manager to configuration-*/repository, then abort before project import. The private repository is removed with that probe; selected user/native repositories must remain uncreated and unchanged."
+    },
+    {
+      "id": "build-project-preferences",
+      "path": ".lithe/build/options.json",
+      "reusable": false,
+      "locations": [
+        ".lithe/build/options.json",
+        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>",
+        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.Instances",
+        "<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>",
+        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.InstanceDefaults",
+        "<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>.Runtime"
+      ],
+      "identity": "User-authored team Build preferences and machine-local differences scoped to one workspace; no build, platform, architecture or toolchain artifact identity stamp. A bounded cutover receipt records source identities until guarded data migration completes.",
+      "reason": "Team values are ordinary workspace-owned source; local differences belong only to the platform preference store. Neither is a download, generated build input or portable cache. Passive reads never create or rewrite the file; an explicit edit or guarded activation migration preserves unrelated systems and checks exact source bytes. No copy, hardlink or symlink reuse stage is permitted. App/plugin resources and signing/Sparkle baselines remain read-only. Migration receipts are private recovery state, removed after all verified source removals; an external source change after partial publication blocks automatic cleanup. They contain no reusable generated resource and must never leave their owning workspace/profile. Private workspace defaults and the runtime-preference source receipt stay in the same owning platform profile; never transfer them into team preferences or worktree resource reuse."
+    },
+    {
+      "id": "maven-operation-report-snapshots",
+      "reusable": false,
+      "locations": [
+        "<workspaceStateDir>/execution-*/index.json",
+        "<workspaceStateDir>/execution-*/report-<sequence>.xml",
+        "<system-temp>/lithe-maven-execution-*/"
+      ],
+      "identity": "One plugin/workspace execution owns bounded fresh upstream reports, bound to the exact Maven operation and source hashes; no reusable version/platform/architecture/toolchain identity stamp.",
+      "reason": "The selected Maven core extension snapshots reports only from configured Surefire/Failsafe mojos, including checked failures; the backend validates captured hashes, parses through Apache Surefire and removes its private operation directory in try-with-resources. Reports and state never enter an installation directory. User project report outputs stay owned by the upstream engine; no copy, symlink or hardlink reuse stage is allowed for operation snapshots. Cancellation terminates Maven before normal cleanup; abandoned state belongs to the existing plugin workspace state retention lifecycle. Package bytes, signing and Sparkle baselines remain unchanged."
+    },
+    {
       "id": "remote-workspace-session-state",
       "reusable": false,
       "locations": [
@@ -416,19 +471,6 @@
       ],
       "identity": "Mutable per-operation Git/build scratch, private plugin snapshots, connection-owned upload staging, provider workspace state and per-connection runtime, shell, executable and search snapshots. They have no reusable version/platform/architecture/toolchain build identity.",
       "reason": "The existing workspace engines own these records while generic host filesystem/process/PTY adapters perform I/O. Git/build scratch lives on its host and is never mirrored into the local placeholder. Upload staging expires or is removed on abort/disconnect; complete plugin runs are allocated by fs.createRunDirectory and released by session-owned identity after process destruction. Nonpersistent disconnect, shutdown and idle expiry remove published snapshots after worker drain; persistent disconnect retains them. Forced server termination recovery remains unsupported, and old unmanaged snapshots are never adopted or age-scanned. Provider state persists on the host. Native marketplace extraction is deleted after transfer or failure. Package trust/hash/architecture checks authorize one execution and do not establish reusable build identity. Host discovery is memory-only and invalidated on explicit refresh or connection replacement. All reuse stages reject these entries before validation or copying. Runtime writes do not reach installed bundles, code signatures or Sparkle delta baselines."
-    },
-    {
-      "id": "shared-i18n",
-      "reusable": false,
-      "locations": [
-        "shared/i18n",
-        ".artifacts/i18n-windows/",
-        "macos/Resources/<locale>.lproj/Localizable.strings",
-        "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift",
-        "windows/tauri/src/i18n/shared.generated.ts"
-      ],
-      "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
-      "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/i18n/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
     },
     {
       "id": "editor-theme-assets",

@@ -11,6 +11,28 @@ struct RustBuildSystemOperationsTests {
     private let operations = RustBuildSystemOperations(core: RustCoreBridge())
 
     @Test
+    func providerReportsTravelInlineAndKeepRepeatedCasesInTheirProject() throws {
+        let source = try Self.source("build-provider-reports")
+        let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: "gradle")
+        #expect(source.buildSystems.first?.providerTestReports == true)
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("provider-reports-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let report = try JSONDecoder().decode(ToolingJSONValue.self, from: Data(#"{"format":"litheTestResults","version":1,"tests":[{"project":"a","suite":"Same","case":"checks","status":"failed"},{"project":"b","suite":"Same","case":"checks","status":"passed"}]}"#.utf8))
+        let request = BuildTestResultsRequest(workspaceURL: workspace, root: ".", project: nil, projects: [],
+            output: "", notBefore: nil, suite: nil, result: report)
+        let result = try operations.decodeTestResults(target, request: request)
+        #expect(result.summary.total == 2)
+        #expect(result.summary.failed == 1)
+        #expect(Set(result.tests.map(\.id)).count == 2)
+        #expect(result.tests.map(\.project) == ["a", "b"])
+        #expect(throws: (any Error).self) {
+            try operations.decodeTestResults(target, request: BuildTestResultsRequest(workspaceURL: workspace,
+                root: ".", project: nil, projects: [], output: "", notBefore: nil, suite: nil))
+        }
+    }
+
+    @Test
     func descriptorDeclaresBuildSystemsAndTheirModule() throws {
         let descriptor = try Self.descriptor("build-static-file")
         let cargo = try #require(descriptor.buildSystems.first)
@@ -118,6 +140,39 @@ struct RustBuildSystemOperationsTests {
         #expect(params["options"] == .object(["offline": .bool(true)]))
         #expect(request.executesProjectCode)
         #expect(request.mayUseNetwork)
+    }
+
+    @Test
+    func providerServiceOptionsRoundTripThroughRealCoreAndRejectMissingChoices() throws {
+        let descriptor = try Self.descriptor("build-provider-run-options")
+        #expect(descriptor.buildSystems.first?.providerRuns.first?.execution == .service)
+        let target = try Self.target("build-provider-run-options", "gradle")
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        for path in ["app", "tools"] { try FileManager.default.createDirectory(at: workspace.appendingPathComponent(path), withIntermediateDirectories: true) }
+        struct Fixture: Decodable { let launchOptions: BuildLaunchOptions; let result: ToolingJSONValue }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-run-options.json")))
+        let planner: any BuildSystemPlanning = operations
+        let project = BuildSelection(name: "app", path: "app")
+        let selected = BuildSelection(name: "Main", path: "app", tags: ["application"])
+        let plan = try planner.prepareRunPlan(target, context: BuildPlanContext(root: "app", options: [:]), run: "service",
+            project: project, selectedTarget: selected, userArguments: [], workspaceURL: workspace, launchOptions: fixture.launchOptions)
+        guard case .object(let params) = plan.params else { Issue.record("Missing provider params"); return }
+        let optionsJSON = try JSONDecoder().decode(ToolingJSONValue.self, from: JSONEncoder().encode(fixture.launchOptions))
+        #expect(params["launchOptions"] == optionsJSON)
+        let launch = try planner.decodeRunPreparation(target, workspaceURL: workspace, root: "app", result: fixture.result, launchOptions: fixture.launchOptions)
+        #expect(launch.workingDirectory == "tools")
+        #expect(launch.arguments == ["--file", "app/pom.xml", "framework:run"])
+        #expect(throws: (any Error).self) {
+            try planner.prepareRunPlan(target, context: BuildPlanContext(root: "app", options: [:]), run: "service",
+                project: project, selectedTarget: selected, userArguments: [])
+        }
+        #expect(throws: (any Error).self) { try planner.decodeRunPreparation(target, workspaceURL: workspace, root: "app", result: fixture.result) }
+        try FileManager.default.removeItem(at: workspace.appendingPathComponent("tools"))
+        #expect(throws: (any Error).self) {
+            try planner.decodeRunPreparation(target, workspaceURL: workspace, root: "app", result: fixture.result, launchOptions: fixture.launchOptions)
+        }
     }
 
     @Test

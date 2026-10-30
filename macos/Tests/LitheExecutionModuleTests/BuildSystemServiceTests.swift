@@ -7,6 +7,260 @@ import Testing
 
 @MainActor
 struct BuildSystemServiceTests {
+    @Test
+    func runGenerationProjectsUseCurrentImportedModelsAndRevokePendingSnapshots() async throws {
+        let planner = FakeBuildPlanner()
+        planner.importEnabled = true; planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"p","path":"app","name":"App","properties":{"run.modelVersion":"1","run.provider":"quarkus.maven","java.minimumVersion":"21","maven.minimumVersion":"3.9.9","maven.wrapper":"mvnw.cmd"}}],"contentRoots":[{"projectID":"p","path":"app/checks","kind":"testSource"},{"projectID":"p","path":"app/resources","kind":"resource"}]}"#)])
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        let ownership = try harness.service.runProjectOwnership()
+        #expect(ownership == [RunProjectOwnership(path: "app", mavenReactorPath: "app",
+            contentRoots: [.init(path: "app/checks", kind: "testSource")], name: "App", mavenRunProvider: "quarkus.maven", minimumJavaVersion: "21", mavenMinimumVersion: "3.9.9", mavenWrapper: "app/mvnw.cmd")])
+        harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
+        #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        #expect(try harness.service.runProjectOwnership() == ownership)
+        harness.service.reset(workspaceURL: nil)
+        #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
+    }
+
+    @Test
+    func runGenerationRejectsMavenModelsWithoutBackendRunMetadata() async throws {
+        let planner = FakeBuildPlanner()
+        planner.importEnabled = true; planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"p","path":"app","name":"App"}]}"#)])
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
+    }
+
+    @Test(arguments: ["success", "failed", "cancel", "configuration", "workspace"])
+    func languageResourcePreparationUsesCurrentSourceRoleAndRejectsFailedOrRevokedOperations(mode: String) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.dynamicOptions = true
+        planner.importEnabled = true
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"p","path":"app","name":"App"},{"id":"other","path":".","name":"Other"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"},{"projectID":"other","path":"app/spec/deeper","kind":"source"}],"optionValues":{"features":["run-only","changed"]}}"#)])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        let release = BuildTestGate(), finished = BuildTestGate()
+        providers.replyGate = release
+        providers.executionResult = BuildProviderExecutionResult(exitCode: mode == "failed" ? 2 : 0, output: "resources")
+        let tasks = ["prepare.main", "prepare.test"].map { DeclarativeBuildSystem.Task(id: $0, displayName: $0,
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil) }
+        let harness = Harness(planner: planner, sources: [fixtureSource(tasks: tasks)], providers: providers)
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        var error: Error?
+        var prepared: BuildLanguageImport?
+        let task = Task {
+            defer { finished.open() }
+            // A deeper root published by another project must not turn this
+            // project's test source into a main-source preparation.
+            do { prepared = try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent("app/spec/deeper/UnrelatedName.java"),
+                workspace: Self.workspace, mainTask: "prepare.main", testTask: "prepare.test",
+                optionOverrides: ["features": .array([.string("run-only")])],
+                tool: { _ in BuildProviderHints(toolExecutable: URL(fileURLWithPath: "/selected/tool"), toolEnvironment: ["JAVA_HOME": "/selected/jdk"]) },
+                isCurrent: { true }) }
+            catch let failure { error = failure }
+        }
+        defer { task.cancel(); release.open(); harness.service.stop() }
+        try #require(await providers.requestStarted.waitUntilOpen())
+        #expect(planner.taskRequests.last?.task == "prepare.test")
+        #expect(planner.taskRequests.last?.project?.path == "app")
+        #expect(planner.taskPlanContexts.last?.options["features"] == .array([.string("run-only")]))
+        #expect(harness.optionsStore.values["fixture"]?["features"] == nil)
+        if case .object(let params)? = providers.sent.last?.request.params {
+            #expect(params["tool"] == .object(["executable": .string("/selected/tool")]))
+        } else { Issue.record("Preparation must carry the selected build tool") }
+        if mode == "cancel" { task.cancel() }
+        if mode == "configuration" { harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("changed")])) }
+        if mode == "workspace" { harness.service.reset(workspaceURL: nil) }
+        release.open()
+        try #require(await finished.waitUntilOpen())
+        await task.value
+        #expect((error == nil) == (mode == "success"))
+        if mode == "success" {
+            guard case .maven(let context)? = prepared else { Issue.record("Successful preparation must return its exact import"); return }
+            #expect(context.profiles == ["run-only"])
+            #expect(context.mavenExecutablePath == "/selected/tool")
+        }
+        if ["cancel", "configuration", "workspace"].contains(mode) { #expect(error is CancellationError) }
+    }
+
+    @Test
+    func languageRunUsesTheModelForItsTemporaryOptionsWithoutPublishingItAsTheDefaultModel() async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"; planner.importEnabled = true; planner.dynamicOptions = true
+        let baseline = #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"source"}],"optionValues":{"features":["run-only"]}}"#
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider", model: baseline)])
+        planner.decodedModel = try JSONDecoder().decode(BuildModel.self, from: Data(
+            #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"}],"optionValues":{"features":["run-only"]}}"#.utf8))
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        let tasks = ["prepare.main", "prepare.test"].map { DeclarativeBuildSystem.Task(id: $0, displayName: $0,
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil) }
+        let harness = Harness(planner: planner, sources: [fixtureSource(tasks: tasks)], providers: providers)
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let finished = BuildTestGate()
+        var result: Result<BuildLanguageImport?, Error>?
+        let task = Task {
+            defer { finished.open() }
+            do { result = .success(try await harness.service.prepareLanguageRun(
+                fileURL: Self.workspace.appendingPathComponent("app/spec/Main.java"), workspace: Self.workspace,
+                mainTask: "prepare.main", testTask: "prepare.test", optionOverrides: ["features": .array([.string("run-only")])],
+                tool: { _ in BuildProviderHints(toolExecutable: URL(fileURLWithPath: "/selected/maven")) }, isCurrent: { true })) }
+            catch { result = .failure(error) }
+        }
+        defer { task.cancel(); harness.service.stop() }
+        try #require(await finished.waitUntilOpen())
+        await task.value
+        guard case .maven(let context)? = try #require(result).get() else { Issue.record("Expected the task import"); return }
+        #expect(context.profiles == ["run-only"])
+        #expect(planner.taskRequests.last?.task == "prepare.test")
+        #expect(planner.decodedModelOutputs.count == 1)
+        #expect(planner.modelPlanHints.last?.toolExecutable?.path == "/selected/maven")
+        #expect(harness.service.entries.first?.model?.contentRoots.first?.kind == "source")
+        #expect(harness.optionsStore.values["fixture"]?["features"] == nil)
+    }
+
+    @Test
+    func languagePreparationAndTestOwnershipAcceptTheCanonicalSourceOfALinkedWorkspace() async throws {
+        let files = FileManager.default
+        let scratch = files.temporaryDirectory.appendingPathComponent("build-linked-workspace-\(UUID().uuidString)")
+        let actual = scratch.appendingPathComponent("actual")
+        let workspace = scratch.appendingPathComponent("link")
+        try files.createDirectory(at: actual.appendingPathComponent("app/spec"), withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: scratch) }
+        try files.createSymbolicLink(at: workspace, withDestinationURL: actual)
+        let source = actual.appendingPathComponent("app/spec/Main.java").resolvingSymlinksInPath()
+        try Data("class Main {}".utf8).write(to: source)
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"}]}"#)])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        let tasks = ["prepare.main", "prepare.test"].map { DeclarativeBuildSystem.Task(id: $0, displayName: $0,
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil) }
+        let harness = Harness(planner: planner, sources: [fixtureSource(testSelectorKinds: ["org.example.semantic"], tasks: tasks)], providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let entry = try #require(harness.service.languageTestEntries(selectorKind: "org.example.semantic", fileURL: source, workspace: workspace).first)
+        #expect(harness.service.languageTestProject(in: entry, fileURL: source, workspace: workspace)?.name == "App")
+        try await harness.service.prepareLanguageRun(fileURL: source, workspace: workspace,
+            mainTask: "prepare.main", testTask: "prepare.test", tool: { _ in nil }, isCurrent: { true })
+        #expect(planner.taskRequests.last?.task == "prepare.test")
+        #expect(planner.taskRequests.last?.project?.path == "app")
+    }
+
+    @Test(arguments: [false, true])
+    func languageTestHandoffSettlesReportsOrCancellationAndRetainsNativeProcessIdentity(cancel: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model: Self.model(name: "loaded"))])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/test")
+        planner.testPlanDeclaresResults = true
+        planner.inlineTestResults = true
+        let expected = try Self.testResults("failure", project: ".")
+        planner.decodedTestResults = expected
+        let providers = FakeBuildProviders()
+        providers.nativeProcessID = 412
+        let release = BuildTestGate(), finished = BuildTestGate()
+        providers.replyGate = release
+        providers.executionResult = BuildProviderExecutionResult(exitCode: 1, output: "test failure",
+            testResults: .object(["format": .string("litheTestResults"), "version": .integer(1), "tests": .array([])]))
+        let harness = Harness(planner: planner, providers: providers)
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        var result: Result<LanguageTestBackendResult, Error>?
+        var pids: [Int32] = []
+        let task = Task {
+            defer { finished.open() }
+            do { result = .success(try await harness.service.performLanguageTests(Self.instanceID, request: BuildTestRequest(), title: "Tests",
+                output: { _ in }, process: { if let pid = $0 { pids.append(pid) } })) }
+            catch { result = .failure(error) }
+        }
+        defer { task.cancel(); release.open(); harness.service.stop() }
+        try #require(await providers.requestStarted.waitUntilOpen())
+        if cancel { task.cancel() }
+        release.open()
+        try #require(await finished.waitUntilOpen())
+        await task.value
+        if cancel {
+            guard case .failure(let error) = result else { Issue.record("Cancellation must settle the native handoff"); return }
+            #expect(error is CancellationError)
+        } else {
+            let completed = try #require(result).get()
+            #expect(completed.exitCode == 1)
+            #expect(completed.reports == [expected])
+            #expect(pids.contains(412))
+            let reference = try #require(completed.references.values.first)
+            #expect(reference.projectID == "p")
+            #expect(reference.suite == "Suite")
+            let rerun = try await harness.service.performLanguageTests(reference: reference, workspace: Self.workspace,
+                title: "Rerun", output: { _ in }, process: { _ in })
+            #expect(rerun.reports == [expected])
+            let requests = providers.sent.count
+            harness.service.reset(workspaceURL: nil)
+            await #expect(throws: (any Error).self) {
+                try await harness.service.performLanguageTests(reference: reference, workspace: Self.workspace,
+                    title: "Revoked", output: { _ in }, process: { _ in })
+            }
+            #expect(providers.sent.count == requests)
+        }
+    }
+
+    @Test
+    func languageTestOwnershipUsesCurrentProjectBoundariesAndRevokesOldWorkspaces() async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"app","path":"app","name":"App"},{"id":"nested","path":"app/nested","name":"Nested"}]}"#)])
+        let harness = Harness(planner: planner, sources: [fixtureSource(testSelectorKinds: ["org.example.semantic"])])
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let source = Self.workspace.appendingPathComponent("app/nested/Test.java")
+        let entries = harness.service.languageTestEntries(selectorKind: "org.example.semantic", fileURL: source, workspace: Self.workspace)
+        let entry = try #require(entries.first)
+        #expect(harness.service.languageTestProject(in: entry, fileURL: source, workspace: Self.workspace)?.name == "Nested")
+        #expect(harness.service.languageTestEntries(selectorKind: "unclaimed", fileURL: source, workspace: Self.workspace).isEmpty)
+        #expect(harness.service.languageTestEntries(selectorKind: "org.example.semantic", fileURL: Self.workspace.appendingPathComponent("app-copy/Test.java"), workspace: Self.workspace).isEmpty)
+        harness.service.reset(workspaceURL: nil)
+        #expect(harness.service.languageTestEntries(selectorKind: "org.example.semantic", fileURL: source, workspace: Self.workspace).isEmpty)
+    }
+
+    @Test
+    func nativePreparationIdentityRejectsOptionsChangedAwayAndBackEvenWithoutModelSharing() async throws {
+        let planner = FakeBuildPlanner()
+        planner.importEnabled = true
+        planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        let harness = Harness(planner: planner)
+        harness.optionsStore.values["fixture"] = ["features": .array([.string("first")])]
+        harness.service.reset(workspaceURL: Self.workspace)
+        let initial = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        let revision = harness.service.inputRevision
+        harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("first")]))
+        let returned = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        #expect(returned == initial)
+        #expect(harness.service.inputRevision > revision)
+        harness.service.stop()
+    }
+
     private static let workspace = URL(fileURLWithPath: "/workspace/demo")
 
     @Test
@@ -26,6 +280,58 @@ struct BuildSystemServiceTests {
         let next = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
         #expect(next.mavenContext?.profiles == ["next"])
         #expect(harness.service.languageImport == next)
+    }
+
+    @Test(arguments: [false, true])
+    func runPreparationUsesItsBuildRootAndRefusesPendingOrOldWorkspaceInputs(primary: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.importEnabled = true
+        planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [
+            try Self.nestedInstance(id: "fixture:a", root: "a", features: ["cli"]),
+            try Self.nestedInstance(id: "fixture:b", root: "b", features: ["gui"])
+        ])
+        let harness = Harness(planner: planner)
+        let configuration = RunConfiguration(id: "main", name: "Main", kind: .javaMain,
+            modulePath: "b", mainClass: "example.Main", mavenReactorPath: "b")
+        let operations = MavenContextRunOperations(configuration: configuration)
+        let (runtime, graph) = try await makeBuildSystemTestRuntime(harness.service, runOperations: operations)
+        defer { graph.stop() }
+        harness.optionsStore.values["fixture"] = ["features": .array([.string("cli"), .string("gui")])]
+        harness.service.reset(workspaceURL: Self.workspace)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        #expect(harness.service.languageImport?.mavenContext?.reactorPath == "a")
+        await graph.run.loadProject(at: Self.workspace, files: [])
+        func launch() {
+            if primary { graph.run.run(configuration: configuration, currentFileURL: nil) }
+            else { graph.run.startConfiguration(configuration) }
+        }
+        launch()
+        #expect(operations.callCount == 1)
+        #expect(operations.context?.reactorPath == "b")
+        #expect(operations.context?.profiles == ["gui"])
+
+        // Invalidation is synchronous, before coalesced detection can finish.
+        // Both Run entry points must report failure without planning old input.
+        harness.service.setOption("fixture:b", optionID: "features", value: .array([]))
+        launch()
+        #expect(operations.callCount == 1)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        launch()
+        #expect(operations.callCount == 2)
+        #expect(operations.context?.profiles == [])
+
+        harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/other"))
+        launch()
+        #expect(operations.callCount == 2)
+        harness.service.reset(workspaceURL: Self.workspace)
+        harness.sources = []
+        harness.service.pluginsChanged()
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        launch()
+        #expect(operations.callCount == 3)
+        #expect(operations.context == nil)
+        await runtime.shutdownAll()
     }
 
     @Test
@@ -1343,8 +1649,8 @@ struct BuildSystemServiceTests {
         })
     }
 
-    @Test
-    func providerRunHandsValidatedPlanToNativeRunAndStopsOnDisable() async throws {
+    @Test(arguments: [false, true])
+    func providerRunHandsValidatedPlanToNativeRunAndStopsOnDisableOrReplacement(replace: Bool) async throws {
         let (planner, providers, launcher, harness) = try Self.runPreparationHarness()
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
@@ -1355,13 +1661,30 @@ struct BuildSystemServiceTests {
         #expect(launcher.launched.count == 1)
         #expect(launcher.launched.first?.arguments == ["example.Main", "a b"])
         #expect(planner.diagnosticOutputs.isEmpty)
-        harness.sources = []
+        if replace { harness.service.pluginPackageWillChange("dev.example") }
+        else { harness.sources = [] }
         // Detection may already have removed the model before plugin disable
         // is delivered. Process ownership must survive that disappearance.
         harness.service.detect()
         try #require(await harness.waitForEntries { $0.isEmpty })
         harness.service.pluginsChanged()
         #expect(launcher.stopped == ["prepared-app"])
+    }
+
+    @Test(arguments: [BuildExecution.service, .task])
+    func providerTreeRunsKeepExecutionKindAndTypedArguments(execution: BuildExecution) async throws {
+        let (planner, _, launcher, harness) = try Self.runPreparationHarness()
+        harness.sources = [fixtureSource(providerRuns: [.init(id: "application", displayName: "Run",
+            targetTags: ["application"], execution: execution)])]
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        var request = Self.runRequest
+        request.userArguments = ["a b", "雪", ""]
+        try #require(harness.service.runApplication(Self.instanceID, request: request, title: "Main") != nil)
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.runLaunchOptions == [BuildLaunchOptions(execution: execution, arguments: request.userArguments)])
+        #expect(launcher.lastConfiguration?.execution == (execution == .service ? .service : .task))
     }
 
     @Test
@@ -1660,13 +1983,21 @@ struct BuildSystemServiceTests {
         providers.executionResult = BuildProviderExecutionResult(exitCode: exitCode, output: "completed")
         let runner = FakeBuildRunner()
         let harness = Harness(planner: planner, runner: runner, providers: providers)
+        harness.tools.providerEnvironment = ["JAVA_HOME": "/fixture/selected-build-jdk"]
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
-        try #require(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build") != nil)
+        let id = try #require(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build"))
         try #require(await harness.waitForRunState { $0 != .running })
+        #expect(harness.service.currentRunID == nil)
+        #expect(harness.service.operation?.id == id)
+        #expect(harness.service.operation?.exitCode == exitCode)
+        #expect(harness.service.operation?.output == "completed")
         #expect(providers.sent.map(\.request.method) == ["lithe/build/execute"])
         #expect(providers.sent.first?.target.workspaceURL == Self.workspace)
+        if case .object(let params)? = providers.sent.first?.request.params {
+            #expect(params["environment"] == .object(["JAVA_HOME": .string("/fixture/selected-build-jdk")]))
+        } else { Issue.record("The task must carry the selected runtime environment") }
         #expect(runner.requests.isEmpty)
         #expect(harness.service.output.contains("completed"))
         if exitCode == 0 { #expect(harness.service.runState == .succeeded) }
@@ -1775,17 +2106,80 @@ struct BuildSystemServiceTests {
         providers.executionResult = BuildProviderExecutionResult(exitCode: exitCode, output: "test output")
         let runner = FakeBuildRunner()
         let harness = Harness(planner: planner, runner: runner, providers: providers)
+        harness.tools.providerEnvironment = ["JAVA_HOME": "/fixture/selected-test-jdk"]
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
         harness.service.runTests(Self.instanceID, request: BuildTestRequest(projects: ["app"]), title: "Tests")
         try #require(await harness.waitForRunState { $0 != .running })
         #expect(providers.sent.map(\.request.method) == ["lithe/build/test"])
+        if case .object(let params)? = providers.sent.first?.request.params {
+            #expect(params["environment"] == .object(["JAVA_HOME": .string("/fixture/selected-test-jdk")]))
+        } else { Issue.record("The test must carry the selected runtime environment") }
         #expect(runner.requests.isEmpty)
         #expect(harness.service.testResults == expected)
         #expect(planner.diagnosticOutputs == ["test output"])
         if exitCode == 0 { #expect(harness.service.runState == .succeeded) }
         else { if case .failed = harness.service.runState {} else { Issue.record("Expected failed test exit") } }
+    }
+
+    @Test(arguments: [false, true])
+    func inlineReportsAreDecodedFromTheExactReplyAndDecodeFailureFailsTheRun(fail: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/test")
+        planner.testPlanDeclaresResults = true
+        planner.inlineTestResults = true
+        let expected = try Self.testResults("failure")
+        if !fail { planner.decodedTestResults = expected }
+        let providers = FakeBuildProviders()
+        let report: ToolingJSONValue = .object(["format": .string("litheTestResults"), "version": .integer(1), "tests": .array([])])
+        providers.executionResult = BuildProviderExecutionResult(exitCode: 0, output: "test output", testResults: report)
+        let harness = Harness(planner: planner, providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        #expect(harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests") != nil)
+        try #require(await harness.waitForRunState { $0 != .running })
+        #expect(planner.testReportInputs.map(\.result) == [report])
+        #expect(harness.service.testResults == (fail ? nil : expected))
+        if fail { if case .failed = harness.service.runState {} else { Issue.record("A report decode failure must fail the run") } }
+        else { #expect(harness.service.runState == .succeeded) }
+    }
+
+    @Test(arguments: [false, true])
+    func ordinaryProviderTasksPublishInlineReportsOnlyWhileTheRunStillOwnsThem(cancel: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let expected = try Self.testResults("task failure")
+        planner.decodedTestResults = expected
+        let gate = GatedBuildDecode()
+        planner.testResultsGate = gate
+        let providers = FakeBuildProviders()
+        let report: ToolingJSONValue = .object(["format": .string("litheTestResults"), "version": .integer(1), "tests": .array([])])
+        providers.executionResult = BuildProviderExecutionResult(exitCode: 1, output: "tests failed during package", testResults: report)
+        let harness = Harness(planner: planner, sources: [fixtureSource(providerTestReports: true)], providers: providers)
+        defer { gate.releaseDecode(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        #expect(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "package"), title: "Package") != nil)
+        try #require(await gate.entered.waitUntilOpen())
+        if cancel { harness.service.stopRun() }
+        gate.releaseDecode()
+        try #require(await gate.finished.waitUntilOpen())
+        if cancel {
+            #expect(await harness.waitsForStaleTestResults(expected) == false)
+            #expect(harness.service.testResults == nil)
+            #expect(harness.service.runState == .cancelled)
+        } else {
+            try #require(await harness.waitForRunState { $0 != .running })
+            #expect(harness.service.testResults == expected)
+            #expect(planner.testReportInputs.map(\.result) == [report])
+            if case .failed = harness.service.runState {} else { Issue.record("The task must retain its failing exit code") }
+        }
     }
 
     /// The provider operation remains cancellable while its reports decode.
@@ -1798,6 +2192,7 @@ struct BuildSystemServiceTests {
         ])
         planner.providerRequest = Self.providerRequest(method: "lithe/build/test")
         planner.testPlanDeclaresResults = true
+        planner.inlineTestResults = true
         let stale = try Self.testResults("stale")
         planner.decodedTestResults = stale
         let gate = GatedBuildDecode()
@@ -2001,6 +2396,7 @@ struct BuildSystemServiceTests {
         planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
         let providers = FakeBuildProviders()
         let harness = Harness(planner: planner, providers: providers)
+        harness.tools.providerEnvironment = ["JAVA_HOME": "/fixture/selected-model-jdk"]
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
@@ -2012,7 +2408,7 @@ struct BuildSystemServiceTests {
         // provider, and the request is planned again with it.
         #expect(planner.modelPlanHints == [
             BuildProviderHints(reason: .initial),
-            BuildProviderHints(reason: .initial, toolExecutable: FakeToolResolver.executableURL),
+            BuildProviderHints(reason: .initial, toolExecutable: FakeToolResolver.executableURL, toolEnvironment: harness.tools.providerEnvironment),
         ])
         #expect(harness.tools.resolutions == 1)
         #expect(providers.sent.count == 1)
@@ -2029,6 +2425,7 @@ struct BuildSystemServiceTests {
         planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
         let providers = FakeBuildProviders()
         let harness = Harness(planner: planner, providers: providers)
+        harness.tools.providerEnvironment = ["JAVA_HOME": "/fixture/selected-refresh-jdk"]
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         #expect(await harness.waitForEntries { !$0.isEmpty })
@@ -2036,7 +2433,7 @@ struct BuildSystemServiceTests {
         harness.service.loadModel(Self.instanceID, reason: .refresh)
         #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
         #expect(planner.modelPlanHints.last == BuildProviderHints(
-            reason: .refresh, toolExecutable: FakeToolResolver.executableURL
+            reason: .refresh, toolExecutable: FakeToolResolver.executableURL, toolEnvironment: harness.tools.providerEnvironment
         ))
 
         harness.service.loadDependencies(Self.instanceID, project: nil, reason: .refresh)
@@ -2046,7 +2443,7 @@ struct BuildSystemServiceTests {
         })
         #expect(planner.dependencyPlanHints == [
             BuildProviderHints(reason: .refresh),
-            BuildProviderHints(reason: .refresh, toolExecutable: FakeToolResolver.executableURL),
+            BuildProviderHints(reason: .refresh, toolExecutable: FakeToolResolver.executableURL, toolEnvironment: harness.tools.providerEnvironment),
         ])
     }
 
@@ -2446,7 +2843,7 @@ struct BuildSystemServiceTests {
     ) throws -> BuildSystemInstance {
         let featureList = features.map { "\"\($0)\"" }.joined(separator: ", ")
         let model = """
-        {"projects": [{"id": "\(id)", "path": ".", "name": "\(id)"}],
+        {"projects": [{"id": "\(id)", "path": ".", "name": "\(id)", "properties": {"run.modelVersion": "1"}}],
          "optionValues": {"features": [\(featureList)]}}
         """
         return try decode(BuildSystemInstance.self, """
@@ -2470,23 +2867,205 @@ struct BuildSystemServiceTests {
         """)
     }
 
-    private static func testResults(_ message: String) throws -> BuildTestResults {
-        try decode(BuildTestResults.self, """
-        {"tests": [{"suite": "Suite", "case": "case", "status": "failed", "message": "\(message)"}],
+    private static func testResults(_ message: String, project: String? = nil) throws -> BuildTestResults {
+        let field = project.map { "\"project\": \"\($0)\", " } ?? ""
+        return try decode(BuildTestResults.self, """
+        {"tests": [{\(field)"suite": "Suite", "case": "case", "status": "failed", "message": "\(message)"}],
          "summary": {"total": 1, "passed": 0, "failed": 1, "errors": 0, "skipped": 0},
          "success": false}
         """)
     }
 }
 
-private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = []) -> BuildSystemPluginSource {
+extension BuildSystemServiceTests {
+    @Test
+    func passiveNativeReadDoesNotRunAProjectWrapperOrSilentlyFallBackToProviderDiscovery() async throws {
+        let harness = try NativeConfigurationHarness()
+        defer { harness.coordinator.stop() }
+        harness.tools.executesProjectCode = true
+        await #expect(throws: (any Error).self) { try await harness.coordinator.read("entry") }
+        #expect(harness.providers.sent.isEmpty)
+        #expect(harness.coordinator.state("entry").requiresExplicitRead)
+        _ = try await harness.coordinator.read("entry", allowProjectTool: true)
+        #expect(harness.providers.sent.count == 1)
+        harness.tools.failure = BuildSystemServiceTestsError(message: "Automatic discovery failed")
+        await #expect(throws: (any Error).self) { try await harness.coordinator.read("entry") }
+        #expect(harness.providers.sent.count == 1)
+        #expect(harness.coordinator.state("entry").requiresExplicitRead)
+        _ = try await harness.coordinator.read("entry", allowProjectTool: true)
+        #expect(harness.providers.sent.count == 2)
+        #expect(harness.files.commits == 0)
+    }
+
+    @Test
+    func nativeSaveReadBackInvalidatesBuildFactsAndNeverUsesTheDraftAsEffectiveState() async throws {
+        let harness = try NativeConfigurationHarness()
+        defer { harness.coordinator.stop() }
+        let first = try await harness.coordinator.read("entry")
+        #expect(harness.files.commits == 0)
+        #expect(harness.providers.sent.first?.request.method == "lithe/build/configuration")
+        harness.providers.reply = try nativeConfigurationReply(revision: "b", value: "/raw", effective: "/command-line")
+        let next = try await harness.coordinator.save("entry", snapshot: first, edits: nativeEdits(first))
+        #expect(harness.files.commits == 1)
+        #expect(harness.ownership.configurationRevision == 1)
+        #expect(next.sources.first?.fields.first?.effectiveValue == .string("/command-line"))
+        #expect(harness.coordinator.state("entry").snapshot == next)
+        #expect(!harness.coordinator.state("entry").isStale)
+        #expect(!harness.coordinator.isBusy)
+    }
+
+    @Test
+    func optionABADuringNativePreparationRejectsTheWriteAndRetainsTheOldSnapshot() async throws {
+        let harness = try NativeConfigurationHarness()
+        let gate = GatedBuildDecode()
+        defer { gate.releaseDecode(); harness.coordinator.stop() }
+        let first = try await harness.coordinator.read("entry")
+        harness.files.prepareGate = gate
+        let save = Task { try await harness.coordinator.save("entry", snapshot: first, edits: nativeEdits(first)) }
+        defer { save.cancel() }
+        let entered = await gate.entered.waitUntilOpen()
+        #expect(entered, "Native preparation did not reach its controlled boundary")
+        harness.ownership.optionsRevision += 2
+        gate.releaseDecode()
+        let result = await save.result
+        if case .success = result { Issue.record("An obsolete draft was saved") }
+        #expect(harness.files.commits == 0)
+        #expect(harness.coordinator.state("entry").snapshot == first)
+        #expect(harness.coordinator.state("entry").isStale)
+    }
+
+    @Test
+    func nativeReadBackFailureKeepsTheDraftStaleUntilExplicitReload() async throws {
+        let harness = try NativeConfigurationHarness()
+        defer { harness.coordinator.stop() }
+        let first = try await harness.coordinator.read("entry")
+        harness.providers.failure = BuildSystemServiceTestsError(message: "upstream rejected configuration")
+        await #expect(throws: (any Error).self) {
+            try await harness.coordinator.save("entry", snapshot: first, edits: nativeEdits(first))
+        }
+        #expect(harness.files.commits == 1)
+        #expect(harness.coordinator.state("entry").snapshot == first)
+        #expect(harness.coordinator.state("entry").isStale)
+        await #expect(throws: (any Error).self) {
+            try await harness.coordinator.save("entry", snapshot: first, edits: nativeEdits(first))
+        }
+        #expect(harness.files.commits == 1)
+        harness.providers.failure = nil
+        harness.providers.reply = try nativeConfigurationReply(revision: "b", value: "/raw", effective: "/raw")
+        _ = try await harness.coordinator.read("entry")
+        #expect(!harness.coordinator.state("entry").isStale)
+    }
+
+    @Test
+    func nativeStopRejectsCancellationIgnoringProviderReplyFromTheOldWorkspace() async throws {
+        let harness = try NativeConfigurationHarness()
+        let gate = BuildTestGate()
+        defer { gate.open(); harness.coordinator.stop() }
+        harness.providers.ignoresCancellation = true
+        harness.providers.replyGate = gate
+        let read = Task { try await harness.coordinator.read("entry") }
+        defer { read.cancel() }
+        #expect(await harness.providers.requestStarted.waitUntilOpen())
+        harness.coordinator.stop()
+        harness.ownership.generation += 1
+        gate.open()
+        if case .success = await read.result { Issue.record("An old workspace published native settings") }
+        #expect(harness.coordinator.state("entry").snapshot == nil)
+        #expect(!harness.coordinator.isBusy)
+        #expect(harness.files.commits == 0)
+    }
+
+    @Test
+    func serviceRejectsNativeDraftAfterOptionsChangeBackToTheirOriginalValues() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        let providers = FakeBuildProviders()
+        providers.reply = try nativeConfigurationReply()
+        let files = NativeConfigurationFiles()
+        let harness = Harness(planner: planner, sources: [fixtureSource(nativeConfiguration: true)],
+                              providers: providers, nativeConfigurationFiles: files)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        let snapshot = try await harness.service.readNativeConfiguration(Self.instanceID)
+        harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        harness.service.setOption(Self.instanceID, optionID: "release", value: nil)
+        await #expect(throws: (any Error).self) {
+            try await harness.service.saveNativeConfiguration(Self.instanceID, snapshot: snapshot, edits: nativeEdits(snapshot))
+        }
+        #expect(files.commits == 0)
+        #expect(harness.service.nativeConfigurationState(Self.instanceID).isStale)
+    }
+}
+
+@MainActor
+private final class NativeConfigurationOwnership {
+    var optionsRevision = 0
+    var configurationRevision = 0
+    var generation = 0
+    var context: BuildNativeConfigurationContext {
+        BuildNativeConfigurationContext(entryID: "entry", source: fixtureSource(nativeConfiguration: true),
+            buildSystemID: "fixture", workspace: URL(fileURLWithPath: "/workspace"), generation: generation,
+            configurationRevision: configurationRevision, optionsRevision: optionsRevision, settings: [:],
+            plan: BuildPlanContext(root: ".", options: [:]))
+    }
+}
+
+@MainActor
+private final class NativeConfigurationHarness {
+    let ownership = NativeConfigurationOwnership()
+    let files = NativeConfigurationFiles()
+    let providers = FakeBuildProviders()
+    let tools = FakeToolResolver()
+    let coordinator: BuildNativeConfigurationCoordinator
+    init() throws {
+        let ownership = ownership
+        providers.reply = try nativeConfigurationReply()
+        coordinator = BuildNativeConfigurationCoordinator(planner: FakeBuildPlanner(), tools: tools,
+            providers: providers, files: files, context: { _ in ownership.context },
+            didSave: { _ in ownership.configurationRevision += 1 })
+    }
+}
+
+private final class NativeConfigurationFiles: BuildNativeConfigurationStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var committed = 0
+    var prepareGate: GatedBuildDecode?
+    var commits: Int { lock.withLock { committed } }
+    func prepare(target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
+                 edits: BuildNativeConfigurationEdits) throws -> BuildNativeConfigurationPreparedWrite? {
+        if let gate = prepareGate {
+            gate.entered.open()
+            guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
+        }
+        return BuildNativeConfigurationPreparedWrite(url: URL(fileURLWithPath: "/workspace/settings.xml"),
+            expected: Data(), replacement: Data("native bytes".utf8), revision: "sha256:" + String(repeating: "b", count: 64))
+    }
+    func commit(_ write: BuildNativeConfigurationPreparedWrite) throws { lock.withLock { committed += 1 } }
+}
+
+private func nativeConfigurationReply(revision: String = "a", value: String = "/before", effective: String = "/before") throws -> ToolingJSONValue {
+    try decode(ToolingJSONValue.self, """
+    {"format":"litheBuildConfiguration","version":1,"sources":[{"id":"user","scope":"user",
+    "uri":"file:///workspace/settings.xml","revision":"sha256:\(String(repeating: revision, count: 64))",
+    "writable":true,"rootElement":{"name":"settings","namespace":""},"fields":[
+    {"id":"localRepository","kind":"directory","value":"\(value)","effectiveValue":"\(effective)",
+    "effectiveSource":"upstream","path":["localRepository"]}]}]}
+    """)
+}
+
+private func nativeEdits(_ snapshot: BuildNativeConfiguration) -> BuildNativeConfigurationEdits {
+    BuildNativeConfigurationEdits(sourceID: "user", revision: snapshot.sources[0].revision, values: ["localRepository": .string("/raw")])
+}
+
+private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false, testSelectorKinds: [String] = [], tasks: [DeclarativeBuildSystem.Task] = []) -> BuildSystemPluginSource {
     BuildSystemPluginSource(
         pluginID: pluginID,
         manifest: Data("{}".utf8),
         packageURL: URL(fileURLWithPath: "/plugins/\(pluginID)"),
         buildSystems: [DeclarativeBuildSystem(
-            id: buildSystemID, displayName: "Fixture", modelSource: .command, tasks: [],
-            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs
+            id: buildSystemID, displayName: "Fixture", modelSource: .command, tasks: tasks,
+            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration, providerTestReports: providerTestReports, testSelectorKinds: testSelectorKinds
         )]
     )
 }
@@ -2515,6 +3094,7 @@ private final class Harness {
         sources: [BuildSystemPluginSource] = [fixtureSource()],
         providers: (any BuildProviderRequesting)? = nil,
         runLauncher: (any BuildRunLaunching)? = nil,
+        nativeConfigurationFiles: (any BuildNativeConfigurationStoring)? = nil,
         settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
         waitForRedetection: @escaping @Sendable () async throws -> Void = {}
     ) {
@@ -2528,6 +3108,7 @@ private final class Harness {
             runner: runner,
             providers: providers,
             runLauncher: runLauncher,
+            nativeConfigurationFiles: nativeConfigurationFiles,
             settings: settings,
             waitForRedetection: waitForRedetection,
             sources: { enabledSources.value }
@@ -2701,9 +3282,12 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var detectGate: GatedBuildDecode?
         var decodedTestResults: BuildTestResults?
         var testPlanDeclaresResults = false
+        var inlineTestResults = false
+        var testReportInputs: [BuildTestResultsRequest] = []
         var discovery: BuildTestDiscovery?
         var discoveryGate: GatedBuildDecode?
         var runPreparationGate: GatedBuildDecode?
+        var runLaunchOptions: [BuildLaunchOptions?] = []
         var testRequests: [BuildTestRequest] = []
         var optionsResolution: BuildOptionsResolution?
         var loadedOptionsResolution: BuildOptionsResolution?
@@ -2713,8 +3297,10 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var modelOptionValues: [String: [String]]?
         var fingerprint = "initial"
         var decodedModelOutputs: [BuildCommandOutput] = []
+        var decodedModel: BuildModel?
         var diagnosticOutputs: [String] = []
         var taskPlanContexts: [BuildPlanContext] = []
+        var taskRequests: [BuildTaskRequest] = []
         var modelInputSources: [[BuildModelInputSource]] = []
         var modelPlanHints: [BuildProviderHints] = []
         var dependencyPlanHints: [BuildProviderHints] = []
@@ -2744,6 +3330,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         get { access { $0.runPreparationGate } }
         set { access { $0.runPreparationGate = newValue } }
     }
+    var runLaunchOptions: [BuildLaunchOptions?] { access { $0.runLaunchOptions } }
     var decodedDependencyOutputs: [BuildCommandOutput] { access { $0.decodedDependencyOutputs } }
     var diagnostics: [BuildDiagnostic] {
         get { access { $0.diagnostics } }
@@ -2799,11 +3386,17 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         set { access { $0.discoveryGate = newValue } }
     }
     var testRequests: [BuildTestRequest] { access { $0.testRequests } }
+    var inlineTestResults: Bool {
+        get { access { $0.inlineTestResults } }
+        set { access { $0.inlineTestResults = newValue } }
+    }
+    var testReportInputs: [BuildTestResultsRequest] { access { $0.testReportInputs } }
     var testPlanDeclaresResults: Bool {
         get { access { $0.testPlanDeclaresResults } }
         set { access { $0.testPlanDeclaresResults = newValue } }
     }
     var taskPlanContexts: [BuildPlanContext] { access { $0.taskPlanContexts } }
+    var taskRequests: [BuildTaskRequest] { access { $0.taskRequests } }
     /// The provider hints of every model and dependency plan, in order.
     var modelPlanHints: [BuildProviderHints] { access { $0.modelPlanHints } }
     var dependencyPlanHints: [BuildProviderHints] { access { $0.dependencyPlanHints } }
@@ -2812,12 +3405,18 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         set { access { $0.fingerprint = newValue } }
     }
     var decodedModelOutputs: [BuildCommandOutput] { access { $0.decodedModelOutputs } }
+    var decodedModel: BuildModel? {
+        get { access { $0.decodedModel } }
+        set { access { $0.decodedModel = newValue } }
+    }
     var diagnosticOutputs: [String] { access { $0.diagnosticOutputs } }
 
     func detect(
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
-        options: [String: [String: ToolingJSONValue]]
+        options: [String: [String: ToolingJSONValue]],
+        instanceOptions: [String: [String: [String: ToolingJSONValue]]],
+        instanceDefaults: [String: [String: ToolingJSONValue]]
     ) throws -> BuildDetection {
         if let gate = access({ let gate = $0.detectGate; $0.detectGate = nil; return gate }) {
             gate.entered.open()
@@ -2855,6 +3454,16 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     func invocationPlan(_ target: BuildSystemTarget, root: String, settings: [String: ToolingJSONValue]) throws -> BuildInvocation {
         let configured: String? = if case .string(let path)? = settings["toolPath"] { path } else { nil }
         return BuildInvocation(executables: [.setting(id: "toolPath", path: configured), .command("fake")])
+    }
+
+    func configurationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints) throws -> BuildProviderRequest {
+        BuildProviderRequest(method: "lithe/build/configuration", params: .object([
+            "root": .string(context.root), "options": .object(context.options)
+        ]), optionFingerprint: "native", executesProjectCode: false, mayUseNetwork: false)
+    }
+
+    func decodeConfiguration(_ target: BuildSystemTarget, result: ToolingJSONValue) throws -> BuildNativeConfiguration {
+        try JSONDecoder().decode(BuildNativeConfiguration.self, from: JSONEncoder().encode(result))
     }
 
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck {
@@ -2940,7 +3549,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
 
     func taskPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTaskRequest) throws
         -> BuildOutputPlan {
-        access { $0.taskPlanContexts.append(context) }
+        access { $0.taskPlanContexts.append(context); $0.taskRequests.append(request) }
         if let request = providerRequest { return .provider(withInputs(request, context: context)) }
         return .process(plan([request.task, "with space"], output: nil))
     }
@@ -2951,12 +3560,14 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         let declaresResults = access { $0.testPlanDeclaresResults }
         return BuildTestPlan(
             execution: providerRequest.map { .provider(withInputs($0, context: context)) } ?? .process(plan(["test"], output: nil)),
-            results: declaresResults ? .reports(decoder: "junitXml", patterns: []) : nil
+            results: declaresResults ? (access { $0.inlineTestResults } ? .provider : .reports(decoder: "junitXml", patterns: [])) : nil
         )
     }
 
     func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
-                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String],
+                        workspaceURL: URL? = nil, launchOptions: BuildLaunchOptions? = nil) throws -> BuildProviderRequest {
+        access { $0.runLaunchOptions.append(launchOptions) }
         guard let providerRequest else { throw CancellationError() }
         return withInputs(providerRequest, context: context)
     }
@@ -2978,7 +3589,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     }
 
     func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
-                              result: ToolingJSONValue) throws -> BuildRunPreparation {
+                              result: ToolingJSONValue, launchOptions: BuildLaunchOptions? = nil) throws -> BuildRunPreparation {
         if let gate = access({ let gate = $0.runPreparationGate; $0.runPreparationGate = nil; return gate }) {
             gate.entered.open()
             guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
@@ -3023,6 +3634,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     ) throws -> BuildModel {
         try waitForBackgroundDecode()
         access { $0.decodedModelOutputs.append(output) }
+        if let model = access({ $0.decodedModel }) { return model }
         let name: String
         if case .stdout(let text) = output, text == "OLD" || text == "NEW" {
             name = text
@@ -3037,6 +3649,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     }
 
     func decodeTestResults(_ target: BuildSystemTarget, request: BuildTestResultsRequest) throws -> BuildTestResults {
+        access { $0.testReportInputs.append(request) }
         let results = access { $0.decodedTestResults }
         if let gate = access({ let gate = $0.testResultsGate; $0.testResultsGate = nil; return gate }) {
             gate.entered.open()
@@ -3104,6 +3717,8 @@ private final class FakeToolResolver: BuildToolResolving {
     static let executableURL = URL(fileURLWithPath: "/tool/bin/fake")
     /// When set, resolution fails like a build tool that is not installed.
     var failure: (any Error)?
+    var executesProjectCode = false
+    var providerEnvironment: [String: String] = [:]
     private(set) var resolutions = 0
 
     func resolve(
@@ -3117,8 +3732,9 @@ private final class FakeToolResolver: BuildToolResolving {
         return ResolvedBuildTool(
             executableURL: Self.executableURL,
             environment: ["PATH": "/tool/bin"],
-            executesProjectCode: false,
-            version: nil
+            executesProjectCode: executesProjectCode,
+            version: nil,
+            providerEnvironment: providerEnvironment
         )
     }
 }
@@ -3127,6 +3743,7 @@ private final class FakeToolResolver: BuildToolResolving {
 private final class FakeOptionsStore: BuildOptionsStoring {
     var values: [String: [String: ToolingJSONValue]] = [:]
     var emptyValues: [String: [String: Set<String>]] = [:]
+    var instanceValues: [String: [String: [String: ToolingJSONValue]]] = [:]
 
     func options(workspaceURL: URL, buildSystemID: String) -> [String: ToolingJSONValue] {
         values[buildSystemID] ?? [:]
@@ -3138,6 +3755,14 @@ private final class FakeOptionsStore: BuildOptionsStoring {
 
     func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) -> [String: Set<String>] {
         emptyValues[buildSystemID] ?? [:]
+    }
+
+    func instanceOptions(workspaceURL: URL, buildSystemID: String) -> [String: [String: ToolingJSONValue]] {
+        instanceValues[buildSystemID] ?? [:]
+    }
+
+    func setInstanceOptions(_ options: [String: [String: ToolingJSONValue]], workspaceURL: URL, buildSystemID: String) {
+        instanceValues[buildSystemID] = options.isEmpty ? nil : options
     }
 
     func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String) {
@@ -3340,6 +3965,8 @@ private final class FakeBuildProviders: BuildProviderRequesting {
         return reply
     }
 
+    var nativeProcessID: Int32?
+    func processID(for _: BuildProviderTarget) -> Int32? { nativeProcessID }
     var ignoresCancellation = false
     var executionResult = BuildProviderExecutionResult(exitCode: 0, output: "completed")
     var executionProgress: (@MainActor @Sendable (BuildProviderProgress) -> Void)?

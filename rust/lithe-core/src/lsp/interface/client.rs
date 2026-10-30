@@ -1759,6 +1759,15 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
     if super::build_provider::tests_negotiated(capabilities) {
         insert_unique(&mut values, super::build_provider::TEST_EXECUTION_FEATURE);
     }
+    if super::build_provider::test_selectors_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::TEST_SELECTORS_FEATURE);
+    }
+    if super::build_provider::test_reports_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::TEST_REPORTS_FEATURE);
+    }
+    if super::build_provider::configuration_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::CONFIGURATION_FEATURE);
+    }
     if super::build_provider::model_inputs_negotiated(capabilities) {
         insert_unique(&mut values, super::build_provider::MODEL_INPUTS_FEATURE);
     }
@@ -1767,6 +1776,9 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
             &mut values,
             super::build_provider::DEBUG_PREPARATION_FEATURE,
         );
+    }
+    if super::build_provider::run_options_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::RUN_OPTIONS_FEATURE);
     }
     if super::build_provider::run_preparation_negotiated(capabilities) {
         insert_unique(&mut values, super::build_provider::RUN_PREPARATION_FEATURE);

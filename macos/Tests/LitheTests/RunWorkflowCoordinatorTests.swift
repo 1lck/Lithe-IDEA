@@ -7,6 +7,44 @@ import LitheModuleAPI
 @Suite("Run workflow coordinator")
 @MainActor
 struct RunWorkflowCoordinatorTests {
+    @Test(arguments: ["stop", "replace", "workspace"])
+    func runActionCancellationOwnsSavingAndCannotClearItsReplacement(mode: String) async {
+        let coordinator = makeRunWorkflowCoordinator()
+        let entered = TestGate(), release = TestGate(), finished = TestGate()
+        let nextEntered = TestGate(), nextRelease = TestGate(), nextFinished = TestGate()
+        defer { coordinator.cancelModuleOperation(); release.open(); nextRelease.open() }
+        var oldLaunches = 0, nextLaunches = 0
+        coordinator.startRunAction {
+            defer { finished.open() }
+            entered.open()
+            _ = await release.waitUntilOpen()
+            if !Task.isCancelled { oldLaunches += 1 }
+        }
+        #expect(await entered.waitUntilOpen())
+        #expect(coordinator.isRunActionStarting)
+        if mode == "replace" {
+            coordinator.startRunAction {
+                defer { nextFinished.open() }
+                nextEntered.open()
+                _ = await nextRelease.waitUntilOpen()
+                if !Task.isCancelled { nextLaunches += 1 }
+            }
+            #expect(await nextEntered.waitUntilOpen())
+        } else if mode == "workspace" { coordinator.resetPendingAction() }
+        else { coordinator.cancelModuleOperation() }
+        release.open()
+        #expect(await finished.waitUntilOpen())
+        #expect(oldLaunches == 0)
+        #expect(coordinator.isRunActionStarting == (mode == "replace"))
+        if mode == "replace" {
+            nextRelease.open()
+            #expect(await nextFinished.waitUntilOpen())
+            #expect(nextLaunches == 1)
+        }
+        coordinator.cancelModuleOperation()
+        #expect(!coordinator.isRunActionStarting)
+    }
+
     @Test
     func moduleLaunchCoalescesAndWorkspaceResetCancelsPreparation() async {
         let coordinator = makeRunWorkflowCoordinator()

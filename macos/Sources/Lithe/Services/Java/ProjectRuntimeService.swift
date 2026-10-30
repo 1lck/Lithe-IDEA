@@ -53,12 +53,6 @@ extension ProjectRuntimeService: LanguageToolRuntimePort {
     }
 }
 
-extension ProjectRuntimeService: MavenRuntimePort {
-    package func mavenProcessEnvironment(javaHomePath: String?) -> [String: String] {
-        environment(for: .maven, javaHomeOverride: javaHomePath)
-    }
-}
-
 @MainActor
 final class ProjectRuntimeService: ObservableObject {
     enum JavaLanguageServerRuntimePreparation: Equatable {
@@ -73,6 +67,8 @@ final class ProjectRuntimeService: ObservableObject {
     @Published private(set) var javaEnvironmentReport: JavaEnvironmentReport?
     @Published private(set) var isDiscovering = false
     @Published private(set) var settings = ProjectRuntimeSettings()
+    @Published private(set) var settingsError: String?
+    private(set) var settingsSnapshot: ProjectRuntimeSettingsSnapshot?
     private var activeServiceJavaHomePath = ""
     private var launchJavaRuntimes: [JavaRuntimeCandidate]?
     private var runtimeSessionID = UUID()
@@ -80,7 +76,7 @@ final class ProjectRuntimeService: ObservableObject {
     private let javaSelector: any JavaRuntimeSelecting
     private let localRuntimeLocator: any RuntimeLocator
     private var runtimeLocator: any RuntimeLocator
-    private let store: any KeyValueStore
+    private let settingsStore: any ProjectRuntimeSettingsStoring
     private let localToolDiscovery: any RuntimeToolDiscovery
     private var toolDiscovery: any RuntimeToolDiscovery
     private let workspaceRuntime: ((URL) -> (any RuntimeLocator, any RuntimeToolDiscovery)?)?
@@ -95,7 +91,7 @@ final class ProjectRuntimeService: ObservableObject {
 
     init(
         runtimeLocator: any RuntimeLocator,
-        store: any KeyValueStore,
+        settingsStore: any ProjectRuntimeSettingsStoring,
         toolDiscovery: (any RuntimeToolDiscovery)? = nil,
         javaSelector: any JavaRuntimeSelecting = RustCoreBridge(),
         workspaceRuntime: ((URL) -> (any RuntimeLocator, any RuntimeToolDiscovery)?)? = nil
@@ -103,7 +99,7 @@ final class ProjectRuntimeService: ObservableObject {
         self.javaSelector = javaSelector
         self.runtimeLocator = runtimeLocator
         self.localRuntimeLocator = runtimeLocator
-        self.store = store
+        self.settingsStore = settingsStore
         self.toolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
         self.localToolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
         self.workspaceRuntime = workspaceRuntime
@@ -127,7 +123,9 @@ final class ProjectRuntimeService: ObservableObject {
         mavenRuntimes = []
         discoveredProjectURL = nil
         launchJavaRuntimes = nil
-        settings = loadSettings(for: normalizedURL)
+        settings = ProjectRuntimeSettings()
+        settingsSnapshot = nil
+        reloadSettings(migrateLegacy: true)
         javaEnvironmentReport = .checking(for: normalizedURL)
         javaLanguageServerRuntimePreparation = .unprepared
         discoveryTask = nil
@@ -147,6 +145,8 @@ final class ProjectRuntimeService: ObservableObject {
         discoveredProjectURL = nil
         launchJavaRuntimes = nil
         settings = ProjectRuntimeSettings()
+        settingsSnapshot = nil
+        if settingsError != nil { settingsError = nil }
         javaEnvironmentReport = nil
         isDiscovering = false
         activeServiceJavaHomePath = ""
@@ -236,6 +236,7 @@ final class ProjectRuntimeService: ObservableObject {
         overridePath: String?,
         detected: () -> [JavaRuntimeCandidate]?
     ) -> RuntimeChoice? {
+        guard reloadSettings() else { return .unavailable(settingsError ?? "") }
         if let overridePath {
             let normalizedPath = normalizedOverridePath(overridePath)
             if !normalizedPath.isEmpty {
@@ -402,6 +403,7 @@ final class ProjectRuntimeService: ObservableObject {
         overridePath: String?,
         detected: () -> [JavaRuntimeCandidate]?
     ) -> RuntimeChoice? {
+        guard reloadSettings() else { return .unavailable(settingsError ?? "") }
         if let overridePath {
             let normalizedPath = normalizedOverridePath(overridePath)
             if !normalizedPath.isEmpty {
@@ -550,10 +552,6 @@ final class ProjectRuntimeService: ObservableObject {
         return runtimeLocator.isExecutable(at: url) ? url : nil
     }
 
-    package func mavenExecutable(for project: MavenProject, overridePath: String? = nil) -> URL? {
-        mavenExecutable(at: project.rootURL, overridePath: overridePath)
-    }
-
     func mavenExecutable(at rootURL: URL, overridePath: String? = nil) -> URL? {
         chooseMavenExecutable(at: rootURL, overridePath: overridePath).url
     }
@@ -561,7 +559,8 @@ final class ProjectRuntimeService: ObservableObject {
     /// The Maven selection chain behind launches and Settings: an explicit
     /// path, then the project `mvnw`, then the system Maven.
     func chooseMavenExecutable(at rootURL: URL, overridePath: String? = nil) -> RuntimeChoice {
-        let configured = overridePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard reloadSettings() else { return .unavailable(settingsError ?? "") }
+        let configured = (overridePath ?? settings.mavenExecutableOverride).trimmingCharacters(in: .whitespacesAndNewlines)
         if !configured.isEmpty {
             let resolved = URL(fileURLWithPath: runtimeLocator.normalizedPath(configured, relativeTo: rootURL))
             let standardized = resolved.standardizedFileURL
@@ -602,20 +601,16 @@ final class ProjectRuntimeService: ObservableObject {
         return javaRuntimes.first { $0.homePath == home }
     }
 
-    func activeMavenRuntime(for project: MavenProject) -> MavenRuntimeCandidate? {
-        guard let executable = mavenExecutable(for: project)?.path else { return nil }
-        return mavenRuntimes.first { $0.executablePath == executable }
-    }
-
     func loadRunConfigurationToolchainCandidates(
-        for project: MavenProject?, projectRoot: URL? = nil,
+        projectRoot: URL? = nil,
         javaHomeOverride: String? = nil, mavenExecutableOverride: String? = nil
     ) async throws -> [ProjectToolchainCandidate] {
+        guard reloadSettings() else { throw RunConfigurationOperationFailure(message: settingsError ?? "") }
         let sessionID = runtimeSessionID
         let capturedSettings = settings
         let locator = runtimeLocator
         func checkCurrent() throws {
-            guard !Task.isCancelled, runtimeSessionID == sessionID, settings == capturedSettings else { throw CancellationError() }
+            guard reloadSettings(), !Task.isCancelled, runtimeSessionID == sessionID, settings == capturedSettings else { throw CancellationError() }
         }
         try checkCurrent()
         if chooseJavaHome(overridePath: javaHomeOverride, detected: {
@@ -629,13 +624,12 @@ final class ProjectRuntimeService: ObservableObject {
         }
         let javaHome = javaHomeURL(overridePath: javaHomeOverride)
         let explicitMaven = projectRoot.flatMap { mavenExecutable(at: $0, overridePath: mavenExecutableOverride) }
-        let knownMaven = project.flatMap(activeMavenRuntime)
         let fallbackMaven = projectRoot.flatMap { mavenExecutable(at: $0) }
         let probed: (JavaRuntimeCandidate?, MavenRuntimeCandidate?) = await Self.backgroundProbe { cancelled in
             guard !cancelled() else { return (nil, nil) }
             let java = javaHome.flatMap(locator.javaRuntime(at:))
             guard !cancelled() else { return (nil, nil) }
-            let maven = explicitMaven.flatMap(locator.mavenRuntime(at:)) ?? knownMaven
+            let maven = explicitMaven.flatMap(locator.mavenRuntime(at:))
             guard !cancelled() else { return (nil, nil) }
             return (java, maven ?? fallbackMaven.flatMap(locator.mavenRuntime(at:)))
         }
@@ -660,7 +654,6 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func runConfigurationToolchainCandidates(
-        for project: MavenProject?,
         projectRoot: URL? = nil,
         javaHomeOverride: String? = nil,
         mavenExecutableOverride: String? = nil
@@ -669,8 +662,7 @@ final class ProjectRuntimeService: ObservableObject {
         let maven = projectRoot.flatMap { root in
             mavenExecutable(at: root, overridePath: mavenExecutableOverride)
                 .flatMap(runtimeLocator.mavenRuntime(at:))
-        } ?? project.flatMap(activeMavenRuntime)
-            ?? projectRoot.flatMap { root in
+        } ?? projectRoot.flatMap { root in
                 mavenExecutable(at: root).flatMap(runtimeLocator.mavenRuntime(at:))
             }
         return Self.toolchainCandidates(java: java, maven: maven)
@@ -702,7 +694,8 @@ final class ProjectRuntimeService: ObservableObject {
         modulePath: String?,
         workingDirectory: String?
     ) -> RunOptions {
-        settings.overlay(
+        reloadSettings()
+        return settings.overlay(
             onto: options,
             workspaceRelativePath: ProjectRuntimeInventory.workspaceRelativePath(
                 modulePath: modulePath,
@@ -711,115 +704,57 @@ final class ProjectRuntimeService: ObservableObject {
         )
     }
 
-    func updateSettings(_ settings: ProjectRuntimeSettings) {
-        self.settings = settings
-        runtimeLocator.configureProbePaths([settings.javaHomePath, settings.mavenJavaHomePath, settings.mavenExecutableOverride])
-        persistSettings()
-        if usesWorkspaceRuntime {
-            discoveredProjectURL = nil
-            discoveryTask?.cancel()
-            discoveryTask = Task { [weak self] in await self?.performRuntimeRefresh() }
-            return
-        }
-        if !javaRuntimes.isEmpty {
-            refreshJavaEnvironmentReport(using: javaRuntimes)
-        }
-    }
-
-    /// Mirrors the project defaults saved in `.lithe/run/local.json`, which owns
-    /// them, so the language server and Maven processes use the JDK and Maven
-    /// that Run launches with. Other settings are left unchanged.
-    func adoptProjectToolchain(_ toolchain: ProjectToolchainSelection) {
-        var next = settings
-        next.javaHomePath = toolchain.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        next.mavenJavaHomePath = toolchain.mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let maven = toolchain.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Compare the effective executable so an equivalent spelling, or a custom
-        // path remembered behind the automatic choice, is not rewritten.
-        if next.mavenExecutableOverride != maven {
-            if maven.isEmpty {
-                next.mavenHomeSelection = .automatic
-            } else if Self.isMavenWrapper(maven) {
-                next.mavenHomeSelection = .wrapper
-            } else {
-                next.mavenHomeSelection = .custom
-                next.mavenHomePath = maven
+    /// An explicit Save action only. The adapter rejects a draft whose source
+    /// changed externally; failed saves leave the caller's draft intact.
+    @discardableResult
+    func updateSettings(_ draft: ProjectRuntimeSettings, expecting expected: ProjectRuntimeSettingsSnapshot? = nil) -> Bool {
+        guard let projectURL, let settingsSnapshot = expected ?? settingsSnapshot else { return false }
+        do {
+            let saved = try settingsStore.save(draft, at: projectURL, expecting: settingsSnapshot)
+            self.settingsSnapshot = saved
+            settings = saved.settings
+            if settingsError != nil { settingsError = nil }
+            runtimeLocator.configureProbePaths([settings.javaHomePath, settings.mavenJavaHomePath, settings.mavenExecutableOverride])
+            if usesWorkspaceRuntime {
+                discoveredProjectURL = nil
+                discoveryTask?.cancel()
+                discoveryTask = Task { [weak self] in await self?.performRuntimeRefresh() }
             }
-        }
-        if next != settings {
-            updateSettings(next)
-        }
-    }
-
-    private static func isMavenWrapper(_ path: String) -> Bool {
-        path == "mvnw" || path == "./mvnw" || path.hasSuffix("/mvnw")
-    }
-
-    func mergeImportedSettings(
-        toolchain: ProjectToolchainSelection?,
-        mavenSettingsPath: String?,
-        mavenLocalRepositoryPath: String?,
-        mavenExecutablePath: String?,
-        mavenJavaHomePath: String?
-    ) {
-        var next = settings
-        if next.javaHomePath.isEmpty {
-            next.javaHomePath = toolchain?.javaHomePath ?? ""
-        }
-        if next.mavenHomeSelection == .automatic, next.mavenHomePath.isEmpty,
-           let mavenExecutablePath, !mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let trimmed = mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
-            if Self.isMavenWrapper(trimmed) {
-                next.mavenHomeSelection = .wrapper
-            } else {
-                next.mavenHomeSelection = .custom
-                next.mavenHomePath = trimmed
-            }
-        }
-        if next.mavenJavaHomePath.isEmpty {
-            next.mavenJavaHomePath = mavenJavaHomePath?.trimmingCharacters(in: .whitespacesAndNewlines)
-                ?? toolchain?.mavenJavaHomePath
-                ?? ""
-        }
-        if next.mavenSettingsPath.isEmpty {
-            next.mavenSettingsPath = mavenSettingsPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        }
-        if next.mavenLocalRepositoryPath.isEmpty {
-            next.mavenLocalRepositoryPath = mavenLocalRepositoryPath?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        }
-        if next != settings {
-            updateSettings(next)
+            if !javaRuntimes.isEmpty { refreshJavaEnvironmentReport(using: javaRuntimes) }
+            return true
+        } catch {
+            if settingsError != error.localizedDescription { settingsError = error.localizedDescription }
+            return false
         }
     }
 
-    /// Records the JDK a new project was created with, before the project
-    /// opens, so its first language-server start and run use it. A project
-    /// that already has saved settings keeps them.
-    func presetJavaHome(_ path: String, for projectURL: URL) {
-        let key = Self.settingsKey(for: projectURL.standardizedFileURL)
-        guard store.data(forKey: key) == nil,
-              let data = try? JSONEncoder().encode(ProjectRuntimeSettings(javaHomePath: path)) else { return }
-        store.set(data, forKey: key)
-    }
-
-    private func loadSettings(for projectURL: URL) -> ProjectRuntimeSettings {
-        guard let data = store.data(forKey: Self.settingsKey(for: projectURL)),
-              let decoded = try? JSONDecoder().decode(ProjectRuntimeSettings.self, from: data) else {
-            return ProjectRuntimeSettings()
+    /// Selection reads use the same current local document as Run. This is a
+    /// read-only refresh; observing settings never writes defaults or migrates.
+    @discardableResult
+    func reloadSettings(migrateLegacy: Bool = false) -> Bool {
+        guard let projectURL else { return true }
+        do {
+            let loaded = try settingsStore.load(at: projectURL, migrateLegacy: migrateLegacy)
+            settingsSnapshot = loaded
+            if settings != loaded.settings { settings = loaded.settings }
+            if settingsError != nil { settingsError = nil }
+            return true
+        } catch {
+            settingsSnapshot = nil
+            settings = ProjectRuntimeSettings()
+            if settingsError != error.localizedDescription { settingsError = error.localizedDescription }
+            return false
         }
-        return decoded
     }
 
-    private func persistSettings() {
-        guard let projectURL,
-              let data = try? JSONEncoder().encode(settings) else { return }
-        store.set(data, forKey: Self.settingsKey(for: projectURL))
-    }
-
-    private static func settingsKey(for projectURL: URL) -> String {
-        "lithe.project-runtime-settings."
-            + projectURL.standardizedFileURL.path.replacingOccurrences(of: "/", with: "_")
+    /// Project creation is an explicit write, before the project is opened.
+    /// Existing defaults, including an explicitly automatic choice, win.
+    func presetJavaHome(_ path: String, for projectURL: URL) throws {
+        let snapshot = try settingsStore.load(at: projectURL, migrateLegacy: true)
+        guard !snapshot.hasSavedToolchain else { return }
+        var draft = snapshot.settings
+        draft.javaHomePath = path
+        _ = try settingsStore.save(draft, at: projectURL, expecting: snapshot)
     }
 
     private func normalizedOverridePath(_ path: String) -> String {

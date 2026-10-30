@@ -20,7 +20,13 @@ impl ServerHandler for Ide {
         _: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let tools = catalog::tools()
+        let bytes = std::fs::read(&self.connection).map_err(|_| {
+            ErrorData::internal_error("The authorized IDE connection is unavailable", None)
+        })?;
+        let connection: Connection = serde_json::from_slice(&bytes)
+            .map_err(|_| ErrorData::internal_error("Invalid IDE connection descriptor", None))?;
+        let tools = catalog::exposed_tools(&connection.tool_exposure)
+            .map_err(|_| ErrorData::internal_error("Invalid IDE capability declaration", None))?
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<Vec<Tool>, _>>()
