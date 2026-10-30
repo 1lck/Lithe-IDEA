@@ -273,10 +273,19 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     /// Flushes accumulated workspace and Git events after the outermost Git operation.
-    package func endGitOperationFreeze() async {
+    package func endGitOperationFreeze(waitForRefresh: Bool = true) async {
         guard gitOperationFreezeDepth > 0 else { return }
         gitOperationFreezeDepth -= 1
         guard gitOperationFreezeDepth == 0, let workspaceURL else { return }
+
+        // Local Git mutations already publish their confirmed status. Project
+        // services and unrelated repository scans must not hold the action open.
+        if !waitForRefresh {
+            if pendingWatchRootsChanged || pendingFullRescan { scheduleRecovery() }
+            else if !pendingExternalPaths.isEmpty { schedulePendingExternalRefresh() }
+            else if pendingGitRefresh { scheduleGitRefresh() }
+            return
+        }
 
         if pendingWatchRootsChanged || pendingFullRescan {
             await applyPendingRecovery(at: workspaceURL)

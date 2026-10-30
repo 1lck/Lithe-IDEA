@@ -989,6 +989,7 @@
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "Could not read the selected built-in background." = "Could not read the selected built-in background.";
 "Could not read this file" = "Could not read this file";
+"Could not refresh Git status. Refresh to verify the changes." = "Could not refresh Git status. Refresh to verify the changes.";
 "Could not register Lithe MCP in %@: %@" = "Could not register Lithe MCP in %@: %@";
 "Could not remove Lithe MCP from %@: %@" = "Could not remove Lithe MCP from %@: %@";
 "Could not restore local history" = "Could not restore local history";
@@ -4638,6 +4639,7 @@
 "git.rollback.success" = "Rolled back %1$@";
 "git.rollback.title" = "Rollback Changes";
 "git.rollback.warning" = "Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe.";
+"git.status.refreshFailed" = "Could not refresh Git status. Refresh to verify the changes.";
 "git.unifiedView" = "Unified view";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "just now" = "just now";

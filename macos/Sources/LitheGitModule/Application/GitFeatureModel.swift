@@ -145,7 +145,8 @@ package final class GitFeatureModel: ObservableObject {
         didSet {
             gitWorktreeInspectionVersion = Self.nextGitWorktreeInspectionVersion()
             if let inspection = gitWorktreeInspection, inspection.hasLoadedChanges,
-               let scoped = worktreeCommitFeatures[URL(fileURLWithPath: inspection.worktreeID).standardizedFileURL] {
+               let scoped = worktreeCommitFeatures[URL(fileURLWithPath: inspection.worktreeID).standardizedFileURL],
+               scoped.gitChanges.filter({ !scoped.isListedUntrackedContent($0) }) != inspection.changes {
                 scoped.gitChanges = inspection.changes
                 scoped.rememberChangelistRenames()
             }
@@ -463,6 +464,8 @@ package final class GitFeatureModel: ObservableObject {
     private var activeRefreshRequestIDs: Set<UInt64> = []
     private var completedRefreshRequestID: UInt64 = 0
     private var refreshCompletionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var changeRefreshRevision: UInt64 = 0
+    private var repositoryChangeRefreshes: [URL: UUID] = [:]
     private var isLoadingInitialGitConsoleEntry = false
     private var hasLoadedInitialGitConsoleEntry = false
     private var gitConsoleRepositoryGeneration: UInt64 = 0
@@ -591,10 +594,8 @@ package final class GitFeatureModel: ObservableObject {
             })
         scoped.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
             notify: { [weak self] in self?.notify?($0) }, onStateRefreshed: { [weak self] in
-                guard let self else { return }
-                if self.gitWorktreeInspection?.worktreeID == worktree.id {
-                    await self.refreshWorktreeChanges(worktree)
-                }
+                guard let self, let scoped = self.worktreeCommitFeatures[root] else { return }
+                self.updateWorktreeInspection(scoped.gitChanges.filter { !scoped.isListedUntrackedContent($0) }, at: root)
             })
         scoped.worktreeOperationHost = self
         if changelistWorkspace == root {
@@ -668,6 +669,8 @@ package final class GitFeatureModel: ObservableObject {
         gitChanges = []
         expandedUntrackedDirectoryIDs = []
         pendingStagingStates = [:]
+        changeRefreshRevision &+= 1
+        repositoryChangeRefreshes = [:]
         gitStashes = []
         gitShelves = []
         gitWorktrees = []
@@ -707,7 +710,7 @@ package final class GitFeatureModel: ObservableObject {
         diffHunks = []
         gitDiffWhitespaceMode = .doNotIgnore
         isLoadingDiff = false
-        isRefreshingGit = false
+        finishCurrentGitRefresh()
         pendingDiscardChange = nil
         pendingRollbackSelection = nil
         isRollingBackChanges = false
@@ -778,9 +781,10 @@ package final class GitFeatureModel: ObservableObject {
         _ requestID: UInt64,
         workspaceURLProvider: @MainActor () -> URL?
     ) async {
+        let generation = workspaceCommitGeneration
         if isRefreshingGit {
             await waitForCurrentGitRefresh()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, workspaceCommitGeneration == generation else { return }
             if completedRefreshRequestID < requestID {
                 await fulfillGitRefreshRequest(requestID, workspaceURLProvider: workspaceURLProvider)
             }
@@ -793,15 +797,20 @@ package final class GitFeatureModel: ObservableObject {
         }
 
         isRefreshingGit = true
-        defer { finishCurrentGitRefresh() }
-        repeat {
-            guard !Task.isCancelled else { return }
+        defer { if workspaceCommitGeneration == generation { finishCurrentGitRefresh() } }
+        while true {
+            guard !Task.isCancelled, workspaceCommitGeneration == generation else { return }
             let processingRequestID = activeRefreshRequestIDs.max() ?? requestID
+            let revision = changeRefreshRevision
             await refreshGitState(at: workspaceURL)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, workspaceCommitGeneration == generation else { return }
+            guard workspaceURLProvider() == workspaceURL else { return }
+            // A mutation may publish newer status while this workspace-wide read
+            // waits on another repository. Never overwrite it with that old read.
+            if revision != changeRefreshRevision { continue }
             completedRefreshRequestID = max(completedRefreshRequestID, processingRequestID)
-        } while activeRefreshRequestIDs.contains(where: { $0 > completedRefreshRequestID })
-            && workspaceURLProvider() == workspaceURL
+            if !activeRefreshRequestIDs.contains(where: { $0 > completedRefreshRequestID }) { break }
+        }
     }
 
     private func waitForCurrentGitRefresh() async {
@@ -836,10 +845,12 @@ package final class GitFeatureModel: ObservableObject {
 
     private func refreshGitState(at workspaceURL: URL) async {
         guard !Task.isCancelled else { return }
+        let revision = changeRefreshRevision
         var didChange = false
         var historyContextChanged = false
         let repositoryRoots = await repositoryRootsProvider(workspaceURL)
-        guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
+        guard !Task.isCancelled, revision == changeRefreshRevision,
+              workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         if availableRepositoryRoots != repositoryRoots {
             availableRepositoryRoots = repositoryRoots
             didChange = true
@@ -850,11 +861,14 @@ package final class GitFeatureModel: ObservableObject {
             requestedRepositoryReference = nil
         }
         let observation = await workspaceSnapshot(workspaceURL: workspaceURL, repositoryRoots: repositoryRoots)
+        guard !Task.isCancelled, revision == changeRefreshRevision,
+              workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         if let observation {
             let snapshot = observation.snapshot
             guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
-            let changes = await listingExpandedUntrackedDirectories(in: snapshot.changes)
-            guard !Task.isCancelled else { return }
+            let changes = await listingExpandedUntrackedDirectories(in: snapshot.changes,
+                isCurrent: { revision == self.changeRefreshRevision })
+            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
             loadChangelistsIfNeeded()
             let changesChanged = gitChanges != changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
@@ -914,25 +928,25 @@ package final class GitFeatureModel: ObservableObject {
                 didChange = didChange || previousFilter != gitConflictFilterPaths
             }
             let stashes = await stashesProvider(snapshot.repositoryRoot)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
             if gitStashes != stashes {
                 gitStashes = stashes
                 didChange = true
             }
             let shelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
             if gitShelves != shelves {
                 gitShelves = shelves
                 didChange = true
             }
             let operationState = await operationStateProvider(snapshot.repositoryRoot)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
             if gitOperationState != operationState {
                 gitOperationState = operationState
                 didChange = true
             }
             await interactiveRebase.refreshSession(at: snapshot.repositoryRoot)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, revision == changeRefreshRevision else { return }
             if let gitOperationState, deferredSavedChanges == nil,
                let stash = gitStashes.first(where: { $0.message.contains("Lithe auto-stash before") }) {
                 deferredSavedChanges = GitDeferredSavedChanges(
@@ -942,10 +956,11 @@ package final class GitFeatureModel: ObservableObject {
             }
 
             for session in allDiffSessions where session.selectedChange != nil {
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
                 await refreshWorkingDiff(
                     session, changes: changes, confirmedRoots: observation.successfullyReadRepositoryRoots
                 )
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, revision == changeRefreshRevision else { return }
             }
         } else {
             if gitRepositoryRoot != nil {
@@ -1032,11 +1047,17 @@ package final class GitFeatureModel: ObservableObject {
     /// so the result is rebuilt from the current expansions until none changed
     /// during a pass. Listings already read are reused, so a pass without new
     /// expansions does not suspend and the loop ends.
-    private func listingExpandedUntrackedDirectories(in changes: [GitChange]) async -> [GitChange] {
+    private func listingExpandedUntrackedDirectories(
+        in changes: [GitChange], confirmedRoots: Set<URL>? = nil, isCurrent: () -> Bool = { true }
+    ) async -> [GitChange] {
         var listings: [GitChange.ID: [GitChange]] = [:]
         // Only expansions this read was asked for can be confirmed gone; one
         // made meanwhile may come from a newer status than `changes`.
-        let checked = expandedUntrackedDirectoryIDs
+        let checked = confirmedRoots.map { roots in
+            expandedUntrackedDirectoryIDs.intersection(gitChanges.filter {
+                roots.contains($0.repositoryRoot.standardizedFileURL)
+            }.map(\.id))
+        } ?? expandedUntrackedDirectoryIDs
         while true {
             let requested = expandedUntrackedDirectoryIDs
             guard !requested.isEmpty else { return changes }
@@ -1056,6 +1077,7 @@ package final class GitFeatureModel: ObservableObject {
                     result.insert(contentsOf: children, at: index)
                 }
             }
+            guard !Task.isCancelled, isCurrent() else { return changes }
             guard expandedUntrackedDirectoryIDs == requested else { continue }
             // Forget expansions whose summary is gone.
             let present = Set(result.map(\.id))
@@ -1142,6 +1164,7 @@ package final class GitFeatureModel: ObservableObject {
         _ session: GitRepositoryDiffSession, changes: [GitChange], confirmedRoots: Set<URL>
     ) async {
         guard let previous = session.selectedChange, !session.isClosed else { return }
+        let revision = changeRefreshRevision
         if let directory = session.directoryURL {
             await showDirectoryDiff(at: directory, session: session, refreshingConfirmedRoots: confirmedRoots)
             return
@@ -1156,7 +1179,8 @@ package final class GitFeatureModel: ObservableObject {
         let generation = UUID()
         session.repositoryDiffGeneration = generation
         let document = await diffDocumentProvider(updated, session.gitDiffWhitespaceMode)
-        guard session.repositoryDiffGeneration == generation, !session.isClosed, !Task.isCancelled else { return }
+        guard session.repositoryDiffGeneration == generation, revision == changeRefreshRevision,
+              !session.isClosed, !Task.isCancelled else { return }
         if session.selectedChange != updated { session.selectedChange = updated }
         session.updateDocument(patch: document.patch, rows: document.rows, hunks: document.hunks)
         if session.isLoadingDiff { session.isLoadingDiff = false }
@@ -1198,6 +1222,7 @@ package final class GitFeatureModel: ObservableObject {
         refreshingConfirmedRoots: Set<URL>? = nil
     ) async {
         let session = session ?? activeRepositoryDiffSession
+        let revision = changeRefreshRevision
         let directoryPath = directoryURL.standardizedFileURL.path
         guard let repositoryRoot = (availableRepositoryRoots.isEmpty
             ? [gitRepositoryRoot].compactMap { $0 } : availableRepositoryRoots)
@@ -1259,6 +1284,7 @@ package final class GitFeatureModel: ObservableObject {
             // A refresh has nothing to show for a cancelled read; a first load
             // still resolves its loading state below.
             if refreshing, Task.isCancelled { return }
+            guard revision == changeRefreshRevision else { return }
         }
         guard session.repositoryDiffGeneration == generation, !session.isClosed else { return }
         if session.selectedChange != summary { session.selectedChange = summary }
@@ -1340,12 +1366,18 @@ package final class GitFeatureModel: ObservableObject {
 
     func withGitOperation<T: Sendable>(
         title: String? = nil, plannedArguments: [String]? = nil,
+        afterOperation: (@MainActor () async -> Void)? = nil,
         _ operation: () async -> T
     ) async -> T {
         if let worktreeOperationHost {
-            return await worktreeOperationHost.withGitOperation(title: title, plannedArguments: plannedArguments, operation)
+            return await worktreeOperationHost.withGitOperation(title: title, plannedArguments: plannedArguments,
+                afterOperation: afterOperation, operation)
         }
-        if GitExecutionContext.current != nil { return await operation() }
+        if GitExecutionContext.current != nil {
+            let result = await operation()
+            await afterOperation?()
+            return result
+        }
         let lease = acquireModuleLease?("Git operation in progress")
         defer { lease?.release() }
         let root = gitRepositoryRoot
@@ -1422,8 +1454,47 @@ package final class GitFeatureModel: ObservableObject {
             }
             trimGitConsole()
         }
+        await afterOperation?()
         await onGitOperationEnded?()
         return result
+    }
+
+    /// Confirm this operation's status before releasing queued filesystem events.
+    /// The read is outside the user command context and does not rediscover or
+    /// wait for unrelated repositories, stashes, history or project services.
+    private func withGitChangeOperation<T: Sendable>(
+        _ changes: [GitChange], onWorktreeSettled: @escaping @MainActor () -> Void = {},
+        _ operation: () async -> T
+    ) async -> T {
+        let generation = workspaceCommitGeneration
+        let workspace = workspaceURLProvider?()?.standardizedFileURL
+        let hostGeneration = worktreeOperationHost?.workspaceCommitGeneration
+        let requests = Dictionary(uniqueKeysWithValues: Set(changes.map { $0.repositoryRoot.standardizedFileURL }).map { ($0, UUID()) })
+        invalidateChangeReads(requests)
+        worktreeOperationHost?.invalidateChangeReads(requests)
+        return await withGitOperation(afterOperation: {
+            guard self.workspaceCommitGeneration == generation,
+                  self.workspaceURLProvider?()?.standardizedFileURL == workspace,
+                  self.worktreeOperationHost?.workspaceCommitGeneration == hostGeneration else { return }
+            // Completion order, not dispatch order, owns the next status read.
+            // A slower earlier command must still publish its final disk state.
+            let completedRequests = requests.mapValues { _ in UUID() }
+            self.invalidateChangeReads(completedRequests)
+            self.worktreeOperationHost?.invalidateChangeReads(completedRequests)
+            await self.refreshAfterChangeMutation(requests: completedRequests, onWorktreeSettled: onWorktreeSettled)
+        }, operation)
+    }
+
+    private func invalidateChangeReads(_ requests: [URL: UUID]) {
+        changeRefreshRevision &+= 1
+        for (root, request) in requests {
+            repositoryChangeRefreshes[root] = request
+            worktreeCommitFeatures[root]?.invalidateChangeReads([root: request])
+        }
+        if let inspection = gitWorktreeInspection, requests.keys.contains(where: { $0.path == inspection.worktreeID }) {
+            worktreeChangesRequestGeneration &+= 1
+            isRefreshingWorktreeChanges = false
+        }
     }
 
     private func recordingGitCommand(
@@ -1606,9 +1677,8 @@ package final class GitFeatureModel: ObservableObject {
 
     package func stageChange(_ selectedChange: GitChange) async {
         guard !isCommitting, !isWorktreeCommitBlocked, selectedChange.canToggleStaging else { return }
-        let result = await withGitOperation { await service.stage(selectedChange) }
+        let result = await withGitChangeOperation([selectedChange]) { await service.stage(selectedChange) }
         showResult(result, success: "Staged \(selectedChange.path)")
-        await refreshAfterChangeMutation([selectedChange])
     }
 
     package func unstageSelectedChange() async {
@@ -1618,23 +1688,20 @@ package final class GitFeatureModel: ObservableObject {
 
     package func unstageChange(_ selectedChange: GitChange) async {
         guard !isCommitting, !isWorktreeCommitBlocked else { return }
-        let result = await withGitOperation { await service.unstage(selectedChange) }
+        let result = await withGitChangeOperation([selectedChange]) { await service.unstage(selectedChange) }
         showResult(result, success: "Unstaged \(selectedChange.path)")
-        await refreshAfterChangeMutation([selectedChange])
     }
 
     package func stageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
         guard !isCommitting, !isWorktreeCommitBlocked else { return }
-        let result = await withGitOperation { await service.stage(hunk: hunk, of: change) }
+        let result = await withGitChangeOperation([change]) { await service.stage(hunk: hunk, of: change) }
         showResult(result, success: "Staged a change block in \(change.path)")
-        await refreshAfterChangeMutation([change])
     }
 
     package func unstageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
         guard !isCommitting, !isWorktreeCommitBlocked else { return }
-        let result = await withGitOperation { await service.unstage(hunk: hunk, of: change) }
+        let result = await withGitChangeOperation([change]) { await service.unstage(hunk: hunk, of: change) }
         showResult(result, success: "Unstaged a change block in \(change.path)")
-        await refreshAfterChangeMutation([change])
     }
 
     package func requestDiscardHunk(_ hunk: DiffHunk, in change: GitChange) {
@@ -1644,11 +1711,10 @@ package final class GitFeatureModel: ObservableObject {
     // Receive the confirmed value before SwiftUI dismisses and clears the dialog binding.
     package func confirmDiscardHunk(_ request: DiffHunkRequest) async {
         pendingDiscardHunk = nil
-        let result = await withGitOperation {
+        let result = await withGitChangeOperation([request.change]) {
             await service.discard(hunk: request.hunk, of: request.change)
         }
         showResult(result, success: "Discarded a change block in \(request.change.path)")
-        await refreshAfterChangeMutation([request.change])
     }
 
     package func cancelDiscardHunk() {
@@ -1677,7 +1743,7 @@ package final class GitFeatureModel: ObservableObject {
     package func discardChanges(_ changes: [GitChange]) async {
         let changes = coveringUntrackedDirectoryContents(changes)
         guard !changes.isEmpty else { return }
-        _ = await withGitOperation {
+        _ = await withGitChangeOperation(changes) {
             var results: [GitService.CommandResult] = []
             for change in changes {
                 guard !Task.isCancelled else { break }
@@ -1689,7 +1755,6 @@ package final class GitFeatureModel: ObservableObject {
             }
             return results
         }
-        await refreshAfterChangeMutation(changes)
     }
 
     package func cancelDiscardChange() {
@@ -1738,14 +1803,18 @@ package final class GitFeatureModel: ObservableObject {
             rollbackContextID == contextID && workspace == workspaceURLProvider?()?.standardizedFileURL && !Task.isCancelled
                 && GitExecutionContext.current?.isCancellationRequested != true
         }
-        _ = await withGitOperation {
+        _ = await withGitChangeOperation(changes, onWorktreeSettled: {
+            if self.activeRollbackID == contextID { self.activeRollbackID = nil; self.isRollingBackChanges = false }
+        }) {
             var results: [GitService.CommandResult] = []
             for change in changes {
                 guard isCurrent() else { break }
                 let target = GitRollbackSelection.operationTarget(change)
                 let result: GitService.CommandResult
-                // Intent-to-add has no staged content, but still owns an index entry.
-                if change.isStaged || (change.workTreeStatus == "A" && !change.isConflicted) {
+                // Tracked paths are restored in one Core operation. Only new
+                // paths need unstaging first (including intent-to-add entries).
+                if GitRollbackSelection.isAddition(change),
+                   change.isStaged || (change.workTreeStatus == "A" && !change.isConflicted) {
                     let unstaged = await recordingGitCommand { await service.unstage(target) }
                     results.append(unstaged)
                     guard isCurrent() else { break }
@@ -1766,8 +1835,6 @@ package final class GitFeatureModel: ObservableObject {
             }
             return results
         }
-        guard isCurrent() else { return }
-        await refreshAfterChangeMutation(changes)
     }
 
     package func requestConflictRollback(path: String, resume: GitConflictResume) {
@@ -1885,7 +1952,7 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func finishToggleStaging(_ change: GitChange, staged: Bool) async {
-        let result = await withGitOperation {
+        let result = await withGitChangeOperation([change]) {
             staged
                 ? await service.stage(change)
                 : await service.unstage(change)
@@ -1895,7 +1962,6 @@ package final class GitFeatureModel: ObservableObject {
         if !result.succeeded {
             pendingStagingStates.removeValue(forKey: change.id)
         }
-        await refreshAfterChangeMutation([change])
     }
 
     package func finishSetStaging(_ pendingChanges: [GitChange], staged: Bool) async {
@@ -1904,7 +1970,7 @@ package final class GitFeatureModel: ObservableObject {
         var completedChangeIDs = Set<GitChange.ID>()
         var failedChange: GitChange?
         var failedResult: GitService.CommandResult?
-        await withGitOperation {
+        await withGitChangeOperation(pendingChanges) {
             for change in pendingChanges {
                 let result = await recordingGitCommand {
                     staged
@@ -1929,7 +1995,6 @@ package final class GitFeatureModel: ObservableObject {
         for change in pendingChanges where !completedChangeIDs.contains(change.id) {
             pendingStagingStates.removeValue(forKey: change.id)
         }
-        await refreshAfterChangeMutation(pendingChanges)
     }
 
     package func stageAllChanges() async {
@@ -1964,7 +2029,35 @@ package final class GitFeatureModel: ObservableObject {
                 return false
             }
         }
-        return await action()
+        func isCurrent() -> Bool {
+            generation == workspaceCommitGeneration && workspace == workspaceURLProvider?()?.standardizedFileURL
+                && !Task.isCancelled && GitExecutionContext.current?.isCancellationRequested != true
+        }
+        return await withGitChangeOperation(changes) {
+            let deleted = await action()
+            guard isCurrent() else { return false }
+            // Trash does not change the index. Clear only selected additions
+            // that Git confirms are now missing, even after a partial failure.
+            // Tracked deletions and unrelated/retained index content must remain.
+            for root in Set(changes.filter(GitRollbackSelection.isAddition).map(\.repositoryRoot)).sorted(by: { $0.path < $1.path }) {
+                let snapshot = await snapshotProvider(root, availableRepositoryRoots)
+                guard isCurrent() else { return false }
+                guard let snapshot, snapshot.repositoryRoot.standardizedFileURL == root.standardizedFileURL else {
+                    notify?(L10n.string("Could not refresh Git status. Refresh to verify the changes."))
+                    return false
+                }
+                for change in changes where change.repositoryRoot == root && GitRollbackSelection.isAddition(change) {
+                    guard let missing = snapshot.changes.first(where: {
+                        $0.path == change.path && $0.workTreeStatus == "D" && GitRollbackSelection.isAddition($0)
+                    }) else { continue }
+                    guard isCurrent() else { return false }
+                    let result = await recordingGitCommand { await service.unstage(GitRollbackSelection.operationTarget(missing)) }
+                    guard isCurrent() else { return false }
+                    if !result.succeeded { notify?(trimmedMessage(result)); return false }
+                }
+            }
+            return deleted
+        }
     }
 
     /// Prepare the real index, not a second UI selection. Already staged hunks
@@ -1985,7 +2078,7 @@ package final class GitFeatureModel: ObservableObject {
             workspaceCommitGeneration == generation && workspaceURLProvider?()?.standardizedFileURL == workspace
                 && !Task.isCancelled && GitExecutionContext.current?.isCancellationRequested != true
         }
-        let succeeded = await withGitOperation {
+        let succeeded = await withGitChangeOperation(excluded + changes) {
             var seen: Set<String> = []
             for (targets, staged) in [(excluded, false), (included, true)] {
                 seen = []
@@ -2005,7 +2098,6 @@ package final class GitFeatureModel: ObservableObject {
             return isCurrent()
         }
         guard isCurrent() else { return false }
-        await refreshAfterChangeMutation(excluded + included)
         guard isCurrent(), succeeded else { return false }
         let staged = gitChanges.filter(\.isStaged)
         func matches(_ current: GitChange, _ selected: GitChange) -> Bool {
@@ -3055,7 +3147,7 @@ package final class GitFeatureModel: ObservableObject {
             }
         }
         defer { settle() }
-        await withGitOperation {
+        await withGitChangeOperation(targets, onWorktreeSettled: settle) {
             for change in targets {
                 guard !Task.isCancelled, gitRepositoryRoot == repositoryRoot,
                       worktreeChangesMutationID == mutationID else { break }
@@ -3074,23 +3166,110 @@ package final class GitFeatureModel: ObservableObject {
                 }
             }
         }
-        guard gitRepositoryRoot == repositoryRoot, worktreeChangesMutationID == mutationID,
-              !Task.isCancelled else { return }
-        // The rows are settled once this worktree's status is read. The project-wide refresh
-        // that follows must not keep the checkboxes busy.
-        await refreshAfterChangeMutation(targets, onWorktreeSettled: settle)
     }
 
-    private func refreshAfterChangeMutation(_ changes: [GitChange], onWorktreeSettled: () -> Void = {}) async {
-        let root = gitRepositoryRoot
-        if let inspection = gitWorktreeInspection,
-           let worktree = gitWorktrees.first(where: { $0.id == inspection.worktreeID }),
-           changes.contains(where: { $0.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL }) {
-            await refreshWorktreeChanges(worktree, clearingError: false)
+    private func refreshAfterChangeMutation(requests: [URL: UUID], onWorktreeSettled: () -> Void = {}) async {
+        let generation = workspaceCommitGeneration
+        let workspace = workspaceURLProvider?()?.standardizedFileURL
+        let roots = requests.keys.sorted { $0.path < $1.path }
+        var confirmed: Set<URL> = []
+        var confirmedChanges: [GitChange] = []
+        for root in roots {
+            guard !Task.isCancelled, workspaceCommitGeneration == generation,
+                  let request = requests[root], repositoryChangeRefreshes[root] == request else { continue }
+            let snapshot = availableRepositoryRoots.contains(root) || gitRepositoryRoot == root
+                ? await snapshotProvider(root, availableRepositoryRoots)
+                : await worktreeSnapshot(for: root)
+            guard !Task.isCancelled, workspaceCommitGeneration == generation,
+                  workspaceURLProvider?()?.standardizedFileURL == workspace else { return }
+            // A newer read for this root does not confirm the other roots in
+            // the batch. They still need their own post-command status.
+            guard repositoryChangeRefreshes[root] == request else { continue }
+            guard let snapshot, snapshot.repositoryRoot.standardizedFileURL == root else {
+                let message = L10n.string("Could not refresh Git status. Refresh to verify the changes.")
+                if gitWorktreeInspection?.worktreeID == root.path { worktreeChangesError = message }
+                notify?(message)
+                continue
+            }
+            guard await publishMutationSnapshot(snapshot, request: request) else { continue }
+            confirmed.insert(root)
+            confirmedChanges.append(contentsOf: snapshot.changes)
+            if let host = worktreeOperationHost { _ = await host.publishMutationSnapshot(snapshot, request: request) }
         }
         onWorktreeSettled()
-        guard gitRepositoryRoot == root, !Task.isCancelled else { return }
-        await refreshGit()
+        guard !Task.isCancelled, workspaceCommitGeneration == generation else { return }
+        let currentRoots = confirmed.filter { repositoryChangeRefreshes[$0] == requests[$0] }
+        await refreshMutationDiffs(confirmedChanges, confirmedRoots: currentRoots)
+        guard !Task.isCancelled, workspaceCommitGeneration == generation else { return }
+        if let host = worktreeOperationHost {
+            let hostRoots = confirmed.filter { host.repositoryChangeRefreshes[$0] == requests[$0] }
+            await host.refreshMutationDiffs(confirmedChanges, confirmedRoots: hostRoots)
+        }
+        // Watcher events still update the project tree and metadata after the
+        // freeze ends, but the Commit rows already reflect this exact operation.
+        if worktreeOperationHost == nil { await onStateRefreshed?() }
+    }
+
+    @discardableResult
+    private func publishMutationSnapshot(_ snapshot: GitSnapshot, request: UUID? = nil) async -> Bool {
+        let root = snapshot.repositoryRoot.standardizedFileURL
+        let generation = workspaceCommitGeneration
+        if let scoped = worktreeCommitFeatures[root],
+           scoped.gitChanges.filter({ !scoped.isListedUntrackedContent($0) }) != snapshot.changes {
+            guard await scoped.publishMutationSnapshot(snapshot, request: request),
+                  workspaceCommitGeneration == generation,
+                  request == nil || repositoryChangeRefreshes[root] == request else { return false }
+        }
+        // Finish the scoped model first: the host's expansion state can change
+        // while that model awaits its own directory listing.
+        let changes = await listingExpandedUntrackedDirectories(in: snapshot.changes, confirmedRoots: [root], isCurrent: {
+            self.workspaceCommitGeneration == generation && (request == nil || self.repositoryChangeRefreshes[root] == request)
+        })
+        guard !Task.isCancelled, workspaceCommitGeneration == generation,
+              request == nil || repositoryChangeRefreshes[root] == request else { return false }
+        changeRefreshRevision &+= 1
+        if availableRepositoryRoots.contains(root) || gitRepositoryRoot == root {
+            // Replace only the successfully read repository, keeping failed or
+            // unrelated roots and their pending checkbox state unchanged.
+            var merged: [GitChange] = []
+            var inserted = false
+            for change in gitChanges {
+                if change.repositoryRoot.standardizedFileURL == root {
+                    if !inserted { merged.append(contentsOf: changes); inserted = true }
+                } else { merged.append(change) }
+            }
+            if !inserted { merged.append(contentsOf: changes) }
+            if gitChanges != merged {
+                gitChanges = merged
+                rememberChangelistRenames()
+                gitLineChangeMarkers = [:]
+                lineChangeHunks = [:]
+            }
+            if gitRepositoryRoot == root, currentBranch != snapshot.branch { currentBranch = snapshot.branch }
+            if !gitConflictFilterPaths.isEmpty { gitConflictFilterPaths.formIntersection(Set(gitChanges.map(\.path))) }
+        }
+        updateWorktreeInspection(snapshot.changes, at: root, clearingError: false)
+        reconcilePendingStagingStates(with: changes, successfullyReadRepositoryRoots: [root])
+        return true
+    }
+
+    private func refreshMutationDiffs(_ changes: [GitChange], confirmedRoots: Set<URL>) async {
+        let revision = changeRefreshRevision
+        for session in allDiffSessions where session.selectedChange.map({ confirmedRoots.contains($0.repositoryRoot.standardizedFileURL) }) == true {
+            guard revision == changeRefreshRevision, !Task.isCancelled else { return }
+            await refreshWorkingDiff(session, changes: changes, confirmedRoots: confirmedRoots)
+        }
+    }
+
+    private func updateWorktreeInspection(_ changes: [GitChange], at root: URL, clearingError: Bool = true) {
+        guard let inspection = gitWorktreeInspection, inspection.worktreeID == root.path else { return }
+        worktreeChangesRequestGeneration &+= 1
+        isRefreshingWorktreeChanges = false
+        if !inspection.hasLoadedChanges || inspection.changes != changes {
+            gitWorktreeInspection = GitWorktreeInspection(worktreeID: inspection.worktreeID, changes: changes,
+                commits: inspection.commits, hasMoreCommits: inspection.hasMoreCommits)
+        }
+        if clearingError { worktreeChangesError = nil }
     }
 
     private func worktreeSnapshot(for root: URL) async -> GitSnapshot? {

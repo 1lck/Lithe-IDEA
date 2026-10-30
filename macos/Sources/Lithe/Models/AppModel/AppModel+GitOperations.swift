@@ -148,8 +148,7 @@ extension AppModel {
                 return await feature.deleteCommitFiles(changes) {
                     await deletion.trash(urls, root: root, isCurrent: isCurrent)
                 }
-            }, refresh: { [weak self, weak feature] in
-                await feature?.refreshGit()
+            }, refresh: { [weak self] in
                 await self?.workspaceFeature.refreshCurrent()
             })
     }

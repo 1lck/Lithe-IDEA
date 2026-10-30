@@ -989,6 +989,7 @@
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "Could not read the selected built-in background." = "无法读取所选的内置背景。";
 "Could not read this file" = "无法读取此文件";
+"Could not refresh Git status. Refresh to verify the changes." = "无法刷新 Git 状态。请刷新以确认更改结果。";
 "Could not register Lithe MCP in %@: %@" = "无法在 %@ 中注册 Lithe MCP：%@";
 "Could not remove Lithe MCP from %@: %@" = "无法从 %@ 中移除 Lithe MCP：%@";
 "Could not restore local history" = "无法恢复本地历史";
@@ -4638,6 +4639,7 @@
 "git.rollback.success" = "已回滚 %1$@";
 "git.rollback.title" = "回滚更改";
 "git.rollback.warning" = "将回滚勾选文件中已暂存和未暂存的更改。Lithe 无法撤销此操作。";
+"git.status.refreshFailed" = "无法刷新 Git 状态。请刷新以确认更改结果。";
 "git.unifiedView" = "统一视图";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "just now" = "刚刚";

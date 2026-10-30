@@ -91002,6 +91002,17 @@
       }
     },
     {
+      "id": "git.status.refreshFailed",
+      "description": "A local Git mutation could not confirm the updated status; keep the previous rows until retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not refresh Git status. Refresh to verify the changes.",
+        "arguments": []
+      }
+    },
+    {
       "id": "vcs.commitFiles.stagingChanged",
       "description": "macOS Commit file context actions, confirmations and validation.",
       "platforms": [

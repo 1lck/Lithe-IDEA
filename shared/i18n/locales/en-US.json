@@ -9534,7 +9534,8 @@
     "vcs.commitFiles.trashWarning": "These files will be moved to the macOS Trash.",
     "vcs.commitFiles.vcsDeleteWarning": "The version control provider will delete these files and record their removal. They may not be moved to Trash.",
     "vcs.commitFiles.ownershipChanged": "Some selected files belong to another version control root. Refresh and select them again.",
-    "vcs.commitFiles.stagingChanged": "The staged files changed. Review the checked files before committing."
+    "vcs.commitFiles.stagingChanged": "The staged files changed. Review the checked files before committing.",
+    "git.status.refreshFailed": "Could not refresh Git status. Refresh to verify the changes."
   },
   "overrides": {
     "windows": {

@@ -7,6 +7,7 @@
 macOS Commit 和 Worktrees 的文件右键菜单补齐提交文件、回滚、普通差异、新标签差异、删除与添加到 VCS。
 右键目标取被点击行及其所在多选集合，不把行高亮等同于提交复选框。
 插件提供的版本控制系统（VCS，例如 SVN）必须处理自己的添加和已跟踪文件删除；删除先显示明确范围的确认窗口，取消不改文件。
+Git 删除后先确认并发布对应仓库状态；已暂存的新文件还需要清除其残留索引记录，不能只移走磁盘文件。
 
 ## 问题
 
@@ -55,10 +56,23 @@ Git 提交准备见[工作区提交计划](2026-09-27-workspace-git-commit-plans
 每次原生废纸篓操作前重新检查，首错停止；成功后只关闭相应的干净文档并刷新。
 已跟踪的插件删除只派发一次确认批次，成功导致状态项消失不能反过来阻止清理干净文档。
 
+Git 的废纸篓操作不会改索引（Git 保存待提交内容的位置）。删除已暂存的新文件后，Git 仍会报告
+“暂存新增、磁盘已删除”，所以 Commit 会继续显示绿色行。删除动作完成后，仅对本次确认中的新增目标
+重新读取状态；只有 Git 确认它仍是新增且磁盘已删除，才取消暂存。复制只清除目标，不影响源文件的独立编辑。
+即使废纸篓批次中途失败，也对已经消失的新增目标做这一处理；保留未删除目标、普通跟踪文件的删除记录和无关索引内容。
+状态读取失败时保留现有行并报告需刷新确认，不能直接从界面隐藏文件来伪装成功。
+
+对应仓库的确认状态先更新 Commit、Worktrees 和已打开 Diff，再允许文件监听继续更新项目树与项目服务。
+不能把其他仓库扫描、历史或 Stash 刷新放在文件状态发布之前。具体异步顺序见
+[Git 执行与项目控制台](../architecture/2026-09-12-git-execution-and-project-console.md)。
+
 正确示例：在 SVN 未版本化列表多选 A、B 后添加，宿主向 SVN Provider 发送一次排序去重的 `.add`。
 不要这样做：把 A、B 传给 Git 暂存，或在 SVN 删除失败后用 `removeItem` 强行删掉文件。
 
 ## 考虑过的备选方案
+
+- 删除后直接隐藏所选行：不采用。已跟踪文件的删除仍是需要提交的真实变更，隐藏会让视图与 Git 不一致。
+- 删除整个批次后统一清空索引：不采用。会破坏普通文件的部分暂存以及未删除或无关文件的待提交内容。
 
 - 只补菜单文案：无法实现所承诺动作，尤其插件仍没有添加入口，不采用。
 - 统一用磁盘删除：破坏已跟踪文件的 VCS 语义，不采用；普通磁盘删除仅用于 Git 或未版本化文件的废纸篓流程。
@@ -80,7 +94,10 @@ Provider 自身负责服务器与工作副本的原子性，宿主不保证其�
   异步所有权过期、操作互斥与重置后的迟到结果；同文件的 `VcsProviderAppModelTests` 覆盖新标签请求生命周期。
 - `macos/Tests/LitheTests/CommitFileDeletionTests.swift`：取消、替换、同意重放、同步输入后脏/过期/取消/失败，
   Provider 批次、首错停止和干净文档清理；原生窗口 Escape/关闭及实际按钮分别验证取消和确认。
-- `macos/Tests/LitheTests/GitStatusObservationTests.swift`：真实 Git 仓库中的提交准备、废纸篓动作前新嵌套仓库保护。
+- `macos/Tests/LitheTests/GitStatusObservationTests.swift`：真实 Git 仓库中的提交准备、废纸篓动作前新嵌套仓库保护；
+  删除后清理缺失新增项、部分失败时保留未删除项、保留普通跟踪删除与无关部分暂存，以及复制来源保护。
+- `macos/Tests/LitheGitModuleTests/GitModuleTests.swift`：本次操作的根先发布状态、不等待工作区解冻、
+  不扫描同级仓库；竞争写入、旧快照、跨根批次部分请求替代、父/子模型独立展开及迟到结果、读取失败和重置隔离。
 - 使用 `write-stable-tests` 的 macOS 计时入口生成逐项 HTML/JUnit；中英文明暗截图用携带当前语言、字体和图标的临时宿主。
 - `./scripts/architecture/verify-service-boundaries.sh`、`./scripts/architecture/verify-shared-contracts.sh`、
   `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、

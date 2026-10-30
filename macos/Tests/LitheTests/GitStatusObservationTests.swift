@@ -94,6 +94,67 @@ struct GitStatusObservationTests {
         #expect(writes == 0 && !feature.isDeletingCommitFiles)
     }
 
+    @Test(arguments: [false, true]) @MainActor
+    func realGitDeleteRefreshesMissingAdditionsAndPreservesTrackedDeletionAndUnrelatedIndex(partialFailure: Bool) async throws {
+        let fixture = try GitObservationFixture(label: "delete-refresh")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try Data("keep staged\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        for path in ["deleted.txt", "retained.txt", "unrelated.txt"] {
+            try Data(path.utf8).write(to: root.appendingPathComponent(path))
+        }
+        try await fixture.git(["add", "."], at: root)
+        try Data("keep unstaged\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try Data("untracked\n".utf8).write(to: root.appendingPathComponent("untracked.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let targets = feature.gitChanges.filter { ["deleted.txt", "retained.txt", "untracked.txt", "tracked.txt"].contains($0.path) }
+        #expect(targets.count == 4)
+        // Only fixture files are removed; native Trash ownership is tested separately.
+        let result = await feature.deleteCommitFiles(targets) {
+            for path in ["deleted.txt", "untracked.txt"] + (partialFailure ? [] : ["retained.txt", "tracked.txt"]) {
+                do { try FileManager.default.removeItem(at: root.appendingPathComponent(path)) }
+                catch { Issue.record(error); return false }
+            }
+            return !partialFailure
+        }
+        #expect(result != partialFailure)
+        #expect(!feature.gitChanges.contains { ["deleted.txt", "untracked.txt"].contains($0.path) })
+        #expect(feature.gitChanges.contains { $0.path == "retained.txt" } == partialFailure)
+        let tracked = try #require(feature.gitChanges.first { $0.path == "tracked.txt" })
+        #expect(tracked.workTreeStatus == (partialFailure ? "M" : "D"))
+        #expect(try await fixture.git(["show", ":tracked.txt"], at: root) == "keep staged")
+        #expect(try await fixture.git(["show", ":unrelated.txt"], at: root) == "unrelated.txt")
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root)
+            == (partialFailure ? "retained.txt\ntracked.txt\nunrelated.txt" : "tracked.txt\nunrelated.txt"))
+    }
+
+    @Test @MainActor
+    func realGitDeleteOfACopyNeverUnstagesItsIndependentlyModifiedSource() async throws {
+        let fixture = try GitObservationFixture(label: "delete-copy-refresh")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try await fixture.git(["config", "status.renames", "copies"], at: root)
+        try Data("initial\n".utf8).write(to: root.appendingPathComponent("copy.txt"))
+        try Data("staged source\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try await fixture.git(["add", "."], at: root)
+        try Data("unstaged source\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let copy = try #require(feature.gitChanges.first { $0.path == "copy.txt" && $0.indexStatus == "C" })
+        #expect(await feature.deleteCommitFiles([copy]) {
+            do { try FileManager.default.removeItem(at: root.appendingPathComponent("copy.txt")); return true }
+            catch { Issue.record(error); return false }
+        })
+        #expect(feature.gitChanges.map(\.path) == ["tracked.txt"])
+        #expect(try await fixture.git(["show", ":tracked.txt"], at: root) == "staged source")
+        #expect(try String(contentsOf: root.appendingPathComponent("tracked.txt"), encoding: .utf8) == "unstaged source\n")
+    }
+
     @Test
     @MainActor
     func realGitRollbackCheckedFilesRestoresIndexAndWorktreeButNotUncheckedEdits() async throws {
