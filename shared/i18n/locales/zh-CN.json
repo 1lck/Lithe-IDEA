@@ -6769,6 +6769,7 @@
     "navigation.reference": "引用",
     "navigation.resolving": "正在查找{target}…",
     "navigation.typeDefinition": "类型定义",
+    "navigation.syntaxFallback": "仅按语法定位：{name} 仍在导入项目。",
     "navigation.waitingForImport": "{name} 正在导入项目（{percent}%），导入完成后才能跳转。",
     "newProject.backToStarters": "返回项目模板",
     "newProject.chooseParentFolder": "选择父文件夹",

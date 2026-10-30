@@ -6769,6 +6769,7 @@
     "navigation.reference": "reference",
     "navigation.resolving": "Finding {target}…",
     "navigation.typeDefinition": "type definition",
+    "navigation.syntaxFallback": "Based on syntax only: {name} is still importing the project.",
     "navigation.waitingForImport": "{name} is importing the project ({percent}%). Navigation is available once the import finishes.",
     "newProject.backToStarters": "Back to project starters",
     "newProject.chooseParentFolder": "Choose a parent folder",

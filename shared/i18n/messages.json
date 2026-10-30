@@ -65020,6 +65020,16 @@
       ]
     },
     {
+      "id": "navigation.syntaxFallback",
+      "description": "Windows UI: a jump was resolved from syntax alone because the language server is still importing the project",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
       "id": "navigation.waitingForImport",
       "description": "Windows UI: navigation is unavailable while the language server imports the project",
       "platforms": [

@@ -1465,6 +1465,29 @@ fn java_core_commands_return_shared_runtime_and_structure_data() {
     ))
     .expect("definition response should be JSON");
     assert_eq!(definition_response["data"]["line"], 1);
+    let member_lookup = |member: &str, declarations_only: bool| -> Value {
+        let request = serde_json::json!({
+            "id": "java-member",
+            "command": "java.sourceDefinition",
+            "payload": {
+                "source": "class App {\n    void run() { save(); total = 1; }\n    String 名字, total;\n    void save() {}\n}",
+                "declarationName": "App",
+                "memberName": member,
+                "declarationsOnly": declarations_only
+            }
+        });
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("member request should encode"),
+        ))
+        .expect("member response should be JSON");
+        response["data"].clone()
+    };
+    // The call and the assignment on line 1 come first but declare nothing.
+    assert_eq!(member_lookup("save", true)["line"], 3);
+    assert_eq!(member_lookup("total", true)["line"], 2);
+    assert_eq!(member_lookup("total", true)["utf16Column"], 15);
+    assert!(member_lookup("missing", true).is_null());
+    assert_eq!(member_lookup("missing", false)["line"], 0);
     let server_port = serde_json::json!({
         "id": "java-port",
         "command": "java.serverPort",

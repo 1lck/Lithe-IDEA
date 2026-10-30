@@ -74,6 +74,9 @@ pub struct JavaSourceDefinitionRequest {
     pub declaration_name: String,
     #[serde(default)]
     pub member_name: Option<String>,
+    /// Only a real member declaration counts, never a call or an assignment.
+    #[serde(default)]
+    pub declarations_only: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -248,6 +251,15 @@ pub fn source_definition(
 ) -> Result<Option<crate::protocol::JavaSourceDefinitionResponse>, CoreError> {
     let lines = request.source.split('\n').collect::<Vec<_>>();
     if let Some(member) = request.member_name {
+        if let Some((line, utf16_column)) = member_declaration(&request.source, &member) {
+            return Ok(Some(crate::protocol::JavaSourceDefinitionResponse {
+                line,
+                utf16_column,
+            }));
+        }
+        if request.declarations_only {
+            return Ok(None);
+        }
         let method =
             Regex::new(&format!(r"\b{}\s*\(", regex::escape(&member))).map_err(|error| {
                 CoreError::new(ErrorCode::ParseFailed, "Could not parse Java member")
@@ -304,6 +316,41 @@ pub fn source_definition(
         }
     }
     Ok(None)
+}
+
+/// Finds the first method, field, or enum constant declared as `name`.
+///
+/// Returns the zero-based line and UTF-16 column of the declared name.
+fn member_declaration(source: &str, name: &str) -> Option<(usize, usize)> {
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_java::LANGUAGE.into())
+        .ok()?;
+    let tree = parser.parse(source, None)?;
+    let mut pending = vec![tree.root_node()];
+    while let Some(node) = pending.pop() {
+        let is_member = match node.kind() {
+            "method_declaration" | "enum_constant" | "annotation_type_element_declaration" => true,
+            "variable_declarator" => node.parent().is_some_and(|parent| {
+                matches!(parent.kind(), "field_declaration" | "constant_declaration")
+            }),
+            _ => false,
+        };
+        let declared = is_member
+            .then(|| node.child_by_field_name("name"))
+            .flatten()
+            .filter(|node| node.utf8_text(source.as_bytes()) == Ok(name));
+        if let Some(declared) = declared {
+            let point = declared.start_position();
+            let line = source.split('\n').nth(point.row)?;
+            return Some((point.row, utf16_column(line, point.column)));
+        }
+        // Reversed so the stack visits declarations in source order.
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        pending.extend(children.into_iter().rev());
+    }
+    None
 }
 
 /// Reads a Spring server port from properties or YAML content.
