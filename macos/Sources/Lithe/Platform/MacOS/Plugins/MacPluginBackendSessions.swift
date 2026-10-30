@@ -337,7 +337,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
                     self.onActivationFailure?(pluginID, error)
                     continue
                 }
-                guard await session.notify(method: next.method, params: next.params) else {
+                guard await session.notify(method: next.method, params: next.params) != nil else {
                     if !Task.isCancelled, self.running[pluginID] === entry {
                         self.onActivationFailure?(pluginID, PluginHostServiceError(.failed,
                             L10n.string("The plugin host request could not be completed.")))

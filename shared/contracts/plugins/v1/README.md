@@ -405,7 +405,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
-| `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
+| `ui` | `ui` | `1`, `2` (web content), `3` (native controls), `4` ([backend-only commands](#backend-only-commands-ui-4)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs | `1`, `2`, `3`, `4`, `5`, `6` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
@@ -1902,7 +1902,7 @@ notifications.
   grants only the services it has handlers for, so a listed method never
   fails for want of one. `backendAuthority` is `"local"`: the backend runs on
   the machine that runs Lithe. `limits` gives `pendingHostRequests`,
-  `functionResultBytes`, `errorMessageBytes` (the cut of a host failure's
+  `functionResultBytes`, `hostRequestBytes`, `hostResultBytes`, `errorMessageBytes` (the cut of a host failure's
   message), `errorDetailsBytes`, and `notificationBytes`. A backend must
   check `services` instead of assuming a method from the version.
 - A context is one open workspace in one window:

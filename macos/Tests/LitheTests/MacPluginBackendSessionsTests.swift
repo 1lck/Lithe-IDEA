@@ -11,6 +11,19 @@ import Testing
 @MainActor
 struct MacPluginBackendSessionsTests {
     @Test
+    func anOlderNegotiatedProtocolSkipsNotificationsWithoutStoppingTheBackend() async throws {
+        let fixture = try BackendFixture(backendVersion: 2)
+        defer { fixture.remove() }
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        fixture.core.notificationSupported = false
+        fixture.sessions.runCommand("query.run", owner: ModuleID("\(BackendFixture.pluginID).ui"), context: nil)
+        try #require(await fixture.core.waitForNotifications(1))
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        #expect(fixture.core.starts.count == 1)
+        #expect(fixture.core.stops.isEmpty)
+    }
+
+    @Test
     func commandsWaitForInitializeAndRestartAfterExit() async throws {
         let fixture = try BackendFixture(backendVersion: 2, commandActivation: true)
         defer { fixture.remove() }
@@ -363,6 +376,7 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     private var notificationWaiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
     private var _delayReady = false
     private var _blockNotification = false
+    private var _notificationSupported = true
     let started = TestGate()
     let writeStarted = TestGate()
     let releaseWrite = TestGate()
@@ -370,6 +384,7 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     let forcedStop = TestGate()
     var delayReady: Bool { get { lock.withLock { _delayReady } } set { lock.withLock { _delayReady = newValue } } }
     var blockNotification: Bool { get { lock.withLock { _blockNotification } } set { lock.withLock { _blockNotification = newValue } } }
+    var notificationSupported: Bool { get { lock.withLock { _notificationSupported } } set { lock.withLock { _notificationSupported = newValue } } }
 
     func finishInitialize() {
         lock.withLock { events["backend-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "ready")) }
@@ -466,7 +481,7 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
             return ready.values.map(\.continuation)
         }
         satisfied.forEach { $0.resume(returning: true) }
-        return .success(true)
+        return .success(notificationSupported)
     }
 
     /// Notifications are sent off the main actor; like `waitForResponses`,

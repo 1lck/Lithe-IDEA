@@ -131,7 +131,7 @@ Core 新增命令 `lsp.hostNotify { sessionId, method, params }`，返回 `{ del
 - context 关闭取消在途请求并返回 contextExpired；普通机器操作有 30 秒宿主截止时间。
   等待用户按钮的消息不设总时限，仍随会话、context 和取消回收。
 - 通知队列每会话最多 128 项，工作区 revision 合并为最新值。溢出报告失败并结束会话；
-  不静默丢命令。发送前复核订阅/context。通知和响应与函数请求共用发送 watchdog，卡住的 stdin 不阻塞主线程停用。
+  不静默丢命令。发送前复核订阅/context。通知和响应与函数请求共用发送 watchdog，卡住的 stdin 不阻塞主线程停用。旧协议的 delivered:false 是正常降级，不因不支持通知结束仍可用的后端。
 - `ui:4` 允许没有工具窗口的后端命令，旧 ui 版本保持不变。命令事件没有业务成功确认，
   不把送出通知当成编辑已完成；有结果的执行将沿用函数请求生命周期。
 

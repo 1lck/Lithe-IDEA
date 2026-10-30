@@ -947,10 +947,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
 
     /// Sends the backend one host notification. Core writes it to the
     /// backend's input like an answer, so it is sent off the main actor.
-    /// `false` when the session is not running, the backend negotiated a
-    /// protocol without the notification, or Core refused it.
-    package func notify(method: String, params: ToolingJSONValue) async -> Bool {
-        guard let sessionID, case .ready = state, !Task.isCancelled else { return false }
+    /// `false` is an expected protocol downgrade (keep the backend alive);
+    /// `nil` means the session ended or the transport/Core refused the send.
+    package func notify(method: String, params: ToolingJSONValue) async -> Bool? {
+        guard let sessionID, case .ready = state, !Task.isCancelled else { return nil }
         let result = await send(timeout: requestTimeout) { core in
             core.notifyPluginBackend(sessionID: sessionID, method: method, params: params)
         }
@@ -960,7 +960,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             return delivered
         case .failure(let failure):
             onLog?(.warning, "Plugin host notification was not delivered", failure.message, nil)
-            return false
+            return nil
         }
     }
 
