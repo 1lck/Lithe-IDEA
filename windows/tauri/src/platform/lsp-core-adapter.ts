@@ -453,7 +453,12 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   if (event.type === "stateChanged" && event.state === "ready") {
     finishLanguageServerImport(session.id);
   }
-  if (event.type === "stateChanged" && (event.state === "failed" || event.state === "stopped")) {
+  // A new process (including a recovery under the same session) never ends
+  // the work of the previous one, so its tasks are dropped with it.
+  if (
+    event.type === "stateChanged" &&
+    (event.state === "processStarting" || event.state === "failed" || event.state === "stopped")
+  ) {
     clearLanguageServerProgress(session.id);
   }
 
