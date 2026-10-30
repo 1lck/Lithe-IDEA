@@ -17,7 +17,7 @@
   },
   "windows": {
     "implementationStatus": "implemented",
-    "verificationStatus": "pending",
+    "verificationStatus": "verified",
     "evidence": [
       "windows/tauri/src/features/git/utils/git-blame-gutter.ts",
       "windows/tauri/src/features/git/utils/git-blame-gutter.test.ts",
@@ -35,6 +35,6 @@
     ]
   },
   "owner": "Editor / Git",
-  "verification": "macOS：打开已跟踪文件，行号区右键开启及隐藏 Git Blame；检查作者、日期、提交点击与栏宽恢复。检查深浅主题、中文菜单、分屏、只读已跟踪文件，以及非仓库、未跟踪文件入口禁用。菜单打开后切换或关闭文档，旧动作不能作用到新文档。运行 scripts/macos/probe/probe-macos-monaco.sh --workbench-tests 验证真实 WebKit 命中、动作、模型生命周期和选区/撤销保护；完整产品 Git 数据链路另行实机验收。 在已有断点的 Java 行号上执行完整 mousedown/mouseup/contextmenu 右键序列，打开菜单不能触发断点编辑；仅点击编辑断点时发送该行请求。检查切换文件后的旧编辑动作失效。 Windows：在已跟踪文件的任一 gutter 列（行号、变更标记、字形边距）右键，确认弹出的是只含 Annotate/Close Annotations、Show Diff、Copy Revision Number 的精简菜单（不是完整编辑器菜单，也没有行历史），开启后每行都显示「yyyy/M/d  作者」（日期与作者之间两个空格），标签贴注释列左侧、行号仍右对齐，且列宽随最长标签自适应而非固定宽度，栏宽随之加宽并在隐藏后恢复；在编辑器内容区右键确认 Annotate/Show Diff/Copy Revision/行历史都在 Git 子菜单内；点注释确认打开 Git Log 并选中该行提交（含需要向前翻页的旧提交），并在 Show Diff 打开的只读 diff 中分别选中左右两侧文字执行 Ctrl+C 确认可复制；对未提交行、未跟踪文件、非仓库文件和只读预览确认入口不出现或无反应。检查深浅主题、中文界面、行号 off/relative 两种设置、分屏同时开启两个文件互不影响、提交后注释自动刷新而不是关闭。运行 bun test src/features/git/utils/git-blame-gutter.test.ts src/features/editor/context-menu/gutter-context-menu.test.tsx 与 bun run typecheck，并在 Windows 实机核对完整链路。",
+  "verification": "macOS：打开已跟踪文件，行号区右键开启及隐藏 Git Blame；检查作者、日期、提交点击与栏宽恢复。检查深浅主题、中文菜单、分屏、只读已跟踪文件，以及非仓库、未跟踪文件入口禁用。菜单打开后切换或关闭文档，旧动作不能作用到新文档。运行 scripts/macos/probe/probe-macos-monaco.sh --workbench-tests 验证真实 WebKit 命中、动作、模型生命周期和选区/撤销保护；完整产品 Git 数据链路另行实机验收。 在已有断点的 Java 行号上执行完整 mousedown/mouseup/contextmenu 右键序列，打开菜单不能触发断点编辑；仅点击编辑断点时发送该行请求。检查切换文件后的旧编辑动作失效。 Windows：在已跟踪文件的任一 gutter 列（行号、变更标记、字形边距）右键，确认弹出的是只含 Annotate/Close Annotations、Show Diff、Copy Revision Number 的精简菜单（不是完整编辑器菜单，也没有行历史），开启后每行都显示「yyyy/M/d  作者」（日期与作者之间两个空格），标签贴注释列左侧、行号仍右对齐，且列宽随最长标签自适应而非固定宽度，栏宽随之加宽并在隐藏后恢复；在编辑器内容区右键确认 Annotate/Show Diff/Copy Revision/行历史都在 Git 子菜单内；点注释确认打开 Git Log 并选中该行提交（含需要向前翻页的旧提交），并在 Show Diff 打开的只读 diff 中分别选中左右两侧文字执行 Ctrl+C 确认可复制；对未提交行、未跟踪文件、非仓库文件和只读预览确认入口不出现或无反应。检查深浅主题、中文界面、行号 off/relative 两种设置、分屏同时开启两个文件互不影响、提交后注释自动刷新而不是关闭。运行 bun test src/features/git/utils/git-blame-gutter.test.ts src/features/editor/context-menu/gutter-context-menu.test.tsx 与 bun run typecheck，并在 Windows 实机核对完整链路。 2026-10-30 已在 Windows 实机验收通过（行号区右键精简菜单、每行 yyyy/M/d  作者 注释与自适应列宽、点注释跳转 Git Log、Show Diff 左右两侧复制、未跟踪/只读预览不出现入口）。",
   "notes": "沿用已有 GitFeatureModel.loadBlame 和作者/提交展示；共享编辑器只在宿主显式启用 gitBlameMenu 时添加入口，Windows 现有 Blame 能力不受此入口开关影响。 Windows 侧与 IDEA 对齐：注释由 Monaco 行号格式化器输出 HTML 渲染在行号左侧，每行都标注而不按提交块合并，标签先日期（yyyy/M/d，与 macOS 一致、不补零）后作者、中间仅一个空格，标签贴注释列左侧、行号保持右对齐，可见性按文件存放在 git-blame store（原来的全局 enableInlineGitBlame 设置已删除），只有开启注释的文件才读取 git.blame；点注释把提交交给 Git Log 并选中（git-log-reveal store 传递请求，日志按页向前加载直到找到该提交，上限 20 页），Show Diff 仍复用 openCommitDiffBuffer 打开带路径限制和定位范围的单文件 diff。行号区右键为独立精简菜单（只含注释与提交动作，行历史移入内容区菜单的 Git 子菜单）；内容区菜单新增 Git 子菜单承载 Annotate/Show Diff/Copy Revision/行历史，图标使用作者语义的用户图标。行号被 diff 编辑器重映射或为虚拟/预览缓冲时不渲染注释，避免行号与实际内容错位。 Show Diff 打开的是只读 diff，其左右两侧的 Ctrl+C/Ctrl+X 由 Monaco 原生处理（diff 根节点带 data-readonly-diff，编辑器 keymap 不再拦截），否则会复制源编辑器模型的空选择。"
 }
