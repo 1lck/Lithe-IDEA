@@ -1079,7 +1079,8 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -1225,7 +1226,8 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -1355,7 +1357,8 @@ private final class InventoryRecordingGatedRunConfigurationOperations: RunConfig
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         lock.lock()
         inventories.append(files)

@@ -40,6 +40,7 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         run.configureBuildModels { [weak buildSystems] in
             buildSystems?.entries.filter { $0.modelState == .loaded && !$0.isReloadRequired }.compactMap(\.model) ?? []
         }
+        run.configureBuildProjectOwnership { [weak buildSystems] in try buildSystems?.runProjectOwnership() ?? [] }
 
     }
 

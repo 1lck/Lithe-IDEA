@@ -97,6 +97,11 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, workspace: URL) async throws {
         try await service.prepareLanguageTestModels(selectorKind: selectorKind, reference: reference, workspace: workspace)
     }
+    package func prepareRunGenerationModels(workspace: URL) async throws {
+        _ = try await service.prepareLanguageImport(workspaceURL: workspace)
+        try await service.prepareLanguageTestModels(allModels: true, workspace: workspace)
+        _ = try await service.prepareLanguageImport(workspaceURL: workspace)
+    }
     @discardableResult
     package func prepareLanguageRun(fileURL: URL, workspace: URL, mainTask: String, testTask: String,
                                     optionOverrides: [String: ToolingJSONValue] = [:],

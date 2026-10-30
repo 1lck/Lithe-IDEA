@@ -14,7 +14,7 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "11";
+const GENERATOR_REVISION: &str = "12";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -52,6 +52,10 @@ pub struct GenerateRequest {
     pub paths: Vec<String>,
     #[serde(default)]
     pub module_paths: Vec<String>,
+    /// Current provider ownership, including an authoritative empty snapshot.
+    /// Omitted retains compatibility for the existing Windows generator.
+    #[serde(default)]
+    pub project_ownership: Option<Vec<super::project_ownership::RunProjectOwnership>>,
     /// Launchable classes from the Java language service (`lsp.request`
     /// operation `javaEntrypoints`). Absent while that service is not ready:
     /// the previous generation's Java entries are carried forward instead of
@@ -625,7 +629,17 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .collect::<Vec<_>>();
     paths.sort();
     paths.dedup();
-    let maven_root = crate::project::maven_root(&root, &paths)?;
+    if let Some(projects) = &request.project_ownership {
+        super::project_ownership::validate(projects)?;
+    }
+    let maven_root = match &request.project_ownership {
+        Some(projects) => projects
+            .iter()
+            .filter_map(|p| p.maven_reactor_path.as_ref())
+            .min_by_key(|path| (path.len(), *path))
+            .map(|path| (root.join(path), path.clone())),
+        None => crate::project::maven_root(&root, &paths)?,
+    };
     let maven_relative_path = maven_root
         .as_ref()
         .map(|(_, relative_path)| relative_path.as_str());
@@ -646,7 +660,13 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .into_iter()
         .map(|path| workspace_maven_path(maven_relative_path, &path))
         .collect();
-    let module_paths = inferred_maven_module_paths(&root, &paths, configured_module_paths);
+    let module_paths = match &request.project_ownership {
+        Some(projects) => projects
+            .iter()
+            .map(|project| project.path.clone())
+            .collect(),
+        None => inferred_maven_module_paths(&root, &paths, configured_module_paths),
+    };
     // Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
     let (mut java_entrypoints, java_entrypoints_origin) = match request.java_entrypoints {
         Some(facts) => (facts, "languageService"),
@@ -672,7 +692,20 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let configurations = scanned
         .configurations
         .into_iter()
-        .map(|value| -> Result<RunConfiguration, CoreError> {
+        .map(|mut value| -> Result<RunConfiguration, CoreError> {
+            let model_owner = request
+                .project_ownership
+                .as_ref()
+                .and_then(|projects| super::project_ownership::owner(projects, &value.source_path));
+            if request.project_ownership.is_some() {
+                value.module_path = model_owner
+                    .filter(|owner| owner.path != ".")
+                    .map(|owner| owner.path.clone());
+                value.source_set = model_owner
+                    .map_or(crate::protocol::JavaSourceSetResponse::Other, |owner| {
+                        owner.source_set(&value.source_path)
+                    });
+            }
             let provider = match value.kind.as_str() {
                 "javaMain" | "springBoot" => "java.main",
                 "mavenModule" => "maven.module",
@@ -680,7 +713,11 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             };
             let id = java_configuration_id(&value);
             let owner_key = value.module_path.clone();
-            let maven_owner = if let Some(owner) = maven_owners.get(&owner_key) {
+            let maven_owner = if request.project_ownership.is_some() {
+                model_owner
+                    .and_then(|owner| owner.maven_reactor_path.as_ref())
+                    .map(|path| (root.join(path), path.clone()))
+            } else if let Some(owner) = maven_owners.get(&owner_key) {
                 owner.clone()
             } else {
                 let owner = maven_owner_for_module(
@@ -1028,13 +1065,13 @@ fn java_configuration_id(value: &crate::protocol::JavaRunConfigurationResponse) 
 /// main classes that belong to different modules. Repeated source paths within
 /// one module are genuine duplicates and still collapse to one configuration.
 fn deduplicate_java_configurations(configurations: Vec<RunConfiguration>) -> Vec<RunConfiguration> {
-    let mut grouped = BTreeMap::<String, BTreeMap<String, RunConfiguration>>::new();
+    let mut grouped = BTreeMap::<String, BTreeMap<(String, String), RunConfiguration>>::new();
     for configuration in configurations {
         let module = java_module_identity(configuration.module().as_deref());
         grouped
             .entry(configuration.id.clone())
             .or_default()
-            .entry(module)
+            .entry((configuration.cwd.clone(), module))
             .or_insert(configuration);
     }
 
@@ -1042,12 +1079,27 @@ fn deduplicate_java_configurations(configurations: Vec<RunConfiguration>) -> Vec
         .into_iter()
         .flat_map(|(base_id, modules)| {
             let has_module_collision = modules.len() > 1;
-            modules.into_iter().map(move |(module, mut configuration)| {
-                if has_module_collision {
-                    configuration.id = format!("{base_id}:{module}");
-                }
-                configuration
-            })
+            let separate_reactors = modules
+                .keys()
+                .map(|(root, _)| root)
+                .collect::<BTreeSet<_>>()
+                .len()
+                > 1;
+            modules
+                .into_iter()
+                .map(move |((root, module), mut configuration)| {
+                    if has_module_collision {
+                        // Preserve existing single-reactor IDs, but two independent
+                        // reactors can both have a module named `app` and main `Main`.
+                        let module = if separate_reactors {
+                            workspace_maven_path(Some(&root), &module)
+                        } else {
+                            module
+                        };
+                        configuration.id = format!("{base_id}:{module}");
+                    }
+                    configuration
+                })
         })
         .collect()
 }

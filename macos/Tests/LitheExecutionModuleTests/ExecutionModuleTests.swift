@@ -1807,7 +1807,8 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
         at _: URL,
         files _: [URL],
         modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?
+        javaEntrypoints _: JavaEntrypoints?,
+        projectOwnership _: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: configurations.count)
     }
@@ -1865,7 +1866,8 @@ private final class FreshnessRecordingRunConfigurationOperations: RunConfigurati
         at _: URL,
         files _: [URL],
         modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?
+        javaEntrypoints _: JavaEntrypoints?,
+        projectOwnership _: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -1900,7 +1902,8 @@ private struct FixedLaunchPlanRunConfigurationOperations: RunConfigurationOperat
         at _: URL,
         files _: [URL],
         modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?
+        javaEntrypoints _: JavaEntrypoints?,
+        projectOwnership _: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -2251,7 +2254,8 @@ final class MavenContextRunOperations: RunConfigurationOperations, @unchecked Se
         at _: URL,
         files _: [URL],
         modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?
+        javaEntrypoints _: JavaEntrypoints?,
+        projectOwnership _: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -2282,7 +2286,8 @@ private struct SingleRunConfigurationOperations: RunConfigurationOperations {
         at _: URL,
         files _: [URL],
         modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?
+        javaEntrypoints _: JavaEntrypoints?,
+        projectOwnership _: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -2347,7 +2352,8 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
@@ -2386,7 +2392,8 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         generatedInventories.append(files)
         return RunConfigurationGenerationResult(entryCount: 1)
@@ -2421,7 +2428,8 @@ private struct FailingInspectionRunConfigurationOperations: RunConfigurationOper
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
@@ -2443,7 +2451,8 @@ private struct TestReadyRunConfigurationOperations: RunConfigurationOperations {
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -2481,7 +2490,8 @@ private struct TestGoProjectRunConfigurationOperations: RunConfigurationOperatio
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }

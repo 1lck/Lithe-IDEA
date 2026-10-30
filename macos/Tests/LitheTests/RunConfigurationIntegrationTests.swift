@@ -10,6 +10,40 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func nativeGenerationUsesProviderOwnershipThroughTheRealBridgeWithoutReadingPomsForJavaMembership() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-generation-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/run-configuration/provider-project-ownership.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let files = try #require(fixture["files"] as? [String: String])
+        for (path, contents) in files {
+            let file = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(contents.utf8).write(to: file)
+        }
+        let decoder = JSONDecoder()
+        let ownershipObject = try #require(fixture["projectOwnership"])
+        let ownershipData = try JSONSerialization.data(withJSONObject: ownershipObject)
+        let ownership = try decoder.decode([LitheCoreContracts.RunProjectOwnership].self, from: ownershipData)
+        let entryObject = try #require(fixture["javaEntrypoints"])
+        let entryData = try JSONSerialization.data(withJSONObject: entryObject)
+        let entries = try decoder.decode(JavaEntrypoints.self, from: entryData)
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore())
+        _ = try store.generate(at: root, files: files.keys.map { root.appendingPathComponent($0) }, modulePaths: ["wrong-legacy-path"],
+            javaEntrypoints: entries, projectOwnership: ownership)
+        let document = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent(".lithe/run/generated.json"))) as? [String: Any])
+        let configurations = try #require(document["configurations"] as? [[String: Any]])
+        let expected = try #require(fixture["expected"] as? [String: Any])
+        for item in try #require(expected["configurations"] as? [[String: String]]) {
+            let actual = try #require(configurations.first { $0["id"] as? String == item["id"] })
+            #expect(actual["cwd"] as? String == item["cwd"])
+            let extensions = try #require(actual["extensions"] as? [String: [String: Any]])
+            #expect(extensions["maven"]?["module"] as? String == item["module"])
+            #expect(extensions["java"]?["sourceSet"] as? String == item["sourceSet"])
+        }
+    }
+
+    @Test
     func savedBuildProviderReferenceWorksWithoutGeneratedConfiguration() throws {
         let core = RustCoreBridge()
         try #require(core.isAvailable)
@@ -4275,7 +4309,8 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         generateCalls += 1
         return RunConfigurationGenerationResult(entryCount: generationEntryCount ?? effective.count)
@@ -4392,7 +4427,8 @@ private final class BlockingInspectionOperations: RunConfigurationOperations, @u
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
@@ -4440,7 +4476,8 @@ private final class BlockingGenerationOperations: RunConfigurationOperations, @u
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         didBlock.open()
         _ = release.waitSynchronously()

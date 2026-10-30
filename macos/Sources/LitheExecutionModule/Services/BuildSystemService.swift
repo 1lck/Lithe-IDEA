@@ -140,6 +140,7 @@ package final class BuildSystemService: ObservableObject {
     /// Nil while detection is pending. An empty value means no plugin import.
     @Published package private(set) var languageImport: JavaLanguageImportConfiguration?
     private var languageImportsByRoot: [String: JavaLanguageImportConfiguration] = [:]
+    private var languageImportsByEntryID: [String: BuildLanguageImport] = [:]
     package var onLanguageImportChanged: ((URL) -> Void)?
     private var languageImportFailure: String?
     private var detectionID: UUID?
@@ -362,6 +363,7 @@ package final class BuildSystemService: ObservableObject {
         self.detectionID = detectionID
         languageImport = nil
         languageImportsByRoot = [:]
+        languageImportsByEntryID = [:]
         languageImportFailure = nil
         let sources = sources()
         guard !sources.isEmpty else {
@@ -530,6 +532,7 @@ package final class BuildSystemService: ObservableObject {
                           !Task.isCancelled else { return }
                     switch configured {
                     case .success(let values):
+                        self.languageImportsByEntryID = values
                         self.languageImportsByRoot = Dictionary(uniqueKeysWithValues: Set(inputs.map { $0.entry.instance.root }).map { root in
                             (root, Self.workspaceImport(inputs: inputs.filter { $0.entry.instance.root == root }, imports: values))
                         })
@@ -619,6 +622,7 @@ package final class BuildSystemService: ObservableObject {
         detectionID = nil
         languageImport = nil
         languageImportsByRoot = [:]
+        languageImportsByEntryID = [:]
         languageImportFailure = nil
         isDetecting = false
         redetectTask?.cancel()
@@ -632,6 +636,27 @@ package final class BuildSystemService: ObservableObject {
     }
 
     // MARK: Language import
+
+    /// Only current, complete upstream projects reach the generator. An empty
+    /// snapshot is authoritative when no build provider is enabled.
+    package func runProjectOwnership() throws -> [RunProjectOwnership] {
+        guard workspaceURL != nil, languageImport != nil else { throw CancellationError() }
+        return try entries.filter { $0.instance.modelSource != nil && languageImportsByEntryID[$0.id] != nil }.flatMap { entry in
+            guard entry.modelState == .loaded, !entry.isReloadRequired, let model = entry.model, !model.truncated else {
+                throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
+            }
+            let reactor: String?
+            if case .maven(let context)? = languageImportsByEntryID[entry.id] {
+                reactor = context.reactorPath
+            } else { reactor = nil }
+            return model.projects.map { project in
+                RunProjectOwnership(path: project.path, mavenReactorPath: reactor,
+                    contentRoots: model.contentRoots.filter { $0.projectID == project.id && ["source", "testSource", "generatedSource", "generatedTestSource"].contains($0.kind) }
+                        .map { RunProjectOwnership.SourceRoot(path: $0.path, kind: $0.kind) })
+            }
+        }
+    }
+
 
     /// Run preparation uses the same accepted options as Java import, scoped to
     /// its recorded build root. Pending detection must never reuse an old root.
@@ -749,12 +774,13 @@ package final class BuildSystemService: ObservableObject {
     /// may answer from its own snapshot.
     /// Explicit execution readiness joins the service-owned model work. The
     /// model remains shared if this caller stops; its native deadline still applies.
-    package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, taskIDs: Set<String> = [], workspace: URL) async throws {
+    package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, taskIDs: Set<String> = [], allModels: Bool = false, workspace: URL) async throws {
         guard workspace.standardizedFileURL == workspaceURL else { throw CancellationError() }
         let workspaceGeneration = generation
         let configurationRevision = providerConfigurationRevision
         let sourcesRevision = fileRevision
         let ids = entries.filter { entry in
+            if allModels { return entry.instance.modelSource != nil && languageImportsByEntryID[entry.id] != nil }
             if let reference { return entry.instance.pluginID == reference.pluginID && entry.instance.buildSystemID == reference.buildSystemID && entry.instance.root == reference.root }
             return selectorKind.map(entry.declaration.testSelectorKinds.contains) ?? entry.declaration.tasks.contains { taskIDs.contains($0.id) }
         }.map(\.id)
@@ -1260,6 +1286,7 @@ package final class BuildSystemService: ObservableObject {
         redetectTask?.cancel(); redetectTask = nil
         languageImport = nil
         languageImportsByRoot = [:]
+        languageImportsByEntryID = [:]
         languageImportFailure = nil
         isDetecting = false
         finishImportWaiters(.failure(CancellationError()))

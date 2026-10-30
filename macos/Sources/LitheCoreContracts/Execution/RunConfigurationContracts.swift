@@ -1,6 +1,22 @@
 import LitheModuleAPI
 import Foundation
 
+/// Read-only ownership projected from the current Provider model and import.
+/// Run generation must not reconstruct these facts from build descriptors.
+package struct RunProjectOwnership: Codable, Equatable, Sendable {
+    package struct SourceRoot: Codable, Equatable, Sendable {
+        package let path: String
+        package let kind: String
+        package init(path: String, kind: String) { self.path = path; self.kind = kind }
+    }
+    package let path: String
+    package let mavenReactorPath: String?
+    package let contentRoots: [SourceRoot]
+    package init(path: String, mavenReactorPath: String?, contentRoots: [SourceRoot]) {
+        self.path = path; self.mavenReactorPath = mavenReactorPath; self.contentRoots = contentRoots
+    }
+}
+
 package enum ProjectRunConfigurationStatus: Equatable, Sendable {
     case missing
     case ready
@@ -346,7 +362,8 @@ package protocol RunConfigurationOperations: Sendable {
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]?
     ) throws -> RunConfigurationGenerationResult
     func resolve(
         at projectURL: URL,
@@ -388,6 +405,10 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?) throws -> RunConfigurationGenerationResult {
+        try generate(at: projectURL, files: files, modulePaths: modulePaths,
+            javaEntrypoints: javaEntrypoints, projectOwnership: nil)
+    }
     func saveBuildProviderConfiguration(_: BuildProviderRunReference, name: String, at _: URL) throws -> String {
         throw RunConfigurationOperationFailure(message: L10n.string("Saving build provider run configurations is unavailable."))
     }

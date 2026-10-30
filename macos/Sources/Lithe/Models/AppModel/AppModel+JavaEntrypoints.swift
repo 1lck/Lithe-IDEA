@@ -17,8 +17,18 @@ extension AppModel {
         _ runFeature: RunFeatureModel,
         for identity: WorkspaceIdentity
     ) async {
+        do {
+            try await prepareBuildLanguageImport()
+            try await buildSystemsFeatureIfActive?.prepareRunGenerationModels(workspace: identity.url)
+        } catch {
+            guard isCurrentWorkspace(identity) else { return }
+            runFeature.reportGenerationProjectNotReady()
+            return
+        }
+        let buildRevision = buildSystemsFeatureIfActive?.inputRevision
         let (discovery, sessions) = await discoverJavaEntrypoints(for: identity)
-        guard isCurrentWorkspace(identity) else { return }
+        guard isCurrentWorkspace(identity), !Task.isCancelled,
+              buildSystemsFeatureIfActive?.inputRevision == buildRevision else { return }
         await runFeature.generateRunConfigurations(javaDiscovery: discovery)
         if discovery == .pending, let sessions {
             refreshJavaEntrypointsWhenPrepared(for: identity, sessions: sessions)

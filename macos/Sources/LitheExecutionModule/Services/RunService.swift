@@ -123,6 +123,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private var projectURL: URL?
     private var projectFiles: [URL] = []
     private var buildModels: () -> [BuildModel] = { [] }
+    private var buildProjectOwnership: () throws -> [RunProjectOwnership]? = { nil }
     private var dependencyWorkspaceURL: URL?
     private var dependencyConfiguration = WorkspaceDependencyConfiguration()
     private var dependencyIndexes = WorkspaceDependencyIndexes()
@@ -290,6 +291,10 @@ package final class RunService: ObservableObject, BuildRunLaunching {
 
     package func configureBuildModels(_ models: @escaping () -> [BuildModel]) {
         buildModels = models
+    }
+
+    package func configureBuildProjectOwnership(_ ownership: @escaping () throws -> [RunProjectOwnership]?) {
+        buildProjectOwnership = ownership
     }
 
     /// A language capability explicitly opts into the dependency browser.
@@ -644,6 +649,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         let operations = runConfigurationOperations
         let files = projectFiles
         let modulePaths = Array(Set(buildModels().flatMap { $0.projects.map(\.path) })).sorted()
+        let projectOwnership: [RunProjectOwnership]?
+        do { projectOwnership = try buildProjectOwnership() }
+        catch { generationState = .failed(error.localizedDescription); return }
         let result = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 continuation.resume(returning: Result {
@@ -651,7 +659,8 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                         at: projectURL,
                         files: files,
                         modulePaths: modulePaths,
-                        javaEntrypoints: javaDiscovery.entrypoints
+                        javaEntrypoints: javaDiscovery.entrypoints,
+                        projectOwnership: projectOwnership
                     )
                 })
             }

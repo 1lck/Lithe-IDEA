@@ -4614,3 +4614,72 @@ fn build_provider_configurations_persist_before_generation_and_reuse_identity() 
         false
     );
 }
+
+#[test]
+fn provider_project_ownership_controls_java_modules_and_source_roles_without_parsing_poms() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/provider-project-ownership.json"
+    ))
+    .unwrap();
+    let root = temporary_root("provider-run-ownership");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for (path, contents) in fixture["files"].as_object().unwrap() {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents.as_str().unwrap()).unwrap();
+    }
+    let generate = |ownership: Value| -> Value {
+        serde_json::from_str(&execute_json(&serde_json::json!({
+            "id":"generate", "command":"runConfig.generate", "payload": {
+                "root":root,"paths":fixture["files"].as_object().unwrap().keys().collect::<Vec<_>>(),
+                "modulePaths":["incorrect-legacy-module"], "javaEntrypoints":fixture["javaEntrypoints"],
+                "projectOwnership":ownership
+            }
+        }).to_string())).unwrap()
+    };
+    let output = generate(fixture["projectOwnership"].clone());
+    assert_eq!(output["ok"], true, "{output}");
+    for expected in fixture["expected"]["configurations"].as_array().unwrap() {
+        let actual = output["data"]["generated"]["configurations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == expected["id"])
+            .unwrap();
+        assert_eq!(actual["cwd"], expected["cwd"]);
+        assert_eq!(actual["extensions"]["maven"]["module"], expected["module"]);
+        assert_eq!(
+            actual["extensions"]["java"]["sourceSet"],
+            expected["sourceSet"]
+        );
+    }
+    let empty = generate(serde_json::json!([]));
+    assert_eq!(empty["ok"], true, "{empty}");
+    for configuration in empty["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(
+            configuration["toolchains"]["maven"].is_null(),
+            "An empty Provider snapshot must not revive POM-based Java ownership: {configuration}"
+        );
+    }
+    for invalid in [
+        serde_json::json!([{"path":"../escape"}]),
+        serde_json::json!([{"path":"app","mavenReactorPath":"other"}]),
+        serde_json::json!([{"path":"app"},{"path":"app"}]),
+        serde_json::json!([{"path":"app","contentRoots":[{"path":"/outside","kind":"source"}]}]),
+        serde_json::json!([{"path":"app","contentRoots":[{"path":"app/src","kind":"guessed"}]}]),
+        serde_json::json!((0..2001)
+            .map(|index| serde_json::json!({"path":format!("project-{index}")}))
+            .collect::<Vec<_>>()),
+    ] {
+        assert_eq!(generate(invalid)["ok"], false);
+    }
+}

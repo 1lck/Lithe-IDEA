@@ -81,7 +81,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         at projectURL: URL,
         files: [URL],
         modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?
+        javaEntrypoints: JavaEntrypoints?,
+        projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
         let root = projectURL.standardizedFileURL
         guard storage.metadata(for: root)?.isDirectory == true else { throw MacRunConfigurationStoreError.invalidProject }
@@ -94,7 +95,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             at: root,
             paths: paths,
             modulePaths: modulePaths,
-            javaEntrypoints: javaEntrypoints
+            javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership
         ).get()
         try writeGenerated(result, at: root)
         return RunConfigurationGenerationResult(entryCount: result.entryCount)

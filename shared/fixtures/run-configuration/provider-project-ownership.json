@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "files": {
+    "alpha/pom.xml": "<broken-provider-owned-input>",
+    "alpha/app/pom.xml": "<broken-child>",
+    "alpha/app/custom-checks/demo/Main.java": "package demo; class Main { public static void main(String[] args) {} }",
+    "beta/pom.xml": "<broken-independent-reactor>",
+    "beta/app/sources/demo/Main.java": "package demo; class Main { public static void main(String[] args) {} }"
+  },
+  "javaEntrypoints": {
+    "schemaVersion": 1,
+    "entries": [
+      { "sourcePath": "alpha/app/custom-checks/demo/Main.java", "mainClass": "demo.Main", "projectName": "alpha-app" },
+      { "sourcePath": "beta/app/sources/demo/Main.java", "mainClass": "demo.Main", "projectName": "beta-app" }
+    ],
+    "diagnostics": []
+  },
+  "projectOwnership": [
+    { "path": "alpha", "mavenReactorPath": "alpha", "contentRoots": [] },
+    { "path": "alpha/app", "mavenReactorPath": "alpha", "contentRoots": [
+      { "path": "alpha/app/custom-checks", "kind": "testSource" }
+    ] },
+    { "path": "beta/app", "mavenReactorPath": "beta", "contentRoots": [
+      { "path": "beta/app/sources", "kind": "source" }
+    ] }
+  ],
+  "expected": {
+    "configurations": [
+      { "id": "java-main:demo.Main:alpha/app", "cwd": "alpha", "module": "app", "sourceSet": "test" },
+      { "id": "java-main:demo.Main:beta/app", "cwd": "beta", "module": "app", "sourceSet": "main" }
+    ]
+  }
+}

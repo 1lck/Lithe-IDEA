@@ -98,6 +98,27 @@ Windows 会先同步当前编辑文档再请求该操作。两端都不再解析
   比对。输入指纹不再对全部 Java 源码做内容哈希（见
   `.agents/notes/implemented/bug-fix/2026-09-22-run-panel-fingerprint-loading.md`）。
 
+### 阶段 D 的运行生成归属
+
+macOS 在生成配置前等待当前 Build 模型与导入，随后把模型的项目路径、Maven
+reactor 根及该项目的主/测试源码根交给 Core。Core 只校验、选取上游已经发布的
+归属，不再沿 Java 源码祖先寻找 POM，也不按 `src/test` 推断已提供模型的源码集。
+同一工作区有两个独立 reactor、都含 `app` 和同名 Main 类时，用工作区内完整
+模块路径区分配置；同一个 reactor 里原有配置 ID 保持稳定，避免丢失覆盖。原来已被合并成单个 ID 的多 reactor 记录无法确定归属时，旧覆盖由
+现有 orphan 诊断保留，不能猜测性地挂到其中一个新配置。
+
+`projectOwnership: []` 是明确的空模型，不能偷偷用 POM 补齐；不传该字段才保留
+现有 Windows 消费者的兼容路径。快照未准备好、失效或截断时宿主拒绝生成，
+工作区或 Build 代次变化后拒绝旧 JDT 答复。只转交声明 Java 导入的 Provider 模型，
+其他构建插件不能凭共享目录占用 Java 项目。这是旧生成器的分步迁移：框架识别、
+旧 Maven 启动规划及剩余工具链推断仍待迁移，不能据此声称整个生成器已移出 Core。
+
+正确例子：Maven 模型把 `custom-checks` 声明为测试源码，即按测试源码生成配置。
+不要因为路径里没有 `test` 就改成主源码，也不要遇到损坏的 POM 就覆盖上游提供的
+已验证工程归属。共享 fixture 在损坏 POM 下同时验证两条 reactor、同名类、自定义
+源码角色和空模型；Swift 使用真实 Core bridge 验证同一份 fixture。该 fixture 只证明 Core 不解析 POM；
+生产宿主仍须在 POM 变化后撤销旧模型，不能借此复用失效快照。
+
 ### 不要这样做
 
 - 不要在 Core 或平台代码里写“main 方法长什么样”“测试注解叫什么”的规则，
@@ -132,6 +153,12 @@ Windows 会先同步当前编辑文档再请求该操作。两端都不再解析
 的正则、引用计数、参数提示另开 issue。
 
 ## 验证
+
+- 2026-10-30 的归属生成增量通过 1399 项 Core/集成计时与 285 项 Swift 回归。
+  新共享 fixture 的 Core 用例 17 毫秒；Swift 使用生产存储和真实 Core bridge，验证
+  生成文档的 reactor、模块、同名配置 ID 与源码角色。Windows Cargo 检查与同一
+  preview 基线保持相同的两项 macOS 平台错误，无新增 Rust 调用类型错误，不代表
+  Windows 实机通过。当前源码快照的 SDK E2E 6 项通过。
 
 - Rust 单元与契约测试覆盖入口点和测试项的版本化规范化、错误结果、Windows 路径、
   Maven 多模块同名类，以及旧生成结果在 JDT 未就绪时的保留。

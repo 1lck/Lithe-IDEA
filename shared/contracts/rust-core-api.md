@@ -3142,12 +3142,25 @@ toolchain payload with an empty `configurationId`; service overrides are untouch
 The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and
 never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
-relative `modulePaths`, and optional schema-versioned `javaEntrypoints` from the
-current `lsp.request` result. When Java tooling is still preparing, omission
+relative `modulePaths`, optional schema-versioned `javaEntrypoints` from the
+current `lsp.request` result, and optional `projectOwnership`. The latter is a
+host projection of current enabled Provider projects: `{ path,
+mavenReactorPath?, contentRoots: [{ path, kind }] }`, using workspace-relative
+paths and the model's `source`/`testSource`/generated-source roles. Core validates
+project/root containment, unique project paths, roles and bounds (2,000 projects,
+10,000 content roots). When supplied, including `[]`, these facts own Java
+module/reactor membership and source sets: `modulePaths` and ancestor POM
+inference do not supplement them. An omitted snapshot retains the current
+Windows generator's legacy ownership path. Framework detection and remaining
+legacy toolchain requirements are separate compatibility paths and still need
+migration. See `fixtures/run-configuration/provider-project-ownership.json`.
+Java configurations with the same class and module name in independent reactors
+remain distinct; a common reactor retains its existing configuration IDs.
+ When Java tooling is still preparing, omission
 retains the previous generated entrypoint facts instead of running a local
 scanner or replacing them with an empty list. It returns generated configuration
-and toolchain requirement documents for the platform adapter to write atomically. Maven root
-discovery checks `pom.xml` along each supplied path's ancestor chain, so a
+and toolchain requirement documents for the platform adapter to write atomically.
+Without `projectOwnership`, legacy Maven root discovery checks `pom.xml` along each supplied path's ancestor chain, so a
 reactor nested below the opened workspace does not depend on the platform
 including build descriptors in `paths`. Maven ownership is resolved per Java
 entry: standalone sources keep the JDK launch path, while entries from

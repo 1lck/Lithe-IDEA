@@ -7,6 +7,27 @@ import Testing
 
 @MainActor
 struct BuildSystemServiceTests {
+    @Test
+    func runGenerationProjectsUseCurrentImportedModelsAndRevokePendingSnapshots() async throws {
+        let planner = FakeBuildPlanner()
+        planner.importEnabled = true; planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/checks","kind":"testSource"},{"projectID":"p","path":"app/resources","kind":"resource"}]}"#)])
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        let ownership = try harness.service.runProjectOwnership()
+        #expect(ownership == [RunProjectOwnership(path: "app", mavenReactorPath: "app",
+            contentRoots: [.init(path: "app/checks", kind: "testSource")])])
+        harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
+        #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        #expect(try harness.service.runProjectOwnership() == ownership)
+        harness.service.reset(workspaceURL: nil)
+        #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
+    }
+
     @Test(arguments: ["success", "failed", "cancel", "configuration", "workspace"])
     func languageResourcePreparationUsesCurrentSourceRoleAndRejectsFailedOrRevokedOperations(mode: String) async throws {
         let planner = FakeBuildPlanner()
