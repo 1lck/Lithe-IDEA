@@ -157,6 +157,11 @@ export class WindowsBuildProviderWorkspace {
     try { inputs.current(); } catch { return undefined; }
     const model = this.models.get(owner(instance)); return model && structuredClone(model);
   }
+  configurationIsCurrent(instance: BuildInstance, snapshot: BuildNativeConfiguration): boolean {
+    const receipt = this.configurations.get(owner(instance));
+    if (!receipt || receipt.snapshot !== fingerprint(snapshot) || receipt.options !== fingerprint(instance.options)) return false;
+    try { receipt.current(); return true; } catch { return false; }
+  }
   invalidate(instance: BuildInstance): void {
     const key = owner(instance);
     this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1);

@@ -29263,7 +29263,8 @@
       "id": "native.changesAreWrittenTo",
       "description": "Native UI: Changes are written to",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Changes are written to",
@@ -36380,7 +36381,8 @@
       "id": "native.effectiveValue",
       "description": "Native UI: Effective value",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Effective value",
@@ -41206,7 +41208,8 @@
       "id": "native.installation",
       "description": "Native UI: Installation",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Installation",
@@ -48298,7 +48301,8 @@
       "id": "native.off",
       "description": "Native UI: Off",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Off",
@@ -48353,7 +48357,8 @@
       "id": "native.on",
       "description": "Native UI: On",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "On",
@@ -49483,7 +49488,8 @@
       "id": "native.override",
       "description": "Native UI: Override",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Override",
@@ -51748,7 +51754,8 @@
       "id": "native.readOnly",
       "description": "Native UI: Read-only",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Read-only",
@@ -52462,7 +52469,8 @@
       "id": "native.reload",
       "description": "Native UI: Reload",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Reload",
@@ -63382,7 +63390,8 @@
       "id": "native.user",
       "description": "Native UI: User",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "User",
@@ -64456,7 +64465,8 @@
       "id": "native.workspace",
       "description": "Native UI: Workspace",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Workspace",
@@ -91340,7 +91350,8 @@
       "id": "native.nativeConfigurationStale",
       "description": "Native build configuration: Native configuration changed. Reload before saving; your draft has been kept.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Native configuration changed. Reload before saving; your draft has been kept.",
@@ -91409,7 +91420,8 @@
       "id": "native.nativeConfigurationTitle",
       "description": "Native build configuration: Native configuration",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Native configuration",
@@ -91442,7 +91454,8 @@
       "id": "native.nativeConfigurationNotRead",
       "description": "Native build configuration: No native configuration has been read.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "No native configuration has been read.",
@@ -91497,7 +91510,8 @@
       "id": "native.nativeConfigurationReadUsingProjectTool",
       "description": "Native build configuration: Read using project tool",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Read using project tool",

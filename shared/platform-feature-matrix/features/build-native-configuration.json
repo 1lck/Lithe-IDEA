@@ -23,9 +23,14 @@
     "verificationStatus": "not-applicable",
     "evidence": [
       "rust/lithe-core/src/build/configuration.rs",
-      "windows/tauri/src-tauri/src/plugin_host/mod.rs"
+      "windows/tauri/src-tauri/src/plugin_host/mod.rs",
+      "windows/tauri/src/features/build/services/build-native-configuration-controller.ts",
+      "windows/tauri/src/features/build/components/build-native-configuration-editor.tsx",
+      "windows/tauri/src/features/build/components/build-native-configuration-editor.test.tsx",
+      "windows/tauri/src/features/plugins/declarative-plugins-section.tsx",
+      "windows/tauri/crates/project/src/native_configuration.rs"
     ]
   },
   "owner": "Plugin Platform / Build",
-  "verification": "Core 定向 120 项和 macOS 配置/生命周期 11 项通过。显式 stage D 真实 Maven macOS 场景通过：损坏 POM 前读取、安装继承、明确保存、敏感内容/权限保留、外部修改冲突、重开回读、Provider 退出及包清单不变。Node SDK 58 项、Java SDK 单元测试与 Node/Java SDK 端到端示例通过。设置页原生控件在 600/900 宽度、浅色/深色主题四个组合通过，已记录截图；发行组合、正式 SDK 锁定与完整 Maven/Java 工作流尚未完成，因此保持 pending；Windows 尚无 Provider 原生配置页和保存 adapter，不宣称运行验证。执行 BuildNativeConfigurationTests、NativeConfigurationSettingsControlTests、BuildSystemServiceTests 及带 LITHE_STAGE_D_MAVEN_PACKAGE 的 MacNativeBuildProviderIntegrationTests；手工从插件注册的设置页读取、启用覆盖、保存/取消/重载，覆盖外部编辑、旧选项 ABA、切换项目、插件停用和读取失败。 自动读取项目 Wrapper 或自动工具解析失败时不发 Provider 请求；显式读取才运行项目工具，定向测试通过。 只读探针还验证继承、保存后回读和 CLI 指定的实际仓库均未被创建；Maven 官方完整执行请求提供有效值，仓库管理器仅在本次可清理状态目录初始化。"
+  "verification": "Core 定向 120 项和 macOS 配置/生命周期 11 项通过。显式 stage D 真实 Maven macOS 场景通过：损坏 POM 前读取、安装继承、明确保存、敏感内容/权限保留、外部修改冲突、重开回读、Provider 退出及包清单不变。Node SDK 58 项、Java SDK 单元测试与 Node/Java SDK 端到端示例通过。设置页原生控件在 600/900 宽度、浅色/深色主题四个组合通过，已记录截图；发行组合、正式 SDK 锁定与完整 Maven/Java 工作流尚未完成，因此保持 pending；Windows 通用编辑器和原生保存 adapter 已接入准备中的插件设置入口；Build 产品准入关闭，未进行 Windows 实机验收。执行 BuildNativeConfigurationTests、NativeConfigurationSettingsControlTests、BuildSystemServiceTests 及带 LITHE_STAGE_D_MAVEN_PACKAGE 的 MacNativeBuildProviderIntegrationTests；手工从插件注册的设置页读取、启用覆盖、保存/取消/重载，覆盖外部编辑、旧选项 ABA、切换项目、插件停用和读取失败。 自动读取项目 Wrapper 或自动工具解析失败时不发 Provider 请求；显式读取才运行项目工具，定向测试通过。 只读探针还验证继承、保存后回读和 CLI 指定的实际仓库均未被创建；Maven 官方完整执行请求提供有效值，仓库管理器仅在本次可清理状态目录初始化。 Windows 前端覆盖继承值回显/启用覆盖、取消不写、保存后上游回读、来源间草稿保留、失效/冲突/读回失败、只读及迟到文件选择；设置关闭后重开保留草稿。旧数据迁移和 Windows/WebView2 实机工作流仍待完成，missing/not-applicable 表示产品尚未准入。 本机受影响前端 120 项（新增原生设置 9 项）、CI Build 同范围 59 项、隔离生命周期 6 项通过，类型检查与生产前端构建通过；Windows 原生未执行。"
 }

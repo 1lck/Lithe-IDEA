@@ -1,5 +1,6 @@
 import type { WindowsBuildCatalog } from "@/platform/build-provider-platform";
 import type { BuildInstance, WindowsBuildProviderWorkspace } from "./build-provider-workspace";
+import { BuildNativeConfigurationController } from "./build-native-configuration-controller";
 
 export type BuildEntry = WindowsBuildCatalog["detection"]["instances"][number];
 export interface BuildWorkspaceSnapshot {
@@ -25,6 +26,7 @@ export class BuildWorkspaceController {
   private readonly pending = new Set<Promise<unknown>>();
   private generation = 0;
   private disposed = false;
+  private readonly nativeEditors = new Map<string, BuildNativeConfigurationController>();
   readonly domain: WindowsBuildProviderWorkspace;
 
   constructor(readonly workspacePath: string, private readonly ports: BuildWorkspaceControllerPorts) { this.domain = ports.domain; }
@@ -63,6 +65,18 @@ export class BuildWorkspaceController {
   }
   select(id: string): void { if (this.state.entries.some(entry => entry.id === id)) this.publish({ selectedID: id, error: undefined }); }
 
+  nativeConfiguration(entry: BuildInstance): BuildNativeConfigurationController {
+    const key = JSON.stringify([entry.pluginID, entry.buildSystemID, entry.root]);
+    let editor = this.nativeEditors.get(key);
+    if (!editor) {
+      editor = new BuildNativeConfigurationController(this.domain, () => this.state.entries.find(candidate => candidate.pluginID === entry.pluginID
+        && candidate.buildSystemID === entry.buildSystemID && candidate.root === entry.root));
+      this.nativeEditors.set(key, editor);
+      if (this.disposed) editor.dispose();
+    }
+    return editor;
+  }
+
   perform<T>(entry: BuildInstance, start: () => { operationID: string; completion: Promise<T> }): Promise<T | undefined> {
     if (this.disposed || !this.state.entries.some(candidate => candidate.pluginID === entry.pluginID
       && candidate.buildSystemID === entry.buildSystemID && candidate.root === entry.root)) return Promise.resolve(undefined);
@@ -99,6 +113,7 @@ export class BuildWorkspaceController {
 
   async dispose(): Promise<void> {
     this.disposed = true; this.generation++;
+    for (const editor of this.nativeEditors.values()) editor.dispose();
     this.publish({ status: "idle", entries: [], manifests: {}, selectedID: undefined, modelRevision: this.state.modelRevision + 1 });
     try { await this.domain.dispose(); }
     finally { await Promise.allSettled([...this.pending]); }

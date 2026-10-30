@@ -61,7 +61,7 @@ Core 请求 ID 在发起 IPC 前登记，因此进度或回复先于 IPC 确认�
 自动读取发现项目工具时，在发送任何 Provider 请求前返回需要显式动作的错误；只有产品的
 “使用项目工具读取”动作才允许继续，不能因发现失败偷偷切回旧 Maven 配置服务。
 配置的 Core 解码只接收结果本身，不向严格的配置契约塞入模型根或选项字段。选项/插件/工作区
-失效和取消继续覆盖读取及解码；设置页草稿、确认保存及旧配置迁移仍待完成，文件写回
+失效和取消继续覆盖读取及解码；设置页草稿和明确保存的后续接线见下文，旧配置迁移仍待完成；文件写回
 adapter 的后续增量见下文。
 
 后续文件 adapter 已补准备与提交两阶段：Core 内部编辑直接节点，Windows 的
@@ -77,8 +77,8 @@ adapter 的后续增量见下文。
 调用方等待，但继续持有迟到的准备并释放令牌。写回完成才向 Maven 重新读取当前值，
 不把草稿当作生效值，并撤销同构建系统各根的旧模型和其他在途操作。原子提交开始后
 即使调用方取消，实际完成的写入仍必须撤销旧事实，不能继续显示或运行旧模型。
-设置页确认/草稿呈现、
-旧配置迁移和 Windows 原生整机验收仍待接线，产品能力声明继续关闭。
+设置页草稿、确认保存和来源回显已接入下面的通用编辑器；
+旧配置迁移和 Windows 原生整机验收仍待完成，产品能力声明继续关闭。
 
 Windows 的相邻临时文件复用 `.lithe-document-<pid>-<sequence>.tmp`，归单次替换所有，
 操作结束清理；原生内存令牌没有可复用身份。两者已登记为不可跨工作树复制的原生配置
@@ -122,8 +122,17 @@ Run 的全量工具版本发现。Core 声明的 command、environment 等候选
 代价是新增一层工作区所有者，必须保留失败清理状态，不能直接删除 Map 条目。
 测试覆盖受控界面点击、取消、窗口重挂载、10,000 项仅挂载可见行、插件确认屏障、
 清理失败及迟到检测。它们不替代 Windows/WebView2 实机。声明任务分组、依赖与报告
-呈现、配置草稿/确认、文件观察、Run/Java/Agent 消费者和旧数据迁移尚未完成；旧 Maven
+呈现、文件观察、Run/Java/Agent 消费者和旧数据迁移尚未完成；旧 Maven
 入口及共享命令继续保留，`buildSystems/buildProviders` 能力仍不开放。
+
+通用原生配置编辑器注册到现有插件设置详情，不增 Maven 专页。工作区保存各实例
+的非敏感基线和草稿；继承值预填但需显式启用覆盖，读取、输入、取消、失焦和离页
+均不写文件。每个来源明确显示目标和作用域，保存调用同一服务层事务并显示上游
+回读值；保存 A 保留 B 的未提交修改。读回或重载失败使基线过期，旧值保留但不能再写。
+来源只读时禁用编辑；项目工具默认不运行，显式读取后才继续。晚到的路径选择要核对
+当前基线，不能把重载前的结果填回新草稿。窗口隐藏保留编辑器，工作区关闭统一释放
+订阅和在途操作。前端计时覆盖冲突、撤回、继承/显式空值、保存失败及真实控件点击；
+CI 的 Windows Build 车道已登记这些回归。产品准入和 Windows 实机限制仍同上。
 
 ### 存储、信任与安装（v0）
 
@@ -209,7 +218,7 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 
 - 多窗口事件投递必须显式指定当前产品窗口的 `Window` target。Tauri 默认 `Any` 监听也接收发给其他 label 的事件，原生 `emit_to(ownerLabel)` 本身不足以隔离接收者；文件请求与生命周期确认均绑定当前窗口，防止其他工作区误处理请求或重复确认。`plugin-lifecycle-listener.test.ts` 检查两类监听的目标。
 - 2026-10-24 Windows Release 实机验收：Playwright/CDP 连接真实 WebView2，测试包安装、ui 1 文本渲染、工作区关闭重开、状态隔离、两个产品窗口归属、主题/语言与重载、过期工作区 openFile 拒绝、双窗口卸载关闭全部插件页均通过；无重复确认异常，外站 HTTP GET 为零，安装包及发行资源哈希不变，应用正常退出。该测试包不替代真实语言服务器的完整安装→启动→即时设置验收，也不覆盖停靠布局。
-- 管理并发回归：`lifecycle.rs` 覆盖原生使用计数排空、禁止晚到获取、逐窗口确认、停止失败、窗口断开和有界超时；`lsp-core-adapter.test.ts` 用可控 Core 响应覆盖停止期间晚到的服务器，断言先停止再拒绝，且 `pluginId` 没有丢失。`plugin-lifecycle-listener.test.ts` 验证收到停用事件立即撤销入口、等待运行和 LSP 两方后才确认。
+- 管理并发回归：`lifecycle.rs` 覆盖原生使用计数排空、禁止晚到获取、逐窗口确认、停止失败、窗口断开和有界超时；`lsp-core-adapter.test.ts` 用可控 Core 响应覆盖停止期间晚到的服务器，断言先停止再拒绝，且 `pluginId` 没有丢失。`plugin-lifecycle-listener.test.ts` 验证收到停用事件立即撤销入口、等待运行、LSP 和 Build 三方后才确认。
 - Build 传输基础：`build-provider-sessions.test.ts` 和 `lsp-core-adapter.test.ts` 覆盖包/设置/运行时变化、逐目标停止、停止失败后阻止新请求、解析中取消、插件代次和工作区关闭、早于 IPC 确认的进度与回复，以及原始字段与稳定错误码。新增回归在 macOS 的 Bun 逐项计时入口通过；这不代表 Windows 原生进程、共享语言会话或产品 Maven 工作流已验收。资源复用回归明确拒绝复制新的 Windows Provider 状态。
 - 领域编排：`build-provider-workspace.test.ts`、`build-core-api.test.ts` 覆盖模型到任务/依赖/报告、模型目标、原始 Java 选择器、工具及插件代次失效、参数快照、取消和晚到回复、逐目标清理失败、有界输出与历史。Maven 独立仓库的[集成脚本](https://github.com/Lithe-IDEA/lithe-plugin-maven/blob/codex/issue-1495-maven-domain/scripts/test-windows-workspace.mjs)使用宿主生产 TypeScript、当前 Core 和真实 Maven reactor，8 个步骤增加损坏 POM 下的配置读取、来源字节和探针状态清理，验证普通及模型任务、单方法、成功及失败报告和包字节不变；此 macOS/Linux lane 不等于 Windows 原生或产品 UI 验收。固定宿主 ed10dc4 / SDK 4886c90 / Maven 8c85347 的[开发 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41068473354)已通过当时的 7 步工作区及 Java 8 两种 Maven、Java 17 框架调试，新增配置读取是后续本地验证，不混作该组合的 CI 证据。共享工具选择 fixture 与 Core 全量逐项计时 1434 项通过，Windows Cargo 在 macOS 仅遇到项目窗口注册表既有的两个 Windows API 错误，原生测试尚未运行。
 - 工作区与界面回归：`web.rs` 覆盖双工作区窗口/状态键隔离和文本转义；`plugin-lifecycle-listener.test.ts` 验证其他工作区请求、路径解析中切换工作区以及成功确认；`workspace-lifecycle.test.ts` 验证关闭工作区时清理网页。`declarative-plugin-ui.test.ts` 用 Hello Lithe fixture 验证文本窗口与命令面板、菜单、工具栏三处贡献及撤销，受控刷新同时覆盖相关与无关插件的撤销。CI 按文件分进程执行插件套件，避免原生命令和事件 mock 跨套件泄漏。
@@ -241,6 +250,12 @@ Windows 前端 111 项及隔离生命周期 6 项通过；前端构建、类型�
 与基线相同，仅有两项 macOS 上不可用的 Windows API 错误，没有新增类型调用错误。
 报告位于 `.artifacts/test-stability/stage-d-build-document-*`、`stage-d-windows-build-*`
 及 `stage-d-build-lifecycle-listener.*`，这些不代替 Windows 原生验收。
+
+原生配置设置的 2026-10-31 后续计时为受影响前端 120 项、CI Build 同范围 59 项、
+隔离插件生命周期 6 项，均通过；新增配置控制器/界面 9 项覆盖真正的输入/保存动作。
+HTML/JUnit 报告前缀为 `stage-d-windows-native-settings-*`。本机 Bash 3.2 运行 CI
+门禁脚本的 21 项失败已在改动前隔离源码复现。随后用临时 Bash 5.2.37 复验，
+113 项门禁、分类器及 19 项复用规划测试通过；临时工具已清理，没有产品资源变化。
 
 ## 适用范围
 
