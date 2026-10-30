@@ -1,13 +1,17 @@
 import { useEffect, useRef } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { hasTextContent } from "@/features/panes/types/pane-content.types";
+import {
+  collectUnsavedIndexTextOverrides,
+  didIndexedEditorTextChange,
+} from "@/features/editor/utils/workspace-index-overrides";
 import { requestMybatisIndex } from "../api/mybatis-index-api";
 import { useMybatisStore } from "../stores/mybatis.store";
 import { EMPTY_MYBATIS_INDEX } from "../types/mybatis.types";
 import {
   collectMybatisIndexPaths,
   editAffectsMybatisIndex,
+  hasMybatisMapperCandidate,
   isMybatisIndexPath,
   workspaceRelativeMybatisPath,
 } from "../utils/mybatis-index-paths";
@@ -30,34 +34,53 @@ export function useMybatisIndex() {
 
     let cancelled = false;
 
-    const load = async () => {
+    const performLoad = async () => {
       const generation = store.actions.beginLoad(rootFolderPath);
       loadGeneration.current = generation;
       try {
         const files = await useFileSystemStore.getState().getAllProjectFiles();
+        if (cancelled) return;
         const paths = collectMybatisIndexPaths(
           files.map((file) => file.path),
           rootFolderPath,
         );
-        const textOverrides: Record<string, string> = {};
-        for (const buffer of useBufferStore.getState().buffers) {
-          if (!buffer.path || !hasTextContent(buffer) || !isMybatisIndexPath(buffer.path)) continue;
-          const relative = workspaceRelativeMybatisPath(buffer.path, rootFolderPath);
-          if (relative) textOverrides[relative] = buffer.content;
-        }
-        const index =
-          paths.length === 0
-            ? EMPTY_MYBATIS_INDEX
-            : await requestMybatisIndex({
-                root: rootFolderPath,
-                paths,
-                textOverrides,
-              });
+        const textOverrides = collectUnsavedIndexTextOverrides(
+          useBufferStore.getState().buffers,
+          isMybatisIndexPath,
+          (path) => workspaceRelativeMybatisPath(path, rootFolderPath),
+        );
+        // Statements come only from XML mappers; without one, skip parsing
+        // every Java file in the workspace.
+        const index = !hasMybatisMapperCandidate(paths, textOverrides)
+          ? EMPTY_MYBATIS_INDEX
+          : await requestMybatisIndex({
+              root: rootFolderPath,
+              paths,
+              textOverrides,
+            });
         if (cancelled) return;
         useMybatisStore.getState().actions.completeLoad(generation, rootFolderPath, index);
       } catch (error) {
         console.warn("MyBatis index failed:", error);
         if (!cancelled) useMybatisStore.getState().actions.failLoad(generation);
+      }
+    };
+
+    // A workspace scan can outlast the reload debounce. Keep one load in
+    // flight and fold triggers that arrive meanwhile into a single follow-up.
+    let inFlight = false;
+    let pending = false;
+    const load = async () => {
+      pending = true;
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        while (pending && !cancelled) {
+          pending = false;
+          await performLoad();
+        }
+      } finally {
+        inFlight = false;
       }
     };
 
@@ -70,18 +93,12 @@ export function useMybatisIndex() {
 
     void load();
 
+    // Opening or saving a clean Java file leaves the indexed text unchanged;
+    // only unsaved edits and discarded edits need a rescan.
     const unsubscribeBuffers = useBufferStore.subscribe((state, previous) => {
-      const changed = state.buffers.some((buffer) => {
-        if (!buffer.path || !isMybatisIndexPath(buffer.path) || !hasTextContent(buffer)) return false;
-        const previousBuffer = previous.buffers.find((candidate) => candidate.id === buffer.id);
-        // A newly opened file may hold a mapper the index has not paired yet.
-        if (!previousBuffer || !hasTextContent(previousBuffer)) return true;
-        return (
-          previousBuffer.content !== buffer.content &&
-          editAffectsMybatisIndex(buffer.path)
-        );
-      });
-      if (changed) scheduleReload();
+      if (didIndexedEditorTextChange(state.buffers, previous.buffers, editAffectsMybatisIndex)) {
+        scheduleReload();
+      }
     });
 
     const handleExternalChange = (event: Event) => {

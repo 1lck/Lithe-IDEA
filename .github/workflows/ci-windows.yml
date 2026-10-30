@@ -281,6 +281,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-syntax-definition.json -- src/features/editor/lsp/java-syntax-definition.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-open-performance.json -- src/features/editor/engines/monaco/hover-widgets.test.ts src/features/editor/engines/monaco/model-position-resolver.test.ts src/features/editor/engines/monaco/surface-visibility.test.ts src/features/editor/engines/monaco/theme-definition-cache.test.ts src/features/editor/utils/workspace-index-overrides.test.ts src/features/editor/stores/buffer-eviction.test.ts src/features/tabs/utils/tab-recency.test.ts src/features/panes/utils/mounted-editor-buffers.test.ts src/features/file-explorer/lib/tree-guide-visibility.test.ts src/features/file-explorer/styles/file-explorer-tree-guides.test.ts src/features/mybatis/utils/mybatis-index-paths.test.ts src/features/logging/frontend-log-runtime.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-drop-listeners.json -- src/features/file-system/hooks/use-file-system-folder-drop.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-events.json -- src/features/debugger/services/debug-adapter-events.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The event bridge mocks the adapter module; run the real adapter tests in a separate process.

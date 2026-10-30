@@ -28,6 +28,7 @@
     "scroll.frameP95Ms": 20,
     "scroll.droppedFramesPct": 2,
     "tabs.switchP95Ms": 33,
+    "fileOpen.pastLimitOpenP95Ms": 66,
     "projectTree.frameMaxMs": 33,
     "quickOpen.openMs": 50,
     "quickOpen.queryMs": 200,

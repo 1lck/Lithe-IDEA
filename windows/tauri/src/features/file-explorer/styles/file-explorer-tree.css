@@ -195,9 +195,10 @@
   transition: opacity var(--app-duration-fast) var(--app-ease-smooth);
 }
 
-.file-tree-container:has(.file-tree-guide:hover) [data-sidebar-tree-row] .file-tree-guide,
+/* Set by lib/tree-guide-visibility.ts; :has() here restyled the whole tree on every focus change. */
+.file-tree-container[data-guide-hover] [data-sidebar-tree-row] .file-tree-guide,
 .file-tree-container:focus-visible [data-sidebar-tree-row] .file-tree-guide,
-.file-tree-container:has(:focus-visible) [data-sidebar-tree-row] .file-tree-guide {
+.file-tree-container[data-guide-focus] [data-sidebar-tree-row] .file-tree-guide {
   opacity: 0.9;
 }
 

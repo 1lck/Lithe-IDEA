@@ -14,13 +14,19 @@ interface SemanticTokenProviderOptions {
   filePathFromModel(model: Monaco.editor.ITextModel): string;
   isLspModel(model: Monaco.editor.ITextModel): boolean;
   onDidChange?: Monaco.Emitter<void>["event"];
+  /** True for models only hidden editor tabs show; they keep their tokens. */
+  skipHiddenModel?(model: Monaco.editor.ITextModel): boolean;
 }
+
+/** Monaco keeps current tokens, without logging, when a request fails as busy. */
+export const HIDDEN_MODEL_BUSY_MESSAGE = "busy: the editor showing this model is hidden";
 
 export function createMonacoSemanticTokenProvider({
   client,
   filePathFromModel,
   isLspModel,
   onDidChange,
+  skipHiddenModel,
 }: SemanticTokenProviderOptions): Monaco.languages.DocumentSemanticTokensProvider {
   return {
     onDidChange,
@@ -29,6 +35,7 @@ export function createMonacoSemanticTokenProvider({
     },
     async provideDocumentSemanticTokens(model, _lastResultId, cancellationToken) {
       if (cancellationToken.isCancellationRequested || !isLspModel(model)) return null;
+      if (skipHiddenModel?.(model)) throw new Error(HIDDEN_MODEL_BUSY_MESSAGE);
 
       const filePath = filePathFromModel(model);
       if (!client.getActiveServerEntryForFile(filePath) || !client.isDocumentOpen(filePath)) {
