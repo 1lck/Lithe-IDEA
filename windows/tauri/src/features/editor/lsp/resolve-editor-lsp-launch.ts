@@ -7,11 +7,15 @@ import {
   type JavaLspGradle,
   type JdtlsLaunchResources,
 } from "./java-lsp-host-api";
-import type { MavenLaunchContext } from "@/features/maven/types/maven.types";
 import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
 import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 import { getRelativePath } from "@/utils/path-helpers";
 import { ensureWorkspaceGitBootstrap } from "@/features/workspace/services/workspace-git-bootstrap";
+import {
+  prepareBuildLanguageImport,
+  bindJavaBuildLanguageImport,
+  type MavenLanguageImportContext,
+} from "@/features/build-systems/build-language-import";
 
 export interface EditorLspLaunch {
   providerId: string;
@@ -28,13 +32,14 @@ export interface EditorLspLaunch {
   environment?: Record<string, string>;
   /** Workspace structure digest forwarded to the Rust core. */
   workspaceFingerprint?: string | null;
-  mavenContext?: MavenLaunchContext | null;
+  mavenContext?: MavenLanguageImportContext | null;
   javaRuntimes?: JavaLspRuntime[];
   /** Gradle import context forwarded to the Rust core. */
   javaGradle?: JavaLspGradle | null;
 }
 
 export interface EditorLspLaunchDependencies {
+  prepareBuildLanguageImport?: typeof prepareBuildLanguageImport;
   ensureWorkspaceGitBootstrap: typeof ensureWorkspaceGitBootstrap;
   resolveJavaLspLaunch: typeof resolveJavaLspLaunch;
   mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
@@ -42,6 +47,7 @@ export interface EditorLspLaunchDependencies {
 }
 
 const defaultDependencies: EditorLspLaunchDependencies = {
+  prepareBuildLanguageImport,
   ensureWorkspaceGitBootstrap,
   resolveJavaLspLaunch,
   mavenLaunchContextForWorkspace,
@@ -57,33 +63,46 @@ export async function resolveEditorLspLaunch(
   if (isJavaSourcePath(filePath)) {
     // Restored documents can attach before background prewarm runs. Both entry
     // points must wait before Maven discovery or JDTLS preparation starts.
-    if (await dependencies.ensureWorkspaceGitBootstrap(scope) === "superseded") return null;
-    const [launch, mavenContext] = await Promise.all([
-      dependencies.resolveJavaLspLaunch(workspacePath),
-      dependencies.mavenLaunchContextForWorkspace(
-        workspacePath,
-        [getRelativePath(filePath, workspacePath)],
-        scope.workspaceId,
-      ),
-    ]);
-    const environment: Record<string, string> = {};
-    if (launch.environment.JAVA_HOME) {
-      environment.JAVA_HOME = launch.environment.JAVA_HOME;
+    if ((await dependencies.ensureWorkspaceGitBootstrap(scope)) === "superseded") return null;
+    const prepared = await dependencies.prepareBuildLanguageImport?.(scope, filePath);
+    try {
+      const [launch, legacyMavenContext] = await Promise.all([
+        dependencies.resolveJavaLspLaunch(workspacePath),
+        prepared?.value.mavenContext
+          ? Promise.resolve(null)
+          : dependencies.mavenLaunchContextForWorkspace(
+              workspacePath,
+              [getRelativePath(filePath, workspacePath)],
+              scope.workspaceId,
+            ),
+      ]);
+      // Startup preparation and legacy model reads may yield. Recheck options,
+      // model, package bytes and workspace before returning anything to JDT.
+      await prepared?.validate();
+      prepared?.assertCurrent();
+      const environment: Record<string, string> = {};
+      if (launch.environment.JAVA_HOME) {
+        environment.JAVA_HOME = launch.environment.JAVA_HOME;
+      }
+      if (prepared)
+        bindJavaBuildLanguageImport(scope, filePath, prepared.value.mavenContext !== null);
+      return {
+        providerId: launch.providerId || JAVA_PROVIDER_ID,
+        languageId: launch.languageId || JAVA_LANGUAGE_ID,
+        serverPath: launch.executablePath,
+        serverArgs: launch.arguments ?? [],
+        runtimeExecutablePath: launch.runtimeExecutablePath,
+        jdtlsLaunchResources: launch.jdtlsLaunchResources,
+        cacheDirectory: launch.cacheDirectory,
+        environment,
+        workspaceFingerprint: launch.workspaceFingerprint,
+        mavenContext: prepared?.value.mavenContext ?? legacyMavenContext,
+        javaRuntimes: launch.javaRuntimes ?? [],
+        javaGradle: prepared?.value.javaGradle ?? launch.javaGradle ?? null,
+      };
+    } finally {
+      prepared?.dispose();
     }
-    return {
-      providerId: launch.providerId || JAVA_PROVIDER_ID,
-      languageId: launch.languageId || JAVA_LANGUAGE_ID,
-      serverPath: launch.executablePath,
-      serverArgs: launch.arguments ?? [],
-      runtimeExecutablePath: launch.runtimeExecutablePath,
-      jdtlsLaunchResources: launch.jdtlsLaunchResources,
-      cacheDirectory: launch.cacheDirectory,
-      environment,
-      workspaceFingerprint: launch.workspaceFingerprint,
-      mavenContext,
-      javaRuntimes: launch.javaRuntimes ?? [],
-      javaGradle: launch.javaGradle ?? null,
-    };
   }
 
   const [{ extensionRegistry }, { getLanguageToolConfigSet }] = await Promise.all([

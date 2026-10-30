@@ -17,6 +17,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -32,9 +33,8 @@ pub struct LspProcessSpec {
 
 /// A running language-server process.
 ///
-/// Every method is infallible-by-design except writing: a process that has
-/// already exited is a normal state the engine reports through its own events,
-/// not an error to propagate from the handle.
+/// Exit notification and verified disposal are separate: a dead root may
+/// still own descendants. Disposal must succeed before releasing resources.
 pub trait LspProcessHandle: Send + Sync {
     /// OS process identifier when the platform exposes one. Scripted test
     /// handles intentionally return no identifier.
@@ -56,6 +56,19 @@ pub trait LspProcessHandle: Send + Sync {
 
     /// Ends the process without waiting for it to agree.
     fn terminate(&self);
+
+    /// Confirms disposal before the engine forgets the owning session.
+    /// Scripted handles have no descendants and report their own exit.
+    fn dispose(&self, _timeout: Duration) -> Result<(), CoreError> {
+        if self.exit_status().is_some() {
+            Ok(())
+        } else {
+            Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Language-server cleanup is incomplete.",
+            ))
+        }
+    }
 }
 
 /// A launched process and the two streams the engine reads on its own threads.
@@ -261,6 +274,26 @@ impl LspProcessHandle for SystemProcess {
         if let Ok(mut child) = self.child.lock() {
             let _ = child.kill();
         }
+    }
+
+    fn dispose(&self, timeout: Duration) -> Result<(), CoreError> {
+        #[cfg(target_os = "windows")]
+        self.tree.terminate(timeout).map_err(|error| {
+            CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Language-server process tree did not exit.",
+            )
+            .with_details(error.to_string())
+        })?;
+        #[cfg(not(target_os = "windows"))]
+        let _ = timeout;
+        if self.exit_status().is_none() {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Language-server root did not exit.",
+            ));
+        }
+        Ok(())
     }
 }
 

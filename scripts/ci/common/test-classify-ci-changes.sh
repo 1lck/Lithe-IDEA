@@ -177,6 +177,14 @@ modify_worktree_resource_registry() {
     mkdir -p scripts/resources
     printf '%s\n' '{"schemaVersion":1,"resources":[]}' > scripts/resources/worktree-resources.json
 }
+modify_resource_hash_worker() {
+    mkdir -p scripts/resources
+    printf '%s\n' 'export const concurrency = 8;' > scripts/resources/hash-file-set.mjs
+}
+modify_resource_hash_test() {
+    mkdir -p scripts/resources
+    printf '%s\n' 'console.log("hash test");' > scripts/resources/hash-file-set.test.mjs
+}
 modify_test_stability_runner() {
     mkdir -p .agents/skills/write-stable-tests/scripts
     printf '%s\n' '#!/bin/zsh' 'print -- test-stability' > .agents/skills/write-stable-tests/scripts/test-stability-macos.sh
@@ -346,6 +354,12 @@ assert_classification download-cache-validator \
 assert_classification worktree-resource-registry \
     "$(classification true true true true true true false false)" \
     modify_worktree_resource_registry
+assert_classification resource-hash-worker \
+    "$(classification true true true true true true false false)" \
+    modify_resource_hash_worker
+assert_classification resource-hash-test \
+    "$(classification true true true true true true false false)" \
+    modify_resource_hash_test
 assert_classification test-stability-runner \
     "$(classification true true true false true true false false true false pull_request true)" \
     modify_test_stability_runner

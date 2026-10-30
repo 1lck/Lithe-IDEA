@@ -43,6 +43,9 @@ import {
   type ProjectPackageManager,
 } from "../lib/new-project-model";
 import { useTranslation } from "@/i18n/locale-provider";
+import ProjectGeneratorWizard from "@/features/project-generators/project-generator-wizard";
+
+type Source = NewProjectSource | "plugin";
 
 interface NewProjectContentProps {
   onBack: () => void;
@@ -51,7 +54,7 @@ interface NewProjectContentProps {
 }
 
 interface ProjectSourceOption {
-  id: NewProjectSource;
+  id: Source;
   label: string;
   description: string;
   badge: string;
@@ -78,7 +81,7 @@ export default function NewProjectContent({
   );
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [source, setSource] = useState<NewProjectSource>(initialSource ?? "empty");
+  const [source, setSource] = useState<Source>(initialSource ?? "empty");
   const [projectName, setProjectName] = useState("");
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [locationPath, setLocationPath] = useState("");
@@ -88,6 +91,14 @@ export default function NewProjectContent({
   const handleOpenFolderByPath = useFileSystemStore((state) => state.handleOpenFolderByPath);
   const projectSourceOptions = useMemo<ProjectSourceOption[]>(
     () => [
+      {
+        id: "plugin",
+        label: t("generator.title"),
+        description: t("generator.description"),
+        badge: t("generator.plugins"),
+        icon: Package,
+        keywords: ["generator", "plugin", "template"],
+      },
       {
         id: "empty",
         label: t("welcome.emptyProject"),
@@ -124,7 +135,7 @@ export default function NewProjectContent({
     [t],
   );
 
-  const getCreationLabel = (nextSource: NewProjectSource) => {
+  const getCreationLabel = (nextSource: Source) => {
     if (nextSource === "clone") return t("welcome.cloneRepository");
     if (nextSource === "empty") return t("welcome.emptyProject");
     return t("welcome.newProject");
@@ -175,7 +186,7 @@ export default function NewProjectContent({
     (source !== "clone" || !!repositoryUrl.trim()) &&
     step === "details";
 
-  const chooseSource = (nextSource: NewProjectSource) => {
+  const chooseSource = (nextSource: Source) => {
     setSource(nextSource);
     setStep("details");
     setProjectName("");
@@ -276,11 +287,21 @@ export default function NewProjectContent({
     }
   };
 
+  if (source === "plugin" && step !== "source") {
+    return (
+      <ProjectGeneratorWizard parent={locationPath} onBack={returnToSource} onClose={onClose} />
+    );
+  }
+
   if (step === "source") {
     return (
       <>
         <CommandHeader onClose={onClose}>
-          <CommandHeaderAction type="button" aria-label={t("welcome.backToProjects")} onClick={onBack}>
+          <CommandHeaderAction
+            type="button"
+            aria-label={t("welcome.backToProjects")}
+            onClick={onBack}
+          >
             <ArrowLeft />
           </CommandHeaderAction>
           <CommandInput
@@ -448,9 +469,7 @@ export default function NewProjectContent({
                 onChange={(value) => setPackageManager(value as ProjectPackageManager)}
                 size="md"
               />
-              <FieldDescription>
-                {t("newProject.packageManagerDescription")}
-              </FieldDescription>
+              <FieldDescription>{t("newProject.packageManagerDescription")}</FieldDescription>
             </Field>
           ) : null}
 

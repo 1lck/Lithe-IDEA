@@ -52,6 +52,17 @@ const asyncBootstrapSteps = [
       await rescanDeclarativePlugins();
       const { refreshDeclarativeUI } = await import("@/features/plugins/declarative-plugin-ui");
       await refreshDeclarativeUI();
+      const { startBuildSystemsRuntime } = await import(
+        "@/features/build-systems/build-systems-service"
+      );
+      // Registers the plugin-lifecycle listener (catalog and registry
+      // revocation on disable/replace/uninstall) and warms the catalog.
+      // Detection runs when a build tool window mounts for the active
+      // workspace; the sync watcher lives with that window and is released
+      // when its last tool window unmounts. The returned cleanup is also
+      // wired to pagehide inside the service, so a destroyed window never
+      // keeps the listener alive.
+      await startBuildSystemsRuntime();
     },
   },
 ] as const;

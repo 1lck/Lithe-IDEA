@@ -396,6 +396,7 @@ const CodeEditor = ({
   useLspIntegration({
     enabled: enableRichEditorServices,
     filePath,
+    bufferId: activeBufferId ?? undefined,
     contentRevision: activeBuffer?.contentRevision ?? 0,
   });
 

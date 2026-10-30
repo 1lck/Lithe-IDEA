@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "description": "Public cross-platform test vectors for the plugin package signature (macOS PluginPackageSignature and the Windows plugin_host signature module). The Ed25519 key is the RFC 8032 test key; it must never sign real packages. Regenerating requires updating both platform tests in the same change.",
+  "ed25519": {
+    "seedHex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "publicKeyHex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+    "messageEmptySignatureHex": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+  },
+  "packageFiles": {
+    "plugin.json": "plugin manifest bytes",
+    "language-server/bin/server.js": "console.log('server');\n",
+    "插件/服务器.js": "console.log('非 ASCII 路径');\n",
+    "日本語/README.md": "# サンプル\n",
+    "assets/заметки.txt": "заметки\n"
+  },
+  "canonicalPayload": {
+    "keyID": "lithe-test-v1",
+    "pluginID": "dev.example.plugin",
+    "pluginVersion": "0.3.0",
+    "files": {
+      "plugin.json": "1ec2dc0f2dacb3b0c43dd9dc6035731249094d080f60394236f68450420e6a29",
+      "language-server/bin/server.js": "fca7a5298331fc1e306876075edf8f47b791b200b182c841dc250c54d5138760",
+      "插件/服务器.js": "481e4738eca92d68a48ef69591c5ecb0afd2529a0eba37b489665cd31b457ad5",
+      "日本語/README.md": "667ec9c9c320a9dee9f64ce35daf3ec27cf5bc06aaa0625253c788301bd5f7af",
+      "assets/заметки.txt": "d303fa2a84fb9a7d0c0e50cf1c27ff33f8c90cb53d366138929934f4e2e758fb"
+    },
+    "payloadBase64": "c2NoZW1hVmVyc2lvbj0xCmFsZ29yaXRobT1lZDI1NTE5CmtleUlEPWxpdGhlLXRlc3QtdjEKcGx1Z2luSUQ9WkdWMkxtVjRZVzF3YkdVdWNHeDFaMmx1CnBsdWdpblZlcnNpb249TUM0ekxqQQpmaWxlPVlYTnpaWFJ6TDlDMzBMRFF2TkMxMFlMUXV0QzRMblI0ZEE9ZDMwM2ZhMmE4NGZiOWE3ZDBjMGU1MGNmMWMyN2ZmMzNmOGM5MGNiNTNkMzY2MTM4OTI5OTM0ZjRlMmU3NThmYgpmaWxlPWJHRnVaM1ZoWjJVdGMyVnlkbVZ5TDJKcGJpOXpaWEoyWlhJdWFuTT1mY2E3YTUyOTgzMzFmYzFlMzA2ODc2MDc1ZWRmOGY0N2I3OTFiMjAwYjE4MmM4NDFkYzI1MGM1NGQ1MTM4NzYwCmZpbGU9Y0d4MVoybHVMbXB6YjI0PTFlYzJkYzBmMmRhY2IzYjBjNDNkZDlkYzYwMzU3MzEyNDkwOTRkMDgwZjYwMzk0MjM2ZjY4NDUwNDIwZTZhMjkKZmlsZT01by1TNUx1MkwtYWNqZVdLb2VXWnFDNXFjdz00ODFlNDczOGVjYTkyZDY4YTQ4ZWY2OTU5MWM1ZWNiMGFmZDI1MjlhMGViYTM3YjQ4OTY2NWNkMzFiNDU3YWQ1CmZpbGU9NXBlbDVweXM2S3FlTDFKRlFVUk5SUzV0WkE9NjY3ZWM5YzljMzIwYTlkZWU5ZjY0Y2UzNWRhZjNlYzI3Y2Y1YmMwNmFhYTA2MjUyNTNjNzg4MzAxYmQ1ZjdhZgo=",
+    "signatureBase64": "lFd79pLu83LDn4D8N0cSAtm3jzHGNLIVGBAfS0v4Wzfnim4DLcCOKITqS8v5iOGP951whGhZIZxqdMZULHy+Cw=="
+  },
+  "contentDigest": {
+    "files": {
+      "plugin.json": "1ec2dc0f2dacb3b0c43dd9dc6035731249094d080f60394236f68450420e6a29",
+      "language-server/bin/server.js": "fca7a5298331fc1e306876075edf8f47b791b200b182c841dc250c54d5138760",
+      "插件/服务器.js": "481e4738eca92d68a48ef69591c5ecb0afd2529a0eba37b489665cd31b457ad5",
+      "日本語/README.md": "667ec9c9c320a9dee9f64ce35daf3ec27cf5bc06aaa0625253c788301bd5f7af",
+      "assets/заметки.txt": "d303fa2a84fb9a7d0c0e50cf1c27ff33f8c90cb53d366138929934f4e2e758fb"
+    },
+    "digest": "4dcdacc3e80f23932029638487a3074301d95a6721151a03a010d8633fe55a61"
+  }
+}

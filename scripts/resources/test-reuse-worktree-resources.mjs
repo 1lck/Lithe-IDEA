@@ -5,9 +5,9 @@ import test from "node:test";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { publishDirectory } from "./reuse-worktree-resources.mjs";
+import { parseArguments, publishDirectory } from "./reuse-worktree-resources.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const reuseScript = path.join(scriptDirectory, "reuse-worktree-resources.mjs");
@@ -64,6 +64,15 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("validation deadline is explicit, bounded and rejected before any resource operation", () => {
+    assert.equal(parseArguments([]).validationTimeoutMs, 300_000);
+    assert.equal(parseArguments(["--validation-timeout-seconds", "1200"]).validationTimeoutMs, 1_200_000);
+    for (const value of ["0", "-1", "1201", "NaN", "Infinity", "1.5", "1e2"])
+      assert.throws(() => parseArguments(["--validation-timeout-seconds", value]), /integer from 1 to 1200/);
+    const refused = reuse(["--validation-timeout-seconds", "1201"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /integer from 1 to 1200/);
+  });
   await test("remote host resources and session snapshots cannot cross worktrees", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const listed = run(process.execPath, [reuseScript, "--list"]);
@@ -95,6 +104,32 @@ try {
       assert.ok(snapshots.locations.some(location => location.includes(component)), component);
     }
   });
+  await test("VCS root choices and watcher ownership cannot be reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "vcs-root-mappings");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.some(location => location.includes("vcs-roots/")));
+    assert.ok(resource.locations.some(location => location.endsWith(".backup")));
+    assert.match(resource.identity, /directory identity/);
+    assert.match(resource.reason, /permissions/);
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /vcs-root-mappings.*cannot be reused/);
+  });
+  await test("npm source identity cannot authorize separate lifecycle binary reuse", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const bun = registry.resources.find(item => item.id === "bun");
+    assert.match(bun.identity, /source-only lock migration invalidates/);
+    const state = registry.excludedResources.find(item => item.id === "frontend-install-state");
+    assert.ok(state.locations.includes("<os-temp>/lithe Windows install */"));
+    assert.match(state.reason, /native-handle waiter/);
+    assert.match(state.reason, /null digest cannot establish a binary reuse identity/);
+    assert.ok(!registry.resources.some(item => /tree-sitter/.test(item.id)));
+    const refused = reuse(["--resource", state.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /frontend-install-state.*cannot be reused/);
+  });
+
   await test("SwiftPM build products and compiler stamps cannot be reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "swiftpm-build-state");
@@ -282,6 +317,34 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
   });
+  await test("plugin settings and replacement recovery files stay user-owned", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-settings-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<workspace>/.lithe/plugin-settings.json"));
+    assert.ok(resource.locations.some(location => location.endsWith(".backup")));
+    assert.match(resource.reason, /permissions/);
+    const listed = reuse(["--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-settings-state.*cannot be reused/);
+  });
+  await test("generator staging and user projects cannot be copied as build resources", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-generator-transactions");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<workspace-parent>/.<project-name>.lithe-creating-<token>/"));
+    assert.match(resource.identity, /operation/);
+    assert.match(resource.reason, /NativeLease/);
+    const listed = reuse(["--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-generator-transactions.*cannot be reused/);
+  });
   await test("plugin web state has no transferable build identity or copy stage", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-web-state");
@@ -314,6 +377,149 @@ try {
       const refused = reuse(["--resource", id]);
       assert.notEqual(refused.status, 0);
       assert.match(diagnostics(refused), new RegExp(`${id}.*cannot be reused`));
+    }
+  });
+  await test("command model and dependency output use the isolated plugin-state route", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "official-plugin-packages");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<windows-app-local-data>/plugin-state/<plugin-id>/build-<pid>-<operation-sequence>.model.json"));
+    assert.ok(resource.locations.includes("<windows-app-local-data>/plugin-state/<plugin-id>/build-<pid>-<operation-sequence>.dependencies.json"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /official-plugin-packages.*cannot be reused/);
+  });
+  await test("controlled browser profiles, caches and ownership evidence cannot be reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "native-browser-regression-state");
+    assert.equal(resource.reusable, false);
+    for (const location of [
+      ".artifacts/native-browser-*/profile/", ".artifacts/native-browser-*/cache/",
+      ".artifacts/native-browser-*/worker-evidence.json", ".artifacts/native-browser-*/job-result.json",
+      ".artifacts/native-browser-*/worker.log",
+      ".artifacts/test-stability/native-panel-browser.{json,html,junit.xml}",
+      ".artifacts/test-stability/native-form-grid-browser.{json,html,junit.xml,worker.log}",
+      ".artifacts/test-stability/native-controls-input-browser.{json,html,junit.xml,worker.log}",
+      ".artifacts/test-stability/native-workbench-browser.{json,html,junit.xml,worker.log}",
+      "<explicit-native-browser-report>.{json,html,junit.xml,worker.log}",
+      "<native-browser-report-parent>/expected-failures/<report-name>.{json,html,junit.xml}",
+    ]) assert.ok(resource.locations.includes(location));
+    for (const fixture of [
+      ".artifacts/native-browser-first/profile/Preferences",
+      ".artifacts/native-browser-first/cache/deps/_metadata.json",
+      ".artifacts/native-browser-first/worker-evidence.json",
+      ".artifacts/native-browser-first/job-result.json",
+      ".artifacts/native-browser-first/worker.log",
+      ".artifacts/test-stability/native-panel-browser.json",
+      ".artifacts/test-stability/native-panel-browser.html",
+      ".artifacts/test-stability/native-panel-browser.junit.xml",
+      ".artifacts/test-stability/native-panel-browser.worker.log",
+      ".artifacts/test-stability/native-tree-browser.json",
+      ".artifacts/test-stability/native-form-grid-browser.json",
+      ".artifacts/test-stability/native-form-grid-browser.worker.log",
+      ".artifacts/test-stability/native-controls-input-browser.json",
+      ".artifacts/test-stability/native-controls-input-browser.worker.log",
+      ".artifacts/test-stability/native-workbench-browser.json",
+      ".artifacts/test-stability/native-workbench-browser.worker.log",
+      ".artifacts/test-stability/native-browser-worker-hang.worker.log",
+      ".artifacts/test-stability/expected-failures/native-browser-worker-exit.json",
+      ".artifacts/test-stability/expected-failures/native-browser-worker-hang.html",
+    ]) {
+      const source = path.join(sourceRoot, fixture);
+      await fs.mkdir(path.dirname(source), { recursive: true });
+      await fs.writeFile(source, "run-owned browser bytes");
+      const refused = reuse(["--resource", resource.id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), /native-browser-regression-state.*cannot be reused/);
+      assert.equal(await fs.readFile(source, "utf8"), "run-owned browser bytes");
+      await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+    }
+  });
+  await test("offline build-preflight fake tools and mutable manifests cannot transfer ownership", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<os-temp>/lithe-build-preflight-*/"));
+    assert.match(resource.reason, /fake native Bun\/IPC workers/);
+    assert.match(resource.reason, /tar.gz\/VSIX extraction inputs and outputs/);
+    // Refuse before worktree resolution or any copy stage, even if the source
+    // looks like a complete disposable checkout with an executable and manifest.
+    for (const fixture of [
+      "preflight-fixture/native/bun.exe",
+      "preflight-fixture/fake-path/tar.exe",
+      "preflight-fixture/jdtls-downloads/small-fixture.tar.gz",
+      "preflight-fixture/jdtls-downloads/java-test.zip",
+      "preflight-fixture/windows/tauri/src-tauri/Cargo.toml",
+      "preflight-fixture/scripts/windows/build/install-windows-frontend-dependencies.ps1",
+    ]) {
+      const source = path.join(sourceRoot, fixture);
+      await fs.mkdir(path.dirname(source), { recursive: true });
+      await fs.writeFile(source, "isolated offline preflight fixture bytes");
+      const refused = reuse(["--resource", resource.id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+      assert.equal(await fs.readFile(source, "utf8"), "isolated offline preflight fixture bytes");
+      await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+    }
+  });
+  await test("explicit SVN diagnostic state remains excluded from worktree reuse", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<explicit-vcs-move-diagnostic-output>/"));
+    assert.ok(resource.locations.some(location => location.startsWith("<os-temp>/vcs-move-")));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+  });
+  await test("native acceptance refuses copying even a deterministic marketplace fixture", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes(".artifacts/plugin-host-acceptance/"));
+    const fixture = ".artifacts/plugin-host-acceptance/marketplace-fixture/packages/a1.zip";
+    const source = path.join(sourceRoot, fixture);
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.writeFile(source, "deterministic fixture bytes");
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+    assert.equal(await fs.readFile(source, "utf8"), "deterministic fixture bytes");
+    await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+  });
+  await test("controlled build fixtures remain isolated acceptance state", { timeout: 15000 }, async () => {
+    const fixture = ".artifacts/plugin-host-acceptance/build-fixture/tools with spaces/bin/fake-build-tool.mjs";
+    const source = path.join(sourceRoot, fixture);
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.writeFile(source, "controlled build fixture bytes");
+    const refused = reuse(["--resource", "plugin-host-acceptance-state"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+    assert.equal(await fs.readFile(source, "utf8"), "controlled build fixture bytes");
+    await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+  });
+  await test("settings/functions and web fallback plans cannot transfer install approval", { timeout: 15000 }, async () => {
+    for (const fixture of [
+      ".artifacts/plugin-host-acceptance/text-window-fixture-first/plan.json",
+      ".artifacts/plugin-host-acceptance/text-window-fixture-first/literal-text.zip",
+      ".artifacts/plugin-host-acceptance/text-window-evidence-first/network-and-ui-events.json",
+      ".artifacts/plugin-host-acceptance/text-window-evidence-first/counter-final.json",
+      ".artifacts/plugin-host-acceptance/web-bridge-fallback-fixture/plan.json",
+      ".artifacts/plugin-host-acceptance/web-bridge-fallback-fixture/web-fallback.zip",
+      ".artifacts/plugin-host-acceptance/evidence-r18/paused-requests.json",
+      ".artifacts/plugin-host-acceptance/evidence-r18/transport-after.json",
+      ".artifacts/plugin-host-acceptance/settings-functions-fixture/settings-functions-plan.json",
+      ".artifacts/plugin-host-acceptance/settings-functions-fixture/settings-1.0.0.zip",
+      ".artifacts/plugin-host-acceptance/evidence/settings-functions/resources-before.json",
+    ]) {
+      const source = path.join(sourceRoot, fixture);
+      await fs.mkdir(path.dirname(source), { recursive: true });
+      await fs.writeFile(source, "run-owned settings/functions bytes");
+      const refused = reuse(["--resource", "plugin-host-acceptance-state"]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+      assert.equal(await fs.readFile(source, "utf8"), "run-owned settings/functions bytes");
+      await assert.rejects(fs.access(path.join(targetRoot, fixture)));
     }
   });
   await test("retained MCP filters and native review screenshots remain user/run state", { timeout: 15000 }, async () => {
@@ -366,6 +572,38 @@ try {
       await assert.rejects(fs.access(missingTarget), { code: "ENOENT" });
     }
   });
+  await test("project archive transactions are rejected before resolving either worktree", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "project-generator-transactions");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<user-selected-parent>/.<project-name>.lithe-creating-<operation-id>/"));
+    assert.ok(resource.locations.includes("<user-selected-parent>/.<project-name>.lithe-creating-<operation-id>/.lithe-project-archive-<nonce>.zip"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const missingSource = path.join(testRoot, "unopened-generator-source");
+    const missingTarget = path.join(testRoot, "unopened-generator-target");
+    const refused = run(process.execPath, [reuseScript, "--source", missingSource, "--target", missingTarget,
+      "--resource", "jdtls", "--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /project-generator-transactions is isolated.*cannot be reused/);
+    await assert.rejects(fs.access(missingSource), { code: "ENOENT" });
+    await assert.rejects(fs.access(missingTarget), { code: "ENOENT" });
+  });
+  await test("Windows plugin indexes downloads and build options are isolated runtime state", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-marketplace-state");
+    assert.equal(resource.reusable, false);
+    for (const location of [
+      "<windows-app-local-data>/plugin-marketplace/sources.json",
+      "<windows-app-local-data>/plugin-marketplace/<source-id>.<platform>.json",
+      "<windows-runtime-download-root>/marketplace-download-<pid>-<nonce>.zip",
+      "<windows-app-local-data>/plugin-build-options/<workspace-digest>.json",
+    ]) assert.ok(resource.locations.includes(location), location);
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-marketplace-state is isolated.*cannot be reused/);
+  });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
   await fs.writeFile(
@@ -409,17 +647,17 @@ try {
 
   const staleLock = path.join(targetRoot, ".artifacts", ".reuse-worktree-resources.lock");
   await fs.mkdir(staleLock, { recursive: true });
-  const exitedProcess = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
-  await new Promise((resolve, reject) => {
-    exitedProcess.once("error", reject);
-    exitedProcess.once("exit", resolve);
-  });
+  // The synchronous helper has a deadline and closes the process handle before
+  // publishing its PID. Windows may still observe an exited async child's
+  // handle as live before its close event, making the stale-lock test race.
+  const exitedProcess = run(process.execPath, ["-e", ""]);
+  assertSucceeded(exitedProcess);
   await fs.writeFile(
     path.join(staleLock, "owner.json"),
     `${JSON.stringify({ pid: exitedProcess.pid, startedAt: new Date().toISOString() })}\n`,
   );
 
-  let result = reuse();
+  let result = reuse(["--validation-timeout-seconds", "300"]);
   assertSucceeded(result);
   assert.match(result.stdout, /Reused jdtls: published 8 verified file/);
   const targetCache = path.join(targetRoot, ".artifacts", "jdtls-downloads");

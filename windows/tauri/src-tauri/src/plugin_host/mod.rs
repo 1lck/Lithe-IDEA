@@ -8,17 +8,42 @@
 //! capability rollout are recorded in
 //! .agents/notes/implemented/architecture/2026-10-22-windows-declarative-plugin-host.md
 
+pub mod build;
+pub mod build_registry;
+pub(crate) mod build_resolver;
+#[cfg(test)]
+mod build_resolver_tests;
+#[cfg(test)]
+mod build_tests;
+pub mod details;
+#[cfg(test)]
+mod details_tests;
+pub mod functions;
 pub mod install;
 #[cfg(test)]
 mod install_tests;
 pub mod launch;
 pub mod lifecycle;
+pub mod marketplace;
+pub(crate) mod marketplace_coordinator;
+pub mod marketplace_download;
+pub mod marketplace_index;
+pub mod marketplace_sources;
+#[cfg(test)]
+mod marketplace_sources_tests;
+#[cfg(test)]
+mod marketplace_tests;
+pub mod native_ui;
+pub mod project_generators;
+pub(crate) mod provider;
 pub mod run_plans;
 pub mod scan;
 pub mod settings;
+pub mod signature;
 pub mod store;
 #[cfg(test)]
 mod tests;
+pub mod vcs;
 pub mod web;
 
 use serde::Serialize;
@@ -108,6 +133,19 @@ pub struct ScannedPackage {
     pub root: PathBuf,
     /// Raw manifest; plan commands are pure functions and take it every time.
     pub manifest: Value,
+    /// Trust evidence the launch path re-verifies against the live bytes;
+    /// `None` for quarantined packages, which never reach a launch.
+    pub trust: Option<TrustEvidence>,
+}
+
+/// Origin and approved-bytes evidence recorded when the package was
+/// accepted, so every later launch can prove the on-disk bytes again.
+#[derive(Debug, Clone)]
+pub struct TrustEvidence {
+    pub origin: signature::InstallOrigin,
+    /// Content digest recorded for a community approval; bundled and signed
+    /// packages verify through the pinned policy instead.
+    pub expected_content_digest: Option<String>,
 }
 
 /// Cached scan result. The frontend rescans at startup and after installs,

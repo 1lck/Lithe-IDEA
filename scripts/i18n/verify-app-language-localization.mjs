@@ -5,9 +5,11 @@
 // (any `bundle:` other than `.main` / `.appLanguage`, for example a test or Agent language bundle).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("../..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../..", import.meta.url));
 const sourceRoot = join(root, "macos/Sources");
+const localizationImplementation = join(sourceRoot, "LitheModuleAPI/Localization/InterfaceLanguage.swift");
 
 // Returns the index just past the string literal that starts at `i`, skipping `\( … )` interpolation.
 function skipString(s, i) {
@@ -60,7 +62,7 @@ function swiftFiles(dir) {
 
 const violations = [];
 for (const file of swiftFiles(sourceRoot)) {
-  if (file.endsWith("Localization/InterfaceLanguage.swift")) continue; // the L10n implementation itself
+  if (file === localizationImplementation) continue; // the L10n implementation itself
   const text = readFileSync(file, "utf8");
   for (const m of text.matchAll(/(?<![\w.])(String\(localized:|NSLocalizedString\()/g)) {
     // Skip mentions in comments.
@@ -98,7 +100,7 @@ const specifier = "(?:%@|%lld|%llu|%d|%ld|%lu|%f)";
 const escapeRegex = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 for (const file of swiftFiles(sourceRoot)) {
-  if (file.endsWith("Localization/InterfaceLanguage.swift")) continue;
+  if (file === localizationImplementation) continue;
   const text = readFileSync(file, "utf8");
   const where = (index) => `${relative(root, file)}:${text.slice(0, index).split("\n").length}`;
 

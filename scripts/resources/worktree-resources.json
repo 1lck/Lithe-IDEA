@@ -14,7 +14,8 @@
     {
       "id": "bun",
       "path": ".artifacts/bun-cache",
-      "validator": "bun"
+      "validator": "bun",
+      "identity": "Bun version, exact bun.lock bytes (including official registry URLs), and sealed file inventory; a source-only lock migration invalidates the old seal. Lifecycle executables are installation state, not npm tarball-authenticated reusable downloads. Validation defaults to 300 seconds per subprocess; an explicit bounded 1..1200-second override changes no identity or file-hash checks before/after atomic publication."
     },
     {
       "id": "jdtls",
@@ -34,15 +35,54 @@
   ],
   "excludedResources": [
     {
-      "id": "swiftpm-build-state",
+      "id": "native-browser-regression-state",
       "reusable": false,
       "locations": [
-        ".build/",
-        ".build/.lithe-swift-toolchain",
-        ".build/<triple>/.lithe-swift-toolchain"
+        ".artifacts/native-browser-*/",
+        ".artifacts/native-browser-*/profile/",
+        ".artifacts/native-browser-*/cache/",
+        ".artifacts/native-browser-*/worker-evidence.json",
+        ".artifacts/native-browser-*/job-result.json",
+        ".artifacts/native-browser-*/worker.log",
+        ".artifacts/test-stability/native-panel-browser.{json,html,junit.xml}",
+        ".artifacts/test-stability/native-panel-browser.worker.log",
+        ".artifacts/test-stability/native-tree-browser.{json,html,junit.xml,worker.log}",
+        ".artifacts/test-stability/native-form-grid-browser.{json,html,junit.xml,worker.log}",
+        ".artifacts/test-stability/native-controls-input-browser.{json,html,junit.xml,worker.log}",
+        ".artifacts/test-stability/native-workbench-browser.{json,html,junit.xml,worker.log}",
+        ".artifacts/test-stability/native-browser-{worker-exit,worker-hang}.{json,html,junit.xml,worker.log}",
+        "<explicit-native-browser-report>.{json,html,junit.xml,worker.log}",
+        "<native-browser-report-parent>/expected-failures/<report-name>.{json,html,junit.xml}"
       ],
-      "identity": "Mutable worktree-owned SwiftPM products, resource bundles, build database and scratch-local compiler identity. The versioned full compiler stamp only controls local invalidation; it is not a sealed source/platform/architecture/SDK/toolchain identity for cross-worktree reuse.",
-      "reason": "Never copy or share this state at any worktree reuse stage. build-macos.sh cleans the actual selected scratch directory with swift package --scratch-path when its compiler stamp changes or is unknown, retaining that scratch's checkouts and downloaded artifacts. Legacy layouts keep the default scratch. Each architecture owns its stamp; failed cleanup cannot advance it. Rebuild resource bundles before signing instead of mixing old flat resources with new Contents layouts or disabling signatures. Only the separately validated SwiftPM download cache is reusable; installed app bundles remain read-only and the Sparkle delta baseline is unaffected. SwiftPM owns build-state lifetime and cleanup."
+      "identity": "One controlled Windows action-group, form-grid, controls-input, workbench, tree keyboard/menu or injected lifecycle regression invocation owns its scratch profile, Vite optimizer cache, worker evidence, Job Object result, copied worker log and JSON/HTML/JUnit reports, including separate expected-failure evidence. Source, browser and viewport observations describe that run, not a reusable version/platform/architecture/toolchain build identity stamp.",
+      "reason": "Never copy these resources at any worktree stage. The runner owns bounded browser/driver/server process cleanup and removes scratch only after termination is proven; unresolved ownership remains isolated and fails the run. Reports remain with the invocation until local or CI retention removes them. Regenerate in the target worktree using its sources and configured dependencies. No state enters installed plugins, app resources, code signatures or Sparkle delta baselines."
+    },
+    {
+      "id": "vcs-root-mappings",
+      "reusable": false,
+      "locations": [
+        "<windows-app-local-data>/vcs-roots/<native-workspace-identity-sha256>.json",
+        "<mapping-source>.json.<pid>-<sequence>.tmp",
+        "<mapping-source>.json.<pid>-<sequence>.backup",
+        "<process-memory>/vcs-root-watch-leases"
+      ],
+      "identity": "Lithe-owned user choices bind a native workspace directory identity and each selected root directory identity. Window, registration, incarnation and scan generation own active reads and watches. These are mutable runtime ownership identities, never version/platform/architecture/toolchain build stamps.",
+      "reason": "Never copy mappings, guarded-save temporaries, recovery backups or watch leases at any worktree stage. Opening is read-only; explicit Save preserves unknown fields and permissions and rejects external byte changes. Failed saves remove their own temporary and retain recovery evidence. Closing a window/workspace or revoking plugins drops its watch leases; directory replacement cannot inherit choices. Storage comes from the platform app-local-data adapter, outside signed packages and update baselines."
+    },
+    {
+      "id": "plugin-host-acceptance-state",
+      "reusable": false,
+      "locations": [
+        ".artifacts/plugin-host-acceptance/",
+        "<os-temp>/lithe-build-preflight-*/",
+        "<explicit-vcs-move-diagnostic-output>/",
+        "<os-temp>/vcs-move-<random>/runtime/",
+        "<os-temp>/vcs-move-<random>/<case>/{repo,wc,appdata,localappdata}/",
+        "<windows-local-app-data>/app.lithe.windows.host-acceptance/",
+        "<windows-roaming-app-data>/app.lithe.windows.host-acceptance/"
+      ],
+      "identity": "One isolated native acceptance or explicit fixed-source SVN move diagnostic invocation owns its temporary runtime, independent repo/WC/profiles, observed endpoint bytes/identity/WC schedules, and generated marketplace ZIPs/indexes, build-fixture packages/tools/workspaces/plan, settings-functions-fixture packages/workspaces/identity plan and resource snapshots, text-window-fixture* complete unsigned ui:1 ZIPs/workspaces/source plans, private host-page DOM/CSP/request/descriptor/callback traces and loopback-counter evidence, web-bridge-fallback-fixture static unsigned ui:2 ZIPs/workspaces/source plans and private-target CDP request/descriptor/callback/resource evidence, run image, reports, profiles and mutable installation state. Deterministic fixture hashes verify the selected test bytes, not a reusable source/platform/architecture/toolchain build stamp.",
+      "reason": "Regenerate fixtures in the target worktree. Never copy or share the run image, user profile, downloaded packages or TLS private keys through resource reuse. Offline build-preflight temporary trees contain copied scripts, fake native Bun/IPC workers, mutable manifests, recording stubs, fake PATH tar tools and small tar.gz/VSIX extraction inputs and outputs; their bytes prove only one test run, not reusable build identity. The driver owns bounded listeners and process handles, closes them on every path and removes its isolated app data; diagnostic artifacts remain with that run. Native HTTPS uses an existing trusted certificate without copying keys or mutating client trust. No writes enter published resources, signatures or update baselines."
     },
     {
       "id": "agent-edit-and-paste-state",
@@ -101,10 +141,11 @@
         "node_modules",
         "windows/tauri/node_modules",
         "frontend/editor/node_modules",
-        ".artifacts/bun-tmp"
+        ".artifacts/bun-tmp",
+        "<os-temp>/lithe Windows install */"
       ],
-      "identity": "Mutable installation state tied to one worktree, OS, architecture, Bun version and lifecycle attempt; no sealed reusable identity stamp",
-      "reason": "Each Windows install attempt owns its lifecycle processes in a worker Job Object. Release that tree before clearing partial dependencies or retrying. Never copy install temp data or node_modules across worktrees; only the sealed Bun download cache may be reused."
+      "identity": "Mutable installation state tied to one worktree, OS, architecture, Bun version and lifecycle attempt; no sealed reusable identity stamp. Private installation-tool candidate metadata, tarballs, executables, route probes and SUBST aliases are diagnostics, never reusable build resources.",
+      "reason": "Each Windows install attempt owns its lifecycle processes in a worker Job Object. Release that tree before clearing partial dependencies or retrying. Installer test scratch includes generated fake tools, the native-handle waiter, ownership token/port and process-identity receipts; each case retains original handles until exit is proven and closes its server, sockets and handles before removing scratch. These mutable test resources never enter a transferable cache. Never copy install temp data or node_modules across worktrees; only the sealed Bun download cache may be reused. tree-sitter-cli lifecycle executables remain here: npm tarball SRI does not authenticate the separate GitHub binary, and an official null digest cannot establish a binary reuse identity."
     },
     {
       "id": "jdt-maven-settings",
@@ -135,13 +176,16 @@
         "<app-support>/Lithe/Plugins/<plugin-id>/",
         "Lithe.app/Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support/",
         "<app-support>/Lithe/PluginState/<plugin-id>/",
+        "<windows-app-local-data>/plugin-state/<plugin-id>/",
+        "<windows-app-local-data>/plugin-state/<plugin-id>/build-<pid>-<operation-sequence>.model.json",
+        "<windows-app-local-data>/plugin-state/<plugin-id>/build-<pid>-<operation-sequence>.dependencies.json",
         "dist/packages/<arch>/<plugin-id>/",
         "dist/verify/<arch>/<plugin-id>/",
         "dist/Lithe-Java-Support-<version>-darwin-<arch>.zip",
         ".artifacts/java-plugin-distribution/",
         "<test-temp>/lithe-package-verification.*/published-index.fixture.json"
       ],
-      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation. Independent release archives bind plugin version, darwin architecture, upstream input hashes, API/requires and final publisher signature; host-sealed bundled copies are a different origin, never a reusable package",
+      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable state of one installation. Windows command-model and dependency output are fresh files owned by one window/workspace/operation, allocated with create_new after consent and removed after process-tree cleanup; cleanup failure retains the file with its owner, crash leftovers are plugin state removed on uninstall, with no reuse identity stamp; Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation. Independent release archives bind plugin version, darwin architecture, upstream input hashes, API/requires and final publisher signature; host-sealed bundled copies are a different origin, never a reusable package",
       "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage. Release verification extracts a separate copy and checks its publisher signature; delete per-run dist/verify and local integration output when no longer needed. Never transfer a sealed-origin exception to user-installed copies. Runtime installation versions stay read-only, preserving app signatures and Sparkle delta baselines. Distribution decisions read the current checkout index or explicit LITHE_OFFICIAL_PLUGIN_INDEX/--marketplace-index build input; synthetic packaging indexes are per-test fixtures, never reusable or publishable source indexes."
     },
     {
@@ -171,7 +215,11 @@
         "<app-cache>/Lithe/PluginMarketplace/<source-id>/index.json",
         "<app-support>/Lithe/PluginMarketplace/sources.json",
         "<system-temp>/lithe-plugin-transfer-<uuid>",
-        "<system-temp>/lithe-plugin-download-<uuid>"
+        "<system-temp>/lithe-plugin-download-<uuid>",
+        "<windows-app-local-data>/plugin-marketplace/sources.json",
+        "<windows-app-local-data>/plugin-marketplace/<source-id>.<platform>.json",
+        "<windows-runtime-download-root>/marketplace-download-<pid>-<nonce>.zip",
+        "<windows-app-local-data>/plugin-build-options/<workspace-digest>.json"
       ],
       "identity": "Fetched marketplace indexes, the user's plugin repository list, and downloaded or extracted plugin archives are per-user runtime state verified by Rust Core index validation and the index SHA-256; the official index ships read-only from Git-tracked Plugins/marketplace/index.json and has no worktree build stamp",
       "reason": "Marketplace caches, repository lists and plugin downloads belong to the running app and its user, never to a worktree build. ZIP preflight budgets include unique implicit parent directories and cumulative normalized UTF-8 path bytes before extraction; passing these checks does not create a reusable build identity. Do not copy, symlink or bundle them; each run fetches and verifies its own copy. The bundled index is copied from Git at packaging time only."
@@ -429,6 +477,50 @@
       ],
       "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
       "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/i18n/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
+    },
+    {
+      "id": "plugin-generator-transactions",
+      "reusable": false,
+      "locations": [
+        "<workspace-parent>/.<project-name>.lithe-creating-<token>/",
+        "<workspace-parent>/<project-name>/"
+      ],
+      "identity": "One native window and generation operation owns the sibling staging directory, process output and published project. User inputs and filesystem/process identity are not a reusable source/platform/architecture/toolchain build stamp.",
+      "reason": "Never copy staging or user projects through worktree resource reuse. The Windows transaction creates output beside the user-selected target, validates paths/links/budgets and publishes without replacement only after consent. Failed cleanup retains the operation and NativeLease for retry. Installed packages and app resources remain read-only; these user-workspace writes do not alter signatures or update baselines."
+    },
+    {
+      "id": "plugin-settings-state",
+      "reusable": false,
+      "locations": [
+        "<windows-app-local-data>/plugin-settings/<plugin-id>.json",
+        "<workspace>/.lithe/plugin-settings.json",
+        "<settings-source>.json.<pid>-<sequence>.tmp",
+        "<settings-source>.json.<pid>-<sequence>.backup"
+      ],
+      "identity": "Global and workspace plugin preferences and their compare-and-swap snapshots are user-owned runtime state. Replacement temporaries and recovery backups belong to one guarded save, without a transferable version/platform/architecture/toolchain identity stamp.",
+      "reason": "Never copy settings, transaction temporaries or recovery backups between worktrees. Opening settings only reads the real stores. Confirmed saves preserve unrelated values and permissions, reject stale byte snapshots, atomically replace the selected source and reread it. Delete owned temporaries on failure; preserve the only surviving backup when restoration cannot be proven. The writable app-data/workspace stores do not alter installed resources, signatures or update baselines."
+    },
+    {
+      "id": "project-generator-transactions",
+      "reusable": false,
+      "locations": [
+        "<user-selected-parent>/.<project-name>.lithe-creating-<operation-id>/",
+        "<user-selected-parent>/.<project-name>.lithe-creating-<operation-id>/.lithe-project-archive-<nonce>.zip",
+        "<process-memory>/project-generators/{reviews,operations}"
+      ],
+      "identity": "One Windows project-generation review and operation, its selected writable parent and untrusted HTTPS archive. No checksum or sealed version/platform/architecture/toolchain identity stamp; neither HTTPS nor Core ZIP validation makes user-selected project content a reusable build resource.",
+      "reason": "The native transaction owns same-parent exclusive staging and create_new ZIP files. A 128 MiB total redirect/body budget and 120-second fetch deadline share the operation cancellation token; synchronous Core extraction retains the original operation ID and remaining deadline. Core bounds explicit and implicit paths, path bytes and extracted bytes. The ZIP is removed after the synchronous extractor closes; failed/cancelled staging is deleted only after all writers finish. Cleanup failures retain staging and the plugin lease for retry, and an uncertain writer never loses ownership. Atomic no-replace publication transfers the completed directory to the user. Never copy, symlink, bundle or share at any worktree stage; installed resources and Sparkle baselines remain read-only."
+    },
+    {
+      "id": "swiftpm-build-state",
+      "reusable": false,
+      "locations": [
+        ".build/",
+        ".build/.lithe-swift-toolchain",
+        ".build/<triple>/.lithe-swift-toolchain"
+      ],
+      "identity": "Mutable worktree-owned SwiftPM products, resource bundles, build database and scratch-local compiler identity. The versioned full compiler stamp only controls local invalidation; it is not a sealed source/platform/architecture/SDK/toolchain identity for cross-worktree reuse.",
+      "reason": "Never copy or share this state at any worktree reuse stage. build-macos.sh cleans the actual selected scratch directory with swift package --scratch-path when its compiler stamp changes or is unknown, retaining that scratch's checkouts and downloaded artifacts. Legacy layouts keep the default scratch. Each architecture owns its stamp; failed cleanup cannot advance it. Rebuild resource bundles before signing instead of mixing old flat resources with new Contents layouts or disabling signatures. Only the separately validated SwiftPM download cache is reusable; installed app bundles remain read-only and the Sparkle delta baseline is unaffected. SwiftPM owns build-state lifetime and cleanup."
     },
     {
       "id": "editor-theme-assets",

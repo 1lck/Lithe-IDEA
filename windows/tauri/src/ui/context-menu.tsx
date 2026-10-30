@@ -32,6 +32,7 @@ const SUBMENU_COLLISION = { side: "flip", align: "shift" } as const;
 
 function ContextMenuContent({
   className,
+  anchor,
   align = "start",
   alignOffset = 0,
   side = "right",
@@ -42,12 +43,19 @@ function ContextMenuContent({
 }: ContextMenuPrimitive.Popup.Props &
   Pick<
     ContextMenuPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset" | "collisionAvoidance" | "collisionPadding"
+    | "anchor"
+    | "align"
+    | "alignOffset"
+    | "side"
+    | "sideOffset"
+    | "collisionAvoidance"
+    | "collisionPadding"
   >) {
   return (
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Positioner
         className="isolate z-10070 outline-none"
+        anchor={anchor}
         align={align}
         alignOffset={alignOffset}
         side={side}

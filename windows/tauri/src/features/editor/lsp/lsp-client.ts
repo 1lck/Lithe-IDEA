@@ -45,6 +45,8 @@ import {
 import { resolvePublishedDiagnosticsFilePath } from "./diagnostics-file-path";
 import { decideWorkspaceDiagnostics } from "./diagnostics-retention";
 import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
+import { cachedDeclarativeLanguageOwner } from "./declarative-language-support";
+import { pluginPlanGuard } from "@/features/plugins/declarative-plugin-lifecycle";
 import type { LspSemanticTokensResponse } from "./semantic-token-types";
 import {
   normalizeJavaImplementationMarkers,
@@ -147,6 +149,7 @@ type TrackedLspDocument = {
 };
 
 type PendingFileStart = {
+  attachmentId: string;
   scope: WorkspaceLaunchScope;
   languageId: string | undefined;
   task: Promise<LspFileAttachmentOutcome>;
@@ -878,9 +881,16 @@ export class LspClient {
     filePath: string,
     scope: WorkspaceLaunchScope,
     intent: LspFileStartIntent = "attach",
+    requestedAttachmentId?: string,
   ): Promise<LspFileAttachmentOutcome> {
     const attachmentKey = trackedFileKey(filePath);
     const currentAttachmentId = this.fileAttachmentIds.get(attachmentKey);
+    const pending = this.fileStartTasks.get(attachmentKey);
+    if (pending && pending.attachmentId === currentAttachmentId &&
+        (!requestedAttachmentId || requestedAttachmentId === pending.attachmentId) &&
+        workspaceScopesMatch(pending.scope, scope)) {
+      return pending.task;
+    }
     const currentSession = getLspSessionSnapshot({ filePath });
     const currentServerKey = currentSession
       ? `${currentSession.workspacePath}:${currentSession.languageId}`
@@ -888,6 +898,7 @@ export class LspClient {
     const currentScope = currentServerKey ? this.serverScopes.get(currentServerKey) : undefined;
     if (
       currentAttachmentId &&
+      (!requestedAttachmentId || requestedAttachmentId === currentAttachmentId) &&
       currentSession &&
       currentServerKey &&
       currentScope &&
@@ -897,12 +908,10 @@ export class LspClient {
       return { kind: "attached", attachmentId: currentAttachmentId };
     }
 
-    const pending = this.fileStartTasks.get(attachmentKey);
-    if (pending && workspaceScopesMatch(pending.scope, scope)) {
-      return pending.task;
-    }
-
-    const attachmentId = crypto.randomUUID();
+    // An editor owns its identity before lookup starts. Semantic callers may
+    // still borrow the current attachment; a reopened editor must not borrow
+    // the pending start that the closed editor is already releasing.
+    const attachmentId = requestedAttachmentId ?? crypto.randomUUID();
     this.fileAttachmentIds.set(attachmentKey, attachmentId);
     const task = this.startFileAttachment(filePath, scope, {
       kind: intent,
@@ -913,6 +922,7 @@ export class LspClient {
       }
     });
     this.fileStartTasks.set(attachmentKey, {
+      attachmentId,
       scope,
       languageId: languageIdForEditorFile(filePath),
       task,
@@ -928,10 +938,25 @@ export class LspClient {
     const workspacePath = scope.root;
     const attachmentKey = trackedFileKey(filePath);
     const attachmentId = attempt.attachmentId;
-    if (this.fileAttachmentIds.get(attachmentKey) !== attachmentId) {
+    const cancelled = (): LspFileAttachmentOutcome => {
+      if (this.fileAttachmentIds.get(attachmentKey) === attachmentId) {
+        this.fileAttachmentIds.delete(attachmentKey);
+      }
       return { kind: "cancelled", reason: "superseded" };
+    };
+    if (this.fileAttachmentIds.get(attachmentKey) !== attachmentId) {
+      return cancelled();
     }
-    const isCurrentAttachment = () => this.fileAttachmentIds.get(attachmentKey) === attachmentId;
+    const assertPluginCurrent = pluginPlanGuard();
+    let pluginId = cachedDeclarativeLanguageOwner(filePath)?.pluginId;
+    const isCurrentAttachment = () => {
+      if (this.fileAttachmentIds.get(attachmentKey) !== attachmentId) return false;
+      if (pluginId) {
+        try { assertPluginCurrent(pluginId); }
+        catch { return false; }
+      }
+      return true;
+    };
 
     try {
       logger.debug("LSPClient", "Starting LSP for file:", filePath);
@@ -946,10 +971,12 @@ export class LspClient {
       try {
         launch = await resolveEditorLspLaunch(filePath, scope);
       } catch (error) {
+        if (!isCurrentAttachment()) return cancelled();
         if (attempt.kind !== "repairRetry" && !isBuiltInLspPath(filePath)) {
           const languageId = languageIdForEditorFile(filePath);
           if (languageId) {
             const repaired = await this.repairLanguageServerForFile(filePath, languageId);
+            if (!isCurrentAttachment()) return cancelled();
             if (repaired.kind === "repaired") {
               return this.startFileAttachment(filePath, scope, {
                 kind: "repairRetry",
@@ -961,10 +988,13 @@ export class LspClient {
         throw error;
       }
 
+      pluginId = launch?.pluginId ?? pluginId;
+      if (!isCurrentAttachment()) return cancelled();
       if (!launch) {
         const languageId = languageIdForEditorFile(filePath);
         if (languageId && attempt.kind !== "repairRetry" && !isBuiltInLspPath(filePath)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
+          if (!isCurrentAttachment()) return cancelled();
           if (repaired.kind === "repaired") {
             return this.startFileAttachment(filePath, scope, {
               kind: "repairRetry",
@@ -1009,7 +1039,7 @@ export class LspClient {
 
       useLspStore.getState().actions.updateLspStatus("connecting");
 
-      if (!isCurrentAttachment()) return { kind: "cancelled", reason: "superseded" };
+      if (!isCurrentAttachment()) return cancelled();
 
       logger.debug("LSPClient", `Invoking lsp_start_for_file with:`, {
         filePath,
@@ -1042,14 +1072,16 @@ export class LspClient {
         });
         if (!isCurrentAttachment()) {
           await invoke<void>("lsp_stop_for_file", { filePath, attachmentId });
-          return { kind: "cancelled", reason: "superseded" };
+          return cancelled();
         }
         clearLanguageServerFailure(this.failedLanguageServers, serverKey);
         this.registerActiveServer(serverKey, languageId, scope, filePath);
       } catch (error) {
+        if (!isCurrentAttachment()) return cancelled();
         recordLanguageServerFailure(this.failedLanguageServers, serverKey, Date.now());
         if (attempt.kind !== "repairRetry" && this.isRepairableStartupError(error)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
+          if (!isCurrentAttachment()) return cancelled();
           if (repaired.kind === "repaired") {
             return this.startFileAttachment(filePath, scope, {
               kind: "repairRetry",
@@ -1063,7 +1095,7 @@ export class LspClient {
       logger.debug("LSPClient", "LSP started successfully for file:", filePath);
       return { kind: "attached", attachmentId };
     } catch (error) {
-      if (!isCurrentAttachment()) return { kind: "cancelled", reason: "superseded" };
+      if (!isCurrentAttachment()) return cancelled();
       this.fileAttachmentIds.delete(attachmentKey);
       logger.error("LSPClient", "Failed to start LSP for file:", error);
       const { actions } = useLspStore.getState();
@@ -1186,14 +1218,24 @@ export class LspClient {
     return availability;
   }
 
-  async stopForFile(filePath: string, requestedAttachmentId?: string): Promise<void> {
+  async stopForFile(
+    filePath: string,
+    requestedAttachmentId?: string,
+    scope?: WorkspaceLaunchScope,
+  ): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
+    if (scope) {
+      const pending = this.fileStartTasks.get(attachmentKey);
+      const serverKey = this.findServerKeyForFile(filePath);
+      const currentScope = pending && pending.attachmentId === this.fileAttachmentIds.get(attachmentKey)
+        ? pending.scope : serverKey ? this.serverScopes.get(serverKey) : undefined;
+      if (!currentScope || !workspaceScopesMatch(currentScope, scope)) return;
+    }
     const attachmentId = requestedAttachmentId ?? this.fileAttachmentIds.get(attachmentKey);
     if (!attachmentId) return;
     if (this.fileAttachmentIds.get(attachmentKey) === attachmentId) {
       this.fileAttachmentIds.delete(attachmentKey);
     }
-
     try {
       logger.debug("LSPClient", "Stopping LSP for file:", filePath);
       // Disabling an extension hides it from language lookup before teardown.
@@ -1298,15 +1340,23 @@ export class LspClient {
     content: string,
   ): Promise<void> {
     const { actions } = useLspStore.getState();
+    const attachmentKey = trackedFileKey(filePath);
+    const previousAttachmentId = this.fileAttachmentIds.get(attachmentKey);
 
     try {
       actions.updateLspStatus("connecting");
       actions.clearLspError();
 
-      await this.notifyDocumentClose(filePath);
-      await this.stopForFile(filePath);
-      const attachment = await this.startForFile(filePath, scope, "manualRestart");
+      if (previousAttachmentId) {
+        await this.notifyDocumentClose(filePath, previousAttachmentId);
+        await this.stopForFile(filePath, previousAttachmentId);
+      }
+      // The restart belongs to the attachment captured by the user action.
+      // Closing it must not detach a newer editor that arrived meanwhile.
+      if (this.fileAttachmentIds.has(attachmentKey)) return;
+      const attachment = await this.startForFile(filePath, scope, "manualRestart", crypto.randomUUID());
       if (attachment.kind !== "attached") {
+        if (attachment.reason === "superseded") return;
         throw new Error("Language server failed to start.");
       }
       await this.notifyDocumentOpen(filePath, content, attachment.attachmentId);
@@ -1987,12 +2037,16 @@ export class LspClient {
     filePath: string,
     content: string,
     contentChanges?: EditorTextChange[],
+    requestedAttachmentId?: string,
   ): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = requestedAttachmentId ?? this.fileAttachmentIds.get(attachmentKey);
     const previous = this.documentChangeTasks.get(attachmentKey) ?? Promise.resolve();
     const task = previous.catch(() => undefined).then(async () => {
       const document = this.documents.get(attachmentKey);
-      if (document?.phase !== "open" || document.content === content) return;
+      if (!attachmentId || this.fileAttachmentIds.get(attachmentKey) !== attachmentId ||
+          document?.phase !== "open" || document.attachmentId !== attachmentId ||
+          document.content === content) return;
       await this.notifyDocumentChange(
         filePath,
         content,

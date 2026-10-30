@@ -36,6 +36,7 @@ import { agentConversationPath } from "@/features/agent/utils/agent-conversation
 import { detectLanguageFromFileName } from "@/features/editor/utils/language-detection";
 import { logger } from "@/features/editor/utils/logger";
 import { readFileContentWithEncoding } from "@/features/file-system/controllers/file-operations";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { isLocalDocumentPath, readDocumentFileDetails, readDocumentFileChange } from "@/platform/document-files";
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
 import type { GitDiff } from "@/features/git/types/git.types";
@@ -69,6 +70,7 @@ import {
   shouldStartLsp,
 } from "@/features/panes/types/pane-content.types";
 import { createSelectors } from "@/utils/zustand-selectors";
+import { getDirName } from "@/utils/path-helpers";
 
 /** @deprecated Use `PaneContent` directly. Kept for backward compatibility. */
 export type Buffer = PaneContent;
@@ -1451,6 +1453,10 @@ const createBufferStore = (workspaceId: string) => {
 
           // Stop LSP for this file (only for real editor files)
           if (shouldStartLsp(closedBuffer)) {
+            const scope = {
+              workspaceId,
+              root: useFileSystemStore.getStore(workspaceId).getState().rootFolderPath || getDirName(closedBuffer.path),
+            };
             import("@/features/editor/lsp/lsp-client")
               .then(({ LspClient }) => {
                 if (getBufferByPath(get().buffers, closedBuffer.path)?.type === "editor") {
@@ -1458,7 +1464,7 @@ const createBufferStore = (workspaceId: string) => {
                 }
                 const lspClient = LspClient.getInstance();
                 logger.info("BufferStore", `Stopping LSP for ${closedBuffer.path}`);
-                return lspClient.stopForFile(closedBuffer.path);
+                return lspClient.stopForFile(closedBuffer.path, undefined, scope);
               })
               .catch((error) => {
                 logger.error("BufferStore", "Failed to stop LSP:", error);

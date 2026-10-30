@@ -1,3 +1,5 @@
 [install]
 # Both platform packages resolve shared sources through one dependency graph.
 linker = "isolated"
+# Keep new resolutions on the same official source as explicit bun.lock URLs.
+registry = "https://registry.npmjs.org"
