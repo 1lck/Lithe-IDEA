@@ -133,7 +133,7 @@ import {
 import { acquireMonacoModel } from "../engines/monaco/model-lifecycle";
 import { reactivateMonacoModelLanguage } from "../engines/monaco/model-language-activation";
 import { getEditorBottomScrollPadding } from "../engines/monaco/scroll-padding";
-import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
+import { acquireEditorModelSource } from "@lithe/editor/model-source";
 import {
   clampMonacoPosition,
   createModelUri,
@@ -334,6 +334,8 @@ export interface MonacoEditorProps {
     previousSelection?: Range,
     options?: EditorContentChangeOptions,
   ) => void;
+  /** Focus left the editor, including its find and rename widgets. */
+  onEditorBlur?: () => void;
   onScrollOffsetChange?: (scrollTop: number, scrollLeft: number) => void;
   /** Reports viewport scroll metrics on every editor scroll event. */
   onScrollMetricsChange?: (metrics: MarkdownScrollMetrics) => void;
@@ -368,6 +370,7 @@ export function MonacoEditor({
   lineNumberStart,
   lineNumberMap,
   onContentChange,
+  onEditorBlur,
   onScrollOffsetChange,
   onScrollMetricsChange,
   onEditorScrollApiReady,
@@ -414,6 +417,7 @@ export function MonacoEditor({
   }
   const viewStateRestoreGate = viewStateRestoreGateRef.current;
   const latestContentChangeRef = useRef(onContentChange);
+  const onEditorBlurRef = useRef(onEditorBlur);
   const isActiveSurfaceRef = useRef(isActiveSurface);
   const onScrollMetricsChangeRef = useRef(onScrollMetricsChange);
   const onEditorScrollApiReadyRef = useRef(onEditorScrollApiReady);
@@ -656,6 +660,7 @@ export function MonacoEditor({
   );
 
   latestContentChangeRef.current = onContentChange;
+  onEditorBlurRef.current = onEditorBlur;
   isActiveSurfaceRef.current = isActiveSurface;
   onScrollMetricsChangeRef.current = onScrollMetricsChange;
   onEditorScrollApiReadyRef.current = onEditorScrollApiReady;
@@ -1377,6 +1382,7 @@ export function MonacoEditor({
         editor.focus();
         setContextMenuPosition({ x: event.event.posx, y: event.event.posy });
       }),
+      editor.onDidBlurEditorWidget(() => onEditorBlurRef.current?.()),
       editor.onKeyDown((event) => {
         const browserEvent = event.browserEvent;
         const isSelectAllShortcut =
@@ -1409,12 +1415,11 @@ export function MonacoEditor({
         if (!change || change.external) return;
         const previousContent = change.previousContent;
         const nextContent = change.content;
-        const contentChanges: EditorTextChange[] = change.changes.map(edit => {
-          const start = sourcePositionAt(previousContent, edit.offset);
-          const end = sourcePositionAt(previousContent, edit.offset + edit.length);
-          return { rangeOffset: edit.offset, rangeLength: edit.length, text: edit.text,
-            startLine: start.line, startColumn: start.column, endLine: end.line, endColumn: end.column };
-        });
+        const contentChanges: EditorTextChange[] = change.changes.map(edit => ({
+          rangeOffset: edit.offset, rangeLength: edit.length, text: edit.text,
+          startLine: edit.start.line, startColumn: edit.start.column,
+          endLine: edit.end.line, endColumn: edit.end.column,
+        }));
         const editorState = useEditorStateStore.getState();
         previousContentRef.current = nextContent;
         rememberLocalContentSnapshot(pendingLocalContentSnapshotsRef.current, nextContent);

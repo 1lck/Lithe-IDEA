@@ -188,7 +188,11 @@ const CodeEditor = ({
     editorBufferSurfacesEqual,
   );
   const editorViewKey = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : activeBufferId;
-  const { handleContentChange } = useEditorAppStore.use.actions();
+  const { handleContentChange, flushAutoSaves } = useEditorAppStore.use.actions();
+  useEffect(() => {
+    window.addEventListener("blur", flushAutoSaves);
+    return () => window.removeEventListener("blur", flushAutoSaves);
+  }, [flushAutoSaves]);
   const handleBufferContentChange = useCallback<NonNullable<CodeEditorProps["onContentChange"]>>(
     (content, previousContent, previousCursorPosition, previousSelection, options) => {
       if (!activeBufferId) return;
@@ -635,6 +639,7 @@ const CodeEditor = ({
     lineNumberStart: lineNumberStart,
     lineNumberMap: lineNumberMap,
     onContentChange: handleEditorContentChange,
+    onEditorBlur: flushAutoSaves,
     onScrollOffsetChange: syncLspOverlayTransform,
     onModelPositionResolverChange: handleModelPositionResolverChange,
   };

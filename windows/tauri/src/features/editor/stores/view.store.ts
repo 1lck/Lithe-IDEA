@@ -59,7 +59,7 @@ let previousActiveBufferSnapshot: {
 const INCREMENTAL_LINE_EDIT_THRESHOLD = 1000;
 
 function isSparseLineArray(lines: string[]): boolean {
-  return lines.length > 0 && Object.keys(lines).length === 0;
+  return lines.length > 0 && !(0 in lines);
 }
 
 function findCommonPrefixLength(a: string, b: string): number {

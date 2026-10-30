@@ -2813,12 +2813,21 @@ filesystem I/O. See `shared/fixtures/lsp/jdt-cache-retention-v1.json`.
 
 `lsp.syncDocument` accepts `{ sessionId, uri, languageId, text?, contentChanges? }`.
 The first sync emits `didOpen` at version 1. Later syncs emit `didChange` with
-increasing versions. When the server advertised incremental `textDocumentSync`
-and `contentChanges` includes LSP ranges, the notification carries those
-range-based edits and does not require a full document `text` field. Otherwise
-the change is a full-text replacement. The response is
-`{ documentVersion, changed }`; submitting identical full text returns
-`changed: false`, preserves the version, and emits no LSP notification.
+increasing versions. `contentChanges` follow LSP `didChange` semantics: they
+apply in array order and each range is relative to the result of the previous
+change, so a host that accumulates edits between syncs appends them in the order
+they happened and sends the ranges of one simultaneous edit end to start.
+Core replays them over the text it holds. `text` may be omitted alongside
+`contentChanges`, which keeps a large document off the wire for every keystroke;
+when it is present and disagrees with the replay, `text` replaces the document
+and the notification is a full-text replacement. When the server advertised
+incremental `textDocumentSync`, a successful replay is sent as range-based edits;
+otherwise the replayed text is sent whole. Ranged edits without `text` fail with
+`InvalidRequest` when they cannot be replayed, and with details
+`documentNotSynchronized` when Core has never received the document; the host
+then resends the full text. The response is `{ documentVersion, changed }`;
+submitting identical full text returns `changed: false`, preserves the version,
+and emits no LSP notification.
 
 `lsp.saveDocument` accepts `{ sessionId, uri, text }` after a successful native
 save and returns `{ sent }`. The text is the exact saved snapshot, not the latest
@@ -3532,9 +3541,13 @@ is joined by the UI from the shared Git result. `java.className` accepts Java
 source text and a file simple name and returns the fully qualified runtime class
 name.
 
-`java.sourceDefinition` accepts `source`, `declarationName`, and an optional
-`memberName`, returning zero-based `line` and UTF-16 `utf16Column` or `null`
-when no declaration is found.
+`java.sourceDefinition` accepts `source`, `declarationName`, an optional
+`memberName`, and an optional `declarationsOnly`, returning zero-based `line`
+and UTF-16 `utf16Column` or `null` when no declaration is found. A member is
+looked up as a syntax-tree method, field, or enum-constant declaration first.
+Without `declarationsOnly`, text that merely resembles one, such as a call, is
+accepted next, and then the `declarationName` type; with it, a missing member
+returns `null`.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
 returns `foldRegions`, `inlayHints`, and `syntaxHighlights`.

@@ -673,6 +673,32 @@ describe("editor autosave continuation", () => {
     }
   }, 1_000);
 
+  test("flushAutoSaves writes the queued text without waiting for the debounce", async () => {
+    const harness = await startAutosaveHarness();
+    try {
+      setWorkspaceBuffers(
+        WORKSPACE_A,
+        [editorBuffer("a", "first line", { path: "C:/fixture/a.txt", isVirtual: false })],
+        "a",
+      );
+      const { actions } = harness.store.getState();
+      await actions.handleContentChange("a", "first line!");
+      await flushUntil(() => harness.timer.size === 1, "the autosave debounce");
+
+      actions.flushAutoSaves();
+      actions.flushAutoSaves();
+      await flushUntil(() => harness.writes.length === 1, "the flushed write");
+
+      expect(harness.timer.size).toBe(0);
+      expect(harness.writes[0].content).toBe("first line!");
+      harness.writes[0].resolve();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "the save to settle");
+      expect(harness.writes).toHaveLength(1);
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
   test("drops the queued continuation when a manual save fails", async () => {
     const harness = await startAutosaveHarness();
     try {
@@ -697,6 +723,7 @@ describe("editor autosave continuation", () => {
             timeoutId: 1 as unknown as ReturnType<typeof setTimeout>,
             context: { bufferId: "a", path: "C:/workspace/a.txt", operationId: "continuation" },
             continuesOperationId: lifecycle.operationId,
+            run: () => undefined,
           },
         },
       }));

@@ -2,10 +2,7 @@
 
 use super::plugin_function;
 use super::types::*;
-use crate::lsp::{
-    apply_content_changes_sequential, order_incremental_changes_for_replay, ApplyTextEditsRequest,
-    LspTextEdit,
-};
+use crate::lsp::apply_content_changes_sequential;
 use crate::protocol::{CoreError, ErrorCode};
 use serde_json::{json, Value};
 
@@ -170,7 +167,11 @@ pub fn client_open_document(
     Ok(client_response(state, vec![message], Vec::new()))
 }
 
-/// Replaces a document and emits a monotonically versioned change notification.
+/// Updates a document and emits a monotonically versioned change notification.
+///
+/// `content_changes` follow LSP `didChange` semantics: they apply in array order
+/// and each range is relative to the result of the previous change. `text` is
+/// optional alongside them; when present it is checked against the replay.
 pub fn client_change_document(
     request: ClientChangeDocumentRequest,
 ) -> Result<LspClientResponse, CoreError> {
@@ -182,30 +183,28 @@ pub fn client_change_document(
             "Cannot change a document that is not open in the LSP client.",
         ));
     };
-    let wants_incremental = state.text_document_sync == LspTextDocumentSyncKind::Incremental
-        && !request.content_changes.is_empty();
-    let ordered_incremental = if wants_incremental {
-        order_incremental_changes_for_replay(&document.text, &request.content_changes)?
-    } else {
+    let replayed = if request.content_changes.is_empty() {
         None
-    };
-    let (next_text, wire_incremental) = if let Some(changes) = ordered_incremental {
-        (
-            apply_content_changes_sequential(&document.text, &changes)?,
-            Some(changes),
-        )
-    } else if !request.text.is_empty() {
-        // Host-provided full text, or full-sync fallback after an unsafe batch.
-        (request.text, None)
-    } else if !request.content_changes.is_empty() {
-        // No full text available; derive local document from the ranged batch.
-        (
-            apply_content_changes_as_simultaneous_edits(&document.text, &request.content_changes)?,
-            None,
-        )
     } else {
-        (String::new(), None)
+        match apply_content_changes_sequential(&document.text, &request.content_changes) {
+            Ok(text) => Some(text),
+            Err(_) if !request.text.is_empty() => None,
+            Err(error) => return Err(error),
+        }
     };
+    // A host snapshot that disagrees with the replay means one side missed an
+    // edit, so the snapshot replaces the document instead of extending the drift.
+    let (next_text, replayed) = match replayed {
+        Some(text) if request.text.is_empty() || text == request.text => (text, true),
+        _ => (request.text, false),
+    };
+    let wire_incremental = (replayed
+        && state.text_document_sync == LspTextDocumentSyncKind::Incremental
+        && request
+            .content_changes
+            .iter()
+            .all(|change| change.range.is_some()))
+    .then_some(request.content_changes);
     let content_changes = if let Some(changes) = wire_incremental.as_ref() {
         json!(changes
             .iter()
@@ -244,27 +243,6 @@ pub fn client_change_document(
     )?;
     state.open_documents.insert(request.uri, document);
     Ok(client_response(state, vec![message], Vec::new()))
-}
-
-fn apply_content_changes_as_simultaneous_edits(
-    text: &str,
-    changes: &[LspDocumentContentChange],
-) -> Result<String, CoreError> {
-    let mut edits = Vec::new();
-    for change in changes {
-        let Some(range) = change.range else {
-            return Ok(change.text.clone());
-        };
-        edits.push(LspTextEdit {
-            range,
-            new_text: change.text.clone(),
-        });
-    }
-    Ok(crate::lsp::apply_text_edits(ApplyTextEditsRequest {
-        text: text.to_string(),
-        edits,
-    })?
-    .text)
 }
 
 /// Closes a document and clears diagnostics owned by its URI.

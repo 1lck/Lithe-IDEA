@@ -254,13 +254,15 @@ pub struct ClientOpenDocumentRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Inputs for replacing a synchronized document's contents.
+/// Inputs for updating a synchronized document's contents.
 pub struct ClientChangeDocumentRequest {
     #[serde(default)]
     pub state: LspClientState,
     pub uri: String,
+    /// Complete text after the change. Optional when `content_changes` is set.
     #[serde(default)]
     pub text: String,
+    /// Edits in the order they happened, as LSP `didChange` applies them.
     #[serde(default)]
     pub content_changes: Vec<LspDocumentContentChange>,
 }
