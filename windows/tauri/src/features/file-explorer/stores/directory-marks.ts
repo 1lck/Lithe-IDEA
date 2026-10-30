@@ -1,3 +1,9 @@
+import {
+  indexingEvent,
+  indexingSettingsStorageKey,
+  readIndexingSettings,
+  writeIndexingSettings,
+} from "./workspace-indexing";
 import { useCallback, useEffect, useState } from "react";
 import {
   getRelativePath,
@@ -67,43 +73,168 @@ export function migrateDirectoryMarks(root: string, source: string, destination?
     changed = true;
     if (replacement) marks[replacement + path.slice(relative.length)] = mark;
   }
+  const settings = readIndexingSettings(root);
+  const migrate = (path: string): string | undefined => {
+    const identity = markPathIdentity(root, path);
+    if (identity !== sourceIdentity && !identity.startsWith(`${sourceIdentity}/`)) return path;
+    return replacement ? replacement + path.slice(relative.length) : undefined;
+  };
+  settings.includedDirectories = settings.includedDirectories
+    .map(migrate)
+    .filter((path): path is string => path !== undefined);
+  settings.previousRoles = Object.fromEntries(
+    Object.entries(settings.previousRoles).flatMap(([path, role]) => {
+      const moved = migrate(path);
+      return moved === undefined ? [] : [[moved, role]];
+    }),
+  );
+  writeIndexingSettings(root, settings);
   if (changed) writeMarks(root, marks);
 }
-export function useDirectoryMarks(root?: string) {
-  const [snapshot, setSnapshot] = useState<{ root?: string; marks: Marks; error?: string }>({
-    marks: {},
+/** The closest workspace owns preferences, including nested added roots. */
+export function directoryMarkRoot(path: string, roots: readonly string[]): string | undefined {
+  return roots.filter((root) => pathStartsWithRoot(path, root))
+    .sort((a, b) => getPathIdentity(b).length - getPathIdentity(a).length)[0];
+}
+
+export function migrateWorkspaceDirectoryMarks(roots: readonly string[], source: string, destination?: string) {
+  const root = directoryMarkRoot(source, roots);
+  if (!root) return;
+  const targetRoot = destination ? directoryMarkRoot(destination, roots) : undefined;
+  if (!destination || !targetRoot || getPathIdentity(root) === getPathIdentity(targetRoot)) {
+    migrateDirectoryMarks(root, source, destination);
+    return;
+  }
+  const sourceRelative = getRelativePath(source, root).replace(/\\/g, "/") || ".";
+  const targetRelative = getRelativePath(destination, targetRoot).replace(/\\/g, "/") || ".";
+  const movePath = (path: string): string | undefined => {
+    const identity = markPathIdentity(root, path);
+    const sourceIdentity = markPathIdentity(root, sourceRelative);
+    if (sourceIdentity !== "." && identity !== sourceIdentity && !identity.startsWith(sourceIdentity + "/")) return;
+    const suffix = sourceRelative === "." ? (path === "." ? "" : "/" + path) : path.slice(sourceRelative.length);
+    return targetRelative === "." ? suffix.replace(/^\//, "") || "." : targetRelative + suffix;
+  };
+  const sourceMarks = readDirectoryMarks(root);
+  const targetMarks = readDirectoryMarks(targetRoot);
+  const sourceSettings = readIndexingSettings(root);
+  const targetSettings = readIndexingSettings(targetRoot);
+  for (const path of Object.keys(sourceMarks)) {
+    const moved = movePath(path);
+    if (moved === undefined) continue;
+    targetMarks[moved] = sourceMarks[path];
+    delete sourceMarks[path];
+  }
+  sourceSettings.includedDirectories = sourceSettings.includedDirectories.filter((path) => {
+    const moved = movePath(path);
+    if (moved === undefined) return true;
+    if (!targetSettings.includedDirectories.includes(moved)) targetSettings.includedDirectories.push(moved);
+    return false;
   });
+  for (const path of Object.keys(sourceSettings.previousRoles)) {
+    const moved = movePath(path);
+    if (moved === undefined) continue;
+    targetSettings.previousRoles[moved] = sourceSettings.previousRoles[path];
+    delete sourceSettings.previousRoles[path];
+  }
+  const writes: [string, string][] = [
+    [key(root), JSON.stringify({version: 1, marks: sourceMarks})],
+    [indexingSettingsStorageKey(root), JSON.stringify(sourceSettings)],
+    [key(targetRoot), JSON.stringify({version: 1, marks: targetMarks})],
+    [indexingSettingsStorageKey(targetRoot), JSON.stringify(targetSettings)],
+  ];
+  const previous = writes.map(([key]) => [key, window.localStorage.getItem(key)] as const);
+  let completed = 0;
+  try {
+    for (const [key, value] of writes) {
+      window.localStorage.setItem(key, value);
+      completed += 1;
+    }
+  } catch (error) {
+    // Undo destination growth before restoring the larger source entries.
+    for (const [key, value] of previous.slice(0, completed).reverse()) {
+      if (value === null) window.localStorage.removeItem(key);
+      else window.localStorage.setItem(key, value);
+    }
+    throw error;
+  }
+  for (const changedRoot of [root, targetRoot]) {
+    window.dispatchEvent(new window.CustomEvent(eventName, {detail: changedRoot}));
+    window.dispatchEvent(new window.CustomEvent(indexingEvent, {detail: changedRoot}));
+  }
+}
+
+export function markWorkspaceDirectory(roots: readonly string[], path: string, mark: DirectoryMark) {
+  const root = directoryMarkRoot(path, roots);
+  if (!root) throw new Error("Directory is outside the workspace");
+  const marks = readDirectoryMarks(root);
+  const relative = getRelativePath(path, root).replace(/\\/g, "/") || ".";
+  const settings = readIndexingSettings(root);
+  if (mark === "plain") {
+    if (
+      Object.entries(marks).some(
+        ([path, value]) =>
+          value === "excluded" &&
+          path !== relative &&
+          (path === "." || relative.startsWith(path + "/")),
+      )
+    )
+      return;
+    const previous = settings.previousRoles[relative] as DirectoryMark | undefined;
+    if (previous) marks[relative] = previous;
+    else delete marks[relative];
+    delete settings.previousRoles[relative];
+    if (!settings.includedDirectories.includes(relative))
+      settings.includedDirectories.push(relative);
+  } else {
+    if (mark === "excluded" && marks[relative] && marks[relative] !== "excluded")
+      settings.previousRoles[relative] = marks[relative];
+    marks[relative] = mark;
+    settings.includedDirectories = settings.includedDirectories.filter(
+      (path) => path !== relative,
+    );
+  }
+  const oldSettings = window.localStorage.getItem(indexingSettingsStorageKey(root));
+  try {
+    // Publish only after both preference writes succeed.
+    window.localStorage.setItem(indexingSettingsStorageKey(root), JSON.stringify(settings));
+    writeMarks(root, marks);
+    window.dispatchEvent(new window.CustomEvent(indexingEvent, { detail: root }));
+  } catch (error) {
+    if (oldSettings === null) window.localStorage.removeItem(indexingSettingsStorageKey(root));
+    else window.localStorage.setItem(indexingSettingsStorageKey(root), oldSettings);
+    throw error;
+  }
+}
+
+export function useDirectoryMarks(roots: readonly string[]) {
+  const rootsKey = JSON.stringify(roots);
+  const [snapshot, setSnapshot] = useState<{ key: string; marks: Record<string, Marks>; error?: string }>({ key: "", marks: {} });
   useEffect(() => {
     const refresh = () => {
       try {
-        setSnapshot({ root, marks: root ? readDirectoryMarks(root) : {} });
+        setSnapshot({ key: rootsKey, marks: Object.fromEntries(roots.map((root) => [root, readDirectoryMarks(root)])) });
       } catch (error) {
-        setSnapshot({ root, marks: {}, error: String(error) });
+        setSnapshot({ key: rootsKey, marks: {}, error: String(error) });
       }
     };
     refresh();
     window.addEventListener(eventName, refresh);
+    window.addEventListener(indexingEvent, refresh);
     window.addEventListener("storage", refresh);
     return () => {
       window.removeEventListener(eventName, refresh);
+      window.removeEventListener(indexingEvent, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, [root]);
-  const markDirectory = useCallback(
-    (path: string, mark: DirectoryMark) => {
-      if (!root || !pathStartsWithRoot(path, root))
-        throw new Error("Directory is outside the workspace");
-      const marks = readDirectoryMarks(root);
-      const relative = getRelativePath(path, root).replace(/\\/g, "/") || ".";
-      if (mark === "plain") delete marks[relative];
-      else marks[relative] = mark;
-      writeMarks(root, marks);
-    },
-    [root],
-  );
-  return {
-    marks: snapshot.root === root ? snapshot.marks : {},
-    error: snapshot.root === root ? snapshot.error : undefined,
-    markDirectory,
+  }, [rootsKey]);
+  const markDirectory = useCallback((path: string, mark: DirectoryMark) => {
+    markWorkspaceDirectory(roots, path, mark);
+  }, [rootsKey]);
+  const markForPath = (path: string): DirectoryMark | undefined => {
+    const root = directoryMarkRoot(path, roots);
+    if (!root || snapshot.key !== rootsKey) return undefined;
+    const relative = getRelativePath(path, root).replace(/\\/g, "/") || ".";
+    return snapshot.marks[root]?.[relative];
   };
+  return { markForPath, markDirectory, error: snapshot.key === rootsKey ? snapshot.error : undefined };
 }

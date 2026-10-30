@@ -536,6 +536,39 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::WorkspaceReleaseIndexing => {
+            match serde_json::from_value::<project::indexing::ReleaseIndexingRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid indexing release")
+                    .with_details(error.to_string())
+            })
+            .and_then(project::indexing::release)
+            {
+                Ok(released) => {
+                    CoreResponse::success(id, serde_json::json!({"released": released}))
+                }
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceConfigureIndexing => {
+            match serde_json::from_value::<project::indexing::ConfigureIndexingRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid indexing policy")
+                    .with_details(error.to_string())
+            })
+            .and_then(project::indexing::configure)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("indexing status should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::WorkspaceSnapshot => {
             match serde_json::from_value::<WorkspaceSnapshotRequest>(parsed.payload)
                 .map_err(|error| {

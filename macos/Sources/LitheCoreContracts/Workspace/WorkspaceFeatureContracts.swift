@@ -69,6 +69,9 @@ package protocol WorkspaceSessionStoring: AnyObject {
 }
 
 package protocol WorkspaceOperations: Sendable {
+    func releaseIndexing(at rootURL: URL, revision: UInt64)
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus
+
     /// Drops package-compaction lookahead after workspace or filesystem changes.
     func invalidateDirectoryListings()
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot?
@@ -88,6 +91,8 @@ package protocol WorkspaceOperations: Sendable {
 }
 
 extension WorkspaceOperations {
+    package func releaseIndexing(at rootURL: URL, revision: UInt64) {}
+    package func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus { WorkspaceIndexingStatus() }
     package func invalidateDirectoryListings() {}
 
     /// Operations whose snapshots already carry the whole tree never leave a
@@ -114,6 +119,9 @@ package enum WorkspaceDirectoryMark: String, CaseIterable, Codable, Sendable {
 
 /// Persists directory roles without changing the marked directories themselves.
 package protocol WorkspaceDirectoryMarkStoring: Sendable {
+    func loadIndexingSettings(for workspaceURL: URL) throws -> WorkspaceIndexingSettings
+    func saveIndexingSettings(_ settings: WorkspaceIndexingSettings, for workspaceURL: URL) throws
+
     func loadDirectoryMarks(for workspaceURL: URL) throws -> [String: WorkspaceDirectoryMark]
     func saveDirectoryMarks(
         _ marks: [String: WorkspaceDirectoryMark],
@@ -219,4 +227,9 @@ public enum LocalHistoryReason: String, Codable, Sendable {
         case .restored: "Before restore"
         }
     }
+}
+
+package extension WorkspaceDirectoryMarkStoring {
+    func loadIndexingSettings(for workspaceURL: URL) throws -> WorkspaceIndexingSettings { WorkspaceIndexingSettings() }
+    func saveIndexingSettings(_ settings: WorkspaceIndexingSettings, for workspaceURL: URL) throws {}
 }

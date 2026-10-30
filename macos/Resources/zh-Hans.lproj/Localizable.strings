@@ -348,6 +348,7 @@
 "Applies immediately" = "立即生效";
 "Applies immediately to source editors in all projects." = "立即应用于所有项目的源码编辑器。";
 "Applies the next time the language server starts." = "下次启动语言服务器时生效。";
+"Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules." = "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
 "Apply" = "应用";
 "Apply %@ to the current branch." = "将提交 %@ 应用到当前分支。";
 "Apply AI-generated content?" = "要应用 AI 生成的内容吗？";
@@ -416,6 +417,7 @@
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "“自动”会先尝试 SSH Agent 和密钥，再询问密码。服务器需要回答时（例如密码、私钥口令或验证码），Lithe 会弹窗询问。";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "自动模式会优先使用项目 mvnw，其次使用检测到的 Maven，最后使用 mvnd。";
 "Automatically accept all file edits" = "自动批准文件编辑，其他操作仍按权限规则处理。";
+"Automatically exclude Git-ignored directories" = "根据 Git 忽略规则自动排除目录";
 "Automatically generated" = "自动生成";
 "Automatically identified" = "自动识别";
 "Available" = "可用";
@@ -513,6 +515,7 @@
 "Camera and microphone in use" = "摄像头和麦克风使用中";
 "Camera in use" = "摄像头使用中";
 "Cancel" = "取消";
+"Cancel Exclusion" = "取消排除";
 "Cancel Quit" = "取消退出";
 "Cancel running Git operations" = "取消正在运行的 Git 操作";
 "Cancelled" = "已取消";
@@ -1182,6 +1185,7 @@
 "Directories" = "目录";
 "Directory" = "目录";
 "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten." = "导入目录会保留脚本、模板等配套文件，不会覆盖已有技能。";
+"Directory indexing exclusions are not supported for remote projects." = "远程项目暂不支持目录索引排除。";
 "Directory or file name" = "目录或文件名";
 "Directory: %@" = "目录：%@";
 "Disable" = "禁用";
@@ -1406,6 +1410,8 @@
 "Exclude from dependency tree" = "从依赖树中排除";
 "Excluded" = "已排除";
 "Excluded Paths" = "已排除路径";
+"Excluded from indexing by Git ignore rules" = "根据 Git 忽略规则排除索引";
+"Excluded from indexing by a parent directory" = "继承父目录的索引排除";
 "Executable" = "可执行文件";
 "Execute Maven Goal" = "执行 Maven 目标";
 "Execute Maven goal" = "执行 Maven 目标";
@@ -1596,6 +1602,7 @@
 "Git executable: %@" = "Git 可执行文件：%@";
 "Git execution" = "Git 执行";
 "Git exited with code %d" = "Git 已退出，退出码为 %d";
+"Git ignore exclusions could not be fully resolved. Manual exclusions remain active." = "无法完整解析 Git 忽略规则，手动排除仍然生效。";
 "Git is preparing the sequencer." = "Git 正在准备变基步骤。";
 "Git is ready" = "Git 已就绪";
 "Git not found" = "未找到 Git";
@@ -1980,6 +1987,7 @@
 "Lithe could not find a runnable Git." = "Lithe 未找到可运行的 Git。";
 "Lithe default" = "Lithe 默认";
 "Lithe does not save passwords. Credentials are stored by the Git credential helper you choose." = "Lithe 不保存密码，凭据由你选择的 Git 凭据助手保存。";
+"Lithe excludes these directories from its own indexes. Third-party language servers may still scan them when their provider does not support exclusions." = "已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
 "Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped." = "Lithe 会先请求每个程序停止，并给它这么长的时间保存工作并退出。超时后仍在运行的程序会被强制结束。";
 "Lithe has not yet completed a real conversation with this adapter version." = "Lithe 尚未用这个适配器版本完成过真实对话。";
 "Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration." = "Lithe 安装的是 ACP 适配器包，而不是厂商的 CLI。两者相互独立，并共用 CLI 的配置。";
@@ -2117,6 +2125,7 @@
 "Manage…" = "管理…";
 "Manual" = "手动";
 "Manual stop" = "手动停止";
+"Manually excluded from indexing" = "手动排除索引";
 "Mark Target As" = "将目标标记为";
 "Mark as Resolved" = "标记为已解决";
 "Markdown Support" = "Markdown 支持";
@@ -2783,6 +2792,7 @@
 "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched." = "在 Lithe 中启动、但已脱离终端或工具独立运行的程序，例如守护进程或后台开发服务器。退出时会把它们列在一起，由你选择结束哪些。只会列出在本次 Lithe 中启动的程序；在 Lithe 之外启动的容器和服务一律不处理。";
 "Project" = "项目";
 "Project Errors" = "项目错误";
+"Project Indexing" = "项目索引";
 "Project JDK" = "项目 JDK";
 "Project Local History" = "项目本地历史";
 "Project Template" = "项目模板";
@@ -2822,6 +2832,7 @@
 "Provider details" = "服务商详情";
 "Provider name" = "服务商名称";
 "Provider requires an API key" = "服务商需要 API 密钥";
+"Provider-dependent" = "取决于语言服务";
 "Providers" = "供应商管理";
 "Provides" = "提供";
 "Prune Stale Records" = "清理陈旧记录";
@@ -3559,6 +3570,7 @@
 "Solidity Support" = "Solidity 支持";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Some dependencies are not shown." = "部分依赖未显示。";
+"Some directories could not be scanned. Automatic project analysis was not refreshed." = "部分目录无法扫描，未刷新项目自动分析。";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
 "Some special files could not be copied" = "部分特殊文件未能复制";
 "Sort by Last Updated" = "按最近更新排序";
@@ -4651,6 +4663,18 @@
 "git.log.olderCommitsFailed" = "无法加载更早的提交，点击刷新历史";
 "git.unifiedView" = "统一视图";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
+"indexing.autoGit" = "根据 Git 忽略规则自动排除目录";
+"indexing.cancelExclusion" = "取消排除";
+"indexing.description" = "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
+"indexing.gitFailed" = "无法完整解析 Git 忽略规则，手动排除仍然生效。";
+"indexing.gitReason" = "根据 Git 忽略规则排除索引";
+"indexing.incomplete" = "部分目录无法扫描，未刷新项目自动分析。";
+"indexing.inheritedReason" = "继承父目录的索引排除";
+"indexing.languageDescription" = "已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
+"indexing.manualReason" = "手动排除索引";
+"indexing.providerDependent" = "取决于语言服务";
+"indexing.remoteUnsupported" = "远程项目暂不支持目录索引排除。";
+"indexing.title" = "项目索引";
 "just now" = "刚刚";
 "local commit(s)" = "个本地提交";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS 无法准备更新磁盘映像，请手动下载版本后重试。";

@@ -161,6 +161,22 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
 
     func invalidateDirectoryListings() { local.invalidateDirectoryListings() }
 
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus {
+        guard registry.binding(forRoot: rootURL) == nil else {
+            // Remote indexing is not supported by the current transport. Never
+            // configure the local placeholder as if it were the remote project.
+            var status = WorkspaceIndexingStatus()
+            status.supportsExclusions = false
+            return status
+        }
+        return try local.configureIndexing(at: rootURL, policy: policy, refresh: refresh)
+    }
+
+    func releaseIndexing(at rootURL: URL, revision: UInt64) {
+        guard registry.binding(forRoot: rootURL) == nil else { return }
+        local.releaseIndexing(at: rootURL, revision: revision)
+    }
+
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
         guard let binding = registry.binding(forRoot: rootURL) else {
             return local.snapshot(at: rootURL, visibilityRules: visibilityRules)

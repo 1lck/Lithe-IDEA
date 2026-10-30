@@ -622,6 +622,8 @@ jobs:
           # Keep DOM setup, native spies and store mocks isolated between suites.
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-hierarchy.json -- src/features/settings/components/settings-hierarchy.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 30000 --report .artifacts/test-stability/windows-git-indexing-settings.json -- src/features/settings/components/git-indexing-settings.test.tsx src/features/settings/lib/run-settings-search.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-theme-sync.json -- src/features/settings/lib/settings-theme-sync.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-select.json -- src/ui/settings-select.test.tsx

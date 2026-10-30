@@ -348,6 +348,7 @@
 "Applies immediately" = "Applies immediately";
 "Applies immediately to source editors in all projects." = "Applies immediately to source editors in all projects.";
 "Applies the next time the language server starts." = "Applies the next time the language server starts.";
+"Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules." = "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nNative exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
 "Apply" = "Apply";
 "Apply %@ to the current branch." = "Apply %@ to the current branch.";
 "Apply AI-generated content?" = "Apply AI-generated content?";
@@ -416,6 +417,7 @@
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code.";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "Automatic uses a project mvnw first, then detected Maven, then mvnd.";
 "Automatically accept all file edits" = "Automatically approve file edits; other actions follow permission rules.";
+"Automatically exclude Git-ignored directories" = "Automatically exclude Git-ignored directories";
 "Automatically generated" = "Automatically generated";
 "Automatically identified" = "Automatically identified";
 "Available" = "Available";
@@ -513,6 +515,7 @@
 "Camera and microphone in use" = "Camera and microphone in use";
 "Camera in use" = "Camera in use";
 "Cancel" = "Cancel";
+"Cancel Exclusion" = "Cancel Exclusion";
 "Cancel Quit" = "Cancel Quit";
 "Cancel running Git operations" = "Cancel running Git operations";
 "Cancelled" = "Cancelled";
@@ -1182,6 +1185,7 @@
 "Directories" = "Directories";
 "Directory" = "Directory";
 "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten." = "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten.";
+"Directory indexing exclusions are not supported for remote projects." = "Directory indexing exclusions are not supported for remote projects.";
 "Directory or file name" = "Directory or file name";
 "Directory: %@" = "Directory: %@";
 "Disable" = "Disable";
@@ -1406,6 +1410,8 @@
 "Exclude from dependency tree" = "Exclude from dependency tree";
 "Excluded" = "Excluded";
 "Excluded Paths" = "Excluded Paths";
+"Excluded from indexing by Git ignore rules" = "Excluded from indexing by Git ignore rules";
+"Excluded from indexing by a parent directory" = "Excluded from indexing by a parent directory";
 "Executable" = "Executable";
 "Execute Maven Goal" = "Execute Maven Goal";
 "Execute Maven goal" = "Execute Maven goal";
@@ -1596,6 +1602,7 @@
 "Git executable: %@" = "Git executable: %@";
 "Git execution" = "Git execution";
 "Git exited with code %d" = "Git exited with code %d";
+"Git ignore exclusions could not be fully resolved. Manual exclusions remain active." = "Git ignore exclusions could not be fully resolved. Manual exclusions remain active.";
 "Git is preparing the sequencer." = "Git is preparing the sequencer.";
 "Git is ready" = "Git is ready";
 "Git not found" = "Git not found";
@@ -1980,6 +1987,7 @@
 "Lithe could not find a runnable Git." = "Lithe could not find a runnable Git.";
 "Lithe default" = "Lithe default";
 "Lithe does not save passwords. Credentials are stored by the Git credential helper you choose." = "Lithe does not save passwords. Credentials are stored by the Git credential helper you choose.";
+"Lithe excludes these directories from its own indexes. Third-party language servers may still scan them when their provider does not support exclusions." = "Native exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
 "Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped." = "Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped.";
 "Lithe has not yet completed a real conversation with this adapter version." = "Lithe has not yet completed a real conversation with this adapter version.";
 "Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration." = "Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration.";
@@ -2117,6 +2125,7 @@
 "Manage…" = "Manage…";
 "Manual" = "Manual";
 "Manual stop" = "Manual stop";
+"Manually excluded from indexing" = "Manually excluded from indexing";
 "Mark Target As" = "Mark Target As";
 "Mark as Resolved" = "Mark as Resolved";
 "Markdown Support" = "Markdown Support";
@@ -2783,6 +2792,7 @@
 "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched." = "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched.";
 "Project" = "Project";
 "Project Errors" = "Project Errors";
+"Project Indexing" = "Project Indexing";
 "Project JDK" = "Project JDK";
 "Project Local History" = "Project Local History";
 "Project Template" = "Project Template";
@@ -2822,6 +2832,7 @@
 "Provider details" = "Provider details";
 "Provider name" = "Provider name";
 "Provider requires an API key" = "Provider requires an API key";
+"Provider-dependent" = "Provider-dependent";
 "Providers" = "Providers";
 "Provides" = "Provides";
 "Prune Stale Records" = "Prune Stale Records";
@@ -3559,6 +3570,7 @@
 "Solidity Support" = "Solidity Support";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Some dependencies are not shown." = "Some dependencies are not shown.";
+"Some directories could not be scanned. Automatic project analysis was not refreshed." = "Some directories could not be scanned. Automatic project analysis was not refreshed.";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
 "Some special files could not be copied" = "Some special files could not be copied";
 "Sort by Last Updated" = "Sort by Last Updated";
@@ -4651,6 +4663,18 @@
 "git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";
 "git.unifiedView" = "Unified view";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
+"indexing.autoGit" = "Automatically exclude Git-ignored directories";
+"indexing.cancelExclusion" = "Cancel Exclusion";
+"indexing.description" = "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nNative exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
+"indexing.gitFailed" = "Git ignore exclusions could not be fully resolved. Manual exclusions remain active.";
+"indexing.gitReason" = "Excluded from indexing by Git ignore rules";
+"indexing.incomplete" = "Some directories could not be scanned. Automatic project analysis was not refreshed.";
+"indexing.inheritedReason" = "Excluded from indexing by a parent directory";
+"indexing.languageDescription" = "Native exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
+"indexing.manualReason" = "Manually excluded from indexing";
+"indexing.providerDependent" = "Provider-dependent";
+"indexing.remoteUnsupported" = "Directory indexing exclusions are not supported for remote projects.";
+"indexing.title" = "Project Indexing";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";

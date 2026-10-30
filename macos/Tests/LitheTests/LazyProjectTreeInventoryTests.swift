@@ -7,6 +7,133 @@ import Testing
 @Suite("Lazy project tree inventory")
 @MainActor
 struct LazyProjectTreeInventoryTests {
+    @Test(arguments: [false, true], [false, true])
+    func stalePolicyInstallCannotOverwriteOrFailTheNextWorkspace(staleFails: Bool, reopenSameRoot: Bool) async {
+        let oldRoot = URL(fileURLWithPath: "/in-memory/old-indexing")
+        let nextRoot = reopenSameRoot ? oldRoot : URL(fileURLWithPath: "/in-memory/next-indexing")
+        let file = nextRoot.appendingPathComponent("Keep.java")
+        let fixture = InventoryFixture(root: nextRoot, files: [file], rows: [nextRoot.path: []])
+        defer { fixture.close() }
+        fixture.disk.blockNextConfiguration(failing: staleFails)
+        fixture.model.beginWorkspace(at: oldRoot, visibilityRules: .default)
+        let oldGeneration = fixture.model.workspaceGeneration
+        let first = Task { await fixture.model.rebuild(at: oldRoot, rules: .default,
+            isCurrent: { fixture.model.workspaceGeneration == oldGeneration }) }
+        defer { first.cancel(); fixture.disk.releaseConfiguration.open() }
+        #expect(await fixture.disk.configurationStarted.waitUntilOpen())
+        fixture.model.beginWorkspace(at: nextRoot, visibilityRules: .default)
+        let nextGeneration = fixture.model.workspaceGeneration
+        fixture.disk.blockNextListing()
+        let second = Task { await fixture.model.rebuild(at: nextRoot, rules: .default,
+            isCurrent: { fixture.model.workspaceGeneration == nextGeneration }) }
+        defer { second.cancel(); fixture.disk.releaseListing.open() }
+        fixture.disk.releaseConfiguration.open()
+        let obsolete = await first.value
+        if case .stale = obsolete {} else { Issue.record("Old configuration was published") }
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        #expect(fixture.model.isLoadingWorkspace)
+        #expect(fixture.model.indexingError == nil)
+        #expect(fixture.disk.releasedRoots == (staleFails ? [] : [oldRoot]))
+        fixture.disk.releaseListing.open()
+        _ = await second.value
+        #expect(fixture.model.projectFiles == [file])
+        #expect(!fixture.model.isLoadingWorkspace)
+        #expect(!fixture.disk.configurationTimedOut)
+    }
+
+    @Test
+    func visibilityRefreshCannotPublishAcrossSameRootReopen() async {
+        let root = URL(fileURLWithPath: "/in-memory/visibility-indexing-reopen")
+        let file = root.appendingPathComponent("Keep.java")
+        let fixture = InventoryFixture(root: root, files: [file], rows: [root.path: []])
+        defer { fixture.close() }
+        await fixture.load()
+        fixture.disk.blockNextConfiguration(failing: false)
+        fixture.model.updateVisibilityRules(FileVisibilityRules(hiddenDirectoryNames: ["old-hidden"], hiddenFilePatterns: []))
+        #expect(await fixture.disk.configurationStarted.waitUntilOpen())
+        fixture.model.reset()
+        fixture.model.beginWorkspace(at: root, visibilityRules: .default)
+        let generation = fixture.model.workspaceGeneration
+        fixture.disk.blockNextListing()
+        let reopened = Task { await fixture.model.rebuild(at: root, rules: .default,
+            isCurrent: { fixture.model.workspaceGeneration == generation }) }
+        defer { reopened.cancel(); fixture.disk.releaseListing.open(); fixture.disk.releaseConfiguration.open() }
+        fixture.disk.releaseConfiguration.open()
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        #expect(fixture.disk.releasedRoots == [root])
+        #expect(fixture.model.isLoadingWorkspace)
+        fixture.disk.releaseListing.open()
+        _ = await reopened.value
+        #expect(fixture.model.projectFiles == [file])
+        #expect(fixture.model.indexingError == nil)
+        #expect(!fixture.disk.configurationTimedOut)
+    }
+
+    @Test
+    func policyInstalledAfterProjectCloseIsReleased() async {
+        let root = URL(fileURLWithPath: "/in-memory/closed-indexing")
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []])
+        defer { fixture.close() }
+        fixture.disk.blockNextConfiguration(failing: false)
+        fixture.model.beginWorkspace(at: root, visibilityRules: .default)
+        let generation = fixture.model.workspaceGeneration
+        let loading = Task { await fixture.model.rebuild(at: root, rules: .default,
+            isCurrent: { fixture.model.workspaceGeneration == generation }) }
+        defer { loading.cancel(); fixture.disk.releaseConfiguration.open() }
+        #expect(await fixture.disk.configurationStarted.waitUntilOpen())
+        fixture.model.reset()
+        fixture.disk.releaseConfiguration.open()
+        _ = await loading.value
+        #expect(fixture.disk.releasedRoots == [root])
+        #expect(fixture.model.rootNode == nil)
+        #expect(!fixture.disk.configurationTimedOut)
+    }
+
+    @Test
+    func unsupportedWorkspaceRejectsExclusionActions() async {
+        let root = URL(fileURLWithPath: "/in-memory/unsupported-indexing")
+        let file = root.appendingPathComponent("src/Keep.java")
+        let fixture = InventoryFixture(root: root, files: [file], rows: [root.path: []])
+        defer { fixture.close() }
+        fixture.disk.supportsExclusions = false
+        await fixture.load()
+        await fixture.model.setGitIgnoreIndexing(false)
+        await fixture.model.markDirectory(root.appendingPathComponent("src"), as: .excluded)
+        #expect(fixture.model.indexingSettings.gitIgnoreEnabled)
+        #expect(fixture.model.directoryMarks.isEmpty)
+        #expect(fixture.model.projectFiles == [file])
+        #expect(fixture.disk.snapshotCount == 1)
+    }
+
+    @Test(arguments: [false, true])
+    func policyChangesDuringScanPublishOnlyTheLatestInventory(manualMark: Bool) async {
+        let root = URL(fileURLWithPath: "/in-memory/indexing-policy-race")
+        let directory = root.appendingPathComponent(manualMark ? "manual" : "ignored")
+        let file = directory.appendingPathComponent("Candidate.java")
+        let fixture = InventoryFixture(root: root, files: [file], rows: [
+            root.path: [FileNode(url: directory, isDirectory: true, children: nil)], directory.path: [],
+        ])
+        defer { fixture.close() }
+        fixture.disk.blockNextListing()
+        let loading = Task { await fixture.load() }
+        defer { loading.cancel(); fixture.disk.releaseListing.open() }
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        if manualMark {
+            await fixture.model.markDirectory(directory, as: .excluded)
+        } else {
+            await fixture.model.setGitIgnoreIndexing(false)
+        }
+        fixture.disk.releaseListing.open()
+        await loading.value
+        #expect(!fixture.disk.listingTimedOut)
+        #expect(fixture.disk.snapshotCount == 2)
+        #expect(fixture.model.projectFiles == (manualMark ? [] : [file]))
+        #expect(fixture.publishedFiles == [manualMark ? [] : [file]])
+        #expect(fixture.model.isIndexExcluded(directory) == manualMark)
+        #expect(fixture.disk.appliedPolicy?.gitIgnoreEnabled == manualMark)
+        #expect(fixture.disk.appliedPolicy?.manualExcludedDirectories == (manualMark ? ["manual"] : []))
+    }
+
     @Test
     func expandAllLoadsEveryBranchWithoutRebuildingTheFileInventory() async throws {
         let root = URL(fileURLWithPath: "/in-memory/expand-all")
@@ -340,6 +467,7 @@ private final class InventoryFixture {
     }
 
     func close() {
+        disk.releaseConfiguration.open()
         disk.releaseListing.open()
         model.reset()
         refreshGates.values.forEach { $0.open() }
@@ -355,6 +483,18 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
     private var shouldBlock = false
     private var timedOut = false
     private var scans = 0
+    private var policy: WorkspaceIndexingPolicy?
+    var supportsExclusions = true
+    private var blockConfiguration = false
+    private var failConfiguration = false
+    private var configurationTimeout = false
+    private var releases: [URL] = []
+    let configurationStarted = TestGate()
+    let releaseConfiguration = TestGate()
+    var releasedRoots: [URL] { lock.withLock { releases } }
+    var configurationTimedOut: Bool { lock.withLock { configurationTimeout } }
+    func blockNextConfiguration(failing: Bool) { lock.withLock { blockConfiguration = true; failConfiguration = failing } }
+    func releaseIndexing(at rootURL: URL, revision: UInt64) { lock.withLock { releases.append(rootURL) } }
     private var listings: [String: Int] = [:]
     let listingStarted = TestGate()
     let releaseListing = TestGate()
@@ -364,6 +504,7 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
         self.rows = rows
     }
 
+    var appliedPolicy: WorkspaceIndexingPolicy? { lock.withLock { policy } }
     var snapshotCount: Int { lock.withLock { scans } }
     var listingTimedOut: Bool { lock.withLock { timedOut } }
     func listingCount(for url: URL) -> Int { lock.withLock { listings[url.path, default: 0] } }
@@ -374,10 +515,39 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
 
     func blockNextListing() { lock.withLock { shouldBlock = true } }
 
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus {
+        let (blocks, fails) = lock.withLock {
+            let blocks = blockConfiguration
+            blockConfiguration = false
+            return (blocks, failConfiguration)
+        }
+        if blocks {
+            configurationStarted.open()
+            // Only the production synchronous configuration worker enters this bounded gate.
+            let released = releaseConfiguration.waitSynchronously(timeout: 5)
+            lock.withLock { configurationTimeout = !released }
+            if !released || fails { throw CocoaError(.fileReadUnknown) }
+        }
+        return lock.withLock {
+            self.policy = policy
+            var status = WorkspaceIndexingStatus()
+            status.supportsExclusions = supportsExclusions
+            status.revision = blocks ? 1 : 0
+            status.excludedDirectories = Dictionary(uniqueKeysWithValues: policy.manualExcludedDirectories.map { ($0, "manual") })
+            if policy.gitIgnoreEnabled { status.excludedDirectories["ignored"] = "git" }
+            return status
+        }
+    }
+
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
         lock.withLock {
             scans += 1
-            return WorkspaceSnapshot(root: FileNode(url: rootURL, isDirectory: true, children: nil), files: files)
+            let visible = files.filter { file in
+                let relative = String(file.path.dropFirst(rootURL.path.count + 1))
+                return !(policy?.manualExcludedDirectories.contains(where: { relative == $0 || relative.hasPrefix($0 + "/") }) ?? false)
+                    && !(policy?.gitIgnoreEnabled == true && relative.hasPrefix("ignored/"))
+            }
+            return WorkspaceSnapshot(root: FileNode(url: rootURL, isDirectory: true, children: nil), files: visible)
         }
     }
 

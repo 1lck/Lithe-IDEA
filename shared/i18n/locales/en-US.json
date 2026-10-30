@@ -9551,7 +9551,19 @@
     "native.editorAppearanceIntelliJIDEA": "IntelliJ IDEA",
     "native.editorAppearanceBracketSchemeInfo": "Bracket colors follow the selected editor color scheme.",
     "native.editorAppearanceBracketSchemeEnabled": "Enabled by color scheme",
-    "native.editorAppearanceBracketSchemeDisabled": "Disabled by color scheme"
+    "native.editorAppearanceBracketSchemeDisabled": "Disabled by color scheme",
+    "indexing.title": "Project Indexing",
+    "indexing.autoGit": "Automatically exclude Git-ignored directories",
+    "indexing.description": "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nNative exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.",
+    "indexing.cancelExclusion": "Cancel Exclusion",
+    "indexing.languageDescription": "Native exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.",
+    "indexing.providerDependent": "Provider-dependent",
+    "indexing.gitFailed": "Git ignore exclusions could not be fully resolved. Manual exclusions remain active.",
+    "indexing.manualReason": "Manually excluded from indexing",
+    "indexing.gitReason": "Excluded from indexing by Git ignore rules",
+    "indexing.inheritedReason": "Excluded from indexing by a parent directory",
+    "indexing.incomplete": "Some directories could not be scanned. Automatic project analysis was not refreshed.",
+    "indexing.remoteUnsupported": "Directory indexing exclusions are not supported for remote projects."
   },
   "overrides": {
     "windows": {

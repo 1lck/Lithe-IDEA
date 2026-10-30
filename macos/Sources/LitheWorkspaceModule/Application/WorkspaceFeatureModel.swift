@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 package enum WorkspaceRebuildResult: Sendable {
     case loaded(WorkspaceSnapshot)
@@ -18,6 +19,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published package private(set) var loadErrorMessage: String?
+    @Published package private(set) var indexingSettings = WorkspaceIndexingSettings()
+    @Published package private(set) var indexingStatus = WorkspaceIndexingStatus()
+    @Published package private(set) var indexingError: String?
     @Published package private(set) var directoryMarks: [String: WorkspaceDirectoryMark] = [:]
     @Published package var projectItemEditRequest: ProjectItemEditRequest?
     @Published package var pendingProjectItemDeletion: ProjectItemDeletionRequest?
@@ -33,6 +37,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private let directoryMarkStore: any WorkspaceDirectoryMarkStoring
     private let directoryMarkPersistence: WorkspaceDirectoryMarkPersistence
     private var workspaceURL: URL?
+    private var indexingConfigurationTask: Task<WorkspaceIndexingStatus, Error>?
+    private var indexingConfigurationID: UUID?
     private var visibilityRules = FileVisibilityRules.default
     private var directoryMarkRevision = 0
     private var watchConfiguration: DirectoryWatchConfiguration?
@@ -43,6 +49,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var visibilityRulesRefreshTask: Task<Void, Never>?
     private var pendingExternalPaths: Set<String> = []
     private var pendingGitRefresh = false
+    private var pendingIndexingRuleRefresh = false
     private var pendingFullRescan = false
     private var pendingWatchRootsChanged = false
     private var isGitRefreshRunning = false
@@ -153,6 +160,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     package var hasActiveModuleResources: Bool {
         directoryWatcher != nil
+            || indexingConfigurationTask != nil
             || refreshTask != nil
             || gitRefreshTask != nil
             || recoveryTask != nil
@@ -176,6 +184,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         workspaceSessionPersistenceTask = nil
         pendingExternalPaths.removeAll()
         pendingGitRefresh = false
+        pendingIndexingRuleRefresh = false
         pendingFullRescan = false
         pendingWatchRootsChanged = false
         isGitRefreshRunning = false
@@ -184,7 +193,15 @@ package final class WorkspaceFeatureModel: ObservableObject {
         gitOperationFreezeDepth = 0
     }
 
+    private func releaseIndexing() {
+        guard let root = workspaceURL, indexingStatus.revision != 0 else { return }
+        let revision = indexingStatus.revision
+        let operations = self.operations
+        Task.detached { operations.releaseIndexing(at: root, revision: revision) }
+    }
+
     package func reset() {
+        releaseIndexing()
         invalidateDirectoryListings()
         workspaceGeneration &+= 1
         directoryMarkRevision &+= 1
@@ -201,6 +218,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         workspaceSessionPersistenceTask?.cancel()
         pendingExternalPaths.removeAll()
         pendingGitRefresh = false
+        pendingIndexingRuleRefresh = false
         pendingFullRescan = false
         pendingWatchRootsChanged = false
         isGitRefreshRunning = false
@@ -211,6 +229,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         hasRestoredWorkspaceSession = false
         rootNode = nil
         directoryMarks = [:]
+        indexingSettings = WorkspaceIndexingSettings()
+        indexingStatus = WorkspaceIndexingStatus()
+        indexingError = nil
         projectFiles = []
         appliedSnapshot = nil
         isLoadingWorkspace = false
@@ -232,6 +253,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
+        releaseIndexing()
         invalidateDirectoryListings()
         isPerformingProjectItemOperation = false
         workspaceGeneration &+= 1
@@ -239,14 +261,21 @@ package final class WorkspaceFeatureModel: ObservableObject {
         workspaceURL = url.standardizedFileURL
         do {
             directoryMarks = try directoryMarkStore.loadDirectoryMarks(for: url)
+            indexingSettings = try directoryMarkStore.loadIndexingSettings(for: url)
+            indexingStatus = WorkspaceIndexingStatus()
+            indexingError = nil
         } catch {
             directoryMarks = [:]
+            indexingSettings = WorkspaceIndexingSettings()
+            indexingStatus = WorkspaceIndexingStatus()
+            indexingError = error.localizedDescription
             notify?("Could not read directory marks: \(error.localizedDescription)")
         }
         self.visibilityRules = visibilityRules
         hasRestoredWorkspaceSession = false
         pendingExternalPaths.removeAll()
         pendingGitRefresh = false
+        pendingIndexingRuleRefresh = false
         pendingFullRescan = false
         pendingWatchRootsChanged = false
         externalRefreshGeneration += 1
@@ -294,6 +323,38 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
     }
 
+    /// Serialize installations across project switches. An obsolete successful
+    /// install is released before its successor can install a newer policy.
+    private func configureCurrentIndexing(
+        at root: URL, policy: WorkspaceIndexingPolicy, refresh: Bool,
+        isCurrent: @escaping @MainActor () -> Bool
+    ) async throws -> WorkspaceIndexingStatus {
+        let previous = indexingConfigurationTask
+        let operations = self.operations
+        let id = UUID()
+        let task = Task { @MainActor in
+            _ = try? await previous?.value
+            guard isCurrent() else { throw CancellationError() }
+            let status = try await Task.detached(priority: .userInitiated) {
+                try operations.configureIndexing(at: root, policy: policy, refresh: refresh)
+            }.value
+            guard isCurrent() else {
+                await Task.detached { operations.releaseIndexing(at: root, revision: status.revision) }.value
+                throw CancellationError()
+            }
+            return status
+        }
+        indexingConfigurationTask = task
+        indexingConfigurationID = id
+        defer {
+            if indexingConfigurationID == id {
+                indexingConfigurationTask = nil
+                indexingConfigurationID = nil
+            }
+        }
+        return try await task.value
+    }
+
     package func rebuild(
         at workspaceURL: URL,
         rules: FileVisibilityRules,
@@ -312,17 +373,47 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let previouslyLoaded = rootNode?.url.standardizedFileURL == workspaceURL.standardizedFileURL
             ? Self.loadedDirectoryPaths(in: rootNode)
             : []
-        let snapshot = await Task.detached(priority: .userInitiated) {
-            operations.snapshot(at: workspaceURL, visibilityRules: rules).map { snapshot in
-                Self.listingTree(
-                    of: snapshot,
-                    reloading: previouslyLoaded,
-                    operations: operations,
-                    rules: rules
-                )
+        var snapshot: WorkspaceSnapshot?
+        while true {
+            let policy = WorkspaceIndexingPolicy(marks: directoryMarks, settings: indexingSettings)
+            do {
+                let status = try await configureCurrentIndexing(at: workspaceURL, policy: policy, refresh: true, isCurrent: isCurrent)
+                guard isCurrent() else { return .stale }
+                indexingStatus = status
+                indexingError = nil
+            } catch {
+                guard isCurrent() else { return .stale }
+                indexingError = error.localizedDescription
+                isLoadingWorkspace = false
+                isRefreshingWorkspace = false
+                return .unavailable
             }
-        }.value
+            snapshot = await Task.detached(priority: .userInitiated) {
+                operations.snapshot(at: workspaceURL, visibilityRules: rules).map { snapshot in
+                    Self.listingTree(
+                        of: snapshot,
+                        reloading: previouslyLoaded,
+                        operations: operations,
+                        rules: rules
+                    )
+                }
+            }.value
 
+            if isCurrent() {
+                do {
+                    let status = try await configureCurrentIndexing(at: workspaceURL, policy: policy, refresh: false, isCurrent: isCurrent)
+                    guard isCurrent() else { return .stale }
+                    indexingStatus = status
+                } catch {
+                    guard isCurrent() else { return .stale }
+                    indexingError = error.localizedDescription
+                }
+            }
+            // A persisted switch/mark can change while either Core call is in
+            // flight. Rescan with the latest policy before publishing inventory.
+            guard isCurrent() else { return .stale }
+            if policy == WorkspaceIndexingPolicy(marks: directoryMarks, settings: indexingSettings) { break }
+        }
         guard isCurrent() else {
             if isInitialLoad {
                 isLoadingWorkspace = false
@@ -358,7 +449,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
         if !hasRestoredWorkspaceSession {
             if let restoreSession, let session = workspaceSessionStore.load(for: workspaceURL) {
-                await restoreSession(session, snapshot.files)
+                let excludedOpenFiles = session.openPaths.map { URL(fileURLWithPath: $0).standardizedFileURL }
+                    .filter { isWorkspaceURL($0) && isIndexExcluded($0) && fileOperations.fileExists(at: $0) && !fileOperations.isDirectory(at: $0) }
+                await restoreSession(session, snapshot.files + excludedOpenFiles)
             }
             guard isCurrent() else { return .stale }
             hasRestoredWorkspaceSession = true
@@ -366,7 +459,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard isCurrent() else { return .stale }
         await updateWatchConfiguration()
         guard isCurrent() else { return .stale }
-        await onSnapshotLoaded?(snapshot, isInitialLoad)
+        if snapshot.incompleteDirectories.isEmpty {
+            await onSnapshotLoaded?(snapshot, isInitialLoad)
+        } else {
+            indexingError = L10n.string( "Some directories could not be scanned. Automatic project analysis was not refreshed.")
+        }
         guard isCurrent() else { return .stale }
         await requestGitRefreshNow()
         if pendingFullRescan || pendingWatchRootsChanged {
@@ -399,18 +496,30 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     package func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) async {
         guard !isPerformingProjectItemOperation,
+              mark != .excluded || indexingStatus.supportsExclusions,
               let workspaceURL,
               let relativePath = Self.relativePath(for: url, in: workspaceURL) else { return }
         let workspaceGeneration = self.workspaceGeneration
         let previousMarks = directoryMarks
         var updatedMarks = directoryMarks
-        updatedMarks[relativePath] = mark
-        guard updatedMarks != previousMarks else { return }
+        let previousSettings = indexingSettings
+        if mark == .plain {
+            guard !directoryMarks.contains(where: { $0.value == .excluded && $0.key != relativePath && (relativePath.hasPrefix($0.key + "/") || $0.key == ".") }) else { return }
+            updatedMarks[relativePath] = indexingSettings.previousRoles.removeValue(forKey: relativePath) ?? .plain
+            if !indexingSettings.includedDirectories.contains(relativePath) { indexingSettings.includedDirectories.append(relativePath) }
+        } else {
+            if mark == .excluded, let previous = updatedMarks[relativePath], previous != .excluded { indexingSettings.previousRoles[relativePath] = previous }
+            updatedMarks[relativePath] = mark
+            indexingSettings.includedDirectories.removeAll { $0 == relativePath }
+        }
+        guard updatedMarks != previousMarks || previousSettings != indexingSettings else { return }
 
         directoryMarkRevision &+= 1
         let revision = directoryMarkRevision
         directoryMarks = updatedMarks
 
+        do { try directoryMarkStore.saveIndexingSettings(indexingSettings, for: workspaceURL) }
+        catch { indexingSettings = previousSettings; directoryMarks = previousMarks; indexingError = error.localizedDescription; return }
         let saveError = await directoryMarkPersistence.save(updatedMarks, for: workspaceURL)
         guard self.workspaceURL == workspaceURL,
               self.workspaceGeneration == workspaceGeneration else { return }
@@ -418,8 +527,26 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if directoryMarkRevision == revision {
                 directoryMarks = previousMarks
             }
+            indexingSettings = previousSettings
+            try? directoryMarkStore.saveIndexingSettings(previousSettings, for: workspaceURL)
             notify?("Could not update directory mark: \(saveError)")
-        }
+            await refreshCurrent()
+        } else if directoryMarkRevision == revision { await refreshCurrent() }
+    }
+
+    package func setGitIgnoreIndexing(_ enabled: Bool) async {
+        guard let workspaceURL, indexingStatus.supportsExclusions else { return }
+        let previous = indexingSettings
+        indexingSettings.gitIgnoreEnabled = enabled
+        do { try directoryMarkStore.saveIndexingSettings(indexingSettings, for: workspaceURL) }
+        catch { indexingSettings = previous; indexingError = error.localizedDescription; return }
+        await refreshCurrent()
+    }
+
+
+    package func isIndexExcluded(_ url: URL) -> Bool {
+        guard let workspaceURL, let path = Self.relativePath(for: url, in: workspaceURL) else { return false }
+        return indexingStatus.excludedDirectories.keys.contains { $0 == "." || path == $0 || path.hasPrefix($0 + "/") }
     }
 
     private static func relativePath(for url: URL, in workspaceURL: URL) -> String? {
@@ -457,18 +584,19 @@ package final class WorkspaceFeatureModel: ObservableObject {
         visibilityRulesRefreshTask?.cancel()
         refreshTask?.cancel()
         guard let workspaceURL else { return }
+        let generation = workspaceGeneration
         visibilityRules = rules
         visibilityRulesRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while self.isLoadingWorkspace, !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(50))
             }
-            guard !Task.isCancelled, self.workspaceURL == workspaceURL else { return }
+            guard !Task.isCancelled, self.workspaceURL == workspaceURL, self.workspaceGeneration == generation else { return }
             await self.updateHistoryVisibilityRules?(rules)
             _ = await self.rebuild(
                 at: workspaceURL,
                 rules: rules,
-                isCurrent: { [weak self] in self?.workspaceURL == workspaceURL }
+                isCurrent: { [weak self] in self?.workspaceURL == workspaceURL && self?.workspaceGeneration == generation && !Task.isCancelled }
             )
         }
     }
@@ -599,6 +727,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             } else {
                 marksToMigrate = operationDirectoryMarks
             }
+            migrateIndexingSettings(moving: request.targetURL, to: destination, in: operationWorkspaceURL)
             let migratedMarks = Self.directoryMarks(
                 marksToMigrate,
                 moving: request.targetURL,
@@ -695,6 +824,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             // Relocate open buffers immediately, before any further suspension.
             if isCurrent { relocateOpenDocuments?(source, destination) }
             let marks = isCurrent ? directoryMarks : previousMarks
+            migrateIndexingSettings(moving: source, to: destination, in: workspace)
             await persistDirectoryMarksAfterFileOperation(
                 Self.directoryMarks(marks, moving: source, to: destination, in: workspace),
                 previousMarks: marks, workspaceURL: workspace, workspaceGeneration: generation
@@ -964,6 +1094,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             } else {
                 marksToRemoveFrom = operationDirectoryMarks
             }
+            migrateIndexingSettings(moving: request.url, to: nil, in: operationWorkspaceURL)
             let remainingMarks = Self.directoryMarks(
                 marksToRemoveFrom,
                 removing: request.url,
@@ -997,6 +1128,25 @@ package final class WorkspaceFeatureModel: ObservableObject {
         return await Task.detached(priority: .userInitiated) {
             operations.readFile(at: workspaceURL, relativePath: relativePath)
         }.value
+    }
+
+    private func migrateIndexingSettings(moving source: URL, to destination: URL?, in root: URL) {
+        do {
+            var settings = try directoryMarkStore.loadIndexingSettings(for: root)
+            let includes = Dictionary(settings.includedDirectories.map { ($0, WorkspaceDirectoryMark.plain) }, uniquingKeysWith: { first, _ in first })
+            if let destination {
+                settings.includedDirectories = Self.directoryMarks(includes, moving: source, to: destination, in: root).keys.sorted()
+                settings.previousRoles = Self.directoryMarks(settings.previousRoles, moving: source, to: destination, in: root)
+            } else {
+                settings.includedDirectories = Self.directoryMarks(includes, removing: source, in: root).keys.sorted()
+                settings.previousRoles = Self.directoryMarks(settings.previousRoles, removing: source, in: root)
+            }
+            try directoryMarkStore.saveIndexingSettings(settings, for: root)
+            if workspaceURL == root { indexingSettings = settings }
+        } catch {
+            indexingError = error.localizedDescription
+            notify?(error.localizedDescription)
+        }
     }
 
     private func persistDirectoryMarksAfterFileOperation(
@@ -1116,6 +1266,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if batch.gitStateMayHaveChanged { pendingGitRefresh = true }
             schedulePendingExternalRefresh()
         } else if batch.gitStateMayHaveChanged {
+            pendingIndexingRuleRefresh = indexingSettings.gitIgnoreEnabled
             scheduleGitRefresh()
         }
     }
@@ -1226,6 +1377,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
             await refreshGit?()
         }
         isGitRefreshRunning = false
+        if pendingIndexingRuleRefresh, !isLoadingWorkspace, !isRefreshingWorkspace {
+            pendingIndexingRuleRefresh = false
+            await refreshCurrentSnapshot()
+        }
     }
 
     private func applyExternalRefresh(_ paths: [String], at workspaceURL: URL) async {
@@ -1239,7 +1394,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             scheduleExternalRefresh(paths: paths)
             return
         }
-        let changedURLs = paths
+        var changedURLs = paths
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
             .filter { isWorkspaceURL($0) && watchConfiguration?.isIgnored($0) != true }
             .reduce(into: [URL]()) { values, url in
@@ -1254,6 +1409,15 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         let conflictDetected = processExternalChanges?(changedURLs) ?? false
         if conflictDetected { notify?("External edits conflict with unsaved changes") }
+        if changedURLs.contains(where: { $0.lastPathComponent == ".gitignore" || $0.path.contains("/.git/") }) {
+            await refreshCurrentSnapshot()
+            return
+        }
+        let excludedChanges = changedURLs.filter { isIndexExcluded($0) }
+        if !excludedChanges.isEmpty { await refreshExcludedTree(at: workspaceURL) }
+        guard self.workspaceURL == workspaceURL else { return }
+        changedURLs.removeAll { isIndexExcluded($0) && !$0.path.hasPrefix(workspaceURL.appendingPathComponent(".lithe").path + "/") }
+        guard !changedURLs.isEmpty else { await requestGitRefreshNow(); return }
 
         let fileChanges = changedURLs.compactMap { url -> WorkspaceFileChange? in
             let wasKnown = isKnownProjectFile(url)
@@ -1365,7 +1529,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     ) -> IncrementalTreeResult {
         // A previous snapshot may have failed; watcher events must be able to
         // recover the tree instead of leaving the workspace empty indefinitely.
-        guard var root = rootNode else { return .requiresSnapshot }
+        guard appliedSnapshot?.incompleteDirectories.isEmpty != false, var root = rootNode else { return .requiresSnapshot }
         var files = projectFiles
         var didChange = false
         var reloadsTree = false
@@ -1421,6 +1585,26 @@ package final class WorkspaceFeatureModel: ObservableObject {
         return didChange ? .updated(root: root, files: files, reloadsTree: reloadsTree) : .unchanged
     }
 
+    /// Relists only already-loaded levels; browsing never contributes index candidates.
+    private func refreshExcludedTree(at workspaceURL: URL) async {
+        guard let root = rootNode, let snapshot = appliedSnapshot else { return }
+        let generation = workspaceGeneration
+        let revision = directoryListingRevision
+        let operations = self.operations
+        let rules = visibilityRules
+        let loaded = Self.loadedDirectoryPaths(in: root)
+        let base = FileNode(url: root.url, isDirectory: true, children: nil)
+        let relisted = await Task.detached(priority: .userInitiated) {
+            Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
+        }.value
+        guard self.workspaceURL == workspaceURL, workspaceGeneration == generation,
+              directoryListingRevision == revision, appliedSnapshot?.id == snapshot.id,
+              let relisted else { return }
+        rootNode = relisted
+        appliedSnapshot = WorkspaceSnapshot(root: relisted, files: projectFiles,
+                                            nestedWorktrees: snapshot.nestedWorktrees, incompleteDirectories: snapshot.incompleteDirectories, id: snapshot.id)
+    }
+
     /// Publishes an updated inventory as a new snapshot so project services
     /// see the same files a rescan would have produced.
     private func applyIncrementalTree(root: FileNode, files: [URL], reloadsTree: Bool) async {
@@ -1460,6 +1644,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 root: relisted,
                 files: projectFiles,
                 nestedWorktrees: currentSnapshot.nestedWorktrees,
+                incompleteDirectories: currentSnapshot.incompleteDirectories,
                 id: currentSnapshot.id
             )
             return
@@ -1610,6 +1795,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             root: root,
             files: snapshot.files,
             nestedWorktrees: snapshot.nestedWorktrees,
+            incompleteDirectories: snapshot.incompleteDirectories,
             id: snapshot.id
         )
     }

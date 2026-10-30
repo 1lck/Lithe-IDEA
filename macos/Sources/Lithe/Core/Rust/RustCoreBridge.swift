@@ -81,9 +81,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let root: WorkspaceNodePayload
         let files: [String]
         let nestedWorktrees: [String]
+        let incompleteDirectories: [String]
 
         private enum CodingKeys: String, CodingKey {
-            case root, files, nestedWorktrees
+            case root, files, nestedWorktrees, incompleteDirectories
         }
 
         init(from decoder: any Decoder) throws {
@@ -91,6 +92,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             root = try container.decode(WorkspaceNodePayload.self, forKey: .root)
             files = try container.decode([String].self, forKey: .files)
             nestedWorktrees = try container.decodeIfPresent([String].self, forKey: .nestedWorktrees) ?? []
+            incompleteDirectories = try container.decodeIfPresent([String].self, forKey: .incompleteDirectories) ?? []
         }
 
         func makeSnapshot(at rootURL: URL) -> WorkspaceSnapshot {
@@ -99,7 +101,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 return WorkspaceSnapshot(
                     root: FileNode(url: rootURL, isDirectory: true, children: nil),
                     files: files.map { rootURL.appendingPathComponent($0) },
-                    nestedWorktrees: nested
+                    nestedWorktrees: nested, incompleteDirectories: incompleteDirectories
                 )
             }
             // Preserve Core's file order while sharing URLs with the full tree.
@@ -109,7 +111,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             return WorkspaceSnapshot(
                 root: rootNode,
                 files: files.map { fileURLs[$0] ?? rootURL.appendingPathComponent($0) },
-                nestedWorktrees: nested
+                nestedWorktrees: nested, incompleteDirectories: incompleteDirectories
             )
         }
     }
@@ -2436,6 +2438,28 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func version() -> String? {
         guard isAvailable else { return nil }
         return String(cString: lithe_bridge_version())
+    }
+
+    func releaseIndexing(at rootURL: URL, revision: UInt64) {
+        struct Payload: Encodable { let root: String; let revision: UInt64 }
+        struct Response: Decodable { let released: Bool }
+        let _: Response? = execute(command: "workspace.releaseIndexing", payload: Payload(root: rootURL.path, revision: revision))
+    }
+
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus {
+        struct Request: Encodable {
+            let root: String
+            let manualExcludedDirectories: [String]
+            let includedDirectories: [String]
+            let gitIgnoreEnabled: Bool
+            let refresh: Bool
+        }
+        return try executeResult(command: "workspace.configureIndexing", payload: Request(
+            root: rootURL.standardizedFileURL.path,
+            manualExcludedDirectories: policy.manualExcludedDirectories,
+            includedDirectories: policy.includedDirectories,
+            gitIgnoreEnabled: policy.gitIgnoreEnabled, refresh: refresh
+        )).get()
     }
 
     func snapshot(

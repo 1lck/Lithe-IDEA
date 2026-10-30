@@ -1,0 +1,827 @@
+//! Workspace-owned indexing exclusions, independent of tree visibility and Git writes.
+
+use super::files::{existing_root, relative_path};
+use crate::protocol::{CoreError, ErrorCode};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// User-owned policy. Missing policies preserve legacy Core callers' behavior.
+pub struct IndexingPolicy {
+    pub manual_excluded_directories: Vec<String>,
+    pub included_directories: Vec<String>,
+    pub git_ignore_enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Installs a policy before workspace consumers start; refresh discards Git decisions.
+pub struct ConfigureIndexingRequest {
+    pub root: String,
+    #[serde(flatten)]
+    pub policy: IndexingPolicy,
+    #[serde(default)]
+    pub refresh: bool,
+    #[serde(default)]
+    pub paths: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Effective directory reasons and Git availability, never a claim about third-party scans.
+pub struct IndexingStatus {
+    pub revision: u64,
+    pub excluded_directories: BTreeMap<String, String>,
+    pub git_ignore_failed: bool,
+}
+
+/// Immutable policy generation with lazily cached Git directory decisions.
+pub(crate) struct IndexingContext {
+    pub(crate) revision: u64,
+    /// Host release token; watcher refreshes replace readers without changing ownership.
+    owner_revision: u64,
+    root: PathBuf,
+    policy: IndexingPolicy,
+    decisions: Mutex<HashMap<String, bool>>,
+    pub(crate) retired: AtomicBool,
+    git_failed: AtomicBool,
+    git_resolved: AtomicBool,
+}
+
+static POLICIES: OnceLock<Mutex<HashMap<PathBuf, Arc<IndexingContext>>>> = OnceLock::new();
+static REVISION: AtomicU64 = AtomicU64::new(1);
+
+fn policies() -> &'static Mutex<HashMap<PathBuf, Arc<IndexingContext>>> {
+    POLICIES.get_or_init(Mutex::default)
+}
+
+fn validate_paths(paths: &mut Vec<String>) -> Result<(), CoreError> {
+    for path in paths.iter_mut() {
+        *path = path.trim_end_matches('/').to_string();
+        if path != "."
+            && (path.is_empty()
+                || Path::new(path).is_absolute()
+                || path.contains(['\\', '\0', ':'])
+                || path
+                    .split('/')
+                    .any(|part| part.is_empty() || part == ".." || part == "."))
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid indexing directory",
+            ));
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(())
+}
+
+/// Registers a project policy atomically. In-flight readers cannot publish a retired generation.
+pub fn configure(mut request: ConfigureIndexingRequest) -> Result<IndexingStatus, CoreError> {
+    let root = existing_root(&request.root)?;
+    validate_paths(&mut request.policy.manual_excluded_directories)?;
+    validate_paths(&mut request.policy.included_directories)?;
+    validate_paths(&mut request.paths)?;
+    let mut changed = false;
+    let context = {
+        let mut entries = policies()
+            .lock()
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing policy lock was poisoned"))?;
+        let unchanged = entries.get(&root).filter(|old| {
+            old.policy == request.policy && !request.refresh && !old.retired.load(Ordering::Acquire)
+        });
+        if let Some(old) = unchanged {
+            Arc::clone(old)
+        } else {
+            changed = true;
+            if let Some(old) = entries.get(&root) {
+                old.retired.store(true, Ordering::Release);
+            }
+            let revision = REVISION.fetch_add(1, Ordering::Relaxed);
+            let next = Arc::new(IndexingContext {
+                revision,
+                owner_revision: revision,
+                root: root.clone(),
+                policy: request.policy,
+                decisions: Mutex::default(),
+                retired: AtomicBool::new(false),
+                git_failed: AtomicBool::new(false),
+                git_resolved: AtomicBool::new(false),
+            });
+            entries.insert(root.clone(), Arc::clone(&next));
+            next
+        }
+    };
+    if changed {
+        super::search_index::invalidate_root(&root);
+    }
+    let mut excluded_directories = BTreeMap::new();
+    for path in request.paths {
+        if let Some(reason) = context.reason(&path, true)? {
+            excluded_directories.insert(path, reason.to_string());
+        }
+    }
+    for path in &context.policy.manual_excluded_directories {
+        excluded_directories.insert(path.clone(), "manual".into());
+    }
+    if let Ok(decisions) = context.decisions.lock() {
+        for (path, excluded) in decisions.iter() {
+            if *excluded
+                && !context
+                    .policy
+                    .included_directories
+                    .iter()
+                    .any(|included| contains(included, path) || contains(path, included))
+            {
+                excluded_directories
+                    .entry(path.clone())
+                    .or_insert_with(|| "git".into());
+            }
+        }
+    }
+    crate::lsp::indexing_changed(&root)?;
+    Ok(IndexingStatus {
+        revision: context.owner_revision,
+        excluded_directories,
+        git_ignore_failed: context.git_failed.load(Ordering::Acquire),
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Revision-guarded release; a late old window must not retire a newly opened project.
+pub struct ReleaseIndexingRequest {
+    pub root: String,
+    pub revision: u64,
+}
+
+pub fn release(request: ReleaseIndexingRequest) -> Result<bool, CoreError> {
+    let requested = PathBuf::from(request.root);
+    let root =
+        super::search_index::canonicalize_with_missing_components(&requested).unwrap_or(requested);
+    let entries = policies()
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing policy lock was poisoned"))?;
+    let Some(context) = entries
+        .get(&root)
+        .filter(|context| context.owner_revision == request.revision)
+    else {
+        return Ok(false);
+    };
+    context.retired.store(true, Ordering::Release);
+    context
+        .decisions
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing decision lock was poisoned"))?
+        .clear();
+    drop(entries);
+    super::search_index::invalidate_root(&root);
+    Ok(true)
+}
+
+pub(crate) fn context(root: &Path) -> Option<Arc<IndexingContext>> {
+    policies().lock().ok()?.get(root).cloned()
+}
+
+pub(crate) fn refresh(root: &Path) -> Result<(), CoreError> {
+    {
+        let mut entries = policies()
+            .lock()
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing policy lock was poisoned"))?;
+        let Some(old) = entries.get(root) else {
+            return Ok(());
+        };
+        // Closing a workspace must never be undone by a late watcher event.
+        old.check()?;
+        let next = Arc::new(IndexingContext {
+            revision: REVISION.fetch_add(1, Ordering::Relaxed),
+            owner_revision: old.owner_revision,
+            root: old.root.clone(),
+            policy: old.policy.clone(),
+            decisions: Mutex::default(),
+            retired: AtomicBool::new(false),
+            git_failed: AtomicBool::new(false),
+            git_resolved: AtomicBool::new(false),
+        });
+        old.retired.store(true, Ordering::Release);
+        entries.insert(root.to_path_buf(), next);
+    }
+    super::search_index::invalidate_root(root);
+    // The caller rebuilds Git decisions before publishing provider settings.
+    Ok(())
+}
+
+/// Resolve native Git decisions before a live provider receives a new generation.
+/// This reuses the inventory walker (no file text reads) and prunes excluded trees.
+pub(crate) fn prepare_provider_exclusions(root: &Path) -> Result<(), CoreError> {
+    let Some(context) = context(root) else {
+        return Ok(());
+    };
+    context.check()?;
+    if context.policy.git_ignore_enabled && !context.git_resolved.load(Ordering::Acquire) {
+        context.prepare_parent(root, "")?;
+        super::files::snapshot(super::files::WorkspaceSnapshotRequest {
+            root: root.to_string_lossy().into_owned(),
+            hidden_directory_names: Vec::new(),
+            hidden_file_patterns: Vec::new(),
+            include_tree: false,
+        })?;
+        context.check()?;
+        context.git_resolved.store(true, Ordering::Release);
+    }
+    Ok(())
+}
+
+fn contains(directory: &str, path: &str) -> bool {
+    #[cfg(windows)]
+    let (directory, path) = (directory.to_lowercase(), path.to_lowercase());
+    directory == "."
+        || path == directory
+        || path
+            .strip_prefix(&directory[..])
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+impl IndexingContext {
+    pub(crate) fn check(&self) -> Result<(), CoreError> {
+        crate::protocol::cancellation::check()?;
+        if self.retired.load(Ordering::Acquire) {
+            return Err(CoreError::new(
+                ErrorCode::Cancelled,
+                "Indexing policy changed",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn reason(
+        &self,
+        relative: &str,
+        is_directory: bool,
+    ) -> Result<Option<&'static str>, CoreError> {
+        self.check()?;
+        if self
+            .policy
+            .manual_excluded_directories
+            .iter()
+            .any(|dir| contains(dir, relative))
+        {
+            return Ok(Some("manual"));
+        }
+        if !self.policy.git_ignore_enabled
+            || self
+                .policy
+                .included_directories
+                .iter()
+                .any(|dir| contains(dir, relative))
+        {
+            return Ok(None);
+        }
+        if relative.is_empty() || relative == "." {
+            return Ok(None);
+        }
+        if is_directory
+            && self
+                .policy
+                .included_directories
+                .iter()
+                .any(|included| contains(relative, included))
+        {
+            return Ok(None);
+        }
+        let parts = relative.split('/').collect::<Vec<_>>();
+        let count = parts.len().saturating_sub(usize::from(!is_directory));
+        for length in 1..=count {
+            let directory = parts[..length].join("/");
+            self.prepare_parent(
+                self.root.join(&directory).parent().unwrap_or(&self.root),
+                &directory,
+            )?;
+            if self
+                .decisions
+                .lock()
+                .map_err(|_| {
+                    CoreError::new(ErrorCode::Unknown, "Indexing decision lock was poisoned")
+                })?
+                .get(&directory)
+                == Some(&true)
+            {
+                return Ok(Some("git"));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Queries sibling directories in one batch, without enumerating their contents.
+    fn prepare_parent(&self, parent: &Path, requested: &str) -> Result<(), CoreError> {
+        self.check()?;
+
+        if self
+            .decisions
+            .lock()
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing decision lock was poisoned"))?
+            .contains_key(requested)
+        {
+            return Ok(());
+        }
+        let Ok(entries) = std::fs::read_dir(parent) else {
+            return Ok(());
+        };
+        let candidates = entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .collect::<Vec<_>>();
+        let ignored = crate::git::ignored_paths(parent, &candidates)?;
+        let mut decisions = HashMap::new();
+        if let Some(ignored) = ignored {
+            // The index is authoritative for tracked descendants; check-ignore on a directory
+            // alone does not protect tracked files below an otherwise ignored directory.
+            for name in candidates {
+                let excluded = if parent.join(&name).join(".git").exists() {
+                    // A nested repository owns its ignore rules and tracked content.
+                    false
+                } else if ignored.contains(&name) {
+                    let response = crate::git::execute_git_readonly(
+                        &parent.to_string_lossy(),
+                        &[
+                            "--literal-pathspecs".into(),
+                            "ls-files".into(),
+                            "-z".into(),
+                            "--".into(),
+                            name.clone(),
+                        ],
+                        None,
+                    );
+                    self.check()?;
+                    let Ok(response) = response else {
+                        self.git_failed.store(true, Ordering::Release);
+                        continue;
+                    };
+                    if response.exit_code != 0 {
+                        self.git_failed.store(true, Ordering::Release);
+                        false
+                    } else {
+                        response.stdout.is_empty()
+                    }
+                } else {
+                    false
+                };
+                decisions.insert(relative_path(&parent.join(name), &self.root), excluded);
+            }
+        } else {
+            self.git_failed.store(true, Ordering::Release);
+            for name in candidates {
+                decisions.insert(relative_path(&parent.join(name), &self.root), false);
+            }
+        }
+        self.check()?;
+        let mut cache = self.decisions.lock().map_err(|_| {
+            CoreError::new(ErrorCode::Unknown, "Indexing decision lock was poisoned")
+        })?;
+        cache.extend(decisions);
+        Ok(())
+    }
+}
+
+pub(crate) fn is_excluded(root: &Path, path: &Path, is_directory: bool) -> Result<bool, CoreError> {
+    match context(root) {
+        Some(policy) => Ok(policy
+            .reason(&relative_path(path, root), is_directory)?
+            .is_some()),
+        None => Ok(false),
+    }
+}
+
+/// Resolved roots for provider adapters. Git decisions are populated by the project scan.
+pub(crate) fn excluded_roots(root: &Path) -> Vec<String> {
+    let Some(context) = context(root) else {
+        return Vec::new();
+    };
+    let mut roots = context.policy.manual_excluded_directories.clone();
+    if let Ok(decisions) = context.decisions.lock() {
+        roots.extend(
+            decisions
+                .iter()
+                .filter(|(path, excluded)| {
+                    **excluded
+                        && !context
+                            .policy
+                            .included_directories
+                            .iter()
+                            .any(|included| contains(included, path) || contains(path, included))
+                })
+                .map(|(path, _)| path.clone()),
+        );
+    }
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+/// File URIs are normalized through the same workspace root as index consumers.
+pub(crate) fn uri_is_excluded(root_uri: &str, uri: &str) -> Result<bool, CoreError> {
+    let root = url::Url::parse(root_uri)
+        .ok()
+        .and_then(|value| value.to_file_path().ok());
+    let path = url::Url::parse(uri)
+        .ok()
+        .and_then(|value| value.to_file_path().ok());
+    match (root, path) {
+        (Some(root), Some(path)) if path.starts_with(&root) => {
+            let relative = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
+            let root = root.canonicalize().unwrap_or(root);
+            is_excluded(&root, &root.join(relative), false)
+        }
+        _ => Ok(false),
+    }
+}
+
+/// Import globs only: these do not guarantee exclusion of referenced Java resources.
+pub(crate) fn java_import_exclusions(root_uri: &str) -> Vec<String> {
+    let Some(root) = url::Url::parse(root_uri)
+        .ok()
+        .and_then(|value| value.to_file_path().ok())
+    else {
+        return Vec::new();
+    };
+    let root = root.canonicalize().unwrap_or(root);
+    excluded_roots(&root)
+        .into_iter()
+        // Native import patterns cannot faithfully represent literal glob metacharacters.
+        .filter(|path| !path.contains(['*', '?', '[', ']', '{', '}']))
+        .flat_map(|path| {
+            if path == "." {
+                vec!["**".into()]
+            } else {
+                let directory = root.join(path).to_string_lossy().replace('\\', "/");
+                // JDT LS BasicFileDetector matches the candidate directory itself
+                // before visiting children. A trailing /** alone misses its pom.xml.
+                vec![directory.clone(), format!("{directory}/**")]
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{files, search_index};
+    use super::*;
+    use serde_json::json;
+    use std::fs;
+
+    #[test]
+    fn java_import_exclusion_matches_the_directory_itself_before_its_descendants() {
+        let workspace = Workspace::new();
+        workspace.configure(&["ignored"], &[], false);
+        let uri = url::Url::from_directory_path(&workspace.0).unwrap();
+        let directory = workspace.0.join("ignored").to_string_lossy().into_owned();
+        assert_eq!(
+            java_import_exclusions(uri.as_str()),
+            vec![directory.clone(), format!("{directory}/**")]
+        );
+    }
+
+    struct Workspace(PathBuf);
+    impl Workspace {
+        fn new() -> Self {
+            let root = crate::tests::support::temporary_root("indexing-policy");
+            fs::create_dir_all(root.join("ignored/deep")).unwrap();
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(
+                root.join("ignored/deep/Excluded.java"),
+                "class Excluded { String needle; }",
+            )
+            .unwrap();
+            fs::write(
+                root.join("src/Included.java"),
+                "class Included { String needle; }",
+            )
+            .unwrap();
+            Self(root.canonicalize().unwrap())
+        }
+        fn configure(&self, manual: &[&str], included: &[&str], git: bool) -> IndexingStatus {
+            configure(
+                serde_json::from_value(json!({"root": self.0,
+                "manualExcludedDirectories": manual, "includedDirectories": included,
+                "gitIgnoreEnabled": git, "refresh": true}))
+                .unwrap(),
+            )
+            .unwrap()
+        }
+        fn files(&self) -> Vec<String> {
+            files::snapshot(
+                serde_json::from_value(json!({"root": self.0, "includeTree": false})).unwrap(),
+            )
+            .unwrap()
+            .files
+        }
+        fn git(&self, args: &[&str]) {
+            let response = crate::git::execute_git_readonly(
+                &self.0.to_string_lossy(),
+                &args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                None,
+            )
+            .unwrap();
+            assert_eq!(response.exit_code, 0, "{}", response.stderr);
+        }
+    }
+    impl Drop for Workspace {
+        fn drop(&mut self) {
+            if let Some(context) = policies().lock().unwrap().remove(&self.0) {
+                context.retired.store(true, Ordering::Release);
+            }
+            search_index::invalidate_root(&self.0);
+            files::DIRECTORY_VISITS.with_borrow_mut(|trace| *trace = None);
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn manual_exclusion_prunes_enumeration_but_keeps_tree_browsing() {
+        let workspace = Workspace::new();
+        workspace.configure(&["ignored"], &[], false);
+        files::DIRECTORY_VISITS.with_borrow_mut(|trace| *trace = Some(Vec::new()));
+        assert_eq!(workspace.files(), ["src/Included.java"]);
+        files::DIRECTORY_VISITS.with_borrow(|trace| {
+            assert!(!trace
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|path| path.starts_with(workspace.0.join("ignored"))))
+        });
+        let tree = files::list_directories(
+            serde_json::from_value(
+                json!({"root": workspace.0, "paths": ["", "ignored", "ignored/deep"]}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tree.directories.len(), 3);
+        assert!(tree.directories[2]
+            .children
+            .iter()
+            .any(|node| node.name == "Excluded.java"));
+        assert_eq!(
+            workspace.files(),
+            ["src/Included.java"],
+            "Browsing must not add candidates"
+        );
+    }
+
+    #[test]
+    fn policy_change_retires_old_readers_and_blocks_warm_cache_refill() {
+        let workspace = Workspace::new();
+        workspace.configure(&[], &[], false);
+        let old = context(&workspace.0).unwrap();
+        let query = || {
+            files::search_everywhere(serde_json::from_value(json!({"root":workspace.0,"query":"Excluded", "includeGeneratedFileNames":true})).unwrap()).unwrap()
+        };
+        assert!(!query().matches.is_empty());
+        workspace.configure(&["ignored"], &["ignored/deep"], false);
+        assert!(matches!(
+            old.check().unwrap_err().code,
+            ErrorCode::Cancelled
+        ));
+        assert!(
+            query().matches.is_empty(),
+            "A child exception cannot bypass a manual ancestor"
+        );
+        search_index::update_cached_file(
+            &workspace.0,
+            &workspace.0.join("ignored/deep/Excluded.java"),
+        );
+        assert!(query().matches.is_empty());
+        workspace.configure(&[], &[], false);
+        assert!(!query().matches.is_empty());
+    }
+
+    /// Integration fixture uses the bounded native Git runner; no user repository or Git config is modified.
+    #[test]
+    fn git_directory_rules_preserve_tracked_files_and_include_exceptions() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::write(
+            workspace.0.join(".gitignore"),
+            "ignored/\n*.log\ntracked/\n",
+        )
+        .unwrap();
+        fs::write(workspace.0.join("single.log"), "still a candidate").unwrap();
+        fs::create_dir_all(workspace.0.join("tracked")).unwrap();
+        fs::write(workspace.0.join("tracked/keep.java"), "class Keep {}").unwrap();
+        workspace.git(&["add", "-f", "tracked/keep.java"]);
+        workspace.configure(&[], &[], true);
+        let files = workspace.files();
+        assert!(!files.contains(&"ignored/deep/Excluded.java".into()));
+        assert!(files.contains(&"single.log".into()));
+        assert!(files.contains(&"tracked/keep.java".into()));
+        workspace.configure(&[], &["ignored/deep"], true);
+        assert!(workspace
+            .files()
+            .contains(&"ignored/deep/Excluded.java".into()));
+        workspace.configure(&["ignored/deep"], &["ignored"], true);
+        assert!(!workspace
+            .files()
+            .contains(&"ignored/deep/Excluded.java".into()));
+        workspace.configure(&[], &[], false);
+        assert!(workspace
+            .files()
+            .contains(&"ignored/deep/Excluded.java".into()));
+    }
+    #[test]
+    fn watcher_refresh_preserves_host_release_and_rejects_both_stale_and_closed_readers() {
+        let workspace = Workspace::new();
+        let installed = workspace.configure(&["ignored"], &[], false);
+        let before = context(&workspace.0).unwrap();
+        files::update_search_index(
+            serde_json::from_value(json!({
+                "root": workspace.0, "paths": [".gitignore"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let after = context(&workspace.0).unwrap();
+        assert_ne!(before.revision, after.revision);
+        assert!(before.check().is_err());
+        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert!(release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            revision: installed.revision,
+        })
+        .unwrap());
+        assert!(after.check().is_err());
+        assert!(
+            refresh(&workspace.0).is_err(),
+            "A late watcher cannot reopen a closed policy"
+        );
+        assert!(
+            files::snapshot(serde_json::from_value(json!({ "root": workspace.0 })).unwrap())
+                .is_err()
+        );
+        let reopened = workspace.configure(&[], &[], false);
+        assert!(!release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            revision: installed.revision,
+        })
+        .unwrap());
+        assert_ne!(reopened.revision, installed.revision);
+        assert_eq!(workspace.files().len(), 2);
+    }
+
+    #[test]
+    fn release_rejects_late_work_and_cannot_retire_a_new_generation() {
+        let workspace = Workspace::new();
+        let first = workspace.configure(&[], &[], false);
+        let old = context(&workspace.0).unwrap();
+        assert!(release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            revision: first.revision
+        })
+        .unwrap());
+        assert!(old.check().is_err());
+        let second = workspace.configure(&["ignored"], &[], false);
+        assert!(second.revision > first.revision);
+        assert!(!release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            revision: first.revision
+        })
+        .unwrap());
+        assert_eq!(workspace.files(), ["src/Included.java"]);
+    }
+
+    #[test]
+    fn git_negation_nested_rules_new_directories_and_unicode_are_native() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::write(
+            workspace.0.join(".gitignore"),
+            "projects/*/repos/\n晚到目录/\n",
+        )
+        .unwrap();
+        fs::create_dir_all(workspace.0.join("projects/中文 空格/repos")).unwrap();
+        fs::write(
+            workspace.0.join("projects/.gitignore"),
+            "!中文 空格/repos/\n",
+        )
+        .unwrap();
+        fs::write(
+            workspace.0.join("projects/中文 空格/repos/kept.txt"),
+            "kept",
+        )
+        .unwrap();
+        workspace.configure(&[], &[], true);
+        assert!(workspace
+            .files()
+            .contains(&"projects/中文 空格/repos/kept.txt".into()));
+        fs::create_dir_all(workspace.0.join("晚到目录")).unwrap();
+        fs::write(workspace.0.join("晚到目录/hidden.txt"), "hidden").unwrap();
+        assert!(
+            !workspace.files().contains(&"晚到目录/hidden.txt".into()),
+            "A cached parent must still check a newly created directory"
+        );
+    }
+
+    #[test]
+    fn git_failure_does_not_drop_manual_exclusions() {
+        let workspace = Workspace::new();
+        workspace.configure(&["ignored"], &[], true);
+        assert_eq!(workspace.files(), ["src/Included.java"]);
+        let status = configure(serde_json::from_value(json!({"root":workspace.0,
+            "manualExcludedDirectories":["ignored"],"includedDirectories":[],"gitIgnoreEnabled":true})).unwrap()).unwrap();
+        assert!(status.git_ignore_failed);
+        assert_eq!(status.excluded_directories["ignored"], "manual");
+    }
+    #[test]
+    fn scoped_search_keeps_project_policy_and_applies_scope_before_limit() {
+        let workspace = Workspace::new();
+        workspace.configure(&[], &[], false);
+        let search = || {
+            files::search(
+                serde_json::from_value(json!({
+                    "root":workspace.0,"query":"needle","scopePaths":["src"],
+                    "maxResults":1,"maxFileResults":0
+                }))
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        assert_eq!(search().matches[0].path, "src/Included.java");
+        workspace.configure(&["src"], &[], false);
+        assert!(search().matches.is_empty());
+    }
+    #[test]
+    fn repository_archive_fixture_reduces_visits_and_resident_index_files() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::write(
+            workspace.0.join(".gitignore"),
+            "bare-repos/\nprojects/*/repos/\n",
+        )
+        .unwrap();
+        for directory in [
+            "bare-repos/archive",
+            "projects/alpha/repos/archive",
+            "projects/beta/repos/archive",
+        ] {
+            fs::create_dir_all(workspace.0.join(directory)).unwrap();
+            for index in 0..32 {
+                fs::write(
+                    workspace.0.join(directory).join(format!("file{index}.txt")),
+                    "needle",
+                )
+                .unwrap();
+            }
+        }
+        let measure = |git| {
+            workspace.configure(&[], &[], git);
+            files::DIRECTORY_VISITS.with_borrow_mut(|trace| *trace = Some(Vec::new()));
+            let stats = files::warm_search_index(
+                serde_json::from_value(json!({"root":workspace.0})).unwrap(),
+            )
+            .unwrap();
+            let visits = files::DIRECTORY_VISITS.with_borrow(|trace| trace.as_ref().unwrap().len());
+            (stats.file_count, visits)
+        };
+        let before = measure(false);
+        let after = measure(true);
+        assert_eq!(before.0 - after.0, 96);
+        assert!(after.1 < before.1);
+        eprintln!(
+            "archive fixture: indexed files {} -> {}, directory visits {} -> {}",
+            before.0, after.0, before.1, after.1
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn inaccessible_optional_directory_reports_an_incomplete_inventory() {
+        use std::os::unix::fs::PermissionsExt;
+        let workspace = Workspace::new();
+        workspace.configure(&[], &[], false);
+        let directory = workspace.0.join("ignored/deep");
+        struct Restore(std::path::PathBuf);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+            }
+        }
+        let _restore = Restore(directory.clone());
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_dir(&directory).is_ok() {
+            return;
+        } // Privileged hosts cannot exercise permission denial.
+        for include_tree in [true, false] {
+            let snapshot = files::snapshot(
+                serde_json::from_value(json!({"root":workspace.0,"includeTree":include_tree}))
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(snapshot.incomplete_directories, ["ignored/deep"]);
+            assert!(snapshot.files.contains(&"src/Included.java".into()));
+        }
+    }
+}

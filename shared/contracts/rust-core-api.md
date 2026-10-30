@@ -975,6 +975,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
+| `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root` and the last observed `revision`, returns `released`; an old close must not retire a new generation |
+| `workspace.configureIndexing` | Install a process-local, canonical-root indexing policy before workspace consumers run; returns a monotonic revision, effective directory reasons and Git failure state; see `shared/fixtures/workspace/indexing-policy-v1.json` |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
@@ -4362,3 +4364,46 @@ The macOS settings surface offers search, refresh, file details, native open and
 reveal, creation and import. It keeps native loading separate from management
 and rejects stale results after project changes. Windows can use the same Core
 operations; the settings UI and Windows runtime validation remain pending.
+
+
+### Workspace indexing policy
+
+`workspace.configureIndexing` accepts `root`, `manualExcludedDirectories`,
+`includedDirectories`, `gitIgnoreEnabled`, optional `refresh` and `paths`.
+Directory identifiers are workspace-relative `/` paths; `.` names the root.
+Manual ancestor exclusions take precedence over every include exception. An include
+exception disables automatic Git exclusion for its subtree, while allowing a
+more-specific manual exclusion. Ancestors needed to reach an exception remain
+traversable. Standalone ignored files are not converted to directory exclusions.
+Git checks use native `check-ignore` and protect tracked descendants with `ls-files`.
+No `.gitignore`, index, or project configuration files are written by this command.
+
+`revision` is the host-owned release token. Explicit policy replacement or refresh
+creates a new token; internal Git watcher refreshes retain it while advancing a
+separate Core-only scan generation used by index and language-service caches.
+Changing settings or `refresh: true` retires the old generation and discards its
+cache. Hosts persist settings in application storage and reinstall them on project
+open. Consumers must not create a new policy root for a scoped search; search scopes
+are subsets of the registered project root. `paths` asks for additional effective
+directory reasons without changing the generation. `excludedDirectories` is a
+resolved, lazily populated set, not a complete enumeration of the filesystem.
+`gitIgnoreFailed` means automatic decisions are incomplete; manual exclusions remain
+in force. Hosts must display this state instead of treating it as empty rules.
+
+Tree listings deliberately remain available. Snapshot inventories, filename and
+content indexes, symbols and replacement preview candidates obey the policy.
+Generated filename search cannot bypass it. Language-server working-copy sync is
+blocked for excluded paths. Java additionally receives import exclusions; this does
+not promise resource-scan exclusion for imported or build-declared modules. Rust and Go receive native configuration overlays that preserve user settings;
+other providers may continue background scanning and hosts must display that limitation.
+
+`workspace.snapshot.incompleteDirectories` is present when optional child directories
+could not be scanned. Hosts retain browsing but must not treat that inventory as an
+authoritative deletion list or refresh automatic analysis from it. Root failures and
+cancellation remain errors. `workspace.releaseIndexing` retires the revision and clears
+cached Git decisions and indexes; a small retired policy record rejects late work
+until the next explicit configuration for that root.
+
+`workspace.search.scopePaths` optionally limits candidates to workspace-relative
+files or directory subtrees before applying result caps. It never establishes a new
+policy root. Empty scopes search the full registered project.
