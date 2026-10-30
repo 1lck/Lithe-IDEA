@@ -181,25 +181,39 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     private var userDriver: LitheSparkleUserDriver?
     @Published private(set) var updateInfo: UpdateInfo?
     private var started = false
+    /// Sparkle downloads archives through this loopback relay so interrupted
+    /// downloads resume and failures keep their network cause.
+    private let downloadRelay: UpdateDownloadRelay?
     static let releasePageURL = AppUpdateChannel.stableReleaseURL
 
     init(bundle: Bundle = .main, preferences: UserDefaults = .standard,
          diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) },
          sessionFactory: @escaping @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease = {
              MacNetworkSessionProvider.makeSession(configuration: $0, plan: nil)
-         }) {
+         },
+         downloadRelay: UpdateDownloadRelay? = nil) {
         self.preferences = preferences
         selectedChannel = AppUpdateChannel.saved(in: preferences,
             defaultChannel: MacAppIdentity(bundleIdentifier: bundle.bundleIdentifier).isDevelopment ? .autobuild : .stable)
-        // Only the rollback downloader goes through our own session; the
-        // Sparkle updater keeps its internal network stack, which always
-        // follows the system proxy.
+        // Only the rollback downloader goes through our own session. Sparkle and
+        // its archive relay use the default configuration, which always follows
+        // the system proxy.
+        let storage = MacFileStorage(identity: MacAppIdentity(bundleIdentifier: bundle.bundleIdentifier))
+        self.downloadRelay = downloadRelay ?? UpdateDownloadRelay(store: UpdateDownloadPartialStore(
+            directory: storage.cacheDirectory().appendingPathComponent("Lithe/UpdateDownloads", isDirectory: true)),
+            diagnosticSink: diagnosticSink)
         stableRollback = MacStableRollback(diagnosticSink: diagnosticSink, sessionFactory: sessionFactory)
         self.bundle = bundle
         buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
         currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         super.init()
         rollbackObservation = stableRollback.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+        if bundle.bundleURL.pathExtension == "app", let identifier = bundle.bundleIdentifier {
+            let target = bundle.bundleURL
+            DispatchQueue.global(qos: .utility).async {
+                StableRollbackPackage.removeLeftoverStaging(beside: target, identifier: identifier)
+            }
+        }
     }
 
     /// The caller confirms the rolling-build warning before committing consent.
@@ -255,6 +269,9 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
                 driver.presentUpdate = { [weak self] item in self?.receiveOffer(item) }
                 driver.installationWaiting = { [weak self] waiting in
                     self?.installationWaitingForTermination(waiting)
+                }
+                driver.downloadFailureMessage = { [weak self] error in
+                    self?.downloadFailure(for: error).map(Self.downloadFailureMessage)
                 }
                 driver.downloadProgress = { [weak self] progress in
                     guard let self, let info = self.updateInfo else { return }
@@ -390,6 +407,24 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         isChecking = false
         isInstalling = true
         status = .downloading(version: item.displayVersionString, progress: .initial)
+        if let url = request.url, let relayed = downloadRelay?.relayURL(for: url) { request.url = relayed }
+    }
+
+    /// The network cause of a failed archive download. The relay's record wins
+    /// because Sparkle only observed the loopback connection.
+    func downloadFailure(for error: Error) -> UpdateDownloadFailure? {
+        let error = error as NSError
+        guard error.domain == SUSparkleErrorDomain, error.code == Int(SUError.downloadError.rawValue) else { return nil }
+        if let failure = downloadRelay?.lastFailure { return failure }
+        guard let underlying = error.userInfo[NSUnderlyingErrorKey] as? Error,
+              let host = (underlying as? URLError)?.failingURL?.host,
+              !UpdateEndpointConfiguration.isLoopbackHost(host) else { return nil }
+        return UpdateDownloadFailure(underlying)
+    }
+
+    static func downloadFailureMessage(_ failure: UpdateDownloadFailure) -> String {
+        failure.checkError.userMessage + " "
+            + L10n.string("Downloaded data was kept. Try again to resume from where it stopped.")
     }
 
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
@@ -428,6 +463,8 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
             } else if nsError.domain == SUSparkleErrorDomain &&
                         [SUError.installationCanceledError.rawValue, SUError.installationAuthorizeLaterError.rawValue].contains(Int32(nsError.code)) {
                 status = .idle
+            } else if let failure = downloadFailure(for: error) {
+                status = .failed(code: failure.checkError.code, message: Self.downloadFailureMessage(failure))
             } else {
                 status = .failed(code: .installFailed, message: error.localizedDescription)
             }
@@ -445,6 +482,8 @@ final class LitheSparkleUserDriver: SPUStandardUserDriver {
     var presentUpdate: ((SUAppcastItem) -> Void)?
     var downloadProgress: ((UpdateDownloadProgress) -> Void)?
     var installationWaiting: ((Bool) -> Void)?
+    /// Replaces Sparkle's generic download error with the observed cause.
+    var downloadFailureMessage: ((Error) -> String?)?
     private var updateReply: ((SPUUserUpdateChoice) -> Void)?
     var hasPendingReply: Bool { updateReply != nil }
     private var receivedBytes: Int64 = 0
@@ -461,6 +500,18 @@ final class LitheSparkleUserDriver: SPUStandardUserDriver {
         // Keep Sparkle's retry callback and active installation intact. A manual
         // check brings its existing retry window into focus without downloading again.
         installationWaiting?(!applicationTerminated)
+    }
+
+    override func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        guard let message = downloadFailureMessage?(error) else {
+            return super.showUpdaterError(error, acknowledgement: acknowledgement)
+        }
+        let original = error as NSError
+        let specific = NSError(domain: original.domain, code: original.code, userInfo: [
+            NSLocalizedDescriptionKey: message,
+            NSUnderlyingErrorKey: original,
+        ])
+        super.showUpdaterError(specific, acknowledgement: acknowledgement)
     }
 
     override func showDownloadInitiated(cancellation: @escaping () -> Void) {

@@ -208,6 +208,41 @@ struct StableRollbackPackage: Sendable {
         guard (200..<300).contains(response.statusCode) else { throw UpdateCheckError.httpStatus(response.statusCode) }
     }
 
+    /// Removes staging folders the replacement script left beside `target`.
+    ///
+    /// A folder holding only `previous.app` belongs to a finished replacement:
+    /// the running app is its successor, so the recovery copy has served its
+    /// purpose. A folder still holding `new.app` was never installed and goes once
+    /// it is a day old. Folders of another app, or with a disk image possibly
+    /// still mounted, are left alone.
+    @discardableResult
+    static func removeLeftoverStaging(beside target: URL, identifier: String,
+                                      now: Date = Date()) -> [URL] {
+        let manager = FileManager.default
+        let parent = target.resolvingSymlinksInPath().deletingLastPathComponent()
+        guard let entries = try? manager.contentsOfDirectory(at: parent,
+                includingPropertiesForKeys: [.contentModificationDateKey], options: []) else { return [] }
+        var removed: [URL] = []
+        for root in entries where root.lastPathComponent.hasPrefix(".lithe-stable-") {
+            let mount = root.appendingPathComponent("mount")
+            if let contents = try? manager.contentsOfDirectory(atPath: mount.path), !contents.isEmpty { continue }
+            let previous = root.appendingPathComponent("previous.app")
+            let staged = root.appendingPathComponent("new.app")
+            let candidate = manager.fileExists(atPath: previous.path) ? previous : staged
+            guard let info = NSDictionary(contentsOf: candidate.appendingPathComponent("Contents/Info.plist")),
+                  info["CFBundleIdentifier"] as? String == identifier else { continue }
+            if candidate == staged {
+                let modified = (try? root.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                guard let modified, now.timeIntervalSince(modified) > 24 * 60 * 60 else { continue }
+            }
+            do {
+                try manager.removeItem(at: root)
+                removed.append(root)
+            } catch { NSLog("Stable rollback leftover cleanup failed: %@", error.localizedDescription) }
+        }
+        return removed
+    }
+
     func discard() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .utility).async {
@@ -341,6 +376,7 @@ struct StableRollbackPackage: Sendable {
         "$opener" "$target" || true
         exit 1
     fi
-    # Retain previous.app and the log for recovery; user data is never removed.
+    # Retain previous.app and the log for recovery until the replacement app
+    # starts; it removes them on launch. User data is never removed.
     """#
 }
