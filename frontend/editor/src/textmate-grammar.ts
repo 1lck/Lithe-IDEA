@@ -18,7 +18,7 @@ export async function createJavaGrammar(wasm: ArrayBuffer, grammarText: string) 
 export function tokenRole(scopes: string[]): string {
   for (let i = scopes.length - 1; i >= 0; i--) {
     const scope = scopes[i];
-    if (/^comment/.test(scope)) return "comment";
+    if (/^comment|^punctuation\.definition\.comment/.test(scope)) return "comment";
     if (/^string/.test(scope)) return "string";
     if (/^constant.numeric/.test(scope)) return "number";
     if (/^constant.language/.test(scope)) return "keyword";

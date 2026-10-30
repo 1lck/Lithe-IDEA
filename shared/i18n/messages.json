@@ -56811,6 +56811,17 @@
       }
     },
     {
+      "id": "native.javaKeywordNavigationFilter",
+      "description": "Native UI: Skip definition lookups for Java keywords",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip definition lookups for Java keywords",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.showMinimap",
       "description": "Native UI: Show minimap",
       "platforms": [
@@ -73699,10 +73710,15 @@
     },
     {
       "id": "ui.more",
-      "description": "Windows UI: ui.more",
+      "description": "More actions overflow trigger",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "More",
+        "arguments": []
+      }
     },
     {
       "id": "ui.morePages",

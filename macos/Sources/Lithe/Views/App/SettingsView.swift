@@ -662,6 +662,10 @@ struct SettingsView: View {
                     isOn: $settings.editorMinimapEnabled,
                     title: "Show minimap"
                 )
+                LitheSettingsCheckbox(
+                    isOn: $settings.javaKeywordNavigationFilterEnabled,
+                    title: "Skip definition lookups for Java keywords"
+                )
             }
             editorAppearanceOptions
             group("Editor tabs") {

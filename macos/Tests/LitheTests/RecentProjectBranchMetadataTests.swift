@@ -35,8 +35,16 @@ struct RecentProjectBranchMetadataTests {
         window.orderFront(nil)
         defer { window.contentView = nil; window.close() }
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
-            for width: CGFloat in [800, 1100] {
+            for width: CGFloat in [800, 1100, 800] {
                 window.setContentSize(NSSize(width: width, height: 650))
+                let search = try await AgentNativeControlTestSupport.frame(of: "welcome-project-search", in: host)
+                let actions = try await AgentNativeControlTestSupport.frame(
+                    of: width == 800 ? "welcome-more-actions" : "welcome-secondary-actions", in: host)
+                // Accessibility excludes the shared search chrome's 3pt insets on both sides.
+                #expect(search.width >= 180 - 6)
+                #expect(!search.intersects(actions))
+                #expect(abs(search.midY - actions.midY) <= 1)
+                #expect(host.bounds.contains(search) && host.bounds.contains(actions))
                 let threeLines = try await AgentNativeControlTestSupport.frame(of: "welcome-project-" + branched.path, in: host)
                 let twoLines = try await AgentNativeControlTestSupport.frame(of: "welcome-project-" + folder.path, in: host)
                 #expect(!threeLines.intersects(twoLines))

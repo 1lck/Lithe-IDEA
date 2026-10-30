@@ -157,6 +157,18 @@ struct AppSettingsTests {
     }
 
     @Test
+    func javaKeywordNavigationFilterDefaultsToEnabledAndPersistsAcrossRelaunch() {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+
+        #expect(settings.javaKeywordNavigationFilterEnabled)
+
+        settings.javaKeywordNavigationFilterEnabled = false
+
+        #expect(!AppSettings(store: store).javaKeywordNavigationFilterEnabled)
+    }
+
+    @Test
     func restoringDefaultsDisablesEditorSoftWrap() {
         let store = AppSettingsTestStore()
         let settings = AppSettings(store: store)

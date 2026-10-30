@@ -6039,6 +6039,7 @@
     "native.showLocalHistory": "Show Local History…",
     "native.showLongGraphEdges": "Show long graph edges",
     "native.showMinimap": "Show minimap",
+    "native.javaKeywordNavigationFilter": "Skip definition lookups for Java keywords",
     "native.showOrHideGitHistory": "Show or hide Git history",
     "native.showOrHideJavaDiagnostics": "Show or hide Java diagnostics",
     "native.showOrHideLanguageDiagnostics": "Show or hide language diagnostics",

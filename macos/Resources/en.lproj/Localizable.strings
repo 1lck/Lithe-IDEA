@@ -2203,6 +2203,7 @@
 "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget." = "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.";
 "Module path" = "Module path";
 "Module: %@ · Session: %@ · Minimum level: %@" = "Module: %@ · Session: %@ · Minimum level: %@";
+"More" = "More";
 "More Actions" = "More Actions";
 "More Agents…" = "More Agents…";
 "More Debug actions" = "More Debug actions";
@@ -3534,6 +3535,7 @@
 "Skip JDK and reflection code" = "Skip JDK and reflection code";
 "Skip Version" = "Skip Version";
 "Skip constructors" = "Skip constructors";
+"Skip definition lookups for Java keywords" = "Skip definition lookups for Java keywords";
 "Skip static initializers" = "Skip static initializers";
 "Skip synthetic methods" = "Skip synthetic methods";
 "Skip tests" = "Skip tests";
@@ -6485,6 +6487,7 @@
 "native.javaEntriesAppearAfterTheJavaLanguageServiceListsRunnableClasses" = "Java entries appear after the Java language service lists runnable classes.";
 "native.javaEntriesCouldNotBeRefreshed" = "Java entries could not be refreshed";
 "native.javaEntryPointFreshnessCheckFailed" = "Java entry-point freshness check failed";
+"native.javaKeywordNavigationFilter" = "Skip definition lookups for Java keywords";
 "native.javaMainMethodDiscoveryIsNotSupportedBy" = "Java main-method discovery is not supported by this language server.";
 "native.javaNavigationIsAvailableForJavaFiles" = "Java navigation is available for .java files";
 "native.javaNavigationIsIdle" = "Java navigation is idle";
@@ -9220,6 +9223,7 @@
 "ui.delete" = "Delete";
 "ui.done" = "Done";
 "ui.edit" = "Edit";
+"ui.more" = "More";
 "ui.next" = "Next";
 "ui.ok" = "OK";
 "ui.open" = "Open";
