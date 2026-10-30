@@ -87,7 +87,7 @@ macOS 是当前参考产品；Windows 是独立实现，不得导入 Swift 源�
 | `scripts/ci/<工作流名>/` | 只为某一个工作流存在的脚本，目录名与工作流名对应（如 `cancel-closed-pr-runs`、`update-repo-charts`） |
 | `scripts/release/{sparkle,macos,windows,autobuild,notes}/` | 发布流水线：Sparkle 更新与验签、更新清单、AutoBuild 发布、发布说明校验 |
 | `scripts/macos/{build,package,prepare,test,verify,perf,probe}/` | 只服务 macOS 产品：构建、打包、依赖与资源准备、测试入口、门禁校验、性能基线、手动探针 |
-| `scripts/windows/{build,package,prepare,test,verify}/` | 只服务 Windows 产品，含义同上 |
+| `scripts/windows/{build,package,prepare,test,verify,perf}/` | 只服务 Windows 产品，含义同上 |
 | `scripts/rust-core/`、`architecture/`、`i18n/`、`agent-notes/`、`platform-feature-matrix/`、`plugins/`、`remote/`、`ide-mcp/`、`editor/`、`git-graph/`、`agent/`、`resources/` | 跨平台的领域脚本，目录名就是领域名 |
 
 - 没有合适目录时，新建一个以领域或作用命名的目录，并在同一次改动里更新上表；不要新建
