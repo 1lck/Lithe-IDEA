@@ -26,6 +26,11 @@
   否则会丢失撤销栈，也可能破坏多个视图共享同一文档的关系。Git 作者栏使用自定义行号
   渲染器；配置更新后要重新安装作者栏，关闭作者栏或切换标签时恢复用户选择的行号模式，
   不能硬编码回绝对行号。相对行号继续由 Monaco 在光标换行时重新绘制，不增加轮询。
+- macOS 隐藏行号时只隐藏数字，继续保留现有断点栏与鼠标操作区域。Monaco 的 `off`
+  会连同行号层的断点装饰一起关闭，因此原生行号优先布局改用返回零宽字符的行号渲染器，
+  让没有断点的行也保留可点击元素；不增加第二个断点栏。这个渲染器与 Git 作者栏的渲染器
+  分开识别，不能再把所有自定义行号函数都当成作者栏而禁用断点操作。Windows 继续使用
+  原有独立图标栏；持久化设置仍为 `off`，内部转换仅发生在编辑器适配层。
 - 高亮方案与工作台主题独立，提供 Lithe、GitHub、One、VS Code、IntelliJ IDEA，按当前深浅外观选对应色表。
   GitHub 与 One 直接复用原 Windows JSON，移到 `frontend/editor/themes/`，Windows
   只改变导入路径。共享主题生成器同时处理词法和语义角色别名，避免 Java 字段、方法等
@@ -70,7 +75,7 @@
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AppSettingsTests|MonacoWorkbenchThemeTests|SettingsSearchVocabularyTests|ContextMenuCoverageTests|EditorFontFamilyTests'`
 - `./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`：真实 WebKit 验证新旧分栏、字号和行高、
-  显示选项、深浅配色、斜体撤销、内容和撤销栈保留。
+  显示选项、深浅配色、斜体撤销、内容和撤销栈保留；隐藏行号后的断点图标、已有断点与空白行的鼠标点击、恢复相对行号。
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`

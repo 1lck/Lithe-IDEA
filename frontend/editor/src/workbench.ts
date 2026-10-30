@@ -112,6 +112,9 @@ export function mountWorkbench(host: WorkbenchHost) {
   let suspendedViews: { role: string; id: string | undefined; state: monaco.editor.ICodeEditorViewState | null;
     find: FindSnapshot | undefined; focused: boolean }[] | undefined;
   let displayOptions: monaco.editor.IStandaloneEditorConstructionOptions = {};
+  // Keep a rendered, hit-testable gutter on lines without breakpoints too.
+  // Monaco Off suppresses lineNumberClassName decorations along with the digits.
+  const hiddenLineNumbers = () => "\u200b";
   const allEditors = () => [editor, ...[...surfaces.values()].map(surface => surface.editor)].filter(Boolean);
   function applyReadOnly(entry: Entry) {
     for (const view of allEditors()) {
@@ -458,7 +461,7 @@ export function mountWorkbench(host: WorkbenchHost) {
           const show = value && (line === firstVisibleLine || byLine.get(line - 1)?.commit !== value.commit);
           const label = value ? `${value.author} · ${value.date}` : "";
           const metadata = value ? `<span class="lithe-blame" title="${escapeHTML(`${label} · ${value.commit.slice(0, 8)}`)}">${show ? escapeHTML(label) : "&#8203;"}</span>` : "";
-          const mode = displayOptions.lineNumbers ?? "on";
+          const mode = displayOptions.lineNumbers === hiddenLineNumbers ? "off" : displayOptions.lineNumbers ?? "on";
           const activeLine = view.getPosition()?.lineNumber ?? line;
           const number = mode === "off" ? "" : mode === "relative" && line !== activeLine ? Math.abs(line - activeLine) : line;
           return `${metadata}<span class="lithe-blame-line">${number}</span>`;
@@ -721,7 +724,8 @@ export function mountWorkbench(host: WorkbenchHost) {
         const entry = [...entries.values()].find(entry => entry.model === view.getModel());
         view.getDomNode()?.toggleAttribute("data-lithe-breakpoints-editable", !!entry &&
           entry.canToggleBreakpoints === true && !entry.readonly && !entry.frozen && !entry.closingHolds && !failed &&
-          !view.getOption(monaco.editor.EditorOption.readOnly) && typeof view.getRawOptions().lineNumbers !== "function");
+          !view.getOption(monaco.editor.EditorOption.readOnly) &&
+          (typeof view.getRawOptions().lineNumbers !== "function" || view.getRawOptions().lineNumbers === hiddenLineNumbers));
       }
       const value = navigation();
       for (const direction of ["up", "down"] as const) navigationKeys[direction].set(!!value?.markers.some(marker => marker.direction === direction));
@@ -801,7 +805,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (host.gitBlameMenu && host.lineNumbersFirst && (event.event.rightButton || isMacintosh && event.event.ctrlKey) &&
           event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
       if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-blame") ||
-          host.lineNumbersFirst && typeof view.getRawOptions().lineNumbers === "function") return;
+          host.lineNumbersFirst && typeof view.getRawOptions().lineNumbers === "function" &&
+          view.getRawOptions().lineNumbers !== hiddenLineNumbers) return;
       if ((event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
            !(host.lineNumbersFirst && event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS)) || !event.target.position ||
           (!event.event.leftButton && !event.event.rightButton)) return;
@@ -1085,6 +1090,7 @@ export function mountWorkbench(host: WorkbenchHost) {
         wordWrap: payload.wrap ? "on" : "off",
         minimap: { enabled: payload.minimap !== false },
       });
+      if (host.lineNumbersFirst && displayOptions.lineNumbers === "off") displayOptions.lineNumbers = hiddenLineNumbers;
       for (const view of allEditors()) {
         view.updateOptions(displayOptions);
         navigationContexts.get(view)?.();

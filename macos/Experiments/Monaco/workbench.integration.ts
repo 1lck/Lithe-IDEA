@@ -550,6 +550,64 @@ async function verify() {
       container.remove();
     }
   });
+  await check("hidden line numbers retain breakpoint icons and clicks in existing and new splits", async () => {
+    const id = "hidden-number-breakpoints";
+    const configure = (lineNumbers: string) => window.lithe.configure({ dark: true,
+      fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true, appearance: { lineNumbers } });
+    await window.lithe.activate({ id, text: "class Demo {\n  int a = 1;\n  int b = 2;\n}",
+      revision: 0, language: "java", readonly: false });
+    try {
+      await window.lithe.debugState(id, { muted: false, canToggleBreakpoints: true, revision: 0,
+        breakpoints: [{ line: 2, enabled: true, verified: true, logpoint: false }] });
+      configure("off");
+      await window.lithe.showSecondary({ id, readonly: false });
+      const secondary = monacoEditor.getEditors().find(view => view !== editor)!;
+      for (const view of [editor, secondary]) {
+        view.render(true);
+        const root = view.getDomNode()!;
+        assert(root.hasAttribute("data-lithe-breakpoints-editable"), "hidden numbers disabled breakpoint hover");
+        assert(!!root.querySelector(".line-numbers.lithe-breakpoint"), "hidden numbers removed the breakpoint icon");
+        const numbers = [...root.querySelectorAll(".line-numbers")];
+        assert(numbers.length > 0 && numbers.every(node => !/[0-9]/.test(node.textContent ?? "")),
+          "hidden numbers still display digits");
+        for (const line of [2, 3]) {
+          view.render(true);
+          const node = [...root.querySelectorAll(".line-numbers")].find(node => {
+            const rect = node.getBoundingClientRect();
+            return view.getTargetAtClientPoint(rect.right - 4, rect.top + rect.height / 2)?.position?.lineNumber === line;
+          });
+          assert(!!node, `line ${line} has no clickable breakpoint region`);
+          const rect = node!.getBoundingClientRect();
+          const event = { bubbles: true, button: 0, buttons: 1,
+            clientX: rect.right - 4, clientY: rect.top + rect.height / 2 };
+          assert(view.getTargetAtClientPoint(event.clientX, event.clientY)?.type === monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS,
+            "hidden gutter no longer receives breakpoint clicks");
+          const before = (await send({ type: "debugRequests" })).requests.length;
+          let listener: { dispose(): void } | undefined;
+          try {
+            const observed = new Promise<void>(resolve => { listener = view.onMouseDown(() => resolve()); });
+            node!.dispatchEvent(new MouseEvent("mousedown", event));
+            document.dispatchEvent(new MouseEvent("mouseup", { ...event, buttons: 0 }));
+            await withDeadline(observed, "hidden gutter click did not reach Monaco");
+            const requests = (await send({ type: "debugRequests" })).requests;
+            assert(requests.length === before + 1 && requests.at(-1)?.type === "toggleBreakpoint"
+              && requests.at(-1)?.id === id && requests.at(-1)?.line === line,
+              "hidden gutter did not toggle the existing or new breakpoint");
+          } finally { listener?.dispose(); }
+        }
+      }
+      configure("relative");
+      for (const view of [editor, secondary]) {
+        view.render(true);
+        assert(view.getRawOptions().lineNumbers === "relative", "restoring numbers lost relative mode");
+        assert(!!view.getDomNode()!.querySelector(".line-numbers.lithe-breakpoint"), "restoring numbers removed the breakpoint");
+      }
+    } finally {
+      window.lithe.hideSecondary();
+      configure("on");
+      await window.lithe.retain([]);
+    }
+  });
   await check("native gutter places line numbers before Run icons and preserves hit targets", async () => {
     const id = "gutter-order";
     const folding = languages.registerFoldingRangeProvider("java", {
