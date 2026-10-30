@@ -705,7 +705,11 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；
 - `.artifacts/jdtls/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出；
-- `.artifacts/editor/macos/` 和官方插件等尚未写入构建身份 stamp 的生成资源；
+- `.artifacts/editor/macos/`、Monaco probe/workbench 资源与其中的主题许可证、NOTICE，
+  由 `editor-theme-assets` 排除路由拒绝复用。它们与当前源码、上游色表固定提交、Monaco/Bun
+  版本绑定，没有可靠构建身份 stamp；各工作树构建时一起生成 JS 并复制许可证，不在任何阶段
+  跨树复制。运行时只读，不改变签名和 Sparkle delta。官方插件等尚未写入构建身份 stamp 的
+  生成资源同样不得复用；
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。

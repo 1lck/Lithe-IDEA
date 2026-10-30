@@ -52,7 +52,7 @@ pub fn jdt_workspace_key(workspace_root: &Path, workspace_fingerprint: Option<&s
 #[cfg(test)]
 mod tests;
 
-/// Executes a request with sanitized Git process events and Agent install progress.
+/// Executes a request with Git diagnostics, search snapshots, and Agent progress.
 /// The observer is scoped to this call; callbacks complete before the final JSON returns.
 pub fn execute_json_with_events(
     request: &str,

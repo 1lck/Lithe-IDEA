@@ -24,7 +24,7 @@ export function tokenRole(scopes: string[]): string {
     if (/^constant.language/.test(scope)) return "keyword";
     if (/^(keyword|storage)/.test(scope)) return "keyword";
     if (/^entity.name.(type|class|namespace)|^support.(class|type)/.test(scope)) return "type.identifier";
-    if (/^entity.name.function/.test(scope)) return "function";
+    if (/^entity.name.function/.test(scope)) return "function.java";
     if (/^variable/.test(scope)) return "variable";
     if (/^punctuation/.test(scope)) return "delimiter";
   }

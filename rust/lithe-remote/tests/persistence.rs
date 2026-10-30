@@ -286,11 +286,18 @@ fn concurrent_connections_share_one_daemon() {
         .filter(|entry| entry.file_name().to_string_lossy().ends_with(".lock"))
         .count();
     assert_eq!(locks, 1);
-    let pid = daemon.pid().expect("running daemon");
-    survivor.shutdown(STEP_TIMEOUT);
+    let pid = daemon.pid().expect("the shared daemon owns its lock");
+    survivor
+        .request_value(
+            methods::SERVER_SHUTDOWN,
+            serde_json::Value::Null,
+            STEP_TIMEOUT,
+        )
+        .unwrap_or_else(|error| panic!("shutdown failed: {error}\n{}", daemon.log()));
+    drop(survivor);
     assert!(
         daemon.wait_until_stopped(),
-        "daemon {pid} did not stop; current {:?}\n{}",
+        "daemon {pid} remained or restarted as {:?} after acknowledged shutdown\n{}",
         daemon.pid(),
         daemon.log()
     );

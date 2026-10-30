@@ -1,0 +1,65 @@
+{
+  "name": "IntelliJ IDEA",
+  "themes": [
+    {
+      "id": "idea-dark",
+      "syntax": {
+        "text": "#bcbec4",
+        "keyword": "#cf8e6d",
+        "string": "#6aab73",
+        "string.escape": "#cf8e6d",
+        "number": "#2aacb8",
+        "comment": "#7a7e85",
+        "documentationComment": "#5f826b",
+        "variable": "#bcbec4",
+        "function": "#56a8f5",
+        "functionCall": "#bcbec4",
+        "function.call": "#bcbec4",
+        "function.method.call": "#bcbec4",
+        "constant": "#c77dbb",
+        "property": "#c77dbb",
+        "type": "#bcbec4",
+        "operator": "#bcbec4",
+        "punctuation": "#bcbec4",
+        "boolean": "#cf8e6d",
+        "null": "#cf8e6d",
+        "regex": "#6aab73",
+        "tag": "#d5b778",
+        "attribute": "#b3ae60",
+        "comment.documentation": "#5f826b"
+      }
+    },
+    {
+      "id": "idea-light",
+      "syntax": {
+        "text": "#080808",
+        "keyword": "#0033b3",
+        "string": "#067d17",
+        "string.escape": "#0037a6",
+        "number": "#1750eb",
+        "comment": "#8c8c8c",
+        "documentationComment": "#8c8c8c",
+        "variable": "#080808",
+        "function": "#00627a",
+        "functionCall": "#080808",
+        "function.call": "#080808",
+        "function.method.call": "#080808",
+        "constant": "#871094",
+        "property": "#871094",
+        "type": "#080808",
+        "operator": "#080808",
+        "punctuation": "#080808",
+        "boolean": "#0033b3",
+        "null": "#0033b3",
+        "regex": "#067d17",
+        "tag": "#080808",
+        "attribute": "#9e880d",
+        "comment.documentation": "#8c8c8c"
+      }
+    }
+  ],
+  "sources": [
+    "https://github.com/JetBrains/intellij-community/blob/74dbd42b7a8787b0707437cb857c68e78199f611/platform/platform-resources/src/themes/islands/IslandSchemeDark.xml",
+    "https://github.com/JetBrains/intellij-community/blob/74dbd42b7a8787b0707437cb857c68e78199f611/platform/platform-resources/src/themes/expUI/expUI_lightScheme.xml"
+  ]
+}

@@ -8,6 +8,67 @@ import Testing
 @MainActor
 struct AppSettingsTests {
     @Test
+    func editorAppearancePersistsNormalizesAndRestoresWithoutChangingOtherSettings() throws {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+        settings.editorFontFamily = "Fixture Mono"
+        settings.editorFontSize = 28
+        settings.editorAppearance.lineHeight = 1.8
+        settings.editorAppearance.colorScheme = .github
+        settings.editorAppearance.lineNumbers = .relative
+        settings.editorAppearance.whitespace = .all
+        settings.editorAppearance.cursorStyle = .block
+        settings.editorAppearance.cursorBlinking = .solid
+        settings.editorAppearance.indentGuides = false
+        settings.editorAppearance.fontLigatures = true
+        settings.editorAppearance.italicComments = true
+        settings.editorAppearance.stickyScroll = false
+        settings.editorAppearance.smoothScrolling = true
+        settings.editorAppearance.scrollBeyondLastLine = true
+        settings.editorAppearance.highlightCurrentLine = false
+        let reloaded = AppSettings(store: store)
+        #expect(reloaded.editorAppearance == settings.editorAppearance)
+        #expect(reloaded.editorFontSize == 28)
+        #expect(reloaded.editorFontFamily == "Fixture Mono")
+        #expect(AppSettings(store: AppSettingsTestStore()).editorAppearance == EditorAppearanceSettings())
+        let options = reloaded.editorAppearance.monacoOptions
+        #expect(options["lineHeight"] as? Double == 1.8)
+        #expect(options["lineNumbers"] as? String == "relative")
+        #expect(options["readOnly"] == nil)
+        #expect(JSONSerialization.isValidJSONObject(options))
+
+        for scheme in EditorAppearanceSettings.ColorScheme.allCases {
+            settings.editorAppearance.colorScheme = scheme
+            #expect(AppSettings(store: store).editorAppearance.colorScheme == scheme)
+            let migrated = EditorAppearanceSettings(values: ["colorScheme": scheme.rawValue, "bracketPairColorization": scheme == .idea])
+            #expect(migrated.monacoOptions["bracketPairColorization"] as? [String: Bool] == ["enabled": scheme != .idea])
+            #expect(migrated.storedValues["bracketPairColorization"] == nil)
+        }
+
+        // A malformed field must not erase neighboring valid preferences.
+        store.set(["lineHeight": Double.infinity, "colorScheme": "unknown", "lineNumbers": "off",
+                   "italicComments": true, "cursorStyle": 42], forKey: "settings.editorAppearance")
+        store.set(Double.nan, forKey: "settings.editorFontSize")
+        let repaired = AppSettings(store: store)
+        #expect(repaired.editorAppearance.lineHeight == 0)
+        #expect(repaired.editorAppearance.colorScheme == .lithe)
+        #expect(repaired.editorAppearance.lineNumbers == .off)
+        #expect(repaired.editorAppearance.italicComments)
+        #expect(repaired.editorAppearance.cursorStyle == .line)
+        #expect(repaired.editorFontSize == 13)
+        repaired.editorAppearance.lineHeight = 20
+        #expect(repaired.editorAppearance.lineHeight == 3)
+        repaired.editorAppearance.lineHeight = 0.2
+        #expect(repaired.editorAppearance.lineHeight == 1)
+        repaired.editorFontSize = 100
+        #expect(repaired.editorFontSize == 72)
+        #expect(AppSettings(store: store).editorFontSize == 72)
+        repaired.restoreDefaults()
+        #expect(AppSettings(store: store).editorAppearance == EditorAppearanceSettings())
+        #expect(AppSettings(store: store).editorFontSize == 13)
+    }
+
+    @Test
     func gitExecutionPreferencesPersistAndRemainIsolatedBetweenSettingsInstances() {
         let store = AppSettingsTestStore()
         let settings = AppSettings(store: store)
