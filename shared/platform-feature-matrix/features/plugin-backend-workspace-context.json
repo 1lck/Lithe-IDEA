@@ -1,0 +1,32 @@
+{
+  "id": "plugin-backend-workspace-context",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "插件后端 v2 与工作区上下文：requires.backend 2 的后端可由 onWorkspaceOpen 或 onCommand 激活，不依赖网页；函数协议 3 提供 lithe/host/getCapabilities、subscriptions/dispose、workspace/listContexts|getContext|getFolders，调用带 {contextID, generation}，远程工作区不暴露路径；宿主错误码各有独立 JSON-RPC 码",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/lsp/interface/plugin_function.rs",
+      "rust/lithe-core/src/lsp/interface/engine.rs",
+      "rust/lithe-core/src/plugins/backend.rs",
+      "shared/contracts/plugins/v1/README.md",
+      "shared/contracts/plugins/v1/fixtures/function-protocol.json",
+      "shared/contracts/plugins/v1/fixtures/backend-workspace.plugin.json",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift",
+      "macos/Sources/Lithe/Application/Features/PluginHostServiceDispatch.swift",
+      "macos/Sources/Lithe/Application/Features/PluginWorkspaceContexts.swift",
+      "macos/Tests/LitheTests/PluginHostServiceDispatchTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "共享 Core：cargo test --manifest-path rust/Cargo.toml -p lithe-core，核对 function-protocol.json 的 hostRequests/hostFailures、v2 清单拒绝 onStartupFinished 与 *、旧宿主拒绝 backend 2、v3 会话第 17 个挂起请求返回 plugin.host.limitExceeded（-32014）、$/cancelRequest 立即返回 -32800 并发布 hostRequestCancelled。macOS 宿主：scripts/macos/test/test-macos.sh --filter PluginHostServiceDispatchTests。macOS 原生验收：debug 应用安装一个 backend 2、声明 onWorkspaceOpen 与 workspace.metadata 的示例插件，打开本地工作区后确认后端自动启动、listContexts/getFolders 返回该窗口的根；同一窗口换工作区后旧 generation 得到 plugin.host.contextExpired；打开远程工作区时 folders 不含 path；关闭窗口、停用插件后用 pgrep 确认后端不残留。",
+  "notes": "本条覆盖 #1548 计划的 API-01、API-05、API-40、API-41（M0）。macOS 已有 Core 共享测试与宿主分发单测，尚未做原生验收，所以验证状态为待验证。上下文变化暂不推送给后端，只能比较 listContexts.revision；启动预算未定。工作区信任暂不引入。Windows/Tauri 尚无插件后端宿主。"
+}

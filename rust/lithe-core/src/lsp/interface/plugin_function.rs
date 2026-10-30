@@ -513,7 +513,12 @@ pub(crate) fn host_request(
     };
     if !is_implicit_service(entry.service) && !granted.contains(entry.service) {
         return Err(HostRequestRefusal {
-            rpc_code: -32601,
+            // Version 2 answered a missing grant like a missing method.
+            rpc_code: if version >= CONTEXT_VERSION {
+                host_rpc_code(codes::HOST_PERMISSION_DENIED)
+            } else {
+                -32601
+            },
             code: codes::HOST_PERMISSION_DENIED,
             message: "The plugin does not declare the permission for this host service.",
         });
@@ -675,25 +680,46 @@ pub(crate) fn attach_context(
     Ok(())
 }
 
-/// The code and JSON-RPC error code the backend receives when the host
-/// failed a forwarded request. Only the codes a host may report pass
+/// The JSON-RPC error code of a host-service code from version 3 on. Each
+/// code has its own number, so a backend can branch on the number alone:
+/// codes with a standard meaning keep the JSON-RPC or LSP number, and the
+/// rest take numbers from the server-defined range, after -32000, which
+/// backends use for their own failures. Versions 1 and 2 keep their
+/// earlier numbers, see `host_request`.
+pub(crate) fn host_rpc_code(code: &str) -> i64 {
+    match code {
+        codes::HOST_UNAVAILABLE => -32601,
+        codes::HOST_INVALID_PARAMS => -32602,
+        codes::HOST_CANCELLED => -32800,
+        codes::HOST_PERMISSION_DENIED => -32010,
+        codes::HOST_CONTEXT_EXPIRED => -32011,
+        codes::HOST_AUTHORITY_UNSUPPORTED => -32012,
+        codes::HOST_VERSION_CONFLICT => -32013,
+        codes::HOST_LIMIT_EXCEEDED => -32014,
+        codes::HOST_TIMEOUT => -32015,
+        _ => -32603,
+    }
+}
+
+/// The code and JSON-RPC error code a version 3 backend receives when the
+/// host failed a forwarded request. Only the codes a host may report pass
 /// through; anything else, including none, is `plugin.host.failed`, so a
 /// host cannot impersonate Core's own refusals of other kinds.
 pub(crate) fn host_failure(code: Option<&str>) -> (&'static str, i64) {
-    match code {
-        Some(codes::HOST_UNAVAILABLE) => (codes::HOST_UNAVAILABLE, -32601),
-        Some(codes::HOST_PERMISSION_DENIED) => (codes::HOST_PERMISSION_DENIED, -32601),
-        Some(codes::HOST_INVALID_PARAMS) => (codes::HOST_INVALID_PARAMS, -32602),
-        Some(codes::HOST_CONTEXT_EXPIRED) => (codes::HOST_CONTEXT_EXPIRED, -32603),
-        Some(codes::HOST_AUTHORITY_UNSUPPORTED) => (codes::HOST_AUTHORITY_UNSUPPORTED, -32603),
-        Some(codes::HOST_VERSION_CONFLICT) => (codes::HOST_VERSION_CONFLICT, -32603),
-        Some(codes::HOST_LIMIT_EXCEEDED) => (codes::HOST_LIMIT_EXCEEDED, -32603),
-        Some(codes::HOST_CANCELLED) => (codes::HOST_CANCELLED, -32800),
-        Some(codes::HOST_TIMEOUT) => (codes::HOST_TIMEOUT, -32603),
+    let code = match code {
+        Some(codes::HOST_UNAVAILABLE) => codes::HOST_UNAVAILABLE,
+        Some(codes::HOST_PERMISSION_DENIED) => codes::HOST_PERMISSION_DENIED,
+        Some(codes::HOST_INVALID_PARAMS) => codes::HOST_INVALID_PARAMS,
+        Some(codes::HOST_CONTEXT_EXPIRED) => codes::HOST_CONTEXT_EXPIRED,
+        Some(codes::HOST_AUTHORITY_UNSUPPORTED) => codes::HOST_AUTHORITY_UNSUPPORTED,
+        Some(codes::HOST_VERSION_CONFLICT) => codes::HOST_VERSION_CONFLICT,
+        Some(codes::HOST_LIMIT_EXCEEDED) => codes::HOST_LIMIT_EXCEEDED,
+        Some(codes::HOST_CANCELLED) => codes::HOST_CANCELLED,
+        Some(codes::HOST_TIMEOUT) => codes::HOST_TIMEOUT,
         // A backend exit is reported to pages, never to the backend itself.
-        Some(codes::BACKEND_EXITED) => (codes::HOST_FAILED, -32603),
-        _ => (codes::HOST_FAILED, -32603),
-    }
+        _ => codes::HOST_FAILED,
+    };
+    (code, host_rpc_code(code))
 }
 
 /// Key of a stored secret, also the alphabet of subscription and context

@@ -411,7 +411,7 @@
       "hostServices": ["credentials"],
       "method": "lithe/host/workspace/listContexts",
       "params": {},
-      "expected": { "rpcCode": -32601, "code": "plugin.host.permissionDenied" }
+      "expected": { "rpcCode": -32010, "code": "plugin.host.permissionDenied" }
     },
     {
       "name": "workspace contexts need version 3 even when granted",
@@ -535,14 +535,14 @@
   ],
   "hostFailures": [
     { "name": "no code is a generic failure", "code": null, "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } },
-    { "name": "a closed or replaced context", "code": "plugin.host.contextExpired", "expected": { "code": "plugin.host.contextExpired", "rpcCode": -32603 } },
-    { "name": "a remote authority without the operation", "code": "plugin.host.authorityUnsupported", "expected": { "code": "plugin.host.authorityUnsupported", "rpcCode": -32603 } },
-    { "name": "a stale versioned edit", "code": "plugin.host.versionConflict", "expected": { "code": "plugin.host.versionConflict", "rpcCode": -32603 } },
-    { "name": "a host limit", "code": "plugin.host.limitExceeded", "expected": { "code": "plugin.host.limitExceeded", "rpcCode": -32603 } },
+    { "name": "a closed or replaced context", "code": "plugin.host.contextExpired", "expected": { "code": "plugin.host.contextExpired", "rpcCode": -32011 } },
+    { "name": "a remote authority without the operation", "code": "plugin.host.authorityUnsupported", "expected": { "code": "plugin.host.authorityUnsupported", "rpcCode": -32012 } },
+    { "name": "a stale versioned edit", "code": "plugin.host.versionConflict", "expected": { "code": "plugin.host.versionConflict", "rpcCode": -32013 } },
+    { "name": "a host limit", "code": "plugin.host.limitExceeded", "expected": { "code": "plugin.host.limitExceeded", "rpcCode": -32014 } },
     { "name": "the host stopped the request", "code": "plugin.host.cancelled", "expected": { "code": "plugin.host.cancelled", "rpcCode": -32800 } },
-    { "name": "the host's deadline passed", "code": "plugin.host.timeout", "expected": { "code": "plugin.host.timeout", "rpcCode": -32603 } },
+    { "name": "the host's deadline passed", "code": "plugin.host.timeout", "expected": { "code": "plugin.host.timeout", "rpcCode": -32015 } },
     { "name": "params the service itself refuses", "code": "plugin.host.invalidParams", "expected": { "code": "plugin.host.invalidParams", "rpcCode": -32602 } },
-    { "name": "the user withheld consent", "code": "plugin.host.permissionDenied", "expected": { "code": "plugin.host.permissionDenied", "rpcCode": -32601 } },
+    { "name": "the user withheld consent", "code": "plugin.host.permissionDenied", "expected": { "code": "plugin.host.permissionDenied", "rpcCode": -32010 } },
     { "name": "a service the host turned off", "code": "plugin.host.unavailable", "expected": { "code": "plugin.host.unavailable", "rpcCode": -32601 } },
     { "name": "a host cannot borrow a function code", "code": "plugin.function.unknown", "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } },
     { "name": "a host cannot report a backend exit to the backend", "code": "plugin.backend.exited", "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } }

@@ -1860,9 +1860,10 @@ granted services as `lsp.startServer.hostServices` (from the launch plan's
   the plugin and are deleted when it is uninstalled.
 - Core refuses, without involving the host, in this order: a session that
   negotiated version 1 or a method version 2 does not define (`-32601`,
-  `plugin.host.unavailable`), a service the plugin is not granted (`-32601`,
-  `plugin.host.permissionDenied`), and malformed params (`-32602`,
-  `plugin.host.invalidParams`). The code is in `error.data.code`.
+  `plugin.host.unavailable`), a service the plugin is not granted (`-32601`
+  in version 2, `-32010` from version 3, `plugin.host.permissionDenied`),
+  and malformed params (`-32602`, `plugin.host.invalidParams`). The code is
+  in `error.data.code`.
 - An accepted request becomes the runtime event `hostRequest` with `method`
   and `result: { hostRequestID, service, params }`. The host answers it with
   `lsp.hostResponse { sessionId, hostRequestID, result? | error: { message } }`;
@@ -1935,13 +1936,27 @@ failures, and cancellation of host requests.
   `plugin.function.invalidParams`; a backend that negotiated version 1 or 2
   receives the call without it. The host fills it from the page's window.
 - A host failure may carry a code:
-  `lsp.hostResponse.error: { message, code? }`. Core passes
-  `plugin.host.unavailable`, `.permissionDenied` (`-32601`),
-  `.invalidParams` (`-32602`), `.contextExpired`, `.authorityUnsupported`,
-  `.versionConflict`, `.limitExceeded`, `.timeout` (`-32603`), and
-  `.cancelled` (`-32800`) to a version 3 backend; any other code, no code,
-  or a version 2 backend gets `plugin.host.failed`. `fixtures/function-protocol.json`
+  `lsp.hostResponse.error: { message, code? }`. Core passes these codes to
+  a version 3 backend, each with its own JSON-RPC error code so a backend
+  can branch on the number alone; any other code, no code, or a version 2
+  backend gets `plugin.host.failed`. `fixtures/function-protocol.json`
   (`hostFailures`) lists the mapping.
+
+  | Code | JSON-RPC | Meaning |
+  | --- | --- | --- |
+  | `plugin.host.unavailable` | `-32601` | The host offers no such service or method |
+  | `plugin.host.invalidParams` | `-32602` | Params malformed or out of range |
+  | `plugin.host.failed` | `-32603` | Any other failure |
+  | `plugin.host.cancelled` | `-32800` | The request was cancelled |
+  | `plugin.host.permissionDenied` | `-32010` | Permission not declared, or the user withheld consent |
+  | `plugin.host.contextExpired` | `-32011` | The context is closed or its generation replaced |
+  | `plugin.host.authorityUnsupported` | `-32012` | The service does not support the workspace authority |
+  | `plugin.host.versionConflict` | `-32013` | A document or resource version differs from the expected one |
+  | `plugin.host.limitExceeded` | `-32014` | A host limit was exceeded |
+  | `plugin.host.timeout` | `-32015` | The host's deadline passed |
+
+  Codes from `-32010` are in the JSON-RPC server-defined range and leave
+  `-32000` to backends' own failures. Versions 1 and 2 keep their numbers.
 - A backend may cancel its own pending host request with `$/cancelRequest`.
   Core answers it at once with `-32800` and `plugin.host.cancelled`, frees
   the slot, and publishes `hostRequestCancelled { hostRequestID }` so the host

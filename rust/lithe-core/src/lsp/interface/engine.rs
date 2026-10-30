@@ -5893,15 +5893,16 @@ fn forward_host_request_locked(
     let backend_id = request.get("id").cloned().unwrap_or(Value::Null);
     if state.host_requests.len() >= super::plugin_function::MAX_PENDING_HOST_REQUESTS {
         let version = state.client.plugin_function_version.unwrap_or(0);
+        let code = if version >= super::plugin_function::CONTEXT_VERSION {
+            super::plugin_function::codes::HOST_LIMIT_EXCEEDED
+        } else {
+            super::plugin_function::codes::HOST_FAILED
+        };
         return Ok(vec![json_rpc_error_with_code(
             &backend_id,
-            -32603,
+            super::plugin_function::host_rpc_code(code),
             "Too many host-service requests are waiting for the host.",
-            if version >= super::plugin_function::CONTEXT_VERSION {
-                super::plugin_function::codes::HOST_LIMIT_EXCEEDED
-            } else {
-                super::plugin_function::codes::HOST_FAILED
-            },
+            code,
         )?]);
     }
     let host_request_id = format!("host-{}", state.next_host_request_id);
@@ -13239,7 +13240,7 @@ public class Main {
                 "a",
                 "plugin.host.contextExpired",
                 "plugin.host.contextExpired",
-                -32603,
+                -32011,
             ),
             ("b", "plugin.function.unknown", "plugin.host.failed", -32603),
         ] {
