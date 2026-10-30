@@ -21,6 +21,7 @@ struct RunConfigurationIntegrationTests {
             run: "application", projectID: "p", targetID: "t", userArguments: ["a b", "--x=one two"])
         let id = try store.saveBuildProviderConfiguration(reference, name: "Main", at: root)
         #expect(store.inspect(at: root).status == .ready)
+        #expect(store.inspect(at: root).requiresGeneration)
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
         let resolved = try store.resolve(at: root, toolchainCandidates: [])
         #expect(resolved.configurations.first?.configuration.buildProvider == reference)
@@ -34,6 +35,20 @@ struct RunConfigurationIntegrationTests {
         #expect(entry["args"] == nil)
         let ignore = try String(contentsOf: root.appendingPathComponent(".lithe/.gitignore"), encoding: .utf8)
         #expect(ignore.contains("run/local.json"))
+        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
+        #expect(!store.inspect(at: root).requiresGeneration)
+    }
+
+    @Test
+    func readySavedTasksStillRequestDetectionUntilGenerationSucceeds() async {
+        let fixture = makeFixture(status: .ready)
+        fixture.operations.requiresGeneration = true
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil, snapshotID: UUID())
+        #expect(fixture.service.configurationStatus == .ready)
+        #expect(fixture.service.requiresConfigurationGeneration)
+        await fixture.service.generateRunConfigurations(automatic: true)
+        #expect(fixture.operations.generateCalls == 1)
+        #expect(!fixture.service.requiresConfigurationGeneration)
     }
 
     @Test
@@ -2286,16 +2301,17 @@ struct RunConfigurationIntegrationTests {
         #expect(hint.tooltip == "Parameter name" && hint.paddingLeft && !hint.paddingRight)
         #expect(hint.textEdits.first?.newText == "value: ")
 
-        var completionsResult: Result<[LanguageServerCompletionItem], Error>?
-        try manager.completions(
+        var completionsResult: Result<LanguageServerCompletionList, Error>?
+        try manager.completionList(
             fileURL: source,
             text: "struct App { let tit }\n",
             position: LanguageServerPosition(line: 0, utf16Column: 20),
-            rootURL: root
+            rootURL: root, completionContext: .init(triggerKind: 3)
         ) { result in
             completionsResult = result
         }
         core.enqueueRequestSuccess(operation: .completion, result: [
+            "isIncomplete": true,
             "items": [[
                 "label": "title",
                 "insertText": "title",
@@ -2304,7 +2320,9 @@ struct RunConfigurationIntegrationTests {
             ]]
         ])
         #expect(await Self.waitForMainActorCondition { completionsResult != nil })
-        #expect(try completionsResult?.get().first?.label == "title")
+        #expect(try completionsResult?.get().items.first?.label == "title")
+        #expect(try completionsResult?.get().isIncomplete == true)
+        #expect(core.requestCalls.last?.completionContext?.triggerKind == 3)
         let completionOperationID = try #require(
             core.requestCalls.last(where: { $0.operation == .completion })?.operationID
         )
@@ -3265,8 +3283,6 @@ struct RunConfigurationIntegrationTests {
             at: root.appendingPathComponent(".lithe/run"),
             withIntermediateDirectories: true
         )
-        try Data(#"{"version":1,"configurations":[]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
         let store = MacRunConfigurationStore(
             core: RustCoreBridge(),
             storage: MacFileStorage(),
@@ -3341,13 +3357,17 @@ struct RunConfigurationIntegrationTests {
         )
         try Data("package com.example; class App { public static void main(String[] args) {} }".utf8)
             .write(to: root.appendingPathComponent("src/main/java/com/example/App.java"))
-        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/run"), withIntermediateDirectories: true)
-        try Data(#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
         let store = MacRunConfigurationStore(
             core: core,
             storage: MacFileStorage(),
             preferences: RunTestKeyValueStore()
+        )
+        // Core identifies Current File in memory; the workspace holds only user documents.
+        _ = try store.generate(
+            at: root,
+            files: [root.appendingPathComponent("src/main/java/com/example/App.java")],
+            modulePaths: [],
+            javaEntrypoints: nil
         )
 
         try store.saveOptions(
@@ -3379,6 +3399,22 @@ struct RunConfigurationIntegrationTests {
         #expect(mavenOptions["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx2g"])
     }
 
+    private func generateConfirmedSpringService(at root: URL, store: MacRunConfigurationStore) throws {
+        // A plugin declaration alone no longer establishes an application. Model
+        // the confirmed JDT entry so these tests exercise persistence, not detection failure.
+        let sourcePath = "src/main/java/demo/App.java"
+        let source = root.appendingPathComponent(sourcePath)
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data("package demo; @SpringBootApplication public class App { public static void main(String[] args) {} }".utf8)
+            .write(to: source)
+        _ = try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: JavaEntrypoints(
+            entries: [JavaEntrypoint(sourcePath: sourcePath, mainClass: "demo.App", projectName: "demo")]
+        ))
+        let resolved = try store.resolve(at: root, toolchainCandidates: [])
+        _ = try #require(resolved.configurations.first { $0.configuration.id == "spring-boot.maven:demo" })
+    }
+
     @Test
     func serviceToolchainOverridesRoundTripThroughRustConfigurationDocuments() throws {
         let core = RustCoreBridge()
@@ -3386,14 +3422,16 @@ struct RunConfigurationIntegrationTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-service-toolchains-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/run"), withIntermediateDirectories: true)
-        try Data(#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(#"<project><artifactId>demo</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#.utf8)
+            .write(to: root.appendingPathComponent("pom.xml"))
         let store = MacRunConfigurationStore(
             core: core,
             storage: MacFileStorage(),
             preferences: RunTestKeyValueStore()
         )
+        // Core identifies the project in memory; the workspace holds only user documents.
+        try generateConfirmedSpringService(at: root, store: store)
         try store.saveOptions(
             RunOptions(
                 javaHomePath: "/test/jdk-21",
@@ -3401,13 +3439,13 @@ struct RunConfigurationIntegrationTests {
                 mavenExecutablePath: "/test/maven/bin/mvn",
                 mavenJavaHomePath: "/test/maven-jdk"
             ),
-            configurationID: "spring",
+            configurationID: "spring-boot.maven:demo",
             scope: .local,
             at: root
         )
 
         let resolved = try store.resolve(at: root, toolchainCandidates: [])
-        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring" }?.options)
+        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring-boot.maven:demo" }?.options)
         #expect(options.javaHomePath == "/test/jdk-21")
         #expect(options.mavenExecutablePath == "/test/maven/bin/mvn")
         #expect(options.mavenJavaHomePath == "/test/maven-jdk")
@@ -3429,13 +3467,15 @@ struct RunConfigurationIntegrationTests {
         }
         try Data("#!/bin/sh\n".utf8)
             .write(to: root.appendingPathComponent("toolchains/maven/bin/mvn"))
-        try Data(#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
+        try Data(#"<project><artifactId>demo</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#.utf8)
+            .write(to: root.appendingPathComponent("pom.xml"))
         let store = MacRunConfigurationStore(
             core: core,
             storage: MacFileStorage(),
             preferences: RunTestKeyValueStore()
         )
+        // Core identifies the project in memory; the workspace holds only user documents.
+        try generateConfirmedSpringService(at: root, store: store)
 
         try store.saveOptions(
             RunOptions(
@@ -3443,13 +3483,13 @@ struct RunConfigurationIntegrationTests {
                 mavenExecutablePath: root.appendingPathComponent("toolchains/maven/bin/mvn").path,
                 mavenJavaHomePath: root.appendingPathComponent("toolchains/maven-jdk").path
             ),
-            configurationID: "spring",
+            configurationID: "spring-boot.maven:demo",
             scope: .project,
             at: root
         )
 
         let resolved = try store.resolve(at: root, toolchainCandidates: [])
-        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring" }?.options)
+        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring-boot.maven:demo" }?.options)
         #expect(options.javaHomePath == "toolchains/jdk")
         #expect(options.mavenExecutablePath == "toolchains/maven/bin/mvn")
         #expect(options.mavenJavaHomePath == "toolchains/maven-jdk")
@@ -3466,8 +3506,9 @@ struct RunConfigurationIntegrationTests {
             at: root.appendingPathComponent(".lithe/run"),
             withIntermediateDirectories: true
         )
-        try Data(#"{"version":2,"configurations":[{"id":"go:api","name":"Go API","provider":"go.main","execution":"application","args":["run","./cmd/api"],"cwd":".","env":{"APP_ENV":"test"},"toolchains":{"runtime":"project-go"}}]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
+        // A saved team configuration; Core's detected layer is identified below.
+        try Data(#"{"version":2,"configurations":[{"id":"user:go-api","name":"Go API","provider":"go.main","execution":"application","args":["run","./cmd/api"],"cwd":".","env":{"APP_ENV":"test"},"toolchains":{"runtime":"project-go"}}]}"#.utf8)
+            .write(to: root.appendingPathComponent(".lithe/run/configurations.json"))
 
         let preferences = RunTestKeyValueStore()
         let store = MacRunConfigurationStore(
@@ -3490,8 +3531,9 @@ struct RunConfigurationIntegrationTests {
             runConfigurationOperations: store
         )
 
+        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
         await service.loadProject(at: root, files: [], mavenProject: nil)
-        let configuration = try #require(service.configurations.first { $0.id == "go:api" })
+        let configuration = try #require(service.configurations.first { $0.id == "user:go-api" })
         service.run(configuration: configuration, currentFileURL: nil)
 
         let request = try #require(process.requests.last)
@@ -3503,19 +3545,16 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func generationPermissionFailurePreservesExistingGeneratedConfiguration() throws {
+    func generationSucceedsWithoutWritingTheWorkspace() throws {
         let core = RustCoreBridge()
         guard core.isAvailable else { return }
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-generation-permission-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("lithe-generation-read-only-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
         let source = root.appendingPathComponent("src/App.java")
         try Data("class App { public static void main(String[] args) {} }".utf8).write(to: source)
         let storage = CountingFileStorage(root: root)
-        let generatedURL = root.appendingPathComponent(".lithe/run/generated.json")
-        let original = Data(#"{"version":1,"configurations":[]}"#.utf8)
-        storage.seed(original, at: generatedURL)
         storage.shouldFailWrites = true
         let store = MacRunConfigurationStore(
             core: core,
@@ -3523,10 +3562,11 @@ struct RunConfigurationIntegrationTests {
             preferences: RunTestKeyValueStore()
         )
 
-        #expect(throws: (any Error).self) {
-            try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: nil)
-        }
-        #expect(try storage.readData(from: generatedURL, options: []) == original)
+        let result = try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: nil)
+        #expect(result.entryCount == 0)
+        #expect(storage.writeCount == 0)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe").path))
+        #expect(store.inspect(at: root).status == .ready)
     }
 
     @Test
@@ -3596,10 +3636,6 @@ struct RunConfigurationIntegrationTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let storage = CountingFileStorage(root: root)
-        storage.seed(
-            Data(#"{"version":1,"configurations":[]}"#.utf8),
-            at: root.appendingPathComponent(".lithe/run/generated.json")
-        )
         let store = MacRunConfigurationStore(
             core: RustCoreBridge(),
             storage: storage,
@@ -4051,8 +4087,8 @@ struct RunConfigurationIntegrationTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let run = root.appendingPathComponent(".lithe/run")
         try FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
-        try Data(#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#.utf8)
-            .write(to: run.appendingPathComponent("generated.json"))
+        try Data(#"<project><artifactId>demo</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#.utf8)
+            .write(to: root.appendingPathComponent("pom.xml"))
         let oldLocal = Data(#"{"version":2,"configurations":[]}"#.utf8)
         let oldProject = Data(#"{"version":2,"configurations":[]}"#.utf8)
         let localURL = run.appendingPathComponent("local.json")
@@ -4068,16 +4104,21 @@ struct RunConfigurationIntegrationTests {
             storage: storage,
             preferences: RunTestKeyValueStore()
         )
+        try generateConfirmedSpringService(at: root, store: store)
 
-        #expect(throws: (any Error).self) {
+        do {
             try store.saveEditorChanges(
                 RunOptions(),
                 toolchain: ProjectToolchainSelection(javaHomePath: "/opt/jdk-21"),
-                configurationID: "spring",
+                configurationID: "spring-boot.maven:demo",
                 scope: .project,
                 at: root
             )
+            Issue.record("Expected the project document write to fail")
+        } catch let failure as RunConfigurationEditorSaveFailure {
+            #expect(failure.stage == .write)
         }
+        #expect(storage.writeCount > 0)
         #expect(try storage.readData(from: localURL, options: []) == oldLocal)
         #expect(try storage.readData(from: projectURL, options: []) == oldProject)
     }
@@ -4252,6 +4293,7 @@ private struct RunServiceFixture {
 }
 
 private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    var requiresGeneration = false
     var inspectionRecoveryAction: RunConfigurationRecoveryAction = .none
     var inspectionToolchain: ProjectToolchainSelection?
     private(set) var generateCalls = 0
@@ -4295,7 +4337,8 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
             status: status,
             diagnostics: [],
             recoveryAction: inspectionRecoveryAction,
-            projectToolchain: inspectionToolchain
+            projectToolchain: inspectionToolchain,
+            requiresGeneration: requiresGeneration
         )
     }
     func generate(
@@ -4575,6 +4618,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         let newName: String?
         let range: LanguageServerRange?
         let diagnostics: [LanguageServerDiagnostic]
+        let completionContext: LanguageServerCompletionContext?
         let completionItem: LanguageServerCompletionItem?
         let codeAction: LanguageServerCodeAction?
         let command: LanguageServerCommand?
@@ -4715,7 +4759,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         newName: String?,
         range: LanguageServerRange?,
         diagnostics: [LanguageServerDiagnostic],
-        completionItem: LanguageServerCompletionItem?,
+        completionContext: LanguageServerCompletionContext?, completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
@@ -4731,6 +4775,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             newName: newName,
             range: range,
             diagnostics: diagnostics,
+            completionContext: completionContext,
             completionItem: completionItem,
             codeAction: codeAction,
             command: command

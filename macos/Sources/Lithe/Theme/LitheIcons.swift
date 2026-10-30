@@ -46,9 +46,14 @@ enum LitheIconKind: Hashable {
     case docker
     case database
     case gitignore
+    case nodePackage
+    case lockFile
+    case makefile
 
     // 文本与媒体
     case markdown
+    case readme
+    case license
     case plainText
     case i18n
     case document
@@ -105,7 +110,13 @@ enum LitheIcons {
         .csv: "fileTypes/csv.svg",
         .docker: "fileTypes/docker.svg",
         .database: "fileTypes/sql.svg",
+        .gitignore: "fileTypes/gitignore.svg",
+        .nodePackage: "fileTypes/nodejs.svg",
+        .lockFile: "fileTypes/lock.svg",
+        .makefile: "fileTypes/makefile.svg",
         .markdown: "fileTypes/markdown.svg",
+        .readme: "fileTypes/readme.svg",
+        .license: "fileTypes/license.svg",
         .plainText: "fileTypes/text.svg",
         .i18n: "fileTypes/i18n.svg",
         // IDEA's "Native" file type (Office documents and similar) uses AllIcons.FileTypes.Custom.
@@ -150,6 +161,12 @@ enum LitheIcons {
     private static let excludedDirectoryNames: Set<String> = [
         "target", "build", "out", "bin", "dist", "node_modules", ".gradle", ".idea", ".settings"
     ]
+
+    /// 依赖锁文件按文件名识别；扩展名为 lock 的其余文件（Cargo.lock、bun.lock 等）走扩展名分支。
+    private static let lockFileNames: Set<String> = [
+        "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "bun.lockb"
+    ]
+    private static let licenseFileStems: Set<String> = ["license", "licence", "copying"]
 
     private static let resourceDirectoryNames: Set<String> = ["resources", "res", "webapp", "static"]
     private static let sourceDirectoryNames: Set<String> = ["java", "kotlin", "scala", "groovy"]
@@ -264,6 +281,14 @@ enum LitheIcons {
         let name = fileName.lowercased()
         if name == "pom.xml" { return .maven }
         if name == ".gitignore" || name == ".gitattributes" || name == ".dockerignore" { return .gitignore }
+        if name == "package.json" { return .nodePackage }
+        if lockFileNames.contains(name) { return .lockFile }
+        if ["go.mod", "go.sum", "go.work", "go.work.sum"].contains(name) { return .goSource }
+        if ["makefile", "gnumakefile"].contains(name) { return .makefile }
+        // README.md、LICENSE.txt 这类文件按主名识别，扩展名只是正文格式。
+        let stem = (name as NSString).deletingPathExtension
+        if stem == "readme" { return .readme }
+        if licenseFileStems.contains(stem) || stem.hasPrefix("license-") { return .license }
         if name == ".classpath" || name == ".project" || name == ".factorypath" { return .xml }
         if name == ".editorconfig" { return .editorConfig }
         if name == "dockerfile" || name.hasPrefix("dockerfile.")
@@ -276,6 +301,8 @@ enum LitheIcons {
         switch pathExtension.lowercased() {
         case "java": return .javaGeneric
         case "class", "jar": return .binary
+        case "lock": return .lockFile
+        case "mk", "mak": return .makefile
         case "swift": return .swiftSource
         case "kt", "kts": return .kotlinSource
         case "rs": return .rustSource

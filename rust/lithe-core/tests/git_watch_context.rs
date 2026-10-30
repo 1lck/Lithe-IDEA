@@ -33,7 +33,11 @@ impl Drop for GitFixture {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Vec<u8> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    git_within(directory, arguments, Duration::from_secs(10))
+}
+
+fn git_within(directory: &Path, arguments: &[&str], timeout: Duration) -> Vec<u8> {
+    let deadline = Instant::now() + timeout;
     let output = lithe_git_host::run(
         Command::new("git").args(arguments).current_dir(directory),
         None,
@@ -177,7 +181,8 @@ fn watch_context_resolves_a_submodule_git_directory_outside_its_workspace() {
     initialize_repository(&source);
     initialize_repository(&parent);
     let source_path = source.to_string_lossy().into_owned();
-    require_git(
+    // Windows runners clone the submodule slower than the 10 second default; the test budget is 30 seconds.
+    git_within(
         &parent,
         &[
             "-c",
@@ -188,6 +193,7 @@ fn watch_context_resolves_a_submodule_git_directory_outside_its_workspace() {
             &source_path,
             "modules/child",
         ],
+        Duration::from_secs(30),
     );
     require_git(&parent, &["commit", "-q", "-am", "add submodule"]);
     let submodule = parent.join("modules/child");

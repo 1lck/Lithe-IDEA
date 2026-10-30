@@ -106,7 +106,7 @@ struct TerminalPlacementFeatureModelTests {
             session.update(ownerID: owner, document: document, secondaryDocument: nil, preview: nil,
                 markdownScrollPosition: nil, model: model, fontSize: 14, fontFamily: "monospace",
                 theme: .init(colorTheme: .lithe, isDark: true, revealsWorkbenchBackground: false),
-                wrap: false, minimap: false, markers: [], secondaryMarkers: [])
+                wrap: false, minimap: false, javaKeywordNavigationFilter: true, markers: [], secondaryMarkers: [])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

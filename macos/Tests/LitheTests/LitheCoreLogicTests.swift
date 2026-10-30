@@ -20,8 +20,21 @@ struct LitheCoreLogicTests {
             ("rust/lithe-core/src/lib.rs", .rustSource),
             ("Cargo.toml", .toml),
             ("src/main/java/App.java", .javaGeneric),
-            ("docs/README.md", .markdown),
+            ("docs/README.md", .readme),
+            ("docs/guide.md", .markdown),
             (".gitignore", .gitignore),
+            (".gitattributes", .gitignore),
+            ("go.mod", .goSource),
+            ("go.sum", .goSource),
+            ("Makefile", .makefile),
+            ("scripts/rules.mk", .makefile),
+            ("package.json", .nodePackage),
+            ("bun.lock", .lockFile),
+            ("Cargo.lock", .lockFile),
+            ("package-lock.json", .lockFile),
+            ("pnpm-lock.yaml", .lockFile),
+            ("LICENSE.txt", .license),
+            ("COPYING", .license),
             ("Dockerfile", .docker),
             ("infra/compose.yaml", .docker),
             ("compose.yml", .docker),
@@ -29,7 +42,8 @@ struct LitheCoreLogicTests {
             ("docker-compose.yml", .docker),
             ("settings.yaml", .yaml),
             ("assets/unknown.custom", .generic),
-            ("LICENSE", .generic)
+            ("LICENSE", .license),
+            ("NOTICE", .generic)
         ]
 
         for expectation in expectations {
@@ -4076,6 +4090,55 @@ struct EditorDocumentTests {
         #expect(refreshCount == refreshesAfterLoad + 1)
     }
 
+    @Test(arguments: [false, true]) @MainActor
+    func gitOperationThawSchedulesOwnedRefreshWithoutHoldingTheActionOpen(resetBeforeRefresh: Bool) async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/git-thaw"), file = workspace.appendingPathComponent("App.swift")
+        let factory = TestDirectoryWatcherFactory()
+        let initialStarted = TestGate(), initialRelease = TestGate(), initialFinished = TestGate()
+        let thawStarted = TestGate(), thawRelease = TestGate(), thawFinished = TestGate(), refreshed = TestGate()
+        var refreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(snapshotAvailability: [true], files: [file]),
+            fileOperations: ExistingWorkspaceFileOperations(paths: [file.path]),
+            provider: SequencedGitWatchContextProvider([nil]), watcherFactory: factory,
+            refreshGit: { refreshCount += 1; if thawRelease.isOpen { refreshed.open() } },
+            observationDelay: { _ in
+                if !initialStarted.isOpen {
+                    initialStarted.open()
+                    defer { initialFinished.open() }
+                    guard await initialRelease.waitUntilOpen() else { throw CancellationError() }
+                } else {
+                    thawStarted.open()
+                    defer { thawFinished.open() }
+                    guard await thawRelease.waitUntilOpen() else { throw CancellationError() }
+                }
+                try Task.checkCancellation()
+            })
+        defer { initialRelease.open(); thawRelease.open(); model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let loaded = refreshCount
+        let source = try #require(factory.source)
+        source.emit([file.path])
+        try #require(await initialStarted.waitUntilOpen())
+        model.beginGitOperationFreeze(); model.beginGitOperationFreeze()
+        initialRelease.open()
+        try #require(await initialFinished.waitUntilOpen())
+        await model.endGitOperationFreeze(waitForRefresh: false)
+        #expect(model.gitOperationFreezeDepth == 1 && refreshCount == loaded)
+        await model.endGitOperationFreeze(waitForRefresh: false)
+        try #require(await thawStarted.waitUntilOpen())
+        #expect(model.gitOperationFreezeDepth == 0 && refreshCount == loaded)
+        if resetBeforeRefresh { model.reset() }
+        thawRelease.open()
+        try #require(await thawFinished.waitUntilOpen())
+        if resetBeforeRefresh { #expect(refreshCount == loaded) }
+        else {
+            try #require(await refreshed.waitUntilOpen())
+            #expect(refreshCount == loaded + 1)
+        }
+    }
+
     @Test
     func directoryWatchConfigurationNormalizesAndDeduplicatesCoveredRoots() {
         let repository = URL(fileURLWithPath: "/tmp/lithe-watch/repository")
@@ -4244,6 +4307,158 @@ struct EditorDocumentTests {
         #expect(refreshCount == 2)
     }
 
+    @Test(arguments: [false, true])
+    @MainActor
+    func fileEventsRefreshGitWhileProjectServicesAreStillReloading(thawAfterMutation: Bool) async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-live-git")
+        let build = workspace.appendingPathComponent("pom.xml")
+        let source = workspace.appendingPathComponent("Main.java")
+        let factory = TestDirectoryWatcherFactory()
+        let reloadEntered = TestGate(), releaseReload = TestGate(), reloadFinished = TestGate()
+        let firstRefresh = TestGate(), secondRefresh = TestGate()
+        let observing = TestGate()
+        var refreshCount = 0
+        let delayStarted = TestGate(), releaseDelay = TestGate()
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(snapshotAvailability: [true], files: [build, source]),
+            fileOperations: ExistingWorkspaceFileOperations(paths: [build.path, source.path]),
+            provider: SequencedGitWatchContextProvider([nil]), watcherFactory: factory,
+            refreshGit: {
+                guard observing.isOpen else { return }
+                refreshCount += 1
+                if refreshCount == 1 { firstRefresh.open() }
+                if refreshCount == 2 { secondRefresh.open() }
+            },
+            reloadProjectServices: {
+                reloadEntered.open()
+                if await releaseReload.waitUntilOpen(timeout: .seconds(5)) { reloadFinished.open() }
+            }, observationDelay: { _ in
+                delayStarted.open()
+                guard await releaseDelay.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            }
+        )
+        defer { releaseDelay.open(); releaseReload.open(); model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        observing.open()
+        let watcher = try #require(factory.source)
+        watcher.emit([build.path])
+        try #require(await delayStarted.waitUntilOpen())
+        if thawAfterMutation { model.beginGitOperationFreeze() }
+        releaseDelay.open()
+        if thawAfterMutation { await model.endGitOperationFreeze(waitForRefresh: false) }
+        try #require(await reloadEntered.waitUntilOpen())
+        #expect(await firstRefresh.waitUntilOpen(), "Git must not wait for project services to finish")
+        #expect(!reloadFinished.isOpen)
+        watcher.emit([source.path])
+        #expect(await secondRefresh.waitUntilOpen(), "A later file batch must also reach the open Commit panel")
+        releaseReload.open()
+    }
+
+    @Test @MainActor
+    func cancelledGitReadRetainsRefreshRequestedWhileMutationsAreFrozen() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/cancelled-git-read")
+        let factory = TestDirectoryWatcherFactory()
+        let entered = TestGate(), release = TestGate(), refreshed = TestGate()
+        let read = Task { await release.waitUntilOpen(timeout: .seconds(5)) }
+        var refreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            provider: SequencedGitWatchContextProvider([nil]), watcherFactory: factory,
+            refreshGit: {
+                refreshCount += 1
+                if refreshCount == 1 { entered.open(); #expect(await read.value) }
+                else { refreshed.open() }
+            }, observationDelay: { _ in })
+        defer { release.open(); read.cancel(); model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let watcher = try #require(factory.source)
+        watcher.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
+        try #require(await entered.waitUntilOpen())
+        model.beginGitOperationFreeze()
+        await model.resumeObservationAfterActivation()
+        await model.endGitOperationFreeze(waitForRefresh: false)
+        #expect(refreshCount == 1)
+        release.open()
+        try #require(await refreshed.waitUntilOpen())
+        #expect(refreshCount == 2)
+        _ = await read.value
+    }
+
+    @Test @MainActor
+    func oldWorkspaceGitReadCannotReleaseTheNewWorkspaceRead() async throws {
+        let factory = TestDirectoryWatcherFactory()
+        let oldEntered = TestGate(), oldRelease = TestGate(), oldFinished = TestGate()
+        let newEntered = TestGate(), newRelease = TestGate(), newFinished = TestGate()
+        var refreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            provider: SequencedGitWatchContextProvider([nil]), watcherFactory: factory,
+            refreshGit: {
+                refreshCount += 1
+                if refreshCount == 1 {
+                    oldEntered.open()
+                    #expect(await oldRelease.waitUntilOpen())
+                } else if refreshCount == 2 {
+                    newEntered.open()
+                    #expect(await newRelease.waitUntilOpen())
+                }
+            }, observationDelay: { _ in })
+        model.beginWorkspace(at: URL(fileURLWithPath: "/in-memory/old-git-workspace"), visibilityRules: .default)
+        let oldRead = Task { await model.resumeObservationAfterActivation(); oldFinished.open() }
+        var newRead: Task<Void, Never>?
+        defer { oldRelease.open(); newRelease.open(); oldRead.cancel(); newRead?.cancel(); model.reset() }
+        try #require(await oldEntered.waitUntilOpen())
+        model.beginWorkspace(at: URL(fileURLWithPath: "/in-memory/new-git-workspace"), visibilityRules: .default)
+        newRead = Task { await model.resumeObservationAfterActivation(); newFinished.open() }
+        try #require(await newEntered.waitUntilOpen())
+        oldRelease.open()
+        try #require(await oldFinished.waitUntilOpen())
+        await oldRead.value
+        await model.resumeObservationAfterActivation()
+        #expect(refreshCount == 2, "The active read still owns this workspace; the next request must coalesce")
+        newRelease.open()
+        try #require(await newFinished.waitUntilOpen())
+        await newRead?.value
+        #expect(refreshCount == 3, "The coalesced request must run after the active read completes")
+    }
+
+    @Test @MainActor
+    func thawGitReadCannotConsumeTheNextWorkspaceFileBatch() async throws {
+        let oldWorkspace = URL(fileURLWithPath: "/in-memory/old-thaw-workspace")
+        let newWorkspace = URL(fileURLWithPath: "/in-memory/new-thaw-workspace")
+        let file = newWorkspace.appendingPathComponent("Main.java")
+        let factory = TestDirectoryWatcherFactory()
+        let delayStarted = TestGate(), releaseDelay = TestGate()
+        let readStarted = TestGate(), releaseRead = TestGate(), thawFinished = TestGate(), projected = TestGate()
+        let read = Task { await releaseRead.waitUntilOpen(timeout: .seconds(5)) }
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: ExistingWorkspaceFileOperations(paths: [file.path]),
+            provider: SequencedGitWatchContextProvider([nil]), watcherFactory: factory,
+            refreshGit: { readStarted.open(); #expect(await read.value) },
+            processExternalChanges: { paths in if paths.contains(file) { projected.open() }; return false },
+            observationDelay: { _ in
+                delayStarted.open()
+                guard await releaseDelay.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            })
+        model.beginWorkspace(at: oldWorkspace, visibilityRules: .default)
+        model.beginGitOperationFreeze()
+        await model.resumeObservationAfterActivation()
+        let thaw = Task { await model.endGitOperationFreeze(); thawFinished.open() }
+        defer { releaseDelay.open(); releaseRead.open(); read.cancel(); thaw.cancel(); model.reset() }
+        try #require(await readStarted.waitUntilOpen())
+        model.beginWorkspace(at: newWorkspace, visibilityRules: .default)
+        let watcher = try #require(factory.source)
+        watcher.emit(DirectoryChangeBatch(workspacePaths: [file.path]))
+        try #require(await delayStarted.waitUntilOpen())
+        releaseRead.open()
+        try #require(await thawFinished.waitUntilOpen())
+        await thaw.value
+        releaseDelay.open()
+        try #require(await projected.waitUntilOpen(), "The old thaw must not drain the new workspace's paths")
+        _ = await read.value
+    }
+
     @Test
     @MainActor
     func workspaceWatcherProjectsTypedJavaChangesWithoutReloadingForSourceEdits() async throws {
@@ -4264,11 +4479,9 @@ struct EditorDocumentTests {
             fileOperations: ExistingWorkspaceFileOperations(paths: [source.path, build.path]),
             provider: SequencedGitWatchContextProvider([nil]),
             watcherFactory: watcherFactory,
-            refreshGit: {
-                if projectReloadCount > 0 { refreshFinished.open() }
-            },
+            refreshGit: {},
             notifyWorkspaceFileChanges: { projectedChanges.append(contentsOf: $0) },
-            reloadProjectServices: { projectReloadCount += 1 },
+            reloadProjectServices: { projectReloadCount += 1; refreshFinished.open() },
             observationDelay: { duration in
                 #expect(duration == .milliseconds(350))
                 delayStarted.open()

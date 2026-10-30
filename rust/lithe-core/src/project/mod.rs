@@ -10,11 +10,14 @@ mod maven_dependency_tree;
 mod maven_test_reports;
 mod name_matching;
 mod search_index;
+mod search_paging;
+pub(crate) use search_paging::{search_page, SearchPageRequest};
 
 pub(crate) use document_lifecycle::*;
 pub(crate) use files::*;
 pub(crate) use history::*;
 pub(crate) use markdown::*;
+pub use maven::settings_with_local_repository;
 pub(crate) use maven::*;
 pub(crate) use maven_dependency_tree::{
     dependencies, dependency_tree_arguments, validated_output_file, MavenDependenciesRequest,

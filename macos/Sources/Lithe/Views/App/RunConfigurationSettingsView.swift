@@ -130,7 +130,7 @@ private struct RunConfigurationSettingsContent: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.")
+                Text("Lithe will look for services again. Project and local overrides will not be changed.")
             }
         }
     }

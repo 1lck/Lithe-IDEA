@@ -1,3 +1,8 @@
+import github from "../themes/github.json";
+import one from "../themes/one.json";
+import vscode from "../themes/vscode.json";
+import idea from "../themes/idea.json";
+
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
 import { MONACO_TOKEN_SYNTAX_ROLES, createMonacoTokenStyleRules } from "./token-theme-roles";
@@ -5,6 +10,8 @@ import { MONACO_TOKEN_SYNTAX_ROLES, createMonacoTokenStyleRules } from "./token-
 export interface WorkbenchThemeInput {
   id: string;
   dark: boolean;
+  syntaxScheme?: "lithe" | "github" | "one" | "vscode" | "idea";
+  italicComments?: boolean;
   colors?: {
     background?: string;
     foreground?: string;
@@ -35,10 +42,40 @@ export function defineWorkbenchTheme(input: WorkbenchThemeInput, palette: Syntax
   const appearance = input.dark ? "dark" : "light";
   // Token names such as "constructor" must never resolve through Object.prototype.
   const syntaxColors = new Map(Object.entries(palette.defaults).map(([role, value]) => [role, value[appearance]]));
+  // Reuse the same bundled palettes as Windows. These only replace syntax
+  // colors; workbench surfaces continue to follow the native interface theme.
+  const scheme = input.syntaxScheme === "github" ? github : input.syntaxScheme === "one" ? one
+    : input.syntaxScheme === "vscode" ? vscode : input.syntaxScheme === "idea" ? idea : undefined;
+  const variant = scheme?.themes.find(value => value.id === `${input.syntaxScheme}-${appearance}`);
+  if (variant) {
+    const syntax: Record<string, string> = variant.syntax;
+    const aliases: Record<string, string> = {
+      annotation: "attribute", documentationComment: "comment", field: "property",
+      functionCall: "function", functionDeclaration: "function", parameter: "variable", typeParameter: "type",
+    };
+    for (const role of syntaxColors.keys()) {
+      const color = syntax[aliases[role] ?? role];
+      if (color) syntaxColors.set(role, color);
+    }
+    for (const [role, color] of Object.entries(syntax)) syntaxColors.set(role, color);
+  }
   const tokens = new Map(syntaxColors);
   for (const [token, role] of MONACO_TOKEN_SYNTAX_ROLES) {
     const color = syntaxColors.get(token) ?? syntaxColors.get(nativeRoles[role] ?? role);
     if (color) tokens.set(token, color);
+  }
+  if (input.syntaxScheme === "idea") {
+    // Java METHOD_CALL inherits the identifier color. Darcula's STATIC_METHOD
+    // has font attributes but no foreground; declarations use FUNCTION_DECLARATION.
+    // Keep lexical Java names neutral until the language server classifies them.
+    const text = syntaxColors.get("text")!;
+    tokens.set("function.java", text);
+    for (const prefix of ["method", "method.readonly", "method.deprecated", "method.readonly.deprecated"]) {
+      tokens.set(prefix, text);
+      tokens.set(`${prefix}.declaration`, syntaxColors.get("functionDeclaration")!);
+      tokens.set(`${prefix}.static`, text);
+      tokens.set(`${prefix}.declaration.static`, text);
+    }
   }
   const colors: Record<string, string> = {
     "editor.foreground": input.colors?.foreground ?? syntaxColors.get("text")!,
@@ -70,7 +107,9 @@ export function defineWorkbenchTheme(input: WorkbenchThemeInput, palette: Syntax
   monaco.editor.defineTheme(name, {
     base: input.dark ? "vs-dark" : "vs", inherit: true, colors,
     rules: [...[...tokens].map(([token, foreground]) => ({ token, foreground: foreground.slice(1) })),
-      ...createMonacoTokenStyleRules(false)],
+      { token: "comment", fontStyle: input.italicComments ? "italic" : "" },
+      { token: "documentationComment", fontStyle: input.italicComments ? "italic" : "" },
+      ...createMonacoTokenStyleRules(input.italicComments === true)],
   });
   return name;
 }

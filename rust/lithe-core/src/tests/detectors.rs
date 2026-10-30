@@ -1,4 +1,4 @@
-use super::support::{jdt_entrypoints, temporary_root};
+use super::support::{jdt_entrypoints, seed_generated, seed_requirements, temporary_root};
 use crate::execute_json;
 use serde_json::Value;
 use std::fs;
@@ -71,6 +71,42 @@ fn generated_configurations(root: &Path) -> Vec<Value> {
         .as_array()
         .cloned()
         .unwrap()
+}
+
+/// Supplies explicit upstream facts; the helper never infers mains from a POM.
+fn generated_spring_configurations(root: &Path, modules: &[&str]) -> Vec<Value> {
+    let paths = modules
+        .iter()
+        .map(|module| {
+            if *module == "." {
+                "src/main/java/FixtureApplication.java".to_string()
+            } else {
+                format!("{module}/src/main/java/FixtureApplication.java")
+            }
+        })
+        .collect::<Vec<_>>();
+    for path in &paths {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, "@SpringBootApplication class FixtureApplication { public static void main(String[] args) {} }").unwrap();
+    }
+    let facts = paths
+        .iter()
+        .map(|path| (path.as_str(), "FixtureApplication"))
+        .collect::<Vec<_>>();
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id":"generate-confirmed", "command":"runConfig.generate",
+            "payload":{"root":root,"paths":paths,"javaEntrypoints":jdt_entrypoints(&facts)}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    response["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+        .clone()
 }
 
 /// The headline behaviour: one project, six ecosystems, every service found
@@ -260,11 +296,7 @@ fn detected_services_produce_runnable_launch_plans() {
         "configurations": generated_configurations(&root)
     });
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&generated).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(&generated).unwrap());
 
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -337,23 +369,18 @@ fn every_builtin_detector_produces_a_launch_plan() {
     fs::write(root.join("Makefile"), "serve:\n\t@echo serve\n").unwrap();
     fs::write(root.join("justfile"), "watch:\n    echo watch\n").unwrap();
 
-    let configurations = generated_configurations(&root);
+    let configurations = generated_spring_configurations(&root, &["maven"]);
     let generated = serde_json::json!({
         "version": 2,
         "configurations": configurations
     });
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&generated).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(&generated).unwrap());
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-    fs::write(
-        root.join(".lithe/toolchains/requirements.json"),
+    seed_requirements(
+        &root,
         r#"{"version":1,"toolchains":{"project-jdk":{"type":"java"},"project-maven":{"type":"maven","java":"project-jdk"},"project-gradle":{"type":"gradle","java":"project-jdk"}}}"#,
-    )
-    .unwrap();
+    );
 
     for (provider, id) in [
         ("npm.script", "npm.script:node/dev"),
@@ -377,7 +404,7 @@ fn every_builtin_detector_produces_a_launch_plan() {
             &serde_json::json!({
                 "id": format!("plan-{provider}"),
                 "command": "runConfig.createLaunchPlan",
-                "payload": {"root": root, "configurationId": id}
+                "payload": {"root": root, "configurationId": id, "javaLaunch": {"mainClass":"FixtureApplication","classPaths":["/fixture/classes"],"modulePaths":[]}}
             })
             .to_string(),
         ))
@@ -1031,10 +1058,9 @@ fn python_detector_labels_a_declared_django_project() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `spring-boot-maven-plugin` is what makes `spring-boot:run` work, so it -- not
-/// an annotation in a source file -- is what decides a module is a service. The
-/// configuration runs Maven from the reactor root and addresses the module with
-/// `-pl`, which is why `cwd` stays `.` while the module lives in `extensions`.
+/// A confirmed Spring entry plus the applied plugin selects the service. The
+/// configuration keeps the reactor-relative module identity for toolchain and
+/// build selection; confirmed Java launch metadata owns the runtime paths.
 #[test]
 fn maven_detector_finds_the_module_that_applies_the_boot_plugin() {
     let root = temporary_root("detect-maven-boot");
@@ -1056,7 +1082,7 @@ fn maven_detector_finds_the_module_that_applies_the_boot_plugin() {
     )
     .unwrap();
 
-    let configurations = generated_configurations(&root);
+    let configurations = generated_spring_configurations(&root, &["backend"]);
     let service = configurations
         .iter()
         .find(|item| item["id"] == "spring-boot.maven:backend")
@@ -1106,7 +1132,7 @@ fn maven_detector_reads_modules_the_directory_walk_prunes() {
     )
     .unwrap();
 
-    let service = generated_configurations(&root)
+    let service = generated_spring_configurations(&root, &["build"])
         .into_iter()
         .find(|item| item["id"] == "spring-boot.maven:builder-service")
         .unwrap();
@@ -1131,7 +1157,7 @@ fn maven_detector_ignores_plugins_that_are_declared_but_not_applied() {
     .unwrap();
 
     assert!(
-        !generated_configurations(&root)
+        !generated_spring_configurations(&root, &["."])
             .iter()
             .any(|item| item["provider"] == "spring-boot.maven"),
         "pluginManagement must not make a module runnable"
@@ -1158,7 +1184,7 @@ fn maven_detector_skips_the_aggregator_that_configures_its_children() {
     )
     .unwrap();
 
-    let ids = generated_configurations(&root)
+    let ids = generated_spring_configurations(&root, &["service-a"])
         .into_iter()
         .filter(|item| item["provider"] == "spring-boot.maven")
         .map(|item| item["id"].as_str().unwrap().to_string())
@@ -1192,7 +1218,7 @@ fn maven_detector_keeps_modules_that_share_an_artifact_id() {
         .unwrap();
     }
 
-    let ids = generated_configurations(&root)
+    let ids = generated_spring_configurations(&root, &["team-a/gateway", "team-b/gateway"])
         .into_iter()
         .filter(|item| item["provider"] == "spring-boot.maven")
         .map(|item| item["id"].as_str().unwrap().to_string())
@@ -1240,7 +1266,7 @@ fn maven_detector_produces_the_same_ids_whatever_paths_the_caller_passes() {
             &serde_json::json!({
                 "id": "generate",
                 "command": "runConfig.generate",
-                "payload": {"root": root, "paths": paths}
+                "payload": {"root": root, "paths": paths, "javaEntrypoints": jdt_entrypoints(&[("backend/src/main/java/com/demo/DemoApplication.java", "com.demo.DemoApplication")])}
             })
             .to_string(),
         ))
@@ -1310,7 +1336,7 @@ fn maven_detector_separates_the_frameworks_by_the_plugin_each_module_applies() {
     )
     .unwrap();
 
-    let configurations = generated_configurations(&root);
+    let configurations = generated_spring_configurations(&root, &["boot-api"]);
     for (id, provider, module) in [
         (
             "spring-boot.maven:boot-api",
@@ -1386,10 +1412,14 @@ fn maven_detector_matches_plugins_by_coordinates_not_by_artifact_id_alone() {
         .unwrap();
     }
 
-    let ids = generated_configurations(&root)
-        .into_iter()
-        .filter_map(|item| item["id"].as_str().map(str::to_string))
-        .collect::<Vec<_>>();
+    let ids = generated_spring_configurations(
+        &root,
+        &["custom-group", "bare-name", "expression-group", "real-boot"],
+    )
+    .into_iter()
+    .filter(|item| item["provider"] == "spring-boot.maven")
+    .filter_map(|item| item["id"].as_str().map(str::to_string))
+    .collect::<Vec<_>>();
 
     assert!(
         ids.contains(&"spring-boot.maven:real-boot".to_string()),
@@ -1421,14 +1451,13 @@ fn framework_launch_plans_use_each_goal_s_own_property_names() {
         "<project><artifactId>demo</artifactId></project>",
     )
     .unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[
             {"id":"quarkus","name":"Quarkus","provider":"quarkus.maven","execution":"service","confidence":"declared","toolchains":{"java":"project-jdk","maven":"project-maven"},"cwd":".","debug":{"adapter":"jdwp"},"extensions":{"maven":{"module":"api","jvmArguments":["-Xmx2g"],"programArguments":["--dev"]}}},
             {"id":"micronaut","name":"Micronaut","provider":"micronaut.maven","execution":"service","confidence":"declared","toolchains":{"java":"project-jdk","maven":"project-maven"},"cwd":".","debug":{"adapter":"jdwp"},"extensions":{"maven":{"module":"api","jvmArguments":["-Xmx2g"],"programArguments":["--dev"]}}}
         ]}"#,
-    )
-    .unwrap();
+    );
 
     let arguments = |id: &str, debug_port: Value| {
         let plan: Value = serde_json::from_str(&execute_json(
@@ -1756,7 +1785,7 @@ fn maven_detector_inherits_the_boot_plugin_from_the_aggregator() {
     )
     .unwrap();
 
-    let ids = generated_configurations(&root)
+    let ids = generated_spring_configurations(&root, &["service-web"])
         .into_iter()
         .filter(|item| item["provider"] == "spring-boot.maven")
         .map(|item| item["id"].as_str().unwrap().to_string())
@@ -1790,7 +1819,7 @@ fn maven_detector_inherits_the_boot_plugin_across_several_levels() {
     )
     .unwrap();
 
-    let ids = generated_configurations(&root)
+    let ids = generated_spring_configurations(&root, &["team/service-web"])
         .into_iter()
         .filter(|item| item["provider"] == "spring-boot.maven")
         .map(|item| item["id"].as_str().unwrap().to_string())
@@ -1821,7 +1850,7 @@ fn maven_detector_does_not_inherit_a_plugin_managed_parent() {
     .unwrap();
 
     assert!(
-        !generated_configurations(&root)
+        !generated_spring_configurations(&root, &["service-web"])
             .iter()
             .any(|item| item["provider"] == "spring-boot.maven"),
         "a managed plugin must stay inert even when a parent declares it"
@@ -1849,7 +1878,7 @@ fn maven_detector_does_not_treat_aggregation_as_inheritance() {
     )
     .unwrap();
 
-    let ids = generated_configurations(&root)
+    let ids = generated_spring_configurations(&root, &["service-web"])
         .into_iter()
         .filter(|item| item["provider"] == "spring-boot.maven")
         .map(|item| item["id"].as_str().unwrap().to_string())
@@ -1884,7 +1913,7 @@ fn maven_detector_does_not_match_a_parent_by_artifact_id_alone() {
     )
     .unwrap();
 
-    let providers = generated_configurations(&root)
+    let providers = generated_spring_configurations(&root, &["service-web"])
         .into_iter()
         .filter(|item| {
             item["id"] == "spring-boot.maven:service-web"
@@ -1920,7 +1949,7 @@ fn maven_detector_does_not_inherit_from_a_different_parent_version() {
     .unwrap();
 
     assert!(
-        !generated_configurations(&root)
+        !generated_spring_configurations(&root, &["service-web"])
             .iter()
             .any(|item| item["provider"] == "spring-boot.maven"),
         "a version the reactor does not contain supplies nothing"
@@ -1959,7 +1988,7 @@ fn maven_detector_inherits_from_the_reactor_module_its_coordinates_name() {
     )
     .unwrap();
 
-    let providers = generated_configurations(&root)
+    let providers = generated_spring_configurations(&root, &["service-web"])
         .into_iter()
         .filter(|item| {
             item["id"] == "spring-boot.maven:service-web"
@@ -1995,7 +2024,7 @@ fn maven_detector_stops_at_a_plugin_that_opts_out_of_inheritance() {
     .unwrap();
 
     assert!(
-        !generated_configurations(&root)
+        !generated_spring_configurations(&root, &["service-web"])
             .iter()
             .any(|item| item["provider"] == "spring-boot.maven"),
         "a plugin marked non-inheritable must not reach the child"
@@ -2034,7 +2063,7 @@ fn maven_detector_keeps_a_plugin_stopped_across_several_levels() {
     .unwrap();
 
     assert!(
-        !generated_configurations(&root)
+        !generated_spring_configurations(&root, &["b/c", "b/c/d"])
             .iter()
             .any(|item| item["provider"] == "spring-boot.maven"),
         "a plugin stopped at `b` must not reappear on `c` or `d`"
@@ -2070,7 +2099,7 @@ fn maven_detector_restores_a_plugin_the_child_declares_itself() {
     )
     .unwrap();
 
-    let ids = generated_configurations(&root)
+    let ids = generated_spring_configurations(&root, &["b/c/d"])
         .into_iter()
         .filter(|item| item["provider"] == "spring-boot.maven")
         .map(|item| item["id"].as_str().unwrap().to_string())
@@ -2101,7 +2130,7 @@ fn maven_detector_does_not_inherit_through_an_unresolved_expression() {
     )
     .unwrap();
 
-    let providers = generated_configurations(&root)
+    let providers = generated_spring_configurations(&root, &["service-web"])
         .into_iter()
         .filter(|item| {
             item["id"] == "spring-boot.maven:service-web"
@@ -2136,7 +2165,7 @@ fn maven_detector_still_inherits_through_literal_coordinates() {
     )
     .unwrap();
 
-    let ids = generated_configurations(&root)
+    let ids = generated_spring_configurations(&root, &["service-web"])
         .into_iter()
         .filter(|item| item["provider"] == "spring-boot.maven")
         .map(|item| item["id"].as_str().unwrap().to_string())
@@ -2172,7 +2201,7 @@ fn maven_detector_inherits_plugins_by_coordinates_not_by_artifact_id_alone() {
     )
     .unwrap();
 
-    let ids = generated_configurations(&root)
+    let ids = generated_spring_configurations(&root, &["quarkus-module", "plain-module"])
         .into_iter()
         .filter_map(|item| item["id"].as_str().map(str::to_string))
         .collect::<Vec<_>>();
@@ -2211,7 +2240,7 @@ fn maven_detector_child_declaration_does_not_hide_a_same_named_inherited_plugin(
     )
     .unwrap();
 
-    let ids = generated_configurations(&root)
+    let ids = generated_spring_configurations(&root, &["service-web", "plain-inherit"])
         .into_iter()
         .filter_map(|item| item["id"].as_str().map(str::to_string))
         .collect::<Vec<_>>();

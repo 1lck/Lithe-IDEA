@@ -90,29 +90,6 @@ private struct EditorDocumentTabIcon: View {
     }
 }
 
-enum DocumentPreviewMode: String, CaseIterable, Identifiable, Equatable {
-    case editor
-    case split
-    case preview
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .editor: "Editor"
-        case .split: "Editor and Preview"
-        case .preview: "Preview"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .editor: "pencil.line"
-        case .split: "rectangle.split.2x1"
-        case .preview: "doc.richtext"
-        }
-    }
-}
 
 struct EditorAreaView: View {
     var groupID: UUID? = nil
@@ -132,7 +109,7 @@ struct EditorAreaView: View {
     @State private var tabReorderTarget: EditorTabReorderTarget?
     @State private var isTerminalTabBarDropTargeted = false
     @State private var resolvedTabIcons: [UUID: LitheIconKind] = [:]
-    @State private var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
+    private var documentPreviewModes: [UUID: DocumentPreviewMode] { model.editorTabOrderFeature.documentPreviewModes }
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var hoveredPreviewMode: DocumentPreviewMode?
 
@@ -150,12 +127,18 @@ struct EditorAreaView: View {
                     }
                 }
             }
-
-            if model.isImplementationChooserVisible && groupID == nil {
-                LanguageImplementationChooserView()
+        }
+        .overlay(alignment: .topLeading) {
+            if groupID == nil {
+                Color.clear.frame(width: 1, height: 1)
+                    .litheDropdown(isPresented: Binding(
+                        get: { model.isImplementationChooserVisible },
+                        set: { if !$0 { model.dismissImplementationChooser() } }
+                    ), searchOnTyping: true) {
+                        LanguageImplementationChooserView().environmentObject(model)
+                    }
                     .padding(.top, 48)
-                    .padding(.horizontal, 24)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                    .padding(.leading, 24)
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
@@ -168,11 +151,12 @@ struct EditorAreaView: View {
         }
         .onAppear { if groupID == nil, let activeItem { model.editorTabOrderFeature.focus(activeItem) } }
         .onChange(of: activeItem) { item in
+            if groupID == nil, model.isImplementationChooserVisible { model.closeLanguageNavigationResults() }
             if groupID == nil, let item { model.editorTabOrderFeature.focus(item) }
         }
         .onChange(of: model.openDocuments.map(\.id)) { ids in
             resolvedTabIcons = resolvedTabIcons.filter { ids.contains($0.key) }
-            documentPreviewModes = documentPreviewModes.filter { ids.contains($0.key) }
+            model.editorTabOrderFeature.documentPreviewModes = documentPreviewModes.filter { ids.contains($0.key) }
             markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
         }
         .onChange(of: model.editorTabItems) { items in
@@ -1112,7 +1096,7 @@ struct EditorAreaView: View {
 
     private func selectDocumentPreviewMode(_ mode: DocumentPreviewMode) {
         guard let document = paneDocument else { return }
-        documentPreviewModes[document.id] = mode
+        model.editorTabOrderFeature.documentPreviewModes[document.id] = mode
     }
 
     private func isSVGFile(_ document: EditorDocument) -> Bool {
@@ -1168,6 +1152,9 @@ struct EditorAreaView: View {
     }
 
     private func repositoryDiffTitle(_ id: UUID) -> String {
+        if let diff = model.editorTabOrderFeature.providerDiffs[id] {
+            return L10n.string("Repository Diff: \(diff.fileURL.lastPathComponent)")
+        }
         guard let session = model.gitFeatureIfActive?.repositoryDiffSessions[id] else { return L10n.string("Repository Diff") }
         if let comparison = session.branchComparison {
             let target = comparison.targetReference?.shortName ?? L10n.string("Working Tree")
@@ -1182,7 +1169,9 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private func repositoryDiffContent(_ id: UUID) -> some View {
-        if let feature = model.gitFeatureIfActive, let session = feature.repositoryDiffSessions[id] {
+        if let diff = model.editorTabOrderFeature.providerDiffs[id] {
+            VcsFileDiffContent(diff: diff, fontFamily: settings.editorFontFamily)
+        } else if let feature = model.gitFeatureIfActive, let session = feature.repositoryDiffSessions[id] {
             RepositoryDiffSessionView(feature: feature, session: session, fontFamily: settings.editorFontFamily)
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)

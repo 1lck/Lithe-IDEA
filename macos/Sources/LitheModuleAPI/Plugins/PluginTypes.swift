@@ -509,7 +509,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     /// not running it, so an entry is added only with its host support.
     public static let hostCapabilities: [String: [Int]] = [
         "packageTrust": [1],
-        "backend": [1],
+        "backend": [1, 2],
         "buildProviders": [1, 2, 3, 4, 5, 6], "buildModelInputs": [1],
         "buildSystems": [1, 2], "debugAdapters": [1, 2], "executableResolution": [1],
         "executionProviders": [1],
@@ -518,7 +518,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "projectGenerators": [1],
         "serverProcess": [1],
         "settings": [1, 2],
-        "ui": [1, 2, 3],
+        "ui": [1, 2, 3, 4],
         "vcsProviders": [1]
     ]
 

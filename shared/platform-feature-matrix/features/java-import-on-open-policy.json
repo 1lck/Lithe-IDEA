@@ -1,0 +1,30 @@
+{
+  "id": "java-import-on-open-policy",
+  "area": "Java",
+  "group": "语言服务",
+  "capability": "设置“打开 Java 项目时导入”：自动、询问（通知中可选导入或先配置 Maven）、手动（打开 Java 文件、运行或重新加载 Maven 时再导入）",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Composition/JavaLanguageServerPreparationCoordinator.swift"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/editor/lsp/java-import-on-open.ts",
+      "windows/tauri/src/features/file-system/stores/file-system.store.ts",
+      "windows/tauri/src/features/editor/lsp/java-workspace-language-server.ts",
+      "windows/tauri/src/features/settings/components/settings-panels.tsx",
+      "windows/tauri/src/features/settings/lib/settings-normalization.ts",
+      "windows/tauri/src/features/editor/lsp/java-import-on-open.test.ts",
+      "windows/tauri/src/features/run/services/java-entrypoint-discovery.ts",
+      "windows/tauri/src/features/run/stores/run.store.ts",
+      "windows/tauri/src/features/run/stores/run.store.java-discovery.test.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Language Tooling",
+  "verification": "Windows：在“语言服务”设置中分别选择三种策略后打开 Maven 工程。自动：立即开始导入。询问：出现通知，点“导入”开始导入，点“先配置”打开 Maven 设置且不导入；在导入过程中切换项目标签再切回不重复询问。手动：打开项目不导入，打开 Java 文件或运行时开始导入。打开项目时运行列表自动生成运行配置，在询问和手动模式下不得因此开始导入，导入开始后运行列表自动补全 Java 入口；在运行面板手动点击生成仍会导入。未知的已保存值回退为自动。"
+}

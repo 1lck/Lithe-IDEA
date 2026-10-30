@@ -63,7 +63,11 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     ]]
     var softWrapToggleCount = 0
     var debugRequests: [[String: Any]] = []
+    var definitionHoverRequestCount = 0
     var definitionRequests: [[String: Any]] = []
+    var definitionHoverReady: ((Any?, String?) -> Void)?
+    var holdDefinitionHover = false
+    var definitionHoverReplies: [(Any?, String?) -> Void] = []
     var editorLayout: [String: Any] = [:]
     var markdownScrollRequests: [[String: Any]] = []
     var markdownScrollWaiter: ((Any?, String?) -> Void)?
@@ -323,11 +327,34 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 replyHandler(["ok": true], nil)
             case "debugRequests":
                 replyHandler(["requests": debugRequests], nil)
+            case "javaFolding":
+                replyHandler(["ranges": body["id"] as? String == "default-import-fold" ? [["start": 3, "end": 5, "kind": "imports"], ["start": 7, "end": 9, "kind": "type"]] : []], nil)
+            case "waitDefinitionHover":
+                if definitionHoverReplies.isEmpty { definitionHoverReady = replyHandler }
+                else { replyHandler(["ready": true], nil) }
+            case "holdDefinitionHover":
+                holdDefinitionHover = body["hold"] as? Bool == true
+                if !holdDefinitionHover {
+                    let pending = definitionHoverReplies
+                    definitionHoverReplies.removeAll()
+                    definitionHoverReady?(["ready": false], nil)
+                    definitionHoverReady = nil
+                    for reply in pending { reply(["available": body["available"] as? Bool ?? true], nil) }
+                }
+                replyHandler(["ok": true], nil)
+            case "definitionHover":
+                definitionHoverRequestCount += 1
+                if holdDefinitionHover {
+                    definitionHoverReplies.append(replyHandler)
+                    definitionHoverReady?(["ready": true], nil)
+                    definitionHoverReady = nil
+                }
+                else { replyHandler(["available": true], nil) }
             case "definition":
                 definitionRequests.append(body)
                 replyHandler(["ok": true], nil)
             case "definitionRequests":
-                replyHandler(["requests": definitionRequests], nil)
+                replyHandler(["requests": definitionRequests, "hoverRequests": definitionHoverRequestCount], nil)
             case "editorLayout":
                 editorLayout = body
                 replyHandler(["ok": true], nil)
@@ -371,6 +398,11 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                     "textEdits": [["range": ["startLineNumber": 1, "startColumn": 5, "endLineNumber": 1, "endColumn": 5], "text": "value: "]]]]], nil)
             case "hover": replyHandler(["contents": "Host hover"], nil)
             case "debugHover": replyHandler(["contents": "second = <value> [literal]"], nil)
+            case "completion" where body["id"] as? String == "completion-refresh":
+                let refreshed = body["triggerKind"] as? Int == 3
+                replyHandler(["isIncomplete": !refreshed, "items": [[
+                    "label": refreshed ? "abacus" : "alpha", "insertText": refreshed ? "abacus" : "alpha", "kind": 6
+                ]]], nil)
             case "completion": replyHandler(["items": [
                 ["label": "sampleMethod", "insertText": "sampleMethod(${1:value})$0", "kind": 2, "insertTextFormat": 2,
                  "sortText": "001", "filterText": "sample", "completionList": "fixture-list", "completionIndex": 0] as [String: Any]

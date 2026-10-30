@@ -966,6 +966,35 @@ struct EditorTabOrderFeatureModelTests {
         await model.shutdownProjectSession()
     }
 
+    @Test func explicitNewDiffTabKeepsAnIndependentSessionWhileOrdinaryOpenReusesItsPreview() async throws {
+        let store = EditorTabOrderTestStore(), root = URL(fileURLWithPath: "/workspace")
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let feature = GitFeatureModel(service: GitService(operations: DiffToolbarGitOperations(root: root)),
+            diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) })
+        model.moduleCapabilityStore.cache(GitModuleCapability(feature: feature), id: .gitWorkspace, moduleID: .git)
+        do {
+            let change = GitChange(repositoryRoot: root, path: "same.swift", originalPath: nil,
+                                   indexStatus: " ", workTreeStatus: "M")
+            model.selectChange(change)
+            let first = try #require(model.editorTabOrderFeature.repositoryDiffIDs.first)
+            let preview = feature.repositoryDiffSession(id: first)
+            try #require(await awaitChange(on: preview) { preview.selectedChange == change && !preview.isLoadingDiff })
+            model.selectChange(change, inNewTab: true)
+            let second = try #require(model.editorTabOrderFeature.repositoryDiffIDs.last)
+            let independent = feature.repositoryDiffSession(id: second)
+            try #require(await awaitChange(on: independent) { independent.selectedChange == change && !independent.isLoadingDiff })
+            #expect(first != second && preview !== independent)
+            model.selectChange(change)
+            #expect(model.selectedRepositoryDiffID == first && model.editorTabOrderFeature.repositoryDiffIDs.count == 2)
+            model.closeRepositoryDiffTab(first)
+            #expect(feature.repositoryDiffSessions[first] == nil && feature.repositoryDiffSessions[second] === independent)
+        } catch { feature.reset(); await model.shutdownProjectSession(); throw error }
+        feature.reset()
+        await model.shutdownProjectSession()
+    }
+
     @Test func multipleDiffTabsKeepNativeScrollAndOnlySelectedTabAcceptsFocus() async throws {
         let store = EditorTabOrderTestStore(), root = URL(fileURLWithPath: "/workspace")
         let settings = AppSettings(store: store)

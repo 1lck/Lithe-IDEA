@@ -263,7 +263,7 @@ package struct JavaBuildReport: Codable, Equatable, Sendable {
     }
 }
 
-package struct JavaLaunchBuildFailure: Equatable, Sendable {
+package struct JavaLaunchBuildFailure: Codable, Equatable, Sendable {
     package let code: String
     package let message: String
     package let report: JavaBuildReport?
@@ -434,6 +434,7 @@ package protocol LanguageServerRuntimeCore: Sendable {
         sessionID: String,
         changes: [LanguageServerWorkspaceFileChange]
     ) -> Result<Void, LanguageServerRuntimeFailure>
+    func saveLanguageServerDocument(sessionID: String, fileURL: URL, text: String) -> Result<Bool, LanguageServerRuntimeFailure>
     func closeLanguageServerDocument(sessionID: String, fileURL: URL)
     func requestLanguageServerOperation(
         sessionID: String,
@@ -444,9 +445,15 @@ package protocol LanguageServerRuntimeCore: Sendable {
         newName: String?,
         range: LanguageServerRange?,
         diagnostics: [LanguageServerDiagnostic],
+        completionContext: LanguageServerCompletionContext?,
         completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    func prepareJavaLaunch(
+        sessionID: String,
+        fileURL: URL,
+        mainClass: String?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     func requestJavaNavigationMarkers(
         sessionID: String,
@@ -538,6 +545,14 @@ package protocol LanguageServerRuntimeCore: Sendable {
         hostRequestID: String,
         outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
     ) -> Result<Void, LanguageServerRuntimeFailure>
+    /// Sends a plugin backend one host notification (`lsp.hostNotify`), such
+    /// as a subscription event. `true` when Core wrote it; `false` when the
+    /// backend negotiated a function protocol without it.
+    func notifyPluginBackend(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure>
     /// Replaces the configuration a running plugin server reads and tells it
     /// through `workspace/didChangeConfiguration`.
     func updateWorkspaceConfiguration(
@@ -554,12 +569,27 @@ package protocol LanguageServerRuntimeCore: Sendable {
         params: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Like `requestPluginFunction`, naming the workspace context of the
+    /// call. Core forwards it only to a backend that negotiated function
+    /// protocol 3; a runtime without contexts drops it.
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference?,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent]
     func destroyLanguageServer(sessionID: String)
 }
 
 package extension LanguageServerRuntimeCore {
+    func saveLanguageServerDocument(sessionID _: String, fileURL _: URL, text _: String) -> Result<Bool, LanguageServerRuntimeFailure> {
+        .success(false)
+    }
+
     func requiresBackgroundLanguageServerStart(rootURL _: URL) -> Bool { false }
 
     func startLanguageServer(
@@ -638,6 +668,14 @@ package extension LanguageServerRuntimeCore {
         changes _: [LanguageServerWorkspaceFileChange]
     ) -> Result<Void, LanguageServerRuntimeFailure> {
         .success(())
+    }
+
+    func prepareJavaLaunch(
+        sessionID _: String,
+        fileURL _: URL,
+        mainClass _: String?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string("Java launch preparation is not supported by this runtime.")))
     }
 
     func requestJavaNavigationMarkers(
@@ -793,6 +831,17 @@ package extension LanguageServerRuntimeCore {
         ))
     }
 
+    func notifyPluginBackend(
+        sessionID _: String,
+        method _: String,
+        params _: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin host notifications are not supported by this runtime."
+        ))
+    }
+
     func updateWorkspaceConfiguration(
         sessionID _: String,
         configuration _: ToolingJSONValue
@@ -801,6 +850,19 @@ package extension LanguageServerRuntimeCore {
             code: "not_supported",
             message: "Workspace configuration updates are not supported by this runtime."
         ))
+    }
+
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        context _: PluginWorkspaceContextReference?,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        requestPluginFunction(
+            sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+        )
     }
 
     func requestPluginFunction(
@@ -836,12 +898,33 @@ package struct PluginHostRequest: Equatable, Sendable {
 }
 
 /// The host could not complete a host-service request. The message reaches
-/// the backend; never put a secret in it.
+/// the backend; never put a secret in it. `code` is a `plugin.host.*` code
+/// Core passes to a function protocol 3 backend; nil, or a code Core does
+/// not pass, reaches it as `plugin.host.failed`. `details` is an object of
+/// facts the backend may act on, such as a document's current version; Core
+/// passes it within 4 KiB to a protocol 3 backend and drops it otherwise.
 package struct PluginHostRequestFailure: Error, Equatable, Sendable {
     package let message: String
+    package let code: String?
+    package let details: ToolingJSONValue?
 
-    package init(message: String) {
+    package init(message: String, code: String? = nil, details: ToolingJSONValue? = nil) {
         self.message = message
+        self.code = code
+        self.details = details
+    }
+}
+
+/// One generation of one workspace context, as a call or a host request
+/// names it (function protocol 3). Only the host decides whether it is
+/// still current.
+package struct PluginWorkspaceContextReference: Hashable, Sendable {
+    package let contextID: String
+    package let generation: Int
+
+    package init(contextID: String, generation: Int) {
+        self.contextID = contextID
+        self.generation = generation
     }
 }
 

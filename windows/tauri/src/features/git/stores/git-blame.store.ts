@@ -16,8 +16,16 @@ interface GitBlameState {
   fileToRepo: Map<string, string>;
 
   actions: {
-    loadBlameForFile: (repoPath: string, filePath: string) => Promise<void>;
-    clearBlameForFile: (filePath: string) => void;
+    /**
+     * Loads blame once per file. `refresh` reloads a file whose blame is already
+     * shown: the current lines stay until the new result replaces them, so a
+     * repository change never blanks the annotation while Git runs.
+     */
+    loadBlameForFile: (
+      repoPath: string,
+      filePath: string,
+      options?: { refresh?: boolean },
+    ) => Promise<void>;
     clearAllBlame: () => void;
     getBlameForLine: (filePath: string, lineNumber: number) => GitBlameLine | null;
     getRepoPath: (filePath: string) => string | null;
@@ -39,14 +47,16 @@ export const createGitBlameStore = () =>
     fileToRepo: new Map(),
 
     actions: {
-      loadBlameForFile: async (repoPath: string, filePath: string) => {
+      loadBlameForFile: async (repoPath: string, filePath: string, options) => {
         const state = get();
         const cacheKey = getGitBlameCacheKey(repoPath, filePath);
-        if (state.blameData.has(cacheKey) && !state.errors.has(cacheKey)) {
-          return;
-        }
-        if (state.isLoading.get(cacheKey)) {
-          return;
+        if (!options?.refresh) {
+          if (state.blameData.has(cacheKey) && !state.errors.has(cacheKey)) {
+            return;
+          }
+          if (state.isLoading.get(cacheKey)) {
+            return;
+          }
         }
 
         const previousOperationId = state.operationIds.get(cacheKey);
@@ -92,47 +102,6 @@ export const createGitBlameStore = () =>
             isLoading: new Map(get().isLoading).set(cacheKey, false),
           });
         }
-      },
-
-      clearBlameForFile: (filePath: string) => {
-        const state = get();
-        const blameData = new Map(state.blameData);
-        const requestIds = new Map(state.requestIds);
-        const operationIds = new Map(state.operationIds);
-        const isLoading = new Map(state.isLoading);
-        const errors = new Map(state.errors);
-        const fileToRepo = new Map(state.fileToRepo);
-
-        const suffix = `\0${filePath}`;
-        for (const key of new Set([
-          ...blameData.keys(),
-          ...requestIds.keys(),
-          ...operationIds.keys(),
-          ...isLoading.keys(),
-          ...errors.keys(),
-        ])) {
-          if (!key.endsWith(suffix)) continue;
-          const operationId = operationIds.get(key);
-          if (operationId) {
-            void cancelCoreOperation(operationId);
-          }
-          blameData.delete(key);
-          requestIds.delete(key);
-          operationIds.delete(key);
-          isLoading.delete(key);
-          errors.delete(key);
-        }
-        fileToRepo.delete(filePath);
-
-        set({
-          blameData,
-          requestIds,
-          operationIds,
-          revision: state.revision + 1,
-          isLoading,
-          errors,
-          fileToRepo,
-        });
       },
 
       clearAllBlame: () => {

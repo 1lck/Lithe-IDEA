@@ -1,12 +1,18 @@
+import { DisposableStore, toDisposable } from "monaco-editor/esm/vs/base/common/lifecycle.js";
+import { FoldingController } from "monaco-editor/esm/vs/editor/contrib/folding/browser/folding.js";
+import { ContentHoverController } from "monaco-editor/esm/vs/editor/contrib/hover/browser/contentHoverController.js";
+import { ClickLinkGesture } from "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.js";
 import { runEditorCommand } from "./editor-commands";
 import { installWordHighlightLifecycle } from "./word-highlight-lifecycle";
 import { IBulkEditService } from "monaco-editor/esm/vs/editor/browser/services/bulkEditService.js";
 import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";
 import { mountNativeFind, type NativeFindInput } from "./native-find";
 import { mapCompletionKind } from "./completion-kind";
+import { CompositionTracker, applyPluginEdits, checkPluginEdits, savedPluginSelections, selectionView, toPluginSelections, type PluginEdit } from "./plugin-edits";
 import { mountDiffReview, type DiffReviewInput, type ReviewSelection } from "./diff-review";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import "monaco-editor/esm/vs/editor/editor.all.js";
+import { language as javaLanguage } from "monaco-editor/esm/vs/basic-languages/java/java.js";
 import { ensureMonacoLanguageTokenizer } from "./language-contributions";
 import { toMonacoLanguageId } from "./language";
 import { SourceText } from "./source-text";
@@ -31,6 +37,10 @@ const nativeFoldingOffset = nativeGutter.gap * 2 + nativeGutter.icon;
 
 export interface WorkbenchHost {
   request(payload: object): Promise<any>;
+  hoverDelay?: number;
+  /** Document language IDs whose host supports semantic link availability. */
+  definitionLinkLanguages?: readonly string[];
+  foldJavaImportsByDefault?: boolean;
   palette: { defaults: Record<string, { light: string; dark: string }> };
   javaNavigationIcons?: Record<"up-interface" | "up-inheritance" | "down-interface" | "down-inheritance", string>;
   /** IDEA test-state SVGs for Java Run markers. */
@@ -60,7 +70,7 @@ export function mountWorkbench(host: WorkbenchHost) {
   type GitMarker = { id: string; line: number; kind: "added" | "modified" | "deleted"; stage: boolean; unstage: boolean; discard: boolean };
   type BlameLine = { line: number; commit: string; author: string; date: string };
   type JavaMarker = { id: string; line: number; direction: "up" | "down"; relation?: "interface" | "inheritance" };
-  type Entry = { source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; freezeOperation?: string; pendingEdits: number; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; canToggleBreakpoints?: boolean; debugGeneration?: number; closingHolds?: number; filename?: string; locationRevision: number; contextGeneration: number };
+  type Entry = { languageID: string; source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; freezeOperation?: string; pendingEdits: number; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; canToggleBreakpoints?: boolean; debugGeneration?: number; closingHolds?: number; filename?: string; locationRevision: number; contextGeneration: number };
   const entries = new Map<string, Entry>();
   const workers: Worker[] = [];
   const closingOperations = new Map<string, { entry?: Entry; cancelled: boolean }>();
@@ -112,6 +122,11 @@ export function mountWorkbench(host: WorkbenchHost) {
   let suspendedViews: { role: string; id: string | undefined; state: monaco.editor.ICodeEditorViewState | null;
     find: FindSnapshot | undefined; focused: boolean }[] | undefined;
   let displayOptions: monaco.editor.IStandaloneEditorConstructionOptions = {};
+  // Host setting: skip Java keyword definition lookups. Defaults on, like the native host.
+  let javaKeywordNavigationFilter = true;
+  // Keep a rendered, hit-testable gutter on lines without breakpoints too.
+  // Monaco Off suppresses lineNumberClassName decorations along with the digits.
+  const hiddenLineNumbers = () => "\u200b";
   const allEditors = () => [editor, ...[...surfaces.values()].map(surface => surface.editor)].filter(Boolean);
   function applyReadOnly(entry: Entry) {
     for (const view of allEditors()) {
@@ -137,6 +152,11 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
   let updating = false;
   let failed = false;
+  // Set only while a plugin batch is applied, so its edit message names the
+  // batch (exact post-edit version) and the source mirror keeps the host's EOL.
+  let pluginEdit: { token: string; eol: string } | undefined;
+  const compositions = new CompositionTracker();
+  const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, { languageID: string; model: monaco.editor.ITextModel; lifetime: DisposableStore }>();
   let activation: Promise<unknown> = Promise.resolve();
   let textmate: Awaited<ReturnType<typeof installJavaTextMate>>;
   const semanticChanges = new Emitter<void>();
@@ -303,7 +323,9 @@ export function mountWorkbench(host: WorkbenchHost) {
 
   async function prepareEntry(payload: any): Promise<Entry> {
     let entry = entries.get(payload.id);
-    const language = payload.language ? toMonacoLanguageId(payload.language) : languageForFilename(payload.filename);
+    const languageID = payload.language || (entry && (payload.filename === undefined || payload.filename === entry.filename)
+      ? entry.languageID : languageForFilename(payload.filename));
+    const language = toMonacoLanguageId(languageID);
     if (!entry) {
       if (typeof payload.text !== "string") throw new Error("New model requires document text");
       await ensureMonacoLanguageTokenizer(language);
@@ -316,17 +338,18 @@ export function mountWorkbench(host: WorkbenchHost) {
       const model = acquired.model;
       // Monaco owns normalized editing coordinates; the source mirror preserves disk newlines.
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
-      entry = { source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, pendingEdits: 0, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
+      entry = { languageID, source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, pendingEdits: 0, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
       entries.set(payload.id, entry);
       const owned = entry;
       model.onDidChangeContent(event => {
         scheduleNavigation(payload.id, owned);
         if (updating) return;
         const baseRevision = owned.revision++;
-        const changes = owned.source.apply(event.changes, model.getAlternativeVersionId());
+        const origin = pluginEdit;
+        const changes = owned.source.apply(event.changes, model.getAlternativeVersionId(), origin?.eol);
         owned.pendingEdits++;
         owned.chain = owned.chain.then(async () => {
-          const reply = await send({ type: "edit", id: payload.id, baseRevision, changes });
+          const reply = await send({ type: "edit", id: payload.id, baseRevision, changes, ...(origin ? { origin: origin.token } : {}) });
           if (reply.revision !== owned.revision && reply.revision !== baseRevision + 1) throw new Error("Edit revision mismatch");
         }).then(() => { owned.pendingEdits--; }, error => {
           owned.pendingEdits--;
@@ -335,14 +358,21 @@ export function mountWorkbench(host: WorkbenchHost) {
         });
       });
     } else {
-      const languageChanged = (payload.language || payload.filename) && entry.model.getLanguageId() !== language;
-      if (languageChanged || (payload.filename !== undefined && payload.filename !== entry.filename) ||
+      const identityChanged = entry.languageID !== languageID;
+      const languageChanged = entry.model.getLanguageId() !== language;
+      if (identityChanged || languageChanged || (payload.filename !== undefined && payload.filename !== entry.filename) ||
           (payload.locationRevision !== undefined && payload.locationRevision !== entry.locationRevision)) {
         // Invalidate before awaiting syntax loading. Rename away and back must
         // not revive an older request, even when its text version is unchanged.
         entry.contextGeneration++;
         if (payload.filename !== undefined) entry.filename = payload.filename;
         if (payload.locationRevision !== undefined) entry.locationRevision = payload.locationRevision;
+      }
+      if (identityChanged) {
+        entry.languageID = languageID;
+        for (const view of allEditors()) {
+          if (view.getModel() === entry.model) syncDefinitionNavigation(view);
+        }
       }
       if (languageChanged) {
         await ensureMonacoLanguageTokenizer(language);
@@ -358,6 +388,27 @@ export function mountWorkbench(host: WorkbenchHost) {
     return entry;
   }
 
+  async function attachModel(view: monaco.editor.IStandaloneCodeEditor, entry: Entry,
+                             state: monaco.editor.ICodeEditorViewState | null | undefined) {
+    const node = view.getContainerDomNode();
+    const prepareFolds = host.foldJavaImportsByDefault && entry.model.getLanguageId() === "java"
+      && view.getModel() !== entry.model;
+    const opacity = node.style.opacity, inert = node.inert;
+    if (prepareFolds) { node.style.opacity = "0"; node.inert = true; }
+    try {
+      view.setModel(entry.model);
+      if (state) view.restoreViewState(state);
+      // Monaco applies default import folds and saved fold state asynchronously.
+      // Publish the first frame only after that same upstream operation completes.
+      if (prepareFolds) await FoldingController.get(view)?.getFoldingModel();
+    } finally {
+      if (prepareFolds) {
+        if (view.getModel() === entry.model && !entry.model.isDisposed()) view.render(true);
+        node.style.opacity = opacity; node.inert = inert;
+      }
+    }
+  }
+
   async function activate(payload: any) {
     const started = performance.now();
     const previous = active && entries.get(active);
@@ -369,9 +420,8 @@ export function mountWorkbench(host: WorkbenchHost) {
     const modelMs = performance.now() - modelStarted;
     const attachStarted = performance.now();
     active = payload.id;
-    editor.setModel(entry.model);
+    await attachModel(editor, entry, entry.state);
     scheduleNavigation(payload.id, entry);
-    if (entry.state) editor.restoreViewState(entry.state);
     editor.updateOptions({ readOnly: entry.readonly || !!entry.closingHolds || failed });
     if (payload.focus) editor.focus();
     const metrics = { reused, modelMs, attachMs: performance.now() - attachStarted,
@@ -458,14 +508,22 @@ export function mountWorkbench(host: WorkbenchHost) {
           const show = value && (line === firstVisibleLine || byLine.get(line - 1)?.commit !== value.commit);
           const label = value ? `${value.author} · ${value.date}` : "";
           const metadata = value ? `<span class="lithe-blame" title="${escapeHTML(`${label} · ${value.commit.slice(0, 8)}`)}">${show ? escapeHTML(label) : "&#8203;"}</span>` : "";
-          return `${metadata}<span class="lithe-blame-line">${line}</span>`;
-        } } : { lineNumbers: "on", lineNumbersMinChars: host.lineNumbersFirst ? 1 : 5 });
+          const mode = displayOptions.lineNumbers === hiddenLineNumbers ? "off" : displayOptions.lineNumbers ?? "on";
+          const activeLine = view.getPosition()?.lineNumber ?? line;
+          const number = mode === "off" ? "" : mode === "relative" && line !== activeLine ? Math.abs(line - activeLine) : line;
+          return `${metadata}<span class="lithe-blame-line">${number}</span>`;
+        } } : { lineNumbers: displayOptions.lineNumbers ?? "on", lineNumbersMinChars: host.lineNumbersFirst ? 1 : 5 });
       }
       const value = current();
       for (const action of ["show", "stage", "unstage", "discard"] as const)
         keys[action].set(!!value && (action === "show" || (!value.entry.readonly && value.marker[action])));
     };
-    gitContextUpdates.set(view, refresh);
+    gitContextUpdates.set(view, () => {
+      // Display updates replace Monaco's line-number option. Reinstall active
+      // blame without losing the user's relative/hidden line-number preference.
+      renderedBlame = {};
+      refresh();
+    });
     const run = async (action: string, line?: number) => {
       const value = current(line);
       if (!value) return;
@@ -588,26 +646,144 @@ export function mountWorkbench(host: WorkbenchHost) {
     node.addEventListener("paste", paste, true);
     view.onDidDispose(() => node.removeEventListener("paste", paste, true));
   }
-  function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
+  function syncDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
+    // Plugin identity belongs to the document; several identities can share
+    // one Monaco tokenizer (for example properties/ini or bash/shell).
+    const languageID = [...entries.values()].find(entry => entry.model === view.getModel())?.languageID;
+    const existing = definitionNavigation.get(view);
+    if (existing && (existing.languageID !== languageID || existing.model !== view.getModel())) {
+      existing.lifetime.dispose(); definitionNavigation.delete(view);
+    }
+    if (languageID && !definitionNavigation.has(view)) {
+      definitionNavigation.set(view, { languageID, model: view.getModel()!, lifetime: attachDefinitionNavigation(view, host.definitionLinkLanguages?.includes(languageID) === true) });
+    }
+  }
+  function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor, managed: boolean) {
+    const lifetime = new DisposableStore();
+    // Monaco removes its model view before onDidChangeModel; retain the owned
+    // node until disposal so cleanup can still remove pointer/hint classes.
+    const node = view.getDomNode();
+    // Keywords are "code" to Monaco's standard token types, but they never have a
+    // definition. Filtering them here avoids a language-server round trip that can
+    // take seconds for keywords such as `static` or `switch`.
+    // `this` and `super` also name constructor calls, which have definitions, so they stay navigable.
+    // Contextual keywords can also be legal identifiers; let the server resolve them.
+    const navigableJavaWords = new Set(["this", "super", "yield", "record", "sealed", "permits", "non-sealed"]);
+    const javaKeywords = new Set<string>(javaLanguage.keywords.filter(word => !navigableJavaWords.has(word)));
+    const isKeywordPosition = (position: monaco.IPosition | null) => {
+      const model = view.getModel();
+      if (!javaKeywordNavigationFilter || !position || model?.getLanguageId() !== "java") return false;
+      const word = model.getWordAtPosition(position)?.word;
+      return word !== undefined && javaKeywords.has(word);
+    };
+    const isCodePosition = (position: monaco.IPosition | null) => {
+      const tokens = (view.getModel() as any)?.tokenization;
+      if (isKeywordPosition(position)) return false;
+      // Reuse Monaco/TextMate lexical state, including multiline comments. Do not
+      // synchronously tokenize a large prefix just to respond to mouse movement.
+      if (!position || !tokens?.isCheapToTokenize(position.lineNumber)) return false;
+      tokens.forceTokenization(position.lineNumber);
+      const line = tokens.getLineTokens(position.lineNumber);
+      return line.getStandardTokenType(line.findTokenIndexAtOffset(position.column - 1)) === 0 /* Other (code) */;
+    };
     const navigate = async (position: monaco.IPosition | null) => {
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
-      if (!pair || !position) return;
+      if (!pair || !position || lifetime.isDisposed || isKeywordPosition(position)) return;
       const [id, entry] = pair, current = documentCheckpoint(id, entry);
       await entry.chain;
-      if (!current() || view.getModel() !== entry.model) return;
+      if (lifetime.isDisposed || !current() || view.getModel() !== entry.model) return;
       await languageRequest({ type: "definition", id, revision: entry.revision,
         line: position.lineNumber - 1, column: position.column - 1 });
     };
-    view.addAction({ id: "lithe.goToDefinition", label: "Go to Definition", keybindings: [monaco.KeyCode.F12],
-      contextMenuGroupId: "navigation", contextMenuOrder: 1, run: () => navigate(view.getPosition()) });
-    view.onMouseDown(event => {
-      const gesture = event.event;
-      if (!(isMacintosh ? gesture.metaKey : gesture.ctrlKey) || !gesture.leftButton || gesture.altKey || gesture.shiftKey ||
-          event.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !event.target.position) return;
-      gesture.preventDefault();
-      gesture.stopPropagation();
-      void navigate(event.target.position);
-    });
+    lifetime.add(view.addAction({ id: "lithe.goToDefinition", label: "Go to Definition", keybindings: [monaco.KeyCode.F12],
+      contextMenuGroupId: "navigation", contextMenuOrder: 1, run: () => navigate(view.getPosition()) }));
+    if (!managed) {
+      // Preserve existing navigation for languages without semantic link feedback,
+      // including XML attribute/configuration links. Do not add hover queries.
+      lifetime.add(view.onMouseDown(event => {
+        const gesture = event.event;
+        if (!(isMacintosh ? gesture.metaKey : gesture.ctrlKey) || !gesture.leftButton || gesture.altKey || gesture.shiftKey ||
+            event.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !event.target.position) return;
+        gesture.preventDefault(); gesture.stopPropagation();
+        void navigate(event.target.position);
+      }));
+      return lifetime;
+    }
+    // Reuse Monaco's modifier/drag/key lifecycle, but keep file ownership,
+    // virtual sources and navigation history in the native host. Monaco's full
+    // definition contribution requires loading target files into its model store.
+    const gesture = lifetime.add(new ClickLinkGesture(view));
+    const links = view.createDecorationsCollection();
+    let generation = 0;
+    let hovered = "";
+    let ownsHover = false;
+    const clear = (hideHint = true) => {
+      generation++; hovered = ""; links.clear();
+      node?.classList.remove("lithe-definition-pointer");
+      if (ownsHover && (hideHint || !ContentHoverController.get(view)?.isHoverVisible)) {
+        ownsHover = false;
+        node?.classList.remove("lithe-command-hover");
+        ContentHoverController.get(view)?.hideContentHover();
+      }
+    };
+    const dismiss = () => { clear(); ContentHoverController.get(view)?.hideContentHover(); };
+    lifetime.add(gesture.onCancel(() => clear()));
+    // Monaco owns movement into the popup, its sticky corridor and link selection.
+    lifetime.add(view.onMouseLeave(() => clear(false)));
+    lifetime.add(view.onDidBlurEditorWidget(dismiss));
+    lifetime.add(view.onDidChangeModel(dismiss));
+    lifetime.add(view.onDidChangeModelContent(dismiss));
+    lifetime.add(view.onDidScrollChange(event => { if (event.scrollTopChanged || event.scrollLeftChanged) dismiss(); }));
+    lifetime.add(view.onKeyDown(event => { if (event.keyCode === monaco.KeyCode.Escape) dismiss(); }));
+    window.addEventListener("blur", dismiss);
+    lifetime.add(gesture.onMouseMoveOrRelevantKeyDown(async ([mouse, key]) => {
+      const position = mouse.target.position;
+      const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
+      if (!(mouse.hasTriggerModifier || key?.keyCodeIsTriggerKey) || mouse.hasSideBySideModifier) { clear(); return; }
+      if (mouse.target.element?.closest(".monaco-hover,.monaco-resizable-hover")) return;
+      if (!pair || !position || mouse.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) { clear(false); return; }
+      const [id, entry] = pair;
+      const word = entry.model.getWordAtPosition(position);
+      if (!word || !isCodePosition(position)) { clear(); return; }
+      const identity = `${id}:${entry.model.getVersionId()}:${position.lineNumber}:${word.startColumn}:${word.endColumn}`;
+      if (hovered === identity) return;
+      clear();
+      hovered = identity;
+      // Candidate feedback must not wait for the native semantic round trip.
+      // Availability validates this presentation; clicking still resolves real targets.
+      const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
+      node?.classList.add("lithe-definition-pointer");
+      links.set([{ range, options: { inlineClassName: "goto-definition-link" } }]);
+      const request = generation, current = documentCheckpoint(id, entry);
+      await entry.chain;
+      if (request !== generation || !current() || view.getModel() !== entry.model) return;
+      const reply = await languageRequest({ type: "definitionHover", id, revision: entry.revision,
+        line: position.lineNumber - 1, column: position.column - 1 });
+      if (request !== generation || !current() || view.getModel() !== entry.model) return;
+      if (reply.available === true) {
+        const hover = ContentHoverController.get(view);
+        if (hover && !hover.isHoverVisible) {
+          ownsHover = true;
+          node?.classList.add("lithe-command-hover");
+          // Documentation remains delayed independently of immediate link feedback.
+          hover.showContentHover(range, 0 /* Delayed */, 0 /* Mouse */, false);
+        }
+      } else {
+        clear();
+        // Do not restart candidate feedback on each pixel of a rejected word.
+        // A new gesture may retry a transient miss.
+        hovered = identity;
+      }
+    }));
+    lifetime.add(gesture.onExecute(mouse => {
+      if (mouse.isLeftClick && mouse.hasTriggerModifier && !mouse.hasSideBySideModifier &&
+          mouse.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT && isCodePosition(mouse.target.position)) {
+        clear();
+        void navigate(mouse.target.position);
+      }
+    }));
+    lifetime.add(toDisposable(() => { clear(); window.removeEventListener("blur", dismiss); }));
+    return lifetime;
   }
 
   function attachRunInteractions(view: monaco.editor.IStandaloneCodeEditor) {
@@ -713,7 +889,8 @@ export function mountWorkbench(host: WorkbenchHost) {
         const entry = [...entries.values()].find(entry => entry.model === view.getModel());
         view.getDomNode()?.toggleAttribute("data-lithe-breakpoints-editable", !!entry &&
           entry.canToggleBreakpoints === true && !entry.readonly && !entry.frozen && !entry.closingHolds && !failed &&
-          !view.getOption(monaco.editor.EditorOption.readOnly) && typeof view.getRawOptions().lineNumbers !== "function");
+          !view.getOption(monaco.editor.EditorOption.readOnly) &&
+          (typeof view.getRawOptions().lineNumbers !== "function" || view.getRawOptions().lineNumbers === hiddenLineNumbers));
       }
       const value = navigation();
       for (const direction of ["up", "down"] as const) navigationKeys[direction].set(!!value?.markers.some(marker => marker.direction === direction));
@@ -747,7 +924,10 @@ export function mountWorkbench(host: WorkbenchHost) {
     }
     attachGitInteractions(view);
     attachImagePaste(view);
-    attachDefinitionNavigation(view);
+    syncDefinitionNavigation(view);
+    view.onDidChangeModel(() => syncDefinitionNavigation(view));
+    view.onDidChangeModelLanguage(() => syncDefinitionNavigation(view));
+    view.onDidDispose(() => { definitionNavigation.get(view)?.lifetime.dispose(); definitionNavigation.delete(view); });
     attachRunInteractions(view);
     debugRunContexts.set(view, view.createContextKey("litheCanRunToCursor", false));
     function request(type: "toggleBreakpoint" | "editBreakpoint" | "runToCursor", line: number, column = 1) {
@@ -793,7 +973,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (host.gitBlameMenu && host.lineNumbersFirst && (event.event.rightButton || isMacintosh && event.event.ctrlKey) &&
           event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
       if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-blame") ||
-          host.lineNumbersFirst && typeof view.getRawOptions().lineNumbers === "function") return;
+          host.lineNumbersFirst && typeof view.getRawOptions().lineNumbers === "function" &&
+          view.getRawOptions().lineNumbers !== hiddenLineNumbers) return;
       if ((event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
            !(host.lineNumbersFirst && event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS)) || !event.target.position ||
           (!event.event.leftButton && !event.event.rightButton)) return;
@@ -804,6 +985,40 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
 
   const api = {
+    /** Selections of a document, primary first, with the revision they belong to. */
+    async pluginSelections(payload: { id: string }) {
+      await activation;
+      const entry = entries.get(payload.id);
+      if (!entry) return { status: "documentNotFound" };
+      await entry.chain.catch(() => undefined);
+      const view = selectionView(entry.model, allEditors(), lastFocusedView);
+      const selections = view ? toPluginSelections(view.getSelections()) : savedPluginSelections(entry.state);
+      return { status: "ok", revision: entry.revision, selections };
+    },
+    /** Applies a host-validated batch as one undo step, or rejects it untouched. */
+    async applyPluginEdits(payload: { id: string; revision: number; token: string; eol: string; edits: PluginEdit[] }) {
+      // No await before the check: queued activation must not hide newer input,
+      // and the revision comparison below already rejects any unseen edit.
+      const entry = entries.get(payload.id);
+      if (!entry) return { status: "documentNotFound" };
+      const views = allEditors();
+      const status = checkPluginEdits({
+        model: entry.model, edits: payload.edits, readonly: entry.readonly,
+        busy: failed || updating || entry.frozen || (entry.closingHolds ?? 0) > 0,
+        revision: entry.revision, expectedRevision: payload.revision, pendingEdits: entry.pendingEdits,
+        composing: compositions.isComposing(entry.model, views),
+      });
+      if (status) return { status };
+      const view = selectionView(entry.model, views, lastFocusedView);
+      pluginEdit = { token: payload.token, eol: payload.eol };
+      try {
+        applyPluginEdits(entry.model, payload.edits, view?.getSelections() ?? null);
+      } finally { pluginEdit = undefined; }
+      // Resolve after Swift acknowledged the tagged edit so it can report the
+      // version produced by exactly this batch.
+      await entry.chain;
+      return { status: "applied", revision: entry.revision };
+    },
     async markdownScroll(payload: { id: string; ratio?: number } | null) {
       await activation;
       clearTimeout(markdownScrollTimer); markdownScrollTimer = undefined;
@@ -949,6 +1164,7 @@ export function mountWorkbench(host: WorkbenchHost) {
           attachDebugInteractions(view);
           surface = { editor: view, id: payload.id, states: new Map() };
           surfaces.set(surfaceID, surface);
+          compositions.track(view);
           view.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             void send({ type: "save", id: surface!.id }).catch(fail);
           });
@@ -967,9 +1183,7 @@ export function mountWorkbench(host: WorkbenchHost) {
           const state = surface.editor.saveViewState();
           if (state) surface.states.set(surface.id, state);
           surface.id = payload.id;
-          surface.editor.setModel(entry.model);
-          const retained = surface.states.get(payload.id);
-          if (retained) surface.editor.restoreViewState(retained);
+          await attachModel(surface.editor, entry, surface.states.get(payload.id));
         }
         applyReadOnly(entry);
         if (payload.focus) surface.editor.focus();
@@ -980,6 +1194,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       surfaceOperations.set(surfaceID, (surfaceOperations.get(surfaceID) ?? 0) + 1);
       const surface = surfaces.get(surfaceID);
       if (!surface) return;
+      compositions.forget(surface.editor);
       surface.editor.dispose();
       surfaces.delete(surfaceID);
     },
@@ -1067,7 +1282,9 @@ export function mountWorkbench(host: WorkbenchHost) {
       const theme = payload.theme as WorkbenchThemeInput | undefined;
       const name = theme ? defineWorkbenchTheme(theme, host.palette)
         : payload.dark ? "lithe-dark" : "lithe-light";
+      javaKeywordNavigationFilter = payload.javaKeywordNavigationFilter !== false;
       Object.assign(displayOptions, {
+        ...payload.appearance,
         // Standalone updateOptions and newly created split editors both apply
         // this construction theme globally, so it must track the host theme.
         theme: name,
@@ -1076,9 +1293,11 @@ export function mountWorkbench(host: WorkbenchHost) {
         wordWrap: payload.wrap ? "on" : "off",
         minimap: { enabled: payload.minimap !== false },
       });
+      if (host.lineNumbersFirst && displayOptions.lineNumbers === "off") displayOptions.lineNumbers = hiddenLineNumbers;
       for (const view of allEditors()) {
         view.updateOptions(displayOptions);
         navigationContexts.get(view)?.();
+        gitContextUpdates.get(view)?.();
       }
       monaco.editor.setTheme(name);
     },
@@ -1256,6 +1475,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       // Full-width punctuation is normal in Chinese prose; Monaco's confusable-character
       // warning misfires there and its "Adjust settings" link has no target in embedded Monaco.
       unicodeHighlight: { ambiguousCharacters: false },
+      foldingImportsByDefault: host.foldJavaImportsByDefault ?? false,
+      ...(host.hoverDelay !== undefined ? { hover: { delay: host.hoverDelay } } : {}),
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
     installWordHighlightLifecycle(editor);
@@ -1333,6 +1554,24 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor .lithe-debug-value{color:var(--vscode-editor-inlineValuesForeground,#888);background:var(--vscode-editor-inlineValuesBackground,transparent);font-style:italic}`;
     document.head.append(debugStyle);
     textmate = await installJavaTextMate();
+    if (host.foldJavaImportsByDefault) monaco.languages.registerFoldingRangeProvider("java", {
+      async provideFoldingRanges(model, _context, token) {
+        const pair = [...entries].find(([, entry]) => entry.model === model);
+        if (!pair) return null;
+        const [id, entry] = pair, current = documentCheckpoint(id, entry);
+        await entry.chain;
+        if (!current() || token.isCancellationRequested) return null;
+        const reply = await languageRequest({ type: "javaFolding", id, revision: entry.revision });
+        if (!current() || token.isCancellationRequested || reply.cancelled) return null;
+        return (reply.ranges ?? []).filter((range: any) => Number.isInteger(range.start) &&
+          Number.isInteger(range.end) && range.start >= 1 && range.end > range.start &&
+          range.end <= model.getLineCount()).map((range: any) => ({
+            start: range.start, end: range.end,
+            kind: range.kind === "imports" ? monaco.languages.FoldingRangeKind.Imports :
+              range.kind === "comment" ? monaco.languages.FoldingRangeKind.Comment : undefined,
+          }));
+      },
+    });
     monaco.languages.registerDocumentSemanticTokensProvider("java", {
       getLegend: () => MONACO_SEMANTIC_TOKEN_LEGEND,
       onDidChange: semanticChanges.event,
@@ -1364,6 +1603,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       if (active) void send({ type: "save", id: active }).catch(fail);
     });
+    compositions.track(editor);
     editor.onDidFocusEditorText(() => {
       lastFocusedView = editor;
       const position = editor.getPosition();
@@ -1541,7 +1781,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     }>();
     monaco.languages.registerCompletionItemProvider("*", {
       triggerCharacters: ["."],
-      async provideCompletionItems(model, position, _context, token) {
+      async provideCompletionItems(model, position, context, token) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
         const id = pair?.[0]; const entry = pair?.[1];
         if (!id || !entry || entry.model !== model) return { suggestions: [] };
@@ -1551,10 +1791,11 @@ export function mountWorkbench(host: WorkbenchHost) {
         const revision = entry.revision, version = model.getVersionId();
         const request = {};
         completionRequests.set(entry, request);
-        const reply = await languageRequest({ type: "completion", id, revision, line: position.lineNumber - 1, column: position.column - 1 });
+        const reply = await languageRequest({ type: "completion", id, revision, line: position.lineNumber - 1, column: position.column - 1,
+          triggerKind: context.triggerKind + 1, triggerCharacter: context.triggerCharacter });
         if (!current() || token.isCancellationRequested || entries.get(id) !== entry || model.isDisposed() || entry.revision !== revision || model.getVersionId() !== version || completionRequests.get(entry) !== request || reply.cancelled) return { suggestions: [] };
         const word = model.getWordUntilPosition(position);
-        return { suggestions: (reply.items ?? []).map((item: any) => {
+        return { incomplete: reply.isIncomplete === true, suggestions: (reply.items ?? []).map((item: any) => {
           const suggestion = { ...item, kind: mapCompletionKind(item.kind),
             insertTextRules: item.insertTextFormat === 2 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
             range: item.range ?? new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn) };

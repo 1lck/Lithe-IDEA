@@ -51,7 +51,7 @@ struct GitCommitTreeStyleTests {
     @Test func fileTypesUseExistingLanguageIconsInsteadOfStatusBadges() {
         #expect(LitheIcons.kind(forFilePath: "ChangesSidebarView.swift") == .swiftSource)
         #expect(LitheIcons.kind(forFilePath: "git-local-changelists.json") == .json)
-        #expect(LitheIcons.kind(forFilePath: "README.md") == .markdown)
+        #expect(LitheIcons.kind(forFilePath: "CHANGELOG.md") == .markdown)
         #expect(LitheIcons.kind(forFilePath: "Localizable.strings") == .i18n)
     }
 }

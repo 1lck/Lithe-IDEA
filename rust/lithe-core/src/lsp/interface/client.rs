@@ -40,7 +40,7 @@ pub(super) fn client_initialize_for_plugin(
             }],
             "capabilities": {
                 "textDocument": {
-                    "synchronization": {},
+                    "synchronization": { "didSave": true },
                     "completion": {
                         "dynamicRegistration": true,
                         "contextSupport": true,
@@ -151,7 +151,7 @@ pub fn client_open_document(
         uri: request.uri.clone(),
         language_id: request.language_id,
         version: 1,
-        text: request.text,
+        text: request.text.into(),
     };
     let message = json_rpc_notification(
         "textDocument/didOpen",
@@ -231,7 +231,7 @@ pub fn client_change_document(
     };
     let mut document = document;
     document.version += 1;
-    document.text = next_text;
+    document.text = next_text.into();
     let message = json_rpc_notification(
         "textDocument/didChange",
         json!({
@@ -346,19 +346,22 @@ fn client_feature_request_with_document_ownership(
 pub fn client_apply_server_message(
     request: ClientApplyServerMessageRequest,
 ) -> Result<LspClientResponse, CoreError> {
-    client_apply_server_message_for_plugin(request, false)
-}
-
-/// Applies function protocol messages only for sessions with a runtime-owned plugin identity.
-pub(super) fn client_apply_server_message_for_plugin(
-    request: ClientApplyServerMessageRequest,
-    plugin_owned: bool,
-) -> Result<LspClientResponse, CoreError> {
-    let mut state = request.state;
     let message: Value = serde_json::from_str(&request.message).map_err(|error| {
         CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP server JSON message")
             .with_details(error.to_string())
     })?;
+    client_apply_server_message_for_plugin(request.state, &message, false)
+}
+
+/// Applies function protocol messages only for sessions with a runtime-owned plugin identity.
+///
+/// Takes the message already parsed: the engine parses each server message once,
+/// outside the session state lock, and reduces it while holding that lock.
+pub(super) fn client_apply_server_message_for_plugin(
+    mut state: LspClientState,
+    message: &Value,
+    plugin_owned: bool,
+) -> Result<LspClientResponse, CoreError> {
     let mut responses = Vec::new();
     let mut events = Vec::new();
 
@@ -562,26 +565,37 @@ pub(super) fn client_apply_server_message_for_plugin(
                 ) {
                     // The engine answers once the host has; the request
                     // carries the backend's own ID back to it.
-                    Ok(service) => events.push(LspClientEvent {
-                        kind: "hostRequest".to_string(),
-                        request_id: None,
-                        method: Some(method.to_string()),
-                        uri: None,
-                        version: None,
-                        diagnostics: None,
-                        result: Some(json!({
-                            "id": id,
-                            "service": service,
-                            "params": message.get("params").cloned().unwrap_or(Value::Null),
-                        })),
-                        error: None,
-                    }),
-                    Err(refusal) => responses.push(json_rpc_error_with_code(
-                        id,
-                        refusal.rpc_code,
-                        refusal.message,
-                        refusal.code,
-                    )?),
+                    Ok(plugin_function::HostRoute::Answer(result)) => {
+                        responses.push(json_rpc_result(id, result)?)
+                    }
+                    Ok(plugin_function::HostRoute::Forward(service)) => {
+                        events.push(LspClientEvent {
+                            kind: "hostRequest".to_string(),
+                            request_id: None,
+                            method: Some(method.to_string()),
+                            uri: None,
+                            version: None,
+                            diagnostics: None,
+                            result: Some(json!({
+                                "id": id,
+                                "service": service,
+                                "params": message.get("params").cloned().unwrap_or(Value::Null),
+                            })),
+                            error: None,
+                        })
+                    }
+                    Err(refusal) => {
+                        let mut data = json!({ "code": refusal.code });
+                        if let Some(details) = refusal.details {
+                            data["details"] = details;
+                        }
+                        responses.push(json_rpc_error_with_data(
+                            id,
+                            refusal.rpc_code,
+                            refusal.message,
+                            data,
+                        )?)
+                    }
                 }
             }
             _ => {
@@ -673,6 +687,19 @@ pub(super) fn client_apply_server_message_for_plugin(
                 }
                 state.text_document_sync =
                     text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
+                state.text_document_save_include_text = match result
+                    .get("capabilities")
+                    .and_then(|value| value.pointer("/textDocumentSync/save"))
+                {
+                    Some(Value::Bool(true)) => Some(false),
+                    Some(Value::Object(options)) => Some(
+                        options
+                            .get("includeText")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    ),
+                    _ => None,
+                };
                 if let Some(options) = result
                     .get("capabilities")
                     .and_then(|c| c.get("semanticTokensProvider"))
@@ -770,7 +797,7 @@ fn json_rpc_request(id: &str, method: &str, params: Value) -> Result<String, Cor
     }))
 }
 
-fn json_rpc_notification(method: &str, params: Value) -> Result<String, CoreError> {
+pub(super) fn json_rpc_notification(method: &str, params: Value) -> Result<String, CoreError> {
     encode_json_rpc(json!({
         "jsonrpc": "2.0",
         "method": method,
@@ -817,10 +844,21 @@ pub(super) fn json_rpc_error_with_code(
     message: &str,
     contract_code: &str,
 ) -> Result<String, CoreError> {
+    json_rpc_error_with_data(id, code, message, json!({ "code": contract_code }))
+}
+
+/// A JSON-RPC error with the given `data`, which holds at least the stable
+/// plugin-contract `code`.
+pub(super) fn json_rpc_error_with_data(
+    id: &Value,
+    code: i64,
+    message: &str,
+    data: Value,
+) -> Result<String, CoreError> {
     encode_json_rpc(json!({
         "jsonrpc": "2.0",
         "id": id,
-        "error": { "code": code, "message": message, "data": { "code": contract_code } }
+        "error": { "code": code, "message": message, "data": data }
     }))
 }
 
@@ -939,8 +977,40 @@ fn validate_lsp_method(method: &str) -> Result<(), CoreError> {
 fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreError> {
     let text_document = json!({ "uri": request.uri });
     match request.method.as_str() {
-        "textDocument/completion"
-        | "textDocument/hover"
+        "textDocument/completion" => {
+            let context = request.completion_context.as_ref();
+            let kind = context
+                .and_then(|v| v.get("triggerKind"))
+                .and_then(Value::as_u64)
+                .unwrap_or(1);
+            if !(1..=3).contains(&kind)
+                || context.is_some_and(|v| {
+                    !v.is_object() || v.get("triggerKind").and_then(Value::as_u64).is_none()
+                })
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid completion trigger kind",
+                ));
+            }
+            let mut trigger = json!({"triggerKind": kind});
+            if kind == 2 {
+                let character = context
+                    .and_then(|v| v.get("triggerCharacter"))
+                    .and_then(Value::as_str)
+                    .filter(|v| v.chars().count() == 1)
+                    .ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Completion trigger character is required",
+                        )
+                    })?;
+                trigger["triggerCharacter"] = json!(character);
+            }
+            Ok(json!({"textDocument": text_document,
+                "position": lsp_position_json(required_position(request)?), "context": trigger}))
+        }
+        "textDocument/hover"
         | "textDocument/definition"
         | "textDocument/declaration"
         | "textDocument/typeDefinition"
@@ -1170,7 +1240,8 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
     let result = result?;
     match method {
         Some("textDocument/completion") => Some(json!({
-            "items": parse_completion_items(result)
+            "items": parse_completion_items(result),
+            "isIncomplete": result.get("isIncomplete").and_then(Value::as_bool).unwrap_or(false)
         })),
         Some("completionItem/resolve") => parse_completion_item(result).map(|item| {
             json!({

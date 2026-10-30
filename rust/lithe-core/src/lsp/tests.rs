@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::ErrorCode;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
@@ -516,9 +517,10 @@ fn client_core_initializes_and_applies_server_capabilities() {
         client_capabilities["textDocument"]["codeLens"]["dynamicRegistration"],
         true
     );
-    assert!(client_capabilities["textDocument"]["synchronization"]
-        .get("didSave")
-        .is_none());
+    assert_eq!(
+        client_capabilities["textDocument"]["synchronization"]["didSave"],
+        true
+    );
     assert_eq!(
         client_capabilities["textDocument"]["publishDiagnostics"]["relatedInformation"],
         true
@@ -659,6 +661,7 @@ fn client_core_tracks_documents_and_feature_requests() {
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -709,7 +712,8 @@ fn client_change_document_emits_incremental_ranges_when_the_server_supports_them
             .open_documents
             .get("file:///tmp/project/main.rs")
             .unwrap()
-            .text,
+            .text
+            .as_ref(),
         "fn main(launch) {}\n"
     );
     let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
@@ -776,7 +780,7 @@ fn client_change_document_replays_multi_change_batches_end_to_start() {
         .open_documents
         .get("file:///tmp/project/multi.rs")
         .unwrap();
-    assert_eq!(document.text, "aXbc\nd");
+    assert_eq!(document.text.as_ref(), "aXbc\nd");
 
     let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
     let content_changes = did_change["params"]["contentChanges"].as_array().unwrap();
@@ -819,7 +823,7 @@ fn client_change_document_replays_multi_change_batches_end_to_start() {
         ],
     )
     .unwrap();
-    assert_eq!(replayed, document.text);
+    assert_eq!(replayed, document.text.as_ref());
 
     // Left-to-right sequential apply of the original Monaco order diverges,
     // which is exactly the bug the end-to-start wire order prevents.
@@ -855,7 +859,7 @@ fn client_change_document_replays_multi_change_batches_end_to_start() {
         ],
     )
     .unwrap();
-    assert_ne!(diverged, document.text);
+    assert_ne!(diverged, document.text.as_ref());
 }
 
 #[test]
@@ -910,7 +914,8 @@ fn client_change_document_falls_back_to_full_sync_for_overlapping_ranges() {
             .open_documents
             .get("file:///tmp/project/overlap.rs")
             .unwrap()
-            .text,
+            .text
+            .as_ref(),
         "Z"
     );
     let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
@@ -1055,6 +1060,7 @@ fn client_core_preserves_class_completion_namespace_and_import_edits() {
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -1096,6 +1102,7 @@ fn client_core_preserves_class_completion_namespace_and_import_edits() {
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: Some(json!({
             "label": "Carbon",
             "kind": 7,
@@ -1288,6 +1295,52 @@ fn client_state_keeps_legacy_diagnostics_shape_compatible() {
     assert!(serialized.get("diagnosticVersions").is_none());
 }
 
+// The engine copies the client state for every request, document change, and
+// server message while holding the session locks. Servers publish diagnostics
+// for every file during a project import, so copying the open documents' text
+// each time stalled completion and navigation behind the import.
+#[test]
+fn client_core_reduction_shares_open_document_text() {
+    let uri = "file:///tmp/project/Main.java";
+    let mut state = LspClientState {
+        initialized: true,
+        ..LspClientState::default()
+    };
+    state.open_documents.insert(
+        uri.to_string(),
+        LspClientDocument {
+            uri: uri.to_string(),
+            language_id: "java".to_string(),
+            version: 1,
+            text: "class Main {}\n".into(),
+        },
+    );
+
+    let reduced = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: state.clone(),
+        message: json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": { "uri": "file:///tmp/project/Other.java", "diagnostics": [] }
+        })
+        .to_string(),
+    })
+    .unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        &state.open_documents[uri].text,
+        &reduced.state.open_documents[uri].text
+    ));
+
+    // Hosts and fixtures still see the text as a plain JSON string.
+    let serialized = serde_json::to_value(&reduced.state).unwrap();
+    assert_eq!(serialized["openDocuments"][uri]["text"], "class Main {}\n");
+    let restored: LspClientState = serde_json::from_value(serialized).unwrap();
+    assert_eq!(
+        restored.open_documents[uri].text.as_ref(),
+        "class Main {}\n"
+    );
+}
+
 #[test]
 fn client_core_waits_for_shutdown_response_before_exiting() {
     let mut state = LspClientState {
@@ -1301,7 +1354,7 @@ fn client_core_waits_for_shutdown_response_before_exiting() {
             uri: "file:///tmp/project/main.go".to_string(),
             language_id: "go".to_string(),
             version: 1,
-            text: "package main\n".to_string(),
+            text: "package main\n".into(),
         },
     );
 
@@ -1431,6 +1484,7 @@ fn client_core_shapes_feature_responses_for_swift_models() {
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -1481,6 +1535,7 @@ fn client_core_shapes_feature_responses_for_swift_models() {
         new_name: Some("start".to_string()),
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -1520,6 +1575,7 @@ fn client_core_shapes_feature_responses_for_swift_models() {
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -1596,6 +1652,7 @@ fn client_core_shapes_feature_responses_for_swift_models() {
                 message: "declared here".to_string(),
             }],
         }],
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -1671,6 +1728,7 @@ fn client_core_shapes_feature_responses_for_swift_models() {
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: Some(json!({
             "title": "Apply rename",
@@ -1728,6 +1786,7 @@ fn client_core_shapes_feature_responses_for_swift_models() {
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: Some(json!({
             "label": "launch",
             "insertText": "launch",
@@ -1786,6 +1845,7 @@ fn client_core_shapes_feature_responses_for_swift_models() {
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: Some(json!({
@@ -1842,6 +1902,7 @@ fn client_core_requests_and_shapes_inlay_hints_folding_ranges_and_code_lenses() 
             },
         }),
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -1893,6 +1954,7 @@ fn client_core_requests_and_shapes_inlay_hints_folding_ranges_and_code_lenses() 
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -1934,6 +1996,7 @@ fn client_core_requests_and_shapes_inlay_hints_folding_ranges_and_code_lenses() 
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -1988,6 +2051,7 @@ fn navigation_locations_preserve_uris_without_fabricating_virtual_file_paths() {
         new_name: None,
         range: None,
         diagnostics: Vec::new(),
+        completion_context: None,
         completion_item: None,
         code_action: None,
         command: None,
@@ -2307,4 +2371,70 @@ fn client_core_rejects_unknown_server_requests_with_method_not_found() {
             }
         })
     );
+}
+
+#[test]
+fn client_completion_preserves_refresh_context_and_incomplete_lists() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/completion-refresh-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let opened = client_open_document(ClientOpenDocumentRequest {
+            state: LspClientState::default(),
+            uri: "file:///tmp/completion/Main.java".into(),
+            language_id: "java".into(),
+            text: "class Main {}".into(),
+        })
+        .unwrap();
+        let request: ClientFeatureRequest = serde_json::from_value(json!({
+            "state": opened.state, "uri": "file:///tmp/completion/Main.java",
+            "method": "textDocument/completion", "position": {"line":0,"utf16Column":0},
+            "completionContext": case["context"]
+        }))
+        .unwrap();
+        let requested = client_feature_request(request).unwrap();
+        let message: Value = serde_json::from_str(&requested.messages[0]).unwrap();
+        assert_eq!(message["params"]["context"], case["context"]);
+        let completed = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: requested.state,
+            message: json!({"jsonrpc":"2.0", "id":message["id"], "result":case["response"]})
+                .to_string(),
+        })
+        .unwrap();
+        let result = completed.events[0].result.as_ref().unwrap();
+        assert_eq!(result["isIncomplete"], case["isIncomplete"]);
+    }
+}
+
+#[test]
+fn client_completion_rejects_invalid_trigger_context() {
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: "file:///tmp/Main.java".into(),
+        language_id: "java".into(),
+        text: "class Main {}".into(),
+    })
+    .unwrap();
+    for context in [
+        json!({"triggerKind":0}),
+        json!({"triggerKind":4}),
+        json!({"triggerKind":2}),
+        json!({"triggerKind":2,"triggerCharacter":"ab"}),
+        json!({"triggerKind":"3"}),
+        json!([]),
+    ] {
+        let request: ClientFeatureRequest = serde_json::from_value(json!({
+            "state": opened.state,
+            "uri":"file:///tmp/Main.java", "method":"textDocument/completion",
+            "position":{"line":0,"utf16Column":0}, "completionContext":context
+        }))
+        .unwrap();
+        let error = client_feature_request(request).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+        assert!(matches!(
+            error.message.as_str(),
+            "Invalid completion trigger kind" | "Completion trigger character is required"
+        ));
+    }
 }

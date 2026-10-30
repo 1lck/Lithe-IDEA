@@ -286,6 +286,7 @@ package final class RunFeatureModel: ObservableObject {
     package var moduleSessions: [RunSession] { service.moduleSessions }
     package var portConflicts: [RunPortConflict] { service.portConflicts }
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }
+    package var requiresConfigurationGeneration: Bool { service.requiresConfigurationGeneration }
     package var configurationDiagnostics: [RunConfigurationDiagnostic] { service.configurationDiagnostics }
     package var generationState: RunConfigurationGenerationState { service.generationState }
     package var javaDiscoveryStatus: JavaDiscoveryStatus { service.javaDiscoveryStatus }
@@ -430,10 +431,11 @@ package final class RunFeatureModel: ObservableObject {
     }
 
     package func generateRunConfigurations(
-        javaDiscovery: JavaEntrypointDiscovery = .notJava
+        javaDiscovery: JavaEntrypointDiscovery = .notJava,
+        automatic: Bool = false
     ) async {
         isGenerationConfirmationPresented = false
-        await service.generateRunConfigurations(javaDiscovery: javaDiscovery)
+        await service.generateRunConfigurations(javaDiscovery: javaDiscovery, automatic: automatic)
     }
 
     package func requestRunConfigurationGeneration(intent: RunConfigurationGenerationIntent = .identifyOnly) {

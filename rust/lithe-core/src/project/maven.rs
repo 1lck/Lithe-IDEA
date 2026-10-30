@@ -295,7 +295,7 @@ pub(crate) fn jdt_configuration(
 /// has to keep the mirrors, servers, and proxies the workspace already builds
 /// with. Dropping them would send project import to the default remote
 /// repositories instead of the ones Maven resolves through.
-pub(crate) fn settings_with_local_repository(
+pub fn settings_with_local_repository(
     source: &str,
     local_repository: &str,
 ) -> Result<String, CoreError> {

@@ -150,6 +150,10 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
+    func saveLanguageServerDocument(sessionID: String, fileURL: URL, text: String) -> Result<Bool, LanguageServerRuntimeFailure> {
+        lspSaveDocument(sessionID: sessionID, fileURL: fileURL, text: text).mapError(Self.runtimeFailure)
+    }
+
     func closeLanguageServerDocument(sessionID: String, fileURL: URL) {
         lspCloseDocument(sessionID: sessionID, fileURL: fileURL)
     }
@@ -163,6 +167,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         newName: String?,
         range: LanguageServerRange?,
         diagnostics: [LanguageServerDiagnostic],
+        completionContext: LanguageServerCompletionContext?,
         completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
@@ -176,10 +181,21 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             newName: newName,
             range: range,
             diagnostics: diagnostics,
+            completionContext: completionContext,
             completionItem: completionItem,
             codeAction: codeAction,
             command: command
         ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
+    func prepareJavaLaunch(
+        sessionID: String,
+        fileURL: URL,
+        mainClass: String?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspPrepareJavaLaunch(sessionID: sessionID, fileURL: fileURL, mainClass: mainClass)
+            .map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
             .mapError(Self.runtimeFailure)
     }
 
@@ -342,14 +358,24 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
     ) -> Result<Void, LanguageServerRuntimeFailure> {
         let result: ToolingJSONValue?
-        let failureMessage: String?
+        let failure: PluginHostRequestFailure?
         switch outcome {
-        case .success(let value): result = value; failureMessage = nil
-        case .failure(let failure): result = nil; failureMessage = failure.message
+        case .success(let value): result = value; failure = nil
+        case .failure(let reason): result = nil; failure = reason
         }
         return lspHostResponse(
-            sessionID: sessionID, hostRequestID: hostRequestID, result: result, failureMessage: failureMessage
+            sessionID: sessionID, hostRequestID: hostRequestID, result: result,
+            failureMessage: failure?.message, failureCode: failure?.code, failureDetails: failure?.details
         ).mapError(Self.runtimeFailure)
+    }
+
+    func notifyPluginBackend(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        lspHostNotify(sessionID: sessionID, method: method, params: params)
+            .mapError(Self.runtimeFailure)
     }
 
     func updateWorkspaceConfiguration(
@@ -369,6 +395,21 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
         lspFunctionRequest(
             sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+        ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference?,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspFunctionRequest(
+            sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params,
+            context: context, timeout: timeout
         ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
             .mapError(Self.runtimeFailure)
     }
@@ -418,9 +459,19 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
     }
 
     private static func runtimeFailure(_ error: CoreCallError) -> LanguageServerRuntimeFailure {
-        LanguageServerRuntimeFailure(
+        // Only translate our own request validation; upstream diagnostics stay intact.
+        let message: String
+        switch (error.code, error.message) {
+        case ("invalid_request", "Invalid completion trigger kind"):
+            message = L10n.string("Invalid completion trigger kind")
+        case ("invalid_request", "Completion trigger character is required"):
+            message = L10n.string("Completion trigger character is required")
+        default:
+            message = error.message
+        }
+        return LanguageServerRuntimeFailure(
             code: error.code,
-            message: error.message,
+            message: message,
             details: error.details
         )
     }

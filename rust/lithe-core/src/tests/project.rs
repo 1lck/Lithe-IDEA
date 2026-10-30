@@ -1483,3 +1483,230 @@ fn document_lifecycle_matches_the_cross_platform_fixture() {
         );
     }
 }
+
+#[test]
+fn search_everywhere_streams_names_before_content_index_and_preserves_the_final_response() {
+    use std::sync::{Arc, Mutex};
+    let root = temporary_root("search-stream-names-first");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    let file = root.join("Name.java");
+    fs::write(&file, "class Before {}").unwrap();
+    let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let received = events.clone();
+    let request = serde_json::json!({ "command": "workspace.searchEverywhere", "operationId": "stream-search",
+        "timeoutMilliseconds": 5000, "payload": { "root": root, "query": "Name", "maxResults": 20,
+            "maxFileResults": 2, "maxSymbolResults": 2, "maxContentResults": 0 } }).to_string();
+    let response: Value = serde_json::from_str(&crate::execute_json_with_events(
+        &request,
+        Arc::new(move |raw| {
+            let event: Value = serde_json::from_str(raw).unwrap();
+            if event["type"] != "searchResults" {
+                return;
+            }
+            let mut events = received.lock().unwrap();
+            if events.is_empty() {
+                assert_eq!(event["results"]["matches"][0]["kind"], "file");
+                // If content was indexed first, this new class would be absent from the final response.
+                fs::write(&file, "class Name { void NameMethod() {} }").unwrap();
+            }
+            assert_eq!(event["operationId"], "stream-search");
+            events.push(event);
+        }),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert!(events.lock().unwrap().len() >= 2);
+    assert!(response["data"]["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["kind"] == "type"));
+    let synchronous: Value = serde_json::from_str(&execute_json(&request)).unwrap();
+    assert_eq!(response["data"], synchronous["data"]);
+
+    // A query replaced while the first batch is being delivered stops before later providers.
+    let cancelled: Value = serde_json::from_str(&crate::execute_json_with_events(
+        &request,
+        Arc::new(|raw| {
+            let event: Value = serde_json::from_str(raw).unwrap();
+            if event["type"] == "searchResults" {
+                assert!(crate::cancel_operation("stream-search"));
+            }
+        }),
+    ))
+    .unwrap();
+    assert_eq!(cancelled["error"]["code"], "cancelled", "{cancelled}");
+}
+
+#[test]
+fn search_everywhere_pages_all_sources_past_200_without_duplicates_or_missing_matches() {
+    let root = temporary_root("search-keyset-pages");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    for index in 0..257 {
+        fs::write(
+            root.join(format!("Name{index:03}.java")),
+            format!("class Name{index:03} {{\n    void NameMethod{index:03}() {{}}\n}}\n"),
+        )
+        .unwrap();
+    }
+    fs::write(root.join("NameHidden.java"), "class NameHidden {}\n").unwrap();
+    let call = |payload: Value| -> Value {
+        serde_json::from_str(&execute_json(&serde_json::json!({
+            "command": "workspace.searchEverywhere", "timeoutMilliseconds": 5000, "payload": payload
+        }).to_string())).unwrap()
+    };
+    let base = serde_json::json!({ "root": root, "query": "Name", "pageSize": 50,
+        "hiddenFilePatterns": ["NameHidden.java"] });
+    for kinds in [
+        vec!["file"],
+        vec!["type"],
+        vec!["symbol"],
+        vec!["content"],
+        vec!["file", "type", "symbol", "content"],
+    ] {
+        let mut payload = base.clone();
+        payload["resultKinds"] = serde_json::json!(kinds);
+        let mut seen = std::collections::HashSet::new();
+        let mut sizes = Vec::new();
+        for _ in 0..16 {
+            let response = call(payload.clone());
+            assert_eq!(response["ok"], true, "{response}");
+            let matches = response["data"]["matches"].as_array().unwrap();
+            sizes.push(matches.len());
+            assert!(matches.len() <= 50 * kinds.len());
+            for item in matches {
+                assert!(kinds.contains(&item["kind"].as_str().unwrap()));
+                assert_ne!(item["path"], "NameHidden.java");
+                assert!(
+                    seen.insert((
+                        item["kind"].clone().to_string(),
+                        item["path"].clone().to_string(),
+                        item["line"].clone().to_string(),
+                        item["symbolName"].clone().to_string()
+                    )),
+                    "duplicate {item}"
+                );
+            }
+            let cursor = &response["data"]["nextCursor"];
+            if cursor.is_null() {
+                break;
+            }
+            assert_ne!(cursor, &payload["cursor"]);
+            payload["cursor"] = cursor.clone();
+        }
+        let counts: Vec<usize> = kinds
+            .iter()
+            .map(|kind| if *kind == "content" { 514 } else { 257 })
+            .collect();
+        let expected: Vec<usize> = (0..counts.iter().max().unwrap().div_ceil(50))
+            .map(|page| {
+                counts
+                    .iter()
+                    .map(|count| count.saturating_sub(page * 50).min(50))
+                    .sum()
+            })
+            .collect();
+        assert_eq!(sizes, expected, "{kinds:?}");
+        assert_eq!(seen.len(), counts.iter().sum::<usize>());
+    }
+    let mut payload = base.clone();
+    payload["resultKinds"] = serde_json::json!(["file"]);
+    let first = call(payload.clone());
+    payload["cursor"] = first["data"]["nextCursor"].clone();
+    for (key, value) in [
+        ("query", serde_json::json!("Other")),
+        ("pageSize", serde_json::json!(49)),
+        ("resultKinds", serde_json::json!(["type"])),
+        ("root", serde_json::json!(root.join("other"))),
+        ("hiddenFilePatterns", serde_json::json!([])),
+        ("cursor", serde_json::json!("malformed")),
+    ] {
+        let mut changed = payload.clone();
+        changed[key] = value;
+        assert_eq!(
+            call(changed)["ok"],
+            false,
+            "cursor must reject a different {key}"
+        );
+    }
+    for (query, expected) in [("^Name0[0-4][0-9]\\.java$", 50), ("^missing$", 0), ("", 0)] {
+        let mut exact = base.clone();
+        exact["query"] = serde_json::json!(query);
+        exact["regularExpression"] = serde_json::json!(true);
+        exact["resultKinds"] = serde_json::json!(["file"]);
+        let response = call(exact);
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(
+            response["data"]["matches"].as_array().unwrap().len(),
+            expected
+        );
+        assert!(response["data"]["nextCursor"].is_null());
+    }
+    let ranked = root.join("ranked");
+    for path in [
+        "Name.java",
+        "NameExtra.java",
+        "OtherName.java",
+        "NameLongSuffix.java",
+        "nested/Name.java",
+    ] {
+        let file = ranked.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, "").unwrap();
+    }
+    let mut ranking = serde_json::json!({"root": ranked, "query": "Name", "maxFileResults": 50,
+        "maxSymbolResults": 0, "maxContentResults": 0});
+    let legacy = call(ranking.clone());
+    assert_eq!(legacy["ok"], true);
+    ranking["pageSize"] = serde_json::json!(2);
+    let mut matches = Vec::new();
+    for _ in 0..3 {
+        let response = call(ranking.clone());
+        assert_eq!(response["ok"], true);
+        matches.extend(
+            response["data"]["matches"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .cloned(),
+        );
+        ranking["cursor"] = response["data"]["nextCursor"].clone();
+    }
+    assert!(ranking["cursor"].is_null());
+    assert_eq!(serde_json::json!(matches), legacy["data"]["matches"]);
+    let large = root.join("large");
+    fs::create_dir_all(&large).unwrap();
+    fs::write(
+        large.join("minified.json"),
+        format!("Name{}\nName second\n", "x".repeat(70_000)),
+    )
+    .unwrap();
+    let mut long_line = serde_json::json!({"root": large, "query": "Name", "pageSize": 1, "resultKinds": ["content"]});
+    let first = call(long_line.clone());
+    assert_eq!(first["ok"], true);
+    assert!(first["data"]["nextCursor"].as_str().unwrap().len() < 1024);
+    long_line["cursor"] = first["data"]["nextCursor"].clone();
+    let second = call(long_line);
+    assert_eq!(second["ok"], true);
+    assert_eq!(second["data"]["matches"][0]["line"], 2);
+    assert!(second["data"]["nextCursor"].is_null());
+    for size in [0, 201] {
+        let mut invalid = base.clone();
+        invalid["pageSize"] = serde_json::json!(size);
+        assert_eq!(call(invalid)["ok"], false);
+    }
+}

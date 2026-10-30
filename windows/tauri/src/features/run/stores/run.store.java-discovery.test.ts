@@ -4,6 +4,7 @@ import type { JavaEntrypointDiscovery } from "../services/java-entrypoint-discov
 import type { CoreGenerateResult, RunConfiguration } from "../types/run.types";
 
 const { createRunStore } = await import("./run.store");
+const { useSettingsStore } = await import("@/features/settings/stores/settings.store");
 
 const ROOT = "C:/work";
 const ENTRYPOINTS: JavaEntrypoints = {
@@ -20,7 +21,11 @@ function javaConfiguration(): RunConfiguration {
 function harness(options: {
   javaSources?: string[];
   discoveries: JavaEntrypointDiscovery[];
-  discover?: () => Promise<JavaEntrypointDiscovery>;
+  discover?: (
+    scope: unknown,
+    sources: string[],
+    options?: { startService?: boolean },
+  ) => Promise<JavaEntrypointDiscovery>;
   resolvedJavaEntries?: boolean;
 }) {
   const generateCalls: Array<JavaEntrypoints | undefined> = [];
@@ -40,14 +45,12 @@ function harness(options: {
     },
     generateRunConfiguration: async (_root, _paths, _modules, javaEntrypoints) => {
       generateCalls.push(javaEntrypoints);
+      events.push("generate");
       return {
         generated: {},
         toolchainRequirements: {},
         entryCount: javaEntrypoints ? javaEntrypoints.entries.length : 0,
       } satisfies CoreGenerateResult;
-    },
-    writeGeneratedRunDocuments: async () => {
-      events.push("write generated");
     },
     inspectRunConfiguration: async (_root, checkFingerprint = true) => {
       events.push(checkFingerprint ? "check fingerprint" : "read documents");
@@ -123,6 +126,30 @@ describe("Java entry-point discovery in the Run list", () => {
     expect(store.getState().configurations).toHaveLength(1);
     expect(store.getState().javaDiscovery).toBe("failed");
     expect(store.getState().javaDiscoveryMessage).toBe("The Java language service failed.");
+  });
+
+  test("only explicit or automatic-policy generation may start the Java import", async () => {
+    const startService: Array<boolean | undefined> = [];
+    const { store } = harness({
+      discoveries: [],
+      discover: async (_scope, _sources, options) => {
+        startService.push(options?.startService);
+        return { kind: "pending" };
+      },
+    });
+    const previous = useSettingsStore.getState().settings;
+    try {
+      for (const policy of ["manual", "ask", "automatic"] as const) {
+        useSettingsStore.setState({ settings: { ...previous, javaProjectImportOnOpen: policy } });
+        await store.getState().actions.generate(ROOT, undefined, { automatic: true });
+      }
+      // A user asking for the list may always start the import.
+      useSettingsStore.setState({ settings: { ...previous, javaProjectImportOnOpen: "manual" } });
+      await store.getState().actions.generate(ROOT);
+    } finally {
+      useSettingsStore.setState({ settings: previous });
+    }
+    expect(startService).toEqual([false, false, true, true]);
   });
 
   test("a project without Java sources never asks the Java service", async () => {
@@ -222,7 +249,7 @@ describe("Reloading the project during Java discovery", () => {
     await Promise.all([generation, reload]);
 
     expect(generateCalls).toEqual([ENTRYPOINTS]);
-    expect(events).toEqual(["write generated", "read documents", "check fingerprint"]);
+    expect(events).toEqual(["generate", "read documents", "check fingerprint"]);
     expect(store.getState().status).toBe("ready");
     expect(store.getState().configurations).toHaveLength(1);
     expect(store.getState().javaDiscovery).toBe("ready");

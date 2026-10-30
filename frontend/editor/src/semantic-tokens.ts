@@ -32,7 +32,7 @@ export const MONACO_SEMANTIC_TOKEN_TYPES = [
   "attribute",
 ] as const;
 
-export const MONACO_SEMANTIC_TOKEN_MODIFIERS = ["readonly", "deprecated"] as const;
+export const MONACO_SEMANTIC_TOKEN_MODIFIERS = ["readonly", "deprecated", "declaration", "static"] as const;
 
 export const MONACO_SEMANTIC_TOKEN_LEGEND: Monaco.languages.SemanticTokensLegend = {
   tokenTypes: [...MONACO_SEMANTIC_TOKEN_TYPES],

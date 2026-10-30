@@ -75,13 +75,23 @@ extension AppModel {
     }
 
     func requestLanguageCompletions(
+        for requestedDocument: EditorDocument? = nil, line: Int, utf16Column: Int,
+        completion: @escaping ([LanguageServerCompletionItem]) -> Void
+    ) {
+        requestLanguageCompletionList(for: requestedDocument, line: line, utf16Column: utf16Column) {
+            completion($0.items)
+        }
+    }
+
+    func requestLanguageCompletionList(
         for requestedDocument: EditorDocument? = nil,
         line: Int,
         utf16Column: Int,
-        completion: @escaping ([LanguageServerCompletionItem]) -> Void
+        context: LanguageServerCompletionContext? = nil,
+        completion: @escaping (LanguageServerCompletionList) -> Void
     ) {
         guard let document = requestedDocument ?? focusedEditorDocument else {
-            completion([])
+            completion(.init())
             return
         }
         let springCompletions = springFeature.completions(
@@ -92,32 +102,34 @@ extension AppModel {
         guard
               featureGraph.languageCapabilityPolicy.supports(.completion, documentURL: document.url, sessions: languageToolingSessionsIfActive),
               let workspaceURL else {
-            completion(springCompletions)
+            completion(.init(items: springCompletions))
             return
         }
         do {
-            try languageToolingSessionsIfActive?.completions(
+            try languageToolingSessionsIfActive?.completionList(
                 fileURL: document.url,
                 text: document.text,
                 position: featureGraph.languageEditing.position(
                     line: line,
                     utf16Column: utf16Column
                 ),
-                rootURL: workspaceURL
+                rootURL: workspaceURL, completionContext: context
             ) { [weak self] result in
                 guard let self else {
-                    completion(springCompletions)
+                    completion(.init(items: springCompletions))
                     return
                 }
                 self.featureGraph.languageEditing.handleCompletionResult(
-                    result,
+                    result.map(\.items),
                     fallback: springCompletions,
-                    completion: completion
+                    completion: { items in
+                        completion(.init(items: items, isIncomplete: (try? result.get().isIncomplete) ?? false))
+                    }
                 )
             }
         } catch {
             showNotification(error.localizedDescription)
-            completion(springCompletions)
+            completion(.init(items: springCompletions))
         }
     }
 

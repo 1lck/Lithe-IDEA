@@ -438,6 +438,7 @@ struct SettingsView: View {
                     case .git:
                         GitSettingsPage(settings: settings)
                     case .updates: updatesSettings
+                    case .network: NetworkSettingsView(settings: settings)
                     case .processTermination: ProcessTerminationSettingsView(settings: settings)
                     case .diagnostics: diagnosticsSettings
                     case .plugins: EmptyView()
@@ -617,13 +618,33 @@ struct SettingsView: View {
                 row("Font size") {
                     LitheSettingsStepper(
                         value: $settings.editorFontSize,
-                        in: 8...22,
+                        in: 6...72,
                         step: 1,
                         width: 126,
                         accessibilityLabel: "Font size",
                         title: { "\(Int($0)) pt" }
                     )
                 }
+                row("Line spacing") {
+                    HStack(spacing: 10) {
+                        LitheSettingsCheckbox(
+                            isOn: Binding(
+                                get: { settings.editorAppearance.lineHeight == 0 },
+                                set: { settings.editorAppearance.lineHeight = $0 ? 0 : 1.5 }
+                            ),
+                            title: "Automatic"
+                        )
+                        if settings.editorAppearance.lineHeight > 0 {
+                            LitheSettingsStepper(
+                                value: $settings.editorAppearance.lineHeight,
+                                in: 1...3, step: 0.1, width: 126,
+                                accessibilityLabel: "Line spacing",
+                                title: { String(format: "%.1f ×", $0) }
+                            )
+                        }
+                    }
+                }
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.fontLigatures, title: "Font ligatures")
                 row("File tree row height") {
                     LitheSettingsStepper(
                         value: $settings.projectTreeRowHeight,
@@ -642,7 +663,12 @@ struct SettingsView: View {
                     isOn: $settings.editorMinimapEnabled,
                     title: "Show minimap"
                 )
+                LitheSettingsCheckbox(
+                    isOn: $settings.javaKeywordNavigationFilterEnabled,
+                    title: "Skip definition lookups for Java keywords"
+                )
             }
+            editorAppearanceOptions
             group("Editor tabs") {
                 row("Layout") {
                     LitheSettingsSelect(
@@ -725,6 +751,56 @@ struct SettingsView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
             Spacer(minLength: 0)
+        }
+    }
+
+    private var editorAppearanceOptions: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            group("Syntax highlighting") {
+                row("Editor color scheme", info: "Editor colors follow light and dark appearance independently of the interface theme.") {
+                    LitheSettingsSelect(
+                        selection: $settings.editorAppearance.colorScheme,
+                        options: EditorAppearanceSettings.ColorScheme.allCases,
+                        width: 190, accessibilityLabel: "Editor color scheme", title: \.title
+                    )
+                }
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.italicComments, title: "Italic comments")
+                row("Colorize bracket pairs", info: "Bracket colors follow the selected editor color scheme.") {
+                    Text(LocalizedStringKey(settings.editorAppearance.colorScheme.bracketPairColorization
+                        ? "Enabled by color scheme" : "Disabled by color scheme"))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+            }
+            group("Editor display", info: "Applies immediately to source editors in all projects.") {
+                row("Line numbers") {
+                    LitheSettingsSelect(selection: $settings.editorAppearance.lineNumbers,
+                        options: EditorAppearanceSettings.LineNumbers.allCases,
+                        width: 190, accessibilityLabel: "Line numbers", title: \.title)
+                }
+                row("Render whitespace") {
+                    LitheSettingsSelect(selection: $settings.editorAppearance.whitespace,
+                        options: EditorAppearanceSettings.Whitespace.allCases,
+                        width: 190, accessibilityLabel: "Render whitespace", title: \.title)
+                }
+                LitheSettingsCheckbox(isOn: $settings.editorSoftWrapEnabled, title: "Soft wrap")
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.indentGuides, title: "Show indent guides")
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.highlightCurrentLine, title: "Highlight current line")
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.stickyScroll, title: "Sticky scroll")
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.smoothScrolling, title: "Smooth scrolling")
+                LitheSettingsCheckbox(isOn: $settings.editorAppearance.scrollBeyondLastLine, title: "Scroll beyond last line")
+            }
+            group("Cursor") {
+                row("Cursor style") {
+                    LitheSettingsSelect(selection: $settings.editorAppearance.cursorStyle,
+                        options: EditorAppearanceSettings.CursorStyle.allCases,
+                        width: 190, accessibilityLabel: "Cursor style", title: \.title)
+                }
+                row("Cursor blinking") {
+                    LitheSettingsSelect(selection: $settings.editorAppearance.cursorBlinking,
+                        options: EditorAppearanceSettings.CursorBlinking.allCases,
+                        width: 190, accessibilityLabel: "Cursor blinking", title: \.title)
+                }
+            }
         }
     }
 
