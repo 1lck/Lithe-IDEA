@@ -433,33 +433,6 @@ extension AppModel {
         showToolWindow(.run)
     }
 
-    private func prepareJavaRunLaunch(
-        for configuration: RunConfiguration,
-        identity: WorkspaceIdentity
-    ) async throws -> JavaDebugLaunchTarget? {
-        guard configuration.usesJavaProjectPreparation else { return nil }
-        guard let workspaceURL,
-              let sourceURL = runWorkflowCoordinator.sourceURLForDebug(
-                configuration: configuration,
-                activeDocument: activeDocument,
-                projectFiles: projectFiles,
-                workspaceURL: workspaceURL
-              ) else {
-            throw RunConfigurationOperationFailure(
-                message: L10n.string("The Java source for \(configuration.name) could not be resolved.")
-            )
-        }
-        let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
-        guard isCurrentWorkspace(identity), !Task.isCancelled else {
-            throw CancellationError()
-        }
-        let preparation = try await sessions.prepareJavaRunLaunchTarget(
-            fileURL: sourceURL,
-            rootURL: workspaceURL
-        )
-        return try await resolveJavaLaunchPreparation(preparation, identity: identity)
-    }
-
     func startRunConfigurations(_ configurationIDs: [String]) {
         Task { [weak self] in
             await self?.performStartRunConfigurations(configurationIDs)

@@ -87,10 +87,12 @@ Run 和 Debug 共用同一套 Java 项目准备逻辑。配置中的 Maven 信�
 导入、Profile、settings.xml 和项目模型；Maven 工具窗口、框架 goal、测试与显式
 Maven 任务仍走 Maven 启动计划。
 
-Spring Boot 检测仍由 Maven 插件决定“它是不是服务”，不会把普通依赖模块误报成
-服务。扫描到唯一的 `@SpringBootApplication` 源码后，配置同时记录入口类和源码；
-此时 Run 走上述 JDT 直启流程。没有 Java 入口源码的特殊项目（例如入口不在可见
-Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
+Maven 插件只提供 Spring Boot 服务候选；自动服务还要求同模块恰好有一个
+JDT 已确认、被分类为 Spring Boot 的非测试入口，再记录入口类和源码并走上述
+JDT 直启流程。继承插件的库模块、只有测试入口的模块和入口位于子模块的父模块
+不会因此成为服务；多入口保留独立 Java 配置。具体规则见
+[Java 入口点归属](2026-09-21-java-entrypoints-owned-by-jdt.md)。没有入口源码的
+用户自建或旧版配置仍保留 Maven goal 兼容路径，自动发现不再生成这类候选。
 生成器 revision 随这项行为提升，旧工作区会自动重新生成配置，不要求用户删除
 `.lithe/run/generated.json`。
 
@@ -98,6 +100,50 @@ Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
 项目元数据时直接提示等待或修复 Java 语言服务，不回退到 `exec:java`，避免把
 原问题换成一次不确定的错误运行。JDT 对模块化项目返回的
 `module/name.Type` 会转换为 JVM 需要的 `-m module/name.Type`。
+
+### 两端共用启动准备操作
+
+Mac 和 Windows 调用同一个 `java.prepareLaunch` 操作，由 Core 串起入口选择、
+构建和运行路径解析。平台适配器只提交源码路径、可选主类选择并等待最终结果，
+不再各自维护三次命令调用。三个阶段共用操作 ID，取消后迟到的构建成功答复
+不会继续解析路径；构建仍进入已有的串行队列，不新增构建器或项目模型。
+
+参考 OpenIDEA `fff2c7110c4a9f3dab46ce0a8021ef450b2a5711` 的
+`crates/ide-lsp/src/jdtls.rs`（先构建，再取 classpath/JDK）和
+`crates/ide-host/src/ops/java.rs`（项目 JDK 优先）。
+我们复用其流程思路，不复制源码：Lithe 已有项目 JDK 选择、长命令行处理及
+构建取消机制，直接替换整套后端会丢掉这些已有契约。JDT 继续拥有入口、项目归属
+和运行路径；平台只执行文件保存和原生进程操作。
+
+例如两个模块都有 `demo.Main` 时，先匹配源码路径，再用配置主类消歧。
+不要按类名取全局第一个入口，也不要在宿主重新执行构建来补齐失败结果。
+无效或空的 classpath 不能变成可继续启动的目标。Mac 命名 Java 运行和调试
+也先保存所有脏文档，保存失败就停止准备，避免构建依赖文件的旧内容。
+
+保存到磁盘后，还必须通过共享 `lsp.saveDocument` 发送标准 `didSave` 通知。
+OpenIDEA 的 `ide-lsp/src/lib.rs::did_save` 按服务端声明决定是否带文本；我们沿用
+这一协议边界。真实双模块测试发现，只发 `didChange` 时，即使磁盘已是新内容，
+Java Debug Server 0.53.2 构建后仍会运行旧依赖；补上 `didSave` 后才得到新输出。
+JDT LS 1.61 的 `BaseDocumentLifeCycleHandler.handleSaved` 会刷新并重建工作副本，
+文件 watcher 的异步事件不能替代这一步。
+
+宿主只在写盘成功后提交精确保存文本，先同步当前编辑内容（包括写盘期间的新编辑）。Core 根据服务端
+`textDocumentSync.save` 决定是否发送及是否携带文本，并拒绝已被更新编辑覆盖的
+旧保存通知，避免 JDT 重载磁盘时丢掉新的未保存内容。保存通知不提高文档版本，
+也不伪装成一次编辑。没有打开文档或服务尚未 ready 时不制造 `didSave`。
+启动前也对已保存的打开文档重试通知，并让传输失败阻止启动，避免之前普通保存
+只记录通知错误、随后却运行旧编译结果。Windows 逐个等待通知时，必须在每个文件轮到时
+重新读取缓冲区；例如等待 A 文件时用户保存了 B，就发送 B 的新内容，不能把遍历开始时
+捕获的旧文本重新同步。已关闭或变脏的文件跳过通知，未保存修改仍阻止启动。
+共享保存夹具为
+`shared/fixtures/lsp/document-save-v1.json`。这不保证未打开文件的外部修改立即
+完成 JDT watcher 同步；真实测试仍观察到这种情况下运行旧输出，不能将本次修复
+宣称为所有外部文件变更的同步屏障。
+
+代价是 Core 持有每次准备的短期阶段状态，并在已有发送线程中发送后续请求。
+不新增线程、下载、缓存或发行目录写入；最终启动、输出和停止仍由原生进程
+适配器负责。共享测试夹具为 `shared/fixtures/lsp/java-launch-preparation-v1.json`，
+engine 测试覆盖完整顺序、构建证据、取消和迟到答复；两端测试只验证适配器交接。
 
 ### 构建协调（Issue #692 后续）
 
@@ -146,8 +192,8 @@ stdin（语言服务的标准输入管道），以免管道阻塞后超时检查
 构建排队期间只检查协调器状态，只有真正派发时才复制 LSP 客户端状态，避免每
 10 毫秒复制已打开的文档和诊断。
 
-开发者怎么做：新增任何“启动前要构建 Java 项目”的入口时，直接发
-`vscode.java.buildWorkspace`，由 Core 负责排队和期限。不要在宿主里自己加锁、
+开发者怎么做：新增 Java 启动入口时调用 `java.prepareLaunch`；只需要构建的
+工作流继续发 `vscode.java.buildWorkspace`，两者都由 Core 负责排队和期限。不要在宿主里自己加锁、
 自己重试或自己把超时改短；也不要在调用方被替换时主动取消构建，让 Core
 按“还有没有人需要”来决定。
 

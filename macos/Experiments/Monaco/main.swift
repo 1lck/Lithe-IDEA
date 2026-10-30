@@ -398,6 +398,11 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                     "textEdits": [["range": ["startLineNumber": 1, "startColumn": 5, "endLineNumber": 1, "endColumn": 5], "text": "value: "]]]]], nil)
             case "hover": replyHandler(["contents": "Host hover"], nil)
             case "debugHover": replyHandler(["contents": "second = <value> [literal]"], nil)
+            case "completion" where body["id"] as? String == "completion-refresh":
+                let refreshed = body["triggerKind"] as? Int == 3
+                replyHandler(["isIncomplete": !refreshed, "items": [[
+                    "label": refreshed ? "abacus" : "alpha", "insertText": refreshed ? "abacus" : "alpha", "kind": 6
+                ]]], nil)
             case "completion": replyHandler(["items": [
                 ["label": "sampleMethod", "insertText": "sampleMethod(${1:value})$0", "kind": 2, "insertTextFormat": 2,
                  "sortText": "001", "filterText": "sample", "completionList": "fixture-list", "completionIndex": 0] as [String: Any]
