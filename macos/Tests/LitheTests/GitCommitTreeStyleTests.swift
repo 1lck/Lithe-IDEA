@@ -52,6 +52,6 @@ struct GitCommitTreeStyleTests {
         #expect(LitheIcons.kind(forFilePath: "ChangesSidebarView.swift") == .swiftSource)
         #expect(LitheIcons.kind(forFilePath: "git-local-changelists.json") == .json)
         #expect(LitheIcons.kind(forFilePath: "README.md") == .markdown)
-        #expect(LitheIcons.kind(forFilePath: "Localizable.strings") == .plainText)
+        #expect(LitheIcons.kind(forFilePath: "Localizable.strings") == .i18n)
     }
 }

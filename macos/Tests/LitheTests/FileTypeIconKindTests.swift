@@ -25,8 +25,16 @@ struct FileTypeIconKindTests {
     }
 
     @Test(arguments: [LitheIconKind.document, .i18n])
-    func newKindsShipLightAndDarkAssets(kind: LitheIconKind) {
-        #expect(LitheIcons.ideaImage(for: kind) != nil)
-        #expect(LitheIcons.ideaImage(for: kind, isDark: true) != nil)
+    func newKindsShipLightAndDarkAssets(kind: LitheIconKind) throws {
+        // The unit-test host ships no app bundle, so resolve the catalog entry
+        // and load the source assets directly instead of calling ideaImage.
+        let assetPath = try #require(LitheIcons.ideaAssetPath(for: kind))
+        let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/IDEAIcons")
+        for path in [assetPath, LitheIcons.darkIdeaAssetPath(for: assetPath)] {
+            let image = try #require(NSImage(contentsOf: resources.appendingPathComponent(path)),
+                "Missing IDEA icon asset: \(path)")
+            #expect(image.size.width > 0)
+        }
     }
 }

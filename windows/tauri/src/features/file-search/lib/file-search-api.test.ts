@@ -5,9 +5,11 @@ const invoke = mock(async (_command: string, _args?: unknown) =>
 );
 // Mock the Tauri boundary, not the Core client: a module mock is process-wide in Bun,
 // and replacing the client would hide the real request builder from later test files.
+// Spread the native module so re-exported names (isTauri, transformCallback) keep
+// resolving for anything else that loads through @/platform/tauri-core.
+const nativeCore = await import("@tauri-apps/api/core");
 mock.module("@tauri-apps/api/core", () => ({
-  Channel: class {},
-  convertFileSrc: (path: string) => path,
+  ...nativeCore,
   invoke: (command: string, args?: unknown) => invoke(command, args),
 }));
 const { fffListFiles } = await import("./file-search-api");

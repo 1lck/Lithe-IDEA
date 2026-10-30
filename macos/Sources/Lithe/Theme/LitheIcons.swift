@@ -185,6 +185,13 @@ enum LitheIcons {
         ideaAssetPathsBySystemImage[systemImage]
     }
 
+    /// Returns the imported IntelliJ asset backing a file-node kind. Unit
+    /// tests use this to verify catalog entries against the source resources
+    /// directory because the test host ships no app bundle.
+    static func ideaAssetPath(for kind: LitheIconKind) -> String? {
+        ideaAssetPaths[kind]
+    }
+
     /// Returns the IntelliJ dark-theme sibling for an imported SVG path.
     /// The caller still falls back to the base asset because not every
     /// IntelliJ catalog entry ships a dedicated dark variant.
