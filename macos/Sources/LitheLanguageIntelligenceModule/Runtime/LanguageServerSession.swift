@@ -985,6 +985,36 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     /// Asks JDT, through Core, which classes in the workspace can be launched.
+    package func javaEntrypoints() async throws -> JavaEntrypoints {
+        try Task.checkCancellation()
+        guard let sessionID, state == .ready else { throw LanguageServerRuntimeSessionError.notReady }
+        let operation: LanguageServerRuntimeOperation
+        switch await send(timeout: requestTimeout, { core in
+            core.requestLanguageServerOperation(sessionID: sessionID, operation: .javaEntrypoints, fileURL: nil,
+                virtualURI: nil, position: nil, newName: nil, range: nil, diagnostics: [],
+                completionItem: nil, codeAction: nil, command: nil)
+        }) {
+        case .success(let started): operation = started
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        let value: JavaEntrypoints = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(operation, name: LanguageServerOperation.javaEntrypoints.rawValue) { result in
+                    continuation.resume(with: result.flatMap { Self.decodeEventResult($0, as: JavaEntrypoints.self) })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
+        }
+        try Task.checkCancellation()
+        return value
+    }
+
+    /// Callback discovery is retained for presentation clients.
     package func javaEntrypoints(
         completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
     ) throws {

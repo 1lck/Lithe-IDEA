@@ -12,6 +12,77 @@ import Testing
 @MainActor
 struct MacNativeBuildProviderIntegrationTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D Maven package and selected Java/Maven"))
+    func runProfileUsesItsRealMavenModelAndReturnsTheSameImportWithoutChangingDefaults() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
+        let java = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_JAVA"]))
+        let maven = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_MAVEN"]))
+        let files = FileManager.default
+        let scratch = files.temporaryDirectory.appendingPathComponent("lithe-native-run-profile-\(UUID().uuidString)")
+        try files.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: scratch) }
+        let workspace = scratch.appendingPathComponent("workspace")
+        for path in ["nested/checks", "nested/test inputs"] {
+            try files.createDirectory(at: workspace.appendingPathComponent(path), withIntermediateDirectories: true)
+        }
+        try Data("class Main {}".utf8).write(to: workspace.appendingPathComponent("nested/checks/Main.java"))
+        try Data("selected=${selected.value}".utf8).write(to: workspace.appendingPathComponent("nested/test inputs/runtime.properties"))
+        try Data("""
+        <project><modelVersion>4.0.0</modelVersion><groupId>smoke</groupId><artifactId>app</artifactId><version>1</version>
+        <properties><selected.sources>checks</selected.sources><selected.checks>inactive-checks</selected.checks></properties>
+        <build><sourceDirectory>${selected.sources}</sourceDirectory><testSourceDirectory>${selected.checks}</testSourceDirectory><testResources><testResource><directory>test inputs</directory>
+          <filtering>true</filtering></testResource></testResources></build>
+        <profiles><profile><id>run-only</id><properties><selected.value>current-profile</selected.value>
+          <selected.sources>inactive-sources</selected.sources><selected.checks>checks</selected.checks></properties>
+        </profile></profiles></project>
+        """.utf8).write(to: workspace.appendingPathComponent("nested/pom.xml"))
+        let before = try Self.inventory(package)
+        let core = RustCoreBridge(), storage = MacFileStorage()
+        let planner = RustBuildSystemOperations(core: core), declarations = RustDeclarativePluginOperations(core: core)
+        let descriptor = try declarations.validate(manifest: Data(contentsOf: package.appendingPathComponent("plugin.json")))
+        let source = BuildSystemPluginSource(pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
+            packageURL: package, buildSystems: descriptor.buildSystems)
+        let runtime = ExplicitProviderRuntime(java: java, environment: environment), released = TestGate()
+        let directories = MacPluginStateDirectories(rootURL: scratch.appendingPathComponent("state"))
+        let sessions = MacBuildProviderSessions(launchResolver: MacPluginLanguageServerLaunchResolver(planner: declarations,
+            directories: directories, settings: InMemoryPluginSettings()), tools: runtime, versionChecker: declarations,
+            runtime: runtime, core: core, processRegistry: nil, endBackendProcesses: { token, _ in
+                MacPluginBackendProcesses.end(token: token, gracePeriod: 0); released.open()
+            })
+        let domain = "lithe.native-run-profile.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let options = MacBuildOptionsStore(store: MacUserDefaultsStore(defaults: defaults))
+        let build = BuildSystemService(planner: planner, tools: ExplicitNativeConfigurationTool(maven: maven), optionsStore: options,
+            stateLocator: MacBuildSystemStateLocator(directories: directories, fileStorage: storage),
+            runner: MacBuildCommandRunner(), providers: sessions, sources: { [source] })
+        let outcome: Result<Void, Error>
+        do {
+            build.reset(workspaceURL: workspace)
+            let baseline = try await build.prepareLanguageImport(workspaceURL: workspace)
+            let prepared = try await build.prepareLanguageRun(fileURL: workspace.appendingPathComponent("nested/checks/Main.java"),
+                workspace: workspace, mainTask: "java-prepare-run-main", testTask: "java-prepare-run-test",
+                optionOverrides: ["profiles": .array([.string("run-only")])],
+                tool: { _ in BuildProviderHints(toolExecutable: maven,
+                    toolEnvironment: runtime.environment.filter { $0.key == "JAVA_HOME" || $0.key == "PATH" }) }, isCurrent: { true })
+            guard case .maven(let context)? = prepared else { throw NativeProviderIntegrationError.unexpectedCommand }
+            #expect(context.profiles == ["run-only"])
+            #expect(context.mavenExecutablePath == maven.path)
+            #expect(context.reactorPath == "nested")
+            #expect(try String(contentsOf: workspace.appendingPathComponent("nested/target/test-classes/runtime.properties"), encoding: .utf8) == "selected=current-profile")
+            #expect(build.entries.first?.model?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
+            #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
+            #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["nested"]?["profiles"] == nil)
+            outcome = .success(())
+        } catch { outcome = .failure(error) }
+        build.stop(); sessions.retainProviders { _ in false }
+        #expect(await released.waitUntilOpen(timeout: .seconds(5)))
+        #expect(try Self.inventory(package) == before)
+        try outcome.get()
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
                    "Requires the stage D native-configuration development package"))
     func nativeSettingsStayIndependentAcrossReactorRoots() async throws {
         let environment = ProcessInfo.processInfo.environment

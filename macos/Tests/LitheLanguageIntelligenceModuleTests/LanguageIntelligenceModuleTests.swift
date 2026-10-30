@@ -961,6 +961,66 @@ struct LanguageIntelligenceModuleTests {
         ))
     }
 
+    @Test(arguments: ["success", "cold", "changed", "aba", "cancel"])
+    func javaRunUsesThePreparedImportAndRejectsChangesDuringDiscovery(mode: String) async throws {
+        let root = URL(fileURLWithPath: "/workspace/run-import")
+        let source = root.appendingPathComponent("app/custom/Main.java")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: source))
+        let session = WorkspaceStateLanguageServerSession()
+        session.mavenUpdateResult = .success(.init(settingsChanged: false, projectsReloaded: false, profilesUpdating: true))
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        let baseline = MavenLaunchContext(reactorPath: ".", profiles: ["default"], settingsPath: "/settings.xml",
+            skipTests: false, mavenExecutablePath: "/default/mvn", javaHomePath: nil)
+        let prepared = MavenLaunchContext(reactorPath: "app", profiles: ["run-only"], settingsPath: "/settings.xml",
+            skipTests: false, mavenExecutablePath: "/selected/mvn", javaHomePath: nil)
+        var current = baseline
+        manager.configureJavaLanguageImportProvider { _, _ in .init(mavenContext: current) }
+        if mode != "cold" {
+            try manager.startLanguageServer(providerID: "java", rootURL: root)
+            session.publish(.ready)
+        }
+        let task = Task { try await manager.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root,
+            languageImport: .init(mavenContext: prepared)) }
+        defer { task.cancel(); manager.stopAllLanguageServers() }
+        if mode == "cold" { try await session.waitUntilStarted(); session.publish(.ready) }
+        _ = try await session.waitForExecuteCommand()
+        #expect((mode == "cold" ? session.startedMavenContext : session.mavenUpdates.last?.context) == prepared)
+        #expect(current == baseline)
+        let revision = manager.javaImportRevision
+        if mode == "changed" || mode == "aba" {
+            _ = manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false)
+            if mode == "aba" {
+                current = prepared
+                _ = manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false)
+            }
+            #expect(manager.javaImportRevision > revision)
+        }
+        if mode == "cancel" { task.cancel() }
+        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
+            JavaEntrypoint(sourcePath: "app/custom/Main.java", mainClass: "demo.Main", projectName: "app")
+        ])))
+        if ["changed", "aba", "cancel"].contains(mode) {
+            await #expect(throws: CancellationError.self) { try await task.value }
+            #expect(session.executedCommands.count == 1)
+            return
+        }
+        _ = try await session.waitForExecuteCommand(number: 2)
+        session.completeExecuteReturningValue(.success(.integer(1)))
+        _ = try await session.waitForExecuteCommand(number: 3)
+        session.completeExecuteReturningValue(.success(.array([.array([]), .array([.string("/current/classes")])])))
+        guard case .ready(let target) = try await task.value else { Issue.record("Expected current launch metadata"); return }
+        #expect(target.classPaths == ["/current/classes"])
+        #expect(session.startCallCount == 1)
+        // Generation/discovery restores the current Build defaults rather than
+        // retaining the previous Run's temporary profile as a shadow setting.
+        let discovery = Task { try await manager.javaEntrypoints(rootURL: root) }
+        defer { discovery.cancel() }
+        _ = try await session.waitForExecuteCommand(number: 4)
+        #expect(session.mavenUpdates.last?.context == baseline)
+        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [])))
+        #expect(try await discovery.value.entries.isEmpty)
+    }
+
     @Test
     func javaServiceUpdateUsesTheSameAutomaticClasspathAsLaunch() async throws {
         let root = URL(fileURLWithPath: "/workspace/java-update", isDirectory: true)

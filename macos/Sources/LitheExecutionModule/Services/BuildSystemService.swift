@@ -1107,10 +1107,12 @@ package final class BuildSystemService: ObservableObject {
 
     /// Runs a declared task, or a model task through its template.
     @discardableResult
-    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
+    package func runTask(_ entryID: String, request: BuildTaskRequest, title: String,
+                         onLanguageImport: (@MainActor (BuildLanguageImport?) -> Void)? = nil,
+                         selectFromModel: (@MainActor (BuildModel) throws -> BuildTaskRequest)? = nil) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID) else { return nil }
         return startRun(entryID, title: title) { service, run in
-            try await service.withPlanContext(entry, workspaceURL: workspaceURL) { base, _ in
+            try await service.withPlanContext(entry, workspaceURL: workspaceURL, allocatesOutputFile: selectFromModel != nil) { base, outputFile in
             let proposed = base.options.merging(request.optionOverrides) { _, override in override }
             if !request.optionOverrides.isEmpty {
                 let resolution = try service.planner.resolveOptions(entry.target, options: proposed, modelValues: entry.model?.optionValues)
@@ -1120,7 +1122,30 @@ package final class BuildSystemService: ObservableObject {
             }
             let context = BuildPlanContext(root: base.root, options: proposed, pluginDirectory: base.pluginDirectory,
                 workspaceStateDirectory: base.workspaceStateDirectory, modelInputs: base.modelInputs)
-            let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
+            if let onLanguageImport {
+                onLanguageImport(try service.planner.languageImport(entry.target, workspaceURL: workspaceURL,
+                    root: context.root, options: context.options, executableURL: request.tool?.toolExecutable))
+            }
+            var selectedRequest = request
+            if let selectFromModel {
+                let model: BuildModel
+                if entry.instance.modelSource == .provider || entry.instance.modelSource == .command {
+                    let plan = try service.planner.modelPlan(entry.target, context: context, outputFile: outputFile,
+                        providerHints: request.tool ?? BuildProviderHints())
+                    let valid = service.runValidity(plan, entry: entry, workspaceURL: workspaceURL, run: run)
+                    let output = try await service.captureOutput(plan, entry: entry, workspaceURL: workspaceURL,
+                        outputFile: outputFile, title: title, timeout: Self.modelTimeout, owner: .run(run))
+                    let planner = service.planner, target = entry.target
+                    model = try await Task.detached(priority: .userInitiated) {
+                        try planner.decodeModel(target, workspaceURL: workspaceURL, root: context.root,
+                            output: output, options: context.options)
+                    }.value
+                    guard valid() else { throw CancellationError() }
+                } else if let loaded = entry.model { model = loaded }
+                else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+                selectedRequest = try selectFromModel(model)
+            }
+            let plan = try service.planner.taskPlan(entry.target, context: context, request: selectedRequest)
             let isValid = service.runValidity(plan, entry: entry, workspaceURL: workspaceURL, run: run)
             defer { if service.providerRunID == run.id { service.providerRunID = nil } }
             let collected = try await service.runExecutionPlan(plan, entry: entry, workspaceURL: workspaceURL, run: run, tool: request.tool)
@@ -1133,7 +1158,7 @@ package final class BuildSystemService: ObservableObject {
                 let target = entry.target
                 let planner = service.planner
                 let request = BuildTestResultsRequest(workspaceURL: workspaceURL, root: entry.instance.root,
-                    project: request.project?.path, projects: entry.model?.projects.map(\.path) ?? [],
+                    project: selectedRequest.project?.path, projects: entry.model?.projects.map(\.path) ?? [],
                     output: collected.text, notBefore: nil, suite: nil, result: report)
                 let results = try await Task.detached(priority: .userInitiated) { try planner.decodeTestResults(target, request: request) }.value
                 guard isValid() else { throw CancellationError() }

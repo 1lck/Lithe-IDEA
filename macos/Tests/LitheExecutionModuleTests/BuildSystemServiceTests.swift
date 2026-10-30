@@ -12,6 +12,7 @@ struct BuildSystemServiceTests {
         let planner = FakeBuildPlanner()
         planner.fingerprint = "o"
         planner.dynamicOptions = true
+        planner.importEnabled = true
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
             #"{"projects":[{"id":"p","path":"app","name":"App"},{"id":"other","path":".","name":"Other"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"},{"projectID":"other","path":"app/spec/deeper","kind":"source"}],"optionValues":{"features":["run-only","changed"]}}"#)])
         planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
@@ -25,11 +26,12 @@ struct BuildSystemServiceTests {
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
         var error: Error?
+        var prepared: BuildLanguageImport?
         let task = Task {
             defer { finished.open() }
             // A deeper root published by another project must not turn this
             // project's test source into a main-source preparation.
-            do { try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent("app/spec/deeper/UnrelatedName.java"),
+            do { prepared = try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent("app/spec/deeper/UnrelatedName.java"),
                 workspace: Self.workspace, mainTask: "prepare.main", testTask: "prepare.test",
                 optionOverrides: ["features": .array([.string("run-only")])],
                 tool: { _ in BuildProviderHints(toolExecutable: URL(fileURLWithPath: "/selected/tool"), toolEnvironment: ["JAVA_HOME": "/selected/jdk"]) },
@@ -52,7 +54,49 @@ struct BuildSystemServiceTests {
         try #require(await finished.waitUntilOpen())
         await task.value
         #expect((error == nil) == (mode == "success"))
+        if mode == "success" {
+            guard case .maven(let context)? = prepared else { Issue.record("Successful preparation must return its exact import"); return }
+            #expect(context.profiles == ["run-only"])
+            #expect(context.mavenExecutablePath == "/selected/tool")
+        }
         if ["cancel", "configuration", "workspace"].contains(mode) { #expect(error is CancellationError) }
+    }
+
+    @Test
+    func languageRunUsesTheModelForItsTemporaryOptionsWithoutPublishingItAsTheDefaultModel() async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"; planner.importEnabled = true; planner.dynamicOptions = true
+        let baseline = #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"source"}],"optionValues":{"features":["run-only"]}}"#
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider", model: baseline)])
+        planner.decodedModel = try JSONDecoder().decode(BuildModel.self, from: Data(
+            #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"}],"optionValues":{"features":["run-only"]}}"#.utf8))
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        let tasks = ["prepare.main", "prepare.test"].map { DeclarativeBuildSystem.Task(id: $0, displayName: $0,
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil) }
+        let harness = Harness(planner: planner, sources: [fixtureSource(tasks: tasks)], providers: providers)
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let finished = BuildTestGate()
+        var result: Result<BuildLanguageImport?, Error>?
+        let task = Task {
+            defer { finished.open() }
+            do { result = .success(try await harness.service.prepareLanguageRun(
+                fileURL: Self.workspace.appendingPathComponent("app/spec/Main.java"), workspace: Self.workspace,
+                mainTask: "prepare.main", testTask: "prepare.test", optionOverrides: ["features": .array([.string("run-only")])],
+                tool: { _ in BuildProviderHints(toolExecutable: URL(fileURLWithPath: "/selected/maven")) }, isCurrent: { true })) }
+            catch { result = .failure(error) }
+        }
+        defer { task.cancel(); harness.service.stop() }
+        try #require(await finished.waitUntilOpen())
+        await task.value
+        guard case .maven(let context)? = try #require(result).get() else { Issue.record("Expected the task import"); return }
+        #expect(context.profiles == ["run-only"])
+        #expect(planner.taskRequests.last?.task == "prepare.test")
+        #expect(planner.decodedModelOutputs.count == 1)
+        #expect(planner.modelPlanHints.last?.toolExecutable?.path == "/selected/maven")
+        #expect(harness.service.entries.first?.model?.contentRoots.first?.kind == "source")
+        #expect(harness.optionsStore.values["fixture"]?["features"] == nil)
     }
 
     @Test
@@ -3201,6 +3245,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var modelOptionValues: [String: [String]]?
         var fingerprint = "initial"
         var decodedModelOutputs: [BuildCommandOutput] = []
+        var decodedModel: BuildModel?
         var diagnosticOutputs: [String] = []
         var taskPlanContexts: [BuildPlanContext] = []
         var taskRequests: [BuildTaskRequest] = []
@@ -3307,6 +3352,10 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         set { access { $0.fingerprint = newValue } }
     }
     var decodedModelOutputs: [BuildCommandOutput] { access { $0.decodedModelOutputs } }
+    var decodedModel: BuildModel? {
+        get { access { $0.decodedModel } }
+        set { access { $0.decodedModel = newValue } }
+    }
     var diagnosticOutputs: [String] { access { $0.diagnosticOutputs } }
 
     func detect(
@@ -3530,6 +3579,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     ) throws -> BuildModel {
         try waitForBackgroundDecode()
         access { $0.decodedModelOutputs.append(output) }
+        if let model = access({ $0.decodedModel }) { return model }
         let name: String
         if case .stdout(let text) = output, text == "OLD" || text == "NEW" {
             name = text

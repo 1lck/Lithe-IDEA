@@ -76,6 +76,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
     /// Core can clear Maven settings only for a session launched with Maven
     /// inputs. Keep this with the session so a pure Gradle start stays nil.
     private var languageServerMavenContexts: [String: MavenLaunchContext] = [:]
+    /// Ephemeral import changes also revoke in-flight launch metadata (including ABA).
+    package private(set) var javaImportRevision: UInt64 = 0
     private var languageServerWorkspaceFingerprints: [String: String] = [:]
     private var languageServerSessionIdentities: [String: ObjectIdentifier] = [:]
     private var diagnosticsByProviderID: [String: [URL: [LanguageServerDiagnostic]]] = [:]
@@ -493,6 +495,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }
         switch session.updateMavenConfiguration(context, reloadProjects: reloadProjects) {
         case .success(let update):
+            if languageServerMavenContexts["java"] != context || reloadProjects { javaImportRevision &+= 1 }
             languageServerMavenContexts["java"] = context
             return .updated(update)
         case .failure(let failure): return .failed(failure)
@@ -615,6 +618,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
         try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
     }
 
+    /// The exact options of the successful build preparation, without saving
+    /// a project override or reconstructing a second Maven configuration.
+    package func prepareJavaRunLaunchTarget(fileURL: URL, rootURL: URL,
+                                            languageImport: JavaLanguageImportConfiguration) async throws -> JavaLaunchPreparation {
+        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL, languageImport: languageImport)
+    }
+
     /// Rebuilds the original running target without allowing a failed build to proceed.
     package func buildJavaServiceUpdate(
         target: JavaDebugLaunchTarget, fileURL: URL, rootURL: URL
@@ -650,7 +660,37 @@ package final class LanguageToolingSessionManager: ObservableObject,
     ///
     /// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
     package func javaEntrypoints(rootURL: URL) async throws -> JavaEntrypoints {
-        try await javaEntrypoints(in: rootURL.standardizedFileURL)
+        try prepareJavaImportSession(rootURL: rootURL.standardizedFileURL)
+        let revision = javaImportRevision
+        let value = try await javaEntrypoints(in: rootURL.standardizedFileURL)
+        guard javaImportRevision == revision else { throw CancellationError() }
+        return value
+    }
+
+    /// Reuse the current session when Core can update it in place. A session
+    /// originally started without Maven inputs must restart with those inputs.
+    private func prepareJavaImportSession(rootURL: URL, override: JavaLanguageImportConfiguration? = nil) throws {
+        guard let descriptor = catalog.descriptors.first(where: { $0.id == "java" }) else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
+        }
+        let configuration = try override ?? javaLanguageImport(descriptor, rootURL: rootURL)
+        let session = try ensureLanguageServerSession(descriptor: descriptor, rootURL: rootURL,
+            operationID: nil, javaImportOverride: configuration)
+        if let context = configuration.mavenContext, languageServerMavenContexts["java"] != context {
+            switch session.updateMavenConfiguration(context, reloadProjects: false) {
+            case .success:
+                javaImportRevision &+= 1
+                languageServerMavenContexts["java"] = context
+            case .failure:
+                stopLanguageServer(providerID: "java")
+                _ = try ensureLanguageServerSession(descriptor: descriptor, rootURL: rootURL,
+                    operationID: nil, javaImportOverride: configuration)
+            }
+        } else if configuration.mavenContext == nil, languageServerMavenContexts["java"] != nil {
+            if case .failed(let failure) = updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: false) {
+                throw LanguageToolingSessionError.toolingUnavailable(failure.userMessage)
+            }
+        }
     }
 
     private func javaEntrypoints(in normalizedRoot: URL) async throws -> JavaEntrypoints {
@@ -659,15 +699,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         guard let session = languageServers["java"], session.isRunning else {
             throw LanguageToolingSessionError.toolingUnavailable("Java")
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            do {
-                try session.javaEntrypoints { result in
-                    continuation.resume(with: result)
-                }
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+        return try await session.javaEntrypoints()
     }
 
     /// `file` relative to `root` with `/` separators, comparing the paths
@@ -691,16 +723,26 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     private func prepareJavaLaunchTarget(
         fileURL: URL,
-        rootURL: URL
+        rootURL: URL,
+        languageImport: JavaLanguageImportConfiguration? = nil
     ) async throws -> JavaLaunchPreparation {
         let normalizedRoot = rootURL.standardizedFileURL
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
-        _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
+        try prepareJavaImportSession(rootURL: normalizedRoot, override: languageImport)
+        let revision = javaImportRevision
+        let sessionIdentity = languageServerSessionIdentities["java"]
+        func checkInputs() throws {
+            try Task.checkCancellation()
+            guard javaImportRevision == revision, languageServerRoots["java"] == normalizedRoot,
+                  languageServerSessionIdentities["java"] == sessionIdentity else { throw CancellationError() }
+        }
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
+        try checkInputs()
         // JDT decides which classes are launchable; Core normalizes its answer
         // into workspace-relative entries, so the target is the entry generated
         // from this exact source file.
         let entrypoints = try await javaEntrypoints(in: normalizedRoot)
+        try checkInputs()
         let relativeSource = Self.workspaceRelativePath(of: resolvedFile, in: normalizedRoot)
         let exactMatches = entrypoints.entries.filter { $0.sourcePath == relativeSource }
         guard exactMatches.count == 1 else {
@@ -754,6 +796,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 report: error.javaBuildReport
             )
         }
+        try checkInputs()
         // Explicit runtime scope excludes test Main classes (issue #379).
         // Omit it so Java Debug Server selects paths from the owning project.
         let classpathValue = try await executeJavaCommand(
@@ -764,6 +807,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             ],
             rootURL: normalizedRoot
         )
+        try checkInputs()
         guard case .array(let pathGroups) = classpathValue,
               pathGroups.count == 2 else {
             throw LanguageToolingSessionError.toolingUnavailable(
@@ -951,24 +995,19 @@ package final class LanguageToolingSessionManager: ObservableObject,
         arguments: [ToolingJSONValue],
         rootURL: URL
     ) async throws -> ToolingJSONValue {
+        guard isLanguageServerEnabled("java", rootURL.standardizedFileURL) else {
+            throw LanguageToolingSessionError.providerDisabled("Java")
+        }
         let command = LanguageServerCommand(
             title: commandID,
             command: commandID,
             arguments: arguments
         )
-        return try await withCheckedThrowingContinuation { continuation in
-            do {
-                try executeReturningValue(
-                    command,
-                    fileURL: rootURL.appendingPathComponent("Main.java"),
-                    rootURL: rootURL
-                ) { result in
-                    continuation.resume(with: result)
-                }
-            } catch {
-                continuation.resume(throwing: error)
-            }
+        guard let session = languageServers["java"], session.isRunning,
+              languageServerRoots["java"] == rootURL.standardizedFileURL else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
         }
+        return try await session.executeReturningValue(command, fileURL: rootURL)
     }
 
     private func executeJavaTestCommand(
@@ -983,12 +1022,13 @@ package final class LanguageToolingSessionManager: ObservableObject,
         fileURL: URL,
         rootURL: URL
     ) async throws -> [JavaTestItem] {
-        _ = try startLanguageServer(providerID: "java", rootURL: rootURL)
+        try prepareJavaImportSession(rootURL: rootURL)
+        let revision = javaImportRevision
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
         guard let session = languageServers["java"], session.isRunning else {
             throw LanguageToolingSessionError.toolingUnavailable("Java")
         }
-        return try await withCheckedThrowingContinuation { continuation in
+        let items: [JavaTestItem] = try await withCheckedThrowingContinuation { continuation in
             do {
                 try session.javaTestItems(fileURL: fileURL) { result in
                     continuation.resume(with: result.map(\.items))
@@ -997,6 +1037,9 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 continuation.resume(throwing: error)
             }
         }
+        try Task.checkCancellation()
+        guard javaImportRevision == revision else { throw CancellationError() }
+        return items
     }
 
     private static func stringValues(_ value: ToolingJSONValue) -> [String] {
@@ -1201,6 +1244,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerSessionIdentities[providerID] = nil
         languageServers.removeValue(forKey: providerID)?.stop()
         languageServerRoots[providerID] = nil
+        if providerID == "java" { javaImportRevision &+= 1 }
         languageServerMavenContexts[providerID] = nil
         languageServerWorkspaceFingerprints[providerID] = nil
         languageServerFeatures[providerID] = nil
@@ -1650,7 +1694,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private func ensureLanguageServerSession(
         descriptor: LanguageProviderDescriptor,
         rootURL: URL,
-        operationID requestedOperationID: UUID?
+        operationID requestedOperationID: UUID?,
+        javaImportOverride: JavaLanguageImportConfiguration? = nil
     ) throws -> any LanguageServerSession {
         // All entry points, including Maven reload, testing, and debugging, must
         // recheck the current workspace preference before creating or reusing a session.
@@ -1819,7 +1864,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         )
 
         do {
-            let importConfiguration = try javaLanguageImport(descriptor, rootURL: rootURL)
+            let importConfiguration = try javaImportOverride ?? javaLanguageImport(descriptor, rootURL: rootURL)
+            if descriptor.id == "java" { javaImportRevision &+= 1 }
             languageServerMavenContexts[descriptor.id] = importConfiguration.mavenContext
             try created.start(
                 rootURL: rootURL,
@@ -1877,6 +1923,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerSessionIdentities[providerID] = nil
         let session = languageServers.removeValue(forKey: providerID)
         languageServerRoots[providerID] = nil
+        if providerID == "java" { javaImportRevision &+= 1 }
         languageServerMavenContexts[providerID] = nil
         languageServerWorkspaceFingerprints[providerID] = nil
         languageServerFeatures[providerID] = nil

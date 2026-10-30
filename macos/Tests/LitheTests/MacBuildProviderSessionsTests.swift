@@ -264,6 +264,31 @@ struct MacBuildProviderSessionsTests {
         try #require(await core.destroyed.waitUntilOpen(), "The language session did not release its resources")
     }
 
+    @Test
+    func cancellingAwaitedJavaEntrypointsRevokesTheExactCoreOperationWithoutStoppingTheSession() async throws {
+        let core = ScriptedProviderCore()
+        let session = LanguageServerRuntimeSession(providerID: "java", executableURL: URL(fileURLWithPath: "/tools/jdtls"),
+            arguments: [], environment: [:], core: core)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace/java-profile"), workspaceFingerprint: nil)
+        let finished = TestGate()
+        let task = Task { @MainActor () -> Result<JavaEntrypoints, Error> in
+            defer { finished.open() }
+            do { return .success(try await session.javaEntrypoints()) }
+            catch { return .failure(error) }
+        }
+        defer { task.cancel(); session.stop() }
+        try #require(await core.commandStarted.waitUntilOpen())
+        task.cancel()
+        try #require(await core.functionCancelled.waitUntilOpen())
+        try #require(await finished.waitUntilOpen())
+        if case .failure(let error) = await task.value { #expect(error is CancellationError) }
+        else { Issue.record("Cancelled launch discovery must not succeed") }
+        #expect(session.isRunning)
+        #expect(core.stopCalls.isEmpty)
+        session.stop()
+        try #require(await core.destroyed.waitUntilOpen())
+    }
+
     /// A second request reuses the process; stopping the plugin's providers,
     /// which the plugin manager does before replacing its package, ends it
     /// and the next request starts a new one.
@@ -976,6 +1001,10 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
         diagnostics _: [LanguageServerDiagnostic], completionItem _: LanguageServerCompletionItem?,
         codeAction _: LanguageServerCodeAction?, command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        if operation == .javaEntrypoints {
+            commandStarted.open()
+            return .success(LanguageServerRuntimeOperation(operationID: "java-entrypoints"))
+        }
         if operation == .executeCommand, command?.command == "example.startDebugSession" {
             commandStarted.open()
             return .success(LanguageServerRuntimeOperation(operationID: "debug-start"))

@@ -660,6 +660,14 @@ struct PendingRequest {
     deadline: Instant,
 }
 
+/// Launch discovery delayed until the same project-configuration gate as builds.
+/// No JSON-RPC request exists until dispatch, so cancellation writes nothing.
+struct JavaEntrypointWaiter {
+    operation_id: String,
+    created_at: Instant,
+    deadline: Instant,
+}
+
 /// Latest completed marker projection for one synchronized document.
 ///
 /// Only one version per URI is retained. This bounds memory while preventing
@@ -722,6 +730,7 @@ struct SessionState {
     maven_profile_request_generations: BTreeMap<String, u64>,
     /// Serialized, configuration-gated `vscode.java.buildWorkspace` calls.
     java_builds: JavaBuildCoordinator,
+    java_entrypoint_waiters: VecDeque<JavaEntrypointWaiter>,
     java_build_timeout: Duration,
     /// Deadline cancellations awaiting the outbound worker, never written by the monitor.
     deadline_cancellations: Vec<String>,
@@ -1714,6 +1723,7 @@ impl LspEngine {
                 maven_profile_generation: 0,
                 maven_profile_request_generations: BTreeMap::new(),
                 java_builds: JavaBuildCoordinator::default(),
+                java_entrypoint_waiters: VecDeque::new(),
                 java_build_timeout,
                 deadline_cancellations: Vec::new(),
                 maintenance_write_deadline: None,
@@ -2094,6 +2104,10 @@ impl RuntimeSession {
             }
             if state.request_by_operation.contains_key(&operation_id)
                 || state.java_builds.contains(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -2301,6 +2315,10 @@ impl RuntimeSession {
             }
             if state.request_by_operation.contains_key(&operation_id)
                 || state.java_builds.contains(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -2376,6 +2394,10 @@ impl RuntimeSession {
             }
             if state.request_by_operation.contains_key(&operation_id)
                 || state.java_builds.contains(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -2490,6 +2512,10 @@ impl RuntimeSession {
             }
             if state.request_by_operation.contains_key(&operation_id)
                 || state.java_builds.contains(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -2555,6 +2581,31 @@ impl RuntimeSession {
                     drop(state);
                     return self.send_messages_or_fail(&outbound_order, messages, "javaBuild");
                 }
+            }
+
+            // Profile updates return before m2e has changed the Java projects.
+            // Discovering first and only gating the later build can select an
+            // old entry point or miss a source root introduced by the profile.
+            if self.provider_id == "java"
+                && request.operation == LspSemanticOperation::JavaEntrypoints
+                && java_configuration_running(&mut state, Instant::now())
+            {
+                if state.java_entrypoint_waiters.len() >= 128 {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Too many Java entry-point requests are waiting for project configuration.",
+                    ));
+                }
+                let now = Instant::now();
+                let timeout = state.java_build_timeout;
+                state
+                    .java_entrypoint_waiters
+                    .push_back(JavaEntrypointWaiter {
+                        operation_id,
+                        created_at: now,
+                        deadline: now + timeout,
+                    });
+                return Ok(());
             }
 
             let pending_kind = requested_kind;
@@ -2768,6 +2819,32 @@ impl RuntimeSession {
         let outbound_order = self.lock_outbound_order()?;
         let request_id = {
             let mut state = self.lock_state()?;
+            if let Some(index) = state
+                .java_entrypoint_waiters
+                .iter()
+                .position(|waiter| waiter.operation_id == operation_id)
+            {
+                state.java_entrypoint_waiters.remove(index);
+                let error = runtime_error(
+                    self,
+                    "requestCancelled",
+                    "request",
+                    Some(JAVA_BUILD_METHOD),
+                    None,
+                    "Language-server request was cancelled.",
+                    None,
+                    None,
+                );
+                push_request_event(
+                    self,
+                    &mut state,
+                    operation_id,
+                    JAVA_BUILD_METHOD,
+                    None,
+                    Some(error),
+                );
+                return Ok(());
+            }
             if let Some(departure) = state.java_builds.cancel(operation_id) {
                 let error = runtime_error(
                     self,
@@ -4037,6 +4114,7 @@ impl RuntimeSession {
             // A build response, a finished project job, or finished Maven
             // profiles can each unblock the next queued build.
             outbound.extend(self.dispatch_java_build_locked(&mut state, now));
+            outbound.extend(self.dispatch_java_entrypoints_locked(&mut state, now));
         }
 
         if let Some((code, detail)) = fail_initialize {
@@ -4335,6 +4413,91 @@ impl RuntimeSession {
         flush_queued_documents_locked(&mut state)
     }
 
+    /// Writes queued launch discovery only after m2e and JDT configuration settle.
+    fn dispatch_java_entrypoints_locked(
+        &self,
+        state: &mut SessionState,
+        now: Instant,
+    ) -> Vec<String> {
+        if state.lifecycle != LspLifecycleState::Ready
+            || !state.client.initialized
+            || java_configuration_running(state, now)
+        {
+            return Vec::new();
+        }
+        let mut messages = Vec::new();
+        for waiter in std::mem::take(&mut state.java_entrypoint_waiters) {
+            if now >= waiter.deadline {
+                let error = runtime_error(
+                    self,
+                    "requestTimeout",
+                    "javaProjectConfiguration",
+                    Some(JAVA_BUILD_METHOD),
+                    None,
+                    "Java entry-point discovery timed out waiting for project configuration.",
+                    None,
+                    None,
+                );
+                push_request_event(
+                    self,
+                    state,
+                    &waiter.operation_id,
+                    JAVA_BUILD_METHOD,
+                    None,
+                    Some(error),
+                );
+                continue;
+            }
+            let response = match allocate_raw_request(
+                state.client.clone(),
+                JAVA_BUILD_METHOD,
+                java_entrypoints_command(&java_entrypoint_scope_uri(&self.root_uri)),
+            ) {
+                Ok(response) => response,
+                Err(error) => {
+                    let error = runtime_error(
+                        self,
+                        "invalidRequest",
+                        "javaProjectConfiguration",
+                        Some(JAVA_BUILD_METHOD),
+                        None,
+                        "Could not encode the Java entry-point request.",
+                        Some(&error.message),
+                        None,
+                    );
+                    push_request_event(
+                        self,
+                        state,
+                        &waiter.operation_id,
+                        JAVA_BUILD_METHOD,
+                        None,
+                        Some(error),
+                    );
+                    continue;
+                }
+            };
+            let request_id = (response.state.next_request_id - 1).to_string();
+            state.client = response.state;
+            state
+                .request_by_operation
+                .insert(waiter.operation_id.clone(), request_id.clone());
+            state.pending.insert(
+                request_id,
+                PendingRequest {
+                    kind: PendingKind::JavaEntrypoints,
+                    operation_id: Some(waiter.operation_id),
+                    method: JAVA_BUILD_METHOD.to_string(),
+                    document_uri: None,
+                    document_version: None,
+                    created_at: waiter.created_at,
+                    deadline: waiter.deadline,
+                },
+            );
+            messages.extend(response.messages);
+        }
+        messages
+    }
+
     /// Starts the next queued Java build when nothing blocks it. The caller
     /// holds `outbound_order` and must write the returned messages before
     /// releasing it, so request IDs reach the server in allocation order.
@@ -4342,7 +4505,8 @@ impl RuntimeSession {
         if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
             return Vec::new();
         }
-        let maven_profiles_running = state.maven_profile_status == MavenProfileTaskStatus::Running;
+        let maven_profiles_running = state.maven_profile_update_pending
+            || state.maven_profile_status == MavenProfileTaskStatus::Running;
         let mut allocated = None;
         let dispatch = state
             .java_builds
@@ -4539,6 +4703,7 @@ impl RuntimeSession {
     fn pump_outbound_maintenance(&self) {
         if !self.lock_state().is_ok_and(|state| {
             state.java_builds.has_queued()
+                || !state.java_entrypoint_waiters.is_empty()
                 || !state.deadline_cancellations.is_empty()
                 || (state.maven_profile_update_pending
                     && state.lifecycle == LspLifecycleState::Ready
@@ -4585,6 +4750,7 @@ impl RuntimeSession {
             .collect();
         messages.extend(profile_messages);
         messages.extend(self.dispatch_java_build_locked(&mut state, Instant::now()));
+        messages.extend(self.dispatch_java_entrypoints_locked(&mut state, Instant::now()));
         if messages.is_empty() {
             return;
         }
@@ -4705,6 +4871,34 @@ impl RuntimeSession {
             let maven_profiles_running =
                 state.maven_profile_status == MavenProfileTaskStatus::Running;
             let departure = state.java_builds.expire(maven_profiles_running, now);
+            let mut waiting = std::mem::take(&mut state.java_entrypoint_waiters);
+            while let Some(waiter) = waiting.pop_front() {
+                if now < waiter.deadline {
+                    state.java_entrypoint_waiters.push_back(waiter);
+                    continue;
+                }
+                let error = runtime_error(
+                    self,
+                    "requestTimeout",
+                    "javaProjectConfiguration",
+                    Some(JAVA_BUILD_METHOD),
+                    None,
+                    "Java entry-point discovery timed out waiting for project configuration.",
+                    Some(&format!(
+                        "elapsedMilliseconds={}",
+                        now.saturating_duration_since(waiter.created_at).as_millis()
+                    )),
+                    None,
+                );
+                push_request_event(
+                    self,
+                    &mut state,
+                    &waiter.operation_id,
+                    JAVA_BUILD_METHOD,
+                    None,
+                    Some(error),
+                );
+            }
             for waiter in &departure.expired {
                 let error = runtime_error(
                     self,
@@ -5515,6 +5709,13 @@ fn enqueue_runtime_event(
 }
 
 // Reuse the build coordinator's gate; never infer readiness from a log message.
+/// The configuration barrier is shared by discovery and the following build.
+fn java_configuration_running(state: &mut SessionState, now: Instant) -> bool {
+    state.maven_profile_update_pending
+        || state.maven_profile_status == MavenProfileTaskStatus::Running
+        || state.java_builds.project_configuration_running(now)
+}
+
 fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionState) {
     if session.provider_id != "java" {
         return;
@@ -6358,6 +6559,26 @@ fn fail_feature_requests(
     message: &str,
     exit_code: Option<i32>,
 ) {
+    for waiter in std::mem::take(&mut state.java_entrypoint_waiters) {
+        let error = runtime_error(
+            session,
+            code,
+            stage,
+            Some(JAVA_BUILD_METHOD),
+            None,
+            message,
+            None,
+            exit_code,
+        );
+        push_request_event(
+            session,
+            state,
+            &waiter.operation_id,
+            JAVA_BUILD_METHOD,
+            None,
+            Some(error),
+        );
+    }
     let pending: Vec<_> = state
         .pending
         .iter()
@@ -6486,6 +6707,7 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
     state.java_builds = JavaBuildCoordinator::default();
+    state.java_entrypoint_waiters.clear();
     state.deadline_cancellations.clear();
     state.maintenance_write_deadline = None;
     state.pending_workspace_file_changes.clear();
@@ -9335,6 +9557,116 @@ mod tests {
         }));
         harness.await_state(LspLifecycleState::Ready);
         harness
+    }
+
+    fn queue_java_entrypoints(harness: &Harness, operation: &str) -> Result<(), CoreError> {
+        harness.session().request(
+            SemanticRequest {
+                session_id: harness.session_id.clone(),
+                operation_id: Some(operation.into()),
+                operation: LspSemanticOperation::JavaEntrypoints,
+                uri: None,
+                virtual_uri: None,
+                position: None,
+                new_name: None,
+                range: None,
+                diagnostics: Vec::new(),
+                completion_item: None,
+                code_action: None,
+                command: None,
+            },
+            operation.into(),
+        )
+    }
+
+    #[test]
+    fn java_entrypoints_wait_for_profiles_and_project_jobs_before_querying_the_server() {
+        let mut harness = java_entrypoints_harness();
+        let session = harness.session();
+        session.lock_state().unwrap().maven_profile_status = MavenProfileTaskStatus::Running;
+        queue_java_entrypoints(&harness, "launch-discovery").unwrap();
+        assert!(queue_java_entrypoints(&harness, "launch-discovery").is_err());
+        session.pump_outbound_maintenance();
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|m| m["method"] == "workspace/executeCommand"));
+        {
+            let mut state = session.lock_state().unwrap();
+            state.java_builds.observe_progress(
+                crate::lsp::languages::jdt_build::ProjectJobProgress::Begin {
+                    token: "project-update".into(),
+                    label: "Update project app".into(),
+                },
+                Instant::now(),
+            );
+            state.maven_profile_status = MavenProfileTaskStatus::Succeeded;
+        }
+        session.pump_outbound_maintenance();
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|m| m["method"] == "workspace/executeCommand"));
+        session.lock_state().unwrap().java_builds.observe_progress(
+            crate::lsp::languages::jdt_build::ProjectJobProgress::End {
+                token: "project-update".into(),
+            },
+            Instant::now(),
+        );
+        session.pump_outbound_maintenance();
+        let id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .unwrap();
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":[]}));
+        let event = harness.await_event(|e| {
+            e.operation_id.as_deref() == Some("launch-discovery") && e.kind == "requestCompleted"
+        });
+        assert!(event.error.is_none(), "{event:?}");
+        assert_eq!(event.result.as_ref().unwrap()["entries"], json!([]));
+    }
+
+    #[test]
+    fn java_entrypoints_waiters_cancel_timeout_and_stop_without_a_discovery_or_wire_cancellation() {
+        for mode in ["cancel", "timeout", "stop"] {
+            let mut harness = java_entrypoints_harness();
+            let session = harness.session();
+            session.lock_state().unwrap().maven_profile_status = MavenProfileTaskStatus::Running;
+            queue_java_entrypoints(&harness, mode).unwrap();
+            match mode {
+                "cancel" => session.cancel_operation(mode).unwrap(),
+                "timeout" => session.expire_deadlines_at(Instant::now() + Duration::from_secs(601)),
+                _ => session.stop().unwrap(),
+            }
+            let event = harness.await_event(|e| {
+                e.operation_id.as_deref() == Some(mode) && e.kind == "requestCompleted"
+            });
+            assert!(event.error.is_some());
+            assert!(session
+                .lock_state()
+                .unwrap()
+                .java_entrypoint_waiters
+                .is_empty());
+            assert!(!harness.server.messages().iter().any(|m| {
+                m["params"]["command"] == "vscode.java.resolveMainClass"
+                    || m["method"] == "$/cancelRequest"
+            }));
+        }
+    }
+
+    #[test]
+    fn java_entrypoints_configuration_wait_queue_is_bounded() {
+        let harness = java_entrypoints_harness();
+        harness.session().lock_state().unwrap().maven_profile_status =
+            MavenProfileTaskStatus::Running;
+        for index in 0..128 {
+            queue_java_entrypoints(&harness, &format!("queued-{index}")).unwrap();
+        }
+        assert!(queue_java_entrypoints(&harness, "overflow").is_err());
     }
 
     #[test]

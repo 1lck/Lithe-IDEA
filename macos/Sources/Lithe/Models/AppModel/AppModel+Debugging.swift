@@ -505,10 +505,11 @@ extension AppModel {
         var javaUpdateTarget: JavaDebugLaunchTarget?
         let configuration: DebugLaunchConfiguration
         let buildInputs: UInt64?
+        let javaImport: JavaLanguageImportConfiguration?
         do {
             if let selectedConfiguration, selectedConfiguration.usesJavaProjectPreparation {
-                try await prepareJavaBuildResources(configuration: selectedConfiguration, fileURL: fileURL, identity: identity)
-            } else { try await prepareBuildLanguageImport() }
+                javaImport = try await prepareJavaBuildResources(configuration: selectedConfiguration, fileURL: fileURL, identity: identity)
+            } else { try await prepareBuildLanguageImport(); javaImport = nil }
             buildInputs = buildSystemsFeatureIfActive?.inputRevision
             configuration = try await featureGraph.debugLaunchPreparation.prepare(
                 provider: provider,
@@ -521,15 +522,19 @@ extension AppModel {
                     guard let self else { return nil }
                     let operation = self.buildSystemsFeatureIfActive?.operation?.id
                     let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
-                    let preparation = try await sessions.prepareJavaRunLaunchTarget(
-                        fileURL: fileURL,
-                        rootURL: workspaceURL
-                    )
+                    let preparation: JavaLaunchPreparation
+                    if let javaImport {
+                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL, languageImport: javaImport)
+                    } else {
+                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL)
+                    }
+                    let javaRevision = sessions.javaImportRevision
                     let target = try await self.resolveJavaLaunchPreparation(
                         preparation,
                         identity: identity
                     )
-                    guard !Task.isCancelled, self.isCurrentWorkspace(identity), self.buildSystemsFeatureIfActive?.operation?.id == operation else { throw CancellationError() }
+                    guard !Task.isCancelled, self.isCurrentWorkspace(identity), self.buildSystemsFeatureIfActive?.operation?.id == operation,
+                          sessions.javaImportRevision == javaRevision else { throw CancellationError() }
                     let prepared = JavaDebugLaunchTarget(mainClass: target.mainClass, projectName: target.projectName,
                         modulePaths: target.modulePaths, classPaths: target.classPaths,
                         buildPrepared: selectedConfiguration?.usesJavaProjectPreparation == true)

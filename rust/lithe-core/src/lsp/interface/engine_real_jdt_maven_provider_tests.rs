@@ -131,10 +131,11 @@ fn real_provider_resources_survive_jdt_build_and_reach_the_project_jvm() {
         r#"<project><modelVersion>4.0.0</modelVersion>
       <parent><groupId>smoke</groupId><artifactId>reactor</artifactId><version>1</version></parent><artifactId>app</artifactId>
       <dependencies><dependency><groupId>smoke</groupId><artifactId>library</artifactId><version>1</version></dependency></dependencies>
-      <build><sourceDirectory>sources</sourceDirectory><testSourceDirectory>checks</testSourceDirectory>
+      <properties><selected.sources>inactive-sources</selected.sources><selected.checks>inactive-checks</selected.checks></properties>
+      <build><sourceDirectory>${selected.sources}</sourceDirectory><testSourceDirectory>${selected.checks}</testSourceDirectory>
         <resources><resource><directory>runtime inputs</directory><filtering>true</filtering></resource></resources>
         <testResources><testResource><directory>test inputs</directory><filtering>true</filtering></testResource></testResources>
-      </build><profiles><profile><id>launch</id><properties><selected.value>provider</selected.value></properties></profile></profiles></project>"#,
+      </build><profiles><profile><id>launch</id><properties><selected.value>provider</selected.value><selected.sources>sources</selected.sources><selected.checks>checks</selected.checks></properties></profile></profiles></project>"#,
     );
     write(
         &workspace,
@@ -240,10 +241,12 @@ fn real_provider_resources_survive_jdt_build_and_reach_the_project_jvm() {
         json!({"workspaceRoot":workspace,"root":"nested","options":options,"executablePath":maven}),
     );
     let mut java_start = real_start_request(&toolchain, &scratch, &workspace, &root_uri);
-    java_start.maven_context = Some(
+    let requested_import: crate::project::MavenLaunchContextRequest =
         serde_json::from_value(import["languageImport"]["mavenContext"].clone())
-            .expect("public language import"),
-    );
+            .expect("public language import");
+    let mut initial_import = requested_import.clone();
+    initial_import.profiles.clear();
+    java_start.maven_context = Some(initial_import);
     let release = std::fs::read_to_string(toolchain.project_jdk.join("release"))
         .expect("project JDK release");
     java_start.java_runtimes[0].version =
@@ -258,7 +261,18 @@ fn real_provider_resources_survive_jdt_build_and_reach_the_project_jvm() {
     };
     let jdt = engine.session(&started.session_id).expect("JDT session");
     await_real_smoke_ready(&jdt).unwrap_or_else(|error| panic!("{error}"));
-    let entries = await_real_entrypoints(&engine, &jdt, 2);
+    // Start with a different profile whose source roots contain no entry points.
+    // A single immediate query after the hot update must await the new model;
+    // retrying an empty answer would conceal discovery/configuration races.
+    jdt.update_maven_configuration(requested_import, false)
+        .expect("apply the prepared Provider import");
+    let entries =
+        request_real_entrypoints(&engine, &jdt).expect("discover after the profile update");
+    assert_eq!(
+        entries["entries"].as_array().map(Vec::len),
+        Some(2),
+        "{entries}"
+    );
     // Change resources after import: startup copying cannot make the test pass.
     write(
         &workspace,

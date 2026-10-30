@@ -2871,7 +2871,16 @@ virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
-projectName? }` entries plus diagnostics for unusable upstream records.
+projectName? }` entries plus diagnostics for unusable upstream records. Discovery
+waits behind pending Maven profile updates and JDT project-configuration jobs,
+using the same configuration barrier as the following Java build. Up to 128
+waiting discovery operations are allowed per session. Their deadlines include
+configuration waiting and the eventual upstream query, bounded by the session's
+Java build timeout. Cancellation before dispatch completes that operation without
+writing a JSON-RPC discovery request or cancellation; shutdown/failure settles
+every waiter. A completed profile update must precede discovery of source roots
+introduced by that profile.
+
 `javaTestItems` requires a file URI, invokes Java Test's
 `vscode.java.test.findTestTypesAndMethods`, and returns schema version 1 with a
 typed class/method tree. Each item carries the upstream identity, label, fully

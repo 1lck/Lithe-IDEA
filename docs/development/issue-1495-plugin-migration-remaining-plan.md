@@ -114,3 +114,7 @@
 资源准备增量（2026-10-29）：真实 Maven 受控后端及 Core reactor 各 16 项通过，涵盖自定义资源根、过滤、Profile、主/测试资源区分、拒绝附加目标。合并 preview `35b84dad4` 后原生计时 344 项通过；Run 原始点击到保存、Build 和 JDT 等待由现有协调器持有，新请求替换、Stop 与工作区重置都能撤销准备。Windows `cargo check --bin lithe-windows` 与 preview 基线同为 `project_window_registry.rs` 的两项 macOS 平台错误，未出现新增 Rust 类型调用错误；不代表 Windows 实机通过。
 
 真实 Java 协作增量（2026-10-29）：新增显式工具集成，将 Maven Provider 资源任务、JDT 项目构建/运行路径和真实 JVM 串联；嵌套 reactor、依赖模块、非标准主/测试源码根以及导入后修改的过滤资源均验证真实输出，关闭会话后比较插件包与 JDT 安装目录 SHA-256。宿主源码角色选择限制在当前工程，并统一比较链接工作区与 JDT 的规范路径。新增后 Core/集成 1395 项、Swift 130 项计时通过；新增真实链路 35.983 秒，链接路径与角色/撤销回归分别为 3/15 毫秒。此处直接提供同一份 Profile 导入输入，尚不能证明每个 Run 专属 Profile 都已同步进 JDT；运行配置生成、框架/模块规划、Windows Provider 消费者及正式发行仍是阶段 D 的剩余项。
+
+Run Profile/JDT 一致性增量（2026-10-30）：生产宿主在单次资源准备操作内按临时选项/工具读取 Provider 模型，使用同一模型的源码角色选择资源任务，并返回原样 languageImport；Run/Debug 将这份输入用于 JDT 冷启动/热更新，默认发现恢复当前 Build 输入。配置变化/ABA/会话替换撤销旧发现、构建、运行路径和用户错误决策。Core 的入口发现等待 Profile 和项目配置屏障，队列、期限、取消和关闭均有界；异步语义命令取消只影响本操作。真实 JDT 从无入口源码根热切换后首次查询得到两个入口、实际 JVM 读取新资源通过；315 项 Swift 计时通过（参数组汇总 318）。这项输入传递已接通，但整个 Run 生成与框架/模块规划、Windows 消费者和正式发行门槛仍未完成。
+
+2026-10-30 补充验证：Core/集成逐项计时 1398 项全部通过，真实 Profile 热切换→JDT→JVM 场景 14.249 秒；生产 macOS BuildSystemService 与真实 Maven Provider 验证临时 Profile 改变源码角色，宿主确实选择测试资源任务，返回同一导入值，默认模型/选项不变、进程释放且插件包 SHA-256 不变，2.763 秒通过。
