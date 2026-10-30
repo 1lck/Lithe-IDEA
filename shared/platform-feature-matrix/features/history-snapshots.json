@@ -8,7 +8,8 @@
       "macos/Sources/Lithe/Views/History",
       "macos/Sources/Lithe/Services",
       "macos/Sources/LitheLocalHistoryModule",
-      "macos/Tests/LitheLocalHistoryModuleTests/LocalHistoryModuleTests.swift"
+      "macos/Tests/LitheLocalHistoryModuleTests/LocalHistoryModuleTests.swift",
+      "rust/lithe-core/src/project/history.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -23,6 +24,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Local History",
-  "verification": "编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。 macOS 外部变更和目录操作按批记录历史，仅首个成功快照触发全库过期清理；验证跳过文件、连续批次、取消及单文件保存，4000 文件变化后 CPU 回落且历史仍可读取。",
-  "notes": "Windows 新增项目历史聚合入口与路径筛选，可进入既有单文件时间线比较和恢复；存储改按规范化工作区哈希隔离，Core 秒级时间转换为界面毫秒。项目历史入口只对原生本地工作区开放，WSL 与远程 provider 路径不会展示或调用不支持的 Core 查询。旧全局历史不含可靠工作区归属，原样保留但不自动归入新时间线。"
+  "verification": "编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。 macOS 外部变更和目录操作按批记录历史，仅首个成功快照触发全库过期清理；验证跳过文件、连续批次、取消及单文件保存，4000 文件变化后 CPU 回落且历史仍可读取。 编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。存储上限：Rust 测试覆盖基线跳过生成目录与嵌套仓库、保存时清理旧版本留下的排除目录基线、超过 100MB 先淘汰旧基线再淘汰编辑和标签、基线预算 50MB。",
+  "notes": "Windows 新增项目历史聚合入口与路径筛选，可进入既有单文件时间线比较和恢复；存储改按规范化工作区哈希隔离，Core 秒级时间转换为界面毫秒。项目历史入口只对原生本地工作区开放，WSL 与远程 provider 路径不会展示或调用不支持的 Core 查询。旧全局历史不含可靠工作区归属，原样保留但不自动归入新时间线。每个项目的本地历史上限 100MB（按 4KB 分配块计），其中项目基线最多 50MB；基线跳过 node_modules、.venv、target、.claude 等生成目录和嵌套 Git 仓库。超限时在下次保存时按基线、普通编辑、带标签条目的顺序从旧到新淘汰，两端共用 Core 行为。"
 }
