@@ -554,6 +554,17 @@ package protocol LanguageServerRuntimeCore: Sendable {
         params: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Like `requestPluginFunction`, naming the workspace context of the
+    /// call. Core forwards it only to a backend that negotiated function
+    /// protocol 3; a runtime without contexts drops it.
+    func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference?,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent]
     func destroyLanguageServer(sessionID: String)
@@ -804,6 +815,19 @@ package extension LanguageServerRuntimeCore {
     }
 
     func requestPluginFunction(
+        sessionID: String,
+        pluginID: String,
+        functionID: String,
+        params: ToolingJSONValue,
+        context _: PluginWorkspaceContextReference?,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        requestPluginFunction(
+            sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+        )
+    }
+
+    func requestPluginFunction(
         sessionID _: String,
         pluginID _: String,
         functionID _: String,
@@ -836,12 +860,29 @@ package struct PluginHostRequest: Equatable, Sendable {
 }
 
 /// The host could not complete a host-service request. The message reaches
-/// the backend; never put a secret in it.
+/// the backend; never put a secret in it. `code` is a `plugin.host.*` code
+/// Core passes to a function protocol 3 backend; nil, or a code Core does
+/// not pass, reaches it as `plugin.host.failed`.
 package struct PluginHostRequestFailure: Error, Equatable, Sendable {
     package let message: String
+    package let code: String?
 
-    package init(message: String) {
+    package init(message: String, code: String? = nil) {
         self.message = message
+        self.code = code
+    }
+}
+
+/// One generation of one workspace context, as a call or a host request
+/// names it (function protocol 3). Only the host decides whether it is
+/// still current.
+package struct PluginWorkspaceContextReference: Hashable, Sendable {
+    package let contextID: String
+    package let generation: Int
+
+    package init(contextID: String, generation: Int) {
+        self.contextID = contextID
+        self.generation = generation
     }
 }
 

@@ -90792,6 +90792,82 @@
           "arg1"
         ]
       }
+    },
+    {
+      "id": "native.theWorkspaceContextIsNoLongerCurrent",
+      "description": "Native UI: The workspace context is no longer current. Ask the host for it again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace context is no longer current. Ask the host for it again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginBackendIsNoLongerRunning",
+      "description": "Native UI: The plugin backend is no longer running.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin backend is no longer running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginIsNotAllowedToUseTheHostService",
+      "description": "Native UI: The plugin is not allowed to use the host service %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin is not allowed to use the host service %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theParamsOfMustBeAnObject",
+      "description": "Native UI: The params of %@ must be an object.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The params of %@ must be an object.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theWorkspaceContextReferenceIsMalformed",
+      "description": "Native UI: The workspace context reference is malformed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace context reference is malformed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory",
+      "description": "Native UI: The host could not create the plugin's workspace state directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host could not create the plugin's workspace state directory.",
+        "arguments": []
+      }
     }
   ]
 }

@@ -121,6 +121,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// it once through `respond(to:with:)`; without an owner the request is
     /// refused so the backend never waits for an answer that cannot come.
     package var onHostRequest: ((PluginHostRequest) -> Void)?
+    /// Receives the ID of a host request the backend cancelled with
+    /// `$/cancelRequest` (function protocol 3). Core has already answered
+    /// the backend; the owner stops the work and sends no answer.
+    package var onHostRequestCancelled: ((String) -> Void)?
     /// The VCS provider the process negotiated in `initialize`, as Core's
     /// `vcsProvider` event reported it; nil for every other session.
     package private(set) var vcsNegotiation: VcsProviderNegotiation?
@@ -862,6 +866,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package func invokeFunction(
         _ functionID: String,
         params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference? = nil,
         timeout: TimeInterval,
         progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
     ) async throws -> ToolingJSONValue {
@@ -876,7 +881,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let operation: LanguageServerRuntimeOperation
         switch await send(timeout: timeout, { core in
             core.requestPluginFunction(
-                sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+                sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params,
+                context: context, timeout: timeout
             )
         }) {
         case .success(let started): operation = started
@@ -1332,6 +1338,11 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 onHostRequest(request)
             } else {
                 respond(to: id, with: .failure(PluginHostRequestFailure(message: "The host serves no requests of this process.")))
+            }
+            return false
+        case "hostRequestCancelled":
+            if case .object(let object)? = event.result, case .string(let id)? = object["hostRequestID"] {
+                onHostRequestCancelled?(id)
             }
             return false
         case "vcsProvider":

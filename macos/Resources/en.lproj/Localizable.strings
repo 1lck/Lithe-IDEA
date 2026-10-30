@@ -3872,6 +3872,7 @@
 "The global instruction file must use UTF-8 encoding." = "The global instruction file must use UTF-8 encoding.";
 "The host cannot provide an execution session for %@." = "The host cannot provide an execution session for %@.";
 "The host could not be reached. Check the host name, the port, and your network." = "The host could not be reached. Check the host name, the port, and your network.";
+"The host could not create the plugin's workspace state directory." = "The host could not create the plugin's workspace state directory.";
 "The host does not serve %@." = "The host does not serve %@.";
 "The host has no bridge method %@." = "The host has no bridge method %@.";
 "The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts." = "The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts.";
@@ -3901,13 +3902,16 @@
 "The official plugin package signature is invalid: %@" = "The official plugin package signature is invalid: %@";
 "The official plugin package signature is missing." = "The official plugin package signature is missing.";
 "The official plugin signing key is unavailable." = "The official plugin signing key is unavailable.";
+"The params of %@ must be an object." = "The params of %@ must be an object.";
 "The patch changes the base commit's tree into the target commit's tree." = "The patch changes the base commit's tree into the target commit's tree.";
 "The plugin archive expands beyond the allowed size: %@" = "The plugin archive expands beyond the allowed size: %@";
 "The plugin archive is larger than %@ MB." = "The plugin archive is larger than %@ MB.";
 "The plugin backend failed to start." = "The plugin backend failed to start.";
+"The plugin backend is no longer running." = "The plugin backend is no longer running.";
 "The plugin backend stopped before it was ready." = "The plugin backend stopped before it was ready.";
 "The plugin does not provide the debug adapter %@." = "The plugin does not provide the debug adapter %@.";
 "The plugin download address is invalid." = "The plugin download address is invalid.";
+"The plugin is not allowed to use the host service %@." = "The plugin is not allowed to use the host service %@.";
 "The plugin launch refers to %@, which is not a file inside its package." = "The plugin launch refers to %@, which is not a file inside its package.";
 "The plugin package changed while it was being copied. Choose it again." = "The plugin package changed while it was being copied. Choose it again.";
 "The plugin package contains an unsupported file: %@." = "The plugin package contains an unsupported file: %@.";
@@ -4018,6 +4022,8 @@
 "The working copy was cleaned up." = "The working copy was cleaned up.";
 "The working tree could not be refreshed. Keep your local files and inspect Git status before continuing." = "The working tree could not be refreshed. Keep your local files and inspect Git status before continuing.";
 "The workspace" = "The workspace";
+"The workspace context is no longer current. Ask the host for it again." = "The workspace context is no longer current. Ask the host for it again.";
+"The workspace context reference is malformed." = "The workspace context reference is malformed.";
 "The workspace dependency configuration in %@ is invalid." = "The workspace dependency configuration in %@ is invalid.";
 "The workspace dependency configuration uses an unsupported version." = "The workspace dependency configuration uses an unsupported version.";
 "The workspace is not a supported %@ test project." = "The workspace is not a supported %@ test project.";
@@ -8456,6 +8462,7 @@
 "native.theHookLibraryResponseWasNotRecognised" = "The Hook library response was not recognised.";
 "native.theHostCannotProvideAnExecutionSessionFor" = "The host cannot provide an execution session for %1$@.";
 "native.theHostCouldNotBeReachedCheckTheHostNameThePortAndYourNetwork" = "The host could not be reached. Check the host name, the port, and your network.";
+"native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory" = "The host could not create the plugin's workspace state directory.";
 "native.theHostDoesNotServe" = "The host does not serve %1$@.";
 "native.theHostHasNoBridgeMethod" = "The host has no bridge method %1$@.";
 "native.theHostKeyWasNotAcceptedIfTheServerWasReinstalledRemoveItsOldEntryFromSshKnownHosts" = "The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts.";
@@ -8509,13 +8516,16 @@
 "native.theOfficialPluginPackageSignatureIsInvalid" = "The official plugin package signature is invalid: %1$@";
 "native.theOfficialPluginPackageSignatureIsMissing" = "The official plugin package signature is missing.";
 "native.theOfficialPluginSigningKeyIsUnavailable" = "The official plugin signing key is unavailable.";
+"native.theParamsOfMustBeAnObject" = "The params of %1$@ must be an object.";
 "native.thePatchChangesTheBaseCommitSTreeIntoTheTargetCommitSTree" = "The patch changes the base commit's tree into the target commit's tree.";
 "native.thePluginArchiveExpandsBeyondTheAllowedSize" = "The plugin archive expands beyond the allowed size: %1$@";
 "native.thePluginArchiveIsLargerThanLldMb" = "The plugin archive is larger than %1$@ MB.";
 "native.thePluginBackendFailedToStart" = "The plugin backend failed to start.";
+"native.thePluginBackendIsNoLongerRunning" = "The plugin backend is no longer running.";
 "native.thePluginBackendStoppedBeforeItWasReady" = "The plugin backend stopped before it was ready.";
 "native.thePluginDoesNotProvideTheDebugAdapter" = "The plugin does not provide the debug adapter %1$@.";
 "native.thePluginDownloadAddressIsInvalid" = "The plugin download address is invalid.";
+"native.thePluginIsNotAllowedToUseTheHostService" = "The plugin is not allowed to use the host service %1$@.";
 "native.thePluginLaunchRefersToWhichIsNot" = "The plugin launch refers to %1$@, which is not a file inside its package.";
 "native.thePluginPackageChangedWhileItWasBeing" = "The plugin package changed while it was being copied. Choose it again.";
 "native.thePluginPackageContainsAnUnsupportedFile" = "The plugin package contains an unsupported file: %1$@.";
@@ -8620,6 +8630,8 @@
 "native.theWorkingCopyWasCleanedUp" = "The working copy was cleaned up.";
 "native.theWorkingTreeCouldNotBeRefreshedKeepYourLocalFilesAndInspectGitStatusBeforeContinuing" = "The working tree could not be refreshed. Keep your local files and inspect Git status before continuing.";
 "native.theWorkspace" = "The workspace";
+"native.theWorkspaceContextIsNoLongerCurrent" = "The workspace context is no longer current. Ask the host for it again.";
+"native.theWorkspaceContextReferenceIsMalformed" = "The workspace context reference is malformed.";
 "native.theWorkspaceDependencyConfigurationInIsInvalid" = "The workspace dependency configuration in %1$@ is invalid.";
 "native.theWorkspaceDependencyConfigurationUsesAnUnsupportedVersion" = "The workspace dependency configuration uses an unsupported version.";
 "native.theWorkspaceIsNotASupportedTestProject" = "The workspace is not a supported %1$@ test project.";

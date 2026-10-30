@@ -9515,7 +9515,13 @@
     "document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying": "The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying.",
     "document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor": "This file type cannot be opened in this editor",
     "document.fileAccess.updateAllHardLinks": "Update All Hard Links",
-    "document.fileAccess.savePermissionDenied": "Could not save {arg1}: permission denied. Check the file and parent folder permissions. Your edits are still unsaved."
+    "document.fileAccess.savePermissionDenied": "Could not save {arg1}: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.",
+    "native.theWorkspaceContextIsNoLongerCurrent": "The workspace context is no longer current. Ask the host for it again.",
+    "native.thePluginBackendIsNoLongerRunning": "The plugin backend is no longer running.",
+    "native.thePluginIsNotAllowedToUseTheHostService": "The plugin is not allowed to use the host service {arg1}.",
+    "native.theParamsOfMustBeAnObject": "The params of {arg1} must be an object.",
+    "native.theWorkspaceContextReferenceIsMalformed": "The workspace context reference is malformed.",
+    "native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory": "The host could not create the plugin's workspace state directory."
   },
   "overrides": {
     "windows": {
