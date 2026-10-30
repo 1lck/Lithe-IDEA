@@ -6,37 +6,38 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Root build declarations whose metadata feeds the Java workspace fingerprint.
+/// Root build declarations whose presence feeds the Java workspace fingerprint.
 ///
-/// Gradle keeps part of a project's structure outside `build.gradle`, so the
-/// included modules in `settings.gradle` and the wrapper descriptor Buildship
-/// reads are observed too; otherwise adding a subproject or switching the
-/// Gradle version would leave a stale JDT LS workspace directory in place.
-/// `gradle.properties` is deliberately not observed: mod projects rewrite it on
-/// nearly every version bump, and each edit would discard the imported workspace
-/// and force a cold re-import.
+/// Only presence counts: JDT LS compares each POM and Gradle script's timestamp
+/// with the state it saved and updates the changed projects itself, so an edit
+/// keeps the imported workspace. The wrapper descriptor is listed because
+/// Buildship reads it, and its Gradle version is observed separately (see
+/// [`gradle_wrapper_distribution`]). `gradle.properties` is deliberately not
+/// observed: mod projects add and remove it freely.
+const GRADLE_WRAPPER_DESCRIPTOR: &str = "gradle/wrapper/gradle-wrapper.properties";
 const WORKSPACE_BUILD_FILES: &[&str] = &[
     "pom.xml",
     "build.gradle",
     "build.gradle.kts",
     "settings.gradle",
     "settings.gradle.kts",
-    "gradle/wrapper/gradle-wrapper.properties",
+    GRADLE_WRAPPER_DESCRIPTOR,
 ];
 pub(super) const JDT_CACHE_LAST_USED_MARKER: &str = ".lithe-last-used";
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct JdtBuildFileObservation {
     pub(super) path: String,
-    pub(super) modified_unix_milliseconds: u64,
-    pub(super) size_bytes: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct JdtWorkspaceFingerprintInputs {
     pub(super) build_files: Vec<JdtBuildFileObservation>,
     pub(super) direct_maven_modules: Vec<String>,
+    /// The wrapper's `distributionUrl`; JDT LS does not notice a Gradle version
+    /// change on its own, so the version selects a fresh state directory.
+    pub(super) gradle_wrapper_distribution: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,42 +74,16 @@ pub(super) fn collect_workspace_fingerprint_inputs(
         path: &Path,
         relative_path: &str,
     ) -> Result<Option<JdtBuildFileObservation>, String> {
-        let metadata = match std::fs::metadata(path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(format!(
-                    "Failed to inspect Java build file {}: {error}",
-                    path.display()
-                ))
-            }
-        };
-        let modified = metadata.modified().map_err(|error| {
-            format!(
-                "Failed to read Java build-file timestamp {}: {error}",
+        match std::fs::metadata(path) {
+            Ok(_) => Ok(Some(JdtBuildFileObservation {
+                path: relative_path.to_string(),
+            })),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(format!(
+                "Failed to inspect Java build file {}: {error}",
                 path.display()
-            )
-        })?;
-        let modified_millis = modified
-            .duration_since(UNIX_EPOCH)
-            .map_err(|error| {
-                format!(
-                    "Java build-file timestamp predates the Unix epoch {}: {error}",
-                    path.display()
-                )
-            })?
-            .as_millis();
-        let modified_unix_milliseconds = u64::try_from(modified_millis).map_err(|_| {
-            format!(
-                "Java build-file timestamp is out of range: {}",
-                path.display()
-            )
-        })?;
-        Ok(Some(JdtBuildFileObservation {
-            path: relative_path.to_string(),
-            modified_unix_milliseconds,
-            size_bytes: metadata.len(),
-        }))
+            )),
+        }
     }
 
     let mut build_files = Vec::new();
@@ -166,7 +141,51 @@ pub(super) fn collect_workspace_fingerprint_inputs(
     Ok(JdtWorkspaceFingerprintInputs {
         build_files,
         direct_maven_modules,
+        gradle_wrapper_distribution: gradle_wrapper_distribution(workspace_root)?,
     })
+}
+
+/// The `distributionUrl` of the workspace's Gradle wrapper descriptor, if any.
+///
+/// The descriptor is a Java properties file, whose writer escapes `:` and `=`
+/// in values (`https\://services.gradle.org/...`); escapes are removed so the
+/// same version always reads the same.
+pub(super) fn gradle_wrapper_distribution(workspace_root: &Path) -> Result<Option<String>, String> {
+    let path = workspace_root.join(GRADLE_WRAPPER_DESCRIPTOR);
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "Failed to read Gradle wrapper descriptor {}: {error}",
+                path.display()
+            ))
+        }
+    };
+    for line in contents.lines() {
+        let line = line.trim_start();
+        if line.starts_with('#') || line.starts_with('!') {
+            continue;
+        }
+        let Some(value) = line
+            .strip_prefix("distributionUrl")
+            .map(str::trim_start)
+            .and_then(|rest| rest.strip_prefix(['=', ':']))
+        else {
+            continue;
+        };
+        let mut unescaped = String::with_capacity(value.len());
+        let mut characters = value.trim().chars();
+        while let Some(character) = characters.next() {
+            if character == '\\' {
+                unescaped.extend(characters.next());
+            } else {
+                unescaped.push(character);
+            }
+        }
+        return Ok(Some(unescaped).filter(|value| !value.is_empty()));
+    }
+    Ok(None)
 }
 
 /// Delegates portable ordering and serialization of observations to Rust Core.
@@ -182,6 +201,7 @@ pub(super) fn resolve_workspace_fingerprint(
         "payload": {
             "buildFiles": inputs.build_files,
             "directMavenModules": inputs.direct_maven_modules,
+            "gradleWrapperDistribution": inputs.gradle_wrapper_distribution,
             "jdtlsVersion": jdtls_version,
         }
     });

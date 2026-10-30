@@ -10,6 +10,8 @@ import Testing
 struct ExecutionModuleTests {
     @Test
     func providerServicesPrepareIndependentlyAndStoppedRepliesCannotLaunchOverReplacements() async throws {
+        let firstOwner = BuildSystemPluginSource(pluginID: "dev.first", manifest: Data(), packageURL: URL(fileURLWithPath: "/fixture/first"), buildSystems: [])
+        let secondOwner = BuildSystemPluginSource(pluginID: "dev.second", manifest: Data(), packageURL: URL(fileURLWithPath: "/fixture/second"), buildSystems: [])
         let operations = ProviderChoicesRunOperations()
         let root = URL(fileURLWithPath: "/workspace")
         var processes: [TestStreamingProcess] = []
@@ -23,7 +25,7 @@ struct ExecutionModuleTests {
             languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset(); first.release.continuation.yield(()); second.release.continuation.yield(()); replacement.release.continuation.yield(()); started.continuation.finish() }
         service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
-        service.configureProviderConfigurationRuns { inputs, _, _, _, current, progress in
+        service.configureProviderConfigurationRuns(source: { inputs, _ in inputs.projectPath == "second" ? secondOwner : firstOwner }) { inputs, _, _, _, current, progress in
             let count = calls[inputs.projectPath, default: 0]; calls[inputs.projectPath] = count + 1
             let gate = inputs.projectPath == "second" ? second : (count == 0 ? first : replacement)
             gate.entered.continuation.yield(())
@@ -55,17 +57,21 @@ struct ExecutionModuleTests {
         #expect(service.moduleSessions.allSatisfy { $0.isRunning })
         let oldOutput = processes[0].onOutput, oldExit = processes[0].onTermination
         let secondSession = try #require(service.moduleSessions.first { $0.configurationID == "second" })
-        service.stopModule(secondSession)
+        service.retainProviderConfigurations([firstOwner])
+        #expect(service.moduleSessions.first { $0.id == secondSession.id }?.isRunning == false)
+        #expect(service.moduleSessions.first { $0.configurationID == "first" }?.isRunning == true)
         oldOutput?("late stopped output"); oldExit?(7)
         processes[1].onOutput?("replacement barrier")
         try await awaitTestValue(service.$moduleSessions) { $0.contains { $0.output.contains("replacement barrier") } }
         #expect(!service.moduleSessions.contains { $0.output.contains("late stopped output") })
-        service.stopProviderConfigurations(buildSystemIDs: ["maven"])
+        service.retainProviderConfigurations([])
         #expect(!service.hasRunningServices && processes.allSatisfy { !$0.isRunning })
     }
 
     @Test(arguments: ["launch", "stop", "reset", "disable"])
     func providerPrimaryPreparationRetainsIdentityAndRejectsStoppedOrResetResults(outcome: String) async throws {
+        let firstOwner = BuildSystemPluginSource(pluginID: "dev.first", manifest: Data(), packageURL: URL(fileURLWithPath: "/fixture/first"), buildSystems: [])
+        let secondOwner = BuildSystemPluginSource(pluginID: "dev.second", manifest: Data(), packageURL: URL(fileURLWithPath: "/fixture/second"), buildSystems: [])
         let operations = ProviderChoicesRunOperations(), gate = ProviderPreparationGate()
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true), process = TestStreamingProcess()
         let started = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -76,7 +82,7 @@ struct ExecutionModuleTests {
             languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset(); gate.release.continuation.yield(()); started.continuation.finish() }
         service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
-        service.configureProviderConfigurationRuns { inputs, _, _, _, _, _ in
+        service.configureProviderConfigurationRuns(source: { _, _ in firstOwner }) { inputs, _, _, _, _, _ in
             #expect(inputs.launchOptions.arguments == ["a b", "雪"])
             gate.entered.continuation.yield(())
             let waiter = Task { try await awaitSignal(gate.release.stream) }
@@ -91,16 +97,16 @@ struct ExecutionModuleTests {
         #expect(service.isRunning && service.isPreparingBuildRun)
         if outcome == "stop" { service.stop() }
         if outcome == "reset" { service.reset() }
-        if outcome == "disable" { service.stopProviderConfigurations(buildSystemIDs: ["maven"]) }
+        if outcome == "disable" { service.retainProviderConfigurations([]) }
         gate.release.continuation.yield(())
         if outcome == "launch" {
             try await awaitSignal(started.stream)
             #expect(service.primaryExecutionID == identity)
             #expect(process.startRequests.first?.arguments == ["prepared"])
             #expect(service.isRunning && !service.isPreparingBuildRun)
-            service.stopProviderConfigurations(buildSystemIDs: ["other"])
+            service.retainProviderConfigurations([firstOwner, secondOwner])
             #expect(service.isRunning)
-            service.stopProviderConfigurations(buildSystemIDs: ["maven"])
+            service.retainProviderConfigurations([])
             #expect(!service.isRunning && !process.isRunning)
         } else {
             try await awaitSignal(gate.finished.stream)
@@ -895,10 +901,10 @@ struct ExecutionModuleTests {
         )
     }
 
-    /// A broken configuration must stay regenerable. Inventory readiness and
-    /// configuration validity are separate concerns, so an unreadable
-    /// `generated.json` must not make the project un-ready and lock the user out
-    /// of the only action that repairs it.
+    /// A broken configuration must not block identification. Inventory
+    /// readiness and configuration validity are separate concerns, so an
+    /// unreadable `configurations.json` must not make the project un-ready and
+    /// lock the user out of identifying it again.
     @Test
     func unreadableConfigurationStillAllowsRegeneration() async throws {
         let operations = FailingInspectionRunConfigurationOperations()
@@ -919,7 +925,7 @@ struct ExecutionModuleTests {
 
         await service.loadProject(at: root, files: [], snapshotID: snapshotID)
 
-        #expect(service.configurationStatus == .invalid("generated.json is invalid"))
+        #expect(service.configurationStatus == .invalid("configurations.json is invalid"))
         #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
 
         await service.generateRunConfigurations()
@@ -2629,7 +2635,7 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
 private struct FailingInspectionRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(
-            status: .invalid("generated.json is invalid"),
+            status: .invalid("configurations.json is invalid"),
             diagnostics: [],
             recoveryAction: .editConfiguration
         )

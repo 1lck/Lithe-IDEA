@@ -7,6 +7,7 @@ import { useMybatisStore } from "../stores/mybatis.store";
 import { EMPTY_MYBATIS_INDEX } from "../types/mybatis.types";
 import {
   collectMybatisIndexPaths,
+  editAffectsMybatisIndex,
   isMybatisIndexPath,
   workspaceRelativeMybatisPath,
 } from "../utils/mybatis-index-paths";
@@ -71,7 +72,12 @@ export function useMybatisIndex() {
       const changed = state.buffers.some((buffer) => {
         if (!buffer.path || !isMybatisIndexPath(buffer.path) || !hasTextContent(buffer)) return false;
         const previousBuffer = previous.buffers.find((candidate) => candidate.id === buffer.id);
-        return !previousBuffer || !hasTextContent(previousBuffer) || previousBuffer.content !== buffer.content;
+        // A newly opened file may hold a mapper the index has not paired yet.
+        if (!previousBuffer || !hasTextContent(previousBuffer)) return true;
+        return (
+          previousBuffer.content !== buffer.content &&
+          editAffectsMybatisIndex(buffer.path)
+        );
       });
       if (changed) scheduleReload();
     });

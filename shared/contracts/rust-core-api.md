@@ -1271,7 +1271,12 @@ errors remain visible. In particular, Windows may reject an over-MAX_PATH Git
 working directory at process creation even when filesystem lookup succeeds;
 this is reported as `process_start_failed`, not a missing repository. Shared examples live in `shared/fixtures/git/windows-paths.json`.
 Core treats both
-`.git` directories and `.git` files as repository markers. The default traversal
+`.git` directories and `.git` files as repository markers, but a marker only
+becomes a listed repository when Git can open it: a `.git` directory needs
+`HEAD`, and a `.git` file must resolve to a gitdir (absolute, or relative to
+the marker's directory) that exists and holds `HEAD`. A stale submodule or
+worktree pointer whose gitdir was removed is not listed, because status and
+reference loads for the whole workspace would otherwise fail for it. The default traversal
 skips dot-prefixed descendant directories and the built-in workspace hidden
 directory names (including `.build`, `node_modules`, `target`, `build`,
 `DerivedData`, `dist` and `coverage`). `.worktree` and `.worktrees` remain
@@ -2040,6 +2045,47 @@ existing defaults. macOS forwards the selected workspace sources through these
 existing caps: Actions-only stays local, Text-only requests contents, Files and
 Agent completion request names, and Classes/Symbols share the symbol index.
 Search module activation does not eagerly build a content index.
+
+Optional `pageSize` (1–200 per source), `cursor`, and `resultKinds`
+(`file`, `type`, `symbol`, `content`) enable bounded keyset pages. The response
+adds nullable `nextCursor`; absent/null means exhausted. macOS uses 50 per source
+and loads another page near the scroll edge, with no 200-result total ceiling.
+The opaque cursor binds the workspace/remote identity, query, options, source caps,
+visibility rules and page size; clients must resend the same request options.
+Each source retains at most pageSize + 1 ranked candidates, using the extra item
+to detect exhaustion. No all-matches array or retained search session is created.
+Name/symbol continuation scans the existing index to select the next ranked page;
+text pages follow path/line order and stop after the lookahead match. Pages observe
+the live index: edits inserting a match before the cursor require a fresh query.
+Requests without pageSize retain the legacy capped response and schema.
+
+Observed `workspace.searchEverywhere` calls may emit
+`{ "type": "searchResults", "operationId": "…", "results": { "matches": […] } }`
+on the existing request event channel. Each event replaces the previous snapshot;
+never append its matches. File-name candidates are searched and published before
+building the content/symbol index. The first candidate is sent immediately;
+subsequent name/type/symbol candidates are merged for approximately 100 ms,
+with a flush at source boundaries. Each snapshot keeps the same ranked per-source
+and total caps as the final response, so a later better candidate may replace an
+earlier one. Content matches and Git ignore metadata arrive with the authoritative
+final response. A partial snapshot's absent `isIgnored` means unknown, not false.
+Callbacks remain request-scoped, use the existing cancellation registration, and
+finish before the final JSON returns. Calls without an observer retain the same
+complete response schema. Cold name-index enumeration and pending index update/
+invalidation barriers still precede candidates; this is not a 100 ms end-to-end
+latency guarantee.
+
+macOS consumes replaceable snapshots with a newest-only buffer, checks query
+generation and cancellation for every update, and keeps selection by result ID
+when ranking changes. Closing/resetting or replacing a query cancels its Core
+operation; late callbacks cannot overwrite the next query or its loading state.
+First-page snapshots remain replaceable; completed continuation pages append with
+ID deduplication. macOS keeps each loaded page's order, including actions after the
+first names page, so later pages do not insert above the visible viewport. Repeated
+cursors or pages with no new IDs stop loading. Failure preserves rows/cursor and
+pauses automatic loading until Retry. The input debounce remains 180 ms. Windows
+continues to consume the legacy final response; this change does not claim
+incremental or automatically paged Windows presentation.
 Basename matches rank above relative-path fallback matches, even when the query
 contains no slash (for example `src` matches `src/Foo.swift`). Path-only matches
 have `matchingDegree: -1` and no basename ranges; literal basename hits use degree
@@ -2075,8 +2121,8 @@ file/path globs still apply. It does not enable generated-file content or symbol
 indexing and does not change `workspace.search`, tree, watcher, or replacement
 visibility. Names share index invalidation and reported file updates; changes
 inside unwatched generated directories require workspace/index refresh. No index
-files or resources are written to disk. macOS requests 200 matches per bucket
-and 800 total; these are bounded candidate limits, not a claim of unbounded IDEA paging.
+files or resources are written to disk. macOS Search Everywhere requests pages of
+50 matches per source; legacy synchronous consumers retain their requested caps.
 Java type and method results still use the existing syntax index and include a
 one-based line, `symbolName`, and source line in `preview`; language-provider
 workspace-symbol integration and external-library search are not implied.
@@ -2652,16 +2698,23 @@ Packaged macOS and Windows plans always use structured direct launch, so runtime
 startup has no shell, PowerShell, or user-`PATH` dependency. Wrapper launch
 remains optional only for external or older plans.
 
-For JDT LS, platform adapters observe root Maven/Gradle descriptor timestamps
-and sizes, names of direct Maven module directories, and the selected JDT LS
-version. They submit those raw observations to `java.jdtWorkspaceFingerprint`;
+For JDT LS, platform adapters observe which root Maven/Gradle descriptors
+exist, names of direct Maven module directories, the Gradle wrapper's
+`distributionUrl` when the workspace has one, and the selected JDT LS version. They submit those raw observations to `java.jdtWorkspaceFingerprint`;
 Rust Core validates, sorts, de-duplicates, and constructs the sole portable
 fingerprint representation. Core then hashes the normalized workspace identity
 followed by a null separator and that opaque fingerprint to select
 `cacheDirectory/jdtls/<workspaceKey>`.
 Omitting the fingerprint preserves the legacy path-only key for older clients.
 Changing structure selects a new directory without deleting the old one, so a
-later switch back can reuse it.
+later switch back can reuse it. Editing a descriptor is not a structural change:
+JDT LS compares each POM and Gradle file's timestamp with the state it saved and
+updates only the changed projects on restart, and running sessions receive the
+edit through `lsp.workspaceFilesChanged`. Keying the directory on descriptor
+timestamps would discard the whole index after any touch of the file. The Gradle
+version is the exception: JDT LS does not check the wrapper descriptor, so the
+wrapper's `distributionUrl` takes part in the fingerprint and a version change
+selects a fresh directory.
 
 Core starts JDT LS with
 `-Djava.import.generatesMetadataFilesAtProjectRoot=false`, so the Eclipse
@@ -2679,9 +2732,9 @@ at the removed files, and records the removed workspace-relative paths in the
 session's `info` log event.
 
 `java.jdtWorkspaceFingerprint` accepts
-`{ buildFiles, directMavenModules, jdtlsVersion }`. Each build-file observation
-contains a workspace-relative `path`, `modifiedUnixMilliseconds`, and
-`sizeBytes`. It returns `{ workspaceFingerprint }`; platforms must not recreate
+`{ buildFiles, directMavenModules, gradleWrapperDistribution?, jdtlsVersion }`.
+Each build-file observation contains only a workspace-relative `path`;
+`gradleWrapperDistribution`, when sent, must not be blank. It returns `{ workspaceFingerprint }`; platforms must not recreate
 or parse this opaque string. Compatibility cases are in
 `shared/fixtures/lsp/jdt-workspace-fingerprint-v1.json`.
 
@@ -3083,8 +3136,10 @@ the response preserves the path text, uses one-based line and column values,
 and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
 
-`runConfig.selectJava` reads only the existing workspace
-`.lithe/toolchains/requirements.json` document. Its request contains optional
+`runConfig.selectJava` uses the toolchain requirements of the workspace's latest
+`runConfig.generate` in this process; before any generation it derives them from
+the project's own declarations (`pom.xml`, `.java-version`, the Maven wrapper).
+Its request contains optional
 `root`, `candidates` (`id`, probed `version`, numeric source `priority`), and
 `fallbackId`. IDs are opaque machine-local identities, never persisted or opened
 by this operation. Lower priority wins; equal-priority candidates use descending
@@ -3094,8 +3149,8 @@ When `project-jdk.minimumVersion` exists, selection first filters using the same
 Java version comparison as run-configuration diagnostics. The response is
 `{ id, warning }`: the compatible candidate, or the supplied usable fallback
 with an actionable warning if none qualifies. Missing requirements retain the
-platform's unconstrained choice; malformed/unsupported documents return the
-existing parse/version error. Explicit configured paths bypass automatic
+platform's unconstrained choice; a malformed or unsupported `requirements`
+snapshot returns the parse/version error. Explicit configured paths bypass automatic
 selection. The operation never generates requirements or probes executables.
 The cross-platform examples are in
 `shared/fixtures/run-configuration/automatic-java-selection.json`.
@@ -3187,24 +3242,37 @@ Java configurations with the same class and module name in independent reactors
 remain distinct; a common reactor retains its existing configuration IDs.
  When Java tooling is still preparing, omission
 retains the previous generated entrypoint facts instead of running a local
-scanner or replacing them with an empty list. It returns generated configuration
-and toolchain requirement documents for the platform adapter to write atomically.
-Without `projectOwnership`, legacy Maven root discovery checks `pom.xml` along each supplied path's ancestor chain, so a
+scanner or replacing them with an empty list. Those previous facts come from
+this process's last generation, else from the optional `cacheDirectory` (an
+application cache root where generation records its result under
+`run-configurations/`), else read-only from a `.lithe/run/generated.json` that
+older versions wrote. It returns the generated configuration and toolchain
+requirement documents and keeps them in memory as the workspace's detected
+layer for `inspect`, `resolve`, and `selectJava`; nothing is written into the
+workspace. `inspect` returns `requiresGeneration: true` while this process has
+no detected layer. Hosts identify the workspace when this flag is true or the
+status is `missing`; a saved provider task can make `status` be `ready` before
+detection, and must not suppress discovery of the remaining entries. Without
+`projectOwnership`, legacy Maven root
+discovery checks `pom.xml` along each supplied path's ancestor chain, so a
+
 reactor nested below the opened workspace does not depend on the platform
 including build descriptors in `paths`. Maven ownership is resolved per Java
 entry: standalone sources keep the JDK launch path, while entries from
 independent nested reactors retain their own reactor working directory and
 module selector. Generated fingerprints include both project inputs and the
-detector revision; either changing marks persisted output stale and requires
+detector revision; either changing marks the detected layer stale and requires
 regeneration.
 
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
 optional `localDocument`. When `localDocument` is present, Core uses that JSON
 object as the local layer instead of reading `.lithe/run/local.json`. It merges
 configurations by stable ID using this precedence:
-`local.json > configurations.json > generated.json`. Scalars and arrays are
+`local.json > configurations.json > detected layer`. Scalars and arrays are
 replaced by the higher layer, while toolchain maps merge by key. It returns
-effective configurations, their source, the team default, structured
+effective configurations, their source, the default (the team default from
+`.lithe/project.json`, else the first detected framework service, else the first
+detected entry other than Current File), structured
 diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
 states, the effective global `toolchain`, and the machine-local
 `localToolchains` document. Toolchain diagnostics carry the affected run

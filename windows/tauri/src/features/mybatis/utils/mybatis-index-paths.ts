@@ -19,3 +19,10 @@ export function collectMybatisIndexPaths(filePaths: readonly string[], root: str
   }
   return [...paths].sort();
 }
+
+/** Unpaired Java buffers can add or restore their first mapper method.
+ * Core prunes unrelated reads using XML namespaces; pairs are not candidates.
+ */
+export function editAffectsMybatisIndex(filePath: string): boolean {
+  return isMybatisIndexPath(filePath);
+}

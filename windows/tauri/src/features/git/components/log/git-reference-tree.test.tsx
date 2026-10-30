@@ -44,7 +44,7 @@ test("single repository keeps the flat reference sections", () => {
   expect(markup).not.toContain("background-color");
 });
 
-test("multi-repository workspaces tint each repository group with its palette color", () => {
+test("multi-repository workspaces mark each repository with a palette color dot, not a tinted card", () => {
   const repoA = { ...localReference("main", true), repositoryPath: "C:/repo-a" };
   const repoB = { ...localReference("develop"), repositoryPath: "C:/repo-b" };
   const markup = renderTree({
@@ -58,8 +58,13 @@ test("multi-repository workspaces tint each repository group with its palette co
     ]),
   });
 
-  expect(markup).toContain("background-color:#55d68b14");
-  expect(markup).toContain("background-color:#65a9ff14");
+  expect(markup).toContain("background-color:#55d68b");
+  expect(markup).toContain("background-color:#65a9ff");
+  expect(markup.match(/git-repository-color-dot/g)).toHaveLength(2);
+  // The old card header used an 8-digit alpha tint, a left border and colored text.
+  expect(markup).not.toContain("#55d68b14");
+  expect(markup).not.toContain("border-left");
+  expect(markup).not.toMatch(/(?<!background-)color:#55d68b/);
 });
 
 test("multiple repositories group each section set under a repository header", () => {

@@ -38618,17 +38618,6 @@
       }
     },
     {
-      "id": "native.generateLitheRunGeneratedJsonToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved",
-      "description": "Native UI: Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.generatePreview",
       "description": "Native UI: Generate Preview",
       "platforms": [
@@ -42772,17 +42761,6 @@
       }
     },
     {
-      "id": "native.litheNeedsToIdentifyTheProjectAndGenerateLitheRunGeneratedJsonBeforeRunAndDebu71dbeebe55",
-      "description": "Native UI: Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.litheOfficial",
       "description": "Native UI: Lithe Official",
       "platforms": [
@@ -42867,17 +42845,6 @@
       ],
       "macos": {
         "key": "Lithe will download the update and restart after replacing the current app.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.litheWillLookForServicesAgainAndRefreshLitheRunGeneratedJsonProjectAndLocalOvec4eb77affa",
-      "description": "Native UI: Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.",
         "arguments": []
       }
     },
@@ -73671,10 +73638,15 @@
     },
     {
       "id": "ui.more",
-      "description": "Windows UI: ui.more",
+      "description": "More actions overflow trigger",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "More",
+        "arguments": []
+      }
     },
     {
       "id": "ui.morePages",
@@ -84190,22 +84162,6 @@
       }
     },
     {
-      "id": "native.couldNotReadJavaBuildFileMetadataFor",
-      "description": "Native UI: Could not read Java build-file metadata for %@.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Could not read Java build-file metadata for %@.",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
       "id": "native.theBundledJdtLsManifestIsInvalidAt",
       "description": "Native UI: The bundled JDT LS manifest is invalid at %@.",
       "platforms": [
@@ -90852,6 +90808,773 @@
       ],
       "macos": {
         "key": "Build provider model changed. Regenerate Run configurations before running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.identifyTheProjectToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved",
+      "description": "Native UI: Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.litheNeedsToIdentifyTheProjectBeforeRunAndDebugAreAvailableProjectAndLocalOverridesWillNotBeChanged",
+      "description": "Native UI: Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.litheWillLookForServicesAgainProjectAndLocalOverridesWillNotBeChanged",
+      "description": "Native UI: Lithe will look for services again. Project and local overrides will not be changed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe will look for services again. Project and local overrides will not be changed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaKeywordNavigationFilter",
+      "description": "Native UI: Skip definition lookups for Java keywords",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip definition lookups for Java keywords",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.git.showChangelists",
+      "description": "Windows UI: settings.git.showChangelists",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showChangelistsDescription",
+      "description": "Windows UI: settings.git.showChangelistsDescription",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showParentReferences",
+      "description": "Windows UI: settings.git.showParentReferences",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.git.showParentReferencesDescription",
+      "description": "Windows UI: settings.git.showParentReferencesDescription",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "document.fileAccess.isHardLinkedChangesAreNotSavedAutomaticallySaveManuallyToChooseHowToUpdateTheFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "document.fileAccess.sharesItsContentsWithOtherPathsSaveAsIndependentFileUpdatesOnlyThisPathAndBreaksItsHardLinkRelationshipUpdateAllHardLinksWritesToTheSharedFileIncludingLinksOutsideThisProjectItIsNotAtomicAndAnInterruptedWriteMayLeavePartialContentsCancelKeepsYourEditsUnsaved",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "document.fileAccess.checkTheFileAndParentFolderPermissionsAndAllowLitheToAccessThisLocationInSystemSettings",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Check the file and parent folder permissions, and allow Lithe to access this location in System Settings.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.couldNotDecodeThisFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not decode this file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.couldNotOpen",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not open %@: %@ %@",
+        "arguments": [
+          "arg1",
+          "arg2",
+          "arg3"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string",
+        "arg3": "string"
+      }
+    },
+    {
+      "id": "document.fileAccess.couldNotReadThisFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not read this file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.fileIsNotAvailable",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File is not available",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.fileIsTooLargeToOpen",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File is too large to open",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.foldersCannotBeOpenedAsText",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Folders cannot be opened as text",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.onlyRegularFilesCanBeOpenedAsTextDevicesSocketsAndNamedPipesAreNotSupported",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only regular files can be opened as text. Devices, sockets and named pipes are not supported.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.openATextFileInsteadOfAFolder",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a text file instead of a folder.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.openTheTargetFileDirectlySymbolicLinkEditingIsNotSupportedByThisFileAdapter",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open the target file directly. Symbolic-link editing is not supported by this file adapter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.permissionDeniedWhenOpeningThisFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Permission denied when opening this file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.saveAHardLinkedFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save a hard-linked file?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.saveAsIndependentFile",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save as Independent File",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.symbolicLinksCannotBeOpenedInThisEditor",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Symbolic links cannot be opened in this editor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.textFilesAreLimitedTo32MbOpenThisFileInAnExternalEditor",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Text files are limited to 32 MB. Open this file in an external editor.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theDecodedContentsContainNonTextCharactersUseASuitableFileViewer",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The decoded contents contain non-text characters. Use a suitable file viewer.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theFileCouldNotBeDecodedWithTheSelectedOrDetectedEncodingCheckItsEncodingOrOpenItInAnExternalEditor",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theFileCouldNotBeReadCheckItsAvailabilityAndTryAgain",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file could not be read. Check its availability and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theFileNoLongerExistsOrWasMovedRefreshTheProjectAndTryAgain",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file no longer exists or was moved. Refresh the project and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theFileOrItsHardLinksChangedWhileSavingYourEditsAreStillUnsavedCheckTheFileAndSaveAgain",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This file type cannot be opened in this editor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.updateAllHardLinks",
+      "description": "macOS document opening or explicit hard-link save feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Update All Hard Links",
+        "arguments": []
+      }
+    },
+    {
+      "id": "document.fileAccess.savePermissionDenied",
+      "description": "macOS document save permission failure; retains the unsaved draft.",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.editorAppearanceAbsolute",
+      "description": "Source editor appearance: Absolute",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Absolute",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceAppliesImmediatelyToSourceEditorsInAllProjects",
+      "description": "Source editor appearance: Applies immediately to source editors in all projects.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Applies immediately to source editors in all projects.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBlink",
+      "description": "Source editor appearance: Blink",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Blink",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBlock",
+      "description": "Source editor appearance: Block",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Block",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBoundary",
+      "description": "Source editor appearance: Boundary",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Boundary",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceColorizeBracketPairs",
+      "description": "Source editor appearance: Colorize bracket pairs",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Colorize bracket pairs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursor",
+      "description": "Source editor appearance: Cursor",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursorBlinking",
+      "description": "Source editor appearance: Cursor blinking",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor blinking",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursorStyle",
+      "description": "Source editor appearance: Cursor style",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor style",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorColorScheme",
+      "description": "Source editor appearance: Editor color scheme",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorColorsFollowLightAndDarkAppearanceIndependentlyOfTheInterfaceTheme",
+      "description": "Source editor appearance: Editor colors follow light and dark appearance independently of the interface theme.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor colors follow light and dark appearance independently of the interface theme.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorDisplay",
+      "description": "Source editor appearance: Editor display",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor display",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceFontLigatures",
+      "description": "Source editor appearance: Font ligatures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Font ligatures",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceHighlightCurrentLine",
+      "description": "Source editor appearance: Highlight current line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Highlight current line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceItalicComments",
+      "description": "Source editor appearance: Italic comments",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Italic comments",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceLineNumbers",
+      "description": "Source editor appearance: Line numbers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line numbers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceLineSpacing",
+      "description": "Source editor appearance: Line spacing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line spacing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceRelative",
+      "description": "Source editor appearance: Relative",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Relative",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceRenderWhitespace",
+      "description": "Source editor appearance: Render whitespace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Render whitespace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceScrollBeyondLastLine",
+      "description": "Source editor appearance: Scroll beyond last line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Scroll beyond last line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSelection",
+      "description": "Source editor appearance: Selection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Selection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceShowIndentGuides",
+      "description": "Source editor appearance: Show indent guides",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show indent guides",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSmooth",
+      "description": "Source editor appearance: Smooth",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Smooth",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSmoothScrolling",
+      "description": "Source editor appearance: Smooth scrolling",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Smooth scrolling",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSoftWrap",
+      "description": "Source editor appearance: Soft wrap",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Soft wrap",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSolid",
+      "description": "Source editor appearance: Solid",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Solid",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceStickyScroll",
+      "description": "Source editor appearance: Sticky scroll",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sticky scroll",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSyntaxHighlighting",
+      "description": "Source editor appearance: Syntax highlighting",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Syntax highlighting",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceTrailing",
+      "description": "Source editor appearance: Trailing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Trailing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceUnderline",
+      "description": "Source editor appearance: Underline",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Underline",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceVSCode",
+      "description": "Bundled editor color scheme product name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "VS Code",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceIntelliJIDEA",
+      "description": "Bundled editor color scheme product name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "IntelliJ IDEA",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeInfo",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Bracket colors follow the selected editor color scheme.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeEnabled",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enabled by color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeDisabled",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disabled by color scheme",
         "arguments": []
       }
     }

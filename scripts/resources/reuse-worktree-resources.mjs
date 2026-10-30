@@ -91,6 +91,8 @@ async function readRegistry() {
   // conditional replacement copies use the same explicit rejection route.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
+  // AutoBuild publication checkpoints and baseline downloads are invocation-owned,
+  // not reusable build inputs, even without plugin mirror staging.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {
@@ -428,6 +430,7 @@ async function main() {
       // Per-launch Codex helpers also own memory-only context replay tickets and
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
+      // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.identity}; ${excluded.reason}; it cannot be reused across worktrees`);

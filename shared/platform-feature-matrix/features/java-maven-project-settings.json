@@ -38,5 +38,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "macOS 项目默认及子项目工具链只读取 canonical Run local.json，Maven 调用选项和 XML 在 Provider 设置中读取、编辑、确认并读回。315 项原生回归覆盖取消/重开/外部冲突、损坏偏好拒绝、迁移失败保留源、部分发布后改源拒绝、显式自动与新默认值优先，以及检测官方 reactor 后转移旧文件和运行偏好再重新检测。旧 XML 表单、解析器、MavenService/FeatureModel、POM 专属加载与 MacMavenConfigurationStore 已删除；Run 工程/源码根只读取当前模型。真实 Maven Agent compile 通过且插件包清单不变。尚须完整设置 UI、正式包和 Windows 原生验收；Windows 当前仍保留独立 Maven 设置/存储，覆盖配置隔离、XML 实体/CDATA、保存冲突、Wrapper 不被动执行和工具选择失败，不把 macOS 结果当作 Windows 证据。"
+  "verification": "macOS 项目默认及子项目工具链只读取 canonical Run local.json，Maven 调用选项和 XML 在 Provider 设置中读取、编辑、确认并读回。315 项原生回归覆盖取消/重开/外部冲突、损坏偏好拒绝、迁移失败保留源、部分发布后改源拒绝、显式自动与新默认值优先，以及检测官方 reactor 后转移旧文件和运行偏好再重新检测。旧 XML 表单、解析器、MavenService/FeatureModel、POM 专属加载与 MacMavenConfigurationStore 已删除；Run 工程/源码根只读取当前模型。真实 Maven Agent compile 通过且插件包清单不变。尚须完整设置 UI、正式包和 Windows 原生验收；Windows 当前仍保留独立 Maven 设置/存储，覆盖配置隔离、XML 实体/CDATA、保存冲突、Wrapper 不被动执行和工具选择失败，不把 macOS 结果当作 Windows 证据。 Windows 成对配置读取和保存使用同一事务锁，并覆盖并发保存和失败重试。"
+
 }

@@ -27,51 +27,57 @@ pub struct DeclarativeRunPlan {
 
 /// Expands the `run` template for one file of a language a plugin owns.
 #[tauri::command]
-pub fn declarative_plugins_run_plan(
+pub async fn declarative_plugins_run_plan(
     app: AppHandle,
     plugin_id: String,
     language_id: String,
     relative_file_path: String,
     user_arguments: Vec<String>,
 ) -> Result<DeclarativeRunPlan, String> {
-    let package = super::launch::package_by_id(&app, &plugin_id)
-        .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
-    expand_plan(
-        &package.manifest,
-        &plugin_id,
-        &language_id,
-        "plugins.declarative.runPlan",
-        serde_json::json!({
-            "relativeFilePath": relative_file_path,
-            "arguments": user_arguments,
-        }),
-    )
+    crate::blocking::run_blocking(move || {
+        let package = super::launch::package_by_id(&app, &plugin_id)
+            .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
+        expand_plan(
+            &package.manifest,
+            &plugin_id,
+            &language_id,
+            "plugins.declarative.runPlan",
+            serde_json::json!({
+                "relativeFilePath": relative_file_path,
+                "arguments": user_arguments,
+            }),
+        )
+    })
+    .await
 }
 
 /// Expands the workspace test template for a language a plugin owns.
 /// The host checks declared project markers in the workspace before Core
 /// decides whether the test template applies.
 #[tauri::command]
-pub fn declarative_plugins_test_plan(
+pub async fn declarative_plugins_test_plan(
     app: AppHandle,
     plugin_id: String,
     language_id: String,
     workspace_path: String,
 ) -> Result<DeclarativeRunPlan, String> {
-    let package = super::launch::package_by_id(&app, &plugin_id)
-        .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
-    let relative_project_file_paths =
-        existing_project_markers(&package.manifest, &language_id, Path::new(&workspace_path));
-    expand_plan(
-        &package.manifest,
-        &plugin_id,
-        &language_id,
-        "plugins.declarative.testPlan",
-        serde_json::json!({
-            "scope": { "kind": "workspace" },
-            "relativeProjectFilePaths": relative_project_file_paths,
-        }),
-    )
+    crate::blocking::run_blocking(move || {
+        let package = super::launch::package_by_id(&app, &plugin_id)
+            .ok_or_else(|| format!("{plugin_id} is not an accepted declarative plugin"))?;
+        let relative_project_file_paths =
+            existing_project_markers(&package.manifest, &language_id, Path::new(&workspace_path));
+        expand_plan(
+            &package.manifest,
+            &plugin_id,
+            &language_id,
+            "plugins.declarative.testPlan",
+            serde_json::json!({
+                "scope": { "kind": "workspace" },
+                "relativeProjectFilePaths": relative_project_file_paths,
+            }),
+        )
+    })
+    .await
 }
 
 fn existing_project_markers(manifest: &Value, language_id: &str, root: &Path) -> Vec<String> {

@@ -167,6 +167,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     struct SearchResponsePayload: Decodable, Sendable {
         let matches: [SearchMatchPayload]
+        var nextCursor: String? = nil
 
         func makeResults(at rootURL: URL) -> [FileSearchResult] {
             matches.map { match in
@@ -189,7 +190,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 fileMatches: results.filter { $0.kind == .file },
                 classMatches: results.filter { $0.kind == .type },
                 symbolMatches: results.filter { $0.kind == .symbol },
-                contentMatches: results.filter { $0.kind == .content }
+                contentMatches: results.filter { $0.kind == .content },
+                nextCursor: nextCursor
             )
         }
     }
@@ -531,6 +533,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     struct RunConfigurationInspectPayload: Codable, Sendable {
         let status: String
+        let requiresGeneration: Bool?
         let generated: RunConfigurationPayload?
         let toolchainRequirements: ToolchainRequirementsPayload?
         let diagnostics: [[String: String]]?
@@ -1340,6 +1343,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
         var includeGeneratedFileNames = false
+        var pageSize: Int? = nil
+        var cursor: String? = nil
+        var resultKinds: [String]? = nil
     }
 
     private struct ReplacementPreviewRequest: Encodable {
@@ -1604,8 +1610,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     struct JdtBuildFileObservation: Encodable, Equatable, Sendable {
         let path: String
-        let modifiedUnixMilliseconds: UInt64
-        let sizeBytes: UInt64
     }
 
     private struct JdtWorkspaceFingerprintRequest: Encodable {
@@ -1921,6 +1925,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         /// generation's Java entries.
         let javaEntrypoints: JavaEntrypoints?
         let projectOwnership: [RunProjectOwnership]?
+        /// Application cache root where Core keeps the last detection for the
+        /// next session; the workspace is never written.
+        let cacheDirectory: String?
+
     }
     private struct RunConfigurationResolveRequest: Encodable {
         let root: String
@@ -2306,9 +2314,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         fileMask: String = "",
         hiddenDirectoryNames: [String] = [],
         hiddenFilePatterns: [String] = [],
-        includeGeneratedFileNames: Bool = false
+        includeGeneratedFileNames: Bool = false,
+        operationID: String? = nil,
+        onEvent: (@Sendable (String) -> Void)? = nil
     ) -> SearchResponsePayload? {
-        execute(
+        let result: Result<SearchResponsePayload, CoreCallError> = executeResult(
             command: "workspace.searchEverywhere",
             payload: SearchRequest(
                 root: rootURL.standardizedFileURL.path,
@@ -2324,8 +2334,28 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns,
                 includeGeneratedFileNames: includeGeneratedFileNames
-            )
+            ),
+            operationID: operationID, onEvent: onEvent
         )
+        return try? result.get()
+    }
+
+    func searchEverywherePage(
+        at rootURL: URL, query: String, options: ProjectSearchOptions,
+        hiddenDirectoryNames: [String], hiddenFilePatterns: [String], includeGeneratedFileNames: Bool,
+        kinds: Set<SearchResultKind>, cursor: String?, operationID: String,
+        onEvent: @escaping @Sendable (String) -> Void
+    ) -> Result<SearchResponsePayload, CoreCallError> {
+        let size = SearchEverywhereResults.pageSize
+        return executeResult(command: "workspace.searchEverywhere", payload: SearchRequest(
+            root: rootURL.standardizedFileURL.path, query: query, caseSensitive: options.caseSensitive,
+            wholeWords: options.wholeWords, regularExpression: options.regularExpression,
+            maxResults: size * 4, maxFileResults: kinds.contains(.file) ? size : 0,
+            maxContentResults: kinds.contains(.content) ? size : 0,
+            maxSymbolResults: !kinds.isDisjoint(with: [.type, .symbol]) ? size : 0,
+            fileMask: options.fileMask, hiddenDirectoryNames: hiddenDirectoryNames,
+            hiddenFilePatterns: hiddenFilePatterns, includeGeneratedFileNames: includeGeneratedFileNames,
+            pageSize: size, cursor: cursor, resultKinds: kinds.map(\.rawValue).sorted()), operationID: operationID, onEvent: onEvent)
     }
 
     func previewReplacement(
@@ -2510,7 +2540,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         paths: [String],
         modulePaths: [String],
         javaEntrypoints: JavaEntrypoints? = nil,
-        projectOwnership: [RunProjectOwnership]? = nil
+        projectOwnership: [RunProjectOwnership]? = nil,
+        cacheDirectoryURL: URL? = nil
+
     ) -> Result<RunConfigurationGeneratePayload, CoreCallError> {
         executeResult(
             command: "runConfig.generate",
@@ -2519,7 +2551,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 paths: paths,
                 modulePaths: modulePaths,
                 javaEntrypoints: javaEntrypoints,
-                projectOwnership: projectOwnership
+                projectOwnership: projectOwnership,
+                cacheDirectory: cacheDirectoryURL?.path
+
             )
         )
     }

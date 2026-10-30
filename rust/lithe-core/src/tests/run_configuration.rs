@@ -1,4 +1,4 @@
-use super::support::{jdt_entrypoints, temporary_root};
+use super::support::{jdt_entrypoints, seed_generated, seed_requirements, temporary_root};
 use crate::execute_json;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -109,6 +109,82 @@ fn subproject_toolchain_paths_roundtrip_and_reject_invalid_scope_keys() {
 }
 
 #[test]
+fn saved_provider_tasks_do_not_suppress_detection_after_restart() {
+    let root = temporary_root("saved-task-detection");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            crate::execution::generated_layer::forget(&self.0);
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><modelVersion>4.0.0</modelVersion>
+        <groupId>example</groupId><artifactId>demo</artifactId><version>1</version>
+        <build><plugins><plugin><groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
+    )
+    .unwrap();
+    let call = |command: &str, mut payload: Value| -> Value {
+        payload["root"] = serde_json::json!(root);
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"restart-detection","command":command,"payload":payload})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    let saved = call(
+        "runConfig.createUserConfiguration",
+        serde_json::json!({
+            "scope":"local", "type":"buildProvider", "name":"Saved task",
+            "build":{"pluginID":"dev.example.maven","buildSystemID":"maven","root":".",
+                "run":"application","projectID":"demo","targetID":"run"}
+        }),
+    );
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        saved["document"].as_str().unwrap(),
+    )
+    .unwrap();
+    // A new process retains saved tasks but must still request detection. A
+    // later load in the same process must not repeatedly regenerate the layer.
+    for _ in 0..2 {
+        let inspected = call(
+            "runConfig.inspect",
+            serde_json::json!({"checkFingerprint":false}),
+        );
+        assert_eq!(inspected["status"], "ready");
+        assert_eq!(inspected["requiresGeneration"], true);
+        call(
+            "runConfig.generate",
+            serde_json::json!({"paths":["pom.xml"]}),
+        );
+        let inspected = call(
+            "runConfig.inspect",
+            serde_json::json!({"checkFingerprint":false}),
+        );
+        assert_eq!(inspected["requiresGeneration"], false);
+        let resolved = call(
+            "runConfig.resolve",
+            serde_json::json!({"toolchainCandidates":[]}),
+        );
+        let entries = resolved["configurations"].as_array().unwrap();
+        assert!(entries
+            .iter()
+            .any(|entry| entry["provider"] == "spring-boot.maven"));
+        assert!(entries
+            .iter()
+            .any(|entry| entry["provider"] == "build.provider"));
+        crate::execution::generated_layer::forget(&root);
+    }
+}
+
+#[test]
 fn project_environment_saves_before_generation_and_preserves_service_overrides() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/run-configuration/project-environment.json"
@@ -156,16 +232,14 @@ fn project_environment_saves_before_generation_and_preserves_service_overrides()
 
     // Settings reads skip source freshness, while normal inspection must still
     // detect files added after generation.
-    let generated = call(
+    call(
         "runConfig.generate",
         serde_json::json!({ "root": root, "paths": [] }),
     );
-    fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        generated["generated"].to_string(),
-    )
-    .unwrap();
+    assert!(
+        !root.join(".lithe/run").exists(),
+        "generation never writes the workspace"
+    );
     fs::write(root.join("Added.java"), "class Added {}").unwrap();
     let settings = call(
         "runConfig.inspect",
@@ -211,11 +285,6 @@ fn resolved_maven_ownership_survives_cwd_override_and_separates_reactors() {
     .unwrap();
     assert_eq!(generated["ok"], true, "{generated}");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        generated["data"]["generated"].to_string(),
-    )
-    .unwrap();
     let resolved: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "resolve", "command": "runConfig.resolve",
@@ -271,7 +340,7 @@ fn run_configuration_commands_generate_merge_and_plan() {
 
     let generated_doc = serde_json::to_string(&generated["data"]["generated"]).unwrap();
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(root.join(".lithe/run/generated.json"), generated_doc).unwrap();
+    seed_generated(&root, generated_doc);
     fs::write(root.join(".lithe/run/configurations.json"), r#"{"version":1,"configurations":[{"id":"current-file","name":"My File","type":"java.current-file","workingDirectory":"backend","jvmArguments":["-Xmx2g"],"toolchains":{"maven":"custom-maven"}}]}"#).unwrap();
     fs::write(root.join(".lithe/run/local.json"), r#"{"version":1,"configurations":[{"id":"current-file","name":"Local File","type":"java.current-file","workingDirectory":".","programArguments":["--dev"],"toolchains":{"java":"custom-jdk"}}]}"#).unwrap();
 
@@ -480,11 +549,10 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     );
 
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         serde_json::to_string(&response["data"]["generated"]).unwrap(),
-    )
-    .unwrap();
+    );
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "plan-nested-maven-root",
@@ -727,11 +795,6 @@ fn nested_maven_generation_keeps_standalone_java_on_the_jdk() {
     assert_eq!(standalone["source"], standalone_source);
 
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&response["data"]["generated"]).unwrap(),
-    )
-    .unwrap();
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "plan-mixed-standalone",
@@ -828,11 +891,6 @@ fn java_mains_use_their_own_independent_nested_maven_reactors() {
     assert_eq!(beta["toolchains"]["maven"], "project-maven");
 
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&response["data"]["generated"]).unwrap(),
-    )
-    .unwrap();
     let beta_plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "plan-beta-reactor",
@@ -993,11 +1051,6 @@ fn run_configuration_generation_disambiguates_same_main_class_across_modules() {
         .collect::<Vec<_>>();
     assert_eq!(module_configurations.len(), 2, "{configurations:?}");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&response["data"]["generated"]).unwrap(),
-    )
-    .unwrap();
     for case in cases {
         let configuration_id = case["configurationId"]
             .as_str()
@@ -1096,11 +1149,7 @@ fn ordinary_java_main_uses_an_application_launch_plan() {
     assert_eq!(java_main["extensions"]["maven"]["module"], "batch-worker");
 
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(generated).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(generated).unwrap());
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "plan-java-main",
@@ -1169,11 +1218,7 @@ fn maven_test_source_main_uses_the_test_classpath() {
     assert_eq!(java_main["extensions"]["java"]["sourceSet"], "test");
 
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(generated).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(generated).unwrap());
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "plan-maven-test-main",
@@ -1274,11 +1319,7 @@ fn plain_java_main_uses_the_jdk_without_maven() {
     assert_eq!(java_main["source"], source);
 
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(generated).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(generated).unwrap());
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "plan-plain-java-main",
@@ -1331,11 +1372,10 @@ fn current_file_compiles_then_launches_by_derived_class_name() {
     )
     .unwrap();
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{"id":"current-file","name":"Current File","provider":"java.current-file","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":"."}}}]}"#,
-    )
-    .unwrap();
+    );
 
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -1381,11 +1421,10 @@ fn current_file_run_classpath_prepends_output_ahead_of_project_classes() {
     )
     .unwrap();
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{"id":"current-file","name":"Current File","provider":"java.current-file","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":"."}}}]}"#,
-    )
-    .unwrap();
+    );
 
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -1478,11 +1517,7 @@ fn standalone_java_main_compile_then_run_matches_shared_fixture() {
         .unwrap();
         let generated = &generated_response["data"]["generated"];
         fs::create_dir_all(root.join(".lithe/run")).unwrap();
-        fs::write(
-            root.join(".lithe/run/generated.json"),
-            serde_json::to_string(generated).unwrap(),
-        )
-        .unwrap();
+        seed_generated(&root, serde_json::to_string(generated).unwrap());
 
         let plan: Value = serde_json::from_str(&execute_json(
             &serde_json::json!({
@@ -1526,8 +1561,8 @@ fn stale_plain_java_main_is_rejected_when_the_source_belongs_to_maven() {
         "package com.example; class App { public static void main(String[] args) {} }",
     )
     .unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         serde_json::json!({
             "version": 2,
             "configurations": [{
@@ -1544,8 +1579,7 @@ fn stale_plain_java_main_is_rejected_when_the_source_belongs_to_maven() {
             }]
         })
         .to_string(),
-    )
-    .unwrap();
+    );
 
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -1573,11 +1607,10 @@ fn stale_plain_java_main_is_rejected_when_the_source_belongs_to_maven() {
 fn resolve_prefers_a_host_provided_local_document() {
     let root = temporary_root("run-config-host-local");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{"id":"current-file","name":"Current File","provider":"java.current-file","execution":"application","toolchains":{"java":"project-jdk"}}]}"#,
-    )
-    .unwrap();
+    );
     fs::write(
         root.join(".lithe/run/local.json"),
         r#"{"version":2,"configurations":[{"id":"current-file","name":"Project Local","provider":"java.current-file","cwd":"."}]}"#,
@@ -1651,14 +1684,13 @@ fn resolve_prefers_a_host_provided_local_document() {
 fn resolve_applies_global_toolchain_defaults_and_preserves_configuration_overrides() {
     let root = temporary_root("run-config-global-toolchain");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[
             {"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."},"java":{"homePath":"C:/service-jdk","mavenExecutablePath":"C:/service-mvn.cmd"}}},
             {"id":"plain","name":"Plain","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"java":{"source":"src/App.java"}}}
         ]}"#,
-    )
-    .unwrap();
+    );
     fs::write(
         root.join(".lithe/run/local.json"),
         r#"{"version":2,"toolchain":{"java":{"homePath":"C:/custom-jdk"},"maven":{"executablePath":"C:/mvn.cmd","javaHomePath":"C:/maven-jdk"}},"configurations":[]}"#,
@@ -1773,11 +1805,10 @@ fn global_toolchain_updates_only_in_the_local_layer() {
 fn editor_save_clears_local_overrides_and_falls_back_to_project_toolchain() {
     let root = temporary_root("run-config-editor-clear-overrides");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#,
-    )
-    .unwrap();
+    );
     fs::write(
         root.join(".lithe/run/local.json"),
         r#"{"version":2,"toolchain":{"java":{"homePath":"C:/old-default-jdk"},"maven":{"executablePath":"C:/old-maven","javaHomePath":"C:/old-maven-jdk"}},"configurations":[{"id":"spring","extensions":{"java":{"source":"src/App.java","homePath":"C:/override-jdk","mavenExecutablePath":"C:/override-maven","mavenJavaHomePath":"C:/override-maven-jdk"}}}]}"#,
@@ -1840,11 +1871,10 @@ fn project_editor_save_prepares_local_and_team_documents_without_writing() {
     let root = temporary_root("run-config-editor-project");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join("backend")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#,
-    )
-    .unwrap();
+    );
     let original_local = r#"{"version":2,"configurations":[]}"#;
     fs::write(root.join(".lithe/run/local.json"), original_local).unwrap();
 
@@ -1894,11 +1924,10 @@ fn editor_save_updates_generic_local_toolchains_without_dropping_other_entries()
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
     fs::create_dir_all(root.join("web")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{"id":"npm:dev","name":"dev","provider":"npm.script","execution":"service","command":"npm","args":["run","dev"],"cwd":"web","toolchains":{"runtime":"project-node"}}]}"#,
-    )
-    .unwrap();
+    );
     fs::write(
         root.join(".lithe/toolchains/local.json"),
         r#"{"version":1,"toolchains":{"project-go":{"executable":"C:/Go/bin/go.exe"}}}"#,
@@ -1975,7 +2004,7 @@ fn editor_save_updates_generic_local_toolchains_without_dropping_other_entries()
 fn run_configuration_inspect_reports_malformed_and_unsupported_documents() {
     let root = temporary_root("run-config-errors");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(root.join(".lithe/run/generated.json"), "{").unwrap();
+    fs::write(root.join(".lithe/run/configurations.json"), "{").unwrap();
 
     let inspect = |id: &str| -> Value {
         serde_json::from_str(&execute_json(
@@ -1993,7 +2022,7 @@ fn run_configuration_inspect_reports_malformed_and_unsupported_documents() {
     assert_eq!(malformed["error"]["code"], "parse_failed");
 
     fs::write(
-        root.join(".lithe/run/generated.json"),
+        root.join(".lithe/run/configurations.json"),
         r#"{"version":3,"configurations":[]}"#,
     )
     .unwrap();
@@ -2006,7 +2035,7 @@ fn run_configuration_inspect_reports_malformed_and_unsupported_documents() {
         .contains("found 3"));
 
     fs::write(
-        root.join(".lithe/run/generated.json"),
+        root.join(".lithe/run/configurations.json"),
         r#"{"version":1,"configurations":[]}"#,
     )
     .unwrap();
@@ -2033,11 +2062,10 @@ fn run_configuration_mutations_are_shared_and_validated() {
         "package com.example; class App { public static void main(String[] args) {} }",
     )
     .unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#,
-    )
-    .unwrap();
+    );
 
     let updated: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -2149,11 +2177,10 @@ fn project_scoped_toolchain_paths_are_relative_and_stay_inside_the_project() {
     fs::create_dir_all(root.join("toolchains/maven-jdk")).unwrap();
     fs::create_dir_all(&outside).unwrap();
     fs::write(root.join("toolchains/maven/bin/mvn"), "#!/bin/sh\n").unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#,
-    )
-    .unwrap();
+    );
 
     let updated: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -2345,11 +2372,7 @@ fn run_configuration_inspection_invalidates_an_older_generator_revision() {
         .expect("test module configuration should exist");
     stale_test_configuration["extensions"]["java"]["source"] = serde_json::json!(main_source);
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&document).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(&document).unwrap());
 
     let inspected: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -2449,11 +2472,7 @@ fn run_configuration_regeneration_keeps_surviving_ids_and_orphans_removed_overri
         &document["generator"]["inputs"],
         "9",
     ));
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&document).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(&document).unwrap());
     fs::write(
         root.join(".lithe/run/local.json"),
         r#"{"version":2,"configurations":[{"id":"quarkus.maven:service-a","extensions":{"maven":{"jvmArguments":["-Xmx2g"]}}},{"id":"spring-boot.maven:fake-b","extensions":{"maven":{"jvmArguments":["-Xmx1g"]}}}]}"#,
@@ -2517,11 +2536,7 @@ fn run_configuration_regeneration_keeps_surviving_ids_and_orphans_removed_overri
         .unwrap()
         .iter()
         .any(|value| value["id"] == "spring-boot.maven:fake-b"));
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&document).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(&document).unwrap());
 
     // The surviving override still applies; the removed service override is
     // reported as an orphan rather than dropped.
@@ -2561,16 +2576,15 @@ fn run_configuration_regeneration_keeps_surviving_ids_and_orphans_removed_overri
 fn run_configuration_inspection_reports_java_entries_missing_their_main_class() {
     let root = temporary_root("run-config-stale-java-entry");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[
             {"id":"java-main:demo.App","name":"App","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":"."},"java":{"source":"src/App.java"}}},
             {"id":"java-main:demo.Blank","name":"Blank","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":".","mainClass":""},"java":{"source":"src/Blank.java"}}},
             {"id":"java-main:demo.Whole","name":"Whole","provider":"java.main","execution":"application","toolchains":{"java":"project-jdk"},"extensions":{"maven":{"module":".","mainClass":"demo.Whole"},"java":{"source":"src/Whole.java"}}},
             {"id":"spring-boot.maven:legacy","name":"Legacy","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}
         ]}"#,
-    )
-    .unwrap();
+    );
 
     let inspected: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -2840,11 +2854,7 @@ fn generate_run_configuration(
 
 fn write_generated_run_document(root: &std::path::Path, generated: &Value) {
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(generated).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, serde_json::to_string(generated).unwrap());
 }
 
 fn inspect_run_configuration(root: &std::path::Path, java_entrypoints: Option<Value>) -> Value {
@@ -2866,18 +2876,16 @@ fn maven_wrapper_version_accepts_newer_system_maven() {
     let root = temporary_root("run-config-maven-wrapper-minimum");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":1,"configurations":[{"id":"spring","name":"Spring","type":"spring-boot.maven","toolchains":{"java":"project-jdk","maven":"project-maven"}}]}"#,
-    )
-    .unwrap();
+    );
     // Legacy documents stored the wrapper distribution under `version`.
     // That value is a floor for system Maven, not an exact pin.
-    fs::write(
-        root.join(".lithe/toolchains/requirements.json"),
+    seed_requirements(
+        &root,
         r#"{"version":1,"toolchains":{"project-maven":{"type":"maven","version":"3.6.3","java":"project-jdk"}}}"#,
-    )
-    .unwrap();
+    );
 
     let resolve = |version: &str| -> Value {
         serde_json::from_str(&execute_json(
@@ -2927,16 +2935,14 @@ fn run_configuration_resolve_matches_toolchains_and_rejects_unsafe_paths() {
     let root = temporary_root("run-config-toolchain-resolution");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#,
-    )
-    .unwrap();
-    fs::write(
-        root.join(".lithe/toolchains/requirements.json"),
+    );
+    seed_requirements(
+        &root,
         r#"{"version":1,"toolchains":{"project-jdk":{"type":"java","minimumVersion":"21","preferredVendor":"temurin"}}}"#,
-    )
-    .unwrap();
+    );
 
     let resolve = |version: &str, vendor: &str| -> Value {
         serde_json::from_str(&execute_json(
@@ -2994,20 +3000,18 @@ fn run_configuration_resolve_accepts_legacy_java_8_runtime_versions() {
     let root = temporary_root("run-config-legacy-java-runtime");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file","toolchains":{"java":"project-jdk"}}]}"#,
-    )
-    .unwrap();
+    );
 
     let resolve = |requirement: &str, version: &str| -> bool {
-        fs::write(
-            root.join(".lithe/toolchains/requirements.json"),
+        seed_requirements(
+            &root,
             format!(
                 r#"{{"version":1,"toolchains":{{"project-jdk":{{"type":"java",{requirement}}}}}}}"#
             ),
-        )
-        .unwrap();
+        );
         let response: Value = serde_json::from_str(&execute_json(
             &serde_json::json!({
                 "id": "resolve-legacy-java",
@@ -3086,16 +3090,10 @@ fn hybrid_project_scopes_node_diagnostics_to_npm_configurations() {
     assert_eq!(generated["ok"], true, "{generated}");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&generated["data"]["generated"]).unwrap(),
-    )
-    .unwrap();
-    fs::write(
-        root.join(".lithe/toolchains/requirements.json"),
+    seed_requirements(
+        &root,
         serde_json::to_string(&generated["data"]["toolchainRequirements"]).unwrap(),
-    )
-    .unwrap();
+    );
 
     let resolve = |node_version: Option<&str>| -> Value {
         let mut candidates = vec![
@@ -3187,24 +3185,22 @@ fn legacy_v2_runtime_requirements_are_reconciled_without_regeneration() {
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
     fs::create_dir_all(root.join("web")).unwrap();
     fs::create_dir_all(root.join("bun-web")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[
             {"id":"spring","name":"backend","provider":"spring-boot.maven","execution":"service","cwd":".","toolchains":{"java":"project-jdk","maven":"project-maven"}},
             {"id":"npm","name":"web","provider":"npm.script","execution":"service","command":"npm","args":["run","dev"],"cwd":"web","toolchains":{}},
             {"id":"bun","name":"bun web","provider":"npm.script","execution":"service","command":"bun","args":["run","dev"],"cwd":"bun-web","toolchains":{"runtime":"project-node"}}
         ]}"#,
-    )
-    .unwrap();
-    fs::write(
-        root.join(".lithe/toolchains/requirements.json"),
+    );
+    seed_requirements(
+        &root,
         r#"{"version":1,"toolchains":{
             "project-jdk":{"type":"java"},
             "project-maven":{"type":"maven","java":"project-jdk"},
             "project-node":{"type":"node","minimumVersion":"22"}
         }}"#,
-    )
-    .unwrap();
+    );
 
     let resolved: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -3260,9 +3256,7 @@ fn run_configuration_drops_entries_whose_recorded_source_was_deleted() {
         "package com.example; class Kept { void main() {} }",
     )
     .unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::json!({
+    seed_generated(&root, serde_json::json!({
             "version": 2,
             "configurations": [
                 {
@@ -3300,9 +3294,7 @@ fn run_configuration_drops_entries_whose_recorded_source_was_deleted() {
                 }
             ]
         })
-        .to_string(),
-    )
-    .unwrap();
+        .to_string());
 
     let resolved: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -3374,16 +3366,11 @@ fn shared_hybrid_fixture_executes_scoped_toolchain_expectations() {
     let root = temporary_root("run-config-hybrid-fixture");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&fixture["generated"]).unwrap(),
-    )
-    .unwrap();
-    fs::write(
-        root.join(".lithe/toolchains/requirements.json"),
+    seed_generated(&root, serde_json::to_string(&fixture["generated"]).unwrap());
+    seed_requirements(
+        &root,
         serde_json::to_string(&fixture["requirements"]).unwrap(),
-    )
-    .unwrap();
+    );
 
     let resolved: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -3441,11 +3428,10 @@ fn shared_editor_save_fixture_executes_the_document_contract() {
     let root = temporary_root("run-config-editor-fixture");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join("backend")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#,
-    )
-    .unwrap();
+    );
 
     let mut request = fixture["request"].clone();
     request["payload"]["root"] = serde_json::json!(root);
@@ -3466,11 +3452,10 @@ fn shared_editor_save_fixture_executes_the_document_contract() {
 fn run_configuration_resolve_diagnoses_orphans_and_deleted_modules() {
     let root = temporary_root("run-config-diagnostics");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file"},{"id":"module:deleted","name":"Deleted","type":"maven.module","module":"deleted"}]}"#,
-    )
-    .unwrap();
+    );
     fs::write(
         root.join(".lithe/run/local.json"),
         r#"{"version":1,"configurations":[{"id":"module:old","jvmArguments":["-Xmx1g"]}]}"#,
@@ -3541,8 +3526,8 @@ fn migrated_v1_documents_produce_identical_launch_arguments() {
         "package com.example; class App { public static void main(String[] args) {} }",
     )
     .unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":1,"configurations":[{
             "id":"spring:com.example.App",
             "name":"App",
@@ -3555,8 +3540,7 @@ fn migrated_v1_documents_produce_identical_launch_arguments() {
             "mavenProfiles":["local"],
             "toolchains":{"java":"project-jdk","maven":"project-maven"}
         }]}"#,
-    )
-    .unwrap();
+    );
 
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -3602,21 +3586,16 @@ fn migration_leaves_sidecar_documents_at_their_own_version() {
     let root = temporary_root("run-config-sidecar");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file"}]}"#,
-    )
-    .unwrap();
+    );
     fs::write(
         root.join(".lithe/project.json"),
         r#"{"version":1,"defaultRunConfiguration":"current-file"}"#,
     )
     .unwrap();
-    fs::write(
-        root.join(".lithe/toolchains/requirements.json"),
-        r#"{"version":1,"toolchains":{}}"#,
-    )
-    .unwrap();
+    seed_requirements(&root, r#"{"version":1,"toolchains":{}}"#);
 
     let resolved: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -3641,8 +3620,8 @@ fn process_configurations_launch_without_java_assumptions() {
     let root = temporary_root("run-config-process");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join("frontend")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{
             "id":"npm:dev",
             "name":"web dev",
@@ -3655,8 +3634,7 @@ fn process_configurations_launch_without_java_assumptions() {
             "env":{"PORT":"3000"},
             "toolchains":{}
         }]}"#,
-    )
-    .unwrap();
+    );
 
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -3682,15 +3660,14 @@ fn process_configurations_launch_without_java_assumptions() {
 fn toolchain_backed_process_uses_the_generic_runtime_binding() {
     let root = temporary_root("run-config-go-toolchain");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{
             "id":"go:api","name":"Go API","provider":"go.main",
             "execution":"application","args":["run","./cmd/api"],"cwd":".",
             "env":{"APP_ENV":"dev"},"toolchains":{"runtime":"project-go"}
         }]}"#,
-    )
-    .unwrap();
+    );
 
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -3810,14 +3787,13 @@ fn multi_language_generation_declares_only_consumed_runtime_requirements() {
 fn unknown_provider_without_an_executable_never_falls_into_maven() {
     let root = temporary_root("run-config-unknown-provider");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{
             "id":"zig:app","name":"Zig App","provider":"zig.main",
             "args":[],"cwd":".","toolchains":{}
         }]}"#,
-    )
-    .unwrap();
+    );
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "unknown-provider-plan",
@@ -3845,14 +3821,13 @@ fn process_options_update_common_arguments_and_environment() {
     let root = temporary_root("run-config-process-options");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join("backend")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{
             "id":"python:api","name":"API","provider":"python.script",
             "command":"python3","args":["app.py"],"cwd":".","toolchains":{}
         }]}"#,
-    )
-    .unwrap();
+    );
 
     let updated: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -3915,14 +3890,13 @@ fn process_options_update_common_arguments_and_environment() {
 fn process_configurations_reject_path_qualified_commands() {
     let root = temporary_root("run-config-process-path");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{
             "id":"evil","name":"evil","provider":"shell.command",
             "command":"../../../usr/bin/curl","args":[],"cwd":".","toolchains":{}
         }]}"#,
-    )
-    .unwrap();
+    );
 
     let plan: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
@@ -4041,11 +4015,6 @@ fn java_entries_carry_over_until_the_language_service_answers() {
         ])),
     );
     assert_eq!(fresh["ok"], true, "{fresh}");
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_string(&fresh["data"]["generated"]).unwrap(),
-    )
-    .unwrap();
     fs::remove_file(root.join(deleted)).unwrap();
 
     let carried = generate_with(&root, &[kept], None);
@@ -4061,7 +4030,7 @@ fn java_entries_carry_over_until_the_language_service_answers() {
 
     // With no previous generation there is nothing to carry, and nothing is
     // guessed from source either.
-    fs::remove_file(root.join(".lithe/run/generated.json")).unwrap();
+    crate::execution::generated_layer::forget(&root);
     let cold = generate_with(&root, &[kept], None);
     assert_eq!(cold["ok"], true, "{cold}");
     assert!(java_main_ids(&cold).is_empty(), "{cold}");
@@ -4105,6 +4074,169 @@ fn an_unknown_java_entrypoint_schema_is_rejected() {
     );
     assert_eq!(response["ok"], false, "{response}");
     fs::remove_dir_all(root).unwrap();
+}
+
+/// Detected configurations are session state: generation leaves the workspace
+/// untouched, and a new process recovers JDT's last entry points from the
+/// application cache before the language service answers again.
+#[test]
+fn generation_keeps_detected_layer_out_of_the_workspace_and_in_the_cache() {
+    let root = temporary_root("run-config-memory-layer");
+    let cache = temporary_root("run-config-memory-cache");
+    struct Cleanup(Vec<PathBuf>);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+    let _cleanup = Cleanup(vec![root.clone(), cache.clone()]);
+    let source = "src/main/java/demo/App.java";
+    fs::create_dir_all(root.join("src/main/java/demo")).unwrap();
+    fs::write(root.join("pom.xml"), "<project/>").unwrap();
+    fs::write(
+        root.join(source),
+        "package demo; class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    let before = run_config_command("runConfig.inspect", serde_json::json!({ "root": root }));
+    assert_eq!(before["data"]["status"], "missing", "{before}");
+
+    let generated = run_config_command(
+        "runConfig.generate",
+        serde_json::json!({
+            "root": root, "paths": [source], "cacheDirectory": cache,
+            "javaEntrypoints": jdt_entrypoints(&[(source, "demo.App")])
+        }),
+    );
+    assert_eq!(generated["ok"], true, "{generated}");
+    assert!(
+        !root.join(".lithe").exists(),
+        "generation wrote into the workspace"
+    );
+    let inspected = run_config_command("runConfig.inspect", serde_json::json!({ "root": root }));
+    assert_eq!(inspected["data"]["status"], "ready", "{inspected}");
+    assert_eq!(
+        inspected["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["type"],
+        "java"
+    );
+    let resolved = run_config_command("runConfig.resolve", serde_json::json!({ "root": root }));
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    assert_eq!(
+        resolved["data"]["defaultRunConfiguration"],
+        "java-main:demo.App"
+    );
+
+    // A new process knows nothing until it generates again; while JDT has not
+    // answered, the cached entries stand in for its answer.
+    crate::execution::generated_layer::forget(&root);
+    let restarted = run_config_command("runConfig.inspect", serde_json::json!({ "root": root }));
+    assert_eq!(restarted["data"]["status"], "missing", "{restarted}");
+    let carried = run_config_command(
+        "runConfig.generate",
+        serde_json::json!({ "root": root, "paths": [source], "cacheDirectory": cache }),
+    );
+    assert_eq!(
+        carried["data"]["javaEntrypointsOrigin"],
+        "previousGeneration"
+    );
+    assert_eq!(
+        java_main_ids(&carried),
+        vec!["java-main:demo.App".to_string()]
+    );
+    assert!(!root.join(".lithe").exists());
+}
+
+/// Workspaces opened by older versions hold `.lithe/run/generated.json`. It
+/// seeds JDT's previous entry points once and is never rewritten or trusted
+/// as the current layer.
+#[test]
+fn legacy_generated_document_only_seeds_previous_java_entrypoints() {
+    let root = temporary_root("run-config-legacy-layer");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let source = "src/main/java/demo/App.java";
+    fs::create_dir_all(root.join("src/main/java/demo")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(source),
+        "package demo; class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    let fresh = generate_with(
+        &root,
+        &[source],
+        Some(jdt_entrypoints(&[(source, "demo.App")])),
+    );
+    let legacy = fresh["data"]["generated"].to_string();
+    fs::write(root.join(".lithe/run/generated.json"), &legacy).unwrap();
+    crate::execution::generated_layer::forget(&root);
+
+    let inspected = run_config_command("runConfig.inspect", serde_json::json!({ "root": root }));
+    assert_eq!(inspected["data"]["status"], "missing", "{inspected}");
+    let carried = generate_with(&root, &[source], None);
+    assert_eq!(
+        carried["data"]["javaEntrypointsOrigin"],
+        "previousGeneration"
+    );
+    assert_eq!(
+        java_main_ids(&carried),
+        vec!["java-main:demo.App".to_string()]
+    );
+    assert_eq!(
+        fs::read_to_string(root.join(".lithe/run/generated.json")).unwrap(),
+        legacy
+    );
+}
+
+/// Without a default in `.lithe/project.json`, a framework service is chosen
+/// before a plain main class; a project default still wins when available.
+#[test]
+fn resolve_chooses_detected_default_unless_the_project_names_one() {
+    let root = temporary_root("run-config-detected-default");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    seed_generated(
+        &root,
+        serde_json::json!({"version": 2, "configurations": [
+            {"id": "current-file", "name": "Current File", "provider": "java.current-file",
+             "execution": "application", "toolchains": {}},
+            {"id": "java-main:demo.Tool", "name": "Tool", "provider": "java.main",
+             "execution": "application", "toolchains": {}},
+            {"id": "spring-boot.maven:.", "name": "app", "provider": "spring-boot.maven",
+             "execution": "service", "toolchains": {}}
+        ]}),
+    );
+    let detected = run_config_command("runConfig.resolve", serde_json::json!({ "root": root }));
+    assert_eq!(detected["ok"], true, "{detected}");
+    assert_eq!(
+        detected["data"]["defaultRunConfiguration"],
+        "spring-boot.maven:."
+    );
+
+    fs::create_dir_all(root.join(".lithe")).unwrap();
+    fs::write(
+        root.join(".lithe/project.json"),
+        r#"{"version":1,"defaultRunConfiguration":"java-main:demo.Tool"}"#,
+    )
+    .unwrap();
+    let named = run_config_command("runConfig.resolve", serde_json::json!({ "root": root }));
+    assert_eq!(
+        named["data"]["defaultRunConfiguration"],
+        "java-main:demo.Tool"
+    );
 }
 
 fn run_config_command(command: &str, payload: Value) -> Value {
@@ -4223,12 +4355,13 @@ fn working_directory_override_keeps_reactor_module_configurations() {
             .find(|value| value["id"] == id)
             .unwrap_or_else(|| panic!("{id} was dropped: {resolved}"));
         assert_eq!(configuration["cwd"], directory);
+        // No JDK or Maven is installed in this fixture; only those may be reported.
         assert!(
             !resolved["data"]["diagnostics"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|value| value["id"] == id),
+                .any(|value| value["id"] == id && value["code"] != "missingToolchain"),
             "{resolved}"
         );
     }
@@ -4279,14 +4412,13 @@ fn working_directory_override_must_name_an_existing_project_directory() {
     let _cleanup = Cleanup(root.clone());
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join("backend")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
+    seed_generated(
+        &root,
         r#"{"version":2,"configurations":[{
             "id":"python:api","name":"API","provider":"python.script",
             "command":"python3","args":["app.py"],"cwd":".","toolchains":{}
         }]}"#,
-    )
-    .unwrap();
+    );
 
     for (directory, message) in [
         (
@@ -4338,7 +4470,7 @@ fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
     ))
     .unwrap();
     let root = temporary_root("automatic-java-selection");
-    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::create_dir_all(&root).unwrap();
     struct Cleanup(PathBuf);
     impl Drop for Cleanup {
         fn drop(&mut self) {
@@ -4346,12 +4478,11 @@ fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
         }
     }
     let _cleanup = Cleanup(root.clone());
-    let requirements = root.join(".lithe/toolchains/requirements.json");
     for case in fixture["cases"].as_array().unwrap() {
         let document = serde_json::json!({"version":1,"toolchains":{"project-jdk":{
             "type":"java", "minimumVersion":case["minimum"]
         }}});
-        fs::write(&requirements, document.to_string()).unwrap();
+        seed_requirements(&root, &document);
         // Reverse enumeration order too: tie-breaking is not filesystem order.
         for reverse in [false, true] {
             let mut candidates = case["candidates"].as_array().unwrap().clone();
@@ -4390,29 +4521,41 @@ fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
             assert_eq!(snapshot["ok"], true, "{snapshot}");
             assert_eq!(snapshot["data"], response["data"]);
         }
-        assert_eq!(
-            fs::read_to_string(&requirements).unwrap(),
-            document.to_string()
-        );
     }
-    // Missing documents preserve fallback; malformed or future documents must
-    // not silently launch a potentially incompatible JDK.
-    for contents in [None, Some("{"), Some(r#"{"version":999,"toolchains":{}}"#)] {
-        if let Some(contents) = contents {
-            fs::write(&requirements, contents).unwrap();
-        } else {
-            fs::remove_file(&requirements).unwrap();
-        }
-        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
-            "id":"selection", "command":"runConfig.selectJava", "payload":{
-                "root":root, "candidates":[{"id":"env","version":"1.8.0_402","priority":0}], "fallbackId":"env"
-            }
-        }).to_string())).unwrap();
-        assert_eq!(response["ok"], contents.is_none(), "{response}");
-        if contents.is_none() {
-            assert_eq!(response["data"]["id"], "env");
-        }
-    }
+    assert!(
+        !root.join(".lithe").exists(),
+        "selection never writes the workspace"
+    );
+    // Before the Run list is identified, the minimum comes from the project's
+    // own declaration; without one, the fallback stands.
+    crate::execution::generated_layer::forget(&root);
+    let select = || -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"selection", "command":"runConfig.selectJava", "payload":{
+                    "root":root,
+                    "candidates":[
+                        {"id":"env","version":"1.8.0_402","priority":0},
+                        {"id":"jdk17","version":"17.0.10","priority":1}
+                    ],
+                    "fallbackId":"env"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    let undeclared = select();
+    assert_eq!(undeclared["ok"], true, "{undeclared}");
+    assert_eq!(undeclared["data"]["id"], "env");
+    fs::write(
+        root.join("pom.xml"),
+        "<project><properties><maven.compiler.release>17</maven.compiler.release></properties></project>",
+    )
+    .unwrap();
+    let declared = select();
+    assert_eq!(declared["ok"], true, "{declared}");
+    assert_eq!(declared["data"]["id"], "jdk17");
 }
 
 #[test]
@@ -4482,7 +4625,7 @@ fn shared_run_scan_excludes_caches_and_keeps_hidden_sources() {
     // even after the previously inaccessible directory becomes readable again.
     document["generator"]["unreadablePaths"] = serde_json::json!(["blocked"]);
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(root.join(".lithe/run/generated.json"), document.to_string()).unwrap();
+    seed_generated(&root, document.to_string());
     for full in [false, true] {
         let inspected = call(
             "runConfig.inspect",
@@ -4559,6 +4702,10 @@ fn build_provider_configurations_persist_before_generation_and_reuse_identity() 
     assert_eq!(
         inspected["data"]["status"], fixture["expected"]["inspectionStatus"],
         "{inspected}"
+    );
+    assert_eq!(
+        inspected["data"]["requiresGeneration"],
+        fixture["expected"]["requiresGeneration"]
     );
     let resolved = call(
         "runConfig.resolve",
@@ -4726,11 +4873,7 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
             .any(|c| c["id"] == id));
     }
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_vec(&output["data"]["generated"]).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, output["data"]["generated"].to_string());
     let inspect = |projects: Option<Value>| -> Value {
         let mut payload = serde_json::json!({"root":root,"checkFingerprint":false});
         if let Some(projects) = projects {
@@ -4780,11 +4923,7 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         .as_object_mut()
         .unwrap()
         .remove("providerFingerprint");
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        serde_json::to_vec(&legacy).unwrap(),
-    )
-    .unwrap();
+    seed_generated(&root, legacy.to_string());
     assert!(stale(inspect(Some(original))));
     assert!(
         !stale(inspect(None)),
@@ -4853,11 +4992,7 @@ fn provider_launch_inputs_preserve_document_layers_and_current_reactor() {
     let generated = serde_json::json!({"version":2,"configurations":[{"id":"service","name":"Service","provider":"spring-boot.maven","execution":"service",
         "cwd":"nested","env":{},"toolchains":{"java":"project-jdk","maven":"project-maven"},
         "extensions":{"maven":{"module":"app","reactorPath":"nested","jvmArguments":["-Dmessage=base value"],"programArguments":["base"],"profiles":[]}}}]});
-    fs::write(
-        root.join(".lithe/run/generated.json"),
-        generated.to_string(),
-    )
-    .unwrap();
+    seed_generated(&root, generated.to_string());
     let local = serde_json::json!({"version":2,"configurations":[{"id":"service","cwd":"tools","env":{"EXAMPLE":"value"},
         "extensions":{"maven":{"jvmArguments":["-Dmessage=hello world","C:\\literal"],"programArguments":["a b","雪",""],"mainClass":"demo.app.Main","profiles":["run-profile"],"skipTests":false}}}]});
     let call = |provider_root: &str, local: Option<Value>| -> Value {
@@ -4865,6 +5000,15 @@ fn provider_launch_inputs_preserve_document_layers_and_current_reactor() {
             "root":root,"configurationId":"service","providerRoot":provider_root,"localDocument":local}});
         serde_json::from_str(&execute_json(&request.to_string())).unwrap()
     };
+    let inspect = || -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"inspect-launch-inputs","command":"runConfig.inspect",
+            "payload":{"root":root,"checkFingerprint":false}})
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    let baseline = inspect()["data"]["generated"].clone();
     let original = call("nested", None);
     assert_eq!(original["ok"], true, "{original}");
     assert_eq!(original["data"]["projectPath"], "nested/app");
@@ -4892,8 +5036,6 @@ fn provider_launch_inputs_preserve_document_layers_and_current_reactor() {
     assert_eq!(call("../outside", Some(local.clone()))["ok"], false);
     fs::remove_dir_all(root.join("tools")).unwrap();
     assert_eq!(call("nested", Some(local))["ok"], false);
-    assert_eq!(
-        fs::read_to_string(root.join(".lithe/run/generated.json")).unwrap(),
-        generated.to_string()
-    );
+    assert_eq!(inspect()["data"]["generated"], baseline);
+    assert!(!root.join(".lithe/run/generated.json").exists());
 }

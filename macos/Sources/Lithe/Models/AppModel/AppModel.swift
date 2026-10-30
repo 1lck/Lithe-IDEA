@@ -111,6 +111,16 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
+    let worktreeCommitSessions = WorktreeCommitSessions()
+
+    func worktreeCommitSession(feature: GitFeatureModel, worktree: GitWorktree) -> WorktreeCommitSession {
+        let scoped = feature.commitFeature(for: worktree)
+        return worktreeCommitSessions.session(for: scoped, generation: workspaceFeature.workspaceGeneration) {
+            let draft = CommitDraftFeatureModel()
+            return WorktreeCommitSession(feature: scoped, draft: draft,
+                workflow: CommitWorkflowComposition.make(model: self, draft: draft, activateGit: { [weak scoped] in scoped }))
+        }
+    }
     var commitMessage: String {
         get { commitDraftFeature.message }
         set { commitDraftFeature.message = newValue }
@@ -1311,7 +1321,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 try await documentFeature.save(document, encoding: encoding)
                 showNotification("Saved \(document.displayName) as \(encoding.displayName)")
             } catch {
-                showNotification("Could not save \(document.displayName) as \(encoding.displayName)")
+                if !(error is CancellationError) {
+                    showNotification(documentFeature.saveFailureMessage(for: document, error: error))
+                }
             }
         }
     }

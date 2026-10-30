@@ -14,6 +14,16 @@ struct MacNativeBuildProviderIntegrationTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
                    "Requires the stage D Maven package and selected Java/Maven"))
     func runProfileUsesOneMavenModelAndSavedGenerationTracksDefaultProfileChanges() async throws {
+        try await verifyRunConfigurationPreparation(savedTaskOnly: false)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D Maven package and selected Java/Maven"))
+    func savedProviderTaskUsesCurrentTypedInputsWithoutChangingBuildDefaults() async throws {
+        try await verifyRunConfigurationPreparation(savedTaskOnly: true)
+    }
+
+    private func verifyRunConfigurationPreparation(savedTaskOnly: Bool) async throws {
         let environment = ProcessInfo.processInfo.environment
         let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
         let java = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_JAVA"]))
@@ -61,64 +71,70 @@ struct MacNativeBuildProviderIntegrationTests {
         do {
             build.reset(workspaceURL: workspace)
             let baseline = try await build.prepareLanguageImport(workspaceURL: workspace)
-            let prepared = try await build.prepareLanguageRun(fileURL: workspace.appendingPathComponent("nested/checks/Main.java"),
-                workspace: workspace, mainTask: "java-prepare-run-main", testTask: "java-prepare-run-test",
-                optionOverrides: ["profiles": .array([.string("run-only")])],
-                tool: { _ in BuildProviderHints(toolExecutable: maven,
-                    toolEnvironment: runtime.environment.filter { $0.key == "JAVA_HOME" || $0.key == "PATH" }) }, isCurrent: { true })
-            guard case .maven(let context)? = prepared else { throw NativeProviderIntegrationError.unexpectedCommand }
-            #expect(context.profiles == ["run-only"])
-            #expect(context.mavenExecutablePath == maven.path)
-            #expect(context.reactorPath == "nested")
-            #expect(try String(contentsOf: workspace.appendingPathComponent("nested/target/test-classes/runtime.properties"), encoding: .utf8) == "selected=current-profile")
-            #expect(build.entries.first?.model?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
-            #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
-            #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["nested"]?["profiles"] == nil)
-            let taskPreparation = try await build.prepareConfigurationRun(inputs: ProviderLaunchInputs(
-                buildSystemID: "maven", provider: "maven.module", projectPath: "nested",
-                launchOptions: BuildLaunchOptions(execution: .task, arguments: ["validate"], environment: ["LITHE_RUN_VALUE": "雪"], workingDirectory: "."),
-                optionOverrides: ["profiles": .array([.string("run-only")])]), instanceRoot: "nested", workspace: workspace,
-                tool: BuildProviderHints(toolExecutable: maven, toolEnvironment: ["JAVA_HOME": java.deletingLastPathComponent().deletingLastPathComponent().path]),
-                isCurrent: { true }, progress: { _ in })
-            #expect(taskPreparation.executable.value == "project-maven")
-            #expect(taskPreparation.arguments.contains("validate"))
-            #expect(taskPreparation.arguments.contains("-Prun-only"))
-            #expect(taskPreparation.workingDirectory == ".")
-            #expect(taskPreparation.environment["LITHE_RUN_VALUE"] == "雪")
-            #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
-            let ownership = try build.runProjectOwnership()
-            #expect(ownership.first?.mavenReactorPath == "nested")
-            #expect(ownership.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
-            let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(defaults: defaults))
-            let moduleTarget = try #require(build.entries.first?.model?.targets.first { $0.name == "maven.module" })
-            let reference = BuildProviderRunReference(pluginID: source.pluginID, buildSystemID: "maven", root: "nested",
-                run: "module", projectID: moduleTarget.projectID, targetID: moduleTarget.id, userArguments: ["validate"], execution: .task)
-            let savedID = try store.saveBuildProviderConfiguration(reference, name: "Validate module", at: workspace)
-            let savedInputs = try store.providerLaunchInputs(at: workspace, configurationID: savedID, providerRoot: "nested")
-            let savedPreparation = try await build.prepareConfigurationRun(inputs: savedInputs, instanceRoot: "nested", workspace: workspace,
-                tool: BuildProviderHints(), isCurrent: { true }, progress: { _ in })
-            #expect(savedPreparation.arguments.last == "validate")
-            #expect(try store.resolve(at: workspace, toolchainCandidates: []).configurations.first?.configuration.execution == .task)
-            _ = try store.generate(at: workspace, files: [workspace.appendingPathComponent("nested/checks/Main.java")], modulePaths: [],
-                javaEntrypoints: JavaEntrypoints(entries: [JavaEntrypoint(sourcePath: "nested/checks/Main.java", mainClass: "Main")]), projectOwnership: ownership)
-            #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
-            let entryID = try #require(build.entries.first?.id)
-            func currentOwnership() async throws -> [LitheCoreContracts.RunProjectOwnership] {
-                _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+            if savedTaskOnly {
                 try await build.prepareLanguageTestModels(allModels: true, workspace: workspace)
-                _ = try await build.prepareLanguageImport(workspaceURL: workspace)
-                return try build.runProjectOwnership()
+                let taskPreparation = try await build.prepareConfigurationRun(inputs: ProviderLaunchInputs(
+                    buildSystemID: "maven", provider: "maven.module", projectPath: "nested",
+                    launchOptions: BuildLaunchOptions(execution: .task, arguments: ["validate"], environment: ["LITHE_RUN_VALUE": "雪"], workingDirectory: "."),
+                    optionOverrides: ["profiles": .array([.string("run-only")])]), instanceRoot: "nested", workspace: workspace,
+                    tool: BuildProviderHints(toolExecutable: maven, toolEnvironment: ["JAVA_HOME": java.deletingLastPathComponent().deletingLastPathComponent().path]),
+                    isCurrent: { true }, progress: { _ in })
+                #expect(taskPreparation.executable.value == "project-maven")
+                #expect(taskPreparation.arguments.contains("validate"))
+                #expect(taskPreparation.arguments.contains("-Prun-only"))
+                #expect(taskPreparation.workingDirectory == ".")
+                #expect(taskPreparation.environment["LITHE_RUN_VALUE"] == "雪")
+                #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
+                let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(defaults: defaults))
+                let moduleTarget = try #require(build.entries.first?.model?.targets.first { $0.name == "maven.module" })
+                let reference = BuildProviderRunReference(pluginID: source.pluginID, buildSystemID: "maven", root: "nested",
+                    run: "module", projectID: moduleTarget.projectID, targetID: moduleTarget.id, userArguments: ["validate"], execution: .task)
+                let savedID = try store.saveBuildProviderConfiguration(reference, name: "Validate module", at: workspace)
+                let savedInputs = try store.providerLaunchInputs(at: workspace, configurationID: savedID, providerRoot: "nested")
+                let savedPreparation = try await build.prepareConfigurationRun(inputs: savedInputs, instanceRoot: "nested", workspace: workspace,
+                    tool: BuildProviderHints(), isCurrent: { true }, progress: { _ in })
+                #expect(savedPreparation.arguments.last == "validate")
+                #expect(try store.resolve(at: workspace, toolchainCandidates: []).configurations.first?.configuration.execution == .task)
+                #expect(build.configurationRunSource(inputs: savedInputs, instanceRoot: "nested") == source)
+            } else {
+                let prepared = try await build.prepareLanguageRun(fileURL: workspace.appendingPathComponent("nested/checks/Main.java"),
+                    workspace: workspace, mainTask: "java-prepare-run-main", testTask: "java-prepare-run-test",
+                    optionOverrides: ["profiles": .array([.string("run-only")])],
+                    tool: { _ in BuildProviderHints(toolExecutable: maven,
+                        toolEnvironment: runtime.environment.filter { $0.key == "JAVA_HOME" || $0.key == "PATH" }) }, isCurrent: { true })
+                guard case .maven(let context)? = prepared else { throw NativeProviderIntegrationError.unexpectedCommand }
+                #expect(context.profiles == ["run-only"])
+                #expect(context.mavenExecutablePath == maven.path)
+                #expect(context.reactorPath == "nested")
+                #expect(try String(contentsOf: workspace.appendingPathComponent("nested/target/test-classes/runtime.properties"), encoding: .utf8) == "selected=current-profile")
+                #expect(build.entries.first?.model?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
+                #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
+                #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["nested"]?["profiles"] == nil)
+                let ownership = try build.runProjectOwnership()
+                #expect(ownership.first?.mavenReactorPath == "nested")
+                #expect(ownership.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
+                let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(defaults: defaults))
+                _ = try store.generate(at: workspace, files: [workspace.appendingPathComponent("nested/checks/Main.java")], modulePaths: [],
+                    javaEntrypoints: JavaEntrypoints(entries: [JavaEntrypoint(sourcePath: "nested/checks/Main.java", mainClass: "Main")]), projectOwnership: ownership)
+                #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
+                let entryID = try #require(build.entries.first?.id)
+                func currentOwnership() async throws -> [LitheCoreContracts.RunProjectOwnership] {
+                    _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+                    try await build.prepareLanguageTestModels(allModels: true, workspace: workspace)
+                    _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+                    return try build.runProjectOwnership()
+                }
+                // These are explicit edits of Build defaults after the temporary Run
+                // has completed. POM bytes stay unchanged throughout A → B → A.
+                build.setOption(entryID, optionID: "profiles", value: .array([.string("run-only")]))
+                let changed = try await currentOwnership()
+                #expect(changed.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "testSource" } == true)
+                #expect(store.inspectProviderGeneration(at: workspace, projectOwnership: changed).diagnostics.contains { $0.code == "staleProviderModel" })
+                build.setOption(entryID, optionID: "profiles", value: .array([]))
+                let restored = try await currentOwnership()
+                #expect(restored == ownership)
+                #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: restored).diagnostics.contains { $0.code == "staleProviderModel" })
             }
-            // These are explicit edits of Build defaults after the temporary Run
-            // has completed. POM bytes stay unchanged throughout A → B → A.
-            build.setOption(entryID, optionID: "profiles", value: .array([.string("run-only")]))
-            let changed = try await currentOwnership()
-            #expect(changed.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "testSource" } == true)
-            #expect(store.inspectProviderGeneration(at: workspace, projectOwnership: changed).diagnostics.contains { $0.code == "staleProviderModel" })
-            build.setOption(entryID, optionID: "profiles", value: .array([]))
-            let restored = try await currentOwnership()
-            #expect(restored == ownership)
-            #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: restored).diagnostics.contains { $0.code == "staleProviderModel" })
             outcome = .success(())
         } catch { outcome = .failure(error) }
         build.stop(); sessions.retainProviders { _ in false }

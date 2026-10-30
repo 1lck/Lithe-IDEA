@@ -108,6 +108,15 @@ try {
     assert.match(diagnostics(refused), /swiftpm-build-state is isolated.*cannot be reused/);
     await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
   });
+  await test("editor palettes and licenses cannot be copied from another checkout", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "editor-theme-assets");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes(".artifacts/editor/macos/"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");
@@ -173,23 +182,25 @@ try {
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /bundled-ui-fonts is isolated/);
   });
-  await test("AutoBuild plugin mirror staging is validated and never reused", { timeout: 15000 }, async () => {
+  await test("AutoBuild application publication staging is validated and never reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "autobuild-plugin-mirror-staging");
+    const resource = registry.excludedResources.find(item => item.id === "autobuild-publication-staging");
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes("<RUNNER_TEMP>/lithe-autobuild-<invocation>/baselines/"));
     assert.ok(resource.locations.includes("<RUNNER_TEMP>/lithe-autobuild-<invocation>/autobuild-publication.json"));
     assert.match(resource.identity, /publication checkpoint.*sorted target asset SHA-256\/size.*exact-plan recovery/);
     assert.match(resource.identity, /build\/ISO timestamp.*strict publication-time ordering/);
     assert.match(resource.identity, /baselines\/AutoBuild.*baselines\/preview-0\.3\.0.*legacy release remains/);
-    assert.match(resource.identity, /source SHA.*SHA-256.*official organization/);
+    assert.match(resource.identity, /source SHA.*application release\/tag\/asset.*build\/ISO timestamp/);
+    assert.match(resource.reason, /Plugin catalogs and packages are not read or mirrored/);
+    assert.ok(!resource.locations.some(location => /\/(marketplace|plugins)\//.test(location)));
     assert.ok(resource.locations.every(location => location.startsWith("<RUNNER_TEMP>/lithe-autobuild-<invocation>/")));
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes(resource.id));
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /autobuild-plugin-mirror-staging is isolated/);
+    assert.match(diagnostics(refused), /autobuild-publication-staging is isolated/);
   });
   await test("Sparkle baseline staging is never listed or copied between worktrees", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);

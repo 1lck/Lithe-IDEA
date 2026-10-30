@@ -39,7 +39,7 @@ JDT LS 这类语言服务器有很多启动参数，最常见的是堆内存上�
 
 ### 4. JDT 适配层让出两个参数
 
-直接启动 JDT 时，宿主以前会丢弃插件传来的 `-Xmx` 和 `-Dlog.level=`，再塞自己的默认值。现在这两个参数改为“插件的最后一个合法值优先，没有就用宿主默认值（`-Xmx2048m`、`-Dlog.level=ALL`，即以前的行为）”。合法性很窄：堆大小必须是数字加可选的 `k`/`m`/`g`，并且必须大于 1536 MiB（JDT LS 在不超过 1.5 GB 时会改走“分批导入”，模块坐标重复会让整个 Java 服务失败，见 `2026-10-09-jdtls-heap-ceiling-and-duplicate-maven-coordinates.md`）；日志级别必须是字母数字；不合法的值被丢弃而不是传给 JVM。Java Support 的清单因此把 `heapMaxMB` 的下限和默认值都设为 2048。`-Xms`、`--add-*`、Eclipse 产品属性、元数据位置和 Lombok 仍归宿主所有。
+直接启动 JDT 时，宿主以前会丢弃插件传来的 `-Xmx` 和 `-Dlog.level=`，再塞自己的默认值。现在这两个参数改为“插件的最后一个合法值优先，没有就用宿主默认值（`-Xmx2048m`、`-Dlog.level=ALL`，即以前的行为）”。合法性很窄：堆大小必须是数字加可选的 `k`/`m`/`g`，并且必须大于 1536 MiB（JDT LS 在不超过 1.5 GB 时会改走“分批导入”，模块坐标重复会让整个 Java 服务失败，见 `2026-10-09-jdtls-heap-ceiling-and-duplicate-maven-coordinates.md`）；日志级别必须是字母数字；不合法的值被丢弃而不是传给 JVM。Java Support 的清单因此把 `heapMaxMB` 的下限和默认值都设为 2048。`-Xms`、`--add-*`、Eclipse 产品属性、元数据位置和 Lombok 仍归宿主所有。宿主另外追加一组 GC 与日志默认值，插件参数里同键的值优先（见 `2026-10-09-jdtls-heap-ceiling-and-duplicate-maven-coordinates.md` 决策第 5 条）。
 
 这个读取是幂等的：宿主把自己产出的参数再喂回适配层，得到相同的结果，已有的稳定性测试继续成立。
 

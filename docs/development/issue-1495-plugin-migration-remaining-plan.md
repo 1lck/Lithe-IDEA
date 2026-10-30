@@ -184,3 +184,21 @@ SDK 真实进程 E2E 六项通过。Core→Maven 20 项通过，包括实际 Spr
 `stage-d-framework-native-workflow.html`；它们属于当前开发组合，不是正式发行证明。
 保存后的 service/task 分类和参数通过原子写回/读回，重新启动仍按当前插件声明
 与模型校验；没有为迁移增加包内可写状态或可跨工作树共享的缓存。
+
+
+整合最新 preview `f3ee7114f`：保留 #1580 的进程内检测层、缓存和自动识别行为，
+Provider 模型摘要、工具要求和类型化准备改从同一检测层读取。合并前固定提交组合
+Core `1e66735` / SDK `af13e3c` / Maven `b426f42` 的
+[Java 8 + 当前 Maven/3.6.3 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41017667643)
+已通过；合并后的验证另行记录，不能复用这项通过数。
+
+
+最新基线整合验证：346 项 Swift 回归通过（345 条计时记录），Core 两轮各 1414 条
+计时通过，其中一轮显式开启三项真实 JDT/JVM（43.535/14.328/10.980 秒）。五项
+生产 macOS Provider 场景均通过并低于原有单项预算；Profile 和已保存任务各自拥有
+独立模型加载/清理，不能依赖另一场景先行准备。两个同名构建系统插件的进程按完整
+包身份撤销，保留未停用插件的会话。SDK E2E 六项、真实 Core→Maven 20 项、资源复用
+30 项、i18n 35 项以及 C ABI/链接/Git 25 项 Swift bridge 通过。Windows Cargo 检查
+仍只出现 preview 基线的 project_window_registry.rs 两项 macOS 平台 API 错误，
+没有新类型/签名调用错误；这不代表 Windows 原生验收。
+报告前缀为 `.artifacts/test-stability/stage-d-preview-*`，保留完整 HTML/JUnit。

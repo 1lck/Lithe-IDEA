@@ -3,23 +3,60 @@ import LitheModuleAPI
 
 struct LSPControlCenterView: View {
     @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var settings: AppSettings
 
+    var body: some View {
+        LSPControlCenterContent(
+            usageModel: model.languageToolingFeature.projectUsage,
+            input: model.languageToolingFeature.projectUsageInput(
+                workspaceURL: model.workspaceURL, snapshot: model.workspaceFeature.appliedSnapshot
+            )
+        )
+    }
+}
+
+struct LSPControlCenterContent: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
+    @ObservedObject var usageModel: LSPProjectUsageModel
+    let input: LSPProjectUsageInput
+    private let localizationBundle: Bundle
+    private var request: LSPProjectUsageRequest { input.request }
+
+    init(usageModel: LSPProjectUsageModel, input: LSPProjectUsageInput, localizationBundle: Bundle = .main) {
+        self.usageModel = usageModel
+        self.input = input
+        self.localizationBundle = localizationBundle
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     projectSummary
-                    ForEach(pluginNotices, id: \.self) { notice in
-                        phpPluginNotice(notice)
-                    }
-                    if projectLanguageServers.isEmpty && pluginNotices.isEmpty {
-                        emptyState
-                    } else {
-                        ForEach(projectLanguageServers) { descriptor in
-                            languageRow(descriptor)
+                    if let usage = usageModel.summary(for: request) {
+                        // Building a plugin snapshot also discovers settings and
+                        // runtime resources. Share it across this render's rows
+                        // and notices without caching live plugin state.
+                        let snapshots = model.pluginSnapshots
+                        // Conflicting packages can remain visible for inspection.
+                        // Preserve the previous first-match lookup precedence.
+                        let snapshotsByID = Dictionary(snapshots.map { ($0.id, $0) },
+                                                       uniquingKeysWith: { first, _ in first })
+                        let notices = pluginNotices(in: usage, snapshots: snapshotsByID)
+                        let servers = projectLanguageServers(in: usage, snapshots: snapshotsByID)
+                        let hasChangesPendingRestart = snapshots.contains(where: \.hasChangesPendingRestart)
+                        ForEach(notices, id: \.self) { notice in
+                            phpPluginNotice(notice, hasChangesPendingRestart: hasChangesPendingRestart)
                         }
+                        if servers.isEmpty && notices.isEmpty {
+                            emptyState
+                        } else {
+                            ForEach(servers) { descriptor in
+                                languageRow(descriptor)
+                            }
+                        }
+                    } else {
+                        ProgressView().accessibilityLabel(Text(settings.language.localizedString("native.loading", bundle: localizationBundle)))
                     }
                     if model.languageProviderCatalogSnapshot.isDegraded {
                         degradedCatalogNotice
@@ -33,6 +70,16 @@ struct LSPControlCenterView: View {
             .background(LitheTheme.settingsSurface)
         }
         .background(LitheTheme.settingsSurface)
+        .background {
+            if LitheSignpost.settingsLatencyTracingEnabled,
+               usageModel.summary(for: request) != nil {
+                SettingsPageLatencyProbe(category: SettingsCategory.lsp.id)
+                    .accessibilityHidden(true)
+            }
+        }
+        .task(id: request) {
+            await usageModel.load(input.request, files: input.files)
+        }
     }
 
     private var projectSummary: some View {
@@ -119,15 +166,16 @@ struct LSPControlCenterView: View {
         }
     }
 
-    private var projectLanguageServers: [LanguageProviderDescriptor] {
+    private func projectLanguageServers(
+        in usage: LSPProjectUsageSummary,
+        snapshots: [PluginID: PluginManagementSnapshot]
+    ) -> [LanguageProviderDescriptor] {
         model.languageProviderCatalog.descriptors
             .filter { $0.capabilities.contains(.languageServer) && $0.languageServerLaunch != nil }
+            .filter { usage.providerIDs.contains($0.id) }
             .filter { descriptor in
                 guard let entry = officialPluginEntry(languageID: descriptor.id) else { return true }
-                return pluginIsReady(entry)
-            }
-            .filter { descriptor in
-                model.projectFiles.contains { descriptor.handles(fileURL: $0) }
+                return pluginIsReady(entry, snapshots: snapshots)
             }
     }
 
@@ -137,45 +185,44 @@ struct LSPControlCenterView: View {
         OfficialPluginCatalog.publishedEntries.first { $0.languageID == languageID }
     }
 
-    private func pluginSnapshot(_ entry: OfficialPluginCatalog.Entry) -> PluginManagementSnapshot? {
-        model.pluginSnapshots.first { $0.id == entry.id }
-    }
-
-    private func pluginIsReady(_ entry: OfficialPluginCatalog.Entry) -> Bool {
-        guard let snapshot = pluginSnapshot(entry) else { return false }
+    private func pluginIsReady(
+        _ entry: OfficialPluginCatalog.Entry,
+        snapshots: [PluginID: PluginManagementSnapshot]
+    ) -> Bool {
+        guard let snapshot = snapshots[entry.id] else { return false }
         return snapshot.isEnabled && !snapshot.requiresRestart && !snapshot.isQuarantined
     }
 
-    private func projectUses(_ entry: OfficialPluginCatalog.Entry) -> Bool {
-        model.projectFiles.contains { fileURL in
-            entry.fileExtensions.contains(fileURL.pathExtension.lowercased())
-                || entry.projectFileNames.contains(fileURL.lastPathComponent.lowercased())
-        }
-    }
-
-    private var pluginNotices: [String] {
+    private func pluginNotices(
+        in usage: LSPProjectUsageSummary,
+        snapshots: [PluginID: PluginManagementSnapshot]
+    ) -> [String] {
         OfficialPluginCatalog.entries.compactMap { entry in
-            guard projectUses(entry) else { return nil }
+            guard usage.pluginIDs.contains(entry.id.rawValue) else { return nil }
             if let replacementID = entry.communityReplacementID {
-                return migratedPluginNotice(entry, replacementID: replacementID)
+                return migratedPluginNotice(entry, replacementID: replacementID, snapshots: snapshots)
             }
-            guard !pluginIsReady(entry) else { return nil }
-            return pluginNotice(entry)
+            guard !pluginIsReady(entry, snapshots: snapshots) else { return nil }
+            return pluginNotice(entry, snapshots: snapshots)
         }
     }
 
     /// Go and PHP moved to Lithe Store: point at the community plugin, and at
     /// the uninstall-and-restart step while the retired official one remains.
-    private func migratedPluginNotice(_ entry: OfficialPluginCatalog.Entry, replacementID: PluginID) -> String? {
+    private func migratedPluginNotice(
+        _ entry: OfficialPluginCatalog.Entry,
+        replacementID: PluginID,
+        snapshots: [PluginID: PluginManagementSnapshot]
+    ) -> String? {
         let name = entry.displayName
         let language = entry.languageDisplayName
-        if let retired = pluginSnapshot(entry) {
+        if let retired = snapshots[entry.id] {
             if retired.installationStatus == .uninstallPending {
                 return settings.language.localizedFormat("native.inline.restartLitheToFinishUninstallingTheOldArg1ThenInstallTheCommunityArg2FromLi", String(describing: name), String(describing: name))
             }
             return settings.language.localizedFormat("native.inline.arg1MovedToLitheStoreAsACommunityPluginAndTheOldOfficialVersionGetsNoUpdate", String(describing: name))
         }
-        guard let community = model.pluginSnapshots.first(where: { $0.id == replacementID }) else {
+        guard let community = snapshots[replacementID] else {
             return settings.language.localizedFormat("native.inline.thisArg1ProjectNeedsArg2InstallItFromLitheStoreInThePluginManagementMarketp", String(describing: language), String(describing: name))
         }
         if community.requiresRestart {
@@ -185,10 +232,13 @@ struct LSPControlCenterView: View {
         return settings.language.localizedFormat("native.inline.arg1IsDisabledEnableItFromPluginManagementFirst", String(describing: name))
     }
 
-    private func pluginNotice(_ entry: OfficialPluginCatalog.Entry) -> String {
+    private func pluginNotice(
+        _ entry: OfficialPluginCatalog.Entry,
+        snapshots: [PluginID: PluginManagementSnapshot]
+    ) -> String {
         let name = entry.displayName
         let language = entry.languageDisplayName
-        guard let snapshot = pluginSnapshot(entry) else {
+        guard let snapshot = snapshots[entry.id] else {
             return settings.language.localizedFormat("native.inline.thisArg1ProjectNeedsArg2DownloadAndInstallItFromPluginManagement", String(describing: language), String(describing: name))
         }
         if snapshot.installationStatus == .removed {
@@ -203,14 +253,14 @@ struct LSPControlCenterView: View {
         return settings.language.localizedFormat("native.inline.arg1IsDisabledEnableItFromPluginManagementFirst", String(describing: name))
     }
 
-    private func phpPluginNotice(_ message: String) -> some View {
+    private func phpPluginNotice(_ message: String, hasChangesPendingRestart: Bool) -> some View {
         LitheBanner(status: .info) {
             Text(message).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button(settings.language.localizedString("native.inline.openPluginManagement")) {
                     model.showSettings(category: .plugins)
                 }
-                if model.pluginSnapshots.contains(where: \.hasChangesPendingRestart) {
+                if hasChangesPendingRestart {
                     RestartLitheButton(prominent: false)
                 }
             }

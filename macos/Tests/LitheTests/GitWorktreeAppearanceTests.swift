@@ -8,6 +8,52 @@ import LitheGitModule
 @Suite("Worktree shared appearance", .serialized)
 struct GitWorktreeAppearanceTests {
     @Test(arguments: [false, true])
+    func changelistHeadersSeparateExpansionStagingAndFileNavigation(dark: Bool) throws {
+        let changes = (0..<4).map {
+            GitChange(repositoryRoot: URL(fileURLWithPath: "/linked"), path: "file-\($0).swift",
+                originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let snapshot = GitWorktreeRowsSnapshot(identity: .changes(inspectionVersion: 1), rows:
+            [.changelist(id: "list", name: "Local", changes: changes, expanded: true)] + changes.map { .change($0) },
+            stagedOverrides: [changes[0].id: true])
+        let scroll = GitWorktreeRowsScrollView.makeScrollView(snapshot: snapshot)
+        let window = TreeListAppearanceWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 60),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = scroll
+        defer { window.contentView = nil; window.close() }
+        window.orderFront(nil)
+        scroll.layoutSubtreeIfNeeded()
+        let view = try #require(scroll.documentView as? GitWorktreeRowsNSView)
+        var selected: Set<String> = [], expanded: [String] = [], staged: [[GitChange]] = [], opened: [GitChange] = []
+        view.configureInteraction(GitWorktreeChangeInteraction(selectedIDs: [], isEnabled: true,
+            onSelection: { selected = $0 }, onToggle: { _ in }, onOpen: { opened.append($0) }, menuItems: { _ in [] },
+            onToggleList: { staged.append($0) }, onExpandList: { expanded.append($0) }))
+        let rows = try #require(view.accessibilityChildren() as? [NSAccessibilityElement])
+        let header = try #require(rows.first)
+        let checkbox = try #require(header.accessibilityChildren()?.first as? NSAccessibilityElement)
+        #expect(checkbox.accessibilityValue() as? Int == NSControl.StateValue.mixed.rawValue)
+        #expect(header.accessibilityPerformPress())
+        #expect(expanded == ["list"] && staged.isEmpty && selected.isEmpty && opened.isEmpty)
+        #expect(checkbox.accessibilityPerformPress())
+        #expect(staged == [changes] && selected.isEmpty && opened.isEmpty)
+        for code: UInt16 in [125, 119] {
+            view.keyDown(with: try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "",
+                charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
+        }
+        #expect(selected == [changes.last!.id] && opened.isEmpty)
+        #expect(scroll.contentView.bounds.maxY >= CGFloat(snapshot.rows.count) * GitWorktreeRowsView.rowHeight,
+            "Keyboard scrolling includes ChangeList header offsets")
+        let collapsed = GitWorktreeRowsSnapshot(identity: snapshot.identity,
+            rows: [.changelist(id: "list", name: "Local", changes: changes, expanded: false)])
+        GitWorktreeRowsScrollView.updateScrollView(scroll, snapshot: collapsed)
+        #expect(view.accessibilityChildren()?.count == 1)
+        _ = try nativeSRGBCapture(view)
+    }
+
+    @Test(arguments: [false, true])
     func changesSeparateSelectionStagingDiffAndContextTargets(dark: Bool) throws {
         let changes = (0..<4).map {
             GitChange(repositoryRoot: URL(fileURLWithPath: "/linked"), path: "file-\($0).swift",
@@ -100,12 +146,20 @@ struct GitWorktreeAppearanceTests {
                           notify: { _ in }, onStateRefreshed: {})
         defer { feature.reset() }
         await feature.refreshGit()
+        await feature.refreshWorktrees()
         await feature.inspectWorktree(worktree)
         var opened: [GitChange] = []
         let actions = GitWorktreeActions(openProject: { _ in }, reveal: { _ in }, copyPath: { _ in },
             chooseParentDirectory: { nil }, showChange: { opened.append($0) })
+        let scoped = feature.commitFeature(for: worktree)
+        let draft = CommitDraftFeatureModel()
+        draft.message = "Keep this checkout's draft"
+        let workflow = CommitWorkflowCoordinator(draft: draft, activateGit: { scoped },
+            workspaceGeneration: { 0 }, generate: { _ in "Generated" }, notify: { _ in })
+        let session = WorktreeCommitSession(feature: scoped, draft: draft, workflow: workflow)
         let content = GitWorktreeChangesView(feature: feature, worktree: worktree,
-            snapshot: GitWorktreeRowsSnapshot(identity: .changes(inspectionVersion: 1), rows: [.change(change)]), actions: actions)
+            snapshot: GitWorktreeRowsSnapshot(identity: .changes(inspectionVersion: 1), rows: [.change(change)]), actions: actions,
+            commitSession: session)
             .background(LitheTheme.editor)
             .environment(\.colorScheme, dark ? .dark : .light).environment(\.locale, Locale(identifier: "en"))
         let host = NSHostingView(rootView: content)
@@ -124,21 +178,41 @@ struct GitWorktreeAppearanceTests {
         #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Stage all files", in: host))
         #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Show Diff", in: host))
         #expect(try await !AgentNativeControlTestSupport.isEnabled("worktree-changes-Discard selected change", in: host))
+        #expect(try await !AgentNativeControlTestSupport.isEnabled("git-commit-submit", in: host))
         let document = try #require(descendants(host).compactMap { $0 as? GitWorktreeRowsNSView }.first)
-        let point = document.convert(CGPoint(x: 100, y: GitWorktreeRowsView.rowHeight / 2), to: nil)
+        let point = document.convert(CGPoint(x: 100, y: GitWorktreeRowsView.rowHeight * 1.5), to: nil)
         document.mouseDown(with: try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point,
             modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
             eventNumber: 0, clickCount: 1, pressure: 1)))
         #expect(opened == [change] && opened.first?.repositoryRoot == worktree.url)
         #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Discard selected change", in: host))
-        for width: CGFloat in [850, 320, 600] {
+        var previousDocument = document
+        var previousAxis = LitheSplitAxis.horizontal
+        for width: CGFloat in [850, 700, 320, 600, 850] {
             window.setContentSize(CGSize(width: width, height: 300))
             host.layoutSubtreeIfNeeded()
             for title in ["Stage all files", "Discard selected change", "Show Diff"] {
                 let frame = try await AgentNativeControlTestSupport.frame(of: "worktree-changes-" + title, in: host)
                 #expect(host.bounds.contains(frame))
             }
-            #expect(descendants(host).contains { $0 === document })
+            let currentDocument = try #require(descendants(host).compactMap { $0 as? GitWorktreeRowsNSView }.first)
+            let axis = GitWorktreeChangesLayout(size: CGSize(width: width, height: 300)).axis
+            if axis == previousAxis { #expect(currentDocument === previousDocument) }
+            let accessibleRows = try #require(currentDocument.accessibilityChildren() as? [NSAccessibilityElement])
+            #expect(accessibleRows.last?.isAccessibilitySelected() == true)
+            previousDocument = currentDocument
+            previousAxis = axis
+            let editor = try #require(descendants(host).compactMap { $0 as? CommitMessageTextView }.first)
+            #expect(editor.string == draft.message)
+            let editorFrame = host.convert(editor.bounds, from: editor)
+            let scroll = try #require(currentDocument.enclosingScrollView)
+            let filesFrame = host.convert(scroll.bounds, from: scroll)
+            #expect(filesFrame.height >= 2 * GitWorktreeRowsView.rowHeight,
+                "Narrow layouts must leave room for a ChangeList header and file, not just the toolbars")
+            if width >= 620 { #expect(editorFrame.minX > filesFrame.maxX) }
+            else { #expect(editorFrame.midY != filesFrame.midY) }
+            let commitFrame = try await AgentNativeControlTestSupport.frame(of: "git-commit-submit", in: host)
+            #expect(host.bounds.contains(commitFrame))
             if let directory = ProcessInfo.processInfo.environment["LITHE_WORKTREE_CAPTURE_DIR"] {
                 let bitmap = try nativeSRGBCapture(host)
                 let data = try #require(bitmap.representation(using: .png, properties: [:]))
@@ -147,6 +221,37 @@ struct GitWorktreeAppearanceTests {
                 try data.write(to: destination.appendingPathComponent("changes-\(dark ? "dark" : "light")-\(Int(width)).png"))
             }
         }
+    }
+
+    @Test
+    func changesLayoutClampsBothPanesAndSessionsKeepSeparateDrafts() {
+        for size in [CGSize(width: 0, height: 0), CGSize(width: 320, height: 120),
+                     CGSize(width: 600, height: 300), CGSize(width: 850, height: 300)] {
+            let layout = GitWorktreeChangesLayout(size: size)
+            let available = max(0, (layout.axis == .horizontal ? size.width : size.height) - SplitHandleView.thickness)
+            #expect(layout.commitMinimum >= 0 && layout.listMinimum >= 0)
+            #expect(layout.commitSize >= layout.commitMinimum && layout.commitSize <= layout.commitMaximum)
+            #expect(layout.commitSize + layout.listMinimum <= available)
+        }
+        let host = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        defer { host.reset() }
+        let sessions = WorktreeCommitSessions()
+        func session(_ name: String, generation: Int = 1) -> WorktreeCommitSession {
+            let feature = host.commitFeature(for: item(name).worktree)
+            return sessions.session(for: feature, generation: generation) {
+                let draft = CommitDraftFeatureModel()
+                return WorktreeCommitSession(feature: feature, draft: draft,
+                    workflow: CommitWorkflowCoordinator(draft: draft, activateGit: { feature },
+                        workspaceGeneration: { generation }, generate: { _ in "Generated" }, notify: { _ in }))
+            }
+        }
+        let first = session("first")
+        first.draft.message = "First checkout"
+        let second = session("second")
+        second.draft.message = "Second checkout"
+        #expect(session("first") === first && session("second") === second)
+        #expect(first.draft.message == "First checkout")
+        #expect(session("first", generation: 2).draft.message.isEmpty)
     }
 
     @Test(arguments: [false, true])
@@ -200,22 +305,38 @@ struct GitWorktreeAppearanceTests {
     }
 
     @Test(arguments: [(false, false), (false, true), (true, false)])
-    func historyFooterIsNeverABlankBandAndKeepsOneHeight(isLoading: Bool, failed: Bool) async throws {
+    func historyViewportFillsAvailableHeightWithoutAnIdleFooter(isLoading: Bool, failed: Bool) async throws {
         var loads = 0
-        let host = NSHostingView(rootView: GitWorktreeHistoryFooter(isLoading: isLoading, failed: failed, onLoad: { loads += 1 })
+        let snapshot = GitWorktreeRowsSnapshot(identity: .history(inspectionVersion: 1, query: ""),
+            rows: (0..<100).map { .commit(subject: "Commit \($0)", author: "Author", date: "2026-10-29") })
+        let host = NSHostingView(rootView: GitWorktreeHistoryList(snapshot: snapshot, contextID: "worktree",
+            canLoadMore: true, isLoadingMore: isLoading, loadMoreFailed: failed,
+            onLoadMore: { loads += 1 }, onRetry: { loads += 1 })
             .environment(\.locale, Locale(identifier: "en")))
+        host.sizingOptions = []
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 120),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.orderFront(nil)
         defer { window.contentView = nil; window.close() }
-        host.layoutSubtreeIfNeeded()
-        // One height in every state, so the list viewport never moves at a page boundary.
-        #expect(abs(host.fittingSize.height - GitWorktreeRowsView.rowHeight) < 0.5)
-        if !isLoading {
-            // Idle it offers the next page rather than leaving the band empty.
-            let frame = try await AgentNativeControlTestSupport.frame(of: "worktree-history-load-more", in: host)
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !descendants(host).contains(where: { $0 is GitWorktreeRowsScrollNSView }) && clock.now < deadline {
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        let scroll = try #require(descendants(host).compactMap { $0 as? GitWorktreeRowsScrollNSView }.first)
+        for height: CGFloat in [120, 300, 600] {
+            window.setContentSize(CGSize(width: 600, height: height))
+            host.layoutSubtreeIfNeeded()
+            let frame = host.convert(scroll.bounds, from: scroll)
+            #expect(abs(frame.minY - host.bounds.minY) < 0.5)
+            #expect(abs(frame.maxY - host.bounds.maxY) < 0.5, "Paging feedback must not reserve a footer band")
+        }
+        if failed {
+            let frame = try await AgentNativeControlTestSupport.frame(of: "worktree-history-retry", in: host)
             #expect(host.bounds.contains(frame))
         }
         #expect(loads == 0)

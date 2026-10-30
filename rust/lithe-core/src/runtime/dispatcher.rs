@@ -679,7 +679,7 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
         CoreCommand::WorkspaceSearchEverywhere => {
-            match serde_json::from_value::<SearchRequest>(parsed.payload)
+            match serde_json::from_value::<project::SearchPageRequest>(parsed.payload)
                 .map_err(|error| {
                     CoreError::new(
                         ErrorCode::InvalidRequest,
@@ -687,7 +687,7 @@ fn execute(request: &str) -> CoreResponse {
                     )
                     .with_details(error.to_string())
                 })
-                .and_then(project::search_everywhere)
+                .and_then(project::search_page)
             {
                 Ok(data) => CoreResponse::success(
                     id,

@@ -6,6 +6,78 @@ import Testing
 @MainActor
 @Suite("Split pane collapse")
 struct LitheSplitPaneCollapseTests {
+    @Test("Empty and multi-view pane builders retain separate pane bounds",
+          arguments: [0, 1, 2], [LitheSplitAxis.horizontal, .vertical])
+    func paneBuildersKeepSeparateBounds(childCount: Int, axis: LitheSplitAxis) throws {
+        let surfaces = CollapseSurfaceRecorder()
+        let host = NSHostingView(rootView: LitheSplitPaneView(
+            axis: axis, placement: .leading, defaultSize: 200, minimum: 72, maximum: 400,
+            flexibleMinimum: 100, sized: {
+                ForEach(0..<childCount, id: \.self) { index in
+                    CollapseSurface(name: "result-\(index)", recorder: surfaces)
+                }
+            }, flexible: {
+                CollapseSurface(name: "preview", recorder: surfaces)
+                Text("Preview footer").frame(height: 22)
+            }))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        let preview = try #require(surfaces.views["preview"]?.first)
+        let previewFrame = preview.convert(preview.bounds, to: host)
+        #expect(previewFrame.width > 0 && previewFrame.height > 0)
+        #expect(host.bounds.contains(previewFrame))
+        #expect((axis == .horizontal ? previewFrame.width : previewFrame.height) <= 395)
+        for index in 0..<childCount {
+            let result = try #require(surfaces.views["result-\(index)"]?.first)
+            let resultFrame = result.convert(result.bounds, to: host)
+            #expect(resultFrame.width > 0 && resultFrame.height > 0)
+            #expect(host.bounds.contains(resultFrame))
+            #expect(!resultFrame.intersects(previewFrame))
+        }
+    }
+
+    @Test("A declared page size avoids content-driven intrinsic sizing while panes still follow window bounds",
+          arguments: [LitheSplitAxis.horizontal, .vertical])
+    func declaredPageSizePreservesPaneGeometry(axis: LitheSplitAxis) throws {
+        let surfaces = CollapseSurfaceRecorder()
+        let host = NSHostingView(rootView: LitheSplitPaneView(
+            axis: axis, placement: .leading, defaultSize: 220, minimum: 30, maximum: 400,
+            idealSize: CGSize(width: 900, height: 617),
+            sized: { CollapseSurface(name: "sidebar", recorder: surfaces) },
+            flexible: {
+                CollapseSurface(name: "content", recorder: surfaces)
+                    .frame(idealWidth: 1800, idealHeight: 2000)
+            }))
+        #expect(host.fittingSize == CGSize(width: 900, height: 617))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        for size in [CGSize(width: 1000, height: 700), CGSize(width: 1200, height: 800)] {
+            window.setContentSize(size)
+            host.layoutSubtreeIfNeeded()
+            let sidebar = try #require(surfaces.views["sidebar"]?.first)
+            let content = try #require(surfaces.views["content"]?.first)
+            if axis == .horizontal {
+                #expect(sidebar.bounds.width == 220)
+                #expect(content.bounds.width == size.width - 220 - SplitHandleView.thickness)
+                #expect(content.bounds.height == size.height)
+            } else {
+                #expect(sidebar.bounds.height == 220)
+                #expect(content.bounds.height == size.height - 220 - SplitHandleView.thickness)
+                #expect(content.bounds.width == size.width)
+            }
+        }
+        #expect(surfaces.views.values.allSatisfy { $0.count == 1 })
+    }
+
     @Test("Release holds the final size until the host returns its committed value",
           arguments: [LitheSplitAxis.horizontal, .vertical])
     func releaseWaitsForCommittedSize(axis: LitheSplitAxis) async throws {

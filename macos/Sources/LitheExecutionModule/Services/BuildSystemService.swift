@@ -113,7 +113,7 @@ package final class BuildSystemService: ObservableObject {
 
     /// Emitted after input storage changes, so subscribers never read willSet values.
     package let runGenerationInputsChanged = PassthroughSubject<Void, Never>()
-    package let providerSystemsRevoked = PassthroughSubject<Set<String>, Never>()
+    package let providerSourcesChanged = PassthroughSubject<[BuildSystemPluginSource], Never>()
     @Published package private(set) var entries: [BuildSystemEntry] = [] {
         didSet { runGenerationInputsChanged.send() }
     }
@@ -572,7 +572,7 @@ package final class BuildSystemService: ObservableObject {
 
     package func pluginsChanged() {
         let enabledSources = sources()
-        providerSystemsRevoked.send(Set(entries.filter { !enabledSources.contains($0.source) }.map { $0.instance.buildSystemID }))
+        providerSourcesChanged.send(enabledSources)
         nativeConfiguration?.invalidate()
         providerConfigurationRevision += 1
         for producer in entries where producer.declaration.sharesModel {
@@ -1096,6 +1096,15 @@ package final class BuildSystemService: ObservableObject {
             return 0
             }
         }
+    }
+
+    /// Capture the exact enabled package before any asynchronous preparation starts.
+    package func configurationRunSource(inputs: ProviderLaunchInputs, instanceRoot: String) -> BuildSystemPluginSource? {
+        let enabled = sources()
+        let candidates = entries.filter { $0.instance.root == instanceRoot && $0.instance.buildSystemID == inputs.buildSystemID
+            && (inputs.reference == nil || inputs.reference?.pluginID == $0.instance.pluginID)
+            && enabled.contains($0.source) }
+        return candidates.count == 1 ? candidates.first?.source : nil
     }
 
     /// Independent service preparations share provider sessions, never the single Build task slot.

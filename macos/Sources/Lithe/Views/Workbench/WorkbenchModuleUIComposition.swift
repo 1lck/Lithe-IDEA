@@ -257,7 +257,9 @@ enum WorkbenchModuleUIComposition {
                             openProjectInNewWindow: { [weak model] in model?.openProject($0, placement: .newWindow) },
                             temporaryDirectory: { [storage = model.services.fileStorage] in storage.temporaryDirectory() },
                             showChange: { [weak model] in model?.selectChange($0) },
-                            openFile: { [weak model] in model?.openFile($0, displayPath: $1) }
+                            openFile: { [weak model] in model?.openFile($0, displayPath: $1) },
+                            commitSession: { [unowned model] in model.worktreeCommitSession(feature: feature, worktree: $0) },
+                            showCommitSettings: { [weak model] in model?.showSettings(category: .ai) }
                         ),
                         presentationCache: model.gitLogPresentationCache
                     ))

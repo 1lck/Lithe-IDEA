@@ -60,6 +60,13 @@ struct ContextMenuCoverageTests {
         try click(NSPoint(x: 280, y: 14))
         #expect(await waitForPopup { ($0?.frame.minX ?? 0) > firstFrame.minX + 100 },
             "Clicking a different trigger must open it with the same click")
+        let second = try #require(popup())
+        second.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: second.windowNumber, context: nil,
+            characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53)))
+        #expect(await waitForPopup { $0 == nil }, "Esc must dismiss both menu and searchable custom content")
+        try click(NSPoint(x: 280, y: 14))
+        #expect(await waitForPopup { $0 != nil }, "Dismissal must reset the binding so the popup can reopen")
         try click(NSPoint(x: 420, y: 80))
         #expect(await waitForPopup { $0 == nil }, "Outside clicks must still dismiss the popup")
     }

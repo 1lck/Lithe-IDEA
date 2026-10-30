@@ -511,6 +511,32 @@ struct MacBuildProviderSessionsTests {
         #expect(fixture.endedBackends.calls == [.init(token: token, immediately: true)])
     }
 
+    /// Core's event drain waits on the session lock while the server's reader
+    /// applies a message, so it runs off the main actor. A request sent while a
+    /// drain is out waits for it, so that drain cannot return the request's
+    /// reply before the operation is registered.
+    @Test
+    func aHeldEventDrainNeitherBlocksTheMainActorNorOvertakesARequest() async throws {
+        let fixture = try ProviderFixture()
+        defer {
+            fixture.core.releaseHeldPoll()
+            fixture.remove()
+        }
+        _ = try await fixture.sessions.pluginFunctions(of: fixture.target)
+        fixture.core.holdNextPoll()
+        // This test runs on the main actor: it resumes here only because the
+        // held drain runs elsewhere.
+        try #require(await fixture.core.pollHeld.waitUntilOpen())
+
+        // The call runs on the main actor up to its wait for the drain; the
+        // release is queued behind it.
+        let call = Task { @MainActor in try await fixture.invoke("workspace.build") }
+        let release = Task { @MainActor in fixture.core.releaseHeldPoll() }
+        await release.value
+        #expect(try await call.value == .object(["built": .bool(true)]))
+        #expect(fixture.core.requestsWhilePollHeld == 0)
+    }
+
     /// Stopping a provider whose write is blocked does not wait on it: Core's
     /// stop runs off the main actor and the backend is ended after the grace.
     @Test
@@ -745,6 +771,14 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     /// a write to a backend that stopped reading would, until `releaseStuckSend`.
     let stuckSendStarted = TestGate()
     private let stuckSendReleased = TestGate()
+    /// Opened when a poll armed by `holdNextPoll()` is blocked; it stays
+    /// blocked, as Core's drain does behind a busy session lock, until
+    /// `releaseHeldPoll()`.
+    let pollHeld = TestGate()
+    private let heldPollReleased = TestGate()
+    private var _holdNextPoll = false
+    private var _pollIsHeld = false
+    private var _requestsWhilePollHeld = 0
     private let initialState: String
     private let readyAfterStop: Bool
     private let backgroundStart: Bool
@@ -880,6 +914,11 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     /// Lets the blocked send fail the way a write to a killed process does.
     func releaseStuckSend() { stuckSendReleased.open() }
 
+    func holdNextPoll() { lock.withLock { _holdNextPoll = true } }
+    func releaseHeldPoll() { heldPollReleased.open() }
+    /// Function requests that reached Core while a held poll was out.
+    var requestsWhilePollHeld: Int { lock.withLock { _requestsWhilePollHeld } }
+
     /// `workspace.build` reports progress then succeeds, `snapshot.read`
     /// fails with a plugin code, `workspace.wait` runs until cancelled,
     /// `workspace.stuck` blocks like a write to a backend that stopped
@@ -906,6 +945,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
             ))
         }
         let operation = lock.withLock {
+            if _pollIsHeld { _requestsWhilePollHeld += 1 }
             _functionRequests.append(FunctionCall(pluginID: pluginID, functionID: functionID))
             let operationID = "\(sessionID)-fn-\(_functionRequests.count)"
             switch functionID {
@@ -982,7 +1022,17 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     }
 
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent] {
-        lock.withLock { events.removeValue(forKey: sessionID) ?? [] }
+        let hold = lock.withLock {
+            defer { _holdNextPoll = false }
+            _pollIsHeld = _holdNextPoll
+            return _holdNextPoll
+        }
+        if hold {
+            pollHeld.open()
+            _ = heldPollReleased.waitSynchronously(timeout: 5)
+            lock.withLock { _pollIsHeld = false }
+        }
+        return lock.withLock { events.removeValue(forKey: sessionID) ?? [] }
     }
 
     func syncLanguageServerDocument(

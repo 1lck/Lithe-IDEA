@@ -1,5 +1,6 @@
 //! Run-configuration schemas, layered overrides, and deterministic generation.
 
+use super::generated_layer::{self, GeneratedLayer};
 use super::types::{Confidence, Execution, RunCategory};
 use crate::languages::{JavaEntrypointFact, JavaEntrypointFacts};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
@@ -12,9 +13,9 @@ use std::path::{Component, Path, PathBuf};
 
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
-// Bumped when generation changes what a workspace should contain: existing
-// workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "16";
+// Bumped when the detected layer changes; stale cached facts must regenerate.
+const GENERATOR_REVISION: &str = "17";
+
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -65,6 +66,11 @@ pub struct GenerateRequest {
     /// being dropped, so the Run list does not empty during a cold start.
     #[serde(default)]
     pub java_entrypoints: Option<JavaEntrypointFacts>,
+    /// Application cache directory, outside the workspace. Generation records
+    /// its result there so the next session can list Java entries before the
+    /// language service answers; omitted, only this process remembers it.
+    #[serde(default)]
+    pub cache_directory: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -502,8 +508,9 @@ pub struct ToolchainRequirement {
 /// Validates configuration and sidecar documents without mutating the workspace.
 pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
-    let generated = read_document(&root, "run/generated.json")?;
-    let requirements = read_requirements(&root)?;
+    let layer = generated_layer::get(&root);
+    let generated = layer.as_ref().map(|layer| &layer.document);
+    let requirements = layer.as_ref().map(|layer| &layer.requirements);
     let local_toolchains = read_local_toolchains(&root)?;
     for relative in [
         "run/configurations.json",
@@ -540,18 +547,9 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
             }
         }
     }
-    if let Some(document) = generated.as_ref() {
-        validate_version(document.version)?;
-    }
-    if let Some(document) = requirements.as_ref() {
-        validate_sidecar_version(document.version)?;
-    }
     let mut diagnostics = Vec::new();
     if request.check_fingerprint == Some(false) {
-        if let Some(metadata) = generated
-            .as_ref()
-            .and_then(|document| document.generator.as_ref())
-        {
+        if let Some(metadata) = generated.and_then(|document| document.generator.as_ref()) {
             if !metadata.unreadable_paths.is_empty() {
                 diagnostics.push(incomplete_scan_diagnostic(&metadata.unreadable_paths));
             }
@@ -559,7 +557,6 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     }
     let local = local_layer_document(&root, request.local_document.clone())?;
     if let Some((document, metadata)) = generated
-        .as_ref()
         .and_then(|document| Some((document, document.generator.as_ref()?)))
         .filter(|_| request.check_fingerprint != Some(false))
     {
@@ -592,7 +589,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     }
     if let Some(projects) = &request.project_ownership {
         super::project_ownership::validate(projects)?;
-        if let Some(document) = generated.as_ref() {
+        if let Some(document) = generated {
             let expected = super::project_ownership::fingerprint(projects);
             if document
                 .generator
@@ -604,8 +601,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
             }
         }
     }
-    if let (Some(document), Some(current)) = (generated.as_ref(), request.java_entrypoints.as_ref())
-    {
+    if let (Some(document), Some(current)) = (generated, request.java_entrypoints.as_ref()) {
         // Source hashing no longer notices a main method added to an existing
         // class; JDT's answer does, and is cheaper than reading every source.
         let recorded = java_entrypoint_keys(&java_entrypoints_from_document(&root, document));
@@ -621,7 +617,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
             }));
         }
     }
-    if let Some(document) = generated.as_ref() {
+    if let Some(document) = generated {
         // A Java main entry without a recorded main class cannot launch and
         // cannot be rebuilt from local sources -- JDT owns entry points -- so
         // hosts must be told to regenerate while the language service can
@@ -649,18 +645,26 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     }
     Ok(json!({
         "status": if generated.is_some() || has_saved_build_run(&local) { "ready" } else { "missing" },
+        // Saved provider tasks remain runnable before detection, but must not
+        // suppress discovery of the other entries after a process restart.
+        "requiresGeneration": generated.is_none(),
         "generated": generated,
         "toolchainRequirements": requirements,
         "localToolchains": local_toolchains,
         "toolchain": local.get("toolchain"),
         "diagnostics": diagnostics,
-        "paths": { "generated": ".lithe/run/generated.json", "configurations": ".lithe/run/configurations.json", "local": ".lithe/run/local.json" }
+        "paths": { "configurations": ".lithe/run/configurations.json", "local": ".lithe/run/local.json" }
     }))
 }
 
-/// Detects runnable project entries and writes a deterministic generated layer.
+/// Detects runnable project entries and replaces the workspace's detected layer.
+///
+/// The layer is held in memory (and in the host's cache directory when given),
+/// never written into the workspace.
 pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
+    let cache_directory = request.cache_directory.map(PathBuf::from);
+    let previous = previous_generation(&root, cache_directory.as_deref());
     let mut paths = request
         .paths
         .into_iter()
@@ -709,7 +713,13 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     // Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
     let (mut java_entrypoints, java_entrypoints_origin) = match request.java_entrypoints {
         Some(facts) => (facts, "languageService"),
-        None => (previous_java_entrypoints(&root)?, "previousGeneration"),
+        None => (
+            previous
+                .as_ref()
+                .map(|document| java_entrypoints_from_document(&root, document))
+                .unwrap_or_else(empty_java_entrypoints),
+            "previousGeneration",
+        ),
     };
     // JDT imports nested checkouts such as `.worktree/*` as projects of their
     // own; they are excluded here exactly as their source paths are above.
@@ -899,8 +909,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             .map(|item| item.id.clone())
             .collect::<BTreeSet<_>>()
     });
+
     if !snapshot.unreadable_paths.is_empty() {
-        if let Some(previous) = read_document(&root, "run/generated.json")? {
+        if let Some(previous) = previous {
             retain_unknown_inputs(&mut configurations, &mut snapshot, previous);
         }
     }
@@ -937,29 +948,52 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         }),
         configurations,
     };
-    Ok(json!({
+    let response = json!({
         "generated": generated,
         "toolchainRequirements": requirements,
         "entryCount": entry_count,
         "javaEntrypointsOrigin": java_entrypoints_origin
-    }))
+    });
+    if let Some(cache_directory) = cache_directory.as_deref() {
+        generated_layer::cache_document(cache_directory, &root, &generated);
+    }
+    generated_layer::store(
+        &root,
+        GeneratedLayer {
+            document: generated,
+            requirements,
+        },
+    );
+    Ok(response)
 }
 
-/// Java entry points recorded by the previous generation.
+/// The detected layer the previous generation produced: this session's, else
+/// the one cached by an earlier session, else the `.lithe/run/generated.json`
+/// older Lithe versions wrote into the workspace (read, never written).
 ///
-/// Used only while the Java language service has not answered yet. The
-/// entries were JDT's answer last time; replaying them keeps ids and user
-/// overrides attached until a fresh answer replaces them. Entries whose source
-/// was deleted since are dropped, and an unreadable previous document simply
-/// contributes nothing because this generation overwrites it.
-fn previous_java_entrypoints(root: &Path) -> Result<JavaEntrypointFacts, CoreError> {
-    let Ok(Some(document)) = read_document_value(root, "run/generated.json") else {
-        return Ok(empty_java_entrypoints());
-    };
-    let Ok(document) = serde_json::from_value::<RunConfigurationDocument>(document) else {
-        return Ok(empty_java_entrypoints());
-    };
-    Ok(java_entrypoints_from_document(root, &document))
+/// Generation uses it only while the Java language service has not answered
+/// yet, and to keep entries under a subtree it cannot read. Its Java entries
+/// were JDT's answer last time; replaying them keeps ids and user overrides
+/// attached until a fresh answer replaces them. An unreadable or invalid
+/// previous document contributes nothing, because this generation replaces it.
+fn previous_generation(
+    root: &Path,
+    cache_directory: Option<&Path>,
+) -> Option<RunConfigurationDocument> {
+    if let Some(layer) = generated_layer::get(root) {
+        return Some(layer.document.clone());
+    }
+    let mut document = cache_directory
+        .and_then(|directory| generated_layer::cached_document(directory, root))
+        .or_else(|| {
+            read_document_value(root, "run/generated.json")
+                .ok()
+                .flatten()
+        })?;
+    migrate_document_value(&mut document);
+    serde_json::from_value::<RunConfigurationDocument>(document)
+        .ok()
+        .filter(|document| validate_version(document.version).is_ok())
 }
 
 fn empty_java_entrypoints() -> JavaEntrypointFacts {
@@ -1349,8 +1383,9 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     let team = read_document_value(&root, "run/configurations.json")?
         .unwrap_or_else(|| json!({"version": VERSION, "configurations": []}));
     let local = local_layer_document(&root, request.local_document)?;
-    let generated = match read_document_value(&root, "run/generated.json")? {
-        Some(document) => document,
+    let layer = generated_layer::get(&root);
+    let generated = match layer.as_ref() {
+        Some(layer) => serde_json::to_value(&layer.document).expect("run configurations encode"),
         None if has_saved_build_run(&local) => json!({"version": VERSION, "configurations": []}),
         None => {
             return Err(CoreError::new(
@@ -1483,6 +1518,11 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
             default_run_configuration = None;
         }
     }
+    if default_run_configuration.is_none() {
+        default_run_configuration = layer
+            .as_ref()
+            .and_then(|layer| detected_default(&layer.document, &configurations));
+    }
     Ok(json!({
         "version": VERSION,
         "configurations": configurations,
@@ -1491,6 +1531,27 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
         "toolchain": global_toolchain,
         "localToolchains": local_toolchains
     }))
+}
+
+/// Configuration to select when the project names no default: a framework
+/// service is what the user most likely starts first, whichever framework the
+/// project uses; otherwise the first detected entry that is not Current File.
+fn detected_default(
+    generated: &RunConfigurationDocument,
+    available: &[RunConfiguration],
+) -> Option<String> {
+    const FRAMEWORK_PROVIDERS: [&str; 3] =
+        ["spring-boot.maven", "quarkus.maven", "micronaut.maven"];
+    let detected = generated
+        .configurations
+        .iter()
+        .filter(|configuration| configuration.id != "current-file")
+        .filter(|configuration| available.iter().any(|item| item.id == configuration.id));
+    detected
+        .clone()
+        .find(|configuration| FRAMEWORK_PROVIDERS.contains(&configuration.provider.as_str()))
+        .or_else(|| detected.clone().next())
+        .map(|configuration| configuration.id.clone())
 }
 
 /// Retains the detected reactor independently of team/local working-directory overrides.
@@ -1888,11 +1949,10 @@ fn create_build_provider_configuration(
     validate_version_value(&document)?;
     let mut ids: std::collections::BTreeSet<String> =
         configuration_ids(&document)?.into_keys().collect();
-    for relative in ["run/generated.json", "run/configurations.json"] {
-        if let Some(other) = read_document_value(root, relative)? {
-            validate_version_value(&other)?;
-            ids.extend(configuration_ids(&other)?.into_keys());
-        }
+    ids.extend(detected_ids(root));
+    if let Some(other) = read_document_value(root, "run/configurations.json")? {
+        validate_version_value(&other)?;
+        ids.extend(configuration_ids(&other)?.into_keys());
     }
     let encoded = serde_json::to_value(reference).expect("reference encodes");
     let mut identity = encoded.clone();
@@ -2011,12 +2071,8 @@ pub fn create_user_configuration(
             ));
         }
     }
-    let mut existing_ids = std::collections::BTreeSet::new();
-    for source in [
-        "run/generated.json",
-        "run/configurations.json",
-        "run/local.json",
-    ] {
+    let mut existing_ids = detected_ids(&root);
+    for source in ["run/configurations.json", "run/local.json"] {
         if let Some(document) = read_document_value(&root, source)? {
             validate_version_value(&document)?;
             existing_ids.extend(configuration_ids(&document)?.into_keys());
@@ -3343,38 +3399,6 @@ fn split_arguments(input: &str) -> Vec<String> {
     result
 }
 
-fn read_document(
-    root: &Path,
-    relative: &str,
-) -> Result<Option<RunConfigurationDocument>, CoreError> {
-    let path = root.join(".lithe").join(relative);
-    if !path.exists() {
-        return Ok(None);
-    }
-    let text = fs::read_to_string(&path).map_err(|e| {
-        CoreError::new(
-            ErrorCode::PermissionDenied,
-            format!("Could not read run configuration: .lithe/{relative}"),
-        )
-        .with_details(e.to_string())
-    })?;
-    let mut value: Value = serde_json::from_str(&text).map_err(|e| {
-        CoreError::new(
-            ErrorCode::ParseFailed,
-            format!("Run configuration JSON is invalid: .lithe/{relative}"),
-        )
-        .with_details(e.to_string())
-    })?;
-    migrate_document_value(&mut value);
-    serde_json::from_value(value).map(Some).map_err(|e| {
-        CoreError::new(
-            ErrorCode::ParseFailed,
-            format!("Run configuration JSON is invalid: .lithe/{relative}"),
-        )
-        .with_details(e.to_string())
-    })
-}
-
 fn read_document_value(root: &Path, relative: &str) -> Result<Option<Value>, CoreError> {
     let path = root.join(".lithe").join(relative);
     if !path.exists() {
@@ -3403,33 +3427,40 @@ fn read_document_value(root: &Path, relative: &str) -> Result<Option<Value>, Cor
     Ok(Some(value))
 }
 
+/// Ids of the configurations this session detected for `root`; a user
+/// configuration must not reuse one.
+fn detected_ids(root: &Path) -> BTreeSet<String> {
+    generated_layer::get(root)
+        .map(|layer| {
+            layer
+                .document
+                .configurations
+                .iter()
+                .map(|configuration| configuration.id.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Toolchain requirements of `root`: those of this session's latest
+/// generation, else derived from the project's own declarations (`pom.xml`,
+/// `.java-version`, the Maven wrapper) so a JDK can be chosen before the Run
+/// list has been identified.
 pub(super) fn read_requirements(
     root: &Path,
 ) -> Result<Option<ToolchainRequirementsDocument>, CoreError> {
-    let path = root
-        .join(".lithe")
-        .join("toolchains")
-        .join("requirements.json");
-    let text = match crate::remote::workspace_io::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err({
-                CoreError::new(
-                    ErrorCode::PermissionDenied,
-                    "Could not read toolchain requirements: .lithe/toolchains/requirements.json",
-                )
-                .with_details(error.to_string())
-            })
-        }
-    };
-    serde_json::from_str(&text).map(Some).map_err(|e| {
-        CoreError::new(
-            ErrorCode::ParseFailed,
-            "Toolchain requirements JSON is invalid: .lithe/toolchains/requirements.json",
-        )
-        .with_details(e.to_string())
-    })
+    if let Some(layer) = generated_layer::get(root) {
+        return Ok(Some(layer.requirements.clone()));
+    }
+    if !root.is_dir() {
+        return Ok(None);
+    }
+    let maven_root = crate::project::maven_root(root, &[])?.map(|(path, _)| path);
+    let has_java_ecosystem = maven_root.is_some()
+        || ["build.gradle", "build.gradle.kts", "gradlew", "mvnw"]
+            .iter()
+            .any(|name| root.join(name).is_file());
+    detect_requirements(root, maven_root.as_deref(), has_java_ecosystem, &[], None).map(Some)
 }
 
 fn read_local_toolchains(root: &Path) -> Result<Option<Value>, CoreError> {

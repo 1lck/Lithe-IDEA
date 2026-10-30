@@ -189,6 +189,13 @@ Windows/Tauri Rust crate、生成代码或第三方源码。本 Skill 中文化�
   invoke 边界在 `windows/tauri/src/platform`，原生 Rust 行为在 `windows/tauri/src-tauri`。
 - 不恢复平行的 C++/Qt 应用层，也不为每个共享 Core 操作新增一个 Tauri command；
   兼容命令名通过中央 dispatcher 转换。
+- 同步的 `#[tauri::command] fn` 在派发 IPC 的线程上内联执行，Windows 上就是 WebView2 UI 线程：
+  它运行期间窗口停止绘制、输入排队，其他 invoke 也全部等待。凡是读写文件、遍历或删除目录、
+  启动或探测进程（`java -version`、`mvn -version`、Shell、Agent）、注册原生监听的命令，
+  必须写成 `async fn`，并把主体交给 `crate::blocking::run_blocking`；
+  同步命令只用于读写内存状态、不碰磁盘和进程的轻量操作。
+- 前端高频事件（诊断、进度、日志）不要逐条 `emit`：每次 `emit` 都是一次完整 IPC 往返，
+  并且会广播到所有窗口。在一次 drain 内按 key 合并，然后整批发送，store 也一次更新完。
 - 产品行为补前端测试，Rust 行为在所属 crate 测试；WebView2、ConPTY、安装、签名和更新行为必须在 Windows 验证。
 
 ## 四、界面与交互
