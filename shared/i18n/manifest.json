@@ -3,7 +3,8 @@
   "defaultLocale": "en-US",
   "platformDefaults": {
     "macos": "en-US",
-    "windows": "zh-CN"
+    "windows": "zh-CN",
+    "gpui": "en-US"
   },
   "locales": [
     {

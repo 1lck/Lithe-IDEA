@@ -3405,9 +3405,11 @@ project-owned `java.main` caller, or a `spring-boot.maven` caller whose generate
 configuration records a Java entry source, instead supplies `javaLaunch` with
 the exact JDT LS-selected `mainClass` plus structured `classPaths` and
 `modulePaths`. Core then produces a direct `project-jdk` launch; it never
-projects those Java entry points into a reactor-wide Maven launch goal. A Spring
-Boot configuration without a resolved Java entry source retains its Maven-goal
-compatibility path. It
+projects those Java entry points into a reactor-wide Maven launch goal. When a
+host has no Java language service and omits `javaLaunch`, a Spring Boot
+configuration falls back to its `spring-boot:run` Maven goal instead of failing;
+`java.main` still requires the language service because it has no equivalent
+goal. It
 returns a toolchain
 reference, argument array, project-relative working directory, and structured
 environment references. It does not return a shell command or platform

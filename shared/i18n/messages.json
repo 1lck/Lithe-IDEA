@@ -91873,6 +91873,674 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "native.generateLitheRunGeneratedJsonToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved",
+      "description": "Native UI: Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.litheNeedsToIdentifyTheProjectAndGenerateLitheRunGeneratedJsonBeforeRunAndDebu71dbeebe55",
+      "description": "Native UI: Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.litheWillLookForServicesAgainAndRefreshLitheRunGeneratedJsonProjectAndLocalOvec4eb77affa",
+      "description": "Native UI: Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.hideWindow",
+      "description": "Windows UI: run.hideWindow",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "run.nextStackTrace",
+      "description": "Windows UI: run.nextStackTrace",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "run.previousStackTrace",
+      "description": "Windows UI: run.previousStackTrace",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "run.print",
+      "description": "Windows UI: run.print",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "run.scrollToTheEnd",
+      "description": "Windows UI: run.scrollToTheEnd",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "run.selected",
+      "description": "Windows UI: run.selected",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "native.theJavaLanguageServiceIsUnavailable",
+      "description": "Native UI: The Java language service is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java language service is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotConnectToTheJavaDebugServer",
+      "description": "Native UI: Could not connect to the Java Debug Server: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not connect to the Java Debug Server: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theJavaDebugServerConnectionIsStopped",
+      "description": "Native UI: The Java Debug Server connection is stopped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java Debug Server connection is stopped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotReadJavaBuildFileMetadataFor",
+      "description": "Native UI: Could not read Java build-file metadata for %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not read Java build-file metadata for %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "gpui.menu.newJavaType",
+      "description": "GPUI menu: New Java Type",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.newJavaPackage",
+      "description": "GPUI menu: New Java Package",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.openFile",
+      "description": "GPUI menu: Open File…",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.openRecent",
+      "description": "GPUI menu: Open Recent",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.noRecentProjects",
+      "description": "GPUI menu: No Recent Projects",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.saveAs",
+      "description": "GPUI menu: Save As…",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.reopenClosedFile",
+      "description": "GPUI menu: Reopen Closed File",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.quitLithe",
+      "description": "GPUI menu: Quit Lithe",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.find",
+      "description": "GPUI menu: Find…",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.findAndReplace",
+      "description": "GPUI menu: Find and Replace…",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.commandPalette",
+      "description": "GPUI menu: Command Palette…",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.activityBar",
+      "description": "GPUI menu: Activity Bar",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.secondarySidebar",
+      "description": "GPUI menu: Secondary Sidebar",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.docks",
+      "description": "GPUI menu: Docks",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.darkMode",
+      "description": "GPUI menu: Dark Mode",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.toggleWrap",
+      "description": "GPUI menu: Toggle Wrap",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.quickOpen",
+      "description": "GPUI menu: Quick Open…",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.runConfigurations",
+      "description": "GPUI menu: Run Configurations…",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.aiAgent",
+      "description": "GPUI menu: AI Agent",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.toggleFullScreen",
+      "description": "GPUI menu: Toggle Full Screen",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.litheRepository",
+      "description": "GPUI menu: Lithe Repository",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.aboutLithe",
+      "description": "GPUI menu: About Lithe",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.spring",
+      "description": "GPUI menu: Spring",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.toggleLeftDock",
+      "description": "GPUI menu: Toggle Left Dock",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.toggleBottomDock",
+      "description": "GPUI menu: Toggle Bottom Dock",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.menu.toggleRightDock",
+      "description": "GPUI menu: Toggle Right Dock",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.workbench.className",
+      "description": "GPUI New Java Type dialog: Class name",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.workbench.fileName",
+      "description": "GPUI New File dialog: File name",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.workbench.indexingProjectFiles",
+      "description": "GPUI project tree: Indexing project files…",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.workbench.noFilesFound",
+      "description": "GPUI quick open: No files found",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.agent.installPrompt",
+      "description": "GPUI Agent panel: Lithe does not provide an install button yet. Install it in a terminal, then choose Reconnect.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.agent.signInPrompt",
+      "description": "GPUI Agent panel: Sign in to the agent in a terminal, or authenticate here.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.git.diffDecodeFailed",
+      "description": "GPUI Git diff: Some diff bytes could not be decoded",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.agentNotConnected",
+      "description": "GPUI settings status: No agent is connected.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.agentsDescription",
+      "description": "GPUI settings page: Agent status and management entry point.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.aiCommitDescription",
+      "description": "GPUI settings page: AI commit message generation.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.aiCommitNote",
+      "description": "GPUI settings note: The AI commit settings and format are stored here; message generation itself runs from the Agent panel.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.aiProvidersDescription",
+      "description": "GPUI settings page: AI provider configuration is owned by the Agent panel.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.aiProvidersNote",
+      "description": "GPUI settings note: AI providers are managed from the Agent panel. This page does not edit provider settings or API keys.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.appData",
+      "description": "GPUI settings row: App data",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.autoCheck",
+      "description": "GPUI settings row: Auto check",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.currentShortcuts",
+      "description": "GPUI settings section: Current shortcuts",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.diagnosticsDescription",
+      "description": "GPUI settings page: Memory, app data, and diagnostics availability.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.diagnosticsNote",
+      "description": "GPUI settings note: Log viewing, log directory selection, and diagnostics export are not available in the GPUI build yet.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.editorDescription",
+      "description": "GPUI settings page: Font size and display options for the code editor.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.generalDescription",
+      "description": "GPUI settings page: Theme, dark mode, and interface language.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.gitDescription",
+      "description": "GPUI settings page: Project and branch context for version control.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.gitNote",
+      "description": "GPUI settings note: Git configuration is read from the repository by Core (source-backed). This GPUI build only displays the current project context and does not edit Git settings.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.hooksDescription",
+      "description": "GPUI settings page: Agent lifecycle hooks.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.hooksNote",
+      "description": "GPUI settings note: Agent lifecycle hooks are managed by the Agent panel. This page does not edit hook files.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.instructionsDescription",
+      "description": "GPUI settings page: Project and global agent instructions.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.instructionsNote",
+      "description": "GPUI settings note: Agent instructions are edited from the Agent panel. This page does not edit project or global instruction files.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.keymapDescription",
+      "description": "GPUI settings page: Shortcuts registered by this GPUI build.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.keymapNote",
+      "description": "GPUI settings note: Shortcut customization is not wired up in this build. These are the shortcuts registered by the GPUI workbench.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.lspDescription",
+      "description": "GPUI settings page: Built-in language services and external LSP status.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.lspNote",
+      "description": "GPUI settings note: These lightweight language services are built into Lithe. Full LSP servers are not wired into the GPUI build yet.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.mcpDescription",
+      "description": "GPUI settings page: MCP servers used by the agent.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.mcpNote",
+      "description": "GPUI settings note: MCP servers are configured from the Agent panel. This page does not edit MCP configuration.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.pluginsDescription",
+      "description": "GPUI settings page: Plugin support is not available in this GPUI build.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.processTerminationDescription",
+      "description": "GPUI settings page: What happens to programs started in Lithe when you quit.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.processTerminationNote",
+      "description": "GPUI settings note: These choices are stored now; they are enforced once long-lived run services, terminals, agent tasks, and background services land in the GPUI build.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.projectDescription",
+      "description": "GPUI settings page: Project root, JDK, and Maven resolution.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.projectNote",
+      "description": "GPUI settings note: JDK and Maven are resolved by Lithe per project; this build does not store a separate JDK or Maven path.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.readOnlyPage",
+      "description": "GPUI settings note: This page is read-only.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.runConfigurationsDescription",
+      "description": "GPUI settings page: Run configurations detected from project files.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.runConfigurationsHint",
+      "description": "GPUI settings hint: Run configurations are detected from project files. The Run panel shows what Lithe found for the open project.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.runConfigurationsNote",
+      "description": "GPUI settings note: Editing run configurations in this page is not wired up in the GPUI build; the Run panel is the source of truth.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.showLineNumbers",
+      "description": "GPUI settings switch: Show line numbers",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.skillsDescription",
+      "description": "GPUI settings page: Skills available to the agent.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.skillsNote",
+      "description": "GPUI settings note: Skills are discovered and managed by the Agent panel. This page does not install or edit skills.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.terminalDescription",
+      "description": "GPUI settings page: Terminal font size and scrollback.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.terminalNote",
+      "description": "GPUI settings note: New terminals use the system default shell. Shell selection is not wired up in this build.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.updatesDescription",
+      "description": "GPUI settings page: Release channel, update checks, and the current build.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.settings.updatesNote",
+      "description": "GPUI settings note: Automatic updates are not available in this build yet. The channel and auto-check choices are saved for a future update service.",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.workbench.noSnapshots",
+      "description": "GPUI local history: No snapshots yet",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.workbench.readOnlySplit",
+      "description": "GPUI editor split header: Read-only split",
+      "platforms": [
+        "gpui"
+      ]
+    },
+    {
+      "id": "gpui.workbench.snapshotUnreadable",
+      "description": "GPUI local history: Snapshot could not be read",
+      "platforms": [
+        "gpui"
+      ]
     }
   ]
 }

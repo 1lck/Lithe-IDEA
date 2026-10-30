@@ -1,0 +1,22 @@
+[package]
+name = "lithe-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "lithe-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+# Windows 任务栏 / exe 图标：把 Tauri 的 icon.ico 写进可执行文件资源。
+winresource = "0.1"
+
+[dependencies]
+gpui-kit = { workspace = true }
+lithe-ui = { path = "../lithe-ui" }
+lithe-core-client = { path = "../lithe-core-client" }
+lithe-platform = { path = "../lithe-platform" }
+lithe-workbench = { path = "../lithe-workbench" }
+lithe-features = { path = "../lithe-features" }

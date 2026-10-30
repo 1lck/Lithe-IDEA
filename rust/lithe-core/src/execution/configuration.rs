@@ -2074,7 +2074,12 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     let uses_maven_toolchain = config["toolchains"]["maven"]
         .as_str()
         .is_some_and(|value| !value.is_empty());
+    // A host without a Java language service cannot resolve the runtime
+    // classpath. For Spring Boot the Maven goal is still a valid launch, so
+    // only use the direct Java path when the host actually supplied
+    // `javaLaunch`; otherwise fall through to the framework goal below.
     let is_direct_java_project_launch = uses_maven_toolchain
+        && request.java_launch.is_some()
         && (is_java_main
             || (provider == "spring-boot.maven"
                 && config["extensions"]["java"]["source"].is_string()));

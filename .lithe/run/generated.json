@@ -1,0 +1,426 @@
+{
+  "version": 2,
+  "generator": {
+    "fingerprint": "sha256:66d7178c6c7dc8a8ce8250d7f77e4e05be28ecee36fb0c1823ae8e55dbae89ff",
+    "inputs": {
+      ".artifacts/test-project/src/main/java/demo/Main.java": "path",
+      "Plugins/mac/Official/JavaSupport/templates/java/maven/pom.xml": "sha256:15c36a382aa9224675c6ea72916b875f848ba62930a7c85fea8a4c98d19a2548",
+      "Plugins/mac/Official/JavaSupport/templates/java/plain-sample/src/Main.java": "path",
+      "Plugins/mac/Official/JavaSupport/templates/java/standard-sample-main/Main.java": "path",
+      "bun.lock": "sha256:4bc4fab53b23e0072e9fe8ace329c7fbbe810995c9c995dc3fcc2fba4f924b05",
+      "frontend/editor/package.json": "sha256:5590515a0d6e1dfa6fa4e0d704e21b3ed4f31277b6f2168548b90efcd023445f",
+      "gpui/Cargo.toml": "sha256:db86def4cd2d2291629bc6fe420e711505d2985cbe9a162380c46b3f9a574f70",
+      "gpui/lithe-core-client/Cargo.toml": "sha256:ff85c60960b0b409baf20bd49a602c697ff83b84ac868cfb2e66ceb1f3f2c3b9",
+      "gpui/lithe-desktop/Cargo.toml": "sha256:24ea1f22ca143732704182d590805c8ca24e4555003bf672aaa2f73b164088a8",
+      "gpui/lithe-features/Cargo.toml": "sha256:270ad47e8252836fc361fdb896558b1edaafb6d07360f7781b7b9d6b4615168f",
+      "gpui/lithe-platform/Cargo.toml": "sha256:6fc845cae3218ca5d85bcb40aaff7930a8dd00f3de1e1f5014e4e1b3c060f32b",
+      "gpui/lithe-ui/Cargo.toml": "sha256:b1ff8d2531ec08193690c25e355a669a33704c6d8d340da40ecb14e49e8258dc",
+      "gpui/lithe-workbench/Cargo.toml": "sha256:3df26c753541833741b055f089ff8ebf887b4eb047a9db435363fe0577652ed9",
+      "gpui/rust-toolchain.toml": "sha256:ed5d763a17c6ae6f586ebd67e217a3aa9bc507766c4965544dbef0e25bdf3f63",
+      "macos/Experiments/Monaco/bun.lock": "sha256:fc5700bf669ae3535287e0ca937812d21bc1685edd9c8d44219362c4709dce39",
+      "macos/Experiments/Monaco/package.json": "sha256:6b41e5fe871aeac05f332d74caabedbee4ca100ec8ab97f10cc5d784c312248d",
+      "macos/Tests/LitheTests/Fixtures/GitGraph/GenerateIdeaOracle.java": "path",
+      "package.json": "sha256:aa78a18797e0d95505064aa626e06b252d6b3c2fbd7d11e938522bda366690c1",
+      "rust/Cargo.toml": "sha256:584ee5b5d62863e672544c727104cbfc710e8fc8505390e950ba45656cbc2705",
+      "rust/lithe-agent-host/Cargo.toml": "sha256:6c273fb20ca8eeaf1a549b03bff967d0331877cb4a248f132a420df72f57ef9c",
+      "rust/lithe-core/Cargo.toml": "sha256:9178f8a84f6261087bcdb691a21cb9d78e318e12bbeaa7747e4fd9cbedfe1814",
+      "rust/lithe-git-host/Cargo.toml": "sha256:e93f415d28179e7fcb85f2af9b629aa3e915ad9c1a926df5a144240581286273",
+      "rust/lithe-ide-host/Cargo.toml": "sha256:30a7b4ae9b0b43a485b48add1484e6dc7a29af66726a4ed2140a9b04f6d6a180",
+      "rust/lithe-remote-client/Cargo.toml": "sha256:1ffc0fad3ab7f25bf5d7f4d13e00f81398eb2f353093bbfb109aa10db5f195e7",
+      "rust/lithe-remote-protocol/Cargo.toml": "sha256:ebb98f69b8d4662cbc1f11e2bf3c962bf073e54140296352b266928cddec7ac6",
+      "rust/lithe-remote-server/Cargo.toml": "sha256:55a1bc99618b2704cf794bc35ddd63c3abcc19e9d8cd56597bb2afd7112ad8cd",
+      "rust/lithe-terminal/Cargo.toml": "sha256:e96898cd10b6de65a013800f7b75108aad11e761268bfef49ef4c82a412b1f57",
+      "shared/contracts/plugins/v1/fixtures/project-generator-templates/main/Main.java": "path",
+      "shared/fixtures/projects/lithe-spring-boot-git-graph/history/OrderController-feature.java": "path",
+      "shared/fixtures/projects/lithe-spring-boot-git-graph/history/UserService-feature.java": "path",
+      "shared/fixtures/projects/lithe-spring-boot-git-graph/pom.xml": "sha256:fd060acea67ec36cde0cf43b7ef568717ac2a5922bac84c13b1f223334f6f189",
+      "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/DemoApplication.java": "path",
+      "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/user/UserController.java": "path",
+      "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/user/UserRepository.java": "path",
+      "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/user/UserService.java": "path",
+      "windows/tauri/crates/project/Cargo.toml": "sha256:643f806cc438b6db0c9c5f9a9dd60f14262f7981c856d605f34342394c805ad6",
+      "windows/tauri/package.json": "sha256:987e059a139072fb967dd28c0747ebcd34fdbe5206ae04832359a9759b36e4a5",
+      "windows/tauri/rust-toolchain.toml": "sha256:99976476fbf48b627a4815adff8fa9e5a1a2def95f4ab31cb2e784c95bc7ff0a",
+      "windows/tauri/src-tauri/Cargo.toml": "sha256:a51e0e47b34adec161c480fa3f53023c26930fac4369311ec5bf99b5d941dc34"
+    }
+  },
+  "configurations": [
+    {
+      "id": "current-file",
+      "name": "Current File",
+      "provider": "java.current-file",
+      "execution": "application",
+      "args": [],
+      "cwd": ".",
+      "env": {},
+      "confidence": "native",
+      "toolchains": {
+        "java": "project-jdk"
+      },
+      "debug": {
+        "adapter": "jdwp"
+      },
+      "extensions": {
+        "maven": {
+          "module": "."
+        }
+      },
+      "disabled": false
+    },
+    {
+      "id": "cargo.binary:gpui/lithe-desktop/lithe-desktop",
+      "name": "lithe-desktop",
+      "provider": "cargo.binary",
+      "execution": "application",
+      "command": "cargo",
+      "args": [
+        "run",
+        "--bin",
+        "lithe-desktop"
+      ],
+      "cwd": "gpui/lithe-desktop",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "cargo": {
+          "bin": "lithe-desktop"
+        }
+      },
+      "disabled": false,
+      "source": "gpui/lithe-desktop/Cargo.toml"
+    },
+    {
+      "id": "cargo.binary:rust/lithe-ide-host/lithe-mcp",
+      "name": "lithe-mcp",
+      "provider": "cargo.binary",
+      "execution": "application",
+      "command": "cargo",
+      "args": [
+        "run",
+        "--bin",
+        "lithe-mcp"
+      ],
+      "cwd": "rust/lithe-ide-host",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "cargo": {
+          "bin": "lithe-mcp"
+        }
+      },
+      "disabled": false,
+      "source": "rust/lithe-ide-host/Cargo.toml"
+    },
+    {
+      "id": "cargo.binary:rust/lithe-remote-server/lithe-remote-server",
+      "name": "lithe-remote-server",
+      "provider": "cargo.binary",
+      "execution": "application",
+      "command": "cargo",
+      "args": [
+        "run",
+        "--bin",
+        "lithe-remote-server"
+      ],
+      "cwd": "rust/lithe-remote-server",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "cargo": {
+          "bin": "lithe-remote-server"
+        }
+      },
+      "disabled": false,
+      "source": "rust/lithe-remote-server/Cargo.toml"
+    },
+    {
+      "id": "npm.script:windows/tauri/build",
+      "name": "build",
+      "provider": "npm.script",
+      "execution": "task",
+      "command": "bun",
+      "args": [
+        "run",
+        "build"
+      ],
+      "cwd": "windows/tauri",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "npm": {
+          "script": "build",
+          "manager": "bun",
+          "framework": "react"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/package.json"
+    },
+    {
+      "id": "npm.script:windows/tauri/desktop:build",
+      "name": "desktop:build",
+      "provider": "npm.script",
+      "execution": "task",
+      "command": "bun",
+      "args": [
+        "run",
+        "desktop:build"
+      ],
+      "cwd": "windows/tauri",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "npm": {
+          "script": "desktop:build",
+          "manager": "bun",
+          "framework": "react"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/package.json"
+    },
+    {
+      "id": "npm.script:windows/tauri/desktop:dev",
+      "name": "desktop:dev",
+      "provider": "npm.script",
+      "execution": "task",
+      "command": "bun",
+      "args": [
+        "run",
+        "desktop:dev"
+      ],
+      "cwd": "windows/tauri",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "npm": {
+          "script": "desktop:dev",
+          "manager": "bun",
+          "framework": "react"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/package.json"
+    },
+    {
+      "id": "npm.script:windows/tauri/dev",
+      "name": "dev",
+      "provider": "npm.script",
+      "execution": "service",
+      "command": "bun",
+      "args": [
+        "run",
+        "dev"
+      ],
+      "cwd": "windows/tauri",
+      "env": {},
+      "confidence": "heuristic",
+      "toolchains": {},
+      "extensions": {
+        "npm": {
+          "script": "dev",
+          "manager": "bun",
+          "framework": "react"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/package.json"
+    },
+    {
+      "id": "npm.script:windows/tauri/format",
+      "name": "format",
+      "provider": "npm.script",
+      "execution": "task",
+      "command": "bun",
+      "args": [
+        "run",
+        "format"
+      ],
+      "cwd": "windows/tauri",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "npm": {
+          "script": "format",
+          "manager": "bun",
+          "framework": "react"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/package.json"
+    },
+    {
+      "id": "npm.script:windows/tauri/lint",
+      "name": "lint",
+      "provider": "npm.script",
+      "execution": "task",
+      "command": "bun",
+      "args": [
+        "run",
+        "lint"
+      ],
+      "cwd": "windows/tauri",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "npm": {
+          "script": "lint",
+          "manager": "bun",
+          "framework": "react"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/package.json"
+    },
+    {
+      "id": "npm.script:windows/tauri/preview",
+      "name": "preview",
+      "provider": "npm.script",
+      "execution": "service",
+      "command": "bun",
+      "args": [
+        "run",
+        "preview"
+      ],
+      "cwd": "windows/tauri",
+      "env": {},
+      "confidence": "heuristic",
+      "toolchains": {},
+      "extensions": {
+        "npm": {
+          "script": "preview",
+          "manager": "bun",
+          "framework": "react"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/package.json"
+    },
+    {
+      "id": "npm.script:windows/tauri/tauri",
+      "name": "tauri",
+      "provider": "npm.script",
+      "execution": "task",
+      "command": "bun",
+      "args": [
+        "run",
+        "tauri"
+      ],
+      "cwd": "windows/tauri",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "npm": {
+          "script": "tauri",
+          "manager": "bun",
+          "framework": "react"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/package.json"
+    },
+    {
+      "id": "npm.script:windows/tauri/typecheck",
+      "name": "typecheck",
+      "provider": "npm.script",
+      "execution": "task",
+      "command": "bun",
+      "args": [
+        "run",
+        "typecheck"
+      ],
+      "cwd": "windows/tauri",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "npm": {
+          "script": "typecheck",
+          "manager": "bun",
+          "framework": "react"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/package.json"
+    },
+    {
+      "id": "cargo.binary:windows/tauri/src-tauri/fake-acp-adapter",
+      "name": "fake-acp-adapter",
+      "provider": "cargo.binary",
+      "execution": "application",
+      "command": "cargo",
+      "args": [
+        "run",
+        "--bin",
+        "fake-acp-adapter"
+      ],
+      "cwd": "windows/tauri/src-tauri",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "cargo": {
+          "bin": "fake-acp-adapter"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/src-tauri/Cargo.toml"
+    },
+    {
+      "id": "cargo.binary:windows/tauri/src-tauri/fake-dap-adapter",
+      "name": "fake-dap-adapter",
+      "provider": "cargo.binary",
+      "execution": "application",
+      "command": "cargo",
+      "args": [
+        "run",
+        "--bin",
+        "fake-dap-adapter"
+      ],
+      "cwd": "windows/tauri/src-tauri",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {},
+      "extensions": {
+        "cargo": {
+          "bin": "fake-dap-adapter"
+        }
+      },
+      "disabled": false,
+      "source": "windows/tauri/src-tauri/Cargo.toml"
+    },
+    {
+      "id": "spring-boot.maven:shared/fixtures/projects/lithe-spring-boot-git-graph/lithe-spring-boot-git-graph",
+      "name": "lithe-spring-boot-git-graph",
+      "provider": "spring-boot.maven",
+      "execution": "service",
+      "args": [],
+      "cwd": "shared/fixtures/projects/lithe-spring-boot-git-graph",
+      "env": {},
+      "confidence": "declared",
+      "toolchains": {
+        "java": "project-jdk",
+        "maven": "project-maven"
+      },
+      "debug": {
+        "adapter": "jdwp"
+      },
+      "extensions": {
+        "maven": {
+          "module": "."
+        }
+      },
+      "disabled": false,
+      "source": "shared/fixtures/projects/lithe-spring-boot-git-graph/pom.xml"
+    }
+  ]
+}

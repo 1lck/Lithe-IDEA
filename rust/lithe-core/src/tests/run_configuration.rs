@@ -391,6 +391,28 @@ fn run_configuration_commands_generate_merge_and_plan() {
         .iter()
         .filter_map(Value::as_str)
         .any(|argument| argument.contains("address=127.0.0.1:5005")));
+    // A host without a Java language service omits `javaLaunch`; a Spring Boot
+    // service still has a valid Maven goal, so it must not fail planning.
+    let maven_plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id":"maven-plan",
+            "command":"runConfig.createLaunchPlan",
+            "payload":{
+                "root":root,
+                "configurationId":"spring-boot.maven:demo"
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(maven_plan["ok"], true);
+    assert_eq!(maven_plan["data"]["executable"]["toolchain"], "project-maven");
+    assert!(maven_plan["data"]["arguments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .any(|argument| argument == "spring-boot:run"));
     fs::remove_dir_all(root).unwrap();
 }
 

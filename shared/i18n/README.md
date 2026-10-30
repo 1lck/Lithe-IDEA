@@ -1,8 +1,13 @@
 # 维护共享翻译
 
-应用自有的 macOS 和 Windows 翻译都在这里维护，再生成两端使用的资源。
-macOS 的字符串表、Windows 的完整翻译字典，以及原先页面内的中英文文案都已迁入。
-两端继续使用原来的翻译接口，不在运行时读取这里的 JSON，也不下载语言包。
+应用自有的 macOS、Windows 和 GPUI 翻译都在这里维护，再生成各端使用的资源。
+macOS 的字符串表、Windows 的完整翻译字典、GPUI 的中文静态表，以及原先页面内的
+中英文文案都已迁入。各端继续使用原来的翻译接口，不在运行时读取这里的 JSON，
+也不下载语言包。
+
+平台范围目前是 `macos`、`windows` 和 `gpui`。`gpui` 只由
+`gpui/scripts/generate-i18n-zh.py` 读取，用来生成 `gpui/lithe-ui/src/i18n_zh.rs`；
+它不影响 macOS/Windows 的资源生成，也不表示该功能已经在三端全部实现。
 
 ## 修改文案并生成资源
 

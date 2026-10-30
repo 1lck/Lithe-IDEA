@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; worker-src 'self'; connect-src 'self';">
+<title>Lithe Terminal</title>
+<link rel="stylesheet" href="terminal.css">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #1e1e1e;
+  }
+  body {
+    -webkit-font-smoothing: antialiased;
+  }
+  /* FitAddon measures this element, so the inset replaces terminal padding. */
+  #terminal {
+    position: absolute;
+    inset: 8px;
+    overflow: hidden;
+    background: transparent;
+  }
+  /* The PTY owns scrolling; never show a native scrollbar in the island. */
+  .xterm-viewport {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .xterm-viewport::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+</style>
+</head>
+<body>
+<div id="terminal"></div>
+<script src="terminal.js"></script>
+</body>
+</html>

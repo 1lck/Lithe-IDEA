@@ -1,0 +1,5 @@
+[toolchain]
+# GPUI 工作台验证过的工具链。本机默认 stable 1.99.1 的 rust-std 文件缺失，
+# 会导致基础 crate 报 "can't find crate for `std`"；1.97.1 完整可用。
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]

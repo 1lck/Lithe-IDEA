@@ -1,0 +1,13 @@
+[package]
+name = "lithe-workbench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit = { workspace = true }
+lithe-ui = { path = "../lithe-ui" }
+lithe-core-client = { path = "../lithe-core-client" }
+lithe-platform = { path = "../lithe-platform" }
+lithe-features = { path = "../lithe-features" }

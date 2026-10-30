@@ -31,7 +31,7 @@ lithe-agent-host = { path = "../../../rust/lithe-agent-host" }
 lithe-git-host = { path = "../../../rust/lithe-git-host" }
 lithe-core = { path = "../../../rust/lithe-core" }
 lithe-project = { path = "../crates/project" }
-lithe-terminal = { path = "../crates/terminal" }
+lithe-terminal = { path = "../../../rust/lithe-terminal" }
 keyring = { version = "3.6.3", features = ["windows-native"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

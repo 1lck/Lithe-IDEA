@@ -1,0 +1,30 @@
+warning: variable does not need to be mutable
+   --> C:\Users\momo\Desktop\pro\github\Lithe-IDEA\rust\lithe-agent-host\src\skills\settings.rs:149:9
+    |
+149 |     let mut options = OpenOptions::new();
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `lithe-agent-host` (lib) generated 1 warning (run `cargo fix --lib -p lithe-agent-host` to apply 1 suggestion)
+warning: linker stdout: 正在创建库 C:\Users\momo\Desktop\pro\github\Lithe-IDEA\gpui\target\debug\deps\lithe_core.dll.lib 和对象 C:\Users\momo\Desktop\pro\github\Lithe-IDEA\gpui\target\debug\deps\lithe_core.dll.exp
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `lithe-core` (lib) generated 1 warning
+   Compiling lithe-features v0.1.0 (C:\Users\momo\Desktop\pro\github\Lithe-IDEA\gpui\lithe-features)
+warning: field `kind` is never read
+   --> lithe-features\src\run\session.rs:521:5
+    |
+519 | struct ToolchainProbe {
+    |        -------------- field in this struct
+520 |     id: &'static str,
+521 |     kind: &'static str,
+    |     ^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling lithe-workbench v0.1.0 (C:\Users\momo\Desktop\pro\github\Lithe-IDEA\gpui\lithe-workbench)
+status: running
