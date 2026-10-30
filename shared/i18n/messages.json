@@ -91217,6 +91217,182 @@
         "key": "Completion trigger character is required",
         "arguments": []
       }
+    },
+    {
+      "id": "java.launch.error.buildStatus",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned an unexpected project build status.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned an unexpected project build status."
+      }
+    },
+    {
+      "id": "java.launch.error.classpathEmpty",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned no runtime paths.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned no runtime paths."
+      }
+    },
+    {
+      "id": "java.launch.error.classpathInvalid",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned an invalid runtime classpath.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned an invalid runtime classpath."
+      }
+    },
+    {
+      "id": "java.launch.error.provider",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Java launch preparation requires the Java language service.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "Java launch preparation requires the Java language service."
+      }
+    },
+    {
+      "id": "java.launch.error.request",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Invalid Java launch preparation request",
+        "arguments": []
+      },
+      "windows": {
+        "key": "Invalid Java launch preparation request"
+      }
+    },
+    {
+      "id": "java.launch.error.target",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service could not identify one launch target for this source file.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service could not identify one launch target for this source file."
+      }
+    },
+    {
+      "id": "java.launch.error.unsupported",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Java launch preparation is not supported by this runtime.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "Java launch preparation is not supported by this runtime."
+      }
+    },
+    {
+      "id": "java.launch.error.save",
+      "description": "Java launch stops when a workspace document cannot be saved",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java launch stopped because modified files could not be saved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "java.launch.error.compilation",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java project build reported compilation errors.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java project build reported compilation errors."
+      }
+    },
+    {
+      "id": "java.launch.error.buildFailed",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service could not complete the project build. Check the Java language server log for the build error.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service could not complete the project build. Check the Java language server log for the build error."
+      }
+    },
+    {
+      "id": "java.launch.error.buildCancelled",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java project build was cancelled before it finished.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java project build was cancelled before it finished."
+      }
+    },
+    {
+      "id": "java.launch.error.unknownBuildStatus",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned an unknown project build status.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned an unknown project build status."
+      }
     }
   ]
 }

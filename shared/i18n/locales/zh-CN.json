@@ -9553,7 +9553,19 @@
     "native.editorAppearanceBracketSchemeEnabled": "配色方案已启用",
     "native.editorAppearanceBracketSchemeDisabled": "配色方案已关闭",
     "lsp.completion.invalidTriggerKind": "补全请求的触发类型无效",
-    "lsp.completion.missingTriggerCharacter": "补全请求缺少有效的触发字符"
+    "lsp.completion.missingTriggerCharacter": "补全请求缺少有效的触发字符",
+    "java.launch.error.buildStatus": "Java 语言服务返回了未知的项目构建状态。",
+    "java.launch.error.classpathEmpty": "Java 语言服务没有返回运行路径。",
+    "java.launch.error.classpathInvalid": "Java 语言服务返回的运行类路径无效。",
+    "java.launch.error.provider": "Java 启动准备需要 Java 语言服务。",
+    "java.launch.error.request": "Java 启动准备请求无效",
+    "java.launch.error.target": "Java 语言服务无法为此源文件确定唯一的启动入口。",
+    "java.launch.error.unsupported": "当前运行环境不支持 Java 启动准备。",
+    "java.launch.error.save": "修改的文件未能保存，Java 启动已停止。",
+    "java.launch.error.compilation": "Java 项目构建报告了编译错误。",
+    "java.launch.error.buildFailed": "Java 语言服务未能完成项目构建，请查看 Java 语言服务器日志了解构建错误。",
+    "java.launch.error.buildCancelled": "Java 项目构建在完成前已被取消。",
+    "java.launch.error.unknownBuildStatus": "Java 语言服务返回了未知的项目构建状态。"
   },
   "overrides": {
     "macos": {

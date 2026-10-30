@@ -40,7 +40,7 @@ pub(super) fn client_initialize_for_plugin(
             }],
             "capabilities": {
                 "textDocument": {
-                    "synchronization": {},
+                    "synchronization": { "didSave": true },
                     "completion": {
                         "dynamicRegistration": true,
                         "contextSupport": true,
@@ -676,6 +676,19 @@ pub(super) fn client_apply_server_message_for_plugin(
                 }
                 state.text_document_sync =
                     text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
+                state.text_document_save_include_text = match result
+                    .get("capabilities")
+                    .and_then(|value| value.pointer("/textDocumentSync/save"))
+                {
+                    Some(Value::Bool(true)) => Some(false),
+                    Some(Value::Object(options)) => Some(
+                        options
+                            .get("includeText")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    ),
+                    _ => None,
+                };
                 if let Some(options) = result
                     .get("capabilities")
                     .and_then(|c| c.get("semanticTokensProvider"))

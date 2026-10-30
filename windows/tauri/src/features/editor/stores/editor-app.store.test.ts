@@ -7,6 +7,7 @@ import { replaceAllInSources, replaceNextInSource } from "@/features/global-sear
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { saveWorkspaceBeforeLaunch } from "../services/save-workspace-before-launch";
+import { LspClient } from "../lsp/lsp-client";
 import { getBufferById } from "../utils/buffer-index";
 import { useBufferStore } from "./buffer.store";
 import { createEditorAppStore, useEditorAppStore } from "./editor-app.store";
@@ -66,6 +67,48 @@ afterEach(() => {
 });
 
 describe("workspace-scoped editor actions", () => {
+  test.each(["edited", "saved", "closed"] as const)(
+    "launch save rechecks a later buffer after it is %s during another notification",
+    async (change) => {
+      const first = editorBuffer("first", "first", { isVirtual: false });
+      const second = editorBuffer("second", "old", { isVirtual: false });
+      setWorkspaceBuffers(WORKSPACE_A, [first, second], first.id);
+      const save = spyOn(LspClient.getInstance(), "notifyDocumentSave")
+        .mockImplementation(async (path) => {
+          if (path !== first.path) return;
+          // The first notification yields; the next buffer changes before its turn.
+          const updated = { ...second, content: "new", savedContent: change === "saved" ? "new" : "old",
+            isDirty: change === "edited" };
+          setWorkspaceBuffers(WORKSPACE_A, change === "closed" ? [first] : [first, updated], first.id);
+        });
+      try {
+        if (change === "edited") {
+          await expect(saveWorkspaceBeforeLaunch(WORKSPACE_A)).rejects.toThrow(second.name);
+        } else {
+          await saveWorkspaceBeforeLaunch(WORKSPACE_A);
+        }
+        expect(save.mock.calls).toEqual(change === "saved"
+          ? [[first.path, "first", "first"], [second.path, "new", "new"]]
+          : [[first.path, "first", "first"]]);
+      } finally {
+        save.mockRestore();
+      }
+    },
+    1000,
+  );
+
+  test("a clean disk buffer still blocks launch when its language-server save fails", async () => {
+    const buffer = editorBuffer("main", "saved", { isVirtual: false, path: "C:/workspace/Main.java" });
+    setWorkspaceBuffers(WORKSPACE_A, [buffer], buffer.id);
+    const save = spyOn(LspClient.getInstance(), "notifyDocumentSave")
+      .mockRejectedValue(new Error("save transport failed"));
+    try {
+      await expect(saveWorkspaceBeforeLaunch(WORKSPACE_A)).rejects.toThrow("save transport failed");
+      expect(save).toHaveBeenCalledWith(buffer.path, "saved", "saved");
+      expect(getEditorBuffer(WORKSPACE_A, buffer.id).isDirty).toBe(false);
+    } finally { save.mockRestore(); }
+  });
+
   for (const operation of ["rename", "replace-all", "replace-next"] as const) {
     test(`${operation} rejects unloaded targets before changing other documents`, async () => {
       const a = editorBuffer("a", "old name", { path: "C:/fixture/a.txt", isVirtual: false });

@@ -150,6 +150,10 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
+    func saveLanguageServerDocument(sessionID: String, fileURL: URL, text: String) -> Result<Bool, LanguageServerRuntimeFailure> {
+        lspSaveDocument(sessionID: sessionID, fileURL: fileURL, text: text).mapError(Self.runtimeFailure)
+    }
+
     func closeLanguageServerDocument(sessionID: String, fileURL: URL) {
         lspCloseDocument(sessionID: sessionID, fileURL: fileURL)
     }
@@ -182,6 +186,16 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             codeAction: codeAction,
             command: command
         ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
+    func prepareJavaLaunch(
+        sessionID: String,
+        fileURL: URL,
+        mainClass: String?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspPrepareJavaLaunch(sessionID: sessionID, fileURL: fileURL, mainClass: mainClass)
+            .map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
             .mapError(Self.runtimeFailure)
     }
 

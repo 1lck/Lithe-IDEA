@@ -9553,7 +9553,19 @@
     "native.editorAppearanceBracketSchemeEnabled": "Enabled by color scheme",
     "native.editorAppearanceBracketSchemeDisabled": "Disabled by color scheme",
     "lsp.completion.invalidTriggerKind": "Invalid completion trigger kind",
-    "lsp.completion.missingTriggerCharacter": "Completion trigger character is required"
+    "lsp.completion.missingTriggerCharacter": "Completion trigger character is required",
+    "java.launch.error.buildStatus": "The Java language service returned an unexpected project build status.",
+    "java.launch.error.classpathEmpty": "The Java language service returned no runtime paths.",
+    "java.launch.error.classpathInvalid": "The Java language service returned an invalid runtime classpath.",
+    "java.launch.error.provider": "Java launch preparation requires the Java language service.",
+    "java.launch.error.request": "Invalid Java launch preparation request",
+    "java.launch.error.target": "The Java language service could not identify one launch target for this source file.",
+    "java.launch.error.unsupported": "Java launch preparation is not supported by this runtime.",
+    "java.launch.error.save": "Java launch stopped because modified files could not be saved.",
+    "java.launch.error.compilation": "The Java project build reported compilation errors.",
+    "java.launch.error.buildFailed": "The Java language service could not complete the project build. Check the Java language server log for the build error.",
+    "java.launch.error.buildCancelled": "The Java project build was cancelled before it finished.",
+    "java.launch.error.unknownBuildStatus": "The Java language service returned an unknown project build status."
   },
   "overrides": {
     "windows": {

@@ -916,6 +916,7 @@ package protocol LanguageServerSession: AnyObject {
         fileURL: URL, position: LanguageServerPosition, context: LanguageServerCompletionContext?,
         completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
     ) throws
+    func notifyDocumentSaved(_ fileURL: URL, text: String) throws
     func completions(
         fileURL: URL,
         position: LanguageServerPosition,
@@ -985,6 +986,8 @@ package protocol LanguageServerSession: AnyObject {
     func javaEntrypoints(
         completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
     ) throws
+    /// Prepares one saved source through Core's shared Java launch operation.
+    func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation
     /// Test classes and methods JDT reports for one source file.
     func javaTestItems(
         fileURL: URL,
@@ -1118,6 +1121,10 @@ package extension LanguageServerSession {
 }
 
 package extension LanguageServerSession {
+    func prepareJavaLaunch(fileURL _: URL, mainClass _: String?) async throws -> JavaLaunchPreparation {
+        throw LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string("Java launch preparation is not supported by this runtime."))
+    }
+
     func executeReturningValue(_ command: LanguageServerCommand, fileURL: URL) async throws -> ToolingJSONValue {
         try Task.checkCancellation()
         let (stream, continuation) = AsyncThrowingStream<ToolingJSONValue, Error>.makeStream()
@@ -1166,6 +1173,7 @@ package extension LanguageServerSession {
         set {}
     }
     func closeDocument(_: URL) {}
+    func notifyDocumentSaved(_: URL, text _: String) throws {}
     func notifyWorkspaceFilesChanged(_: [LanguageServerWorkspaceFileChange]) throws {}
     func javaTestItems(
         fileURL _: URL,

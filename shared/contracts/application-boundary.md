@@ -700,6 +700,14 @@ its Maven-goal compatibility path. Run and Debug share the Java preparation path
 so module selection, generated sources, test-source mains, and dependency paths
 do not drift.
 
+Both platforms use `java.prepareLaunch` for source-specific entry selection,
+the serialized JDT build, and runtime path resolution. One operation ID owns all
+three phases and their cancellation; a cancelled or timed-out attempt cannot
+advance on a late upstream reply. Hosts save dirty workspace documents before
+preparation and abort on any save failure. JDT remains the authority for project
+membership and paths; Core retains only the current attempt's intermediate
+results. Native adapters still own JDK discovery and process execution.
+
 An unsuccessful Java launch build is evidence, not an unconditional host veto.
 For `javaBuildCompilationErrors` and `javaBuildFailed`, the language boundary
 still resolves the target's runtime paths and returns them with Core's build

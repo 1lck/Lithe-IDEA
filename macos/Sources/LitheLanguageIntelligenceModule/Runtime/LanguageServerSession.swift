@@ -6,7 +6,9 @@ package struct LanguageServerRequestFailure: LocalizedError, Equatable, Sendable
     package let runtimeError: LanguageServerRuntimeError
 
     package var errorDescription: String? {
-        var message = runtimeError.message
+        // Core's primary message belongs to Lithe; the upstream detail below
+        // remains verbatim and is never treated as a translation key.
+        var message = L10n.string(key: runtimeError.message)
         if let underlying = runtimeError.underlyingMessage, !underlying.isEmpty {
             message += ": \(underlying)"
         }
@@ -488,6 +490,15 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 error.userMessage,
                 nil
             )
+            throw LanguageServerRuntimeSessionError.documentSyncFailed(error.userMessage)
+        }
+    }
+
+    package func notifyDocumentSaved(_ fileURL: URL, text: String) throws {
+        guard startupGeneration == nil, let sessionID else { return }
+        switch core.saveLanguageServerDocument(sessionID: sessionID, fileURL: fileURL, text: text) {
+        case .success: break
+        case .failure(let error):
             throw LanguageServerRuntimeSessionError.documentSyncFailed(error.userMessage)
         }
     }
@@ -996,6 +1007,56 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         return PluginFunctionFailure(
             code: runtimeError.code, message: runtimeError.message, pluginErrorCode: runtimeError.pluginErrorCode
         )
+    }
+
+    /// Waits for Core's composed preparation; cancellation addresses the same
+    /// operation throughout entry discovery, build and classpath resolution.
+    package func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation {
+        try Task.checkCancellation()
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        let operation: LanguageServerRuntimeOperation
+        switch await send(timeout: requestTimeout, { core in
+            core.prepareJavaLaunch(sessionID: sessionID, fileURL: fileURL, mainClass: mainClass)
+        }) {
+        case .success(let started): operation = started
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        let preparation: JavaLaunchPreparation = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(operation, name: "java.prepareLaunch") { result in
+                    continuation.resume(with: result.flatMap {
+                        Self.decodeEventResult($0, as: JavaLaunchPayload.self)
+                    }.flatMap { payload in
+                        switch payload.kind {
+                        case .ready: return .success(.ready(payload.target))
+                        case .buildFailed:
+                            guard let failure = payload.failure else {
+                                return .failure(LanguageServerRuntimeSessionError.missingResult)
+                            }
+                            return .success(.buildFailed(target: payload.target, failure: JavaLaunchBuildFailure(
+                                code: failure.code, message: L10n.string(key: failure.message), report: failure.report)))
+                        }
+                    })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
+        }
+        try Task.checkCancellation()
+        return preparation
+    }
+
+    private struct JavaLaunchPayload: Decodable {
+        enum Kind: String, Decodable { case ready, buildFailed }
+        let kind: Kind
+        let target: JavaDebugLaunchTarget
+        let failure: JavaLaunchBuildFailure?
     }
 
     /// Asks JDT, through Core, which classes in the workspace can be launched.
