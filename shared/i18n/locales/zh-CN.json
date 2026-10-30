@@ -7348,7 +7348,7 @@
     "settings.editor.lintOnSave": "保存时检查",
     "settings.editor.lintOnSaveDescription": "保存文件时运行检查器",
     "settings.editor.maxOpenTabs": "最大打开标签数",
-    "settings.editor.maxOpenTabsDescription": "打开的标签超过此数量时自动关闭标签页",
+    "settings.editor.maxOpenTabsDescription": "标签超过此数量时自动关闭。已固定、未保存的标签以及终端和 Agent 不计入。0 表示不限制。",
     "settings.editor.tabLimitPolicy": "超出标签上限时",
     "settings.editor.tabLimitPolicyDescription": "打开新标签导致超出上限时关闭哪个标签。已固定和有未保存修改的标签不会被关闭。",
     "settings.editor.tabLimitPolicy.leastRecentlyUsed": "关闭最久未使用的",

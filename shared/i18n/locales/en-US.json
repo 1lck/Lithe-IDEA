@@ -7348,7 +7348,7 @@
     "settings.editor.lintOnSave": "Lint on Save",
     "settings.editor.lintOnSaveDescription": "Run linter when saving files",
     "settings.editor.maxOpenTabs": "Max Open Tabs",
-    "settings.editor.maxOpenTabsDescription": "Tabs close automatically once more than this many are open",
+    "settings.editor.maxOpenTabsDescription": "Tabs close automatically past this count. Pinned and unsaved tabs, terminals, and agents do not count. 0 means no limit.",
     "settings.editor.tabLimitPolicy": "When the Tab Limit Is Reached",
     "settings.editor.tabLimitPolicyDescription": "Which tab closes when opening another tab would exceed the limit. Pinned tabs and tabs with unsaved changes are never closed.",
     "settings.editor.tabLimitPolicy.leastRecentlyUsed": "Close least recently used",

@@ -8,6 +8,7 @@ import {
 } from "@/ui/icons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useJavaFileIconCacheLifecycle } from "@/extensions/icon-themes/hooks/use-java-file-icon-kind";
+import { selectBuffersOverTabLimit } from "@/features/editor/stores/buffer-eviction";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { MarkdownModePicker } from "@/features/editor/components/toolbar/markdown-mode-picker";
@@ -45,7 +46,7 @@ import {
 import TabBarItem from "./tab-bar-item";
 import TabContextMenu from "./tab-context-menu";
 import { tabChromeBuffersEqual, toTabChromeBuffer } from "../utils/tab-chrome-buffer";
-import { markTabActivated, orderTabsForClosing } from "../utils/tab-recency";
+import { markTabActivated } from "../utils/tab-recency";
 
 interface TabBarProps {
   paneId?: string;
@@ -260,21 +261,14 @@ const TabBar = ({
     if (activeBufferId) markTabActivated(activeBufferId);
   }, [activeBufferId]);
 
+  // The store evicts as tabs open; this catches a lowered limit or restored tabs.
   useEffect(() => {
-    if (maxOpenTabs > 0 && buffers.length > maxOpenTabs && handleTabClose) {
-      const closableBuffers = orderTabsForClosing(
-        buffers.filter(
-          (b) => !b.isPinned && b.id !== activeBufferId && !(b.type === "editor" && b.isDirty),
-        ),
-        tabLimitPolicy,
-      );
-
-      let tabsToClose = buffers.length - maxOpenTabs;
-      for (let i = 0; i < closableBuffers.length && tabsToClose > 0; i++) {
-        handleTabClose(closableBuffers[i].id);
-        tabsToClose--;
-      }
-    }
+    if (!handleTabClose) return;
+    const overLimit = selectBuffersOverTabLimit(buffers, maxOpenTabs, {
+      keepBufferId: activeBufferId,
+      policy: tabLimitPolicy,
+    });
+    for (const buffer of overLimit) handleTabClose(buffer.id);
   }, [buffers, maxOpenTabs, tabLimitPolicy, activeBufferId, handleTabClose]);
 
   // Auto-scroll active tab into view

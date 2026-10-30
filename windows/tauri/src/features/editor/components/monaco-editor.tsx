@@ -190,6 +190,14 @@ interface GitGutterRenderContext {
 }
 
 /** Binds the long-lived gutter controller to the editor's latest render values. */
+/**
+ * Monaco never unregisters `addCommand` handlers, so a closure from the editor
+ * setup would keep the disposed editor and its DOM alive for the whole session.
+ */
+function createSelectAllCommand(callbacks: { current: { selectEntireModel: () => void } }) {
+  return () => callbacks.current.selectEntireModel();
+}
+
 function gitGutterControllerOptions(
   context: () => GitGutterRenderContext | null,
 ): GitGutterControllerOptions {
@@ -1152,6 +1160,7 @@ export function MonacoEditor({
   // below; editor-level handlers read the current file through this ref.
   const modelBindingRef = useRef<MonacoModelBinding | null>(null);
   const definitionLinkGestureRef = useRef<MonacoDefinitionLinkGesture | null>(null);
+  const releaseBoundModelRef = useRef<(() => void) | null>(null);
   const editorCallbacksRef = useRef({
     isCurrentEditorSurface,
     onScrollOffsetChange,
@@ -1318,7 +1327,7 @@ export function MonacoEditor({
     };
     onEditorScrollApiReadyRef.current?.(scrollApi);
 
-    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, () => callbacks().selectEntireModel());
+    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, createSelectAllCommand(editorCallbacksRef));
     let definitionClickIntent = 0;
     const cursorEntryFromEditor = (): CursorHistoryEntry | null => {
       const binding = modelBindingRef.current;
@@ -1666,6 +1675,9 @@ export function MonacoEditor({
     window.addEventListener("mouseup", handleWindowMouseUp);
 
     return () => {
+      // React runs this cleanup before the model effect's on unmount, but the
+      // model teardown saves the viewport and needs a live editor.
+      releaseBoundModelRef.current?.();
       onModelPositionResolverChange?.(null);
       container.removeEventListener("mousedown", handleNativeMouseDownCapture, true);
       restoreFindWidgetCloseButtonHover();
@@ -1925,10 +1937,16 @@ export function MonacoEditor({
       onRestoreComplete: finishCreatedRestore,
     });
 
-    return () => {
+    let released = false;
+    const releaseBoundModel = () => {
+      if (released) return;
+      released = true;
+      if (releaseBoundModelRef.current === releaseBoundModel) releaseBoundModelRef.current = null;
       // Menus opened on this file must not survive a switch to another one.
       setRunMarkerMenu(null);
       setContextMenuRunMarker(null);
+      setGutterMenuPosition(null);
+      setLineHistoryMenu(null);
       editorCallbacksRef.current.setContextMenuPosition(null);
       cancelCreatedViewStateRestore();
       finishCreatedRestore();
@@ -1972,6 +1990,8 @@ export function MonacoEditor({
         console.error("Failed to release Monaco model:", error);
       }
     };
+    releaseBoundModelRef.current = releaseBoundModel;
+    return releaseBoundModel;
   }, [
     activeBufferId,
     documentTarget,
@@ -2425,7 +2445,7 @@ export function MonacoEditor({
         monacoEditor.setModelMarkers(model, "lithe", []);
       }
     };
-  }, [diagnosticsForFile]);
+  }, [diagnosticsForFile, isContentReady]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -2682,7 +2702,9 @@ export function MonacoEditor({
     vimStatusRef.current?.remove();
     vimStatusRef.current = null;
 
-    if (!editor || !container || !vimModeEnabled || readOnly || isPreviewMode) {
+    // The adapter reads the model as it attaches, and a surface waiting for its
+    // text has none yet.
+    if (!editor || !container || !isContentReady || !vimModeEnabled || readOnly || isPreviewMode) {
       return;
     }
 
@@ -2715,7 +2737,7 @@ export function MonacoEditor({
       statusNode.remove();
       if (vimStatusRef.current === statusNode) vimStatusRef.current = null;
     };
-  }, [isPreviewMode, readOnly, vimModeEnabled]);
+  }, [isContentReady, isPreviewMode, readOnly, vimModeEnabled]);
 
   useEffect(() => {
     const editor = editorRef.current;

@@ -120,6 +120,7 @@ interface PaneContainerProps {
 }
 
 const MAX_MOUNTED_EDITOR_BUFFERS = 8;
+const EDITOR_SURFACE_KEY_PREFIX = "editor-surface-";
 /**
  * Hides a mounted editor tab while keeping its Monaco layout. `visibility`
  * alone left the tab's whole DOM in every style recalculation, and WebView2
@@ -621,15 +622,17 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const editorSurfaceKeys = assignEditorSurfaceKeys(
     editorSurfaceKeysRef.current,
     renderedEditorBufferIds,
-    () => `editor-surface-${++editorSurfaceKeyCounterRef.current}`,
+    () => `${EDITOR_SURFACE_KEY_PREFIX}${++editorSurfaceKeyCounterRef.current}`,
   );
   editorSurfaceKeysRef.current = editorSurfaceKeys;
   const mountedEditorBuffers = standardEditorBuffers
     .filter((buffer) => editorSurfaceKeys.has(buffer.id))
     .map((buffer) => ({ buffer, surfaceKey: editorSurfaceKeys.get(buffer.id) ?? buffer.id }))
     // Render surfaces in creation order so a key change never moves DOM nodes.
-    .sort((left, right) =>
-      Number(left.surfaceKey.slice(15)) - Number(right.surfaceKey.slice(15)),
+    .sort(
+      (left, right) =>
+        Number(left.surfaceKey.slice(EDITOR_SURFACE_KEY_PREFIX.length)) -
+        Number(right.surfaceKey.slice(EDITOR_SURFACE_KEY_PREFIX.length)),
     );
 
   const renderActiveBuffer = useCallback(

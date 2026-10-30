@@ -385,7 +385,7 @@ export const EditorSettings = () => {
           canReset={settings.maxOpenTabs !== getDefaultSetting("maxOpenTabs")}
         >
           <NumberInput
-            min="1"
+            min="0"
             max="100"
             value={settings.maxOpenTabs}
             onChange={(val) => updateSetting("maxOpenTabs", val)}
