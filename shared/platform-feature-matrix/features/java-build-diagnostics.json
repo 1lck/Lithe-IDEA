@@ -20,6 +20,8 @@
       "windows/tauri/src/features/diagnostics",
       "windows/tauri/src/features/maven/components/maven-run-pane.tsx",
       "windows/tauri/src/features/run/components/run-output-text.tsx",
+      "windows/tauri/src/features/editor/services/save-workspace-before-launch.ts",
+      "windows/tauri/src/features/editor/stores/editor-app.store.test.ts",
       "rust/lithe-core/src/lsp/languages/java_launch.rs",
       "shared/fixtures/lsp/java-launch-preparation-v1.json",
       "shared/fixtures/lsp/document-save-v1.json"
