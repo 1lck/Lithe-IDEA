@@ -15,8 +15,15 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-/// Prefix the frontend matches to explain a conflicting write.
+// Error prefixes the frontend translates; anything else is an OS diagnostic.
+/// The file changed after the page read it.
 pub(super) const CONFLICT_ERROR: &str = "mavenUserSettingsChanged";
+/// The file is not a well-formed UTF-8 settings document.
+pub(super) const INVALID_ERROR: &str = "mavenUserSettingsInvalid";
+/// The edit has no repository path.
+pub(super) const EMPTY_ERROR: &str = "mavenUserSettingsEmptyRepository";
+/// The user profile directory that owns `.m2` is unknown.
+pub(super) const NO_HOME_ERROR: &str = "mavenUserSettingsNoHome";
 
 /// A new file starts from Maven's documented minimal settings document.
 const NEW_SETTINGS_DOCUMENT: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<settings xmlns=\"http://maven.apache.org/SETTINGS/1.2.0\">\n</settings>\n";
@@ -96,7 +103,7 @@ pub(super) fn write_local_repository(
 ) -> Result<MavenUserSettings, String> {
     let local_repository = args.local_repository.trim();
     if local_repository.is_empty() {
-        return Err("The local repository path cannot be empty.".into());
+        return Err(EMPTY_ERROR.into());
     }
     let path = settings_path(home);
     let current = match fs::read(&path) {
@@ -105,14 +112,11 @@ pub(super) fn write_local_repository(
         Err(error) => return Err(error.to_string()),
     };
     if current.as_deref().map(revision) != args.expected_revision {
-        return Err(format!(
-            "{CONFLICT_ERROR}: {} changed after it was read.",
-            path.display()
-        ));
+        return Err(CONFLICT_ERROR.into());
     }
     let source = match &current {
         Some(contents) => std::str::from_utf8(contents)
-            .map_err(|_| format!("{} is not UTF-8.", path.display()))?
+            .map_err(|_| INVALID_ERROR.to_string())?
             .to_string(),
         None => NEW_SETTINGS_DOCUMENT.to_string(),
     };
@@ -123,15 +127,14 @@ pub(super) fn write_local_repository(
     };
     // The writer streams events and would carry an unclosed element through.
     if read_local_repository(document).is_err() {
-        return Err(format!(
-            "{} is not a valid Maven settings file.",
-            path.display()
-        ));
+        return Err(INVALID_ERROR.into());
     }
     let rewritten = lithe_core::settings_with_local_repository(document, local_repository)
-        .map_err(|error| match error.details {
-            Some(details) => format!("{} {details}", error.message),
-            None => error.message,
+        .map_err(|error| {
+            format!(
+                "{INVALID_ERROR}: {}",
+                error.details.unwrap_or(error.message)
+            )
         })?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -304,7 +307,7 @@ mod tests {
                 expected_revision: None,
             },
         );
-        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), EMPTY_ERROR);
         assert!(!settings_path(home.path()).exists());
     }
 }

@@ -6,6 +6,7 @@ import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
 import { supportsDevToolsUpdate, updateJavaService } from "../services/java-service-update";
 import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -706,6 +707,14 @@ export const createRunStore = (
                 : await (dependencies.discoverJavaEntrypoints ?? discoverJavaEntrypoints)(
                     { workspaceId, root },
                     paths,
+                    // Generation the store starts by itself on load must not
+                    // import a project the user chose to import later.
+                    {
+                      startService:
+                        !options?.automatic ||
+                        useSettingsStore.getState().settings.javaProjectImportOnOpen ===
+                          "automatic",
+                    },
                   );
             if (!isCurrent()) return;
             const generated = await (

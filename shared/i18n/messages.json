@@ -25200,8 +25200,22 @@
       ]
     },
     {
+      "id": "maven.userSettings.emptyRepository",
+      "description": "Windows UI: the local repository path to save is empty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "maven.userSettings.invalid",
       "description": "Windows UI: the user-level settings.xml is malformed and will not be rewritten",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.invalidFile",
+      "description": "Windows UI: the user-level settings.xml is not a valid settings document, so it was not changed",
       "platforms": [
         "windows"
       ]
@@ -25216,6 +25230,13 @@
     {
       "id": "maven.userSettings.missing",
       "description": "Windows UI: the user-level settings.xml does not exist yet",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.noHome",
+      "description": "Windows UI: the user profile directory holding .m2 cannot be determined",
       "platforms": [
         "windows"
       ]
@@ -25257,6 +25278,16 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "maven.userSettings.saveFailed",
+      "description": "Windows UI: writing the user-level settings.xml failed; error is the system message",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "error": "string"
+      }
     },
     {
       "id": "maven.userSettings.title",

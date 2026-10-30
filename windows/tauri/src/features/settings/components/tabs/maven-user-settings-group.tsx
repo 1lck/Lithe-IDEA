@@ -1,7 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
 import {
-  MAVEN_USER_SETTINGS_CONFLICT,
+  MAVEN_USER_SETTINGS_ERRORS,
   readMavenUserSettings,
   writeMavenUserLocalRepository,
 } from "@/features/maven/api/maven-host-api";
@@ -33,6 +33,14 @@ const defaultDependencies: MavenUserSettingsDependencies = {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The message key for a host error code, or null for an OS diagnostic. */
+function errorKey(message: string): string | null {
+  for (const [code, key] of Object.entries(MAVEN_USER_SETTINGS_ERRORS)) {
+    if (message === code || message.startsWith(`${code}:`)) return key;
+  }
+  return null;
 }
 
 /** The value the field starts from: what the file says, else Maven's default. */
@@ -87,9 +95,10 @@ export function MavenUserSettingsGroup({
     );
   }
   if (state.status === "failed") {
+    const key = errorKey(state.error);
     return (
       <p className="ui-text-sm text-destructive" role="alert">
-        {t("maven.userSettings.readFailed", { error: state.error })}
+        {key ? t(key) : t("maven.userSettings.readFailed", { error: state.error })}
       </p>
     );
   }
@@ -97,7 +106,8 @@ export function MavenUserSettingsGroup({
   const { settings } = state;
   const invalid = settings.status === "invalid";
   const dirty = draft.trim() !== baselineOf(settings);
-  const conflict = saveError?.startsWith(MAVEN_USER_SETTINGS_CONFLICT) ?? false;
+  const saveErrorKey = saveError ? errorKey(saveError) : null;
+  const conflict = saveErrorKey === MAVEN_USER_SETTINGS_ERRORS.mavenUserSettingsChanged;
 
   const save = async () => {
     setSaving(true);
@@ -173,7 +183,11 @@ export function MavenUserSettingsGroup({
       </label>
       {saveError ? (
         <div className="flex flex-col gap-1 ui-text-sm text-destructive" role="alert">
-          <p>{conflict ? t("maven.userSettings.conflict") : saveError}</p>
+          <p>
+            {saveErrorKey
+              ? t(saveErrorKey)
+              : t("maven.userSettings.saveFailed", { error: saveError })}
+          </p>
           {conflict ? (
             <Button variant="ghost" size="sm" className="self-start" onClick={() => void reload()}>
               {t("maven.userSettings.reload")}

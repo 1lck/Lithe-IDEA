@@ -163,7 +163,7 @@ pub async fn maven_write_user_local_repository(
 }
 
 fn required_user_home() -> Result<PathBuf, String> {
-    user_home_directory().ok_or_else(|| "The user profile directory is not set.".to_string())
+    user_home_directory().ok_or_else(|| user_settings::NO_HOME_ERROR.to_string())
 }
 
 #[tauri::command]

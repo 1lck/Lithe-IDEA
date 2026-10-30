@@ -21,8 +21,16 @@ export function readMavenUserSettings() {
   return invoke<MavenUserSettings>("maven_read_user_settings");
 }
 
-/** Prefix of the host error for a write based on an outdated read. */
-export const MAVEN_USER_SETTINGS_CONFLICT = "mavenUserSettingsChanged";
+/**
+ * Host error prefixes for user-level Maven settings, mapped to their message
+ * keys. Any other error is an OS diagnostic shown as received.
+ */
+export const MAVEN_USER_SETTINGS_ERRORS = {
+  mavenUserSettingsChanged: "maven.userSettings.conflict",
+  mavenUserSettingsInvalid: "maven.userSettings.invalidFile",
+  mavenUserSettingsEmptyRepository: "maven.userSettings.emptyRepository",
+  mavenUserSettingsNoHome: "maven.userSettings.noHome",
+} as const;
 
 export function writeMavenUserLocalRepository(
   localRepository: string,
