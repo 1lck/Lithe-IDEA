@@ -8,13 +8,15 @@ import SwiftUI
 /// presenting view does not discard unsaved edits.
 struct RemoteConnectionsSheet: View {
     @StateObject private var feature: RemoteConnectionsFeatureModel
+    private let onDismiss: () -> Void
 
-    init(feature: @autoclosure @escaping () -> RemoteConnectionsFeatureModel) {
+    init(feature: @autoclosure @escaping () -> RemoteConnectionsFeatureModel, onDismiss: @escaping () -> Void) {
         _feature = StateObject(wrappedValue: feature())
+        self.onDismiss = onDismiss
     }
 
     var body: some View {
-        RemoteConnectionsView(feature: feature)
+        RemoteConnectionsView(feature: feature, onDismiss: onDismiss)
     }
 }
 
@@ -23,6 +25,7 @@ struct RemoteConnectionsSheet: View {
 struct RemoteConnectionsView: View {
     @ObservedObject var feature: RemoteConnectionsFeatureModel
     @Environment(\.dismiss) private var dismiss
+    var onDismiss: (() -> Void)? = nil
 
     private static let sidebarWidth: CGFloat = 240
     private static let labelWidth: CGFloat = 120
@@ -454,14 +457,18 @@ struct RemoteConnectionsView: View {
 
     // MARK: Footer
 
+    private func closePanel() {
+        if let onDismiss { onDismiss() } else { dismiss() }
+    }
+
     private var footer: some View {
         HStack(spacing: LitheTheme.ActionButton.spacing) {
             Spacer()
-            Button(LocalizedStringKey("Cancel")) { dismiss() }
+            Button(LocalizedStringKey("Cancel")) { closePanel() }
                 .buttonStyle(LitheActionButtonStyle())
                 .keyboardShortcut(.cancelAction)
             Button(LocalizedStringKey("Save")) {
-                if feature.save() { dismiss() }
+                if feature.save() { closePanel() }
             }
             .buttonStyle(LitheActionButtonStyle())
             .disabled(!feature.canSave)

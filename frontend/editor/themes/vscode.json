@@ -1,0 +1,67 @@
+{
+  "name": "VS Code",
+  "themes": [
+    {
+      "id": "vscode-dark",
+      "syntax": {
+        "text": "#BBBEBF",
+        "keyword": "#ff7b72",
+        "keyword.control": "#C586C0",
+        "string": "#a5d6ff",
+        "string.escape": "#d7ba7d",
+        "number": "#b5cea8",
+        "comment": "#8b949e",
+        "documentationComment": "#8b949e",
+        "variable": "#c9d1d9",
+        "parameter": "#c9d1d9",
+        "function": "#d2a8ff",
+        "constant": "#79c0ff",
+        "property": "#79c0ff",
+        "type": "#4EC9B0",
+        "operator": "#d4d4d4",
+        "punctuation": "#BBBEBF",
+        "boolean": "#569cd6",
+        "null": "#569cd6",
+        "regex": "#a5d6ff",
+        "tag": "#7ee787",
+        "attribute": "#9cdcfe"
+      }
+    },
+    {
+      "id": "vscode-light",
+      "syntax": {
+        "text": "#202020",
+        "keyword": "#cf222e",
+        "keyword.control": "#AF00DB",
+        "string": "#0a3069",
+        "string.escape": "#EE0000",
+        "number": "#098658",
+        "comment": "#6e7781",
+        "documentationComment": "#6e7781",
+        "variable": "#1f2328",
+        "parameter": "#1f2328",
+        "function": "#8250df",
+        "constant": "#0550ae",
+        "property": "#0550ae",
+        "type": "#267f99",
+        "operator": "#000000",
+        "punctuation": "#202020",
+        "boolean": "#0000ff",
+        "null": "#0000ff",
+        "regex": "#0a3069",
+        "tag": "#116329",
+        "attribute": "#e50000"
+      }
+    }
+  ],
+  "sources": [
+    "https://github.com/microsoft/vscode/blob/b6bfa95ebee8b183d65dee4997c0527eadfe5384/extensions/theme-defaults/themes/2026-dark.json",
+    "https://github.com/microsoft/vscode/blob/b6bfa95ebee8b183d65dee4997c0527eadfe5384/extensions/theme-defaults/themes/2026-light.json",
+    "https://github.com/microsoft/vscode/blob/b6bfa95ebee8b183d65dee4997c0527eadfe5384/extensions/theme-defaults/themes/dark_modern.json",
+    "https://github.com/microsoft/vscode/blob/b6bfa95ebee8b183d65dee4997c0527eadfe5384/extensions/theme-defaults/themes/light_modern.json",
+    "https://github.com/microsoft/vscode/blob/b6bfa95ebee8b183d65dee4997c0527eadfe5384/extensions/theme-defaults/themes/dark_plus.json",
+    "https://github.com/microsoft/vscode/blob/b6bfa95ebee8b183d65dee4997c0527eadfe5384/extensions/theme-defaults/themes/light_plus.json",
+    "https://github.com/microsoft/vscode/blob/b6bfa95ebee8b183d65dee4997c0527eadfe5384/extensions/theme-defaults/themes/dark_vs.json",
+    "https://github.com/microsoft/vscode/blob/b6bfa95ebee8b183d65dee4997c0527eadfe5384/extensions/theme-defaults/themes/light_vs.json"
+  ]
+}

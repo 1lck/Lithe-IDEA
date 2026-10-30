@@ -1,3 +1,4 @@
+import AppKit
 import LitheModuleAPI
 import SwiftUI
 
@@ -77,6 +78,7 @@ struct LanguageReferencesView: View {
 struct LanguageImplementationChooserView: View {
     @EnvironmentObject private var model: AppModel
     @State private var query = ""
+    @State private var selectedIndex = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -85,52 +87,51 @@ struct LanguageImplementationChooserView: View {
                 subtitle: L10n.string("\(filteredLocations.count) found"),
                 onMinimize: { model.closeLanguageNavigationResults() }
             )
-
-            HStack(spacing: 7) {
-                LitheSystemIcon(systemImage: "magnifyingglass")
-                    .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Search implementations", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(LitheTheme.uiFont(size: 12))
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 34)
-            .litheWorkbenchSurface(LitheTheme.editor)
-
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 1) {
-                    ForEach(filteredLocations) { location in
-                        Button {
-                            model.navigate(to: location)
-                        } label: {
-                            HStack(spacing: 9) {
-                                LitheIcon(kind: LitheIcons.kind(for: location.url, isDirectory: false), size: 15)
-                                Text(location.displayName)
-                                    .font(LitheTheme.uiFont(size: 12.5, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(LitheTheme.primaryText)
-                                Text(location.displayPath ?? model.relativePath(for: location.url))
-                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text("\(location.line + 1):\(location.utf16Column + 1)")
-                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
-                                    .foregroundStyle(LitheTheme.secondaryText)
+            LitheSearchField("Search implementations", text: $query)
+                .padding(LitheDropdownMetrics.popupPadding)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filteredLocations.indices, id: \.self) { index in
+                            let location = filteredLocations[index]
+                            Button { model.navigate(to: location) } label: {
+                                HStack(spacing: 8) {
+                                    LitheIcon(kind: LitheIcons.kind(for: location.url, isDirectory: false), size: LitheDropdownMetrics.iconSize)
+                                    Text(location.displayName).lineLimit(1)
+                                    Text(location.displayPath ?? model.relativePath(for: location.url))
+                                        .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                    Spacer(minLength: 8)
+                                    Text("\(location.line + 1):\(location.utf16Column + 1)")
+                                        .foregroundStyle(.secondary)
+                                }
                             }
-                            .padding(.horizontal, 10)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 30)
-                            .contentShape(Rectangle())
+                            .buttonStyle(LitheDropdownRowStyle(isSelected: selectedIndex == index))
+                            .id(index)
                         }
-                        .buttonStyle(.litheNoPress)
-                        .lithePointer()
                     }
+                    .padding(LitheDropdownMetrics.popupPadding)
                 }
-                .padding(5)
+                .frame(height: min(300, CGFloat(filteredLocations.count) * LitheDropdownMetrics.rowHeight
+                    + LitheDropdownMetrics.verticalPadding))
+                .onChange(of: selectedIndex) { proxy.scrollTo($0) }
             }
         }
-        .frame(maxWidth: 760, minHeight: 220, maxHeight: 390)
-        .lithePopupChrome(cornerRadius: 7)
+        .frame(width: 640)
+        .onChange(of: query) { _ in selectedIndex = 0 }
+        .litheDropdownKeyHandler { event in
+            guard !filteredLocations.isEmpty,
+                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                  (event.window?.firstResponder as? NSTextView)?.hasMarkedText() != true else { return false }
+            switch event.keyCode {
+            case 125: selectedIndex = min(selectedIndex + 1, filteredLocations.count - 1)
+            case 126: selectedIndex = max(selectedIndex - 1, 0)
+            case 36, 76:
+                guard filteredLocations.indices.contains(selectedIndex) else { return false }
+                model.navigate(to: filteredLocations[selectedIndex])
+            default: return false
+            }
+            return true
+        }
     }
 
     private var filteredLocations: [LanguageNavigationLocation] {

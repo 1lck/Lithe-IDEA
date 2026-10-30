@@ -18,13 +18,13 @@ export async function createJavaGrammar(wasm: ArrayBuffer, grammarText: string) 
 export function tokenRole(scopes: string[]): string {
   for (let i = scopes.length - 1; i >= 0; i--) {
     const scope = scopes[i];
-    if (/^comment/.test(scope)) return "comment";
+    if (/^comment|^punctuation\.definition\.comment/.test(scope)) return "comment";
     if (/^string/.test(scope)) return "string";
     if (/^constant.numeric/.test(scope)) return "number";
     if (/^constant.language/.test(scope)) return "keyword";
     if (/^(keyword|storage)/.test(scope)) return "keyword";
     if (/^entity.name.(type|class|namespace)|^support.(class|type)/.test(scope)) return "type.identifier";
-    if (/^entity.name.function/.test(scope)) return "function";
+    if (/^entity.name.function/.test(scope)) return "function.java";
     if (/^variable/.test(scope)) return "variable";
     if (/^punctuation/.test(scope)) return "delimiter";
   }

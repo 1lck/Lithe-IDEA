@@ -76,23 +76,28 @@ public struct SearchSymbol: Codable, Hashable, Sendable {
 }
 
 public struct SearchEverywhereResults: Sendable {
+    public static let pageSize = 50
+    // Legacy synchronous consumers (including Agent completion) keep bounded results.
     public static let providerLimit = 200
     public static let matchLimit = providerLimit * 4
     public let fileMatches: [FileSearchResult]
     public let classMatches: [FileSearchResult]
     public let symbolMatches: [FileSearchResult]
     public let contentMatches: [FileSearchResult]
+    public let nextCursor: String?
 
     public init(
         fileMatches: [FileSearchResult] = [],
         classMatches: [FileSearchResult] = [],
         symbolMatches: [FileSearchResult] = [],
-        contentMatches: [FileSearchResult] = []
+        contentMatches: [FileSearchResult] = [],
+        nextCursor: String? = nil
     ) {
         self.fileMatches = fileMatches
         self.classMatches = classMatches
         self.symbolMatches = symbolMatches
         self.contentMatches = contentMatches
+        self.nextCursor = nextCursor
     }
 
     public var allMatches: [FileSearchResult] {
