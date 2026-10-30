@@ -9689,7 +9689,8 @@
     "native.noWebBrowserCouldBeOpened": "无法打开网页浏览器。",
     "native.thisPluginAlreadyHasTooManyMessagesWaiting": "此插件已有过多消息在等待。",
     "plugin.host.requestFailed": "未能完成插件宿主请求。",
-    "plugin.host.invalidParameters": "插件宿主请求的参数无效。"
+    "plugin.host.invalidParameters": "插件宿主请求的参数无效。",
+    "native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped": "已下载的部分已保留，重试时会从中断处继续下载。"
   },
   "overrides": {
     "macos": {

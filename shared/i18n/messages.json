@@ -35840,6 +35840,17 @@
       }
     },
     {
+      "id": "native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped",
+      "description": "Native UI: Downloaded data was kept. Try again to resume from where it stopped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Downloaded data was kept. Try again to resume from where it stopped.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.downloadedLldOfLldEnabled",
       "description": "Native UI: Downloaded (%lld of %lld enabled)",
       "platforms": [

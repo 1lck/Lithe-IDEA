@@ -9689,7 +9689,8 @@
     "native.noWebBrowserCouldBeOpened": "No web browser could be opened.",
     "native.thisPluginAlreadyHasTooManyMessagesWaiting": "This plugin already has too many messages waiting.",
     "plugin.host.requestFailed": "The plugin host request could not be completed.",
-    "plugin.host.invalidParameters": "The plugin host request parameters are invalid."
+    "plugin.host.invalidParameters": "The plugin host request parameters are invalid.",
+    "native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped": "Downloaded data was kept. Try again to resume from where it stopped."
   },
   "overrides": {
     "windows": {
