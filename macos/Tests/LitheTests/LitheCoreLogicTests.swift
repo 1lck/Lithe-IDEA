@@ -354,7 +354,9 @@ struct LitheCoreLogicTests {
         let firstBindingID = manager.settingsBindingID
         manager.noteWindowBecameKey(.dedicated(dedicatedWindowID))
         #expect(manager.activeSessionID == dedicatedID)
+        manager.prepareSettingsForPresentation()
         #expect(manager.settingsModel?.id == primaryID)
+        #expect(manager.settingsBindingID == firstBindingID)
 
         let firstDraft = SettingsViewState(initialCategory: .plugins)
         let secondDraft = SettingsViewState(initialCategory: .plugins)
@@ -376,7 +378,7 @@ struct LitheCoreLogicTests {
         #expect(manager.settingsModel?.id == dedicatedID)
         #expect(secondDraft.pendingPluginEnabledStates[pluginID] == false)
 
-        manager.releaseSettings(for: primaryID)
+        manager.releaseSettings(for: primaryID, bindingID: firstBindingID)
         #expect(manager.settingsModel?.id == dedicatedID)
         let secondBindingID = manager.settingsBindingID
         manager.closeSettingsIfCurrent(for: dedicatedID, bindingID: secondBindingID) {
@@ -396,7 +398,7 @@ struct LitheCoreLogicTests {
             didCloseSettings = true
         }
         #expect(didCloseSettings)
-        manager.releaseSettings(for: dedicatedID)
+        manager.releaseSettings(for: dedicatedID, bindingID: latestBindingID)
         #expect(manager.settingsModel == nil)
     }
 
