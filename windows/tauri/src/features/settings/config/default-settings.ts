@@ -72,6 +72,7 @@ export const defaultSettings: Settings = {
   inlayHints: true,
   codeLens: true,
   semanticTokens: true,
+  javaProjectImportOnOpen: "automatic",
   breadcrumbShowSymbols: true,
   // Terminal
   terminalFontFamily: DEFAULT_MONO_FONT_FAMILY,
@@ -219,7 +220,9 @@ export const defaultSettings: Settings = {
   gitFetchSubmodules: "inherit",
   gitFetchTags: "inherit",
   githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
-  enableInlineGitBlame: true,
+  // Like IDEA, the current line's author is opt-in: following the caret it
+  // annotates every line the user moves through.
+  enableInlineGitBlame: false,
   enableGitGutter: true,
 };
 

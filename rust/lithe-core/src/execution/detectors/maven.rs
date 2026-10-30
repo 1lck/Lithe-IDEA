@@ -1,11 +1,11 @@
-//! Maven service discovery from the declared reactor and applied plugins.
+//! Maven service candidates from the declared reactor and applied plugins.
 
 use super::super::types::Confidence;
 use super::{Detected, DirectoryContext};
 use crate::project::{declared_modules, DeclaredModule};
 use std::collections::BTreeMap;
 
-/// Plugins that make a module a runnable service, paired with the provider that
+/// Plugins that offer a framework launch goal, paired with the provider that
 /// records how the launch layer must address it.
 ///
 /// A framework is identified by the plugin it applies rather than by a
@@ -115,8 +115,8 @@ fn service_names(modules: &[DeclaredModule]) -> BTreeMap<String, String> {
 
 /// These frameworks use project toolchain bindings rather than a command on
 /// `PATH`. The main class is deliberately absent: the Java scan supplies it only
-/// when a unique `@SpringBootApplication` source was read. Such Spring services
-/// launch through JDT metadata; other framework services retain their Maven goal.
+/// after JDT confirms a unique Spring application entry in this module. The
+/// generator drops unmatched Spring candidates; other frameworks retain their Maven goal.
 fn service(
     ctx: &DirectoryContext,
     module: &DeclaredModule,

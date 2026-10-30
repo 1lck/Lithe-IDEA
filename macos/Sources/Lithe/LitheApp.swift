@@ -508,6 +508,15 @@ struct LitheApp: App {
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
         )
+        // Created outside the service container so the update checker (which
+        // is not part of any project model) shares the proxy policy. The
+        // policy itself is normalized by Rust Core.
+        let networkSessionProvider = MacNetworkSessionProvider(
+            preferences: settings.networkProxyPreferences,
+            policyResolver: { [proxyPolicyBridge = RustCoreBridge()] configuration in
+                proxyPolicyBridge.networkProxyPolicy(from: configuration)
+            }
+        )
         let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter { [weak settings] in
             Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
         }
@@ -547,7 +556,8 @@ struct LitheApp: App {
                             : .normal,
                         moduleStore: moduleStore,
                         gitPerformanceLogger: gitPerformanceLogger,
-                        applicationLogging: applicationLogWriter
+                        applicationLogging: applicationLogWriter,
+                        networkSessionProvider: networkSessionProvider
                     ).services
                 )
             },
@@ -573,9 +583,14 @@ struct LitheApp: App {
             memorySampler: MacProcessMemorySampler()
         ))
         Self.emitPerformanceBaselineMarker(LithePerformanceBaseline.configurationMarker())
-        let updateChecker = UpdateChecker(diagnosticSink: { message in
-            Self.appendApplicationLog(applicationLogWriter, message: message)
-        })
+        let updateChecker = UpdateChecker(
+            diagnosticSink: { message in
+                Self.appendApplicationLog(applicationLogWriter, message: message)
+            },
+            sessionFactory: { [networkSessionProvider] configuration in
+                networkSessionProvider.makeSession(configuration: configuration)
+            }
+        )
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
         appDelegate.flushApplicationLogs = { await applicationLogWriter.finishSession() }

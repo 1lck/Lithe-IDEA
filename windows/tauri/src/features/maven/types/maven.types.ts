@@ -206,6 +206,21 @@ export interface MavenEffectiveConfiguration {
   detectedJavaHomePath: string | null;
 }
 
+/**
+ * The user's own `~/.m2/settings.xml`, which every project and command-line
+ * build reads. Only the local repository is exposed; credentials stay on disk.
+ */
+export interface MavenUserSettings {
+  path: string;
+  status: "missing" | "readable" | "invalid";
+  /** `<localRepository>` as written, before `${user.home}` expansion. */
+  localRepository: string | null;
+  /** Maven's built-in repository when the settings declare none. */
+  defaultLocalRepository: string;
+  /** Identity of the content read; a write based on another one is refused. */
+  revision: string | null;
+}
+
 export const MAVEN_LIFECYCLE_PHASES = [
   "clean",
   "validate",

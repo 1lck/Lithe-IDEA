@@ -4,6 +4,18 @@
   "fixturesDirectory": "shared/contracts/plugins/v1/fixtures",
   "fixtures": [
     {
+      "path": "backend-workspace.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs workspace_backend_is_planned_with_its_version_and_workspace_service"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview #1595 新增 backend:2、工作区上下文与函数协议3；Windows host_capabilities 未声明 backend，整份清单仍被能力门控拒绝。当前没有直接消费本 fixture 的 Windows 产品测试；后端生命周期和公共宿主服务属于冻结M0–M10后的后续阶段，不据Core校验宣称接线或运行通过。"
+    },
+    {
       "path": "backend.plugin.json",
       "category": "valid-manifest",
       "outcome": "success",
@@ -298,6 +310,18 @@
       "windowsStatus": "unwired",
       "gapStage": "M4",
       "gapDetail": "Windows 侧零引用：不在合法/门控清单，也没有任何宿主测试读取；executableResolution:1 候选顺序与显式路径语义属 M4 接入。"
+    },
+    {
+      "path": "command-backend.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs pure_backend_commands_require_ui_4_and_grant_methods_individually"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview #1595 新增无工具窗口的后端命令，整包要求 backend:2 与 ui:4；Windows 未声明 backend 且ui仅[1,2]，保持整包拒绝。当前没有本fixture的Windows产品路径测试；纯命令激活、工作区上下文和公共宿主服务留后续阶段，不能由共享Core存在推断已支持。"
     },
     {
       "path": "command-plans.json",

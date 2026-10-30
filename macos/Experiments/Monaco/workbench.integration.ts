@@ -295,6 +295,35 @@ async function verify() {
   await send({ type: "open", text: source });
   await window.lithe.activate({ id: "A", text: source, revision: 0, language: "java", readonly: false, focus: false });
   const editor = monacoEditor.getEditors()[0];
+  await check("plugin edit bridge preserves dirty Unicode, CRLF and a single real undo", async () => {
+    const id = "plugin-edit", text = "dirty 😀\r\n中文";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: false });
+    const target = editor.getModel()!;
+    try {
+      editor.setSelections([new Selection(1, 1, 1, 6), new Selection(2, 1, 2, 3)]);
+      const selected = await withDeadline(window.lithe.pluginSelections({ id }), "plugin selections timed out") as any;
+      assert(selected.status === "ok" && selected.selections.length === 2, "plugin lost multiple selections");
+      const edits = [
+        { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6, text: "DONE\n!" },
+        { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 3, text: "文字" },
+      ];
+      const applied = await withDeadline(window.lithe.applyPluginEdits({ id, revision: selected.revision,
+        token: "plugin-batch", eol: "\r\n", edits }), "plugin edits timed out") as any;
+      assert(applied.status === "applied", `plugin edits rejected: ${applied.status}`);
+      const native = await send({ type: "fixtureSnapshot", id });
+      assert(native.text === "DONE\r\n! 😀\r\n文字", "plugin edits diverged from exact native source");
+      const stale = await window.lithe.applyPluginEdits({ id, revision: selected.revision, token: "stale", eol: "\r\n", edits });
+      assert(stale.status === "versionConflict", "stale plugin edit overwrote current input");
+      await target.undo();
+      const undone = await withDeadline(window.lithe.freeze(id), "plugin undo timed out") as any;
+      assert(undone.text === text, "one real Monaco undo did not restore the whole plugin batch");
+    } finally {
+      window.lithe.unlock(id);
+      await window.lithe.retain(["A"]);
+      await window.lithe.activate({ id: "A", text: source, revision: 0, language: "java", readonly: false });
+    }
+  });
   await check("editor context menu routes existing Monaco actions to the native host", async () => {
     const service = StandaloneServices.get(IContextMenuService) as any;
     let listener: { dispose(): void } | undefined;
@@ -1771,6 +1800,36 @@ async function verify() {
         const edits = await formatter.provideDocumentFormattingEdits(model, { tabSize: 4, insertSpaces: true }, CancellationToken.None);
         assert(edits?.length, `host formatting missing for ${language}`);
       } finally { await window.lithe.retain([]); }
+    }
+  });
+  await check("typing after an incomplete list asks the host for new candidates", async () => {
+    const id = "completion-refresh", text = "a";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "java", readonly: false });
+    editor.setPosition(new Position(1, 2));
+    const controller = SuggestController.get(editor)!;
+    const suggestModel = (controller as any).model;
+    const listeners: { dispose(): void }[] = [];
+    const candidate = (label: string) => new Promise<void>((resolve) => {
+      const listener = suggestModel.onDidSuggest((event: any) => {
+        if (event.completionModel.items.some((item: any) => item.completion.label === label)) {
+          listener.dispose(); resolve();
+        }
+      });
+      listeners.push(listener);
+    });
+    try {
+      const initial = candidate("alpha");
+      suggestModel.trigger({ auto: false });
+      await withDeadline(initial, "initial completion was not displayed");
+      const refreshed = candidate("abacus");
+      editor.trigger("keyboard", "type", { text: "b" });
+      await withDeadline(refreshed, "continued typing reused an incomplete list instead of requesting new candidates");
+      assert(editor.getModel()!.getValue() === "ab", "completion refresh changed the buffer");
+    } finally {
+      for (const listener of listeners) listener.dispose();
+      suggestModel.cancel();
+      await window.lithe.retain([]);
     }
   });
   await check("accepted completion expands snippets imports and tab stops in one undo", async () => {

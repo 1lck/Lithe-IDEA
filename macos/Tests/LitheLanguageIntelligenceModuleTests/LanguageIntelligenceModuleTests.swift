@@ -7,6 +7,31 @@ import Testing
 
 @MainActor
 struct LanguageIntelligenceModuleTests {
+    @Test(arguments: [false, true])
+    func savesFlushCurrentEditorTextAndPropagateNotificationFailures(fails: Bool) throws {
+        let root = URL(fileURLWithPath: "/workspace/save")
+        let file = root.appendingPathComponent("Main.java")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: file))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [
+            WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)
+        ])
+        defer { manager.stopAllLanguageServers() }
+        // Saving with no active server must not start one.
+        try manager.notifyDocumentSaved(file, text: "saved", currentText: "newer")
+        #expect(session.startCallCount == 0)
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        session.saveError = fails ? WorkspaceStateSessionError.unexpectedOperation : nil
+        if fails {
+            #expect(throws: WorkspaceStateSessionError.unexpectedOperation) {
+                try manager.notifyDocumentSaved(file, text: "saved", currentText: "newer")
+            }
+        } else {
+            try manager.notifyDocumentSaved(file, text: "saved", currentText: "newer")
+        }
+        #expect(session.documentEvents == ["sync:newer", "save:saved"])
+    }
+
     @Test(arguments: ["Main.java", "main.go", "main.rs"])
     func sessionStartupChecksCurrentPreferenceForEachWorkspace(fileName: String) throws {
         let root = URL(fileURLWithPath: "/workspace/disabled-lsp", isDirectory: true)
@@ -844,6 +869,11 @@ struct LanguageIntelligenceModuleTests {
                 session: session
             )]
         )
+        let prepared = JavaDebugLaunchTarget(
+            mainClass: "service/example.Main", projectName: "service",
+            modulePaths: ["/workspace/modules"], classPaths: classPaths
+        )
+        session.javaLaunchResult = .success(.ready(prepared))
         let task = Task {
             if run {
                 guard case .ready(let target) = try await manager.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root) else {
@@ -857,45 +887,9 @@ struct LanguageIntelligenceModuleTests {
 
         try await session.waitUntilStarted()
         session.publish(.ready)
-        let command = try await session.waitForExecuteCommand()
-        // Core asks JDT and normalizes the answer; the launch picks the entry
-        // generated from this exact source file.
-        #expect(command.command == "javaEntrypoints")
-        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
-            JavaEntrypoint(
-                sourcePath: "other/Main.java",
-                mainClass: "other/example.Main",
-                projectName: "other"
-            ),
-            JavaEntrypoint(
-                sourcePath: "service/\(sourceRoot)/example/Main.java",
-                mainClass: "service/example.Main",
-                projectName: "service"
-            ),
-        ])))
-
-        let buildCommand = try await session.waitForExecuteCommand(number: 2)
-        #expect(buildCommand.command == "vscode.java.buildWorkspace")
-        #expect(buildCommand.arguments.count == 1)
-        session.completeExecuteReturningValue(.success(.integer(1)))
-
-        let classpathCommand = try await session.waitForExecuteCommand(number: 3)
-        #expect(classpathCommand.command == "vscode.java.resolveClasspath")
-        #expect(classpathCommand.arguments == [
-            .string("service/example.Main"),
-            .string("service"),
-        ])
-        session.completeExecuteReturningValue(.success(.array([
-            .array([.string("/workspace/modules")]),
-            .array(classPaths.map { .string($0) }),
-        ])))
-
-        #expect(try await task.value == JavaDebugLaunchTarget(
-            mainClass: "service/example.Main",
-            projectName: "service",
-            modulePaths: ["/workspace/modules"],
-            classPaths: classPaths
-        ))
+        #expect(try await task.value == prepared)
+        #expect(session.executedCommands.map(\.command) == ["java.prepareLaunch"])
+        #expect(session.executedCommands.first?.arguments == [.string(source.path)])
     }
 
     @Test
@@ -947,55 +941,28 @@ struct LanguageIntelligenceModuleTests {
                 session: session
             )]
         )
-        let task = Task {
-            try await manager.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root)
-        }
-        defer { task.cancel() }
-
-        try await session.waitUntilStarted()
-        session.publish(.ready)
-        _ = try await session.waitForExecuteCommand()
-        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
-            JavaEntrypoint(
-                sourcePath: "service/src/main/java/example/Main.java",
-                mainClass: "service/example.Main",
-                projectName: "service"
-            ),
-        ])))
-
-        let buildCommand = try await session.waitForExecuteCommand(number: 2)
-        #expect(buildCommand.command == "vscode.java.buildWorkspace")
         let report = JavaBuildReport(
-            markerScope: .launchTarget,
-            builderFailedEarlier: true,
-            elapsedMilliseconds: 8,
-            recovery: .rebuildJavaIndex
+            markerScope: .launchTarget, builderFailedEarlier: true,
+            elapsedMilliseconds: 8, recovery: .rebuildJavaIndex
         )
-        session.completeExecuteReturningValue(.failure(LanguageServerRequestFailure(
-            runtimeError: LanguageServerRuntimeError(
-                code: "javaBuildCompilationErrors",
-                stage: "javaBuild",
-                message: "The Java project has compilation errors.",
-                underlyingMessage: nil,
-                processExitCode: nil,
-                javaBuildReport: report
-            )
+        let target = JavaDebugLaunchTarget(
+            mainClass: "service/example.Main", projectName: "service", classPaths: ["/workspace/classes"]
+        )
+        session.javaLaunchResult = .success(.buildFailed(target: target, failure: JavaLaunchBuildFailure(
+            code: "javaBuildCompilationErrors", message: "The Java project has compilation errors.", report: report
         )))
-
-        let classpathCommand = try await session.waitForExecuteCommand(number: 3)
-        #expect(classpathCommand.command == "vscode.java.resolveClasspath")
-        session.completeExecuteReturningValue(.success(.array([
-            .array([]),
-            .array([.string("/workspace/classes")]),
-        ])))
-
-        guard case .buildFailed(let target, let failure) = try await task.value else {
+        let task = Task { try await manager.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root) }
+        defer { task.cancel(); session.stop() }
+        try await session.waitUntilStarted()
+        #expect(session.executedCommands.isEmpty)
+        session.publish(.ready)
+        guard case .buildFailed(let actual, let failure) = try await task.value else {
             Issue.record("expected a continuable build failure")
             return
         }
-        #expect(session.executedCommands.filter { $0.command == "vscode.java.buildWorkspace" }.count == 1)
-        #expect(target.classPaths == ["/workspace/classes"])
+        #expect(actual == target)
         #expect(failure.report == report)
+        #expect(session.executedCommands.map(\.command) == ["java.prepareLaunch"])
     }
 
     @Test
@@ -1013,27 +980,18 @@ struct LanguageIntelligenceModuleTests {
                 session: session
             )]
         )
-        let task = Task {
-            try await manager.resolveJavaDebugLaunchTarget(fileURL: source, rootURL: root)
-        }
-        defer { task.cancel() }
-
+        let failure = LanguageServerRuntimeFailure(
+            code: "invalidServerResult",
+            message: "The Java language service could not identify one launch target for this source file."
+        )
+        session.javaLaunchResult = .failure(failure)
+        let task = Task { try await manager.resolveJavaDebugLaunchTarget(fileURL: source, rootURL: root) }
+        defer { task.cancel(); session.stop() }
         try await session.waitUntilStarted()
         session.publish(.ready)
-        _ = try await session.waitForExecuteCommand()
-        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [
-            JavaEntrypoint(
-                sourcePath: "service/src/main/java/example/Main.java",
-                mainClass: "service/example.Main",
-                projectName: "service"
-            ),
-        ])))
-
-        await #expect(throws: LanguageToolingSessionError.toolingUnavailable(
-            "No Java main method was found in UserService.java."
-        )) {
-            try await task.value
-        }
+        await #expect(throws: LanguageServerRuntimeFailure.self) { try await task.value }
+        #expect(session.executedCommands.map(\.command) == ["java.prepareLaunch"])
+        #expect(session.executedCommands.first?.arguments == [.string(source.path)])
     }
 
     @Test
@@ -1777,6 +1735,16 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     private(set) var stopCallCount = 0
     private(set) var startCallCount = 0
     var startError: Error?
+    var javaLaunchResult: Result<JavaLaunchPreparation, Error> =
+        .failure(WorkspaceStateSessionError.unexpectedOperation)
+    func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation {
+        try Task.checkCancellation()
+        recordExecutedCommand(LanguageServerCommand(
+            title: "java.prepareLaunch", command: "java.prepareLaunch",
+            arguments: [.string(fileURL.path)] + (mainClass.map { [.string($0)] } ?? [])
+        ))
+        return try javaLaunchResult.get()
+    }
     private(set) var executedCommands: [LanguageServerCommand] = []
     /// Maven updates handed to the running session, in order.
     private(set) var mavenUpdates: [(context: MavenLaunchContext, reloadProjects: Bool)] = []
@@ -1939,7 +1907,15 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         completion?(result)
     }
 
-    func synchronize(fileURL _: URL, text _: String, languageID _: String) throws {}
+    var documentEvents: [String] = []
+    var saveError: Error?
+    func synchronize(fileURL _: URL, text: String, languageID _: String) throws {
+        documentEvents.append("sync:\(text)")
+    }
+    func notifyDocumentSaved(_ fileURL: URL, text: String) throws {
+        documentEvents.append("save:\(text)")
+        if let saveError { throw saveError }
+    }
     func closeDocument(_: URL) {}
 
     func completions(

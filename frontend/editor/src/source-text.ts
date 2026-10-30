@@ -147,7 +147,8 @@ export class SourceText {
   }
 
   /** Translate a simultaneous Monaco batch to original-source UTF-16 edits. */
-  apply(changes: readonly NormalizedTextChange[], version: number): SourceTextChange[] {
+  /** `eol` overrides the separator for inserted line breaks of this batch only. */
+  apply(changes: readonly NormalizedTextChange[], version: number, eol: string = this.defaultEOL): SourceTextChange[] {
     const previous = this.current;
     const restoring = this.versions.has(version);
     const target = this.versions.get(version);
@@ -155,7 +156,7 @@ export class SourceText {
     const translated = [...changes].sort((a, b) => a.rangeOffset - b.rangeOffset).map(change => {
       const normalized = change.text.replace(/\r\n|\r/g, "\n");
       const text = restoring ? slice(target, change.rangeOffset + delta, normalized.length)
-        : normalized.replace(/\n/g, this.defaultEOL);
+        : normalized.replace(/\n/g, eol);
       delta += normalized.length - change.rangeLength;
       const start = sourceOffset(previous, change.rangeOffset);
       return { change, text, offset: start,

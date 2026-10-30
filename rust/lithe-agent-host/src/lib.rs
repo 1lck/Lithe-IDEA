@@ -69,9 +69,10 @@ const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_CALL_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Upper bound on `session/list` pages so a misbehaving cursor cannot loop forever.
 const MAX_SESSION_LIST_PAGES: usize = 50;
-/// Windows flag that runs the adapter with a console it cannot display. The
-/// desktop shell is a GUI process without a console, so a console-subsystem
-/// adapter would otherwise open a visible console window on every launch.
+/// Windows flag that runs a child with a console it cannot display. The
+/// desktop shell is a GUI process without a console, so every console-subsystem
+/// child this crate starts (adapters, version probes, installers, quota and MCP
+/// probes) would otherwise open a visible console window.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Bytes of agent stderr kept for failure reports; older output is discarded.

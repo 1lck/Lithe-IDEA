@@ -5,7 +5,18 @@
 
 use quick_xml::{events::Event, Reader};
 
+/// The document is not a well-formed Maven settings file.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct InvalidSettings;
+
 pub(super) fn parse_local_repository(settings: &str) -> Option<String> {
+    read_local_repository(settings).ok().flatten()
+}
+
+/// Reads the top-level `<localRepository>`, distinguishing a document that
+/// does not declare one (`Ok(None)`) from one that is not a valid settings
+/// document (`Err`). An editor must not offer to rewrite a file it cannot read.
+pub(super) fn read_local_repository(settings: &str) -> Result<Option<String>, InvalidSettings> {
     let mut reader = Reader::from_str(settings);
     reader.config_mut().expand_empty_elements = true;
     reader.config_mut().check_comments = true;
@@ -17,21 +28,21 @@ pub(super) fn parse_local_repository(settings: &str) -> Option<String> {
     // Read through EOF: a valid-looking path before an incomplete closing tag
     // must not be presented as a valid settings value.
     loop {
-        match reader.read_event().ok()? {
+        match reader.read_event().map_err(|_| InvalidSettings)? {
             Event::Start(element) => {
                 for attribute in element.attributes() {
-                    attribute.ok()?;
+                    attribute.map_err(|_| InvalidSettings)?;
                 }
                 if depth == 0 {
                     if root_seen || element.local_name().as_ref() != b"settings" {
-                        return None;
+                        return Err(InvalidSettings);
                     }
                     root_seen = true;
                 } else if collecting {
-                    return None;
+                    return Err(InvalidSettings);
                 } else if depth == 1 && element.local_name().as_ref() == b"localRepository" {
                     if repository.is_some() {
-                        return None;
+                        return Err(InvalidSettings);
                     }
                     repository = Some(String::new());
                     collecting = true;
@@ -39,44 +50,60 @@ pub(super) fn parse_local_repository(settings: &str) -> Option<String> {
                 depth += 1;
             }
             Event::End(_) => {
-                depth = depth.checked_sub(1)?;
+                depth = depth.checked_sub(1).ok_or(InvalidSettings)?;
                 if depth == 1 {
                     collecting = false;
                 }
             }
             Event::Text(text) => {
-                let text = text.unescape().ok()?;
+                let text = text.unescape().map_err(|_| InvalidSettings)?;
                 if collecting {
-                    repository.as_mut()?.push_str(&text);
+                    repository.as_mut().ok_or(InvalidSettings)?.push_str(&text);
                 } else if depth == 0 && !text.trim().is_empty() {
-                    return None;
+                    return Err(InvalidSettings);
                 }
             }
             Event::CData(text) => {
                 if depth == 0 {
-                    return None;
+                    return Err(InvalidSettings);
                 }
                 if collecting {
-                    repository.as_mut()?.push_str(&text.decode().ok()?);
+                    repository
+                        .as_mut()
+                        .ok_or(InvalidSettings)?
+                        .push_str(&text.decode().map_err(|_| InvalidSettings)?);
                 }
             }
             // Do not expand external entities or attempt to read a DTD.
-            Event::DocType(_) => return None,
+            Event::DocType(_) => return Err(InvalidSettings),
             Event::Eof => break,
             _ => {}
         }
     }
     if depth != 0 || !root_seen {
-        return None;
+        return Err(InvalidSettings);
     }
-    repository
+    Ok(repository
         .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+        .filter(|value| !value.is_empty()))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_local_repository;
+    use super::{parse_local_repository, read_local_repository, InvalidSettings};
+
+    #[test]
+    fn distinguishes_an_undeclared_repository_from_an_invalid_document() {
+        assert_eq!(read_local_repository("<settings/>"), Ok(None));
+        assert_eq!(
+            read_local_repository("<settings><offline>true</offline></settings>"),
+            Ok(None)
+        );
+        assert_eq!(
+            read_local_repository("<settings><localRepository>D:/repo"),
+            Err(InvalidSettings)
+        );
+    }
 
     #[test]
     fn decodes_xml_entities_in_repository_paths() {

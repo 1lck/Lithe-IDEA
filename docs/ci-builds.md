@@ -861,6 +861,12 @@ incarnation 与扫描代次隔离，关闭或插件撤销即释放。映射是 L
 在任何复制阶段都由脚本排除路由拒绝；临时文件、恢复备份和内存监听 lease 同样禁止共享。
 平台可写应用数据与只读安装资源分离，因此不影响代码签名或 Sparkle delta 基线。
 
+插件宿主的 `<app-support>/Lithe/PluginHost/root-id.key` 是安装级密钥，
+`<app-support>/Lithe/PluginState/<plugin-id>/backend/workspaces/<workspace-digest>/`
+是按插件、工作区归属的可变状态。二者都没有版本/平台/架构/工具链复用身份，
+任何复制阶段都不得共享；`excludedResources.plugin-host-runtime-state` 走拒绝路由，
+由资源复用测试验证。运行期仅写平台 Application Support，不改签名包或 Sparkle 源基线。
+
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 Windows 的插件源配置、按源与平台缓存的原始索引、摘要绑定的临时下载和按工作区保存的构建选项，
 同属 `plugin-marketplace-state` 排除路由：由运行时平台 adapter 注入用户可写根，
