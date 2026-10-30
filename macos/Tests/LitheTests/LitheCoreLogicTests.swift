@@ -20,8 +20,21 @@ struct LitheCoreLogicTests {
             ("rust/lithe-core/src/lib.rs", .rustSource),
             ("Cargo.toml", .toml),
             ("src/main/java/App.java", .javaGeneric),
-            ("docs/README.md", .markdown),
+            ("docs/README.md", .readme),
+            ("docs/guide.md", .markdown),
             (".gitignore", .gitignore),
+            (".gitattributes", .gitignore),
+            ("go.mod", .goSource),
+            ("go.sum", .goSource),
+            ("Makefile", .makefile),
+            ("scripts/rules.mk", .makefile),
+            ("package.json", .nodePackage),
+            ("bun.lock", .lockFile),
+            ("Cargo.lock", .lockFile),
+            ("package-lock.json", .lockFile),
+            ("pnpm-lock.yaml", .lockFile),
+            ("LICENSE.txt", .license),
+            ("COPYING", .license),
             ("Dockerfile", .docker),
             ("infra/compose.yaml", .docker),
             ("compose.yml", .docker),
@@ -29,7 +42,8 @@ struct LitheCoreLogicTests {
             ("docker-compose.yml", .docker),
             ("settings.yaml", .yaml),
             ("assets/unknown.custom", .generic),
-            ("LICENSE", .generic)
+            ("LICENSE", .license),
+            ("NOTICE", .generic)
         ]
 
         for expectation in expectations {
