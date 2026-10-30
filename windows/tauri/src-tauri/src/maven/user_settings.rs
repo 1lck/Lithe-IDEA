@@ -136,10 +136,17 @@ pub(super) fn write_local_repository(
                 error.details.unwrap_or(error.message)
             )
         })?;
-    if let Some(parent) = path.parent() {
+    // A settings file kept in a dotfiles repository is often a link; replacing
+    // the link with a regular file would detach it from that repository.
+    let target = if current.is_some() {
+        fs::canonicalize(&path).map_err(|error| error.to_string())?
+    } else {
+        path.clone()
+    };
+    if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    atomic_write(&path, format!("{bom}{rewritten}").as_bytes())?;
+    atomic_write(&target, format!("{bom}{rewritten}").as_bytes())?;
     read(home)
 }
 
@@ -295,6 +302,34 @@ mod tests {
             fs::read_to_string(&path).unwrap(),
             "<settings><localRepository>D:/repo"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_settings_file_is_written_through_the_link() {
+        let home = home();
+        let real = home.path().join("dotfiles-settings.xml");
+        fs::write(&real, "<settings/>").unwrap();
+        let path = settings_path(home.path());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&real, &path).unwrap();
+        let revision = read(home.path()).expect("read").revision;
+
+        write_local_repository(
+            home.path(),
+            WriteMavenUserLocalRepositoryArgs {
+                local_repository: "/opt/repository".into(),
+                expected_revision: revision,
+            },
+        )
+        .expect("write");
+        assert!(fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(fs::read_to_string(&real)
+            .unwrap()
+            .contains("<localRepository>/opt/repository</localRepository>"));
     }
 
     #[test]

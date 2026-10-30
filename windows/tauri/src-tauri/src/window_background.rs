@@ -16,6 +16,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tauri::window::Color;
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
@@ -58,9 +59,14 @@ fn read_stored(path: &Path) -> Option<Color> {
     parse_color(&stored.background)
 }
 
+/// Every window records the theme it applies, often at the same moment;
+/// they share one temporary file, so writes take turns.
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
+
 /// Writes through a sibling temporary file so a crash never leaves a
 /// truncated file that would silently reset the colour on the next start.
 fn write_stored(path: &Path, color: Color) -> Result<(), String> {
+    let _turn = WRITE_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let text = serde_json::to_string(&StoredBackground {
         background: format_color(color),
     })
