@@ -915,6 +915,30 @@ JDTLS 解压回归还在同一临时树生成小型 tar.gz/VSIX、前置 PATH �
 plan、当前 checkout 和隔离宿主的提交标识必须一致；切换提交后重新生成输入，不得清理该输入目录后冒用旧 plan。
 `-SkipBuild` 同时检查目标架构、已冻结配置和可执行文件哈希，并保留该配置；配置或提交变化时重新构建隔离宿主。驱动先恢复原生 invoke 并有界等待已观测调用结束，再退出本次产品进程，最后比较资源快照；退出失败或调用未结束不能报告资源工作流通过。
 驱动在插件详情验证普通设置，再经已注册的语言设置页保存 reload；受控设置子集通过不会把缺少兼容签名包、关闭中的 Provider 能力、arm64 或人工视觉验收算作通过。
+
+项目生成器的 `generator_fixture.py` 在本工作树生成完整 unsigned 社区包、模板、空工作区、
+项目输出目录及绑定当前源码清单的 plan。显式 HTTPS 集成输入还须提供原 ZIP 和 receipt
+（仓库、固定提交、许可、URL、SHA-256、字节/条目数与预期打开文件），例如：
+
+```powershell
+python -B scripts/plugins/host-acceptance/generator_fixture.py --output .artifacts/plugin-host-acceptance/generator-fixture-current --archive-url <fixed-HTTPS-ZIP> --archive-open-file <relative-path> --archive-reference <downloaded-ZIP> --archive-receipt <receipt.json>
+python -B scripts/plugins/host-acceptance/generator_acceptance.py --fixture-root .artifacts/plugin-host-acceptance/generator-fixture-current --report .artifacts/test-stability/plugin-generator-preflight.json --preflight
+```
+
+预检不启动产品，未执行返回 2；真实创建子集由
+`test-windows-declarative-plugin-host.ps1 -SkipBuild -ProjectGenerators -ProjectGeneratorsFixtureRoot <fixture>`
+消费已冻结的隔离 x64 Release identity，当前源码清单、配置、提交和 EXE 字节必须一致。
+驱动使用既有 assign-before-release Windows Job，600 秒总期限包含产品及子进程；工作流
+留出清理余量，原进程退出和真实向导卸载须早于命令的自然期限，未知 marker PID 不授权清理。
+实际 HTTPS 解压的每个上游文件与固定参考 ZIP 比较；下载内容不执行。失败保留首次记录，
+退出后比较实际运行镜像、已安装包和原完整 fixture ZIP；受控子集不代表完整 M8/M10。
+
+`generator-fixture*` ZIP/plan/项目、`generator-archive-input` 固定归档/receipt、
+进程与清理证据均归既有 `plugin-host-acceptance-state`；没有可复用的版本、平台、架构或
+工具链身份，所有复制阶段拒绝。重新在目标工作树生成，不能从来源工作树拷贝安装审批、
+用户配置或项目。它们只写本次 artifact、隔离用户配置与用户工作区，不影响代码签名或
+Sparkle 增量更新基线。报告依本地审查或 CI retention 保留，临时应用和配置按 owner 清理。
+
 原生动作组、表单栅格和树菜单的受控浏览器回归使用目标工作树的前端依赖和 Python Playwright 1.60.0
 （与原生验收驱动共用 `psutil==7.2.2`），不由 runner 安装或下载工具。Windows CI 在已有
 Python 依赖步骤后独立运行以下命令；本地已有 Edge 时可复用相同入口：

@@ -415,6 +415,8 @@ async function main() {
       // Includes plugin-host-acceptance-state: fixed-source SVN diagnostic runtime,
       // repo/WC/profiles, offline preflight fake tools/manifests/archive inputs and explicit
       // evidence output stay run-owned, never reusable.
+      // Generator fixture ZIPs, fixed HTTPS archive references, source plans and
+      // creation/cancellation evidence use this route; a hash transfers no approval.
 
       // SwiftPM scratch-local compiler stamps only invalidate local products;
       // swiftpm-build-state is not a sealed download cache and has no copy stage.

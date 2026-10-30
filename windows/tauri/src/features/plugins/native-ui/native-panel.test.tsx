@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { NativePanelStateStore } from "./native-panel-state";
+import { nativeUIValidator } from "./native-ui-core";
 import type {
   NativeCallContext,
   NativeNode,
@@ -435,6 +436,47 @@ test("the real native-form fixture restores a local draft after hide and reset r
   } finally {
     await mounted.close();
     await binding.close();
+  }
+}, 3000);
+
+test("the mounted form keeps the valid draft after hiding an invalid sibling and submits recovered values once", async () => {
+  const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  const store = new NativePanelStateStore();
+  const calls: NativeCallContext[] = [];
+  const invalid = "😀".repeat(257);
+  const query = ui.controls!.find((control) => control.kind === "search")!;
+  const name = ui.controls!.find((control) => control.id === "name")!;
+  const port: NativePanelPort = {
+    validate: nativeUIValidator(async (current) => current.controls?.some((control) => control.value === invalid)
+      ? { status: "rejected", error: { code: "plugin.ui.invalidData", message: "invalid value" } }
+      : { status: "ok", nodes: [] }),
+    functions: {
+      load: async () => ({ nodes: [] }),
+      invoke: async (_action, context) => { calls.push(structuredClone(context)); },
+    },
+  };
+  const mounted = await mount(panel(ui, port, store));
+  const input = (label: string) => mounted.host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+  try {
+    await act(async () => inputValue(input(name.label), "保留草稿 😀"));
+    await act(async () => inputValue(input(query.label), invalid));
+    expect(calls).toHaveLength(0);
+    await mounted.render(<div />);
+    await mounted.render(panel(ui, port, store));
+    expect(input(name.label).value).toBe("保留草稿 😀");
+    expect(input(query.label).value).toBe(query.value as string);
+    await act(async () => {
+      [...mounted.host.querySelectorAll<HTMLButtonElement>(".plugin-native-form button")]
+        .find((button) => button.textContent === ui.buttons!.find((button) => button.enabled !== false)!.label)!
+        .click();
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.values).toEqual(Object.fromEntries(ui.controls!.map((control) => [
+      control.id, control.id === name.id ? "保留草稿 😀" : control.value,
+    ])));
+    expect(store.read(identity)?.values).toEqual(calls[0]!.values);
+  } finally {
+    await mounted.close();
   }
 }, 3000);
 

@@ -1,4 +1,5 @@
 import { NativePanelStateStore } from "./native-panel-state";
+import { NativeDataRejection } from "./native-ui-core";
 import type {
   NativeAction,
   NativeCallContext,
@@ -86,7 +87,7 @@ export class NativePanelSession {
       ...this.ui,
       controls: this.ui.controls?.map((control) => ({
         ...control,
-        value: values[control.id] ?? control.value,
+        value: Object.prototype.hasOwnProperty.call(values, control.id) ? values[control.id]! : control.value,
       })),
     };
   }
@@ -140,33 +141,36 @@ export class NativePanelSession {
     const saved = this.store.read(this.identity);
     this.emit({ phase: "loading", epoch: this.state.epoch + 1, error: undefined });
     try {
-      const initial = await this.request((signal) =>
-        this.port.validate(this.ui, { nodes: this.ui.nodes }, signal),
-      );
+      // One deadline covers the default declaration and every restored field.
+      // Keep all candidates local until the complete restore still owns this open.
+      const { initial, values } = await this.request(async (signal) => {
+        const initial = await this.port.validate(this.ui, { nodes: this.ui.nodes }, signal);
+        const values = defaults(this.ui);
+        for (const control of this.ui.controls ?? []) {
+          signal.throwIfAborted();
+          if (!saved || !Object.prototype.hasOwnProperty.call(saved.values, control.id)) continue;
+          const candidate = { ...values, [control.id]: saved.values[control.id]! };
+          try {
+            await this.port.validate(this.withValues(candidate), { nodes: initial }, signal);
+            signal.throwIfAborted();
+            values[control.id] = candidate[control.id]!;
+          } catch (error) {
+            signal.throwIfAborted();
+            // Only a completed value rejection discards this field. Transport,
+            // cancellation and other Core failures must preserve the snapshot.
+            if (!(error instanceof NativeDataRejection) || error.rejection.code !== "plugin.ui.invalidData")
+              throw error;
+          }
+        }
+        return { initial, values };
+      });
       if (!this.current(revision)) return;
       if (saved) {
-        // Restore only current fields; Core checks their types, options and
-        // budgets together with the declaration, including same-ID changes.
-        const values = Object.fromEntries(
-          (this.ui.controls ?? []).map((control) => [
-            control.id,
-            saved.values[control.id] ?? control.value,
-          ]),
-        );
-        try {
-          await this.request((signal) =>
-            this.port.validate(this.withValues(values), { nodes: initial }, signal),
-          );
-          if (!this.current(revision)) return;
-          this.emit({ values, expanded: saved.expanded, selection: saved.selection });
-        } catch (error) {
-          if (!this.current(revision)) return;
-          this.store.remove(this.identity);
-          this.emit({ values: defaults(this.ui), error: this.errorKey(error) });
-        }
+        this.emit({ values, expanded: saved.expanded, selection: saved.selection });
       }
       this.replaceNodes(initial);
       this.emit({ phase: "ready" });
+      if (saved) this.save();
       if (this.ui.source) await this.refresh();
     } catch (error) {
       if (this.current(revision)) this.emit({ phase: "failed", error: this.errorKey(error) });

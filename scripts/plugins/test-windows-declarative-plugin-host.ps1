@@ -13,6 +13,8 @@ param(
     [switch]$SettingsFunctions,
     [string]$SettingsFunctionsFixtureRoot = "",
     [switch]$TextWindow,
+    [switch]$ProjectGenerators,
+    [string]$ProjectGeneratorsFixtureRoot = "",
     [string]$MarketplaceFixtureRoot = "",
     [string]$MarketplaceTlsCert = "",
     [string]$MarketplaceTlsKey = "",
@@ -34,6 +36,12 @@ if ($SettingsFunctions -and -not $SkipBuild) {
 }
 if ($TextWindow -and ($Marketplace -or $LspLifecycle -or $SettingsFunctions)) {
     throw "Text-window acceptance is a focused invocation; run marketplace/LSP/settings acceptance separately."
+}
+if ($ProjectGenerators -ne (-not [string]::IsNullOrWhiteSpace($ProjectGeneratorsFixtureRoot))) {
+    throw "Use -ProjectGenerators and -ProjectGeneratorsFixtureRoot together."
+}
+if ($ProjectGenerators -and (-not $SkipBuild -or $Marketplace -or $LspLifecycle -or $SettingsFunctions -or $TextWindow)) {
+    throw "Project generators consume an existing source-bound isolated build: use a focused -SkipBuild invocation."
 }
 $controlledMarketplaceArguments = @($MarketplaceFixtureRoot, $MarketplaceTlsCert, $MarketplaceTlsKey)
 $providedMarketplaceArguments = @($controlledMarketplaceArguments | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -307,7 +315,10 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     (Join-Path $fixtureRoot "settings_functions_acceptance_test.py"),
     (Join-Path $fixtureRoot "text_window_fixture.py"),
     (Join-Path $fixtureRoot "text_window_acceptance.py"),
-    (Join-Path $fixtureRoot "text_window_acceptance_test.py")
+    (Join-Path $fixtureRoot "text_window_acceptance_test.py"),
+    (Join-Path $fixtureRoot "generator_fixture.py"),
+    (Join-Path $fixtureRoot "generator_acceptance.py"),
+    (Join-Path $fixtureRoot "generator_acceptance_test.py")
 ) -FailureMessage "A plugin host acceptance Python source file has invalid syntax"
 
 & (Join-Path $root ".agents/skills/write-stable-tests/scripts/verify-test-stability.ps1") -Platform windows
@@ -349,6 +360,12 @@ if ($TextWindow) {
         "-B", (Join-Path $fixtureRoot "text_window_acceptance_test.py"),
         "--report", (Join-Path $stabilityRoot "plugin-text-window-helpers.json")
     ) -FailureMessage "The literal text-window helper checks failed"
+}
+if ($ProjectGenerators) {
+    Invoke-NativeChecked -Executable "python" -Arguments @(
+        "-B", (Join-Path $fixtureRoot "generator_acceptance_test.py"),
+        "--report", (Join-Path $stabilityRoot "plugin-generator-helpers.json")
+    ) -FailureMessage "The project-generator fixture and cleanup checks failed"
 }
 
 $zsh = Get-Command zsh -ErrorAction SilentlyContinue
@@ -535,6 +552,10 @@ if ($TextWindow) {
     $acceptanceReport = Join-Path $stabilityRoot "plugin-text-window-acceptance.json"
     $driverLog = Join-Path $artifactRoot "text-window-driver.log"
 }
+if ($ProjectGenerators) {
+    $acceptanceReport = Join-Path $stabilityRoot "plugin-generator-acceptance.json"
+    $driverLog = Join-Path $artifactRoot "generator-driver.log"
+}
 
 @{
     schemaVersion = 1
@@ -594,6 +615,20 @@ try {
             "--executable", $stagedExecutable,
             "--run-image", $runImage,
             "--artifact-root", (Join-Path $evidenceRoot "text-window"),
+            "--report", $acceptanceReport,
+            "--app-local-data", $appLocalData,
+            "--app-roaming-data", $appRoamingData,
+            "--webview-data", $webviewData
+        )
+    }
+    if ($ProjectGenerators) {
+        $driverArguments = @(
+            "-B", (Join-Path $fixtureRoot "generator_acceptance.py"),
+            "--fixture-root", ([IO.Path]::GetFullPath($ProjectGeneratorsFixtureRoot)),
+            "--host-identity", $identityMarker,
+            "--executable", $stagedExecutable,
+            "--run-image", $runImage,
+            "--artifact-root", (Join-Path $evidenceRoot "generators"),
             "--report", $acceptanceReport,
             "--app-local-data", $appLocalData,
             "--app-roaming-data", $appRoamingData,

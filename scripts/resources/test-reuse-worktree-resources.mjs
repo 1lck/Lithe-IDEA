@@ -511,6 +511,11 @@ try {
       ".artifacts/plugin-host-acceptance/settings-functions-fixture/settings-functions-plan.json",
       ".artifacts/plugin-host-acceptance/settings-functions-fixture/settings-1.0.0.zip",
       ".artifacts/plugin-host-acceptance/evidence/settings-functions/resources-before.json",
+      ".artifacts/plugin-host-acceptance/generator-fixture-first/generators.zip",
+      ".artifacts/plugin-host-acceptance/generator-fixture-first/plan.json",
+      ".artifacts/plugin-host-acceptance/generator-archive-input/reference.zip",
+      ".artifacts/plugin-host-acceptance/generator-archive-input/receipt.json",
+      ".artifacts/plugin-host-acceptance/evidence/generators/cleanup.json",
     ]) {
       const source = path.join(sourceRoot, fixture);
       await fs.mkdir(path.dirname(source), { recursive: true });

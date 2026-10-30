@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test";
-import { nativeUIValidator } from "./native-ui-core";
+import { expect, spyOn, test } from "bun:test";
+import { NativeDataRejection, nativeUIValidator, type NativeDataOperation } from "./native-ui-core";
 import { NativePanelStateStore } from "./native-panel-state";
 import { NativePanelSession, nativeRows } from "./native-panel-session";
-import type { NativeNode, NativePanelIdentity, NativePanelPort, NativeUI } from "./native-ui.types";
+import type { NativeNode, NativePanelIdentity, NativePanelPort, NativeSavedState, NativeUI, NativeValue } from "./native-ui.types";
 import nativeControls from "../../../../../../shared/contracts/plugins/v1/fixtures/native-controls.plugin.json";
 import type { NativePanelState } from "./native-panel-session";
 
@@ -85,7 +85,7 @@ test("tree rows preserve stable depth, expand state and bounded keyboard order",
   }
 }, 1000);
 
-test("form drafts are isolated by complete panel identity and invalid restored values are discarded", async () => {
+test("form drafts are isolated by complete panel identity", async () => {
   const store = new NativePanelStateStore();
   const first = new NativePanelSession(
     identity("bytes-a"),
@@ -109,6 +109,300 @@ test("form drafts are isolated by complete panel identity and invalid restored v
     expect(replacement.state.values.name).toBe("initial");
   } finally {
     replacement.close();
+  }
+}, 1000);
+
+test("restore keeps accepted fields in declaration order and discards only Core-rejected or removed values", async () => {
+  const declaration: NativeUI = {
+    ...form,
+    controls: [
+      ...form.controls!,
+      { id: "query", kind: "search", label: "Query", value: "", enabled: true },
+      {
+        id: "choice", kind: "select", label: "Choice", value: "current",
+        options: [{ id: "current", label: "Current" }],
+      },
+      { id: "checked", kind: "checkbox", label: "Checked", value: false },
+      { id: "amount", kind: "stepper", label: "Amount", value: 1, minimum: 0, maximum: 10, step: 1 },
+      { id: "notes", kind: "editor", label: "Notes", value: "", rows: 4 },
+    ],
+  };
+  const saved = {
+    expanded: [],
+    values: {
+      name: "保留 😀",
+      query: "😀".repeat(257),
+      choice: "removed-option",
+      checked: 0,
+      amount: 11,
+      notes: "合法多行\n草稿",
+      removed: "old field",
+    },
+  };
+  const store = new NativePanelStateStore();
+  expect(store.write(identity(), saved)).toBe(true);
+  const observed: NativeUI[] = [];
+  const signals = new Set<AbortSignal>();
+  // The adapter receives scripted Core answers, not a second implementation
+  // of UTF-8, choice, scalar or numeric validation rules.
+  const rejected = new Map(Object.entries(saved.values).filter(([id]) =>
+    ["query", "choice", "checked", "amount"].includes(id),
+  ));
+  const validate = nativeUIValidator(async (current) => {
+    observed.push(structuredClone(current));
+    return current.controls?.some((control) => rejected.get(control.id) === control.value)
+      ? { status: "rejected", error: { code: "plugin.ui.invalidData", message: "invalid value" } }
+      : { status: "ok", nodes: [] };
+  });
+  const published: NativePanelState[] = [];
+  const session = new NativePanelSession(identity(), declaration, {
+    validate: async (current, data, signal) => {
+      signals.add(signal);
+      return validate(current, data, signal);
+    },
+  }, store, (state) => published.push(state));
+  try {
+    await session.open();
+    const expected = {
+      name: saved.values.name, query: "", choice: "current", checked: false,
+      amount: 1, notes: saved.values.notes,
+    };
+    expect(session.state.phase).toBe("ready");
+    expect(session.state.error).toBeUndefined();
+    expect(session.state.values).toEqual(expected);
+    expect(store.read(identity())?.values).toEqual(expected);
+    expect(signals.size).toBe(1);
+    expect(observed).toHaveLength(1 + declaration.controls!.length);
+    expect(observed.slice(1).map((current, index) => current.controls![index]!.value)).toEqual(
+      declaration.controls!.map((control) => saved.values[control.id as keyof typeof saved.values]),
+    );
+    expect(published.filter((state) => state.values.name === saved.values.name)
+      .every((state) => JSON.stringify(state.values) === JSON.stringify(expected))).toBe(true);
+  } finally {
+    session.close();
+  }
+}, 1000);
+
+test("editing then hiding preserves the other draft and submits the complete recovered values once", async () => {
+  const declaration: NativeUI = {
+    ...form,
+    source: { buildSystemID: "fixture", function: "load" },
+    controls: [...form.controls!, { id: "query", kind: "search", label: "Query", value: "" }],
+    actions: [{ id: "apply", title: "Apply", kind: "invoke", function: "apply", requiresSelection: false }],
+  };
+  const invalid = "😀".repeat(257);
+  const validate = nativeUIValidator(async (current) => current.controls?.some((control) => control.value === invalid)
+    ? { status: "rejected", error: { code: "plugin.ui.invalidData", message: "invalid value" } }
+    : { status: "ok", nodes: [] });
+  const store = new NativePanelStateStore();
+  const calls: unknown[] = [];
+  const port: NativePanelPort = {
+    validate,
+    functions: {
+      load: async () => ({ nodes: [] }),
+      invoke: async (_action, context) => { calls.push(structuredClone(context.values)); },
+    },
+  };
+  const first = new NativePanelSession(identity(), declaration, port, store, () => {});
+  const reopened = new NativePanelSession(identity(), declaration, port, store, () => {});
+  try {
+    await first.open();
+    await first.edit("name", "kept draft", first.state.epoch);
+    await first.edit("query", invalid, first.state.epoch);
+    first.close();
+    await reopened.open();
+    expect(reopened.state.values).toEqual({ name: "kept draft", query: "" });
+    await reopened.perform("apply", reopened.state.epoch);
+    expect(calls).toEqual([{ name: "kept draft", query: "" }]);
+    expect(reopened.state.error).toBeUndefined();
+  } finally {
+    first.close();
+    reopened.close();
+  }
+}, 1000);
+
+test("default and restoration transport failures preserve the original snapshot for retry", async () => {
+  for (const failAt of [1, 2]) {
+    const store = new NativePanelStateStore();
+    const saved = { expanded: [], values: { name: "kept draft" } };
+    expect(store.write(identity(), saved)).toBe(true);
+    let calls = 0;
+    let failing = true;
+    const operation: NativeDataOperation = async () => {
+      if (++calls === failAt && failing) throw new Error("pluginNative.invalidData");
+      return { status: "ok", nodes: [] };
+    };
+    const session = new NativePanelSession(identity(), form, { validate: nativeUIValidator(operation) }, store, () => {});
+    try {
+      await session.open();
+      expect(session.state.phase).toBe("failed");
+      expect(store.read(identity())).toEqual(saved);
+      failing = false;
+      await session.open();
+      expect(session.state.phase).toBe("ready");
+      expect(session.state.values).toEqual(saved.values);
+    } finally {
+      session.close();
+    }
+  }
+}, 1000);
+
+test("Core rejection of the default declaration or an unrelated Core code never rewrites saved state", async () => {
+  for (const [failAt, code] of [[1, "plugin.ui.invalidData"], [2, "plugin.unavailable"]] as const) {
+    const store = new NativePanelStateStore();
+    const saved = { expanded: [], values: { name: "kept draft" } };
+    expect(store.write(identity(), saved)).toBe(true);
+    let calls = 0;
+    const session = new NativePanelSession(identity(), form, {
+      validate: nativeUIValidator(async () => ++calls === failAt
+        ? { status: "rejected", error: { code, message: "unavailable" } }
+        : { status: "ok", nodes: [] }),
+    }, store, () => {});
+    try {
+      await session.open();
+      expect(session.state.phase).toBe("failed");
+      expect(store.read(identity())).toEqual(saved);
+    } finally {
+      session.close();
+    }
+  }
+}, 1000);
+
+test("an explicit null reaches Core without default substitution while an absent field keeps its default", async () => {
+  for (const hasValue of [true, false]) {
+    const store = new NativePanelStateStore();
+    const saved: NativeSavedState = { expanded: [], values: hasValue ? { name: null as unknown as NativeValue } : {} };
+    expect(store.write(identity(), saved)).toBe(true);
+    const observed: NativeUI[] = [];
+    const session = new NativePanelSession(identity(), form, {
+      validate: nativeUIValidator(async (current) => {
+        observed.push(structuredClone(current));
+        // Core's ControlValue cannot deserialize null. A top-level failure
+        // is not the typed value rejection that permits dropping a draft.
+        if (current.controls?.[0]?.value === null) throw new Error("invalid_request");
+        return { status: "ok", nodes: [] };
+      }),
+    }, store, () => {});
+    try {
+      await session.open();
+      if (hasValue) {
+        expect(observed[observed.length - 1]?.controls?.[0]?.value).toBeNull();
+        expect(session.state.phase).toBe("failed");
+        expect(store.read(identity())).toEqual(saved);
+      } else {
+        expect(observed).toHaveLength(1);
+        expect(session.state.phase).toBe("ready");
+        expect(session.state.values).toEqual({ name: "initial" });
+      }
+    } finally {
+      session.close();
+    }
+  }
+}, 1000);
+
+test("all restored fields share one deadline and timeout preserves the complete saved snapshot", async () => {
+  const pending = deferred<NativeNode[]>();
+  const reached = deferred<void>();
+  const store = new NativePanelStateStore();
+  const declaration = { ...form, controls: [...form.controls!, { ...form.controls![0]!, id: "second" }] };
+  const saved = { expanded: [], values: { name: "first draft", second: "second draft" } };
+  expect(store.write(identity(), saved)).toBe(true);
+  const deadlines: (() => void)[] = [];
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
+    deadlines.push(callback);
+    return 0;
+  }) as unknown as typeof setTimeout);
+  const clear = spyOn(globalThis, "clearTimeout").mockImplementation(() => {});
+  let calls = 0;
+  const session = new NativePanelSession(identity(), declaration, {
+    validate: async () => {
+      if (++calls < 3) return [];
+      reached.resolve();
+      return pending.promise;
+    },
+  }, store, () => {});
+  const opening = session.open();
+  try {
+    await reached.promise;
+    expect(deadlines).toHaveLength(1);
+    expect(timer.mock.calls[0]?.[1]).toBe(15000);
+    deadlines[0]!();
+    await opening;
+    expect(session.state.phase).toBe("failed");
+    expect(session.state.error).toBe("pluginNative.timeout");
+    expect(session.state.values).toEqual({ name: "initial", second: "initial" });
+    expect(store.read(identity())).toEqual(saved);
+  } finally {
+    pending.resolve([]);
+    session.close();
+    await opening;
+    timer.mockRestore();
+    clear.mockRestore();
+  }
+}, 1000);
+
+test("closing during field restoration aborts the shared request and ignores its late result", async () => {
+  const pending = deferred<NativeNode[]>();
+  const reached = deferred<AbortSignal>();
+  const store = new NativePanelStateStore();
+  const saved = { expanded: [], values: { name: "kept draft" } };
+  expect(store.write(identity(), saved)).toBe(true);
+  let calls = 0;
+  const published: NativePanelState[] = [];
+  const session = new NativePanelSession(identity(), form, {
+    validate: async (_current, _data, signal) => {
+      if (++calls === 1) return [];
+      reached.resolve(signal);
+      return pending.promise;
+    },
+  }, store, (state) => published.push(state));
+  const opening = session.open();
+  try {
+    const signal = await reached.promise;
+    session.close();
+    expect(signal.aborted).toBe(true);
+    const count = published.length;
+    pending.resolve([]);
+    await opening;
+    expect(session.state.phase).toBe("closed");
+    expect(published).toHaveLength(count);
+    expect(store.read(identity())).toEqual(saved);
+  } finally {
+    pending.resolve([]);
+    session.close();
+    await opening;
+  }
+}, 1000);
+
+test("reset during restoration rejects the old field callback and late rejection cannot delete the new draft", async () => {
+  const pending = deferred<NativeNode[]>();
+  const reached = deferred<void>();
+  const store = new NativePanelStateStore();
+  expect(store.write(identity(), { expanded: [], values: { name: "old draft" } })).toBe(true);
+  let calls = 0;
+  const session = new NativePanelSession(identity(), form, {
+    validate: async () => {
+      if (++calls !== 2) return [];
+      reached.resolve();
+      return pending.promise;
+    },
+  }, store, () => {});
+  const opening = session.open();
+  try {
+    await reached.promise;
+    const oldEpoch = session.state.epoch;
+    await session.reset();
+    await session.edit("name", "new draft", session.state.epoch);
+    pending.reject(new NativeDataRejection({ code: "plugin.ui.invalidData", message: "old rejection" }));
+    await opening;
+    expect(await session.edit("name", "old blur", oldEpoch, true)).toBe(false);
+    expect(session.state.phase).toBe("ready");
+    expect(session.state.values).toEqual({ name: "new draft" });
+    expect(store.read(identity())?.values).toEqual({ name: "new draft" });
+  } finally {
+    pending.resolve([]);
+    session.close();
+    await opening;
   }
 }, 1000);
 

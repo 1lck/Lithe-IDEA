@@ -421,6 +421,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B scripts/plugins/host-acceptance/text_window_acceptance_test.py --report .artifacts/test-stability/plugin-text-window-helpers.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/host-acceptance/generator_acceptance_test.py --report .artifacts/test-stability/plugin-generator-helpers.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B scripts/plugins/host-acceptance/vcs_move_diagnostic_test.py --report .artifacts/test-stability/plugin-vcs-move-driver.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/plugins/test-plugin-vcs-move-diagnostic.mjs --report .artifacts/test-stability/plugin-vcs-move-node.json
