@@ -18,7 +18,7 @@ enum SettingsSearchVocabulary {
         case .general:
             ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Hidden paths"]
         case .editor:
-            ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width"]
+            ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width", "Line spacing", "Font ligatures", "Syntax highlighting", "Editor color scheme", "Italic comments", "Colorize bracket pairs", "Line numbers", "Render whitespace", "Soft wrap", "Show indent guides", "Highlight current line", "Sticky scroll", "Smooth scrolling", "Scroll beyond last line", "Cursor style", "Cursor blinking"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:

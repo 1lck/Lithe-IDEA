@@ -200,6 +200,7 @@
 "Abort Rebase" = "Abort Rebase";
 "Abort this rebase and restore its original branch?" = "Abort this rebase and restore its original branch?";
 "Abort…" = "Abort…";
+"Absolute" = "Absolute";
 "Accept" = "Accept";
 "Accept edits" = "Accept edits";
 "Accepts all permissions" = "Skip routine approval prompts; environment and managed policies still apply.";
@@ -345,6 +346,7 @@
 "Application-wide editor and terminal settings remain available in the other categories." = "Application-wide editor and terminal settings remain available in the other categories.";
 "Applications" = "Applications";
 "Applies immediately" = "Applies immediately";
+"Applies immediately to source editors in all projects." = "Applies immediately to source editors in all projects.";
 "Applies the next time the language server starts." = "Applies the next time the language server starts.";
 "Apply" = "Apply";
 "Apply %@ to the current branch." = "Apply %@ to the current branch.";
@@ -449,6 +451,10 @@
 "Big Endian" = "Big Endian";
 "Binary" = "Binary";
 "Binary files cannot be compared." = "Binary files cannot be compared.";
+"Blink" = "Blink";
+"Block" = "Block";
+"Boundary" = "Boundary";
+"Bracket colors follow the selected editor color scheme." = "Bracket colors follow the selected editor color scheme.";
 "Branch" = "Branch";
 "Branch '%@' tracks '%@', which has a different name. Choose which branch to update." = "Branch '%@' tracks '%@', which has a different name. Choose which branch to update.";
 "Branch context" = "Branch context";
@@ -768,6 +774,7 @@
 "Collapsed" = "Collapsed";
 "Collected logs cleared." = "Collected logs cleared.";
 "Color theme" = "Color theme";
+"Colorize bracket pairs" = "Colorize bracket pairs";
 "Combine the messages when the rebase runs, including changes made at earlier Edit stops" = "Combine the messages when the rebase runs, including changes made at earlier Edit stops";
 "Combined commit message" = "Combined commit message";
 "Combines the pull request into one commit on the base branch." = "Combines the pull request into one commit on the base branch.";
@@ -1057,6 +1064,9 @@
 "Current version: %@ · Verified target: %@" = "Current version: %@ · Verified target: %@";
 "Current: %@" = "Current: %@";
 "Currently effective" = "Currently effective";
+"Cursor" = "Cursor";
+"Cursor blinking" = "Cursor blinking";
+"Cursor style" = "Cursor style";
 "Custom" = "Custom";
 "Custom API provider" = "Custom API provider";
 "Custom Agent" = "Custom Agent";
@@ -1183,6 +1193,7 @@
 "Disable breakpoint" = "Disable breakpoint";
 "Disable soft wraps" = "Disable soft wraps";
 "Disabled" = "Disabled";
+"Disabled by color scheme" = "Disabled by color scheme";
 "Disabled in Agent" = "Disabled in Agent";
 "Disabled in this workspace" = "Disabled in this workspace";
 "Disassembly" = "Disassembly";
@@ -1291,6 +1302,9 @@
 "Edited %lld files" = "Edited %lld files";
 "Editor" = "Editor";
 "Editor and language services" = "Editor and language services";
+"Editor color scheme" = "Editor color scheme";
+"Editor colors follow light and dark appearance independently of the interface theme." = "Editor colors follow light and dark appearance independently of the interface theme.";
+"Editor display" = "Editor display";
 "Editor resources are missing. Rebuild or reinstall Lithe." = "Editor resources are missing. Rebuild or reinstall Lithe.";
 "Editor tabs" = "Editor tabs";
 "Edits" = "Edits";
@@ -1323,6 +1337,7 @@
 "Enable for this project" = "Enable for this project";
 "Enable skill" = "Enable skill";
 "Enabled" = "Enabled";
+"Enabled by color scheme" = "Enabled by color scheme";
 "Enabled in Agent" = "Enabled in Agent";
 "Enabled plugins can also use this project grant." = "Enabled plugins can also use this project grant.";
 "End All" = "End All";
@@ -1524,6 +1539,7 @@
 "Follow the instructions you define below" = "Follow the instructions you define below";
 "Follows each remote's tag setting" = "Follows each remote's tag setting";
 "Font" = "Font";
+"Font ligatures" = "Font ligatures";
 "Font size" = "Font size";
 "For example, notify" = "For example, notify";
 "For example, notify me when a turn ends" = "For example, notify me when a turn ends";
@@ -1679,6 +1695,7 @@
 "Hide visualization" = "Hide visualization";
 "Hide worktree repositories" = "Hide worktree repositories";
 "High" = "High";
+"Highlight current line" = "Highlight current line";
 "Highlight words" = "Highlight words";
 "Hint" = "Hint";
 "History" = "History";
@@ -1800,6 +1817,7 @@
 "Instructions" = "Instructions";
 "Instructions saved." = "Instructions saved.";
 "Integrate incoming changes into current branch (M)" = "Integrate incoming changes into current branch (M)";
+"IntelliJ IDEA" = "IntelliJ IDEA";
 "Interactive Rebase" = "Interactive Rebase";
 "Interactive Rebase Aborted" = "Interactive Rebase Aborted";
 "Interactive Rebase Completed" = "Interactive Rebase Completed";
@@ -1826,6 +1844,7 @@
 "Invalid shared instruction request." = "Invalid shared instruction request.";
 "Invert" = "Invert";
 "It can read files, run commands and edit code after asking for permission." = "It can read files, run commands and edit code after asking for permission.";
+"Italic comments" = "Italic comments";
 "Item %lld of %lld" = "Item %lld of %lld";
 "Its details and actions will appear here." = "Its details and actions will appear here.";
 "Its session was closed or could not be restored." = "Its session was closed or could not be restored.";
@@ -1933,6 +1952,8 @@
 "Line" = "Line";
 "Line Breakpoints" = "Line Breakpoints";
 "Line breakpoint actions" = "Line breakpoint actions";
+"Line numbers" = "Line numbers";
+"Line spacing" = "Line spacing";
 "Linear" = "Linear";
 "Lines kept for scrolling back in new terminal sessions." = "Lines kept for scrolling back in new terminal sessions.";
 "Linked this conversation to a pull request" = "Linked this conversation to a pull request";
@@ -2932,6 +2953,7 @@
 "Registry website" = "Registry website";
 "Regular Expression" = "Regular Expression";
 "Reinstall" = "Reinstall";
+"Relative" = "Relative";
 "Release Date" = "Release Date";
 "Release note" = "Release note";
 "Release notes" = "Release notes";
@@ -3007,6 +3029,7 @@
 "Rename conversation" = "Rename conversation";
 "Renamed" = "Renamed";
 "Rename…" = "Rename…";
+"Render whitespace" = "Render whitespace";
 "Reopen Pull Request" = "Reopen Pull Request";
 "Reopen pull request" = "Reopen pull request";
 "Reopen pull request?" = "Reopen pull request?";
@@ -3267,6 +3290,7 @@
 "Saving writes to" = "Saving writes to";
 "Scala Support" = "Scala Support";
 "Scope" = "Scope";
+"Scroll beyond last line" = "Scroll beyond last line";
 "Scroll to new Git output" = "Scroll to new Git output";
 "Scrollback" = "Scrollback";
 "Search" = "Search";
@@ -3351,6 +3375,7 @@
 "Selected directory" = "Selected directory";
 "Selected from disk. The publisher and repository have not been verified." = "Selected from disk. The publisher and repository have not been verified.";
 "Selected runtime" = "Selected runtime";
+"Selection" = "Selection";
 "Self-update is only available when Lithe is running from a packaged Lithe.app." = "Self-update is only available when Lithe is running from a packaged Lithe.app.";
 "Send" = "Send";
 "Send a message to %@" = "Send a message to %@";
@@ -3443,6 +3468,7 @@
 "Show conversation" = "Show conversation";
 "Show file history" = "Show file history";
 "Show in Finder" = "Show in Finder";
+"Show indent guides" = "Show indent guides";
 "Show indexed Spring MVC routes" = "Show indexed Spring MVC routes";
 "Show its own page in a tool window" = "Show its own page in a tool window";
 "Show less" = "Show less";
@@ -3520,10 +3546,14 @@
 "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them." = "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them.";
 "Smart Step Into" = "Smart Step Into";
 "Smart step into" = "Smart step into";
+"Smooth" = "Smooth";
+"Smooth scrolling" = "Smooth scrolling";
 "Soft Reset (Keep Changes Staged)" = "Soft Reset (Keep Changes Staged)";
 "Soft Wraps" = "Soft Wraps";
+"Soft wrap" = "Soft wrap";
 "Soft wrap is unavailable for very large files" = "Soft wrap is unavailable for very large files";
 "Software Update" = "Software Update";
+"Solid" = "Solid";
 "Solidity Support" = "Solidity Support";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Some dependencies are not shown." = "Some dependencies are not shown.";
@@ -3613,6 +3643,7 @@
 "Step out" = "Step out";
 "Step over" = "Step over";
 "Stepping by instruction" = "Stepping by instruction";
+"Sticky scroll" = "Sticky scroll";
 "Stop" = "Stop";
 "Stop %@" = "Stop %@";
 "Stop Camera" = "Stop Camera";
@@ -3674,6 +3705,7 @@
 "Sync needed" = "Sync needed";
 "Sync with Remote" = "Sync with Remote";
 "Synchronize tags and remove local tags missing from the remote" = "Synchronize tags and remove local tags missing from the remote";
+"Syntax highlighting" = "Syntax highlighting";
 "System" = "System";
 "System Git" = "System Git";
 "System default" = "System default";
@@ -4168,6 +4200,7 @@
 "Total tokens: %@" = "Total tokens: %@";
 "Tracking %@" = "Tracking %@";
 "Tracking Branch" = "Tracking Branch";
+"Trailing" = "Trailing";
 "Transport" = "Transport";
 "Tree conflict" = "Tree conflict";
 "Try Again" = "Try Again";
@@ -4210,6 +4243,7 @@
 "Uncommitted changes block this revert" = "Uncommitted changes block this revert";
 "Uncommitted changes stay in this worktree and are not included in the pull request." = "Uncommitted changes stay in this worktree and are not included in the pull request.";
 "Uncommitted submodule changes" = "Uncommitted submodule changes";
+"Underline" = "Underline";
 "Undo" = "Undo";
 "Undo Commit" = "Undo Last Commit (Keep Changes)";
 "Undo Commit…" = "Undo Last Commit (Keep Changes)…";
@@ -4352,6 +4386,7 @@
 "Usually the reversed domain name of your organization, such as com.example." = "Usually the reversed domain name of your organization, such as com.example.";
 "VM arguments" = "VM arguments";
 "VM options" = "VM options";
+"VS Code" = "VS Code";
 "Valid" = "Valid";
 "Valid values are saved as you type." = "Valid values are saved as you type.";
 "Validating the credential stored in Keychain…" = "Validating the credential stored in Keychain…";
@@ -5798,6 +5833,41 @@
 "native.editedLldFiles" = "Edited %1$lld files";
 "native.editor" = "Editor";
 "native.editorAndLanguageServices" = "Editor and language services";
+"native.editorAppearanceAbsolute" = "Absolute";
+"native.editorAppearanceAppliesImmediatelyToSourceEditorsInAllProjects" = "Applies immediately to source editors in all projects.";
+"native.editorAppearanceBlink" = "Blink";
+"native.editorAppearanceBlock" = "Block";
+"native.editorAppearanceBoundary" = "Boundary";
+"native.editorAppearanceBracketSchemeDisabled" = "Disabled by color scheme";
+"native.editorAppearanceBracketSchemeEnabled" = "Enabled by color scheme";
+"native.editorAppearanceBracketSchemeInfo" = "Bracket colors follow the selected editor color scheme.";
+"native.editorAppearanceColorizeBracketPairs" = "Colorize bracket pairs";
+"native.editorAppearanceCursor" = "Cursor";
+"native.editorAppearanceCursorBlinking" = "Cursor blinking";
+"native.editorAppearanceCursorStyle" = "Cursor style";
+"native.editorAppearanceEditorColorScheme" = "Editor color scheme";
+"native.editorAppearanceEditorColorsFollowLightAndDarkAppearanceIndependentlyOfTheInterfaceTheme" = "Editor colors follow light and dark appearance independently of the interface theme.";
+"native.editorAppearanceEditorDisplay" = "Editor display";
+"native.editorAppearanceFontLigatures" = "Font ligatures";
+"native.editorAppearanceHighlightCurrentLine" = "Highlight current line";
+"native.editorAppearanceIntelliJIDEA" = "IntelliJ IDEA";
+"native.editorAppearanceItalicComments" = "Italic comments";
+"native.editorAppearanceLineNumbers" = "Line numbers";
+"native.editorAppearanceLineSpacing" = "Line spacing";
+"native.editorAppearanceRelative" = "Relative";
+"native.editorAppearanceRenderWhitespace" = "Render whitespace";
+"native.editorAppearanceScrollBeyondLastLine" = "Scroll beyond last line";
+"native.editorAppearanceSelection" = "Selection";
+"native.editorAppearanceShowIndentGuides" = "Show indent guides";
+"native.editorAppearanceSmooth" = "Smooth";
+"native.editorAppearanceSmoothScrolling" = "Smooth scrolling";
+"native.editorAppearanceSoftWrap" = "Soft wrap";
+"native.editorAppearanceSolid" = "Solid";
+"native.editorAppearanceStickyScroll" = "Sticky scroll";
+"native.editorAppearanceSyntaxHighlighting" = "Syntax highlighting";
+"native.editorAppearanceTrailing" = "Trailing";
+"native.editorAppearanceUnderline" = "Underline";
+"native.editorAppearanceVSCode" = "VS Code";
 "native.editorResourcesAreMissingRebuildOrReinstallLithe" = "Editor resources are missing. Rebuild or reinstall Lithe.";
 "native.edits" = "Edits";
 "native.effectiveFetchOptions" = "Effective Fetch options";

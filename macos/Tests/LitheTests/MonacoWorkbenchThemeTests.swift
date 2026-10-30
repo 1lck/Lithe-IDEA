@@ -4,6 +4,17 @@ import Testing
 
 @Suite("Monaco workbench theme")
 struct MonacoWorkbenchThemeTests {
+    @Test func syntaxPreferencesCrossTheBridgeWithoutChangingWorkbenchSurfaces() {
+        let original = MonacoWorkbenchThemeConfiguration(colorTheme: .linear, isDark: true,
+            revealsWorkbenchBackground: true)
+        let customized = MonacoWorkbenchThemeConfiguration(colorTheme: .linear, isDark: true,
+            revealsWorkbenchBackground: true, syntaxScheme: .github, italicComments: true)
+        #expect(customized.colors == original.colors)
+        #expect(customized.id != original.id)
+        #expect(customized.bridgePayload["syntaxScheme"] as? String == "github")
+        #expect(customized.bridgePayload["italicComments"] as? Bool == true)
+    }
+
     @Test func workbenchBackgroundMakesOnlyTheEditorSurfaceTransparent() {
         let solid = MonacoWorkbenchThemeConfiguration(
             colorTheme: .lithe,
