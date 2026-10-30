@@ -168,6 +168,7 @@ import {
 } from "../engines/monaco/java-run-markers";
 import type { JavaImplementationMarker } from "../lsp/java-navigation-models";
 import { toast } from "sonner";
+import { writeClipboardText } from "@/utils/clipboard";
 
 registerMonacoLspProviders();
 registerMonacoCodeLensProvider();
@@ -898,7 +899,15 @@ export function MonacoEditor({
   const [gutterMenuPosition, setGutterMenuPosition] = useState<{
     x: number;
     y: number;
+    lineNumber: number;
   } | null>(null);
+  // Commit actions only exist for a line that is already annotated by a commit;
+  // uncommitted lines keep the toggle and line history but nothing to open.
+  const gutterMenuBlame =
+    gutterMenuPosition && blameVisible
+      ? getBlameForLine(gutterMenuPosition.lineNumber - 1)
+      : null;
+  const gutterMenuCommit = gutterMenuBlame?.is_uncommitted ? null : gutterMenuBlame;
   const [runMarkerMenu, setRunMarkerMenu] = useState<{
     marker: JavaRunMarker;
     position: { x: number; y: number };
@@ -1350,46 +1359,41 @@ export function MonacoEditor({
           monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS,
           monacoEditor.MouseTargetType.GUTTER_LINE_DECORATIONS,
         ];
-        const lineTargetTypes = [
-          ...gutterTypes,
-          monacoEditor.MouseTargetType.CONTENT_TEXT,
-          monacoEditor.MouseTargetType.CONTENT_EMPTY,
-        ];
-        const isLineNumberTarget = lineTargetTypes.includes(event.target.type);
         const isGutterTarget = gutterTypes.includes(event.target.type);
-        if (event.target.type === monacoEditor.MouseTargetType.GUTTER_LINE_NUMBERS) {
-          // IDEA answers "this line" from a two-item menu here; the editor menu
-          // would bury the Git actions among editing commands.
+        // Every gutter column (glyph margin, line numbers, line decorations)
+        // belongs to the line menu: IDEA answers the same actions wherever the
+        // user right-clicks inside the gutter.
+        if (isGutterTarget && event.target.position) {
           editor.focus();
           setContextMenuPosition(null);
           setContextMenuRunMarker(null);
-          if (event.target.position) {
-            const clickedLine = event.target.position.lineNumber;
-            const currentSelection = editor.getSelection();
-            let span: Parameters<typeof gutterLineRange>[1] = null;
-            if (currentSelection && !currentSelection.isEmpty()) {
-              const firstLine = Math.min(
-                currentSelection.startLineNumber,
-                currentSelection.endLineNumber,
-              );
-              const lastLine = Math.max(
-                currentSelection.startLineNumber,
-                currentSelection.endLineNumber,
-              );
-              const lastLineColumn =
-                currentSelection.endLineNumber >= currentSelection.startLineNumber
-                  ? currentSelection.endColumn
-                  : currentSelection.startColumn;
-              span = { firstLine, lastLine, lastLineColumn };
-            }
-            pendingLineHistoryRangeRef.current = gutterLineRange(clickedLine, span);
-          } else {
-            pendingLineHistoryRangeRef.current = null;
+          const clickedLine = event.target.position.lineNumber;
+          const currentSelection = editor.getSelection();
+          let span: Parameters<typeof gutterLineRange>[1] = null;
+          if (currentSelection && !currentSelection.isEmpty()) {
+            const firstLine = Math.min(
+              currentSelection.startLineNumber,
+              currentSelection.endLineNumber,
+            );
+            const lastLine = Math.max(
+              currentSelection.startLineNumber,
+              currentSelection.endLineNumber,
+            );
+            const lastLineColumn =
+              currentSelection.endLineNumber >= currentSelection.startLineNumber
+                ? currentSelection.endColumn
+                : currentSelection.startColumn;
+            span = { firstLine, lastLine, lastLineColumn };
           }
-          setGutterMenuPosition({ x: event.event.posx, y: event.event.posy });
+          pendingLineHistoryRangeRef.current = gutterLineRange(clickedLine, span);
+          setGutterMenuPosition({
+            x: event.event.posx,
+            y: event.event.posy,
+            lineNumber: clickedLine,
+          });
           return;
         }
-        if (isLineNumberTarget && event.target.position) {
+        if (event.target.position) {
           const clickedLine = event.target.position.lineNumber;
           const currentSelection = editor.getSelection();
           let span: Parameters<typeof gutterLineRange>[1] = null;
@@ -1413,7 +1417,8 @@ export function MonacoEditor({
           pendingLineHistoryRangeRef.current = null;
         }
 
-        if (event.target.position && !isGutterTarget) {
+        // Content targets only: the gutter returned above with its own menu.
+        if (event.target.position) {
           setContextMenuRunMarker(
             javaRunMarkerForLine(javaRunMarkersRef.current, event.target.position.lineNumber - 1),
           );
@@ -2835,6 +2840,30 @@ export function MonacoEditor({
                 : undefined
             }
             blameVisible={blameVisible}
+            onShowDiff={
+              gutterMenuCommit
+                ? () => {
+                    const lineNumber = gutterMenuPosition.lineNumber;
+                    setGutterMenuPosition(null);
+                    void openBlameCommitRef.current(lineNumber);
+                  }
+                : undefined
+            }
+            onCopyRevision={
+              gutterMenuCommit
+                ? () => {
+                    const hash = gutterMenuCommit.commit_hash;
+                    setGutterMenuPosition(null);
+                    void writeClipboardText(hash).then(
+                      () => toast.success(t("git.blame.revisionCopied")),
+                      (error: unknown) => {
+                        console.error("Failed to copy the revision number:", error);
+                        toast.error(t("git.operationFailed"));
+                      },
+                    );
+                  }
+                : undefined
+            }
             onLineHistory={
               rootFolderPath &&
               filePath &&

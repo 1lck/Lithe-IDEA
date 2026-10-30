@@ -2,7 +2,7 @@
   "id": "editor-git-blame-menu",
   "area": "编辑器",
   "group": "Git 变更",
-  "capability": "行号区域右键打开精简菜单，通过 Annotate with Git Blame 显示注释，已显示时可隐藏；注释每行标注，先日期（yyyy/M/d）后作者，右对齐紧贴行号；点注释打开该行所属提交；非仓库及未跟踪文件不显示入口；已有断点的行号右键只打开同一菜单，断点编辑必须显式选择",
+  "capability": "行号及行号左侧的 gutter 区域右键打开精简菜单：未注释时显示 Annotate with Git Blame，已注释时显示 Close Annotations、Show Diff（打开该行提交）、Copy Revision Number，并以分隔线与 Show Line History 分组；注释每行标注，先日期（yyyy/M/d）后作者，右对齐紧贴行号；点注释直接打开该行提交；非仓库及未跟踪文件不显示入口；已有断点的行号右键只打开同一菜单，断点编辑必须显式选择",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",

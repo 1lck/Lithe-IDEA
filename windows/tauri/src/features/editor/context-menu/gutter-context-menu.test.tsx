@@ -23,16 +23,45 @@ describe("gutter context menu", () => {
       blameVisible: true,
     });
 
+    // IDEA names the same action "Close Annotations" while annotating.
     expect(items[0]?.label).toBe("git.blame.hide");
   });
 
-  test("keeps line history beside the annotate toggle", () => {
+  test("adds the commit actions only while annotations are shown", () => {
+    const handlers = {
+      t,
+      onToggleBlame: () => {},
+      onShowDiff: () => {},
+      onCopyRevision: () => {},
+      onLineHistory: () => {},
+    };
+
+    expect(buildGutterContextMenuItems(handlers).map((item) => item.id)).toEqual([
+      "toggle-blame",
+      "blame-separator",
+      "line-history",
+    ]);
+
+    // Show Diff and Copy Revision act on the annotated commit, so they cannot
+    // appear before the annotation exists.
+    expect(
+      buildGutterContextMenuItems({ ...handlers, blameVisible: true }).map((item) => item.id),
+    ).toEqual([
+      "toggle-blame",
+      "blame-show-diff",
+      "blame-copy-revision",
+      "blame-separator",
+      "line-history",
+    ]);
+  });
+
+  test("drops the commit actions for a line without a commit", () => {
     const items = buildGutterContextMenuItems({
       t,
       onToggleBlame: () => {},
-      onLineHistory: () => {},
+      blameVisible: true,
     });
 
-    expect(items.map((item) => item.id)).toEqual(["toggle-blame", "line-history"]);
+    expect(items.map((item) => item.id)).toEqual(["toggle-blame"]);
   });
 });

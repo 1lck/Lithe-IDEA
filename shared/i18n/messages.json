@@ -12425,8 +12425,29 @@
       ]
     },
     {
+      "id": "git.blame.copyRevision",
+      "description": "Windows UI: git.blame.copyRevision",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "git.blame.hide",
       "description": "Windows UI: git.blame.hide",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.revisionCopied",
+      "description": "Windows UI: git.blame.revisionCopied",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.showDiff",
+      "description": "Windows UI: git.blame.showDiff",
       "platforms": [
         "windows"
       ]
