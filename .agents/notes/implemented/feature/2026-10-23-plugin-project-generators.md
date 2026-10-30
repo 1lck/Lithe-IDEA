@@ -120,7 +120,7 @@
 - 收益：设置窗口、克隆窗口和向导共用侧栏行、字段控件和文件夹选择器，样式不会各自漂移。
 - 代价：Spring Boot 的版本和依赖列表写在插件里，会随时间过时，要靠插件发版更新；动态列表要等 Provider 能力。
 - 代价：Java Support 的 `requires` 多了 `projectGenerators: 1`，不支持生成器的宿主装不了这一版；停用 Java Support 时模板一起停用。
-- 暂不支持：JavaFX、Quarkus、Micronaut、Jakarta EE 等其他 Java 生成器；Windows 宿主（不声明 `projectGenerators`，需要它的插件在 Windows 市场中隐藏）。
+- 暂不支持：JavaFX、Quarkus、Micronaut、Jakarta EE 等其他 Java 生成器；Windows 完整 Java Support 分发与生成后语言服务/构建运行链；Windows 现已单独接入 `projectGenerators:1`，其他完整 `requires` 仍必须满足。
 
 ## 验证
 
@@ -146,7 +146,8 @@ ZIP 摘要与完整文件核对，只用作本次联网集成输入，不执行�
 
 夹具、固定归档参考、项目输出和报告都属于本次验收，使用既有
 `plugin-host-acceptance-state` 排除路由，不能跨工作树复用，不写发行资源。
-当前 `projectGenerators` 门控仍关闭；真实固定生成器包、所选 JDK、欢迎页实机、
+R29 的当前候选源码仅开放 `projectGenerators:1`，使独立生成器包经过正常审批后进入
+既有创建链；受控 x64 产品验收仍须完成才保留该准入。真实固定生成器包、所选 JDK、欢迎页实机、
 工作区切换、生成后的语言服务与构建运行、签名 Windows 包和 ARM64 尚待验证。
 因此受控创建链有独立的成功标记，完整 M8/M10 继续保持 `partial/pending`。
 

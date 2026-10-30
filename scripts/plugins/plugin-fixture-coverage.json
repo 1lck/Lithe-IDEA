@@ -650,7 +650,7 @@
       ],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "Windows 宿主测试通过 fixture 默认 app 计划调用真实 Core 并生成/检查 README.md、.gitignore；模板逐字节 golden 仍由 Core 拥有。projectGenerators 门控关闭，真实安装包向导及创建后构建闭环待 M8/M10。"
+      "gapDetail": "Windows 宿主测试通过 fixture 默认 app 计划调用真实 Core 并生成/检查 README.md、.gitignore；模板逐字节 golden 仍由 Core 拥有。R29候选单独声明projectGenerators:1，完整requires与缺失/错误版本目录拒绝仍受Core约束，真实安装包向导及创建后构建闭环待 M8/M10。"
     },
     {
       "path": "project-generator-templates/app/dot-gitignore",
@@ -664,7 +664,7 @@
       ],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "Windows 宿主测试通过 fixture 默认 app 计划调用真实 Core 并生成/检查 README.md、.gitignore；模板逐字节 golden 仍由 Core 拥有。projectGenerators 门控关闭，真实安装包向导及创建后构建闭环待 M8/M10。"
+      "gapDetail": "Windows 宿主测试通过 fixture 默认 app 计划调用真实 Core 并生成/检查 README.md、.gitignore；模板逐字节 golden 仍由 Core 拥有。R29候选单独声明projectGenerators:1，完整requires与缺失/错误版本目录拒绝仍受Core约束，真实安装包向导及创建后构建闭环待 M8/M10。"
     },
     {
       "path": "project-generator-templates/main/Main.java",
@@ -694,11 +694,12 @@
       "windowsEvidence": [
         "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs",
         "windows/tauri/src-tauri/src/plugin_host/project_generators/archive.rs",
-        "windows/tauri/src/features/project-generators/generation-session.test.ts"
+        "windows/tauri/src/features/project-generators/generation-session.test.ts",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs"
       ],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "Windows R10 已接入显式启用、市场查询和 segmented 字段，使用真实 fixture 验证默认及 Maven/sample 生成分支、归档和事务清理。能力仍关闭，完整正式插件包/实机向导及创建后构建验收待 M8/M10。"
+      "gapDetail": "Windows R29候选只开放projectGenerators:1；宿主真实capability清单验证接受该完整fixture，目录回归同时拒绝缺失/错误宿主版本。既有Core计划、事务、显式启用和归档测试继续覆盖；当前固定隔离Release的完整受控创建/打开流程及真实发布包/创建后语言服务构建运行仍须独立验收，不因清单准入或helper通过升级状态。"
     },
     {
       "path": "project-plans.json",

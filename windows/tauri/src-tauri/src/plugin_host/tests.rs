@@ -16,13 +16,14 @@ const FIXTURES_DIR: &str = concat!(
 );
 
 /// Valid manifests that this host's capability declaration accepts.
-const ACCEPTED_FIXTURES: [&str; 6] = [
+const ACCEPTED_FIXTURES: [&str; 7] = [
     "language-system-command.plugin.json",
     "hello-lithe.plugin.json",
     "language-host-integration.plugin.json",
     "node-runtime.plugin.json",
     "language-packaged-server.plugin.json",
     "web-panel.plugin.json",
+    "project-generator.plugin.json",
 ];
 
 /// Valid manifests whose capabilities exceed the host declaration; Core

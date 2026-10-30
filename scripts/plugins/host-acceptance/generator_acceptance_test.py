@@ -64,6 +64,28 @@ class GeneratorHelperTests(unittest.TestCase):
         driver.AppSession.assert_not_called()
         driver.sync_playwright.assert_not_called()
 
+    def test_pending_generation_cancel_uses_the_actual_product_label(self):
+        page = MagicMock()
+        acceptance.cancel_generation(page)
+        messages = json.loads((fixture.ROOT / "shared/i18n/locales/en-US.json").read_text(encoding="utf-8"))["messages"]
+        page.get_by_role.assert_called_once_with("button", name=messages["generator.cancel"], exact=True)
+        page.get_by_role.return_value.click.assert_called_once_with(timeout=10_000)
+
+    def test_installation_evidence_discloses_programs_before_reading(self):
+        events = []
+        review = MagicMock()
+        review.get_by_role.return_value.click.side_effect = lambda **kwargs: events.append("disclosed")
+        def text(**kwargs):
+            if events != ["disclosed"]:
+                raise AssertionError("program details were still collapsed")
+            return "Unverified publisher project.generate node"
+        review.inner_text.side_effect = text
+        self.assertIn("node", acceptance.installation_review_text(review))
+        role, kwargs = review.get_by_role.call_args
+        self.assertEqual(role, ("button",))
+        self.assertTrue(kwargs["name"].fullmatch("Program declaration (1)"))
+        review.locator.return_value.wait_for.assert_called_once_with(state="visible", timeout=5000)
+
     def test_source_identity_mismatch_fails_before_product_launch(self):
         driver = MagicMock()
         plan = {"requires": fixture.REQUIRES, "sourceInventory": {"source": "first"}}
@@ -73,6 +95,34 @@ class GeneratorHelperTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "identity mismatch"):
                 acceptance.run(args, driver, MagicMock(), plan)
         driver.AppSession.assert_not_called()
+
+    def test_supervised_result_aggregates_without_reading_raw_owner_evidence(self):
+        # Exercise the actual Node report entry after the Python supervisor;
+        # an owner JSON next to the report used to invalidate all aggregation.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            report, evidence = root / "reports/generator.json", root / "evidence"
+            result = {"status": "passed", "durationMs": 1,
+                      "cleanup": {"jobTerminated": True, "activeProcesses": 0}}
+            def completed_worker(*args):
+                self.assertFalse(evidence.exists())
+                report.write_bytes(fixture.json_bytes({"runner": "acceptance", "tests": []}))
+                return result
+            arguments = ["generator_acceptance.py", "--fixture-root", str(root / "inputs"),
+                         "--report", str(report), "--artifact-root", str(evidence)]
+            for key in ("host-identity", "executable", "run-image", "app-local-data", "app-roaming-data", "webview-data"):
+                arguments.extend(["--" + key, str(root / key)])
+            with patch.object(sys, "argv", arguments), \
+                    patch.object(acceptance, "load_plan", return_value={}), \
+                    patch("vcs_move_diagnostic.supervised", side_effect=completed_worker):
+                self.assertEqual(acceptance.main(), 0)
+            self.assertEqual(json.loads((evidence / "suite-owner.json").read_text(encoding="utf-8")), result)
+            generated = subprocess.run(
+                ["node", str(fixture.ROOT / ".agents/skills/write-stable-tests/scripts/generate-test-report.mjs"),
+                 "--input-dir", str(report.parent)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
+            self.assertEqual(generated.returncode, 0, generated.stdout + generated.stderr)
+            self.assertIn("generator suite owner", (report.parent / "index.html").read_text(encoding="utf-8"))
 
     def test_ineffective_cancel_fails_before_natural_exit(self):
         now = [0]

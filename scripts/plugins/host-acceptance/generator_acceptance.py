@@ -51,6 +51,17 @@ def assert_clean_projects(parent: Path, *absent: str) -> None:
         raise AssertionError(f"generator left partial output/staging: {stages}; targets: {absent}")
 
 
+def installation_review_text(review) -> str:
+    # Program details are collapsed by the product until explicitly disclosed.
+    review.get_by_role("button", name=re.compile(r"^Program declaration \(\d+\)$")).click(timeout=10_000)
+    review.locator("pre").wait_for(state="visible", timeout=5000)
+    return review.inner_text(timeout=5000)
+
+
+def cancel_generation(page) -> None:
+    page.get_by_role("button", name="Cancel generation", exact=True).click(timeout=10_000)
+
+
 def runtime_paths(args) -> None:
     """Bind the immutability claim to the actual launched image and its inputs."""
     image, executable = args.run_image.resolve(strict=True), args.executable.resolve(strict=True)
@@ -220,7 +231,7 @@ def run(args, driver, reporter, plan):
                     page.set_default_timeout(10_000)
                     driver.finish_onboarding(page)
                     review = driver.import_review(page, session.process.pid, confined(args.fixture_root, plan["archive"]["path"]))
-                    text = review.inner_text(timeout=5000)
+                    text = installation_review_text(review)
                     if "Unverified publisher" not in text or "project.generate" not in text or "node" not in text:
                         raise AssertionError("complete unsigned generator permissions/program review missing")
                     write("install-review", {"text": text, "requires": plan["requires"]})
@@ -282,7 +293,7 @@ def run(args, driver, reporter, plan):
                             child = json.loads(marker.read_text(encoding="utf-8"))["pid"]
                             owner = owned_marker_process(driver, session, child)
                             if case == CASES[7]:
-                                page.get_by_role("button", name="Cancel", exact=True).click(timeout=10_000)
+                                cancel_generation(page)
                             else:
                                 page.keyboard.press("Escape")
                             closed = (lambda: page.get_by_role("heading", name="Plugin project generators", exact=True).count() == 0) if case == CASES[8] else None
@@ -391,7 +402,10 @@ def main():
         args.report.parent.mkdir(parents=True, exist_ok=True)
         result = supervised([sys.executable, "-B", str(Path(__file__).resolve()), *sys.argv[1:], "--worker"],
                             600, args.report.with_suffix(".worker.log"), WindowsJob)
-        args.report.with_suffix(".owner.json").write_bytes(json_bytes(result))
+        # Keep raw owner evidence out of the normalized report aggregation.
+        # The worker requires its evidence root to be absent when it starts.
+        args.artifact_root.mkdir(parents=True, exist_ok=True)
+        (args.artifact_root / "suite-owner.json").write_bytes(json_bytes(result))
         report = (json.loads(args.report.read_text(encoding="utf-8")) if args.report.exists()
                   else {"runner": "acceptance", "warnMs": 30_000, "maxMs": 120_000,
                         "tests": pending_rows("Not executed to completion.")})

@@ -381,13 +381,37 @@ fn archive_plan_requires_an_explicit_native_archive_executor() {
 }
 
 #[test]
-fn production_catalog_does_not_bypass_closed_host_capabilities() {
+fn production_catalog_requires_the_exact_hosted_generator_capability() {
     let package = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../shared/contracts/plugins/v1/fixtures/project-generator.plugin.json");
     let manifest: Value = serde_json::from_str(&fs::read_to_string(package).unwrap()).unwrap();
     let catalog = core("project.generatorCatalog", json!({"plugins":[{"manifest":manifest,"enabled":true}],"hostCapabilities":super::super::host_capabilities()}), "catalog").unwrap();
-    assert!(catalog["generators"].as_array().unwrap().is_empty());
-    assert!(!catalog["issues"].as_array().unwrap().is_empty());
+    assert_eq!(catalog["generators"].as_array().unwrap().len(), 3);
+    assert!(catalog["issues"].as_array().unwrap().is_empty());
+
+    // Keep the complete-package gate covered after admitting this one domain.
+    // An unknown level is not equivalent to the hosted level 1.
+    for versions in [None, Some(json!([2]))] {
+        let mut capabilities = super::super::host_capabilities();
+        if let Some(versions) = versions {
+            capabilities["projectGenerators"] = versions;
+        } else {
+            capabilities
+                .as_object_mut()
+                .unwrap()
+                .remove("projectGenerators");
+        }
+        let rejected = core("project.generatorCatalog", json!({"plugins":[{"manifest":manifest,"enabled":true}],"hostCapabilities":capabilities}), "catalog").unwrap();
+        assert!(rejected["generators"].as_array().unwrap().is_empty());
+        assert_eq!(
+            rejected["issues"][0]["error"]["code"],
+            "plugin.api.unsupported"
+        );
+        assert_eq!(
+            rejected["issues"][0]["error"]["field"],
+            "requires.projectGenerators"
+        );
+    }
 }
 
 fn retained_operation(

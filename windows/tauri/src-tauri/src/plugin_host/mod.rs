@@ -58,6 +58,7 @@ use tauri::{AppHandle, Manager};
 /// grows per milestone of the declarative plugin host work. `languageServers`
 /// 2 and `settings` 2 add workspace configuration push and scoped settings
 /// (M3); `ui` 2 adds package web pages in host windows (M4);
+/// `projectGenerators` 1 admits the existing consent-bound creation workflow.
 /// `executionProviders`, `buildProviders` and `buildSystems` remain unhosted.
 pub fn host_capabilities() -> Value {
     json!({
@@ -66,6 +67,7 @@ pub fn host_capabilities() -> Value {
         "serverProcess": [1],
         "settings": [1, 2],
         "ui": [1, 2],
+        "projectGenerators": [1],
     })
 }
 
