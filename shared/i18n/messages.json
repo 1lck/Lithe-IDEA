@@ -92630,6 +92630,182 @@
         "key": "The plugin host request parameters are invalid.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.updateSource",
+      "description": "Native UI: Update source",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Update source",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stableUpdatesDownloadFromThisAddressAMirrorMustServeTheSameSignedAppcastAndUpdateArchivesSideBySideAndLitheStillV",
+      "description": "Native UI: Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.foundLitheAtThisSource",
+      "description": "Native UI: Found Lithe %@ at this source.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Found Lithe %@ at this source.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.enterAFullWebAddressSuchAsHttpsMirrorExampleComLithe",
+      "description": "Native UI: Enter a full web address, such as https://mirror.example.com/lithe/.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a full web address, such as https://mirror.example.com/lithe/.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.updateSourcesMustUseHttpsHttpIsOnlyAllowedForThisMacLocalhost",
+      "description": "Native UI: Update sources must use https://. http:// is only allowed for this Mac (localhost).",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Update sources must use https://. http:// is only allowed for this Mac (localhost).",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noUpdateFeedWasFoundAtThisAddressTheSourceMustProvideNextToTheUpdateArchives",
+      "description": "Native UI: No update feed was found at this address. The source must provide %@ next to the update archives.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No update feed was found at this address. The source must provide %@ next to the update archives.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theSourceListsLitheButDoesNotProvide",
+      "description": "Native UI: The source lists Lithe %@ but does not provide %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The source lists Lithe %@ but does not provide %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theConnectionToTimedOutCheckYourProxyOrVPNConnectionAndTryAgain",
+      "description": "Native UI: The connection to %@ timed out. Check your proxy or VPN connection and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The connection to %@ timed out. Check your proxy or VPN connection and try again.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.couldNotBeReachedCheckYourInternetProxyOrVPNConnectionAndTryAgain",
+      "description": "Native UI: %@ could not be reached. Check your internet, proxy, or VPN connection and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ could not be reached. Check your internet, proxy, or VPN connection and try again.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.aSecureConnectionToCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSystemCertificateSettings",
+      "description": "Native UI: A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.returnedHTTP",
+      "description": "Native UI: %@ returned HTTP %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ returned HTTP %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.returnedAnUnexpectedResponse",
+      "description": "Native UI: %@ returned an unexpected response.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ returned an unexpected response.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
     }
   ]
 }
