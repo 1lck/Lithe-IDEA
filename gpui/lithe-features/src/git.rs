@@ -4,8 +4,8 @@
 //!
 //! - **提交面板**（`Changes`）：单栏纵向布局。顶部是变更工具栏，中间是
 //!   按「已暂存 / 工作区 / 未跟踪」分组的变更树，底部是 IntelliJ 提交区
-//!   （Amend 行 → 消息输入框 → 提交 / 提交并推送按钮行）。点击文件把
-//!   diff 交给上层在编辑器中打开，不在面板内再分一栏。
+//!   （Amend 行 → 消息输入框 → 校验提示 → 提交 / 提交并推送按钮行）。点击
+//!   文件把 diff 交给上层在编辑器中打开，不在面板内再分一栏。
 //! - **提交记录**（`Git Log`）：同一个视图的日志模式，只渲染提交历史。
 //!
 //! # 数据边界
@@ -47,14 +47,24 @@
 //! 提交区的 Amend 开关只改变 `git.command` 的参数数组：勾选时是
 //! `["commit","--amend","-m",message]`，否则保持 `["commit","-m",message]`。
 //! 提交成功后开关复位为关闭。
+//!
+//! # 提交区交互
+//!
+//! 消息输入是多行 `TextareaState`：`Enter` 换行，`Ctrl/Cmd+Enter` 提交
+//! （gpui-base 把这两个组合绑成 `secondary: true` 的 `Enter`，与 Tauri 的
+//! `handleKeyDown` 一致）。按钮在「无暂存文件 / 无消息 / 忙碌」时禁用，但键盘
+//! 提交仍会留下 `commit_hint` 说明缺什么，用户补上后对应那半提示自动消失。
+//!
+//! AI 生成按钮只对齐位置与可用性：GPUI 构建没有 HTTP 客户端，生成动作由
+//! Agent 面板承担，点击按钮与右侧齿轮都跳到设置页「AI 与提交」。
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::{Disableable as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Entity, FontWeight,
@@ -96,6 +106,8 @@ const CHANGES_TOOLBAR_BUTTON_SIZE: f32 = 22.0;
 
 /// 一次「打开文件」回调。与 `ProjectTree` 保持同一形态。
 type OpenFileHandler = Rc<dyn Fn(PathBuf, &mut Window, &mut App) + 'static>;
+/// 「去设置里配置」一类无参回调；与 `SettingsView::on_open_run` 同形。
+type OpenHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 /// 视图的两种用途。同一个视图实体类型服务两个工具窗，避免重复实现列表逻辑。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,9 +316,10 @@ pub struct GitPanel {
     status: Option<CoreStatus>,
     selected: Option<Selection>,
     history: Vec<CoreCommit>,
-    /// 提交消息输入。`InputState::new` 需要 `&mut Window`，而公开构造签名
-    /// 没有 window，因此延迟到首帧用 `defer_in` 创建。
-    commit_input: Option<Entity<InputState>>,
+    /// 提交消息输入。`TextareaState::new` 需要 `&mut Window`，而公开构造签名
+    /// 没有 window，因此延迟到首帧用 `defer_in` 创建。用多行输入对齐 Tauri
+    /// 的 `Textarea`：提交说明允许换行，Ctrl/Cmd+Enter 才提交。
+    commit_input: Option<Entity<TextareaState>>,
     loading_status: bool,
     loading_history: bool,
     committing: bool,
@@ -328,7 +341,26 @@ pub struct GitPanel {
     pending_initial_load: bool,
     /// 提交成功后等待在 render 里清空输入。
     pending_clear_message: bool,
+    /// AI 提交开关来自设置页（`AppSettings::ai_commit_enabled`）。GPUI 构建
+    /// 没有 HTTP 客户端，生成能力本身不接；按钮的可用性仍与 Tauri 一致，
+    /// 关掉开关就禁用，避免给出一个点了没反应的按钮。
+    ai_commit_enabled: bool,
+    /// 键盘提交时的校验提示，对齐 Tauri `commitHint`：按钮本身会被禁用，
+    /// 但 Ctrl/Cmd+Enter 仍要告诉用户缺了什么。用户补上对应内容后该部分自动消失。
+    commit_hint: Option<CommitHint>,
+    /// 提交输入框是否聚焦。`TextareaState` 没有公开的焦点句柄，因此从
+    /// `InputEvent::Focus` / `Blur` 里跟踪，用于聚焦时把描边换成强调色。
+    commit_focused: bool,
+    /// 点「AI 设置」齿轮时打开设置页 AI & Commit 的回调。
+    on_open_ai_settings: Option<OpenHandler>,
     on_open_file: Option<OpenFileHandler>,
+}
+
+/// 键盘提交失败的原因组合，对齐 Tauri `commitHint`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CommitHint {
+    no_changes: bool,
+    no_message: bool,
 }
 
 impl GitPanel {
@@ -369,6 +401,10 @@ impl GitPanel {
             generation: 0,
             pending_input_init: true,
             pending_clear_message: false,
+            ai_commit_enabled: false,
+            commit_hint: None,
+            commit_focused: false,
+            on_open_ai_settings: None,
             on_open_file: None,
         }
     }
@@ -391,6 +427,20 @@ impl GitPanel {
     /// 双击（或上层主动调用）变更行时回调绝对路径。
     pub fn on_open_file(&mut self, handler: impl Fn(PathBuf, &mut Window, &mut App) + 'static) {
         self.on_open_file = Some(Rc::new(handler));
+    }
+
+    /// 点提交区「AI 设置」齿轮时跳转设置页 AI & Commit。
+    pub fn on_open_ai_settings(&mut self, handler: impl Fn(&mut Window, &mut App) + 'static) {
+        self.on_open_ai_settings = Some(Rc::new(handler));
+    }
+
+    /// 同步设置页里的 AI 提交开关；关闭时提交区的 AI 按钮一并禁用。
+    pub fn set_ai_commit_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.ai_commit_enabled == enabled {
+            return;
+        }
+        self.ai_commit_enabled = enabled;
+        cx.notify();
     }
 
     /// 重置派生状态并并发加载 status / history。
@@ -695,12 +745,20 @@ impl GitPanel {
             return;
         };
         let message = input.read(cx).value().trim().to_string();
-        if message.is_empty() {
-            self.error = Some(SharedString::from(tr("Commit message is required")));
+        // 对齐 Tauri `handleCommit`：按钮在缺少文件或消息时禁用，但键盘提交
+        // 仍要留下可执行的提示，而不是静默什么都不做。
+        let no_changes = self.staged_count() == 0;
+        let no_message = message.is_empty();
+        if no_changes || no_message {
+            self.commit_hint = Some(CommitHint {
+                no_changes,
+                no_message,
+            });
             self.notice = None;
             cx.notify();
             return;
         }
+        self.commit_hint = None;
         let Some(root) = self.root.clone() else {
             self.error = Some(SharedString::from(tr("No project open")));
             cx.notify();
@@ -855,14 +913,55 @@ impl GitPanel {
         self.request_discard(selection.path, selection.group, cx);
     }
 
-    /// 首帧创建提交输入。`InputState::new` 需要 window，因此不能放在 `new`。
+    /// 首帧创建提交输入。`TextareaState::new` 需要 window，因此不能放在 `new`。
+    ///
+    /// 用多行输入对齐 Tauri 的 `Textarea`：提交说明允许换行，`Ctrl/Cmd+Enter`
+    /// 才提交，`Enter` 只换行。gpui-base 的 `Enter` 动作把 `cmd-enter`（macOS）
+    /// / `ctrl-enter`（其它平台）绑成 `secondary: true`，正好对应这里的判断。
     fn ensure_commit_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.commit_input.is_some() {
             return;
         }
-        self.commit_input =
-            Some(cx.new(|cx| InputState::new(window, cx).placeholder(tr("Commit message"))));
+        let input = cx.new(|cx| TextareaState::new(window, cx).placeholder(tr("Commit message")));
+        cx.subscribe_in(&input, window, {
+            move |this, _input, event: &InputEvent, window, cx| {
+                match event {
+                    // gpui-base 的 `Enter` 动作把 `cmd-enter`（macOS）/
+                    // `ctrl-enter`（其它平台）绑成 `secondary: true`，正好对应
+                    // Tauri 的 Ctrl/Cmd+Enter 提交；不带 Shift 才算提交。
+                    InputEvent::PressEnter { secondary, shift } => {
+                        if *secondary && !*shift {
+                            this.commit(window, cx);
+                        }
+                    }
+                    InputEvent::Focus => {
+                        this.commit_focused = true;
+                        cx.notify();
+                    }
+                    InputEvent::Blur => {
+                        this.commit_focused = false;
+                        cx.notify();
+                    }
+                    // 消息内容变化不需要额外处理：校验提示由 `visible_hint`
+                    // 按当前内容重算，用户补上缺失项后那一半会自动消失。
+                    InputEvent::Change => {}
+                }
+            }
+        })
+        .detach();
+        self.commit_input = Some(input);
         cx.notify();
+    }
+
+    /// 本次提交会包含的已暂存文件数；对齐 Tauri 的「包含在提交里的文件数」。
+    fn staged_count(&self) -> usize {
+        self.status.as_ref().map_or(0, |status| {
+            status
+                .changes
+                .iter()
+                .filter(|change| change.staged && change.can_toggle_staging)
+                .count()
+        })
     }
 
     /// 变更区工具栏：对齐 Tauri `GitStatusPanel` 的 `SidebarToolbar`
@@ -1053,8 +1152,8 @@ impl GitPanel {
         list.into_any_element()
     }
 
-    /// IntelliJ 提交区：分隔线之上是变更树，之下依次是 Amend 行、消息输入框
-    /// 与提交按钮行。几何对齐 Tauri `git-commit-panel`（gap 6px、内边距
+    /// IntelliJ 提交区：分隔线之上是变更树，之下依次是 Amend 行、消息输入框、
+    /// 校验提示与提交按钮行。几何对齐 Tauri `git-commit-panel`（gap 6px、内边距
     /// `3px 11px 6px`），不为它再套一层卡片边框。
     fn render_bottom(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
         let message = self
@@ -1064,23 +1163,22 @@ impl GitPanel {
             .unwrap_or_default();
         // 提交与索引写操作同一时刻只允许一个；Amend 开关同样在期间锁定。
         let busy = self.committing || self.pending_action.is_some();
+        let staged_count = self.staged_count();
+        let has_no_changes = staged_count == 0;
+        let has_no_message = message.trim().is_empty();
         let can_commit = self.root.is_some()
             && self
                 .status
                 .as_ref()
                 .is_some_and(|status| status.branch.is_some())
             && !busy
-            && !message.trim().is_empty();
-        // Tauri 统计的是「包含在本次提交里的文件数」，即已暂存条目。
-        let staged_count = self.status.as_ref().map_or(0, |status| {
-            status
-                .changes
-                .iter()
-                .filter(|change| change.staged && change.can_toggle_staging)
-                .count()
-        });
+            && !has_no_changes
+            && !has_no_message;
+        // AI 生成按钮的可用性规则与 Tauri `isGenerateDisabled` 一致：
+        // 未启用 / 没有暂存文件 / 正在提交时都禁用。
+        let can_generate = self.ai_commit_enabled && !has_no_changes && !busy;
 
-        // --- Amend 行：[x] Amend last commit ................ AI   N files ---
+        // --- Amend 行：[x] Amend last commit ........ AI   {N} staged  🕘 ---
         let amend_row = h_flex()
             .w_full()
             .flex_shrink_0()
@@ -1109,23 +1207,65 @@ impl GitPanel {
                     .child(tr("last commit")),
             )
             .child(div().flex_1())
+            // AI 生成按钮。GPUI 构建没有 HTTP 客户端，生成能力由 Agent 面板
+            // 承担，所以这里只对齐位置与可用性；关掉设置里的开关即禁用。
+            .child(
+                Button::new("lithe-git:generate-message")
+                    .secondary()
+                    .small()
+                    .flex_shrink_0()
+                    .label(tr("AI"))
+                    .icon(Icon::new(gpui_kit::assets::IconName::Sparkles))
+                    .tooltip(tr("Generate commit message with AI"))
+                    .disabled(!can_generate)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        // 生成动作不在本构建里；点击把用户带去配置页，避免
+                        // 留下一个点了没反应的按钮。
+                        this.open_ai_settings(window, cx);
+                    })),
+            )
             .child(
                 div()
                     .flex_shrink_0()
                     .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
                     .text_color(tokens.tertiary_text)
-                    .child(format!("{staged_count}")),
+                    .child(tr("{count} staged").replace("{count}", &staged_count.to_string())),
+            )
+            // 对齐 Tauri Amend 行右端的 `History` 回滚时钟图标。
+            .child(
+                Icon::new(gpui_kit::assets::IconName::RotateCcwClock)
+                    .flex_shrink_0()
+                    .text_color(tokens.tertiary_text),
             );
 
-        // --- 消息输入框：1px 中性边框，聚焦时换成强调色。 ---
+        // --- 消息输入框：1px 中性边框，聚焦时换成强调色，出错时换成错误色。 ---
+        let focused = self.commit_focused;
+        let has_error = self.error.is_some()
+            || self
+                .commit_hint
+                .is_some_and(|hint| hint.no_message && has_no_message);
+        let border_color = if has_error {
+            tokens.error
+        } else if focused {
+            tokens.accent
+        } else {
+            tokens.panel_border
+        };
+
         let input = match self.commit_input.as_ref() {
-            Some(input) => Input::new(input)
+            Some(input) => Textarea::new(input)
                 .w_full()
+                .h_full()
+                // 外框由下面的 message_box 提供，输入框自己不再画一层背景和描边，
+                // 否则套在一起会出现双边框。
+                .appearance(false)
+                .bordered(false)
                 .aria_label(tr("Commit message"))
                 .into_any_element(),
             None => div()
                 .w_full()
                 .h(px(LitheMetrics::TREE_ROW_HEIGHT))
+                .px(px(9.0))
                 .flex()
                 .items_center()
                 .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
@@ -1138,11 +1278,29 @@ impl GitPanel {
             .w_full()
             .flex_shrink_0()
             .h(px(COMMIT_MESSAGE_HEIGHT))
+            .overflow_hidden()
             .rounded(px(COMMIT_INPUT_RADIUS))
             .border_1()
-            .border_color(tokens.panel_border)
+            .border_color(border_color)
             .bg(tokens.editor)
             .child(input);
+
+        // --- 校验提示：只在键盘提交被拦下、且用户还没改掉对应问题时出现。 ---
+        // 与 Tauri 一致：补上文件或消息后，那一半提示自动消失。
+        let visible_hint = self.commit_hint.and_then(|hint| {
+            let no_changes = hint.no_changes && has_no_changes;
+            let no_message = hint.no_message && has_no_message;
+            // 每个分支都直接传字面量，i18n 生成脚本才会把三条文案收进词表。
+            if no_changes && no_message {
+                Some(tr("Select files to commit and specify commit message"))
+            } else if no_changes {
+                Some(tr("Select files to commit"))
+            } else if no_message {
+                Some(tr("Specify commit message"))
+            } else {
+                None
+            }
+        });
 
         // --- 按钮行：[提交] [提交并推送...] ......... 设置 ---
         let actions_row = h_flex()
@@ -1156,7 +1314,11 @@ impl GitPanel {
                 Button::new("lithe-git:commit")
                     .primary()
                     .small()
-                    .label(tr("Commit"))
+                    .label(if self.committing {
+                        tr("Committing...")
+                    } else {
+                        tr("Commit")
+                    })
                     .disabled(!can_commit)
                     .on_click(cx.listener(|this, _, window, cx| this.commit(window, cx))),
             )
@@ -1167,7 +1329,16 @@ impl GitPanel {
                     .disabled(!can_commit)
                     .on_click(cx.listener(|this, _, window, cx| this.commit_and_push(window, cx))),
             )
-            .child(div().flex_1());
+            .child(div().flex_1())
+            .child(
+                Button::new("lithe-git:commit-settings")
+                    .ghost()
+                    .with_size(px(COMMIT_ACTIONS_HEIGHT - 6.0))
+                    .rounded(px(4.0))
+                    .icon(Icon::new(gpui_kit::assets::IconName::Settings))
+                    .tooltip(tr("AI & Commit settings"))
+                    .on_click(cx.listener(|this, _, window, cx| this.open_ai_settings(window, cx))),
+            );
 
         v_flex()
             .id("lithe-git-commit-area")
@@ -1183,8 +1354,36 @@ impl GitPanel {
             .border_color(tokens.divider)
             .child(amend_row)
             .child(message_box)
+            .when_some(visible_hint, |this, hint| {
+                this.child(
+                    h_flex()
+                        .w_full()
+                        .flex_shrink_0()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(
+                            Icon::new(gpui_kit::assets::IconName::CircleAlert)
+                                .flex_shrink_0()
+                                .text_color(tokens.error),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                                .text_color(tokens.error)
+                                .child(hint),
+                        ),
+                )
+            })
             .child(actions_row)
             .into_any_element()
+    }
+
+    /// 打开设置页 AI & Commit。没有注册回调时静默返回（独立预览面板）。
+    fn open_ai_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(handler) = self.on_open_ai_settings.clone() else {
+            return;
+        };
+        handler(window, cx);
     }
 
     /// 提交记录模式：只渲染历史列表，供 `ToolWindow::GitLog` 使用。
@@ -1265,9 +1464,7 @@ impl Render for GitPanel {
                     )
                     .into_any_element();
             }
-            return panel
-                .child(self.render_history(tokens))
-                .into_any_element();
+            return panel.child(self.render_history(tokens)).into_any_element();
         }
 
         panel = panel.child(self.render_changes_toolbar(tokens, cx));
@@ -1625,23 +1822,19 @@ fn render_change_row(
         }))
         .child(
             // IntelliJ 把「包含在提交里」的复选框放在状态字母之前。
-            Checkbox::new(format!(
-                "lithe-git:include:{}:{}",
-                group.id(),
-                change.path
-            ))
-            .small()
-            .flex_shrink_0()
-            .checked(checkbox_checked)
-            .disabled(busy || !change.can_toggle_staging)
-            .on_change(cx.listener(move |this, checked: &bool, _window, cx| {
-                let action = if *checked {
-                    ChangeAction::Stage
-                } else {
-                    ChangeAction::Unstage
-                };
-                this.apply_change_action(checkbox_path.clone(), group, action, cx);
-            })),
+            Checkbox::new(format!("lithe-git:include:{}:{}", group.id(), change.path))
+                .small()
+                .flex_shrink_0()
+                .checked(checkbox_checked)
+                .disabled(busy || !change.can_toggle_staging)
+                .on_change(cx.listener(move |this, checked: &bool, _window, cx| {
+                    let action = if *checked {
+                        ChangeAction::Stage
+                    } else {
+                        ChangeAction::Unstage
+                    };
+                    this.apply_change_action(checkbox_path.clone(), group, action, cx);
+                })),
         )
         .child(
             div()

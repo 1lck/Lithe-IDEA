@@ -44,7 +44,6 @@ MANUAL = {
     "Col": "列",
     "Commit created": "提交已创建",
     "Commit failed": "提交失败",
-    "Commit message is required": "请填写提交信息",
     "Could not open file": "无法打开文件",
     "Could not read run configuration": "无法读取运行配置",
     "Delete?": "删除？",

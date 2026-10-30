@@ -178,4 +178,19 @@ impl Workbench {
         self.overlay_focus.focus(window, cx);
         cx.notify();
     }
+
+    /// 打开设置覆盖层并直接落在「AI 与提交」页。Git 提交区的 AI 入口用它。
+    pub(crate) fn open_ai_commit_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.settings_visible {
+            self.toggle_settings(window, cx);
+        }
+        if let Some(view) = self.settings_view.clone() {
+            view.update(cx, |view, view_cx| view.open_ai_commit_page(view_cx));
+        }
+        cx.notify();
+    }
 }

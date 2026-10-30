@@ -222,6 +222,12 @@ impl Workbench {
         }
         self.apply_editor_preferences(window, cx);
         self.apply_terminal_preferences(window, cx);
+        // 提交区的 AI 按钮可用性跟着设置页里的开关走。
+        let ai_commit_enabled = self.settings.ai_commit_enabled;
+        self.git
+            .update(cx, |panel, cx| panel.set_ai_commit_enabled(ai_commit_enabled, cx));
+        self.git_log
+            .update(cx, |panel, cx| panel.set_ai_commit_enabled(ai_commit_enabled, cx));
         if language_changed {
             self.refresh_localized_views(cx);
             cx.refresh_windows();

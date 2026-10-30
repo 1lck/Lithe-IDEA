@@ -884,6 +884,12 @@ impl SettingsView {
         cx.notify();
     }
 
+    /// 切到「AI 与提交」页。供 Git 提交区的 AI 入口直接跳转。
+    pub fn open_ai_commit_page(&mut self, cx: &mut Context<Self>) {
+        self.page = SettingsPage::AiCommit;
+        cx.notify();
+    }
+
     /// 更新只读工作台上下文并重绘。上下文变化不是设置修改，不写盘。
     pub fn set_context(&mut self, context: SettingsContext, cx: &mut Context<Self>) {
         self.context = context;

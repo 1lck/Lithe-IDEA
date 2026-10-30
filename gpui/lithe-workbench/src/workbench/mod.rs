@@ -253,6 +253,23 @@ impl Workbench {
             });
         }
 
+        // Git 提交区的 AI 入口：开关来自设置页，齿轮跳转 AI & Commit 页。
+        {
+            let owner = owner.clone();
+            let enabled = settings.ai_commit_enabled;
+            for panel in [git.clone(), git_log.clone()] {
+                panel.update(cx, |panel, panel_cx| {
+                    panel.set_ai_commit_enabled(enabled, panel_cx);
+                    let owner = owner.clone();
+                    panel.on_open_ai_settings(move |window, cx| {
+                        let _ = owner.update(cx, |this, cx| {
+                            this.open_ai_commit_settings(window, cx);
+                        });
+                    });
+                });
+            }
+        }
+
         let mut workbench = Self {
             client,
             platform,
