@@ -10,6 +10,9 @@ import { Dropdown, useDropdownMenu } from "@/ui/dropdown";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
 import { showIdeaNotification } from "@/ui/idea-notification";
 import { tryWriteClipboardText } from "@/utils/clipboard";
+
+/** Upper bound on extra pages a reveal walks before giving up. */
+const MAX_REVEAL_PAGE_ATTEMPTS = 20;
 import { useTranslation } from "@/i18n/locale-provider";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -40,6 +43,7 @@ import { normalizeRepositoryPath } from "../../api/git-repo-api";
 import { showGitRebaseDialog } from "../../services/git-rebase-dialog-service";
 import { showGitWorktreeDialog } from "../../services/git-worktree-dialog-service";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
+import { useGitLogRevealStore } from "../../stores/git-log-reveal.store";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import type { GitCommit, GitFile, GitReference } from "../../types/git.types";
 import { useGitHistoryMutations } from "../../hooks/use-git-history-mutations";
@@ -271,6 +275,48 @@ export function GitLogToolWindow() {
     setSelectedCommit(head);
     setGraphNavigationRequest((request) => request + 1);
   }, [history.commits, selectedReference, setFilterQuery]);
+  // A blame click hands over one commit hash; the log owns finding it in the
+  // paginated history and selecting it. The attempt cap keeps a commit that is
+  // beyond the loaded window from walking the whole history.
+  const pendingReveal = useGitLogRevealStore((state) => state.pending);
+  const clearReveal = useGitLogRevealStore((state) => state.clear);
+  const revealAttemptsRef = useRef(0);
+  useEffect(() => {
+    if (!pendingReveal || !repoPath || pendingReveal.repoPath !== repoPath) return;
+    if (loadState !== "ready") return;
+    const commit = commitByHash.get(pendingReveal.commitHash);
+    if (!commit) {
+      if (
+        history.hasMore &&
+        !isLoadingMore &&
+        revealAttemptsRef.current < MAX_REVEAL_PAGE_ATTEMPTS
+      ) {
+        revealAttemptsRef.current += 1;
+        void loadMore();
+      } else {
+        revealAttemptsRef.current = 0;
+        clearReveal();
+      }
+      return;
+    }
+    revealAttemptsRef.current = 0;
+    setFilterQuery("");
+    setSelectedCommitHashes(new Set([commit.hash]));
+    selectionAnchorRef.current = commit.hash;
+    setSelectedCommit(commit);
+    setGraphNavigationRequest((request) => request + 1);
+    clearReveal();
+  }, [
+    clearReveal,
+    commitByHash,
+    history.hasMore,
+    isLoadingMore,
+    loadMore,
+    loadState,
+    pendingReveal,
+    repoPath,
+    setFilterQuery,
+  ]);
   const emptyWorkingTreeEntries = useMemo<Record<WorkingTreeDiffScope, WorkingTreeDiffEntry[]>>(
     () => ({
       all: [],

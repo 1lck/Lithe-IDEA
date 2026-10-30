@@ -79,6 +79,9 @@ import {
   type GitBlameGutterEntry,
 } from "@/features/git/utils/git-blame-gutter";
 import { openCommitDiffBuffer } from "@/features/git/utils/open-commit-diff-buffer";
+import { useGitLogRevealStore } from "@/features/git/stores/git-log-reveal.store";
+import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
+import { useUIState } from "@/features/window/stores/ui-state.store";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
 import { isNativeTextInputTarget } from "@/utils/keyboard/text-input-target";
@@ -608,7 +611,7 @@ export function MonacoEditor({
   /** Annotation set already painted into the gutter, to skip redundant repaints. */
   const appliedBlameGutterEntriesRef = useRef(EMPTY_BLAME_GUTTER_ENTRIES);
 
-  /** Opens the commit that last touched `lineNumber` from the gutter label. */
+  /** Opens the commit that last touched `lineNumber` as a single-file diff. */
   const openBlameCommit = useCallback(
     async (lineNumber: number) => {
       if (!filePath || !blameRepoPath) return;
@@ -630,6 +633,27 @@ export function MonacoEditor({
   );
   const openBlameCommitRef = useRef(openBlameCommit);
   openBlameCommitRef.current = openBlameCommit;
+
+  /**
+   * IDEA answers an annotation click by selecting the commit in the log, which
+   * shows what else landed with it. The log loads older pages until the commit
+   * appears, so the editor only hands over the hash.
+   */
+  const revealBlameCommit = useCallback(
+    (lineNumber: number) => {
+      if (!blameRepoPath) return;
+      const blameLine = getBlameForLine(lineNumber - 1);
+      if (!blameLine || blameLine.is_uncommitted) return;
+      useGitLogRevealStore.getState().request(blameRepoPath, blameLine.commit_hash);
+      useRepositoryStore.getState().actions.selectRepository(blameRepoPath);
+      const uiState = useUIState.getState();
+      uiState.setBottomPaneActiveTab("gitLog");
+      uiState.setIsBottomPaneVisible(true);
+    },
+    [blameRepoPath, getBlameForLine],
+  );
+  const revealBlameCommitRef = useRef(revealBlameCommit);
+  revealBlameCommitRef.current = revealBlameCommit;
 
   const diagnosticsForFile = useDiagnosticsStore((state) =>
     filePath ? (state.diagnosticsByFile.get(filePath) ?? EMPTY_DIAGNOSTICS) : EMPTY_DIAGNOSTICS,
@@ -898,6 +922,7 @@ export function MonacoEditor({
   const [contextMenuPosition, setContextMenuPosition] = useState<{
     x: number;
     y: number;
+    lineNumber: number;
   } | null>(null);
   const [contextMenuRunMarker, setContextMenuRunMarker] = useState<JavaRunMarker | null>(null);
   /** Line-number right-clicks get their own short menu instead of the editor one. */
@@ -913,6 +938,12 @@ export function MonacoEditor({
       ? getBlameForLine(gutterMenuPosition.lineNumber - 1)
       : null;
   const gutterMenuCommit = gutterMenuBlame?.is_uncommitted ? null : gutterMenuBlame;
+  /** Same lookup for the editor menu, which acts on the line under the cursor. */
+  const contextMenuBlame =
+    contextMenuPosition && blameVisible
+      ? getBlameForLine(contextMenuPosition.lineNumber - 1)
+      : null;
+  const contextMenuCommit = contextMenuBlame?.is_uncommitted ? null : contextMenuBlame;
   const [runMarkerMenu, setRunMarkerMenu] = useState<{
     marker: JavaRunMarker;
     position: { x: number; y: number };
@@ -1372,29 +1403,11 @@ export function MonacoEditor({
           editor.focus();
           setContextMenuPosition(null);
           setContextMenuRunMarker(null);
-          const clickedLine = event.target.position.lineNumber;
-          const currentSelection = editor.getSelection();
-          let span: Parameters<typeof gutterLineRange>[1] = null;
-          if (currentSelection && !currentSelection.isEmpty()) {
-            const firstLine = Math.min(
-              currentSelection.startLineNumber,
-              currentSelection.endLineNumber,
-            );
-            const lastLine = Math.max(
-              currentSelection.startLineNumber,
-              currentSelection.endLineNumber,
-            );
-            const lastLineColumn =
-              currentSelection.endLineNumber >= currentSelection.startLineNumber
-                ? currentSelection.endColumn
-                : currentSelection.startColumn;
-            span = { firstLine, lastLine, lastLineColumn };
-          }
-          pendingLineHistoryRangeRef.current = gutterLineRange(clickedLine, span);
+          pendingLineHistoryRangeRef.current = null;
           setGutterMenuPosition({
             x: event.event.posx,
             y: event.event.posy,
-            lineNumber: clickedLine,
+            lineNumber: event.target.position.lineNumber,
           });
           return;
         }
@@ -1443,7 +1456,11 @@ export function MonacoEditor({
         }
 
         editor.focus();
-        setContextMenuPosition({ x: event.event.posx, y: event.event.posy });
+        setContextMenuPosition({
+          x: event.event.posx,
+          y: event.event.posy,
+          lineNumber: event.target.position?.lineNumber ?? editor.getPosition()?.lineNumber ?? 0,
+        });
       }),
       editor.onKeyDown((event) => {
         const browserEvent = event.browserEvent;
@@ -1515,7 +1532,7 @@ export function MonacoEditor({
             mouseSelectingRef.current = false;
             mouseGestureStartRef.current = null;
             setContextMenuPosition(null);
-            void openBlameCommitRef.current(lineNumber);
+            revealBlameCommitRef.current(lineNumber);
             return;
           }
         }
@@ -2793,6 +2810,39 @@ export function MonacoEditor({
                   }
                 : undefined
             }
+            onToggleBlame={
+              blameFileEligible && !lineHistoryFileUntracked
+                ? () => {
+                    setContextMenuPosition(null);
+                    setBlameVisible(!blameVisible);
+                  }
+                : undefined
+            }
+            blameVisible={blameVisible}
+            onBlameShowDiff={
+              contextMenuCommit
+                ? () => {
+                    const lineNumber = contextMenuPosition.lineNumber;
+                    setContextMenuPosition(null);
+                    void openBlameCommitRef.current(lineNumber);
+                  }
+                : undefined
+            }
+            onBlameCopyRevision={
+              contextMenuCommit
+                ? () => {
+                    const hash = contextMenuCommit.commit_hash;
+                    setContextMenuPosition(null);
+                    void writeClipboardText(hash).then(
+                      () => toast.success(t("git.blame.revisionCopied")),
+                      (error: unknown) => {
+                        console.error("Failed to copy the revision number:", error);
+                        toast.error(t("git.operationFailed"));
+                      },
+                    );
+                  }
+                : undefined
+            }
             onDuplicate={canEdit ? () => executeEditorCommand("editor.duplicateLine") : undefined}
             onSelectNextOccurrence={() => executeEditorCommand("editor.selectNextOccurrence")}
             onSelectAllOccurrences={() => executeEditorCommand("editor.selectAllOccurrences")}
@@ -2866,33 +2916,6 @@ export function MonacoEditor({
                         toast.error(t("git.operationFailed"));
                       },
                     );
-                  }
-                : undefined
-            }
-            onLineHistory={
-              rootFolderPath &&
-              filePath &&
-              !editorBuffer?.isVirtual &&
-              !isPreviewMode &&
-              !lineHistoryFileUntracked
-                ? () => {
-                    const range = pendingLineHistoryRangeRef.current;
-                    if (!range) return;
-                    const buffer = getBufferById(
-                      useBufferStore.getState().buffers,
-                      activeBufferId,
-                    );
-                    setLineHistoryMenu({
-                      range,
-                      anchor: {
-                        x: gutterMenuPosition.x,
-                        y: gutterMenuPosition.y,
-                      },
-                      content,
-                      revision:
-                        buffer && isEditorContent(buffer) ? (buffer.contentRevision ?? 0) : 0,
-                    });
-                    setGutterMenuPosition(null);
                   }
                 : undefined
             }

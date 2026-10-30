@@ -9,6 +9,8 @@ import {
   CodeIcon as Code,
   CopyIcon as Copy,
   FileTextIcon as FileText,
+  GitBranchIcon as GitBranch,
+  GitDiffIcon as GitDiff,
   TextIndentIcon as Indent,
   TextOutdentIcon as Outdent,
   PencilLineIcon as PenLine,
@@ -18,6 +20,7 @@ import {
   MagnifyingGlassIcon as Search,
   TrashIcon as Trash2,
   TextTIcon as Type,
+  UserIcon as User,
 } from "@/ui/icons";
 import type { MenuItem } from "@/ui/dropdown";
 import Keybinding from "@/features/keymaps/components/keybinding";
@@ -31,6 +34,14 @@ export interface EditorContextMenuHandlers {
   onGoToLine?: () => void;
   /** Opens the Git line-history popover for the clicked line. */
   onLineHistory?: () => void;
+  /** Turns the per-file Git blame annotation on or off from the Git submenu. */
+  onToggleBlame?: () => void;
+  /** Current annotation state of the file behind the menu. */
+  blameVisible?: boolean;
+  /** Opens the diff of the commit that owns the clicked line. */
+  onBlameShowDiff?: () => void;
+  /** Copies the full revision hash of the clicked line. */
+  onBlameCopyRevision?: () => void;
   onGoToDefinition?: () => void;
   onGoToTypeDefinition?: () => void;
   onFindReferences?: () => void;
@@ -86,6 +97,10 @@ export function buildEditorContextMenuItems({
   onFind,
   onGoToLine,
   onLineHistory,
+  onToggleBlame,
+  blameVisible = false,
+  onBlameShowDiff,
+  onBlameCopyRevision,
   onGoToDefinition,
   onGoToTypeDefinition,
   onFindReferences,
@@ -109,6 +124,42 @@ export function buildEditorContextMenuItems({
   onRunContext,
   runContextLabel,
 }: EditorContextMenuItemOptions): MenuItem[] {
+  // IDEA groups the line-level Git actions under one editor-menu submenu, so the
+  // top level keeps the editing commands only.
+  const gitItems: MenuItem[] = [];
+  if (onToggleBlame) {
+    gitItems.push({
+      id: "git-toggle-blame",
+      label: t(blameVisible ? "git.blame.hide" : "git.blame.annotate"),
+      icon: <User />,
+      onClick: onToggleBlame,
+    });
+  }
+  if (blameVisible && onBlameShowDiff) {
+    gitItems.push({
+      id: "git-blame-show-diff",
+      label: t("git.blame.showDiff"),
+      icon: <GitDiff />,
+      onClick: onBlameShowDiff,
+    });
+  }
+  if (blameVisible && onBlameCopyRevision) {
+    gitItems.push({
+      id: "git-blame-copy-revision",
+      label: t("git.blame.copyRevision"),
+      icon: <Copy />,
+      onClick: onBlameCopyRevision,
+    });
+  }
+  if (onLineHistory) {
+    gitItems.push({
+      id: "line-history",
+      label: t("git.lineHistory.menuLabel"),
+      icon: <Clock />,
+      onClick: onLineHistory,
+    });
+  }
+
   return [
     {
       id: "copy",
@@ -324,13 +375,18 @@ export function buildEditorContextMenuItems({
       disabled: isDisabled(onGoToLine),
       onClick: onGoToLine ?? noop,
     },
-    {
-      id: "line-history",
-      label: t("git.lineHistory.menuLabel"),
-      icon: <Clock />,
-      disabled: isDisabled(onLineHistory),
-      onClick: onLineHistory ?? noop,
-    },
+    ...(gitItems.length > 0
+      ? [
+          separator("sep-git"),
+          {
+            id: "git",
+            label: t("git.contextMenu.submenu"),
+            icon: <GitBranch />,
+            children: gitItems,
+            onClick: noop,
+          },
+        ]
+      : []),
     {
       id: "bookmark",
       label: t("editor.toggleBookmark"),

@@ -33,35 +33,25 @@ describe("gutter context menu", () => {
       onToggleBlame: () => {},
       onShowDiff: () => {},
       onCopyRevision: () => {},
-      onLineHistory: () => {},
     };
-
-    expect(buildGutterContextMenuItems(handlers).map((item) => item.id)).toEqual([
-      "toggle-blame",
-      "blame-separator",
-      "line-history",
-    ]);
 
     // Show Diff and Copy Revision act on the annotated commit, so they cannot
     // appear before the annotation exists.
+    expect(buildGutterContextMenuItems(handlers).map((item) => item.id)).toEqual(["toggle-blame"]);
     expect(
       buildGutterContextMenuItems({ ...handlers, blameVisible: true }).map((item) => item.id),
-    ).toEqual([
-      "toggle-blame",
-      "blame-show-diff",
-      "blame-copy-revision",
-      "blame-separator",
-      "line-history",
-    ]);
+    ).toEqual(["toggle-blame", "blame-show-diff", "blame-copy-revision"]);
   });
 
-  test("drops the commit actions for a line without a commit", () => {
+  test("leaves line history to the editor menu", () => {
     const items = buildGutterContextMenuItems({
       t,
       onToggleBlame: () => {},
       blameVisible: true,
+      onShowDiff: () => {},
+      onCopyRevision: () => {},
     });
 
-    expect(items.map((item) => item.id)).toEqual(["toggle-blame"]);
+    expect(items.some((item) => item.id === "line-history")).toBe(false);
   });
 });

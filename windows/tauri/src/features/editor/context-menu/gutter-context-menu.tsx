@@ -1,7 +1,7 @@
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
-import { ClockIcon, CopyIcon, GitDiffIcon, UserIcon } from "@/ui/icons";
+import { CopyIcon, GitDiffIcon, UserIcon } from "@/ui/icons";
 
 export interface GutterContextMenuHandlers {
   /** Turns the per-file Git blame annotation on or off; disabled when absent. */
@@ -12,19 +12,13 @@ export interface GutterContextMenuHandlers {
   onShowDiff?: () => void;
   /** Copies the full revision hash of the clicked line. */
   onCopyRevision?: () => void;
-  /** Opens the Git line-history popover for the clicked line. */
-  onLineHistory?: () => void;
-}
-
-function separator(id: string): MenuItem {
-  return { id, label: "", separator: true, onClick: () => {} };
 }
 
 /**
  * Right-clicking the gutter answers a question about one line, so it gets the
- * line-level Git actions instead of the full editor menu. The item set and its
- * grouping follow IDEA's annotate menu: the annotation toggle, the commit
- * actions that only exist while annotating, then the line history entry.
+ * line-level Git blame actions instead of the full editor menu. The item set
+ * follows IDEA's annotate menu, where line history lives in the Git submenu of
+ * the editor menu instead.
  */
 export function buildGutterContextMenuItems({
   t,
@@ -32,7 +26,6 @@ export function buildGutterContextMenuItems({
   blameVisible = false,
   onShowDiff,
   onCopyRevision,
-  onLineHistory,
 }: GutterContextMenuHandlers & {
   t: (key: string, values?: Record<string, string | number>) => string;
 }): MenuItem[] {
@@ -60,17 +53,6 @@ export function buildGutterContextMenuItems({
       label: t("git.blame.copyRevision"),
       icon: <CopyIcon />,
       onClick: onCopyRevision,
-    });
-  }
-  if (items.length > 0 && onLineHistory) {
-    items.push(separator("blame-separator"));
-  }
-  if (onLineHistory) {
-    items.push({
-      id: "line-history",
-      label: t("git.lineHistory.menuLabel"),
-      icon: <ClockIcon />,
-      onClick: onLineHistory,
     });
   }
 
