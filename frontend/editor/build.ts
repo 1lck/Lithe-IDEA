@@ -51,6 +51,8 @@ export async function buildEditorAssets(options: EditorAssetBuild): Promise<void
   }
   await copyFile(options.html, join(output, "index.html"));
   await copyFile(join(monaco, "LICENSE"), join(output, "MONACO-LICENSE.txt"));
+  for (const license of ["vscode-LICENSE.txt", "idea-LICENSE.txt", "idea-NOTICE.txt"])
+    await copyFile(join(editorRoot, "themes", license), join(output, license));
   await writeFile(join(output, "version.json"), JSON.stringify({ monaco: version, bun: Bun.version }));
   console.log(`Monaco ${version}: ${output}`);
 

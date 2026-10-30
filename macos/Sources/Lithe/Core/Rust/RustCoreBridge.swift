@@ -167,6 +167,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     struct SearchResponsePayload: Decodable, Sendable {
         let matches: [SearchMatchPayload]
+        var nextCursor: String? = nil
 
         func makeResults(at rootURL: URL) -> [FileSearchResult] {
             matches.map { match in
@@ -189,7 +190,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 fileMatches: results.filter { $0.kind == .file },
                 classMatches: results.filter { $0.kind == .type },
                 symbolMatches: results.filter { $0.kind == .symbol },
-                contentMatches: results.filter { $0.kind == .content }
+                contentMatches: results.filter { $0.kind == .content },
+                nextCursor: nextCursor
             )
         }
     }
@@ -1561,6 +1563,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
         var includeGeneratedFileNames = false
+        var pageSize: Int? = nil
+        var cursor: String? = nil
+        var resultKinds: [String]? = nil
     }
 
     private struct ReplacementPreviewRequest: Encodable {
@@ -2004,6 +2009,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let newName: String?
         let range: LspTextEditsRequest.TextEdit.Range?
         let diagnostics: [LspClientDiagnosticRequest]
+        let completionContext: LanguageServerCompletionContext?
         let completionItem: LspClientCompletionItemRequest?
         let codeAction: LspClientCodeActionRequest?
         let command: LspClientCommandRequest?
@@ -2018,6 +2024,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             newName: String? = nil,
             range: LspTextEditsRequest.TextEdit.Range? = nil,
             diagnostics: [LspClientDiagnosticRequest] = [],
+            completionContext: LanguageServerCompletionContext? = nil,
             completionItem: LspClientCompletionItemRequest? = nil,
             codeAction: LspClientCodeActionRequest? = nil,
             command: LspClientCommandRequest? = nil
@@ -2031,6 +2038,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             self.newName = newName
             self.range = range
             self.diagnostics = diagnostics
+            self.completionContext = completionContext
             self.completionItem = completionItem
             self.codeAction = codeAction
             self.command = command
@@ -2560,9 +2568,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         fileMask: String = "",
         hiddenDirectoryNames: [String] = [],
         hiddenFilePatterns: [String] = [],
-        includeGeneratedFileNames: Bool = false
+        includeGeneratedFileNames: Bool = false,
+        operationID: String? = nil,
+        onEvent: (@Sendable (String) -> Void)? = nil
     ) -> SearchResponsePayload? {
-        execute(
+        let result: Result<SearchResponsePayload, CoreCallError> = executeResult(
             command: "workspace.searchEverywhere",
             payload: SearchRequest(
                 root: rootURL.standardizedFileURL.path,
@@ -2578,8 +2588,28 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns,
                 includeGeneratedFileNames: includeGeneratedFileNames
-            )
+            ),
+            operationID: operationID, onEvent: onEvent
         )
+        return try? result.get()
+    }
+
+    func searchEverywherePage(
+        at rootURL: URL, query: String, options: ProjectSearchOptions,
+        hiddenDirectoryNames: [String], hiddenFilePatterns: [String], includeGeneratedFileNames: Bool,
+        kinds: Set<SearchResultKind>, cursor: String?, operationID: String,
+        onEvent: @escaping @Sendable (String) -> Void
+    ) -> Result<SearchResponsePayload, CoreCallError> {
+        let size = SearchEverywhereResults.pageSize
+        return executeResult(command: "workspace.searchEverywhere", payload: SearchRequest(
+            root: rootURL.standardizedFileURL.path, query: query, caseSensitive: options.caseSensitive,
+            wholeWords: options.wholeWords, regularExpression: options.regularExpression,
+            maxResults: size * 4, maxFileResults: kinds.contains(.file) ? size : 0,
+            maxContentResults: kinds.contains(.content) ? size : 0,
+            maxSymbolResults: !kinds.isDisjoint(with: [.type, .symbol]) ? size : 0,
+            fileMask: options.fileMask, hiddenDirectoryNames: hiddenDirectoryNames,
+            hiddenFilePatterns: hiddenFilePatterns, includeGeneratedFileNames: includeGeneratedFileNames,
+            pageSize: size, cursor: cursor, resultKinds: kinds.map(\.rawValue).sorted()), operationID: operationID, onEvent: onEvent)
     }
 
     func previewReplacement(
@@ -3915,6 +3945,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         newName: String? = nil,
         range: LanguageServerRange? = nil,
         diagnostics: [LanguageServerDiagnostic] = [],
+        completionContext: LanguageServerCompletionContext? = nil,
         completionItem: LanguageServerCompletionItem? = nil,
         codeAction: LanguageServerCodeAction? = nil,
         command: LanguageServerCommand? = nil
@@ -3932,6 +3963,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 newName: newName,
                 range: range.map(Self.makeRangeRequest),
                 diagnostics: diagnostics.map(Self.makeDiagnosticRequest),
+                completionContext: completionContext,
                 completionItem: completionItem.map(Self.makeCompletionItemRequest),
                 codeAction: codeAction.map(Self.makeCodeActionRequest),
                 command: command.map(Self.makeCommandRequest)

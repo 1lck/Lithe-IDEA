@@ -87,7 +87,8 @@ impl Drop for ObserverScope {
     }
 }
 
-pub(super) fn has_sink() -> bool {
+/// Whether the current request has an incremental event consumer.
+pub(crate) fn has_sink() -> bool {
     CURRENT.with(|current| current.borrow().is_some())
 }
 

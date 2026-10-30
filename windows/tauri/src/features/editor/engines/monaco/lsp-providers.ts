@@ -13,6 +13,7 @@ import type * as Monaco from "monaco-editor";
 // Ctrl+hover underline for go-to-definition.
 import "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js";
 import type { CompletionItem, Hover } from "vscode-languageserver-protocol";
+import { CompletionTriggerKind as LspCompletionTriggerKind } from "vscode-languageserver-protocol";
 import { listen } from "@tauri-apps/api/event";
 import { ownsLspSession } from "@/platform/lsp-core-adapter";
 import { isDocumentFeatureAvailable, LspClient } from "@/features/editor/lsp/lsp-client";
@@ -188,7 +189,9 @@ export function registerMonacoLspProviders() {
   >();
   languages.registerCompletionItemProvider(selector, {
     triggerCharacters: [".", ":", "<", '"', "'", "/", "@", "#", "$", "\\"],
-    async provideCompletionItems(model, position) {
+    async provideCompletionItems(model, position, context, token) {
+      const version = model.getVersionId();
+      const current = () => !token.isCancellationRequested && !model.isDisposed() && model.getVersionId() === version;
       const target = availableTarget(model, "completion");
       if (!target) return { suggestions: [] };
 
@@ -197,11 +200,21 @@ export function registerMonacoLspProviders() {
       // completion from the text they hold, so without flushing the cursor sits
       // one character past what they know and the answer is empty.
       await flushLspDocumentChanges(target.filePath);
+      if (!current()) return { suggestions: [] };
       const completions = await lspClient.getCompletions(
         target,
         position.lineNumber - 1,
         position.column - 1,
+        {
+          triggerKind: context.triggerKind === languages.CompletionTriggerKind.TriggerCharacter
+            ? LspCompletionTriggerKind.TriggerCharacter
+            : context.triggerKind === languages.CompletionTriggerKind.TriggerForIncompleteCompletions
+              ? LspCompletionTriggerKind.TriggerForIncompleteCompletions
+              : LspCompletionTriggerKind.Invoked,
+          triggerCharacter: context.triggerCharacter,
+        },
       );
+      if (!current()) return { suggestions: [] };
       const word = model.getWordUntilPosition(position);
       const range = new MonacoRange(
         position.lineNumber,
@@ -211,7 +224,8 @@ export function registerMonacoLspProviders() {
       );
 
       return {
-        suggestions: completions.map((item) => {
+        incomplete: completions.isIncomplete,
+        suggestions: completions.items.map((item) => {
           const suggestion = toCompletionItem(item, range);
           const origin = { item, target, range };
           completionOrigins.set(suggestion, origin);

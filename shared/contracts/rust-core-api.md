@@ -2044,6 +2044,47 @@ existing defaults. macOS forwards the selected workspace sources through these
 existing caps: Actions-only stays local, Text-only requests contents, Files and
 Agent completion request names, and Classes/Symbols share the symbol index.
 Search module activation does not eagerly build a content index.
+
+Optional `pageSize` (1–200 per source), `cursor`, and `resultKinds`
+(`file`, `type`, `symbol`, `content`) enable bounded keyset pages. The response
+adds nullable `nextCursor`; absent/null means exhausted. macOS uses 50 per source
+and loads another page near the scroll edge, with no 200-result total ceiling.
+The opaque cursor binds the workspace/remote identity, query, options, source caps,
+visibility rules and page size; clients must resend the same request options.
+Each source retains at most pageSize + 1 ranked candidates, using the extra item
+to detect exhaustion. No all-matches array or retained search session is created.
+Name/symbol continuation scans the existing index to select the next ranked page;
+text pages follow path/line order and stop after the lookahead match. Pages observe
+the live index: edits inserting a match before the cursor require a fresh query.
+Requests without pageSize retain the legacy capped response and schema.
+
+Observed `workspace.searchEverywhere` calls may emit
+`{ "type": "searchResults", "operationId": "…", "results": { "matches": […] } }`
+on the existing request event channel. Each event replaces the previous snapshot;
+never append its matches. File-name candidates are searched and published before
+building the content/symbol index. The first candidate is sent immediately;
+subsequent name/type/symbol candidates are merged for approximately 100 ms,
+with a flush at source boundaries. Each snapshot keeps the same ranked per-source
+and total caps as the final response, so a later better candidate may replace an
+earlier one. Content matches and Git ignore metadata arrive with the authoritative
+final response. A partial snapshot's absent `isIgnored` means unknown, not false.
+Callbacks remain request-scoped, use the existing cancellation registration, and
+finish before the final JSON returns. Calls without an observer retain the same
+complete response schema. Cold name-index enumeration and pending index update/
+invalidation barriers still precede candidates; this is not a 100 ms end-to-end
+latency guarantee.
+
+macOS consumes replaceable snapshots with a newest-only buffer, checks query
+generation and cancellation for every update, and keeps selection by result ID
+when ranking changes. Closing/resetting or replacing a query cancels its Core
+operation; late callbacks cannot overwrite the next query or its loading state.
+First-page snapshots remain replaceable; completed continuation pages append with
+ID deduplication. macOS keeps each loaded page's order, including actions after the
+first names page, so later pages do not insert above the visible viewport. Repeated
+cursors or pages with no new IDs stop loading. Failure preserves rows/cursor and
+pauses automatic loading until Retry. The input debounce remains 180 ms. Windows
+continues to consume the legacy final response; this change does not claim
+incremental or automatically paged Windows presentation.
 Basename matches rank above relative-path fallback matches, even when the query
 contains no slash (for example `src` matches `src/Foo.swift`). Path-only matches
 have `matchingDegree: -1` and no basename ranges; literal basename hits use degree
@@ -2079,8 +2120,8 @@ file/path globs still apply. It does not enable generated-file content or symbol
 indexing and does not change `workspace.search`, tree, watcher, or replacement
 visibility. Names share index invalidation and reported file updates; changes
 inside unwatched generated directories require workspace/index refresh. No index
-files or resources are written to disk. macOS requests 200 matches per bucket
-and 800 total; these are bounded candidate limits, not a claim of unbounded IDEA paging.
+files or resources are written to disk. macOS Search Everywhere requests pages of
+50 matches per source; legacy synchronous consumers retain their requested caps.
 Java type and method results still use the existing syntax index and include a
 one-based line, `symbolName`, and source line in `preview`; language-provider
 workspace-symbol integration and external-library search are not implied.
@@ -3341,6 +3382,16 @@ selected Node installation. They do not fall back to a PATH shim from another
 installation, and Windows executable extensions take precedence over extensionless
 shell scripts.
 
+Automatic Spring service generation requires both an applied Maven plugin and
+exactly one JDT-confirmed, Spring-classified non-test entry in the same module.
+An inherited plugin alone cannot promote a library to a runnable service.
+Nested-module entries do not promote their parent. Ambiguous, utility and test
+mains remain independently selectable Java entries. Module assignment consumes
+the confirmed source set even when the caller supplies no editor paths.
+Absent discovery may reuse previously confirmed entries; an explicit empty result
+removes automatic services. Existing service IDs and user-authored Maven-goal
+compatibility configurations retain their established meaning.
+
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, optional `debugPort`, and optional
 `localDocument`. Maven-backed Run and Debug callers may also supply the same
@@ -3945,6 +3996,18 @@ index remains unchanged. The default false retains tracked-only unstaged export;
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
 reviewed by the amendment editor. See [Rebase sessions](git-rebase-session.md).
+
+Completion requests accept optional `completionContext` with LSP `triggerKind`
+(`1` invoked, `2` trigger character, `3` incomplete-list refresh) and
+`triggerCharacter` (required and one character for kind `2`). Missing context
+means invoked. Core validates and maps this into LSP `params.context`.
+Completion results carry `{ items, isIncomplete }`; array and null server results
+are complete. The flag is list-scoped and survives empty lists and host provider
+merging. Both Monaco adapters set `CompletionList.incomplete` and forward Monaco's
+trigger context, so continued typing can request additional candidates instead of
+filtering a partial cache. Existing document-version, cancellation and attachment
+checks still reject obsolete results. The fixture is
+`shared/fixtures/lsp/completion-refresh-v1.json`.
 
 Completion items returned by the LSP client and runtime preserve `insertTextFormat`
 (`1` for plain text, `2` for snippets; absent values default to `1`). Hosts retain

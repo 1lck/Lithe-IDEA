@@ -2,6 +2,7 @@
 
 use super::file_name_order::FileNameKey;
 use super::search_index::{self, UpdateOutcome, WorkspaceSearchIndex};
+use super::search_paging::SearchPage;
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{
     DirectoryListing, DirectoryListingResponse, FileReadResponse, FileWriteResponse,
@@ -83,7 +84,7 @@ pub struct DirectoryListingRequest {
     pub hidden_file_patterns: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Bounded file, content, and symbol search options.
 pub struct SearchRequest {
@@ -311,7 +312,7 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     let index = index
         .read()
         .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
-    search_with_index(&root, &request, &query, &index)
+    search_with_index(&root, &request, &query, &index, None)
 }
 
 fn search_with_index(
@@ -319,6 +320,7 @@ fn search_with_index(
     request: &SearchRequest,
     query: &str,
     index: &WorkspaceSearchIndex,
+    page: Option<&SearchPage>,
 ) -> Result<SearchResponse, CoreError> {
     let matcher = Matcher::new(
         query,
@@ -361,7 +363,11 @@ fn search_with_index(
     }
 
     let mut content_matches = 0;
-    for id in index.candidate_ids(query, request.regular_expression) {
+    let mut candidates = index.candidate_ids(query, request.regular_expression);
+    if page.is_some() {
+        candidates.sort_by_key(|id| index.file(*id).map(|file| file.path.as_str()));
+    }
+    for id in candidates {
         crate::protocol::cancellation::check()?;
         if matches.len() >= limit || content_matches >= content_limit {
             break;
@@ -370,7 +376,7 @@ fn search_with_index(
             continue;
         };
         let path = &indexed_file.path;
-        if !file_mask_allows(&masks, path) {
+        if page.is_some_and(|page| !page.accepts_path(path)) || !file_mask_allows(&masks, path) {
             continue;
         }
         let file = root.join(path);
@@ -380,7 +386,7 @@ fn search_with_index(
         for (index, line) in text.split('\n').enumerate() {
             crate::protocol::cancellation::check()?;
             if matcher.matches(line) {
-                matches.push(SearchMatch {
+                let result = SearchMatch {
                     kind: "content".to_string(),
                     path: path.clone(),
                     line: Some(index + 1),
@@ -389,7 +395,11 @@ fn search_with_index(
                     name_match_ranges: Vec::new(),
                     matching_degree: None,
                     is_ignored: None,
-                });
+                };
+                if page.is_some_and(|page| !page.accepts(&result)) {
+                    continue;
+                }
+                matches.push(result);
                 content_matches += 1;
                 if matches.len() >= limit || content_matches >= content_limit {
                     break;
@@ -403,6 +413,14 @@ fn search_with_index(
 
 /// Combines file, content, and Java-symbol results for Search Everywhere.
 pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreError> {
+    search_everywhere_with_page(request, None)
+}
+
+/// Searches one bounded page when a continuation state is supplied.
+pub(crate) fn search_everywhere_with_page(
+    request: SearchRequest,
+    mut page: Option<&mut SearchPage>,
+) -> Result<SearchResponse, CoreError> {
     let root = existing_root(&request.root)?;
     let query = request.query.trim().to_string();
     if query.is_empty() {
@@ -422,26 +440,28 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
     )?;
     let masks = parse_file_mask(&request.file_mask);
     let limit = request.max_results.max(1).min(10_000);
-    let file_limit = request.max_file_results.unwrap_or(limit).min(limit);
-    let symbol_limit = request.max_symbol_results.unwrap_or(limit).min(limit);
-    let content_limit = request.max_content_results.unwrap_or(limit).min(limit);
-    // Zero source caps are execution boundaries, not just post-scan truncation.
-    let shared_index = if symbol_limit > 0 || content_limit > 0 {
-        Some(search_index::get_or_build(&root, &rules)?)
+    let file_limit = if page.as_ref().is_some_and(|page| page.exhausted("file")) {
+        0
     } else {
-        None
+        request.max_file_results.unwrap_or(limit).min(limit)
     };
-    let index = shared_index
+    let symbol_limit = if page
         .as_ref()
-        .map(|index| {
-            index
-                .read()
-                .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))
-        })
-        .transpose()?;
+        .is_some_and(|page| page.exhausted("type") && page.exhausted("symbol"))
+    {
+        0
+    } else {
+        request.max_symbol_results.unwrap_or(limit).min(limit)
+    };
+    let content_limit = if page.as_ref().is_some_and(|page| page.exhausted("content")) {
+        0
+    } else {
+        request.max_content_results.unwrap_or(limit).min(limit)
+    };
     let mut files = Vec::new();
     let mut types = Vec::new();
     let mut symbols = Vec::new();
+    let mut last_flush = None;
     if file_limit > 0 {
         let name_rules = VisibilityRules {
             // Generated output is a file-name source, not a content/symbol index.
@@ -487,9 +507,50 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
             } else {
                 continue;
             }
-            files.push(result);
+            if let Some(page) = page.as_ref() {
+                page.push(&mut files, result, file_limit);
+            } else {
+                files.push(result);
+            }
+            emit_search_results(
+                [
+                    (&mut files, file_limit),
+                    (&mut types, symbol_limit),
+                    (&mut symbols, symbol_limit),
+                ],
+                limit,
+                &mut last_flush,
+                std::time::Instant::now(),
+                false,
+            );
         }
     }
+    emit_search_results(
+        [
+            (&mut files, file_limit),
+            (&mut types, symbol_limit),
+            (&mut symbols, symbol_limit),
+        ],
+        limit,
+        &mut last_flush,
+        std::time::Instant::now(),
+        true,
+    );
+    // Publish names before content parsing or symbol extraction starts.
+    // Zero source caps are execution boundaries, not just post-scan truncation.
+    let shared_index = if symbol_limit > 0 || content_limit > 0 {
+        Some(search_index::get_or_build(&root, &rules)?)
+    } else {
+        None
+    };
+    let index = shared_index
+        .as_ref()
+        .map(|index| {
+            index
+                .read()
+                .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))
+        })
+        .transpose()?;
     if symbol_limit > 0 {
         let index = index
             .as_ref()
@@ -504,30 +565,64 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
                 let mut result = search_index::make_symbol_match(symbol, file.path.clone());
                 if match_everywhere_name(&request, &matcher, &symbol.name, &mut result) {
                     if result.kind == "type" {
-                        types.push(result);
+                        if let Some(page) = page.as_ref() {
+                            page.push(&mut types, result, symbol_limit);
+                        } else {
+                            types.push(result);
+                        }
                     } else {
-                        symbols.push(result);
+                        if let Some(page) = page.as_ref() {
+                            page.push(&mut symbols, result, symbol_limit);
+                        } else {
+                            symbols.push(result);
+                        }
                     }
+                    emit_search_results(
+                        [
+                            (&mut files, file_limit),
+                            (&mut types, symbol_limit),
+                            (&mut symbols, symbol_limit),
+                        ],
+                        limit,
+                        &mut last_flush,
+                        std::time::Instant::now(),
+                        false,
+                    );
                 }
             }
         }
     }
-    for (bucket, cap) in [
-        (&mut files, request.max_file_results.unwrap_or(limit)),
-        (&mut types, symbol_limit),
-        (&mut symbols, symbol_limit),
-    ] {
-        bucket.sort_by(|a, b| {
-            b.matching_degree
-                .cmp(&a.matching_degree)
-                .then_with(|| a.path.cmp(&b.path))
-                .then_with(|| a.line.cmp(&b.line))
-        });
-        bucket.truncate(cap.min(limit));
+    emit_search_results(
+        [
+            (&mut files, file_limit),
+            (&mut types, symbol_limit),
+            (&mut symbols, symbol_limit),
+        ],
+        limit,
+        &mut last_flush,
+        std::time::Instant::now(),
+        true,
+    );
+    if let Some(page) = page.as_mut() {
+        page.finish("file", &mut files, file_limit);
+        page.finish("type", &mut types, symbol_limit);
+        page.finish("symbol", &mut symbols, symbol_limit);
+    } else {
+        for (bucket, cap) in [
+            (&mut files, file_limit),
+            (&mut types, symbol_limit),
+            (&mut symbols, symbol_limit),
+        ] {
+            rank_search_bucket(bucket, cap);
+        }
     }
     let mut content_request = request.clone();
     content_request.max_file_results = Some(0);
-    let content = if content_limit > 0 {
+    if page.is_some() {
+        content_request.max_results = content_limit + 1;
+        content_request.max_content_results = Some(content_limit + 1);
+    }
+    let mut content = if content_limit > 0 {
         search_with_index(
             &root,
             &content_request,
@@ -535,11 +630,15 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
             index
                 .as_ref()
                 .expect("content source requires content index"),
+            page.as_deref(),
         )?
         .matches
     } else {
         Vec::new()
     };
+    if let Some(page) = page.as_mut() {
+        page.finish("content", &mut content, content_limit);
+    }
     let mut matches = files;
     matches.extend(types);
     matches.extend(symbols);
@@ -554,6 +653,54 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
         }
     }
     Ok(SearchResponse { matches })
+}
+
+/// Stable total ordering shared by bounded collection and cursor continuation.
+pub(crate) fn compare_search_matches(a: &SearchMatch, b: &SearchMatch) -> std::cmp::Ordering {
+    b.matching_degree
+        .cmp(&a.matching_degree)
+        .then_with(|| a.path.cmp(&b.path))
+        .then_with(|| a.line.cmp(&b.line))
+        .then_with(|| a.symbol_name.cmp(&b.symbol_name))
+}
+
+fn rank_search_bucket(bucket: &mut Vec<SearchMatch>, cap: usize) {
+    bucket.sort_by(compare_search_matches);
+    bucket.truncate(cap);
+}
+
+// Replaceable snapshots let slow hosts keep only the newest batch. Ranking
+// before each cap preserves the final top matches even when better hits arrive late.
+fn emit_search_results(
+    buckets: [(&mut Vec<SearchMatch>, usize); 3],
+    limit: usize,
+    last_flush: &mut Option<std::time::Instant>,
+    now: std::time::Instant,
+    force: bool,
+) {
+    if !crate::git::execution_events::has_sink()
+        || buckets.iter().all(|(bucket, _)| bucket.is_empty())
+        || (!force
+            && last_flush.is_some_and(|last| {
+                now.duration_since(last) < std::time::Duration::from_millis(100)
+            }))
+    {
+        return;
+    }
+    let mut matches = Vec::new();
+    for (bucket, cap) in buckets {
+        rank_search_bucket(bucket, cap + 1);
+        matches.extend(
+            bucket
+                .iter()
+                .take(cap.min(limit.saturating_sub(matches.len())))
+                .cloned(),
+        );
+    }
+    *last_flush = Some(now);
+    crate::git::execution_events::emit(serde_json::json!({
+        "type": "searchResults", "results": SearchResponse { matches }
+    }));
 }
 
 fn match_everywhere_name(
@@ -1543,6 +1690,60 @@ fn is_word_character(character: char) -> bool {
 #[cfg(test)]
 mod event_filter_tests {
     use super::*;
+
+    #[test]
+    fn search_snapshots_merge_at_100ms_and_keep_the_best_bounded_candidates() {
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+        let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let received = events.clone();
+        crate::git::execution_events::with_sink(
+            Arc::new(move |raw| {
+                received
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::from_str(raw).unwrap());
+            }),
+            || {
+                let make_match = |name: &str, degree| SearchMatch {
+                    kind: "file".into(),
+                    path: name.into(),
+                    line: None,
+                    preview: name.into(),
+                    symbol_name: None,
+                    name_match_ranges: vec![],
+                    matching_degree: Some(degree),
+                    is_ignored: None,
+                };
+                let mut files = vec![make_match("First", 1)];
+                let (mut types, mut symbols, mut last) = (vec![], vec![], None);
+                let now = Instant::now();
+                let mut flush = |files: &mut Vec<SearchMatch>, milliseconds, force| {
+                    emit_search_results(
+                        [(files, 1), (&mut types, 1), (&mut symbols, 1)],
+                        1,
+                        &mut last,
+                        now + Duration::from_millis(milliseconds),
+                        force,
+                    );
+                };
+                flush(&mut files, 0, false);
+                files.push(make_match("Better", 10));
+                flush(&mut files, 99, false);
+                assert_eq!(events.lock().unwrap().len(), 1);
+                flush(&mut files, 100, false);
+                files.push(make_match("Best", 20));
+                flush(&mut files, 101, true);
+            },
+        );
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 3);
+        for (event, path) in events.iter().zip(["First", "Better", "Best"]) {
+            assert_eq!(event["type"], "searchResults");
+            assert_eq!(event["results"]["matches"].as_array().unwrap().len(), 1);
+            assert_eq!(event["results"]["matches"][0]["path"], path);
+        }
+    }
 
     #[test]
     fn shared_workspace_change_fixture() {

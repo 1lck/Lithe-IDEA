@@ -56811,6 +56811,17 @@
       }
     },
     {
+      "id": "native.javaKeywordNavigationFilter",
+      "description": "Native UI: Skip definition lookups for Java keywords",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip definition lookups for Java keywords",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.showMinimap",
       "description": "Native UI: Show minimap",
       "platforms": [
@@ -73699,10 +73710,15 @@
     },
     {
       "id": "ui.more",
-      "description": "Windows UI: ui.more",
+      "description": "More actions overflow trigger",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "More",
+        "arguments": []
+      }
     },
     {
       "id": "ui.morePages",
@@ -90791,6 +90807,415 @@
         "arguments": [
           "arg1"
         ]
+      }
+    },
+    {
+      "id": "native.editorAppearanceAbsolute",
+      "description": "Source editor appearance: Absolute",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Absolute",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceAppliesImmediatelyToSourceEditorsInAllProjects",
+      "description": "Source editor appearance: Applies immediately to source editors in all projects.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Applies immediately to source editors in all projects.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBlink",
+      "description": "Source editor appearance: Blink",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Blink",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBlock",
+      "description": "Source editor appearance: Block",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Block",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBoundary",
+      "description": "Source editor appearance: Boundary",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Boundary",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceColorizeBracketPairs",
+      "description": "Source editor appearance: Colorize bracket pairs",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Colorize bracket pairs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursor",
+      "description": "Source editor appearance: Cursor",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursorBlinking",
+      "description": "Source editor appearance: Cursor blinking",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor blinking",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursorStyle",
+      "description": "Source editor appearance: Cursor style",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor style",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorColorScheme",
+      "description": "Source editor appearance: Editor color scheme",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorColorsFollowLightAndDarkAppearanceIndependentlyOfTheInterfaceTheme",
+      "description": "Source editor appearance: Editor colors follow light and dark appearance independently of the interface theme.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor colors follow light and dark appearance independently of the interface theme.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorDisplay",
+      "description": "Source editor appearance: Editor display",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor display",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceFontLigatures",
+      "description": "Source editor appearance: Font ligatures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Font ligatures",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceHighlightCurrentLine",
+      "description": "Source editor appearance: Highlight current line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Highlight current line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceItalicComments",
+      "description": "Source editor appearance: Italic comments",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Italic comments",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceLineNumbers",
+      "description": "Source editor appearance: Line numbers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line numbers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceLineSpacing",
+      "description": "Source editor appearance: Line spacing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line spacing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceRelative",
+      "description": "Source editor appearance: Relative",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Relative",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceRenderWhitespace",
+      "description": "Source editor appearance: Render whitespace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Render whitespace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceScrollBeyondLastLine",
+      "description": "Source editor appearance: Scroll beyond last line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Scroll beyond last line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSelection",
+      "description": "Source editor appearance: Selection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Selection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceShowIndentGuides",
+      "description": "Source editor appearance: Show indent guides",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show indent guides",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSmooth",
+      "description": "Source editor appearance: Smooth",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Smooth",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSmoothScrolling",
+      "description": "Source editor appearance: Smooth scrolling",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Smooth scrolling",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSoftWrap",
+      "description": "Source editor appearance: Soft wrap",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Soft wrap",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSolid",
+      "description": "Source editor appearance: Solid",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Solid",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceStickyScroll",
+      "description": "Source editor appearance: Sticky scroll",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sticky scroll",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSyntaxHighlighting",
+      "description": "Source editor appearance: Syntax highlighting",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Syntax highlighting",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceTrailing",
+      "description": "Source editor appearance: Trailing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Trailing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceUnderline",
+      "description": "Source editor appearance: Underline",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Underline",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceVSCode",
+      "description": "Bundled editor color scheme product name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "VS Code",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceIntelliJIDEA",
+      "description": "Bundled editor color scheme product name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "IntelliJ IDEA",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeInfo",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Bracket colors follow the selected editor color scheme.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeEnabled",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enabled by color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeDisabled",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disabled by color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "lsp.completion.invalidTriggerKind",
+      "description": "Completion request validation from shared Core",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Invalid completion trigger kind",
+        "arguments": []
+      }
+    },
+    {
+      "id": "lsp.completion.missingTriggerCharacter",
+      "description": "Completion request validation from shared Core",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Completion trigger character is required",
+        "arguments": []
       }
     },
     {
