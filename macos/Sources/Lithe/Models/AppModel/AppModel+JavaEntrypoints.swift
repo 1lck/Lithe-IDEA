@@ -15,13 +15,14 @@ extension AppModel {
     /// entries stay, and the list refreshes once preparation settles.
     func generateFromJavaEntrypoints(
         _ runFeature: RunFeatureModel,
-        for identity: WorkspaceIdentity
+        for identity: WorkspaceIdentity,
+        automatic: Bool = false
     ) async {
         let (discovery, sessions) = await discoverJavaEntrypoints(for: identity)
         guard isCurrentWorkspace(identity) else { return }
-        await runFeature.generateRunConfigurations(javaDiscovery: discovery)
+        await runFeature.generateRunConfigurations(javaDiscovery: discovery, automatic: automatic)
         if discovery == .pending, let sessions {
-            refreshJavaEntrypointsWhenPrepared(for: identity, sessions: sessions)
+            refreshJavaEntrypointsWhenPrepared(for: identity, sessions: sessions, automatic: automatic)
         }
     }
 
@@ -70,7 +71,8 @@ extension AppModel {
     /// Regenerates once JDT has finished (or failed) preparing the project.
     func refreshJavaEntrypointsWhenPrepared(
         for identity: WorkspaceIdentity,
-        sessions: LanguageToolingSessionManager
+        sessions: LanguageToolingSessionManager,
+        automatic: Bool = false
     ) {
         javaEntrypointRefreshObservation = sessions.$projectPreparation
             .compactMap { $0 }
@@ -80,7 +82,7 @@ extension AppModel {
                     guard let self else { return }
                     self.javaEntrypointRefreshObservation = nil
                     guard self.isCurrentWorkspace(identity) else { return }
-                    await self.generateRunConfigurations()
+                    await self.generateRunConfigurations(automatic: automatic)
                 }
             }
     }

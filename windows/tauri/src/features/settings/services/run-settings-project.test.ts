@@ -23,7 +23,6 @@ function harness() {
     },
     generateRunConfiguration: async () =>
       ({ generated: {}, toolchainRequirements: {}, entryCount: 0 }) satisfies CoreGenerateResult,
-    writeGeneratedRunDocuments: async () => {},
     inspectRunConfiguration: async () => {
       inspections += 1;
       return { status: "missing" };

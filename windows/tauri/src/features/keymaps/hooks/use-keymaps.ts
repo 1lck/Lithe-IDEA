@@ -24,6 +24,7 @@ import { eventToKey, keysMatch, matchKeybinding } from "../utils/matcher";
 import { isNativeMenuAccelerator } from "../utils/native-menu-accelerators";
 import { parseKeybinding } from "../utils/parser";
 import type { ParsedKey } from "../utils/parser";
+import { shouldDeferClipboardToReadOnlyDiff } from "../utils/readonly-diff-clipboard";
 import { keymapRegistry } from "../utils/registry";
 import { isVimOwnedShortcut } from "../utils/vim-shortcuts";
 import {
@@ -51,7 +52,9 @@ function isCloseWindowShortcut(event: KeyboardEvent) {
 }
 
 export function useKeymaps() {
-  const contexts = useKeymapStore.use.contexts();
+  // Contexts change on every focus move and file open. The handlers read them
+  // when a key arrives; subscribing here would re-render the whole workbench
+  // root on each change.
   const [chordState, setChordState] = useState<ParsedKey[]>([]);
   const chordTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastCloseTabShortcutAtRef = useRef(0);
@@ -97,7 +100,7 @@ export function useKeymaps() {
     const recognizer = doubleShiftRecognizerRef.current;
 
     const handleShiftKeyDown = (event: KeyboardEvent) => {
-      if (contexts.isRecordingKeybinding) {
+      if (useKeymapStore.getState().contexts.isRecordingKeybinding) {
         recognizer.reset();
         return;
       }
@@ -117,7 +120,9 @@ export function useKeymaps() {
     };
 
     const handleShiftKeyUp = (event: KeyboardEvent) => {
-      if (contexts.isRecordingKeybinding || !isShiftOnlyKey(event)) return;
+      if (useKeymapStore.getState().contexts.isRecordingKeybinding || !isShiftOnlyKey(event)) {
+        return;
+      }
 
       const shouldOpenSearch = recognizer.handleFlagsChanged(
         false,
@@ -137,10 +142,11 @@ export function useKeymaps() {
       window.removeEventListener("keydown", handleShiftKeyDown, true);
       window.removeEventListener("keyup", handleShiftKeyUp, true);
     };
-  }, [contexts.isRecordingKeybinding]);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const { contexts } = useKeymapStore.getState();
       // Skip all keybinding handling when recording a new keybinding
       if (contexts.isRecordingKeybinding) {
         return;
@@ -158,6 +164,18 @@ export function useKeymaps() {
         isTerminalTarget,
       });
       effectiveContexts.fileOpenTargetFocus = !!resolveFocusedFileOpenTarget();
+
+      // Diff previews keep their own Monaco selection; the editor command would
+      // copy from the source editor instead, so copy/cut stay native there.
+      if (
+        shouldDeferClipboardToReadOnlyDiff(
+          e,
+          target,
+          typeof document !== "undefined" ? document.activeElement : null,
+        )
+      ) {
+        return;
+      }
 
       // Prevent modifier-shortcut floods when key is held down (e.g. Cmd+R auto-repeat)
       if (e.repeat && (e.metaKey || e.ctrlKey || e.altKey)) {
@@ -325,7 +343,7 @@ export function useKeymaps() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [contexts, chordState]);
+  }, [chordState]);
 
   // Listener replacement after the first chord key must not cancel its deadline.
   useEffect(() => {

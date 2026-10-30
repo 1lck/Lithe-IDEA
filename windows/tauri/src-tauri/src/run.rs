@@ -396,15 +396,6 @@ fn stop_sessions(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WriteGeneratedArgs {
-    pub root: PathBuf,
-    pub generated: Value,
-    pub toolchain_requirements: Value,
-    pub default_run_configuration: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WriteDocumentsArgs {
     pub root: PathBuf,
     pub documents: Vec<RunDocumentWrite>,
@@ -540,19 +531,6 @@ fn list_java_sources(root: &Path) -> Result<Vec<String>, String> {
     let root = existing_directory(root)?;
     lithe_core::execution::list_run_java_sources(&root, MAX_JAVA_SOURCES)
         .map_err(|error| error.message)
-}
-
-#[tauri::command]
-pub async fn run_write_generated(args: WriteGeneratedArgs) -> Result<(), String> {
-    run_blocking(move || {
-        write_generated_documents(
-            &args.root,
-            &args.generated,
-            &args.toolchain_requirements,
-            args.default_run_configuration.as_deref(),
-        )
-    })
-    .await
 }
 
 #[tauri::command]
@@ -1219,42 +1197,6 @@ pub fn cleanup_legacy_appdata(app: &AppHandle) {
     }
 }
 
-fn write_generated_documents(
-    root: &Path,
-    generated: &Value,
-    requirements: &Value,
-    default_run_configuration: Option<&str>,
-) -> Result<(), String> {
-    let _transaction = configuration_transaction();
-    let root = existing_directory(root)?;
-    let lithe_directory = root.join(".lithe");
-    let run_directory = lithe_directory.join("run");
-    let toolchain_directory = lithe_directory.join("toolchains");
-    let generated_path = run_directory.join("generated.json");
-    let requirements_path = toolchain_directory.join("requirements.json");
-    let ignore_path = lithe_directory.join(".gitignore");
-    let manifest_path = lithe_directory.join("project.json");
-    for path in [
-        &generated_path,
-        &requirements_path,
-        &ignore_path,
-        &manifest_path,
-    ] {
-        validate_write_target(&root, path)?;
-    }
-    fs::create_dir_all(&run_directory).map_err(|error| error.to_string())?;
-    fs::create_dir_all(&toolchain_directory).map_err(|error| error.to_string())?;
-    atomic_write(&requirements_path, pretty_json(requirements)?.as_bytes())?;
-    ensure_lithe_gitignore(&ignore_path)?;
-    if !manifest_path.exists() {
-        let mut manifest = json!({ "version": 1 });
-        if let Some(default_id) = default_run_configuration.filter(|value| !value.is_empty()) {
-            manifest["defaultRunConfiguration"] = json!(default_id);
-        }
-        atomic_write(&manifest_path, pretty_json(&manifest)?.as_bytes())?;
-    }
-    atomic_write(&generated_path, pretty_json(generated)?.as_bytes())
-}
 
 fn workspace_relative(root: &Path, path: &Path) -> Option<String> {
     path.strip_prefix(root)
@@ -1440,10 +1382,6 @@ fn join_relative(root: &Path, relative: &str) -> PathBuf {
         .split(['/', '\\'])
         .filter(|part| !part.is_empty() && *part != ".")
         .fold(root.to_path_buf(), |path, part| path.join(part))
-}
-
-fn pretty_json(value: &Value) -> Result<String, String> {
-    serde_json::to_string_pretty(value).map_err(|error| error.to_string())
 }
 
 /// Installed JDKs for the Java language service, which binds each project to
@@ -1702,6 +1640,8 @@ fn java_home_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
                 let path = entry.path();
                 if path.is_dir() {
                     homes.push(path.join("Contents").join("Home"));
+                    // Scoop keeps each app's active version under `current`.
+                    homes.push(path.join("current"));
                     homes.push(path);
                 }
             }
@@ -1730,16 +1670,79 @@ fn well_known_java_roots() -> Vec<PathBuf> {
             }
         }
     }
+    for key in ["ProgramFiles", "LOCALAPPDATA"] {
+        if let Ok(base) = std::env::var(key) {
+            let base = PathBuf::from(base);
+            roots.push(base.join("Semeru"));
+            roots.push(base.join("OpenJDK"));
+        }
+    }
     if let Ok(profile) = std::env::var("USERPROFILE") {
         let profile = PathBuf::from(profile);
         roots.push(profile.join(".jdks"));
         roots.push(profile.join(".sdkman").join("candidates").join("java"));
+        roots.push(profile.join("scoop").join("apps"));
+    }
+    roots.extend(version_manager_install_roots("java"));
+    roots
+}
+
+/// Install directories of `tool` (`java`, `maven`) kept by mise and asdf, whose
+/// shims are not real homes. Mirrors OpenIDEA's version-manager detection
+/// (https://github.com/l0ng-ai/openidea, Apache-2.0); see the repository NOTICE.
+fn version_manager_install_roots(tool: &str) -> Vec<PathBuf> {
+    let variable = |key: &str| {
+        std::env::var_os(key)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    let mut roots = Vec::new();
+    if let Some(mise) =
+        variable("MISE_DATA_DIR").or_else(|| variable("LOCALAPPDATA").map(|base| base.join("mise")))
+    {
+        roots.push(mise.join("installs").join(tool));
+    }
+    if let Some(asdf) =
+        variable("ASDF_DATA_DIR").or_else(|| variable("USERPROFILE").map(|home| home.join(".asdf")))
+    {
+        roots.push(asdf.join("installs").join(tool));
     }
     roots
 }
 
+/// Maven homes installed by version managers and Scoop, after every explicit and
+/// `PATH` candidate so they never shadow a project wrapper or a configured Maven.
+fn version_manager_maven_executables() -> Vec<PathBuf> {
+    let mut roots = version_manager_install_roots("maven");
+    if let Some(profile) = std::env::var_os("USERPROFILE").filter(|value| !value.is_empty()) {
+        let profile = PathBuf::from(profile);
+        roots.push(profile.join(".sdkman").join("candidates").join("maven"));
+        roots.push(profile.join("scoop").join("apps").join("maven"));
+    }
+    let mut executables = Vec::new();
+    for root in roots {
+        let Ok(entries) = fs::read_dir(&root) else {
+            continue;
+        };
+        let mut homes = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>();
+        homes.sort();
+        for home in homes {
+            executables.extend(
+                MAVEN_LAUNCHERS
+                    .iter()
+                    .map(|name| home.join("bin").join(name)),
+            );
+        }
+    }
+    executables
+}
+
 fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
-    maven_executable_candidates_with_sources(
+    let mut executables = maven_executable_candidates_with_sources(
         project_root,
         |key| {
             std::env::var_os(key)
@@ -1747,7 +1750,9 @@ fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
                 .map(PathBuf::from)
         },
         lookup_on_path,
-    )
+    );
+    executables.extend(version_manager_maven_executables());
+    executables
 }
 
 fn maven_executable_candidates_with_sources(
@@ -2918,47 +2923,7 @@ mod tests {
     }
 
     #[test]
-    fn write_generated_creates_lithe_documents() {
-        let root = temp_project();
-        let generated = json!({
-            "version": 2,
-            "configurations": [{ "id": "spring-boot.maven:demo", "provider": "spring-boot.maven" }]
-        });
-        let requirements = json!({ "version": 1, "toolchains": {} });
-        write_generated_documents(
-            &root,
-            &generated,
-            &requirements,
-            Some("spring-boot.maven:demo"),
-        )
-        .expect("write");
-        assert!(root
-            .join(".lithe")
-            .join("run")
-            .join("generated.json")
-            .is_file());
-        assert!(root
-            .join(".lithe")
-            .join("toolchains")
-            .join("requirements.json")
-            .is_file());
-        assert_eq!(
-            fs::read_to_string(root.join(".lithe").join(".gitignore")).expect("gitignore"),
-            LITHE_GITIGNORE_ENTRIES.join("\n") + "\n"
-        );
-        let manifest: Value = serde_json::from_str(
-            &fs::read_to_string(root.join(".lithe").join("project.json")).expect("manifest"),
-        )
-        .expect("json");
-        assert_eq!(
-            manifest["defaultRunConfiguration"],
-            "spring-boot.maven:demo"
-        );
-        fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn write_generated_refuses_paths_outside_the_project() {
+    fn write_targets_refuse_paths_outside_the_project() {
         let root = temp_project();
         let outside = std::env::temp_dir().join("lithe-run-outside.json");
         let result = validate_write_target(&root, &outside);
@@ -3526,26 +3491,25 @@ mod tests {
                 vendor: "fixture".into(),
             },
         ];
-        fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
-        let requirements = root.join(".lithe/toolchains/requirements.json");
+        // Before the Run list is identified, Core reads the minimum from the
+        // project's own declaration.
+        let pom = root.join("pom.xml");
         fs::write(
-            &requirements,
-            r#"{"version":1,"toolchains":{"project-jdk":{"type":"java","minimumVersion":"17"}}}"#,
+            &pom,
+            "<project><properties><maven.compiler.release>17</maven.compiler.release></properties></project>",
         )
         .unwrap();
         let selected = select_project_java(Some(&root), &runtimes).unwrap();
         assert_eq!(selected.id.as_deref(), Some(runtimes[1].home_path.as_str()));
         assert!(selected.warning.is_none());
         fs::write(
-            &requirements,
-            r#"{"version":1,"toolchains":{"project-jdk":{"type":"java","minimumVersion":"25"}}}"#,
+            &pom,
+            "<project><properties><maven.compiler.release>25</maven.compiler.release></properties></project>",
         )
         .unwrap();
         let fallback = select_project_java(Some(&root), &runtimes).unwrap();
         assert_eq!(fallback.id, selected.id);
         assert!(fallback.warning.unwrap().contains("25"));
-        fs::write(&requirements, "{").unwrap();
-        assert!(select_project_java(Some(&root), &runtimes).is_err());
         // Explicit paths never pass through requirement-based auto selection.
         fs::create_dir_all(root.join("jdk8/bin")).unwrap();
         fs::write(root.join("jdk8/bin/java.exe"), b"fixture").unwrap();

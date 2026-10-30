@@ -400,6 +400,7 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
     let result = (|| {
         WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
             .title(&initial_title)
+            .background_color(crate::window_background::initial_background(&app))
             .decorations(false)
             .inner_size(1280.0, 800.0)
             .min_inner_size(720.0, 480.0)
@@ -702,9 +703,10 @@ pub fn get_system_theme(window: WebviewWindow) -> String {
 }
 
 #[tauri::command]
-pub fn set_native_window_appearance(
+pub async fn set_native_window_appearance(
     window: WebviewWindow,
     theme_type: String,
+    background_color: Option<String>,
 ) -> Result<(), String> {
     let theme = match theme_type.as_str() {
         // A forced window theme also fixes WebView2's prefers-color-scheme.
@@ -714,7 +716,11 @@ pub fn set_native_window_appearance(
         "dark" => Some(Theme::Dark),
         _ => return Err("Window theme must be system, light or dark".into()),
     };
-    window.set_theme(theme).map_err(|error| error.to_string())
+    window.set_theme(theme).map_err(|error| error.to_string())?;
+    match background_color {
+        Some(background) => crate::window_background::apply(&window, &background).await,
+        None => Ok(()),
+    }
 }
 
 #[tauri::command]
@@ -729,9 +735,12 @@ pub fn get_bundled_extensions_path(app: AppHandle) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Returns raw bytes instead of serializing each byte as a JSON array element.
 #[tauri::command]
-pub async fn read_local_file(path: PathBuf) -> Result<Vec<u8>, String> {
-    run_blocking(move || fs::read(path).map_err(|error| error.to_string())).await
+pub async fn read_local_file(path: PathBuf) -> Result<tauri::ipc::Response, String> {
+    run_blocking(move || fs::read(path).map_err(|error| error.to_string()))
+        .await
+        .map(tauri::ipc::Response::new)
 }
 
 fn read_bounded(reader: &mut impl Read, max_bytes: usize) -> io::Result<BoundedFileRead> {

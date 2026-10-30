@@ -55,6 +55,36 @@ Commit/Shelf 页签的留白以同一 Community revision 的 `IslandsUICustomiza
 
 ### Search Everywhere
 
+#1564 的增量搜索复用 Core 已有请求事件和取消机制：先扫描、发布文件名，再构建正文/符号索引。
+首次候选立即发送，后续名称/类/符号候选按约 100ms 合并，并在来源结束时刷新；每批是替换快照，
+先按原有匹配度排序再限制每来源与总条数，较晚的优质候选不会被早期截断丢弃。
+正文结果和 Git 忽略状态仍随最终响应到达；中间缺失的忽略状态保持未知。
+macOS 使用只保留最新快照的 AsyncStream，逐批核对查询代次、工作区/来源有效性和任务取消，
+旧任务结束不能清掉新任务的 loading；重置/关闭也撤销 Core 操作。
+复用 RustCoreCancellation 的 requestStarted 握手处理注册前取消，阻塞的 C 调用放到 GCD worker。
+列表及用户主动选择按结果 ID 识别，追加更高排名结果不会把预览切到同序号的另一文件。
+未进行鼠标或键盘导航时，`nil` 表示默认跟随当前首项；不能把临时首项自动写成主动选择，
+否则本地 Actions 先到或较差候选先到时，等待完成后 Enter 仍会激活旧项。主动选择失效才清回
+默认状态。原生回归分别控制 Actions/文件与较差/更优候选的到达顺序，核对预览和 Enter。
+保留 180ms 输入防抖和索引更新/失效屏障，冷名称索引仍须先完成轻量枚举；不宣称固定首屏延迟。
+不引入新的搜索线程池、缓存或任意等待关键来源的排序延迟。参考
+[ThrottlingListenerWrapper.java](https://github.com/JetBrains/intellij-community/blob/master/platform/lang-impl/src/com/intellij/ide/actions/searcheverywhere/ThrottlingListenerWrapper.java)
+的默认 100ms 合并窗口，但不复制 IDEA 不同贡献者的等待策略。
+Rust 模拟时间验证 99/100ms 边界、最终 flush 与较晚优质候选；实际桥接验证名称先于符号和取消。
+模块回归覆盖流式期间 loading、替换查询、reset、取消与突发快照的最终结果；原生深浅主题
+40/199/200 条结果同时核对分栏、首批可交互及追加结果后的选择/预览/滚动。
+继续修复移除“更多”提示和每来源 200 条总上限：macOS 每来源每页 50 条，复用
+`LitheScrollLoadTrigger` 与共享懒列表，靠近底部自动续查，无需点击加载。Core 使用绑定工作区、
+查询、选项、来源及排除规则的游标；名称/符号仅保留最多 51 个候选，正文按路径/行推进并读取
+一个额外命中判断耗尽，不预先搜全量再由 UI 切片，也不另建常驻搜索会话缓存。
+首屏仍流式替换，续页完成后按 ID 去重追加；按页保持来源排名，动作位于首批名称之后，
+防止后续类/符号或动作移动已显示行。重复游标、无新增项、耗尽停止；失败保留行与游标，
+暂停自动加载，只提供已有 i18n Retry 操作。新查询/来源取消旧分页，防抖期间保留当前列表。
+取舍：名称/符号每页仍扫描已有索引，50 条减少候选缓存/排序与首屏渲染，不承诺索引扫描变快；
+游标读取实时索引，游标之前新插入的匹配需重新查询。原生深浅主题自动滚动加载 257 文件，
+核对去重、非零像素偏移与预览不跳；Core 覆盖四来源超过 200、恰好整页、空页与跨查询游标拒绝。
+Windows 仍消费旧有最终响应，未实现或验收其流式展示和自动分页。
+
 双 Shift 搜索窗口沿用 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`
 的 `SearchEverywhereUI.java`、`SENewUIHeaderView.kt`、`BigPopupUI.java`、
 `IslandsUICustomization.kt`、`IslandsTabPainter.kt` 与 `ManyIslandsDark/Light.theme.json`。
@@ -147,8 +177,8 @@ Search Everywhere 可显式包含生成目录的**文件名**，但不把 `.buil
 中的几十 GB 内容和二进制加入正文/符号索引。额外索引仅在内存中保存路径，沿用
 Core 索引失效与文件增量事件；未被 watcher 监视的生成目录新增条目需刷新索引。
 Git 元数据、嵌套工作树、自定义隐藏目录及路径 glob 仍被排除；该开关覆盖内置生成
-目录名称排除，不改变项目树、正文搜索、替换和 watcher 的范围。每来源 200 项、
-四类总计 800 项是有界候选，不等于 IDEA 的无限分页或完整项目模型。
+目录名称排除，不改变项目树、正文搜索、替换和 watcher 的范围。Search Everywhere 按每来源
+50 项分页；旧同步调用保留自身上限。自动分页不等于 IDEA 的完整项目模型。
 
 漏斗按 `SearchEverywhereFiltersAction` 控制当前已实现的 Classes/Files/Symbols/Actions，
 底部支持 All/None/Invert，复用 `litheDropdown` 的原生子面板。All 页包含选中来源的
@@ -927,7 +957,7 @@ Medium字重的普通按钮会变为欢迎页的28px、Regular；不再以 xs �
 以及原生 Go To Line、Search Everywhere 的键盘与点击回归。
 
 按钮同时保留内容所需的水平宽度（`fixedSize(horizontal: true, vertical: false)`），
-避免搜索区与按钮组分配空间时把长文案压缩成省略号；搜索区仍可随可用空间收缩。
+避免搜索区与按钮组分配空间时把长文案压缩成省略号；欢迎页搜索区保留 180–220pt，次要操作放不下时收入更多菜单。
 
 同 revision 的 `ProjectsTabFactory.kt` 为搜索输入指定 `AllIcons.Actions.Search`；
 `RecentProjectFilteringTree.kt.installSearchField` 去掉输入边框，并通过 `emptyText`
@@ -2029,3 +2059,27 @@ PluginNativeUITests验证禁用说明可点击打开真正的公共弹窗。
 有空间时显示完整路径，只有实际宽度不足才从中间省略；名称、分支和第三行状态的位置不因此改变。
 路径截断时复用 Stash 文件列表的 AppKit 原生行内展开（expansion tooltip），只在路径行内悬停展开完整路径；不使用多行 help 气泡，也不重建整份原生列表。
 验证使用 `GitWorktreeAppearanceTests`、`CommitActionButtonStyleTests` 及真实示例项目的深浅主题、键盘焦点和窄宽布局。
+
+
+欢迎页窄窗口保留单行与原有顶部高度。搜索框保持 180–220pt，新建项目和打开常驻；
+`ViewThatFits` 根据次要按钮的实际理想宽度，在完整按钮与 `LitheMenu` 更多入口之间切换。
+克隆仓库、远程开发复用原动作及可用条件，菜单继续使用统一呈现器；不改变窗口最小尺寸，
+不缩小文字，也不换行。搜索框位于切换容器外，避免缩放时重建输入控件。
+`RecentProjectBranchMetadataTests` 在深浅主题下按 800→1100→800pt 验证窄窗口更多入口、
+宽窗口完整操作、搜索区域宽度、单行对齐和窗口边界。原生截图仅验证布局；测试宿主的图标
+资源缺失不能视为产品资源视觉验收通过。
+
+
+欢迎页更多入口使用本地化 `More` 文字（中文为“更多”），继续复用文字动作按钮；不再使用省略号图标。
+克隆仓库面板删除自绘输入边框、圆角与字号，三项输入统一使用 `LitheTextField`，字段标签和间距由
+`LitheFormField` 提供。目录选择按钮放在输入框右侧，不嵌套于输入边框内。保留原克隆任务、禁用条件、目录选择及文件夹名建议。面板保持 560pt 宽，
+高度随统一输入组件和错误提示增长，避免固定 360pt 裁剪表单。原生深浅测试检查输入区域、字体及
+输入 URL 后自动生成文件夹名；不执行真实网络克隆。
+
+
+克隆仓库的实际打开入口也必须使用 `LitheCenteredPopup(dialogTitle:)`，而不仅统一内容控件。
+`RootView` 已移除该入口的系统 `.sheet`，删除内容自绘标题行，由共享有标题面板负责外框、标题、
+关闭控件、居中和无动画呈现。取消与克隆成功复位工作台呈现状态；克隆期间禁止手动关闭，
+父窗口退出仍按共享生命周期清理。使用 `resizesToContent` 让错误提示出现时自然增高。
+`CloneRepositoryStyleTests` 将实际克隆内容放进共享 presenter，检查非 sheet、无动画、原生标题栏、
+关闭状态、深浅输入布局及文件夹建议；`LitheCenteredPopupTests` 覆盖忙碌与父窗口清理边界。

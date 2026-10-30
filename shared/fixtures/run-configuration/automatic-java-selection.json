@@ -45,8 +45,8 @@
       "minimum": "8",
       "candidates": [
         {
-          "id": "eight",
-          "version": "8.0.402",
+          "id": "eleven",
+          "version": "11.0.22",
           "priority": 2
         },
         {
@@ -55,12 +55,12 @@
           "priority": 2
         },
         {
-          "id": "seventeen",
-          "version": "17.0.12",
+          "id": "nine",
+          "version": "9.0.4",
           "priority": 2
         }
       ],
-      "fallbackId": "eight"
+      "fallbackId": "eleven"
     },
     {
       "name": "numeric-patch-order",
@@ -112,6 +112,62 @@
         }
       ],
       "fallbackId": "z"
+    },
+    {
+      "name": "exact-feature-beats-newer-java-home",
+      "minimum": "8",
+      "candidates": [
+        {
+          "id": "env",
+          "version": "21.0.4",
+          "priority": 0
+        },
+        {
+          "id": "zulu8",
+          "version": "1.8.0_504",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "env"
+    },
+    {
+      "name": "oldest-newer-when-exact-missing",
+      "minimum": "11",
+      "candidates": [
+        {
+          "id": "env",
+          "version": "21.0.4",
+          "priority": 0
+        },
+        {
+          "id": "seventeen",
+          "version": "17.0.12",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "env"
+    },
+    {
+      "name": "priority-breaks-ties-within-feature",
+      "minimum": "17",
+      "candidates": [
+        {
+          "id": "detected",
+          "version": "17.0.14",
+          "priority": 2
+        },
+        {
+          "id": "path",
+          "version": "17.0.12",
+          "priority": 1
+        },
+        {
+          "id": "latest",
+          "version": "21.0.4",
+          "priority": 0
+        }
+      ],
+      "fallbackId": "latest"
     },
     {
       "name": "unsatisfied-retains-fallback",
@@ -181,7 +237,7 @@
       "warning": false
     },
     "numeric-version-order": {
-      "id": "twenty-one",
+      "id": "nine",
       "warning": false
     },
     "numeric-patch-order": {
@@ -211,6 +267,18 @@
     "no-runtimes": {
       "id": null,
       "warning": true
+    },
+    "exact-feature-beats-newer-java-home": {
+      "id": "zulu8",
+      "warning": false
+    },
+    "oldest-newer-when-exact-missing": {
+      "id": "seventeen",
+      "warning": false
+    },
+    "priority-breaks-ties-within-feature": {
+      "id": "path",
+      "warning": false
     }
   }
 }

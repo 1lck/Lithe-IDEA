@@ -1,6 +1,8 @@
 import { isEditorContent } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
 import { useEditorAppStore } from "../stores/editor-app.store";
+import { LspClient } from "../lsp/lsp-client";
+import { getBufferById } from "../utils/buffer-index";
 
 function hasActiveWritableSave(workspaceId: string): boolean {
   return useBufferStore
@@ -45,6 +47,18 @@ export async function saveWorkspaceBeforeLaunch(workspaceId: string): Promise<vo
   while (true) {
     await waitForActiveWorkspaceSaves(workspaceId);
     await useEditorAppStore.getStore(workspaceId).getState().actions.handleSaveAll();
+    // Retry clean buffers as well: a preceding disk save can succeed while
+    // its language-server notification fails. Such a failure must stop launch.
+    for (const candidate of useBufferStore.getStore(workspaceId).getState().buffers) {
+      // Earlier notifications yield to edits, saves and tab closure. Read the
+      // current buffer at its turn instead of replaying the captured text.
+      const buffer = getBufferById(useBufferStore.getStore(workspaceId).getState().buffers, candidate.id);
+      if (buffer && isEditorContent(buffer) && buffer.path === candidate.path
+          && !buffer.readOnly && !buffer.isVirtual && !buffer.isDirty
+          && (!buffer.loadState || buffer.loadState === "loaded")) {
+        await LspClient.getInstance().notifyDocumentSave(buffer.path, buffer.savedContent, buffer.content);
+      }
+    }
     const unsavedNames = unsavedWritableBufferNames(workspaceId);
     if (unsavedNames.length === 0) return;
     if (hasActiveWritableSave(workspaceId)) continue;

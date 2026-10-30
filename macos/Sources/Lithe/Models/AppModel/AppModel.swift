@@ -65,6 +65,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         set { searchSessionFeature.selectedReplacementPaths = newValue }
     }
     let gitLogPresentationCache = GitLogPresentationCache()
+    lazy var commitFileDeletion = makeCommitFileDeletion()
     let editorChrome = EditorChromeModel()
     let editorDiagnosticsStore = EditorDiagnosticsStore()
     /// 编辑器当前选中的单行文本，供 Find/Replace in Files 预填查询词。
@@ -708,9 +709,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func shutdownProjectSession() async {
         isProjectSessionClosed = true
+        commitFileDeletion.reset()
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.
         services.pluginWebPages.closeAll()
+        closePluginWorkspaceContext()
+        dismissPluginHostMessages(.windowClosed)
         workbenchFeature.endLayoutSession()
         // VCS providers too: their pending refreshes, or a scan still loading
         // the workspace, would otherwise start a process for a closed window.
@@ -938,6 +942,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func prepareForWorkspaceOpen(at normalizedURL: URL) {
+        commitFileDeletion.reset()
+        dismissPluginHostMessages(.workspaceChanged)
         documentLanguageCoordinator?.stop()
         beginModuleRuntimeShutdown()
         // A workspace root is a hard language-server ownership boundary. Stop
@@ -981,6 +987,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         selectedSidebar = .project
         projectItemEditRequest = nil
         pendingProjectItemDeletion = nil
+        openPluginWorkspaceContext(at: normalizedURL)
     }
 
     func resumeGitObservationAfterActivation() async {
@@ -996,6 +1003,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func finishWorkspaceClose(for workspaceURL: URL) {
+        commitFileDeletion.reset()
+        closePluginWorkspaceContext()
+        dismissPluginHostMessages(.workspaceChanged)
         releaseRemoteWorkspace(at: workspaceURL)
         ideCapabilities.disable()
         documentLanguageCoordinator?.stop()
@@ -1044,6 +1054,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func prepareForStandaloneOpen(at normalizedURL: URL) {
+        closePluginWorkspaceContext()
         documentLanguageCoordinator?.stop()
         featureGraph.editorSession.resetContent()
         isFindBarVisible = false
@@ -1635,7 +1646,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         if session.savedDiffSnapshot == nil { feature.showSavedChangesDiff(snapshot, version: version, file: file, session: session) }
     }
 
-    func beginRepositoryDiffRequest(key: RepositoryDiffTabKey? = nil) -> UUID {
+    func beginRepositoryDiffRequest(key: RepositoryDiffTabKey? = nil, isProvider: Bool = false) -> UUID {
         if let key, let existing = editorTabOrderFeature.repositoryDiffKeys.first(where: { $0.value == key })?.key,
            editorTabOrderFeature.contains(.repositoryDiff(existing)) {
             selectRepositoryDiffTab(existing)
@@ -1648,6 +1659,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             ?? activeDocument.map { .document($0.id) }
         editorTabOrderFeature.repositoryDiffKeys[id] = key
         editorTabOrderFeature.moveToEnd(.repositoryDiff(id))
+        if isProvider { editorTabOrderFeature.loadingProviderDiffs.insert(id) }
         selectRepositoryDiffTab(id)
         return id
     }
@@ -1670,6 +1682,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         let wasSelected = selectedRepositoryDiffID == id
         let previous = editorTabOrderFeature.repositoryDiffReturnTabs.removeValue(forKey: id)
         editorTabOrderFeature.repositoryDiffKeys[id] = nil
+        editorTabOrderFeature.providerDiffs[id] = nil
         let group = editorTabOrderFeature.groupLayout.groups.first { editorTabOrderFeature.items(in: $0).contains(item) }
         if wasSelected { editorTabOrderFeature.repositoryDiffSelected = false }
         editorTabOrderFeature.remove(item)

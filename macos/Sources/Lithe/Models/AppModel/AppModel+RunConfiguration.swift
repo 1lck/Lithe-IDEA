@@ -83,14 +83,14 @@ extension AppModel {
     }
 
     /// Generate configurations only after the current workspace snapshot is ready.
-    func generateRunConfigurations() async {
+    func generateRunConfigurations(automatic: Bool = false) async {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
         guard isCurrentWorkspace(identity) else { return }
         guard runFeature.recoveryAction != .upgradeApplication else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
-            await generateFromJavaEntrypoints(runFeature, for: identity)
+            await generateFromJavaEntrypoints(runFeature, for: identity, automatic: automatic)
         case .waitingForSnapshot:
             runFeature.reportGenerationProjectNotReady()
         case .stale:
@@ -100,7 +100,7 @@ extension AppModel {
 
     func openRunConfiguration(relativePath: String?) {
         guard let workspaceURL else { return }
-        let url = workspaceURL.appendingPathComponent(relativePath ?? ".lithe/run/generated.json")
+        let url = workspaceURL.appendingPathComponent(relativePath ?? ".lithe/run/configurations.json")
         guard workspaceFeature.fileExists(at: url) else { return }
         openFile(url)
     }
@@ -164,6 +164,13 @@ extension AppModel {
             snapshotID: snapshotID
         )
         guard isCurrentWorkspace(identity) else { return }
+        // Detected entries live in Core's memory, not in the workspace, so a
+        // project this process has not identified yet is identified now.
+        if snapshotID != nil,
+           execution.runFeature.configurationStatus == .missing || execution.runFeature.requiresConfigurationGeneration {
+            await generateFromJavaEntrypoints(execution.runFeature, for: identity, automatic: true)
+            guard isCurrentWorkspace(identity) else { return }
+        }
         adoptSavedProjectToolchain(from: execution.runFeature, workspace: target)
         checkJavaEntrypointFreshness(execution.runFeature, for: identity, files: files)
         guard resumesDeferredRunAction else { return }
@@ -424,33 +431,6 @@ extension AppModel {
         guard isCurrentWorkspace(identity) else { return }
         runFeature.startConfiguration(configuration, javaLaunch: javaLaunch)
         showToolWindow(.run)
-    }
-
-    private func prepareJavaRunLaunch(
-        for configuration: RunConfiguration,
-        identity: WorkspaceIdentity
-    ) async throws -> JavaDebugLaunchTarget? {
-        guard configuration.usesJavaProjectPreparation else { return nil }
-        guard let workspaceURL,
-              let sourceURL = runWorkflowCoordinator.sourceURLForDebug(
-                configuration: configuration,
-                activeDocument: activeDocument,
-                projectFiles: projectFiles,
-                workspaceURL: workspaceURL
-              ) else {
-            throw RunConfigurationOperationFailure(
-                message: L10n.string("The Java source for \(configuration.name) could not be resolved.")
-            )
-        }
-        let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
-        guard isCurrentWorkspace(identity), !Task.isCancelled else {
-            throw CancellationError()
-        }
-        let preparation = try await sessions.prepareJavaRunLaunchTarget(
-            fileURL: sourceURL,
-            rootURL: workspaceURL
-        )
-        return try await resolveJavaLaunchPreparation(preparation, identity: identity)
     }
 
     func startRunConfigurations(_ configurationIDs: [String]) {

@@ -55,6 +55,9 @@ const PERMISSION_BACKEND: &str = "backend.launch";
 /// Letting the backend keep secrets in the host's credential store, private
 /// to the plugin. `backend` 1.
 const PERMISSION_CREDENTIALS: &str = "credentials.store";
+/// Letting the backend list the open workspaces and read their folders and
+/// its per-workspace state directory. `backend` 2.
+const PERMISSION_WORKSPACE_METADATA: &str = "workspace.metadata";
 /// Starting a debug session the plugin's adapter serves. `debugAdapters` 1.
 const PERMISSION_DEBUG_LAUNCH: &str = "debug.launch";
 /// Attaching the plugin's adapter to a running process. `debugAdapters` 1.
@@ -72,6 +75,7 @@ const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_UI,
     PERMISSION_UI_WEB,
     PERMISSION_VCS,
+    PERMISSION_WORKSPACE_METADATA,
 ];
 /// Runtime tools the host knows how to discover and pass to a language
 /// server. The host exports each as `LITHE_<TOOL>_PATH` and puts its
@@ -271,8 +275,13 @@ enum UIDock {
 struct UICommand {
     id: String,
     title: String,
-    #[serde(rename = "toolWindowID")]
-    tool_window_id: String,
+    /// Absent for a backend command from `ui` 4 on.
+    #[serde(
+        default,
+        rename = "toolWindowID",
+        skip_serializing_if = "Option::is_none"
+    )]
+    tool_window_id: Option<String>,
     #[serde(default)]
     order: i32,
     placements: Vec<UICommandPlacement>,
@@ -842,6 +851,8 @@ impl DeclarativePluginManifest {
             && self.vcs_providers.is_empty()
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
+            // A backend 2 may be the whole plugin: it starts on a workspace.
+            && self.backend.is_none()
         {
             return Err(invalid("languages", "The plugin declares no languages."));
         }
@@ -971,6 +982,7 @@ impl DeclarativePluginManifest {
             && self.vcs_providers.is_empty()
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
+            && self.backend.is_none()
         {
             return Err(invalid(
                 "languages",
@@ -1010,11 +1022,17 @@ impl DeclarativePluginManifest {
         if let Some(backend) = &self.backend {
             backend.validate(&super::backend::DeclarationContext {
                 plugin_api_version: self.plugin_api_version,
+                version: self.backend_version(),
                 declared_settings: &declared_settings,
                 has_web_window: self
                     .ui
                     .as_ref()
                     .is_some_and(|ui| ui.tool_windows.iter().any(|window| window.web.is_some())),
+                has_command: self.ui.as_ref().is_some_and(|ui| !ui.commands.is_empty()),
+                activates_on_workspace_open: self
+                    .activation_events
+                    .iter()
+                    .any(|event| event == super::backend::ON_WORKSPACE_OPEN),
             })?;
         }
         self.validate_permissions()?;
@@ -1167,14 +1185,17 @@ impl DeclarativePluginManifest {
                 "UI contributions require plugin API level 2.",
             ));
         }
-        if ui.tool_windows.is_empty() || ui.tool_windows.len() > 64 || ui.commands.len() > 128 {
+        let version = self.requires.get(capabilities::UI).copied().unwrap_or(1);
+        if (ui.tool_windows.is_empty() && (version < 4 || ui.commands.is_empty()))
+            || ui.tool_windows.len() > 64
+            || ui.commands.len() > 128
+        {
             return Err(invalid(
                 "ui",
                 "UI requires 1-64 tool windows and at most 128 commands.",
             ));
         }
         // Below level 3 there is no `requires`, and the section means `ui` 1.
-        let version = self.requires.get(capabilities::UI).copied().unwrap_or(1);
         let prefix = format!("{}.", self.id);
         let mut ids = BTreeSet::new();
         let mut windows = BTreeSet::new();
@@ -1224,7 +1245,19 @@ impl DeclarativePluginManifest {
                 || command.title.len() > 256
                 || !ids.insert(command.id.clone())
                 || !action_ids.insert(command.id.clone())
-                || !windows.contains(&command.tool_window_id)
+                || match &command.tool_window_id {
+                    Some(id) => !windows.contains(id),
+                    None => {
+                        version < 4
+                            || self.backend.is_none()
+                            || self
+                                .requires
+                                .get(capabilities::BACKEND)
+                                .copied()
+                                .unwrap_or(1)
+                                < 2
+                    }
+                }
                 || command.placements.is_empty()
             {
                 return Err(invalid(
@@ -1256,6 +1289,11 @@ impl DeclarativePluginManifest {
         // the plugin from hosts that could run it.
         if (version == 2 && ui.tool_windows.iter().all(|window| window.web.is_none()))
             || (version == 3 && ui.tool_windows.iter().all(|window| window.native.is_none()))
+            || (version == 4
+                && ui
+                    .commands
+                    .iter()
+                    .all(|command| command.tool_window_id.is_some()))
         {
             return Err(invalid(
                 "requires.ui",
@@ -1271,7 +1309,10 @@ impl DeclarativePluginManifest {
 
     fn validate_permissions(&mut self) -> Validation<()> {
         for permission in &self.permissions {
-            if !KNOWN_PERMISSIONS.contains(&permission.as_str()) {
+            if !KNOWN_PERMISSIONS.contains(&permission.as_str())
+                && !crate::lsp::interface::plugin_function::HOST_PERMISSIONS
+                    .contains(&permission.as_str())
+            {
                 return Err(PluginRejection::at(
                     "plugin.permission.unknown",
                     "permissions",
@@ -1340,6 +1381,31 @@ impl DeclarativePluginManifest {
                 "credentials.store is used by a plugin backend; declare one or remove the permission.",
             ));
         }
+        // Only a backend 2 process receives workspace contexts; an older
+        // backend could never exercise the grant the user reviewed.
+        if self
+            .permissions
+            .iter()
+            .any(|p| p == PERMISSION_WORKSPACE_METADATA)
+            && (self.backend.is_none()
+                || self.backend_version() < super::backend::WORKSPACE_CONTEXT_VERSION)
+        {
+            return Err(invalid(
+                "permissions",
+                "workspace.metadata is used by a plugin backend 2; require backend 2 or remove the permission.",
+            ));
+        }
+        if self
+            .permissions
+            .iter()
+            .any(|p| crate::lsp::interface::plugin_function::HOST_PERMISSIONS.contains(&p.as_str()))
+            && (self.backend.is_none() || self.backend_version() < 2)
+        {
+            return Err(invalid(
+                "permissions",
+                "Host API permissions require backend 2.",
+            ));
+        }
         for permission in required {
             if !self
                 .permissions
@@ -1387,7 +1453,15 @@ impl DeclarativePluginManifest {
             }
         }
         self.activation_events = sorted_unique(std::mem::take(&mut self.activation_events));
-        let declared: BTreeSet<String> = self.activation_events.iter().cloned().collect();
+        let mut declared: BTreeSet<String> = self.activation_events.iter().cloned().collect();
+        // A backend 2 may start once a workspace opens. The event is optional
+        // because pages and commands can start it too, so it is checked here
+        // and kept out of the exact provider match below.
+        if self.backend.is_some()
+            && self.backend_version() >= super::backend::WORKSPACE_CONTEXT_VERSION
+        {
+            declared.remove(super::backend::ON_WORKSPACE_OPEN);
+        }
         // Every provider needs an event, and every event needs a provider:
         // an event without one would promise activation the host cannot do.
         if let Some(missing) = expected.difference(&declared).next() {
@@ -1466,10 +1540,35 @@ impl DeclarativePluginManifest {
     /// a backend. Each is granted by one permission.
     pub(crate) fn backend_host_services(&self) -> Vec<&'static str> {
         let mut services = Vec::new();
-        if self.backend.is_some() && self.permissions.iter().any(|p| p == PERMISSION_CREDENTIALS) {
+        if self.backend.is_none() {
+            return services;
+        }
+        if self.permissions.iter().any(|p| p == PERMISSION_CREDENTIALS) {
             services.push(super::backend::HOST_SERVICE_CREDENTIALS);
         }
+        if self.backend_version() >= super::backend::WORKSPACE_CONTEXT_VERSION
+            && self
+                .permissions
+                .iter()
+                .any(|p| p == PERMISSION_WORKSPACE_METADATA)
+        {
+            services.push(super::backend::HOST_SERVICE_WORKSPACE);
+        }
+        for permission in &self.permissions {
+            services
+                .extend(crate::lsp::interface::plugin_function::methods_for_permission(permission));
+        }
+        services.sort_unstable();
+        services.dedup();
         services
+    }
+
+    /// `requires.backend`, or 1 for a manifest that does not list it.
+    pub(crate) fn backend_version(&self) -> u32 {
+        self.requires
+            .get(capabilities::BACKEND)
+            .copied()
+            .unwrap_or(1)
     }
 
     /// Checks the declared settings, sorts them by ID, and returns the IDs
@@ -3079,7 +3178,10 @@ fn backend_launch_plan(
         )
     })?;
     let mut plan = server_launch_plan(manifest, &backend.process, None, request)?;
-    plan["backend"] = super::backend::plan_descriptor(&manifest.backend_host_services());
+    plan["backend"] = super::backend::plan_descriptor(
+        manifest.backend_version(),
+        &manifest.backend_host_services(),
+    );
     Ok(plan)
 }
 

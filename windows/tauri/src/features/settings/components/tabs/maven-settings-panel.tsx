@@ -9,6 +9,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
 import { FolderIcon, TrashIcon } from "@/ui/icons";
+import { MavenUserSettingsGroup } from "./maven-user-settings-group";
 
 // The settings dialog renders each category from a self-contained panel; this
 // group mirrors the container the sibling panels define.
@@ -43,11 +44,41 @@ export function MavenSettingsPanel() {
   const projectTabId = useWorkspaceTabsStore(
     (state) => state.projectTabs.find((tab) => tab.isActive)?.id ?? null,
   );
-  if (!projectTabId) return <MavenSettingsForm />;
   return (
-    <WorkspaceStoreScopeContext.Provider value={projectTabId}>
-      <MavenSettingsForm key={projectTabId} />
-    </WorkspaceStoreScopeContext.Provider>
+    <div className="flex flex-col gap-4">
+      {projectTabId ? (
+        <WorkspaceStoreScopeContext.Provider value={projectTabId}>
+          <MavenSettingsForm key={projectTabId} />
+          <MavenUserSettingsSection />
+        </WorkspaceStoreScopeContext.Provider>
+      ) : (
+        <>
+          <MavenSettingsForm />
+          <MavenUserSettingsSection />
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The user-level layer under the project settings: a project field left on
+ * automatic falls back to it. Saving refreshes the open project's detected
+ * values so its hints show the new repository.
+ */
+function MavenUserSettingsSection() {
+  const { t } = useTranslation();
+  const project = useMavenStore((state) => state.project);
+  const resolveEffectiveConfiguration = useMavenStore(
+    (state) => state.actions.resolveEffectiveConfiguration,
+  );
+  return (
+    <SettingsGroup title={t("maven.userSettings.title")}>
+      <MavenUserSettingsGroup
+        projectOpen={project !== null}
+        onSaved={() => void resolveEffectiveConfiguration()}
+      />
+    </SettingsGroup>
   );
 }
 

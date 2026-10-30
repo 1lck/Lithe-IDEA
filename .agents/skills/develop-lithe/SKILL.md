@@ -87,7 +87,7 @@ macOS 是当前参考产品；Windows 是独立实现，不得导入 Swift 源�
 | `scripts/ci/<工作流名>/` | 只为某一个工作流存在的脚本，目录名与工作流名对应（如 `cancel-closed-pr-runs`、`update-repo-charts`） |
 | `scripts/release/{sparkle,macos,windows,autobuild,notes}/` | 发布流水线：Sparkle 更新与验签、更新清单、AutoBuild 发布、发布说明校验 |
 | `scripts/macos/{build,package,prepare,test,verify,perf,probe}/` | 只服务 macOS 产品：构建、打包、依赖与资源准备、测试入口、门禁校验、性能基线、手动探针 |
-| `scripts/windows/{build,package,prepare,test,verify}/` | 只服务 Windows 产品，含义同上 |
+| `scripts/windows/{build,package,prepare,test,verify,perf}/` | 只服务 Windows 产品，含义同上 |
 | `scripts/rust-core/`、`architecture/`、`i18n/`、`agent-notes/`、`platform-feature-matrix/`、`plugins/`、`remote/`、`ide-mcp/`、`editor/`、`git-graph/`、`agent/`、`resources/` | 跨平台的领域脚本，目录名就是领域名 |
 
 - 没有合适目录时，新建一个以领域或作用命名的目录，并在同一次改动里更新上表；不要新建
@@ -137,6 +137,10 @@ macOS 是当前参考产品；Windows 是独立实现，不得导入 Swift 源�
 - 行号从 1 开始；缺失位置用 `null`；列表及序列化结果保持确定性顺序。
 - 应用契约要求时，异步操作显式区分 `idle`、`loading`、`ready`、`failed`。
 - 返回稳定错误码与面向用户的消息；平台专属细节放入契约的 `details` 字段。
+- 新增 API 的返回码、错误码必须与错误类型一一对应：一个数值码（如 JSON-RPC `error.code`）不得同时代表
+  多种错误，调用方应能只凭数值码分支。标准语义（方法不存在、参数错误、取消）沿用 JSON-RPC/LSP 标准码，
+  其余各占服务端自定义区间的独立码，并在契约文档和 fixture 中列出映射；已发布协议版本的旧码保持不变，
+  从新版本起区分。
 - 进程型功能保留 `operationID`、取消、超时和过期结果语义。
 - 第二个平台依赖新共享行为前，先补充或更新共享 fixture。
 - 命令名、JSON 字段、错误码和 C ABI 都是兼容面；变更时同步更新契约文档及所有消费者。

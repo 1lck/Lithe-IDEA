@@ -975,7 +975,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
-| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
+| `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
+| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
@@ -1040,13 +1041,16 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.updateWorkspaceConfiguration` | Replace the plugin configuration a running plugin-owned session answers `workspace/configuration` with, and announce it |
 | `lsp.updateMavenConfiguration` | Send a changed Maven context to a running Java session, or force JDT LS to re-resolve its Maven projects |
 | `lsp.syncDocument` | Open a document or apply a full-text or incremental `didChange` with monotonic versions |
+| `lsp.saveDocument` | Report a confirmed disk save with its exact saved text, honoring server save options |
 | `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
 | `lsp.closeDocument` | Close a document and clear its diagnostics |
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
 | `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
+| `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
+| `java.prepareLaunch` | Prepare a saved Java source through shared entry selection, serialized build and runtime path resolution |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
 | `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
@@ -1275,8 +1279,8 @@ the marker's directory) that exists and holds `HEAD`. A stale submodule or
 worktree pointer whose gitdir was removed is not listed, because status and
 reference loads for the whole workspace would otherwise fail for it. The default traversal
 skips dot-prefixed descendant directories and the built-in workspace hidden
-directory names (including `.build`, `node_modules`, `target`, `build`,
-`DerivedData`, `dist` and `coverage`). `.worktree` and `.worktrees` remain
+directory names (including `.build`, `node_modules`, `.venv`, `venv`, `__pycache__`,
+`target`, `build`, `DerivedData`, `dist` and `coverage`). `.worktree` and `.worktrees` remain
 traversable checkout containers; the same exclusions apply inside them.
 Traversal continues below eligible discovered repositories, including ordinary
 `vendor` source checkouts. An explicitly opened root and its containing repository
@@ -2042,6 +2046,47 @@ existing defaults. macOS forwards the selected workspace sources through these
 existing caps: Actions-only stays local, Text-only requests contents, Files and
 Agent completion request names, and Classes/Symbols share the symbol index.
 Search module activation does not eagerly build a content index.
+
+Optional `pageSize` (1–200 per source), `cursor`, and `resultKinds`
+(`file`, `type`, `symbol`, `content`) enable bounded keyset pages. The response
+adds nullable `nextCursor`; absent/null means exhausted. macOS uses 50 per source
+and loads another page near the scroll edge, with no 200-result total ceiling.
+The opaque cursor binds the workspace/remote identity, query, options, source caps,
+visibility rules and page size; clients must resend the same request options.
+Each source retains at most pageSize + 1 ranked candidates, using the extra item
+to detect exhaustion. No all-matches array or retained search session is created.
+Name/symbol continuation scans the existing index to select the next ranked page;
+text pages follow path/line order and stop after the lookahead match. Pages observe
+the live index: edits inserting a match before the cursor require a fresh query.
+Requests without pageSize retain the legacy capped response and schema.
+
+Observed `workspace.searchEverywhere` calls may emit
+`{ "type": "searchResults", "operationId": "…", "results": { "matches": […] } }`
+on the existing request event channel. Each event replaces the previous snapshot;
+never append its matches. File-name candidates are searched and published before
+building the content/symbol index. The first candidate is sent immediately;
+subsequent name/type/symbol candidates are merged for approximately 100 ms,
+with a flush at source boundaries. Each snapshot keeps the same ranked per-source
+and total caps as the final response, so a later better candidate may replace an
+earlier one. Content matches and Git ignore metadata arrive with the authoritative
+final response. A partial snapshot's absent `isIgnored` means unknown, not false.
+Callbacks remain request-scoped, use the existing cancellation registration, and
+finish before the final JSON returns. Calls without an observer retain the same
+complete response schema. Cold name-index enumeration and pending index update/
+invalidation barriers still precede candidates; this is not a 100 ms end-to-end
+latency guarantee.
+
+macOS consumes replaceable snapshots with a newest-only buffer, checks query
+generation and cancellation for every update, and keeps selection by result ID
+when ranking changes. Closing/resetting or replacing a query cancels its Core
+operation; late callbacks cannot overwrite the next query or its loading state.
+First-page snapshots remain replaceable; completed continuation pages append with
+ID deduplication. macOS keeps each loaded page's order, including actions after the
+first names page, so later pages do not insert above the visible viewport. Repeated
+cursors or pages with no new IDs stop loading. Failure preserves rows/cursor and
+pauses automatic loading until Retry. The input debounce remains 180 ms. Windows
+continues to consume the legacy final response; this change does not claim
+incremental or automatically paged Windows presentation.
 Basename matches rank above relative-path fallback matches, even when the query
 contains no slash (for example `src` matches `src/Foo.swift`). Path-only matches
 have `matchingDegree: -1` and no basename ranges; literal basename hits use degree
@@ -2077,8 +2122,8 @@ file/path globs still apply. It does not enable generated-file content or symbol
 indexing and does not change `workspace.search`, tree, watcher, or replacement
 visibility. Names share index invalidation and reported file updates; changes
 inside unwatched generated directories require workspace/index refresh. No index
-files or resources are written to disk. macOS requests 200 matches per bucket
-and 800 total; these are bounded candidate limits, not a claim of unbounded IDEA paging.
+files or resources are written to disk. macOS Search Everywhere requests pages of
+50 matches per source; legacy synchronous consumers retain their requested caps.
 Java type and method results still use the existing syntax index and include a
 one-based line, `symbolName`, and source line in `preview`; language-provider
 workspace-symbol integration and external-library search are not implied.
@@ -2128,6 +2173,32 @@ implementations (`comment-toggle.ts`, `line-operations.ts`) and is expected
 to adopt the same contract in a follow-up change; the fixture pins the
 canonical behavior for that migration. Deterministic cases are pinned by
 `shared/fixtures/editor/line-edit-v1.json`.
+
+`network.proxyPolicy` normalizes the stored proxy settings into the policy a
+network stack must apply. It accepts `{ "mode": "system" | "direct" |
+"custom", "proxyType"?: "http" | "socks5", "host"?: string, "port"?: number,
+"username"?: string, "password"?: string, "passwordIdentity"?: {
+"proxyType": "http" | "socks5", "host": string, "port": number,
+"username": string }, "exclusions"?: string[] }` (`port` must fit in 16 bits,
+otherwise the request is rejected with `invalid_request`) and returns
+`{ "policy": "system" | "direct" | "custom", "proxyType", "host", "port",
+"username", "password", "exclusions", "configured" }`.
+
+An optional `passwordIdentity` binds a restored password to its saved proxy
+type, host, port and username; a mismatch removes the password. Host matching
+is ASCII case-insensitive after trimming; usernames are case-sensitive after
+trimming. Omit the identity only for a password explicitly entered for this
+candidate, never for a restored secret. Hosts persist the identity together
+with the secret in the OS credential vault, not as independently mutable
+preferences. Legacy unscoped saved passwords require re-entry rather than
+being rebound to the current endpoint.
+
+Hosts and usernames are trimmed, empty exclusion entries are
+dropped, and passwords keep every character. A custom server without a host
+or port normalizes to `policy: "system"` with `configured: false`; system and
+direct never carry credentials, so hosts can forward the plan to their network
+stack without a second credential-scoping decision. Deterministic cases are
+pinned by `shared/fixtures/network/proxy-policy-v1.json`.
 
 The `debug.*` commands are the shared Debug Adapter Protocol boundary. Rust
 owns DAP framing, request sequences, response correlation, initialization and
@@ -2517,7 +2588,7 @@ directory, initialization options, optional runtime executable,
 optional `pluginId` of the plugin that owns the process, its optional
 `workspaceConfiguration` (an object, plugin-owned sessions only), its
 optional `hostServices` (the launch plan's `backend.hostServices`;
-plugin-owned sessions only, and only services Core defines), plus
+plugin-owned sessions only; legacy service grants or full public host-method names Core defines), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2654,16 +2725,23 @@ Packaged macOS and Windows plans always use structured direct launch, so runtime
 startup has no shell, PowerShell, or user-`PATH` dependency. Wrapper launch
 remains optional only for external or older plans.
 
-For JDT LS, platform adapters observe root Maven/Gradle descriptor timestamps
-and sizes, names of direct Maven module directories, and the selected JDT LS
-version. They submit those raw observations to `java.jdtWorkspaceFingerprint`;
+For JDT LS, platform adapters observe which root Maven/Gradle descriptors
+exist, names of direct Maven module directories, the Gradle wrapper's
+`distributionUrl` when the workspace has one, and the selected JDT LS version. They submit those raw observations to `java.jdtWorkspaceFingerprint`;
 Rust Core validates, sorts, de-duplicates, and constructs the sole portable
 fingerprint representation. Core then hashes the normalized workspace identity
 followed by a null separator and that opaque fingerprint to select
 `cacheDirectory/jdtls/<workspaceKey>`.
 Omitting the fingerprint preserves the legacy path-only key for older clients.
 Changing structure selects a new directory without deleting the old one, so a
-later switch back can reuse it.
+later switch back can reuse it. Editing a descriptor is not a structural change:
+JDT LS compares each POM and Gradle file's timestamp with the state it saved and
+updates only the changed projects on restart, and running sessions receive the
+edit through `lsp.workspaceFilesChanged`. Keying the directory on descriptor
+timestamps would discard the whole index after any touch of the file. The Gradle
+version is the exception: JDT LS does not check the wrapper descriptor, so the
+wrapper's `distributionUrl` takes part in the fingerprint and a version change
+selects a fresh directory.
 
 Core starts JDT LS with
 `-Djava.import.generatesMetadataFilesAtProjectRoot=false`, so the Eclipse
@@ -2681,9 +2759,9 @@ at the removed files, and records the removed workspace-relative paths in the
 session's `info` log event.
 
 `java.jdtWorkspaceFingerprint` accepts
-`{ buildFiles, directMavenModules, jdtlsVersion }`. Each build-file observation
-contains a workspace-relative `path`, `modifiedUnixMilliseconds`, and
-`sizeBytes`. It returns `{ workspaceFingerprint }`; platforms must not recreate
+`{ buildFiles, directMavenModules, gradleWrapperDistribution?, jdtlsVersion }`.
+Each build-file observation contains only a workspace-relative `path`;
+`gradleWrapperDistribution`, when sent, must not be blank. It returns `{ workspaceFingerprint }`; platforms must not recreate
 or parse this opaque string. Compatibility cases are in
 `shared/fixtures/lsp/jdt-workspace-fingerprint-v1.json`.
 
@@ -2735,12 +2813,36 @@ filesystem I/O. See `shared/fixtures/lsp/jdt-cache-retention-v1.json`.
 
 `lsp.syncDocument` accepts `{ sessionId, uri, languageId, text?, contentChanges? }`.
 The first sync emits `didOpen` at version 1. Later syncs emit `didChange` with
-increasing versions. When the server advertised incremental `textDocumentSync`
-and `contentChanges` includes LSP ranges, the notification carries those
-range-based edits and does not require a full document `text` field. Otherwise
-the change is a full-text replacement. The response is
-`{ documentVersion, changed }`; submitting identical full text returns
-`changed: false`, preserves the version, and emits no LSP notification.
+increasing versions. `contentChanges` follow LSP `didChange` semantics: they
+apply in array order and each range is relative to the result of the previous
+change, so a host that accumulates edits between syncs appends them in the order
+they happened and sends the ranges of one simultaneous edit end to start.
+Core replays them over the text it holds. `text` may be omitted alongside
+`contentChanges`, which keeps a large document off the wire for every keystroke;
+when it is present and disagrees with the replay, `text` replaces the document
+and the notification is a full-text replacement. When the server advertised
+incremental `textDocumentSync`, a successful replay is sent as range-based edits;
+otherwise the replayed text is sent whole. Ranged edits without `text` fail with
+`InvalidRequest` when they cannot be replayed, and with details
+`documentNotSynchronized` when Core has never received the document; the host
+then resends the full text. The response is `{ documentVersion, changed }`;
+submitting identical full text returns `changed: false`, preserves the version,
+and emits no LSP notification.
+
+`lsp.saveDocument` accepts `{ sessionId, uri, text }` after a successful native
+save and returns `{ sent }`. The text is the exact saved snapshot, not the latest
+possibly dirty buffer. Core sends `textDocument/didSave` only for an open,
+ready document when the server advertised `textDocumentSync.save`; it includes
+text only when `includeText` was requested. Unsupported saves, unopened documents
+and snapshots superseded by newer synchronized edits return `sent: false` without
+changing the document version or contents. Failed native saves never call this
+operation. The host flushes current editor text before the save, including
+edits made while the native write was in flight. Before launch, hosts retry
+save notifications for clean open buffers and propagate transport failures
+instead of treating disk persistence alone as launch readiness.
+This is distinct from `didChange`: JDT reloads its on-disk working copy on save,
+which makes a subsequent Java launch build observe saved dependency edits.
+Shared cases: `shared/fixtures/lsp/document-save-v1.json`.
 
 `lsp.workspaceFilesChanged` accepts a session ID and ordered file URI changes
 whose `kind` is `created`, `changed`, or `deleted`. It emits one
@@ -2861,7 +2963,29 @@ event. `lsp.hostResponse` accepts `{ sessionId, hostRequestID, result? }` or
 `result` (default `null`) or `-32603` with `data.code: "plugin.host.failed"`
 to the backend. An unknown or already answered `hostRequestID` is
 `invalid_request`. At most 16 host requests are unanswered per session; more
-are refused with `plugin.host.failed`.
+are refused with `plugin.host.failed`. From version 3 the error may also be
+`{ message, code?, details? }`: a host code reaches the backend with its own
+JSON-RPC number, and `details`, an object of at most 4 KiB, as
+`error.data.details`
+([failure codes](plugins/v1/README.md#workspace-contexts-and-capability-discovery-protocol-version-3)).
+
+The macOS public document/file/window adapters use method-level grants for new
+permissions. Core intersects grants with its method table for capability discovery;
+macOS first intersects them with actual registered handlers. Legacy `workspace`
+never authorizes file methods. Host request/result JSON is bounded to 1 MiB;
+oversized v3 results return `plugin.host.limitExceeded`. See the plugin contract's
+public document, file and window method table for exact shapes and cancellation
+semantics. The underlying `PluginFunctionRequest` context and legacy SDK wire
+shapes remain compatible.
+
+`lsp.hostNotify` accepts `{ sessionId, method, params }` for a ready
+plugin-owned session and returns `{ delivered }`. Core sends the
+[host notification](plugins/v1/README.md#host-notifications-protocol-version-3)
+when the session negotiated version 3 and is granted its service, and returns
+`delivered: false` without sending for an older version. Another method, an
+ungranted service, malformed or oversized params, a session that is not
+plugin-owned, or one that is not ready is `invalid_request` with the
+`plugin.host.*` code in `details`.
 
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
@@ -2932,6 +3056,28 @@ session-owned worker. The deadline monitor never writes to stdin. A background
 write that exceeds `requestTimeoutMilliseconds` fails the session with
 `transportFailed` at stage `outboundMaintenance` and terminates the server to
 release the stalled pipe; the Java build deadline still bounds queue and build time.
+`java.prepareLaunch` accepts `{ sessionId, operationId?, sourcePath, mainClass? }`.
+`sourcePath` is the absolute saved source path at the native boundary.
+Core owns one operation across JDT entry-point discovery, the existing serialized
+build coordinator, and classpath resolution. The source must be inside the session
+workspace; an optional configured class disambiguates multiple entries in that
+exact file (including JDT's module prefix). Core does not infer entry points or paths.
+Discovery and classpath each use the session request deadline; the build retains
+its independent queue-inclusive deadline. The host fallback deadline covers all
+three phases plus event-delivery grace.
+
+Only the final `requestCompleted` event is published to the host, with either
+`{ kind: "ready", target: { mainClass, projectName?, modulePaths, classPaths } }`
+or `{ kind: "buildFailed", target, failure: { code, message, report } }`.
+Only the two terminal build failures above can produce the latter.
+Cancellation, timeout, invalid replies and transport failures remain operation
+errors. Cancelling the operation cancels its current phase; a late build answer
+retains the existing coordinator semantics and never starts classpath resolution.
+Runtime path groups must contain nonblank strings, with at least one path overall.
+Hosts save documents before submitting and own the final launch decision, JDK
+discovery and native process. Run plan/toolchain selection remain in existing Core
+operations. See `shared/fixtures/lsp/java-launch-preparation-v1.json`.
+
 The `semanticTokens` operation uses the open document URI and normal version,
 timeout, and cancellation rules. Its result is
 `{ tokenTypes, tokenModifiers, tokens: [{ line, startChar, length, tokenType, tokenModifiers }] }`.
@@ -3071,19 +3217,25 @@ the response preserves the path text, uses one-based line and column values,
 and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
 
-`runConfig.selectJava` reads only the existing workspace
-`.lithe/toolchains/requirements.json` document. Its request contains optional
+`runConfig.selectJava` uses the toolchain requirements of the workspace's latest
+`runConfig.generate` in this process; before any generation it derives them from
+the project's own declarations (`pom.xml`, `.java-version`, the Maven wrapper).
+Its request contains optional
 `root`, `candidates` (`id`, probed `version`, numeric source `priority`), and
 `fallbackId`. IDs are opaque machine-local identities, never persisted or opened
 by this operation. Lower priority wins; equal-priority candidates use descending
 numeric Java versions (including legacy `1.8`), then ascending ID.
 
 When `project-jdk.minimumVersion` exists, selection first filters using the same
-Java version comparison as run-configuration diagnostics. The response is
+Java version comparison as run-configuration diagnostics. Among the compatible
+candidates, the one whose Java feature version equals the declared one wins, else
+the oldest newer feature version; source priority only breaks ties within a feature
+version. A Java 8 project therefore runs on an installed JDK 8 even when `JAVA_HOME`
+points at JDK 21, matching IDEA and OpenIDEA. The response is
 `{ id, warning }`: the compatible candidate, or the supplied usable fallback
 with an actionable warning if none qualifies. Missing requirements retain the
-platform's unconstrained choice; malformed/unsupported documents return the
-existing parse/version error. Explicit configured paths bypass automatic
+platform's unconstrained choice; a malformed or unsupported `requirements`
+snapshot returns the parse/version error. Explicit configured paths bypass automatic
 selection. The operation never generates requirements or probes executables.
 The cross-platform examples are in
 `shared/fixtures/run-configuration/automatic-java-selection.json`.
@@ -3138,24 +3290,35 @@ never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
 relative `modulePaths`, and optional schema-versioned `javaEntrypoints` from the
 current `lsp.request` result. When Java tooling is still preparing, omission
 retains the previous generated entrypoint facts instead of running a local
-scanner or replacing them with an empty list. It returns generated configuration
-and toolchain requirement documents for the platform adapter to write atomically. Maven root
+scanner or replacing them with an empty list. Those previous facts come from
+this process's last generation, else from the optional `cacheDirectory` (an
+application cache root where generation records its result under
+`run-configurations/`), else read-only from a `.lithe/run/generated.json` that
+older versions wrote. It returns the generated configuration and toolchain
+requirement documents and keeps them in memory as the workspace's detected
+layer for `inspect`, `resolve`, and `selectJava`; nothing is written into the
+workspace. `inspect` returns `requiresGeneration: true` while this process has
+no detected layer. Hosts identify the workspace when this flag is true or the
+status is `missing`; a saved provider task can make `status` be `ready` before
+detection, and must not suppress discovery of the remaining entries. Maven root
 discovery checks `pom.xml` along each supplied path's ancestor chain, so a
 reactor nested below the opened workspace does not depend on the platform
 including build descriptors in `paths`. Maven ownership is resolved per Java
 entry: standalone sources keep the JDK launch path, while entries from
 independent nested reactors retain their own reactor working directory and
 module selector. Generated fingerprints include both project inputs and the
-detector revision; either changing marks persisted output stale and requires
+detector revision; either changing marks the detected layer stale and requires
 regeneration.
 
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
 optional `localDocument`. When `localDocument` is present, Core uses that JSON
 object as the local layer instead of reading `.lithe/run/local.json`. It merges
 configurations by stable ID using this precedence:
-`local.json > configurations.json > generated.json`. Scalars and arrays are
+`local.json > configurations.json > detected layer`. Scalars and arrays are
 replaced by the higher layer, while toolchain maps merge by key. It returns
-effective configurations, their source, the team default, structured
+effective configurations, their source, the default (the team default from
+`.lithe/project.json`, else the first detected framework service, else the first
+detected entry other than Current File), structured
 diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
 states, the effective global `toolchain`, and the machine-local
 `localToolchains` document. Toolchain diagnostics carry the affected run
@@ -3282,6 +3445,16 @@ selected Node installation. They do not fall back to a PATH shim from another
 installation, and Windows executable extensions take precedence over extensionless
 shell scripts.
 
+Automatic Spring service generation requires both an applied Maven plugin and
+exactly one JDT-confirmed, Spring-classified non-test entry in the same module.
+An inherited plugin alone cannot promote a library to a runnable service.
+Nested-module entries do not promote their parent. Ambiguous, utility and test
+mains remain independently selectable Java entries. Module assignment consumes
+the confirmed source set even when the caller supplies no editor paths.
+Absent discovery may reuse previously confirmed entries; an explicit empty result
+removes automatic services. Existing service IDs and user-authored Maven-goal
+compatibility configurations retain their established meaning.
+
 `runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
 `currentFile` and `classPath`, optional `debugPort`, and optional
 `localDocument`. Maven-backed Run and Debug callers may also supply the same
@@ -3372,9 +3545,18 @@ is joined by the UI from the shared Git result. `java.className` accepts Java
 source text and a file simple name and returns the fully qualified runtime class
 name.
 
-`java.sourceDefinition` accepts `source`, `declarationName`, and an optional
-`memberName`, returning zero-based `line` and UTF-16 `utf16Column` or `null`
-when no declaration is found.
+`java.sourceDefinition` accepts `source`, `declarationName`, an optional
+`memberName`, an optional `declarationsOnly`, and an optional `reference`
+(`line`, `utf16Column`), returning zero-based `line` and UTF-16 `utf16Column` or
+`null` when no declaration is found. A member is looked up as a syntax-tree
+method, field, or enum-constant declaration that the `declarationName` type
+declares directly. With `reference`, the member is instead resolved from that
+position: the identifier must be a plain name or a `this.` access, the innermost
+type is searched first and then the enclosing ones, and the result is `null` when
+a type on the way may inherit the name or a local may shadow a field.
+Without `declarationsOnly`, text that merely resembles a declaration, such as a
+call, is accepted next, and then the `declarationName` type; with it, a missing
+member returns `null`.
 
 `java.structure` accepts Java `source` and optional `declarationSources`. It
 returns `foldRegions`, `inlayHints`, and `syntaxHighlights`.
@@ -3886,6 +4068,18 @@ index remains unchanged. The default false retains tracked-only unstaged export;
 Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
 reviewed by the amendment editor. See [Rebase sessions](git-rebase-session.md).
+
+Completion requests accept optional `completionContext` with LSP `triggerKind`
+(`1` invoked, `2` trigger character, `3` incomplete-list refresh) and
+`triggerCharacter` (required and one character for kind `2`). Missing context
+means invoked. Core validates and maps this into LSP `params.context`.
+Completion results carry `{ items, isIncomplete }`; array and null server results
+are complete. The flag is list-scoped and survives empty lists and host provider
+merging. Both Monaco adapters set `CompletionList.incomplete` and forward Monaco's
+trigger context, so continued typing can request additional candidates instead of
+filtering a partial cache. Existing document-version, cancellation and attachment
+checks still reject obsolete results. The fixture is
+`shared/fixtures/lsp/completion-refresh-v1.json`.
 
 Completion items returned by the LSP client and runtime preserve `insertTextFormat`
 (`1` for plain text, `2` for snippets; absent values default to `1`). Hosts retain

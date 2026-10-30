@@ -14,7 +14,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
     package private(set) var workspaceGeneration = 0
     package private(set) var appliedSnapshot: WorkspaceSnapshot?
     @Published package private(set) var rootNode: FileNode?
-    @Published package private(set) var projectFiles: [URL] = []
+    @Published package private(set) var projectFiles: [URL] = [] {
+        didSet { rebuildProjectMembership() }
+    }
+    private var projectFilePaths: Set<String> = []
+    private var projectDirectoryPaths: Set<String> = []
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published package private(set) var loadErrorMessage: String?
@@ -45,7 +49,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var pendingGitRefresh = false
     private var pendingFullRescan = false
     private var pendingWatchRootsChanged = false
-    private var isGitRefreshRunning = false
+    private var activeGitRefreshID: UUID?
     private var externalRefreshGeneration = 0
     private var gitRefreshGeneration = 0
     private var workspaceSessionPersistenceTask: Task<Void, Never>?
@@ -178,7 +182,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         pendingGitRefresh = false
         pendingFullRescan = false
         pendingWatchRootsChanged = false
-        isGitRefreshRunning = false
+        activeGitRefreshID = nil
         externalRefreshGeneration += 1
         gitRefreshGeneration += 1
         gitOperationFreezeDepth = 0
@@ -203,7 +207,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         pendingGitRefresh = false
         pendingFullRescan = false
         pendingWatchRootsChanged = false
-        isGitRefreshRunning = false
+        activeGitRefreshID = nil
         externalRefreshGeneration += 1
         gitRefreshGeneration += 1
         gitOperationFreezeDepth = 0
@@ -233,6 +237,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
         invalidateDirectoryListings()
+        refreshTask?.cancel()
+        refreshTask = nil
+        gitRefreshTask?.cancel()
+        gitRefreshTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        activeGitRefreshID = nil
         isPerformingProjectItemOperation = false
         workspaceGeneration &+= 1
         directoryMarkRevision &+= 1
@@ -273,24 +284,37 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     /// Flushes accumulated workspace and Git events after the outermost Git operation.
-    package func endGitOperationFreeze() async {
+    package func endGitOperationFreeze(waitForRefresh: Bool = true) async {
         guard gitOperationFreezeDepth > 0 else { return }
         gitOperationFreezeDepth -= 1
         guard gitOperationFreezeDepth == 0, let workspaceURL else { return }
+
+        // Local Git mutations already publish their confirmed status. Project
+        // services and unrelated repository scans must not hold the action open.
+        if !waitForRefresh {
+            if pendingWatchRootsChanged || pendingFullRescan {
+                scheduleRecovery()
+                return
+            }
+            if !pendingExternalPaths.isEmpty { schedulePendingExternalRefresh() }
+            if pendingGitRefresh { scheduleGitRefresh() }
+            return
+        }
 
         if pendingWatchRootsChanged || pendingFullRescan {
             await applyPendingRecovery(at: workspaceURL)
             return
         }
+        let generation = workspaceGeneration
+        if pendingGitRefresh { await drainGitRefreshes() }
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL,
+              workspaceGeneration == generation else { return }
         if !pendingExternalPaths.isEmpty {
             let changedPaths = Array(pendingExternalPaths)
             pendingExternalPaths.removeAll()
             externalRefreshGeneration += 1
             await applyExternalRefresh(changedPaths, at: workspaceURL)
             return
-        }
-        if pendingGitRefresh {
-            await drainGitRefreshes()
         }
     }
 
@@ -366,9 +390,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard isCurrent() else { return .stale }
         await updateWatchConfiguration()
         guard isCurrent() else { return .stale }
+        // Git status must reach an open Commit panel before project services
+        // start potentially slow imports or language-server preparation.
+        await requestGitRefreshNow()
+        guard isCurrent() else { return .stale }
         await onSnapshotLoaded?(snapshot, isInitialLoad)
         guard isCurrent() else { return .stale }
-        await requestGitRefreshNow()
         if pendingFullRescan || pendingWatchRootsChanged {
             scheduleRecovery()
         }
@@ -1113,9 +1140,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
 
         if !batch.workspacePaths.isEmpty {
-            if batch.gitStateMayHaveChanged { pendingGitRefresh = true }
             schedulePendingExternalRefresh()
-        } else if batch.gitStateMayHaveChanged {
+        }
+        // These are independent owned debounce lanes: tree/index/project work
+        // must not delay Git or cancel the last chance to publish a file batch.
+        if batch.gitStateMayHaveChanged {
             scheduleGitRefresh()
         }
     }
@@ -1143,6 +1172,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             return
         }
 
+        let generation = workspaceGeneration
         let rootsChanged = pendingWatchRootsChanged
         let fullRescan = pendingFullRescan
         pendingWatchRootsChanged = false
@@ -1150,16 +1180,27 @@ package final class WorkspaceFeatureModel: ObservableObject {
         if rootsChanged {
             await updateWatchConfiguration(forceRebuild: true)
         }
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL,
+              workspaceGeneration == generation else { return }
         if fullRescan {
             await refreshCurrent()
-        } else if !pendingExternalPaths.isEmpty {
-            let changedPaths = Array(pendingExternalPaths)
-            pendingExternalPaths.removeAll()
-            externalRefreshGeneration += 1
-            refreshTask?.cancel()
-            refreshTask = nil
-            await applyExternalRefresh(changedPaths, at: workspaceURL)
+        } else {
+            // Without a snapshot the external batch rebuilds it, including an
+            // early Git refresh. Avoid reading the same recovery batch twice.
+            if hasSnapshot, pendingGitRefresh { await drainGitRefreshes() }
+            guard !Task.isCancelled, self.workspaceURL == workspaceURL,
+                  workspaceGeneration == generation else { return }
+            if !pendingExternalPaths.isEmpty {
+                let changedPaths = Array(pendingExternalPaths)
+                pendingExternalPaths.removeAll()
+                externalRefreshGeneration += 1
+                refreshTask?.cancel()
+                refreshTask = nil
+                await applyExternalRefresh(changedPaths, at: workspaceURL)
+            }
         }
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL,
+              workspaceGeneration == generation else { return }
         if pendingGitRefresh {
             await drainGitRefreshes()
         }
@@ -1197,7 +1238,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private func scheduleGitRefresh() {
         pendingGitRefresh = true
         gitRefreshGeneration += 1
-        guard gitOperationFreezeDepth == 0, !isGitRefreshRunning else { return }
+        guard gitOperationFreezeDepth == 0, activeGitRefreshID == nil else { return }
         let generation = gitRefreshGeneration
         gitRefreshTask?.cancel()
         gitRefreshTask = Task { @MainActor [weak self, observationDelay] in
@@ -1213,19 +1254,30 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private func requestGitRefreshNow() async {
         pendingGitRefresh = true
         gitRefreshGeneration += 1
-        gitRefreshTask?.cancel()
-        gitRefreshTask = nil
+        if activeGitRefreshID == nil {
+            gitRefreshTask?.cancel()
+            gitRefreshTask = nil
+        }
         await drainGitRefreshes()
     }
 
     private func drainGitRefreshes() async {
-        guard gitOperationFreezeDepth == 0, !isGitRefreshRunning else { return }
-        isGitRefreshRunning = true
-        while pendingGitRefresh, gitOperationFreezeDepth == 0 {
+        guard gitOperationFreezeDepth == 0, activeGitRefreshID == nil, !Task.isCancelled else { return }
+        let refreshID = UUID(), generation = workspaceGeneration
+        activeGitRefreshID = refreshID
+        defer {
+            if activeGitRefreshID == refreshID {
+                activeGitRefreshID = nil
+                if pendingGitRefresh, gitOperationFreezeDepth == 0, workspaceGeneration == generation {
+                    scheduleGitRefresh()
+                }
+            }
+        }
+        while pendingGitRefresh, gitOperationFreezeDepth == 0, !Task.isCancelled,
+              workspaceGeneration == generation, activeGitRefreshID == refreshID {
             pendingGitRefresh = false
             await refreshGit?()
         }
-        isGitRefreshRunning = false
     }
 
     private func applyExternalRefresh(_ paths: [String], at workspaceURL: URL) async {
@@ -1242,16 +1294,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let changedURLs = paths
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
             .filter { isWorkspaceURL($0) && watchConfiguration?.isIgnored($0) != true }
-            .reduce(into: [URL]()) { values, url in
-                if !values.contains(url) { values.append(url) }
-            }
+            .reduce(into: Set<URL>()) { $0.insert($1) }
             .sorted { $0.path < $1.path }
-        guard !changedURLs.isEmpty else {
-            // Events queued before the watcher learned a path is ignored still
-            // owe any Git refresh they requested.
-            if pendingGitRefresh { await drainGitRefreshes() }
-            return
-        }
+        guard !changedURLs.isEmpty else { return }
         let conflictDetected = processExternalChanges?(changedURLs) ?? false
         if conflictDetected { notify?("External edits conflict with unsaved changes") }
 
@@ -1277,11 +1322,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             await applyIncrementalTree(root: root, files: files, reloadsTree: reloadsTree)
             reloadedProjectServices = true
         case .requiresSnapshot:
-            let generation = workspaceGeneration
             await refreshCurrentSnapshot()
-            // An unavailable snapshot must not swallow the batch's Git refresh.
-            guard self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
-            if pendingGitRefresh { await drainGitRefreshes() }
             return
         }
         await updateSearchIndex(
@@ -1305,7 +1346,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
             return isLitheConfiguration || isBuildManagementFile
         }
         if requiresProjectServiceReload, !reloadedProjectServices { await reloadProjectServices?() }
-        await requestGitRefreshNow()
     }
 
     private func scheduleSearchIndexWarm(at workspaceURL: URL, rules: FileVisibilityRules) {
@@ -1331,10 +1371,25 @@ package final class WorkspaceFeatureModel: ObservableObject {
         case requiresSnapshot
     }
 
+    private func rebuildProjectMembership() {
+        // Rebuild only when the inventory changes, never once per watcher event.
+        // Stop at an indexed ancestor so shared directory chains are visited once.
+        projectFilePaths = Set(projectFiles.map { $0.standardizedFileURL.path })
+        projectDirectoryPaths.removeAll(keepingCapacity: true)
+        for path in projectFilePaths {
+            var parent = (path as NSString).deletingLastPathComponent
+            while !parent.isEmpty, projectDirectoryPaths.insert(parent).inserted {
+                let next = (parent as NSString).deletingLastPathComponent
+                if next == parent { break }
+                parent = next
+            }
+        }
+    }
+
     private func isKnownProjectFile(_ url: URL) -> Bool {
         // Directory listings and watcher events can observe different disk
         // revisions. Membership belongs to the inventory, not the visible tree.
-        projectFiles.contains { $0.standardizedFileURL == url.standardizedFileURL }
+        projectFilePaths.contains(url.path)
     }
 
     /// Whether the inventory already accounts for a directory, so an event on
@@ -1344,8 +1399,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         case .displayed(let node, _)?:
             return node.isDirectory
         case .belowUnloaded?:
-            let prefix = url.path + "/"
-            return projectFiles.contains { $0.path.hasPrefix(prefix) }
+            return projectDirectoryPaths.contains(url.path)
         default:
             return false
         }

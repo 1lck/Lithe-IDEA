@@ -72,6 +72,7 @@ export const defaultSettings: Settings = {
   inlayHints: true,
   codeLens: true,
   semanticTokens: true,
+  javaProjectImportOnOpen: "automatic",
   breadcrumbShowSymbols: true,
   // Terminal
   terminalFontFamily: DEFAULT_MONO_FONT_FAMILY,
@@ -188,7 +189,8 @@ export const defaultSettings: Settings = {
   // Other
   lastSettingsTab: "general",
   extensionsActiveTab: "all",
-  maxOpenTabs: 100,
+  maxOpenTabs: 30,
+  tabLimitPolicy: "leastRecentlyUsed",
   //// File tree
   fileTreeSortOrder: "folders-first",
   fileTreeIndentSize: 16,
@@ -219,7 +221,6 @@ export const defaultSettings: Settings = {
   gitFetchSubmodules: "inherit",
   gitFetchTags: "inherit",
   githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
-  enableInlineGitBlame: true,
   enableGitGutter: true,
 };
 

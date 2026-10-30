@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,6 +124,9 @@ pub struct LspClientState {
     #[serde(default)]
     /// Server `TextDocumentSyncKind`, used to choose full or incremental `didChange`.
     pub text_document_sync: LspTextDocumentSyncKind,
+    /// `None` means saves were not requested; `Some` is the server's includeText flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_document_save_include_text: Option<bool>,
     #[serde(default)]
     pub open_documents: BTreeMap<String, LspClientDocument>,
     #[serde(default)]
@@ -162,6 +166,7 @@ impl Default for LspClientState {
             server_capabilities: Vec::new(),
             semantic_token_providers: BTreeMap::new(),
             text_document_sync: LspTextDocumentSyncKind::Full,
+            text_document_save_include_text: None,
             open_documents: BTreeMap::new(),
             pending_requests: BTreeMap::new(),
             pending_semantic_legends: BTreeMap::new(),
@@ -186,7 +191,10 @@ pub struct LspClientDocument {
     pub uri: String,
     pub language_id: String,
     pub version: i64,
-    pub text: String,
+    /// Shared so that copying the client state, which every request, document
+    /// change, and server message does while holding the session locks, does
+    /// not copy the text of every open document. Serializes as a plain string.
+    pub text: Arc<str>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -246,13 +254,15 @@ pub struct ClientOpenDocumentRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Inputs for replacing a synchronized document's contents.
+/// Inputs for updating a synchronized document's contents.
 pub struct ClientChangeDocumentRequest {
     #[serde(default)]
     pub state: LspClientState,
     pub uri: String,
+    /// Complete text after the change. Optional when `content_changes` is set.
     #[serde(default)]
     pub text: String,
+    /// Edits in the order they happened, as LSP `didChange` applies them.
     #[serde(default)]
     pub content_changes: Vec<LspDocumentContentChange>,
 }
@@ -290,6 +300,9 @@ pub struct ClientFeatureRequest {
     pub range: Option<LspRange>,
     #[serde(default)]
     pub diagnostics: Vec<LspClientDiagnostic>,
+    /// LSP completion trigger context; validated by the shared request mapper.
+    #[serde(default)]
+    pub completion_context: Option<Value>,
     #[serde(default)]
     pub completion_item: Option<Value>,
     #[serde(default)]
@@ -298,9 +311,11 @@ pub struct ClientFeatureRequest {
     pub command: Option<Value>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Server JSON-RPC message to reduce into the current client state.
+/// Server JSON-RPC message to reduce into the current client state. Only the
+/// stateless reducer tests use it; the engine passes the parsed message.
 pub struct ClientApplyServerMessageRequest {
     #[serde(default)]
     pub state: LspClientState,

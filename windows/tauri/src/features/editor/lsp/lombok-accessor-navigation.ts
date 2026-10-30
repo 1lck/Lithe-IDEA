@@ -185,7 +185,7 @@ export function lombokAccessorTargetAtPosition(
   return null;
 }
 
-function importedTypeName(source: string, declarationName: string): string | null {
+export function importedTypeName(source: string, declarationName: string): string | null {
   const escapedName = declarationName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const explicitImport = new RegExp(
     `^\\s*import\\s+([A-Za-z_$][A-Za-z0-9_$.]*\\.${escapedName})\\s*;`,
@@ -258,7 +258,7 @@ const defaultDependencies: LombokNavigationDependencies = {
     const response = await executeCore<{ files: string[] }>({
       id: crypto.randomUUID(),
       command: "workspace.snapshot",
-      payload: { root },
+      payload: { root, includeTree: false },
     });
     return coreData(response).files;
   },

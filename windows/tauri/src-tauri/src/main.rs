@@ -32,6 +32,7 @@ mod secure_storage;
 mod shelf_storage;
 mod terminal;
 mod watcher;
+mod window_background;
 mod window_title;
 
 use file_events::TauriFileChangeEmitter;
@@ -150,8 +151,11 @@ fn main() {
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
             plugin_host::install::cleanup_stale_snapshots(app.handle());
+            let initial_background = window_background::initial_background(app.handle());
             for config in initial_windows.iter().filter(|config| config.create) {
-                tauri::WebviewWindowBuilder::from_config(app.handle(), config)?.build()?;
+                tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
+                    .background_color(initial_background)
+                    .build()?;
             }
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
@@ -242,6 +246,7 @@ fn main() {
                             logging::resolve_previous_log_cleanup,
                             logging::open_log_directory,
                             logging::frontend_trace,
+                            logging::frontend_trace_batch,
                             logging::record_startup_milestone,
                             host::get_system_theme,
                             host::set_native_window_appearance,
@@ -282,11 +287,12 @@ fn main() {
                             language_tools::uninstall_language_tools,
                             maven::maven_load_configuration,
                             maven::maven_resolve_effective_configuration,
+                            maven::maven_read_user_settings,
+                            maven::maven_write_user_local_repository,
                             maven::maven_write_configuration,
                             maven::maven_create_dependency_output,
                             maven::maven_remove_dependency_output,
                             run::run_list_java_sources,
-                            run::run_write_generated,
                             run::run_write_documents,
                             run::run_write_stdin,
                             run::maven_resolve_installation,

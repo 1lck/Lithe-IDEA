@@ -18,7 +18,7 @@ enum SettingsSearchVocabulary {
         case .general:
             ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Hidden paths"]
         case .editor:
-            ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width"]
+            ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width", "Line spacing", "Font ligatures", "Syntax highlighting", "Editor color scheme", "Italic comments", "Colorize bracket pairs", "Line numbers", "Render whitespace", "Soft wrap", "Show indent guides", "Highlight current line", "Sticky scroll", "Smooth scrolling", "Scroll beyond last line", "Cursor style", "Cursor blinking"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:
@@ -45,6 +45,8 @@ enum SettingsSearchVocabulary {
             ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates", "Update channel", "Stable (Recommended)", "AutoBuild Rolling"]
+        case .network:
+            ["Network", "Proxy", "Proxy mode", "Proxy type", "Proxy server", "Server address", "Port", "Username", "Password", "Exclusion list", "Test connection", "Follow system proxy", "No proxy", "Custom proxy server", "HTTP", "SOCKS5"]
         case .processTermination:
             ["Process Termination Policy", "Process", "Quit", "Run services", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
         case .diagnostics:

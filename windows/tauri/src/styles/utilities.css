@@ -129,11 +129,18 @@ html[data-status-bar="hidden"] {
   --lithe-footer-height: 0rem;
 }
 
+/*
+ * Reduced motion ends transitions instead of shortening them. `transition-property`
+ * defaults to `all`, so a non-zero duration on `*` made every element transition
+ * every changed property: hiding an editor tab started a transition on each of its
+ * thousands of nodes and cost hundreds of milliseconds per file open. Animations
+ * keep 1ms so `animationend` still fires for exit animations.
+ */
 html[data-reduce-motion="true"] *,
 html[data-reduce-motion="true"] *::before,
 html[data-reduce-motion="true"] *::after {
   scroll-behavior: auto !important;
-  transition-duration: 1ms !important;
+  transition-duration: 0s !important;
   transition-delay: 0ms !important;
   animation-duration: 1ms !important;
   animation-delay: 0ms !important;
@@ -160,7 +167,7 @@ html[data-reduce-motion="true"] .ui-text-shimmer {
   *::before,
   *::after {
     scroll-behavior: auto !important;
-    transition-duration: 1ms !important;
+    transition-duration: 0s !important;
     transition-delay: 0ms !important;
     animation-duration: 1ms !important;
     animation-delay: 0ms !important;

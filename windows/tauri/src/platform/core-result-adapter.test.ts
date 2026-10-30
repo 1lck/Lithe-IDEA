@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { adaptCoreResult } from "./core-result-adapter";
-import type { GitDiff } from "@/features/git/types/git.types";
+import type { GitBlame, GitDiff } from "@/features/git/types/git.types";
+import { findGitBlameLine } from "@/features/git/utils/git-blame-lines";
 
 test.each(["EOF", "CRLF", "LF"])("Core patch adaptation preserves writable safety metadata for %s", kind => {
   const separator = kind === "CRLF" ? "\r\n" : "\n";
@@ -240,5 +241,36 @@ describe("git checkout preflight adaptation", () => {
     );
 
     expect(result).toEqual({ blocked: false, blockingPaths: [] });
+  });
+});
+
+describe("git blame adaptation", () => {
+  const first = "1".repeat(40);
+  const second = "2".repeat(40);
+  const uncommitted = "0".repeat(40);
+
+  test("attributes every Core line entry to a single-line span", () => {
+    const blame = adaptCoreResult<GitBlame>(
+      "git_blame_file",
+      { filePath: "src/main.ts" },
+      {
+        lines: [
+          { line: 1, commitHash: first, authorName: "Ada", authorTime: 1_700_000_000 },
+          { line: 2, commitHash: second, authorName: "Lin", authorTime: 1_700_000_100 },
+          { line: 3, commitHash: uncommitted, authorName: "Not Committed Yet", authorTime: 1_700_000_200 },
+        ],
+      },
+    );
+
+    expect(blame.file_path).toBe("src/main.ts");
+    expect(blame.lines.map((line) => [line.line_number, line.total_lines, line.author])).toEqual([
+      [1, 1, "Ada"],
+      [2, 1, "Lin"],
+      [3, 1, "Not Committed Yet"],
+    ]);
+    // A span covering the whole file makes the gutter lookup match the wrong
+    // commit for almost every line, which is what the editor used to show.
+    expect(findGitBlameLine(blame.lines, 2)?.commit_hash).toBe(second);
+    expect(blame.lines[2].is_uncommitted).toBe(true);
   });
 });

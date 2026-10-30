@@ -46,10 +46,17 @@ enum LitheIconKind: Hashable {
     case docker
     case database
     case gitignore
+    case nodePackage
+    case lockFile
+    case makefile
 
     // 文本与媒体
     case markdown
+    case readme
+    case license
     case plainText
+    case i18n
+    case document
     case image
     case binary
     case generic
@@ -103,8 +110,17 @@ enum LitheIcons {
         .csv: "fileTypes/csv.svg",
         .docker: "fileTypes/docker.svg",
         .database: "fileTypes/sql.svg",
+        .gitignore: "fileTypes/gitignore.svg",
+        .nodePackage: "fileTypes/nodejs.svg",
+        .lockFile: "fileTypes/lock.svg",
+        .makefile: "fileTypes/makefile.svg",
         .markdown: "fileTypes/markdown.svg",
+        .readme: "fileTypes/readme.svg",
+        .license: "fileTypes/license.svg",
         .plainText: "fileTypes/text.svg",
+        .i18n: "fileTypes/i18n.svg",
+        // IDEA's "Native" file type (Office documents and similar) uses AllIcons.FileTypes.Custom.
+        .document: "fileTypes/custom.svg",
         .image: "fileTypes/image.svg",
         .binary: "fileTypes/archive.svg",
         .generic: "fileTypes/unknown.svg",
@@ -146,6 +162,12 @@ enum LitheIcons {
         "target", "build", "out", "bin", "dist", "node_modules", ".gradle", ".idea", ".settings"
     ]
 
+    /// 依赖锁文件按文件名识别；扩展名为 lock 的其余文件（Cargo.lock、bun.lock 等）走扩展名分支。
+    private static let lockFileNames: Set<String> = [
+        "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "bun.lockb"
+    ]
+    private static let licenseFileStems: Set<String> = ["license", "licence", "copying"]
+
     private static let resourceDirectoryNames: Set<String> = ["resources", "res", "webapp", "static"]
     private static let sourceDirectoryNames: Set<String> = ["java", "kotlin", "scala", "groovy"]
 
@@ -178,6 +200,13 @@ enum LitheIcons {
 
     static func ideaAssetPath(forSystemImage systemImage: String) -> String? {
         ideaAssetPathsBySystemImage[systemImage]
+    }
+
+    /// Returns the imported IntelliJ asset backing a file-node kind. Unit
+    /// tests use this to verify catalog entries against the source resources
+    /// directory because the test host ships no app bundle.
+    static func ideaAssetPath(for kind: LitheIconKind) -> String? {
+        ideaAssetPaths[kind]
     }
 
     /// Returns the IntelliJ dark-theme sibling for an imported SVG path.
@@ -252,6 +281,14 @@ enum LitheIcons {
         let name = fileName.lowercased()
         if name == "pom.xml" { return .maven }
         if name == ".gitignore" || name == ".gitattributes" || name == ".dockerignore" { return .gitignore }
+        if name == "package.json" { return .nodePackage }
+        if lockFileNames.contains(name) { return .lockFile }
+        if ["go.mod", "go.sum", "go.work", "go.work.sum"].contains(name) { return .goSource }
+        if ["makefile", "gnumakefile"].contains(name) { return .makefile }
+        // README.md、LICENSE.txt 这类文件按主名识别，扩展名只是正文格式。
+        let stem = (name as NSString).deletingPathExtension
+        if stem == "readme" { return .readme }
+        if licenseFileStems.contains(stem) || stem.hasPrefix("license-") { return .license }
         if name == ".classpath" || name == ".project" || name == ".factorypath" { return .xml }
         if name == ".editorconfig" { return .editorConfig }
         if name == "dockerfile" || name.hasPrefix("dockerfile.")
@@ -264,6 +301,8 @@ enum LitheIcons {
         switch pathExtension.lowercased() {
         case "java": return .javaGeneric
         case "class", "jar": return .binary
+        case "lock": return .lockFile
+        case "mk", "mak": return .makefile
         case "swift": return .swiftSource
         case "kt", "kts": return .kotlinSource
         case "rs": return .rustSource
@@ -287,12 +326,14 @@ enum LitheIcons {
         case "xml", "xsd", "wsdl", "pom": return .xml
         case "properties", "ini", "cfg", "conf", "env": return .properties
         case "yml", "yaml": return .yaml
-        case "json", "json5": return .json
+        case "json", "json5", "jsonl", "jsonlines", "ndjson", "ldjson": return .json
         case "db", "sqlite", "sqlite3", "sql", "mv": return .database
         case "md", "markdown", "rst", "adoc": return .markdown
-        case "txt", "log", "strings": return .plainText
+        case "txt", "log": return .plainText
+        case "strings": return .i18n
+        case "doc", "docx", "ppt", "pptx": return .document
         case "csv", "tsv": return .csv
-        case "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "tiff": return .image
+        case "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "tiff", "wbmp": return .image
         case "zip", "gz", "tar", "so", "dylib", "dll", "icns", "pdf", "woff", "woff2", "ttf", "otf": return .binary
         default: return .generic
         }

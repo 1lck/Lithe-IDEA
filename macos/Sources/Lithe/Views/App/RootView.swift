@@ -307,13 +307,14 @@ private struct ActiveSessionChrome: View {
                 }
                 openWindow(id: LitheWindowID.settings)
             }
-            .sheet(isPresented: Binding(
+            .background(LitheCenteredPopup(isPresented: Binding(
                 get: { session.workbenchFeature.isCloneRepositoryPresented },
                 set: { session.workbenchFeature.isCloneRepositoryPresented = $0 }
-            )) {
+            ), allowsDismiss: !session.isCloningRepository,
+               dialogTitle: L10n.string("Clone Repository"), resizesToContent: true) {
                 CloneRepositoryView()
                     .environmentObject(session)
-            }
+            }.frame(width: 0, height: 0).allowsHitTesting(false))
             .sheet(isPresented: Binding(
                 get: { session.workbenchFeature.isNewProjectPresented },
                 set: { session.workbenchFeature.isNewProjectPresented = $0 }
@@ -331,14 +332,16 @@ private struct ActiveSessionChrome: View {
                         .environmentObject(session)
                 }
             }
-            .sheet(isPresented: Binding(
+            .background(LitheCenteredPopup(isPresented: Binding(
                 get: { session.workbenchFeature.isRemoteConnectionsPresented },
                 set: { session.workbenchFeature.isRemoteConnectionsPresented = $0 }
-            )) {
+            ), dialogTitle: L10n.string("Remote Development")) {
                 if session.canManageRemoteConnections {
-                    RemoteConnectionsSheet(feature: session.makeRemoteConnectionsFeature()!)
+                    RemoteConnectionsSheet(feature: session.makeRemoteConnectionsFeature()!, onDismiss: {
+                        session.workbenchFeature.isRemoteConnectionsPresented = false
+                    })
                 }
-            }
+            }.frame(width: 0, height: 0).allowsHitTesting(false))
             .sheet(isPresented: Binding(
                 get: { session.diagnosticsFeature.isPresented },
                 set: { session.diagnosticsFeature.isPresented = $0 }
@@ -357,6 +360,7 @@ private struct ActiveSessionChrome: View {
                 feature: session.vcsProvidersFeature, fontFamily: session.settings.editorFontFamily,
                 openFile: { [weak session] in session?.openFile($0, allowsOutsideWorkspace: true) }
             ))
+            .modifier(CommitFileDeletionPresentation(feature: session.commitFileDeletion))
 
     }
 

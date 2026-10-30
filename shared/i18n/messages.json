@@ -12418,6 +12418,48 @@
       ]
     },
     {
+      "id": "git.blame.annotate",
+      "description": "Windows UI: git.blame.annotate",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.copyRevision",
+      "description": "Windows UI: git.blame.copyRevision",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.hide",
+      "description": "Windows UI: git.blame.hide",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.revisionCopied",
+      "description": "Windows UI: git.blame.revisionCopied",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.showDiff",
+      "description": "Windows UI: git.blame.showDiff",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.uncommitted",
+      "description": "Windows UI: git.blame.uncommitted",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "git.branch",
       "description": "Windows UI: git.branch",
       "platforms": [
@@ -25172,6 +25214,131 @@
       }
     },
     {
+      "id": "maven.userSettings.conflict",
+      "description": "Windows UI: the settings.xml changed on disk after it was read; the edit was not saved",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.declared",
+      "description": "Windows UI: the local repository shown comes from this settings.xml",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.defaultValue",
+      "description": "Windows UI: marks the shown local repository as Maven's built-in default rather than a configured value",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.description",
+      "description": "Windows UI: explains that the user-level Maven settings apply to every project unless the project overrides them",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.emptyRepository",
+      "description": "Windows UI: the local repository path to save is empty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.invalid",
+      "description": "Windows UI: the user-level settings.xml is malformed and will not be rewritten",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.invalidFile",
+      "description": "Windows UI: the user-level settings.xml is not a valid settings document, so it was not changed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.loading",
+      "description": "Windows UI: status while reading the user-level Maven settings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.missing",
+      "description": "Windows UI: the user-level settings.xml does not exist yet",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.noHome",
+      "description": "Windows UI: the user profile directory holding .m2 cannot be determined",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.notDeclared",
+      "description": "Windows UI: the settings.xml exists but declares no local repository",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.readFailed",
+      "description": "Windows UI: the user-level Maven settings could not be read; error is the system message",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "maven.userSettings.reload",
+      "description": "Windows UI: button that reads the user-level settings.xml again",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.reloadProject",
+      "description": "Windows UI: after saving, the open project uses the new repository once Maven is reloaded",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.save",
+      "description": "Windows UI: button that writes the local repository to the user-level settings.xml",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.saveFailed",
+      "description": "Windows UI: writing the user-level settings.xml failed; error is the system message",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "maven.userSettings.title",
+      "description": "Windows UI: settings group for the user-level Maven settings.xml shared by all projects",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "maven.versionManagedFrom",
       "description": "Windows UI: maven.versionManagedFrom",
       "platforms": [
@@ -25676,6 +25843,13 @@
         "key": "Select All",
         "arguments": []
       }
+    },
+    {
+      "id": "menu.settings",
+      "description": "Windows UI: menu.settings",
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "id": "menu.showHover",
@@ -35666,6 +35840,17 @@
       }
     },
     {
+      "id": "native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped",
+      "description": "Native UI: Downloaded data was kept. Try again to resume from where it stopped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Downloaded data was kept. Try again to resume from where it stopped.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.downloadedLldOfLldEnabled",
       "description": "Native UI: Downloaded (%lld of %lld enabled)",
       "platforms": [
@@ -38618,13 +38803,13 @@
       }
     },
     {
-      "id": "native.generateLitheRunGeneratedJsonToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved",
-      "description": "Native UI: Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.",
+      "id": "native.identifyTheProjectToEnableRunAndDebugExistingProjectAndLocalOverridesWillBePreserved",
+      "description": "Native UI: Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.",
+        "key": "Identify the project to enable Run and Debug. Existing project and local overrides will be preserved.",
         "arguments": []
       }
     },
@@ -42772,13 +42957,13 @@
       }
     },
     {
-      "id": "native.litheNeedsToIdentifyTheProjectAndGenerateLitheRunGeneratedJsonBeforeRunAndDebu71dbeebe55",
-      "description": "Native UI: Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.",
+      "id": "native.litheNeedsToIdentifyTheProjectBeforeRunAndDebugAreAvailableProjectAndLocalOverridesWillNotBeChanged",
+      "description": "Native UI: Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.",
+        "key": "Lithe needs to identify the project before Run and Debug are available. Project and local overrides will not be changed.",
         "arguments": []
       }
     },
@@ -42871,13 +43056,13 @@
       }
     },
     {
-      "id": "native.litheWillLookForServicesAgainAndRefreshLitheRunGeneratedJsonProjectAndLocalOvec4eb77affa",
-      "description": "Native UI: Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.",
+      "id": "native.litheWillLookForServicesAgainProjectAndLocalOverridesWillNotBeChanged",
+      "description": "Native UI: Lithe will look for services again. Project and local overrides will not be changed.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.",
+        "key": "Lithe will look for services again. Project and local overrides will not be changed.",
         "arguments": []
       }
     },
@@ -64878,11 +65063,42 @@
       ]
     },
     {
+      "id": "navigation.resolving",
+      "description": "Windows UI: shown while a slow navigation request is still running; target is a translated navigation kind such as definition",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "target": "string"
+      }
+    },
+    {
       "id": "navigation.typeDefinition",
       "description": "Windows UI: navigation.typeDefinition",
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "navigation.syntaxFallback",
+      "description": "Windows UI: a jump was resolved from syntax alone because the language server is still importing the project",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "navigation.waitingForImport",
+      "description": "Windows UI: navigation is unavailable while the language server imports the project",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string",
+        "percent": "integer"
+      }
     },
     {
       "id": "newProject.backToStarters",
@@ -65798,6 +66014,26 @@
       ]
     },
     {
+      "id": "preparation.currentProject",
+      "description": "Windows UI: Java module the language server is importing; name comes from the language server",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "preparation.downloading",
+      "description": "Windows UI: dependency the Java import is downloading; artifact comes from the build tool",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "artifact": "string"
+      }
+    },
+    {
       "id": "preparation.explanation",
       "description": "Windows UI: preparation.explanation",
       "platforms": [
@@ -65817,6 +66053,16 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "preparation.importingPercent",
+      "description": "Windows UI: status bar label while the Java project imports, with the import percentage",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "percent": "integer"
+      }
     },
     {
       "id": "preparation.logs",
@@ -69031,6 +69277,34 @@
       ]
     },
     {
+      "id": "settings.editor.tabLimitPolicy",
+      "description": "Windows UI: settings.editor.tabLimitPolicy",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.editor.tabLimitPolicyDescription",
+      "description": "Windows UI: settings.editor.tabLimitPolicyDescription",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.editor.tabLimitPolicy.leastRecentlyUsed",
+      "description": "Windows UI: settings.editor.tabLimitPolicy.leastRecentlyUsed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.editor.tabLimitPolicy.oldestOpened",
+      "description": "Windows UI: settings.editor.tabLimitPolicy.oldestOpened",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "settings.editor.parameterHints",
       "description": "Windows UI: settings.editor.parameterHints",
       "platforms": [
@@ -69861,20 +70135,6 @@
     {
       "id": "settings.git.gutterDescription",
       "description": "Windows UI: settings.git.gutterDescription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.git.inlineBlame",
-      "description": "Windows UI: settings.git.inlineBlame",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.git.inlineBlameDescription",
-      "description": "Windows UI: settings.git.inlineBlameDescription",
       "platforms": [
         "windows"
       ]
@@ -71734,6 +71994,368 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "settings.network.checkFailed",
+      "description": "Native UI: The connection check failed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The connection check failed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.connectionSucceeded",
+      "description": "Native UI: Connection succeeded in %@ ms.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connection succeeded in %@ ms.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "settings.network.credentialsUnavailable",
+      "description": "Native UI: Proxy credentials cannot be saved in this build.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Proxy credentials cannot be saved in this build.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.enterAddressAndPort",
+      "description": "Native UI: Enter a server address and a port between 1 and 65535 first.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a server address and a port between 1 and 65535 first.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.exclusions",
+      "description": "Native UI: Exclusion list",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Exclusion list",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.exclusionsPlaceholder",
+      "description": "Native UI: For example 127.0.0.1, localhost, *.internal.example",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "For example 127.0.0.1, localhost, *.internal.example",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.host",
+      "description": "Native UI: Server address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Server address",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.hostPlaceholder",
+      "description": "Native UI: For example 127.0.0.1",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "For example 127.0.0.1",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.exclusions",
+      "description": "Native UI: Addresses that bypass the proxy, separated by commas. Entries support wildcard domains such as *.internal.example.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Addresses that bypass the proxy, separated by commas. Entries support wildcard domains such as *.internal.example.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.host",
+      "description": "Native UI: The proxy server's host name or IP address, for example 127.0.0.1.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The proxy server's host name or IP address, for example 127.0.0.1.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.mode",
+      "description": "Native UI: Follow system uses the proxies configured in macOS network settings. No proxy contacts every host directly. Custom routes requests through the server configured below.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Follow system uses the proxies configured in macOS network settings. No proxy contacts every host directly. Custom routes requests through the server configured below.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.password",
+      "description": "Native UI: Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.passwordSaved",
+      "description": "Native UI: A password is saved for its original proxy. An empty field reuses it only when the proxy type, address, port and username match.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A password is saved for its original proxy. An empty field reuses it only when the proxy type, address, port and username match.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.port",
+      "description": "Native UI: The proxy server's port, for example 7890.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The proxy server's port, for example 7890.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.scope",
+      "description": "Native UI: These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.type",
+      "description": "Native UI: HTTP proxies carry HTTPS requests through CONNECT. SOCKS5 tunnels every protocol and port.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "HTTP proxies carry HTTPS requests through CONNECT. SOCKS5 tunnels every protocol and port.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.username",
+      "description": "Native UI: Leave empty when the proxy does not require authentication.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Leave empty when the proxy does not require authentication.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.mode.custom",
+      "description": "Native UI: Custom proxy server",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Custom proxy server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.mode.followSystem",
+      "description": "Native UI: Follow system proxy",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Follow system proxy",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.mode.noProxy",
+      "description": "Native UI: No proxy",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No proxy",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.optional",
+      "description": "Native UI: Optional",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Optional",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.portPlaceholder",
+      "description": "Native UI: For example 7890",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "For example 7890",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.proxyAnsweredWithHTTP",
+      "description": "Native UI: The proxy answered with HTTP %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The proxy answered with HTTP %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "settings.network.proxyMode",
+      "description": "Native UI: Proxy mode",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Proxy mode",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.proxyServer",
+      "description": "Native UI: Proxy server",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Proxy server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.proxyType",
+      "description": "Native UI: Proxy type",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Proxy type",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.testConnection",
+      "description": "Native UI: Test connection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Test connection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.testing",
+      "description": "Native UI: Testing…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Testing…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.title",
+      "description": "Native UI: Network",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Network",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.type.http",
+      "description": "Native UI: HTTP",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "HTTP",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.type.socks5",
+      "description": "Native UI: SOCKS5",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SOCKS5",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.username",
+      "description": "Native UI: Username",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Username",
+        "arguments": []
+      }
     },
     {
       "id": "settings.noMatching",
@@ -73699,10 +74321,15 @@
     },
     {
       "id": "ui.more",
-      "description": "Windows UI: ui.more",
+      "description": "More actions overflow trigger",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "More",
+        "arguments": []
+      }
     },
     {
       "id": "ui.morePages",
@@ -84218,22 +84845,6 @@
       }
     },
     {
-      "id": "native.couldNotReadJavaBuildFileMetadataFor",
-      "description": "Native UI: Could not read Java build-file metadata for %@.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Could not read Java build-file metadata for %@.",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
       "id": "native.theBundledJdtLsManifestIsInvalidAt",
       "description": "Native UI: The bundled JDT LS manifest is invalid at %@.",
       "platforms": [
@@ -90807,6 +91418,1421 @@
         "arguments": [
           "arg1"
         ]
+      }
+    },
+    {
+      "id": "git.rollback.title",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rollback Changes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.confirm",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rollback",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.include",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Include in rollback",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.deleteAdded",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete local copies of added files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.warning",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.stale",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected changes changed. Reopen the rollback dialog and review them again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.success",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Rolled back %@",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "vcs.commitFiles.commitFiles",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Commit Files…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.diffNewTab",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show Diff in New Tab",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.deleteAction",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.addToVcs",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add to VCS",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.adding",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Adding to VCS…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.deleting",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Deleting…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.deleteTitle",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.trashWarning",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "These files will be moved to the macOS Trash.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.vcsDeleteWarning",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The version control provider will delete these files and record their removal. They may not be moved to Trash.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.ownershipChanged",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Some selected files belong to another version control root. Refresh and select them again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.status.refreshFailed",
+      "description": "A local Git mutation could not confirm the updated status; keep the previous rows until retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not refresh Git status. Refresh to verify the changes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.stagingChanged",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The staged files changed. Review the checked files before committing.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaKeywordNavigationFilter",
+      "description": "Native UI: Skip definition lookups for Java keywords",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip definition lookups for Java keywords",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceAbsolute",
+      "description": "Source editor appearance: Absolute",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Absolute",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceAppliesImmediatelyToSourceEditorsInAllProjects",
+      "description": "Source editor appearance: Applies immediately to source editors in all projects.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Applies immediately to source editors in all projects.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBlink",
+      "description": "Source editor appearance: Blink",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Blink",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBlock",
+      "description": "Source editor appearance: Block",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Block",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBoundary",
+      "description": "Source editor appearance: Boundary",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Boundary",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceColorizeBracketPairs",
+      "description": "Source editor appearance: Colorize bracket pairs",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Colorize bracket pairs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursor",
+      "description": "Source editor appearance: Cursor",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursorBlinking",
+      "description": "Source editor appearance: Cursor blinking",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor blinking",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursorStyle",
+      "description": "Source editor appearance: Cursor style",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor style",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorColorScheme",
+      "description": "Source editor appearance: Editor color scheme",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorColorsFollowLightAndDarkAppearanceIndependentlyOfTheInterfaceTheme",
+      "description": "Source editor appearance: Editor colors follow light and dark appearance independently of the interface theme.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor colors follow light and dark appearance independently of the interface theme.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorDisplay",
+      "description": "Source editor appearance: Editor display",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor display",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceFontLigatures",
+      "description": "Source editor appearance: Font ligatures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Font ligatures",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceHighlightCurrentLine",
+      "description": "Source editor appearance: Highlight current line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Highlight current line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceItalicComments",
+      "description": "Source editor appearance: Italic comments",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Italic comments",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceLineNumbers",
+      "description": "Source editor appearance: Line numbers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line numbers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceLineSpacing",
+      "description": "Source editor appearance: Line spacing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line spacing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceRelative",
+      "description": "Source editor appearance: Relative",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Relative",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceRenderWhitespace",
+      "description": "Source editor appearance: Render whitespace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Render whitespace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceScrollBeyondLastLine",
+      "description": "Source editor appearance: Scroll beyond last line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Scroll beyond last line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSelection",
+      "description": "Source editor appearance: Selection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Selection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceShowIndentGuides",
+      "description": "Source editor appearance: Show indent guides",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show indent guides",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSmooth",
+      "description": "Source editor appearance: Smooth",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Smooth",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSmoothScrolling",
+      "description": "Source editor appearance: Smooth scrolling",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Smooth scrolling",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSoftWrap",
+      "description": "Source editor appearance: Soft wrap",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Soft wrap",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSolid",
+      "description": "Source editor appearance: Solid",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Solid",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceStickyScroll",
+      "description": "Source editor appearance: Sticky scroll",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sticky scroll",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSyntaxHighlighting",
+      "description": "Source editor appearance: Syntax highlighting",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Syntax highlighting",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceTrailing",
+      "description": "Source editor appearance: Trailing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Trailing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceUnderline",
+      "description": "Source editor appearance: Underline",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Underline",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceVSCode",
+      "description": "Bundled editor color scheme product name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "VS Code",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceIntelliJIDEA",
+      "description": "Bundled editor color scheme product name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "IntelliJ IDEA",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeInfo",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Bracket colors follow the selected editor color scheme.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeEnabled",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enabled by color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeDisabled",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disabled by color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "lsp.completion.invalidTriggerKind",
+      "description": "Completion request validation from shared Core",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Invalid completion trigger kind",
+        "arguments": []
+      }
+    },
+    {
+      "id": "lsp.completion.missingTriggerCharacter",
+      "description": "Completion request validation from shared Core",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Completion trigger character is required",
+        "arguments": []
+      }
+    },
+    {
+      "id": "java.launch.error.buildStatus",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned an unexpected project build status.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned an unexpected project build status."
+      }
+    },
+    {
+      "id": "java.launch.error.classpathEmpty",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned no runtime paths.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned no runtime paths."
+      }
+    },
+    {
+      "id": "java.launch.error.classpathInvalid",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned an invalid runtime classpath.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned an invalid runtime classpath."
+      }
+    },
+    {
+      "id": "java.launch.error.provider",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Java launch preparation requires the Java language service.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "Java launch preparation requires the Java language service."
+      }
+    },
+    {
+      "id": "java.launch.error.request",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Invalid Java launch preparation request",
+        "arguments": []
+      },
+      "windows": {
+        "key": "Invalid Java launch preparation request"
+      }
+    },
+    {
+      "id": "java.launch.error.target",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service could not identify one launch target for this source file.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service could not identify one launch target for this source file."
+      }
+    },
+    {
+      "id": "java.launch.error.unsupported",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Java launch preparation is not supported by this runtime.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "Java launch preparation is not supported by this runtime."
+      }
+    },
+    {
+      "id": "java.launch.error.save",
+      "description": "Java launch stops when a workspace document cannot be saved",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java launch stopped because modified files could not be saved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "java.launch.error.compilation",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java project build reported compilation errors.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java project build reported compilation errors."
+      }
+    },
+    {
+      "id": "java.launch.error.buildFailed",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service could not complete the project build. Check the Java language server log for the build error.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service could not complete the project build. Check the Java language server log for the build error."
+      }
+    },
+    {
+      "id": "java.launch.error.buildCancelled",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java project build was cancelled before it finished.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java project build was cancelled before it finished."
+      }
+    },
+    {
+      "id": "java.launch.error.unknownBuildStatus",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned an unknown project build status.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned an unknown project build status."
+      }
+    },
+    {
+      "id": "backgroundTasks.explanation",
+      "description": "Windows UI: explains that background tasks finish by themselves and cannot be cancelled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "backgroundTasks.more",
+      "description": "Windows UI: status bar suffix counting further background tasks",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "backgroundTasks.title",
+      "description": "Windows UI: status bar popover title listing language-server background work",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "backgroundTasks.untitled",
+      "description": "Windows UI: name for a language-server background task that reported no title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.ask",
+      "description": "Windows UI: import-on-open option that asks first",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.askOnOpen",
+      "description": "Windows UI: notification asking whether to import a Java project that was just opened",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "project": "string"
+      }
+    },
+    {
+      "id": "javaImport.automatic",
+      "description": "Windows UI: import-on-open option that imports immediately",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.configureFirst",
+      "description": "Windows UI: action that opens Maven settings before importing",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.import",
+      "description": "Windows UI: action that starts importing the Java project",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.manual",
+      "description": "Windows UI: import-on-open option that waits until the project model is needed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.onOpen",
+      "description": "Windows UI: setting label for what opening a Java project does with the language-server import",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.onOpenDescription",
+      "description": "Windows UI: explains the Java import-on-open choices, including that manual still imports when needed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "native.thePluginBackendIsNoLongerRunning",
+      "description": "Native UI: The plugin backend is no longer running.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin backend is no longer running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.onlyHtmlAndHtmFilesCanBeShownInABrowser",
+      "description": "Native UI: Only .html and .htm files can be shown in a browser.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only .html and .htm files can be shown in a browser.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWindowNowShowsADifferentWorkspaceThanTheOneThisCallWasMadeFor",
+      "description": "Native UI: The window now shows a different workspace than the one this call was made for.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The window now shows a different workspace than the one this call was made for.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileHasUnsavedChangesSaveItFirstBecauseTheBrowserShowsTheSavedFile",
+      "description": "Native UI: The file has unsaved changes. Save it first, because the browser shows the saved file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file has unsaved changes. Save it first, because the browser shows the saved file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisPluginSentMessagesTooQuickly",
+      "description": "Native UI: This plugin sent messages too quickly.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This plugin sent messages too quickly.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginIsNotAllowedToUseTheHostService",
+      "description": "Native UI: The plugin is not allowed to use the host service %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin is not allowed to use the host service %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theMessageTextOrItsButtonsAreEmptyTooLongOrTooMany",
+      "description": "Native UI: The message text or its buttons are empty, too long, or too many.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The message text or its buttons are empty, too long, or too many.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkspaceContextReferenceIsMalformed",
+      "description": "Native UI: The workspace context reference is malformed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace context reference is malformed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theParamsOfMustNameASubscriptionID",
+      "description": "Native UI: The params of %@ must name a subscriptionID.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The params of %@ must name a subscriptionID.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.argSentMessagesTooQuicklySoSomeWereNotShown",
+      "description": "Native UI: %@ sent messages too quickly, so some were not shown.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ sent messages too quickly, so some were not shown.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theResourcePathMustBeRelativeUseSeparatorsAndNotContainOr",
+      "description": "Native UI: The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\".",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\".",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.linesAndColumnsStartAtAndARangeMustNotEndBeforeItStarts",
+      "description": "Native UI: Lines and columns start at 1, and a range must not end before it starts.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lines and columns start at 1, and a range must not end before it starts.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHostDoesNotSupportTheRequestedOptionYet",
+      "description": "Native UI: The host does not support the requested option yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host does not support the requested option yet.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteWorkspacesAreNotSupportedByThisOperationYet",
+      "description": "Native UI: Remote workspaces are not supported by this operation yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remote workspaces are not supported by this operation yet.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theResourceIsOutsideTheWorkspace",
+      "description": "Native UI: The resource is outside the workspace.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource is outside the workspace.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileIsNotOpenInThisWindow",
+      "description": "Native UI: The file is not open in this window.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file is not open in this window.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory",
+      "description": "Native UI: The host could not create the plugin's workspace state directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host could not create the plugin's workspace state directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theParamsOfMustBeAnObject",
+      "description": "Native UI: The params of %@ must be an object.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The params of %@ must be an object.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theResourceDoesNotExist",
+      "description": "Native UI: The resource does not exist.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource does not exist.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theResourceIsNotARegularFile",
+      "description": "Native UI: The resource is not a regular file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource is not a regular file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWindowIsClosedOrHasNoWorkspaceOpen",
+      "description": "Native UI: The window is closed or has no workspace open.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The window is closed or has no workspace open.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileCouldNotBeOpenedAsATextDocument",
+      "description": "Native UI: The file could not be opened as a text document.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file could not be opened as a text document.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.onlyHttpAndHttpsAddressesWithAHostNameCanBeOpened",
+      "description": "Native UI: Only http and https addresses with a host name can be opened.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only http and https addresses with a host name can be opened.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theResourceNamesARootThisWindowDoesNotOffer",
+      "description": "Native UI: The resource names a root this window does not offer.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The resource names a root this window does not offer.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkspaceContextIsNoLongerCurrent",
+      "description": "Native UI: The workspace context is no longer current. Ask the host for it again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace context is no longer current. Ask the host for it again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noWebBrowserCouldBeOpened",
+      "description": "Native UI: No web browser could be opened.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No web browser could be opened.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisPluginAlreadyHasTooManyMessagesWaiting",
+      "description": "Native UI: This plugin already has too many messages waiting.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This plugin already has too many messages waiting.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.host.requestFailed",
+      "description": "Generic sanitized host API failure; structured code and details identify the recovery action.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin host request could not be completed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugin.host.invalidParameters",
+      "description": "Invalid public plugin host request parameters.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin host request parameters are invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.updateSource",
+      "description": "Native UI: Update source",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Update source",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stableUpdatesDownloadFromThisAddressAMirrorMustServeTheSameSignedAppcastAndUpdateArchivesSideBySideAndLitheStillV",
+      "description": "Native UI: Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.foundLitheAtThisSource",
+      "description": "Native UI: Found Lithe %@ at this source.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Found Lithe %@ at this source.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.enterAFullWebAddressSuchAsHttpsMirrorExampleComLithe",
+      "description": "Native UI: Enter a full web address, such as https://mirror.example.com/lithe/.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a full web address, such as https://mirror.example.com/lithe/.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.updateSourcesMustUseHttpsHttpIsOnlyAllowedForThisMacLocalhost",
+      "description": "Native UI: Update sources must use https://. http:// is only allowed for this Mac (localhost).",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Update sources must use https://. http:// is only allowed for this Mac (localhost).",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noUpdateFeedWasFoundAtThisAddressTheSourceMustProvideNextToTheUpdateArchives",
+      "description": "Native UI: No update feed was found at this address. The source must provide %@ next to the update archives.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No update feed was found at this address. The source must provide %@ next to the update archives.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theSourceListsLitheButDoesNotProvide",
+      "description": "Native UI: The source lists Lithe %@ but does not provide %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The source lists Lithe %@ but does not provide %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theConnectionToTimedOutCheckYourProxyOrVPNConnectionAndTryAgain",
+      "description": "Native UI: The connection to %@ timed out. Check your proxy or VPN connection and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The connection to %@ timed out. Check your proxy or VPN connection and try again.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.couldNotBeReachedCheckYourInternetProxyOrVPNConnectionAndTryAgain",
+      "description": "Native UI: %@ could not be reached. Check your internet, proxy, or VPN connection and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ could not be reached. Check your internet, proxy, or VPN connection and try again.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.aSecureConnectionToCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSystemCertificateSettings",
+      "description": "Native UI: A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.returnedHTTP",
+      "description": "Native UI: %@ returned HTTP %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ returned HTTP %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.returnedAnUnexpectedResponse",
+      "description": "Native UI: %@ returned an unexpected response.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ returned an unexpected response.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
       }
     }
   ]
