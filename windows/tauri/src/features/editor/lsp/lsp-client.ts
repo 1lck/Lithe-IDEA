@@ -18,6 +18,8 @@ import {
 } from "./language-server-feedback";
 import type {
   CompletionItem,
+  CompletionList,
+  CompletionContext,
   Hover,
   PublishDiagnosticsParams,
 } from "vscode-languageserver-protocol";
@@ -1361,7 +1363,8 @@ export class LspClient {
     target: LspDocumentTargetInput,
     line: number,
     character: number,
-  ): Promise<CompletionItem[]> {
+    completionContext?: CompletionContext,
+  ): Promise<CompletionList> {
     const document = normalizeLspDocumentTarget(target);
     try {
       logger.debug(
@@ -1372,20 +1375,21 @@ export class LspClient {
         "LSPClient",
         `Active language servers: ${Array.from(this.activeLanguageServers).join(", ")}`,
       );
-      const completions = await invoke<CompletionItem[]>("lsp_get_completions", {
+      const completions = await invoke<CompletionList>("lsp_get_completions", {
         ...lspDocumentRequestArgs(document),
         line,
         character,
+        completionContext,
       });
-      if (completions.length === 0) {
+      if (completions.items.length === 0) {
         logger.warn("LSPClient", "LSP returned 0 completions - checking LSP status");
       } else {
-        logger.debug("LSPClient", `Got ${completions.length} completions from LSP server`);
+        logger.debug("LSPClient", `Got ${completions.items.length} completions from LSP server`);
       }
       return completions;
     } catch (error) {
       logger.error("LSPClient", "LSP completion error:", error);
-      return [];
+      return { items: [], isIncomplete: false };
     }
   }
 

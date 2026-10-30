@@ -294,6 +294,9 @@ pub struct ClientFeatureRequest {
     pub range: Option<LspRange>,
     #[serde(default)]
     pub diagnostics: Vec<LspClientDiagnostic>,
+    /// LSP completion trigger context; validated by the shared request mapper.
+    #[serde(default)]
+    pub completion_context: Option<Value>,
     #[serde(default)]
     pub completion_item: Option<Value>,
     #[serde(default)]

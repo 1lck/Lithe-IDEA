@@ -1331,17 +1331,27 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func completions(
+        fileURL: URL, text: String, position: LanguageServerPosition, rootURL: URL,
+        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) throws {
+        try completionList(fileURL: fileURL, text: text, position: position, rootURL: rootURL) {
+            completion($0.map(\.items))
+        }
+    }
+
+    package func completionList(
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
         rootURL: URL,
-        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+        completionContext: LanguageServerCompletionContext? = nil,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
     ) throws {
         let context = featureContext(
             fileURL: fileURL,
             text: text,
             position: position,
-            rootURL: rootURL
+            rootURL: rootURL, completionContext: completionContext
         )
         let providers = featureProviders(for: .completion, context: context)
         guard !providers.isEmpty else {
@@ -1352,6 +1362,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             index: 0,
             context: context,
             items: [],
+            isIncomplete: false,
             seenLabels: [],
             completion: completion
         )
@@ -1921,7 +1932,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
-        rootURL: URL?
+        rootURL: URL?,
+        completionContext: LanguageServerCompletionContext? = nil
     ) -> LanguageFeatureRequestContext {
         let descriptor = catalog.provider(for: fileURL)
         return LanguageFeatureRequestContext(
@@ -1929,7 +1941,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             text: text,
             position: position,
             languageID: descriptor?.languageIdentifier(for: fileURL),
-            workspaceURL: rootURL
+            workspaceURL: rootURL, completionContext: completionContext
         )
     }
 
@@ -1952,20 +1964,21 @@ package final class LanguageToolingSessionManager: ObservableObject,
         index: Int,
         context: LanguageFeatureRequestContext,
         items: [LanguageServerCompletionItem],
+        isIncomplete: Bool,
         seenLabels: Set<String>,
-        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
     ) {
         guard index < providers.count else {
-            completion(.success(items))
+            completion(.success(LanguageServerCompletionList(items: items, isIncomplete: isIncomplete)))
             return
         }
         do {
-            try providers[index].completions(in: context) { [self] result in
+            try providers[index].completionList(in: context) { [self] result in
                 switch result {
                 case .success(let providerItems):
                     var merged = items
                     var labels = seenLabels
-                    for item in providerItems where labels.insert(item.label).inserted {
+                    for item in providerItems.items where labels.insert(item.label).inserted {
                         merged.append(item)
                     }
                     routeCompletions(
@@ -1973,6 +1986,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                         index: index + 1,
                         context: context,
                         items: merged,
+                        isIncomplete: isIncomplete || providerItems.isIncomplete,
                         seenLabels: labels,
                         completion: completion
                     )

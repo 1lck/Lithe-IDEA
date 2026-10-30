@@ -2301,16 +2301,17 @@ struct RunConfigurationIntegrationTests {
         #expect(hint.tooltip == "Parameter name" && hint.paddingLeft && !hint.paddingRight)
         #expect(hint.textEdits.first?.newText == "value: ")
 
-        var completionsResult: Result<[LanguageServerCompletionItem], Error>?
-        try manager.completions(
+        var completionsResult: Result<LanguageServerCompletionList, Error>?
+        try manager.completionList(
             fileURL: source,
             text: "struct App { let tit }\n",
             position: LanguageServerPosition(line: 0, utf16Column: 20),
-            rootURL: root
+            rootURL: root, completionContext: .init(triggerKind: 3)
         ) { result in
             completionsResult = result
         }
         core.enqueueRequestSuccess(operation: .completion, result: [
+            "isIncomplete": true,
             "items": [[
                 "label": "title",
                 "insertText": "title",
@@ -2319,7 +2320,9 @@ struct RunConfigurationIntegrationTests {
             ]]
         ])
         #expect(await Self.waitForMainActorCondition { completionsResult != nil })
-        #expect(try completionsResult?.get().first?.label == "title")
+        #expect(try completionsResult?.get().items.first?.label == "title")
+        #expect(try completionsResult?.get().isIncomplete == true)
+        #expect(core.requestCalls.last?.completionContext?.triggerKind == 3)
         let completionOperationID = try #require(
             core.requestCalls.last(where: { $0.operation == .completion })?.operationID
         )
@@ -4615,6 +4618,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         let newName: String?
         let range: LanguageServerRange?
         let diagnostics: [LanguageServerDiagnostic]
+        let completionContext: LanguageServerCompletionContext?
         let completionItem: LanguageServerCompletionItem?
         let codeAction: LanguageServerCodeAction?
         let command: LanguageServerCommand?
@@ -4755,7 +4759,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         newName: String?,
         range: LanguageServerRange?,
         diagnostics: [LanguageServerDiagnostic],
-        completionItem: LanguageServerCompletionItem?,
+        completionContext: LanguageServerCompletionContext?, completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
@@ -4771,6 +4775,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             newName: newName,
             range: range,
             diagnostics: diagnostics,
+            completionContext: completionContext,
             completionItem: completionItem,
             codeAction: codeAction,
             command: command

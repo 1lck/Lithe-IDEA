@@ -1023,7 +1023,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     func requestLanguageServerOperation(
         sessionID _: String, operation: LanguageServerOperation, fileURL _: URL?, virtualURI _: String?,
         position _: LanguageServerPosition?, newName _: String?, range _: LanguageServerRange?,
-        diagnostics _: [LanguageServerDiagnostic], completionItem _: LanguageServerCompletionItem?,
+        diagnostics _: [LanguageServerDiagnostic], completionContext: LanguageServerCompletionContext?, completionItem _: LanguageServerCompletionItem?,
         codeAction _: LanguageServerCodeAction?, command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
         if operation == .executeCommand, command?.command == "example.startDebugSession" {

@@ -9551,7 +9551,9 @@
     "native.editorAppearanceIntelliJIDEA": "IntelliJ IDEA",
     "native.editorAppearanceBracketSchemeInfo": "括号颜色跟随所选编辑器配色方案。",
     "native.editorAppearanceBracketSchemeEnabled": "配色方案已启用",
-    "native.editorAppearanceBracketSchemeDisabled": "配色方案已关闭"
+    "native.editorAppearanceBracketSchemeDisabled": "配色方案已关闭",
+    "lsp.completion.invalidTriggerKind": "补全请求的触发类型无效",
+    "lsp.completion.missingTriggerCharacter": "补全请求缺少有效的触发字符"
   },
   "overrides": {
     "macos": {

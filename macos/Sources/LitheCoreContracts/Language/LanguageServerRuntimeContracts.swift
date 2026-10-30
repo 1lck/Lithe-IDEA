@@ -444,6 +444,7 @@ package protocol LanguageServerRuntimeCore: Sendable {
         newName: String?,
         range: LanguageServerRange?,
         diagnostics: [LanguageServerDiagnostic],
+        completionContext: LanguageServerCompletionContext?,
         completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?

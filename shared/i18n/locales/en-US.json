@@ -9551,7 +9551,9 @@
     "native.editorAppearanceIntelliJIDEA": "IntelliJ IDEA",
     "native.editorAppearanceBracketSchemeInfo": "Bracket colors follow the selected editor color scheme.",
     "native.editorAppearanceBracketSchemeEnabled": "Enabled by color scheme",
-    "native.editorAppearanceBracketSchemeDisabled": "Disabled by color scheme"
+    "native.editorAppearanceBracketSchemeDisabled": "Disabled by color scheme",
+    "lsp.completion.invalidTriggerKind": "Invalid completion trigger kind",
+    "lsp.completion.missingTriggerCharacter": "Completion trigger character is required"
   },
   "overrides": {
     "windows": {
