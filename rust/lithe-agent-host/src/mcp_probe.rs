@@ -142,6 +142,8 @@ async fn run(r: Request, cancelled: &dyn Fn() -> bool) -> Result<Value, Error> {
         }
         #[cfg(unix)]
         cmd.process_group(0);
+        #[cfg(windows)]
+        cmd.creation_flags(crate::CREATE_NO_WINDOW);
         let mut spawned = cmd.spawn().map_err(|_| Error::Start)?;
         let output = spawned.stdout.take().ok_or(Error::Start)?;
         let input = spawned.stdin.take().ok_or(Error::Start)?;
