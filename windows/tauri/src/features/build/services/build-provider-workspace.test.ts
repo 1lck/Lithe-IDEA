@@ -31,6 +31,7 @@ function fixture() {
   let providerGate: Promise<unknown> | undefined, stopFailure = false;
   let prepareGate: Promise<boolean> | undefined, commitGate: Promise<void> | undefined, commitFailure = false;
   let nativeConfiguration = structuredClone(configuration);
+  let cancelFailures = 0;
   const entered = { tool: deferred<void>(), provider: deferred<void>(), decode: deferred<void>(), prepare: deferred<void>(), commit: deferred<void>() };
   const core = (async (command: string, _manifest: unknown, _system: string, request: Record<string, unknown>) => {
     coreCalls.push({ command, request: structuredClone(request) });
@@ -67,7 +68,7 @@ function fixture() {
         nativeConfiguration.sources[0]!.fields[0]!.value = "upstream readback";
         nativeConfiguration.sources[0]!.revision = "sha256:" + "b".repeat(64);
       },
-      cancel: async () => { fileCalls.push("cancel"); },
+      cancel: async () => { fileCalls.push("cancel"); if (cancelFailures-- > 0) throw new Error("native release failed"); },
     },
   });
   return { workspace, coreCalls, sent, stopped, entered, fileCalls,
@@ -76,10 +77,59 @@ function fixture() {
     holdCore: (command: string, promise: Promise<unknown>) => { coreGate = { command, promise }; },
     revoke: () => { revision++; }, failStop: () => { stopFailure = true; },
     holdPrepare: (gate: Promise<boolean>) => { prepareGate = gate; }, holdCommit: (gate: Promise<void>) => { commitGate = gate; },
-    failCommit: () => { commitFailure = true; } };
+    failCommit: () => { commitFailure = true; }, failCancelOnce: () => { cancelFailures = 1; } };
 }
 
 describe("Windows Build Provider workspace operations", () => {
+  test("close retains a failed late native token release for an explicit cleanup retry", async () => {
+    const f = fixture(), gate = deferred<boolean>();
+    await f.workspace.readConfiguration(instance).completion;
+    f.holdPrepare(gate.promise); f.failCancelOnce();
+    const saving = f.workspace.saveConfiguration(instance, configuration, edits).completion.catch(error => error.code);
+    let closed: Promise<unknown> | undefined;
+    try {
+      await f.entered.prepare.promise;
+      closed = f.workspace.dispose().catch(error => error.message);
+      gate.resolve(true);
+      expect(await saving).toBe("cancelled");
+      expect(await closed).toContain("cleanup failed");
+      expect(f.fileCalls).toEqual(["prepare", "cancel"]);
+      await f.workspace.dispose();
+      expect(f.fileCalls).toEqual(["prepare", "cancel", "cancel"]);
+    } finally { gate.resolve(true); await saving; await closed; await f.workspace.dispose(); }
+  }, 5000);
+
+  test("progress drains publish once and summaries never copy accumulated output", async () => {
+    const f = fixture(), gate = deferred<unknown>(); f.holdProvider(gate.promise);
+    let notifications = 0;
+    const unsubscribe = f.workspace.subscribe(() => { notifications++; });
+    const operation = f.workspace.loadModel(instance);
+    try {
+      await f.entered.provider.promise; await Promise.resolve();
+      const before = notifications, progress = f.sent[0]!.onProgress!;
+      progress({ output: "first" }); progress({ output: "second" }); progress({ output: "third" });
+      expect(notifications).toBe(before);
+      await Promise.resolve();
+      expect(notifications).toBe(before + 1);
+      expect(f.workspace.operation(operation.operationID)?.output).toBe("firstsecondthird");
+      expect(f.workspace.operationSummaries()[0]).not.toHaveProperty("output");
+      unsubscribe(); const after = notifications;
+      progress({ output: "unsubscribed" }); await Promise.resolve(); expect(notifications).toBe(after);
+    } finally { unsubscribe(); gate.resolve({}); await operation.completion; await f.workspace.dispose(); }
+  }, 5000);
+
+  test("plugin stop still finds its targets after model invalidation without stopping siblings", async () => {
+    const f = fixture();
+    try {
+      await f.workspace.loadModel(instance).completion;
+      await f.workspace.loadModel({ ...instance, pluginID: "dev.other.build" }).completion.catch(() => undefined);
+      f.workspace.invalidate(instance);
+      await f.workspace.stopPlugin(instance.pluginID);
+      expect(f.stopped).toEqual([instance.pluginID]);
+      expect(f.workspace.model(instance)).toBeUndefined();
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
   test("native configuration reads before a model exists and sends an exact decode request", async () => {
     const f = fixture();
     try {

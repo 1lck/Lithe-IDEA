@@ -66,7 +66,7 @@ interface BuildWork {
   tool: BuildToolContext;
   signal: AbortSignal;
   native: <T>(task: Promise<T>) => Promise<T>;
-  retainCleanup: (task: Promise<unknown>) => void;
+  retainCleanup: (release: () => Promise<unknown>) => Promise<unknown>;
   perform: (command: string, request: Record<string, unknown>) => Promise<unknown>;
   decode: <R extends Record<string, unknown>>(command: string, request: Record<string, unknown>, includeContext?: boolean) => Promise<R>;
 }
@@ -106,12 +106,15 @@ function fingerprint(value: unknown): string {
  * own every project/goal/report fact. Product admission remains closed until
  * the remaining model sources and UI consumers have migrated. */
 export class WindowsBuildProviderWorkspace {
+  private readonly listeners = new Set<() => void>();
+  private publicationRevision = 0;
+  private publicationQueued = false;
   private disposed = false;
   private readonly revisions = new Map<string, number>();
   private readonly models = new Map<string, BuildModel>();
   private readonly modelInputs = new Map<string, { options: string; context: string; current: () => void }>();
   private readonly configurations = new Map<string, { snapshot: string; context: string; options: string; current: () => void }>();
-  private readonly cleanupFailures: unknown[] = [];
+  private readonly cleanupFailures = new Map<() => Promise<unknown>, unknown>();
   private readonly pendingTasks = new Set<Promise<unknown>>();
   private readonly controllers = new Map<string, { controller: AbortController; instance: string }>();
   private readonly records = new Map<string, BuildOperation>();
@@ -121,6 +124,31 @@ export class WindowsBuildProviderWorkspace {
 
   private message(key: string): string { return this.ports.translate(`build.errors.${key}`); }
   private revoked(): Error & { code: string } { return revoked(this.message("inputsChanged")); }
+
+  subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  snapshotRevision = (): number => this.publicationRevision;
+  operation(id: string): BuildOperation | undefined {
+    const record = this.records.get(id); return record && structuredClone(record);
+  }
+  operationSummary(id: string): Omit<BuildOperation, "output"> | undefined {
+    const record = this.records.get(id);
+    if (!record) return undefined;
+    const { output: _, ...summary } = record;
+    return structuredClone(summary);
+  }
+  operationSummaries(): Array<Omit<BuildOperation, "output">> {
+    return [...this.records.values()].map(({ output: _, ...record }) => structuredClone(record));
+  }
+  private changed(): void {
+    if (this.publicationQueued) return;
+    this.publicationQueued = true;
+    // One Core event drain can deliver many progress chunks. Notify the
+    // product once after the drain; its view selects only one output record.
+    queueMicrotask(() => {
+      this.publicationQueued = false; this.publicationRevision++;
+      for (const listener of this.listeners) listener();
+    });
+  }
 
   operations(): BuildOperation[] { return [...this.records.values()].map(record => structuredClone(record)); }
   model(instance: BuildInstance): BuildModel | undefined {
@@ -136,6 +164,7 @@ export class WindowsBuildProviderWorkspace {
     this.modelInputs.delete(key);
     this.configurations.delete(key);
     for (const pending of this.controllers.values()) if (pending.instance === key) pending.controller.abort(this.revoked());
+    this.changed();
   }
   cancel(id: string): boolean {
     const pending = this.controllers.get(id);
@@ -201,8 +230,7 @@ export class WindowsBuildProviderWorkspace {
       } finally {
         // Cancellation can precede a native prepare reply. Retain that reply
         // and cancel only after it finishes, so a late token cannot leak XML.
-        const cleanup = preparing.then(() => files.cancel(operation.record.id), () => files.cancel(operation.record.id));
-        operation.retainCleanup(cleanup);
+        const cleanup = operation.retainCleanup(() => preparing.then(() => files.cancel(operation.record.id), () => files.cancel(operation.record.id)));
         if (!operation.signal.aborted) await cleanup;
       }
     }, false);
@@ -218,6 +246,7 @@ export class WindowsBuildProviderWorkspace {
     for (const [id, pending] of this.controllers) {
       if (id !== savingOperationID && keys.has(pending.instance)) pending.controller.abort(this.revoked());
     }
+    this.changed();
   }
 
   private rememberConfiguration(operation: BuildWork, snapshot: BuildNativeConfiguration): void {
@@ -296,6 +325,7 @@ export class WindowsBuildProviderWorkspace {
     this.controllers.set(id, { controller, instance: key }); this.records.set(id, record);
     const target = { workspacePath: this.workspacePath, pluginId: snapshot.pluginID, buildSystemId: snapshot.buildSystemID };
     this.targets.set(JSON.stringify(target), target);
+    this.changed();
     const current = () => {
       controller.signal.throwIfAborted();
       try { guard(snapshot.pluginID); } catch { throw this.revoked(); }
@@ -330,6 +360,7 @@ export class WindowsBuildProviderWorkspace {
           const provider = result.plan.provider;
           if (!provider) throw new Error(this.message("unsupportedSource"));
           record.phase = "running";
+          this.changed();
           // Task plans have no tool hints. Apply the same native selection as
           // model queries, preserving Core's option environment precedence.
           const params = { ...provider.params, tool: context.tool,
@@ -341,14 +372,12 @@ export class WindowsBuildProviderWorkspace {
               const progress = value as { output?: unknown; message?: unknown };
               const text = typeof progress.output === "string" ? progress.output : typeof progress.message === "string" ? progress.message + "\n" : "";
               record.output = (record.output + text).slice(-MAX_OUTPUT_CHARACTERS);
+              this.changed();
             } }), controller.signal);
           current(); return value;
         };
         const value = await body({ record, current, perform, decode, context: contextIdentity, tool: context,
-          signal: controller.signal, native: task => this.owned(task, controller.signal), retainCleanup: task => {
-            this.pendingTasks.add(task);
-            void task.then(() => this.pendingTasks.delete(task), error => { this.cleanupFailures.push(error); this.pendingTasks.delete(task); });
-          } });
+          signal: controller.signal, native: task => this.owned(task, controller.signal), retainCleanup: release => this.retainCleanup(release) });
         current(); record.phase = record.exitCode !== undefined && record.exitCode !== 0 ? "failed" : "succeeded";
         return value;
       } catch (error) {
@@ -367,6 +396,7 @@ export class WindowsBuildProviderWorkspace {
         this.controllers.delete(id);
         const completed = [...this.records.values()].filter(record => !this.controllers.has(record.id));
         for (const old of completed.slice(0, Math.max(0, completed.length - MAX_COMPLETED_OPERATIONS))) this.records.delete(old.id);
+        this.changed();
       }
     })();
     this.pendingTasks.add(completion);
@@ -382,16 +412,43 @@ export class WindowsBuildProviderWorkspace {
     return awaitBuildPreparation(task, signal);
   }
 
+  private retainCleanup(release: () => Promise<unknown>): Promise<unknown> {
+    const task = Promise.resolve().then(release);
+    this.pendingTasks.add(task);
+    void task.then(() => { this.cleanupFailures.delete(release); this.pendingTasks.delete(task); },
+      error => { this.cleanupFailures.set(release, error); this.pendingTasks.delete(task); });
+    return task;
+  }
+
+  async stopPlugin(pluginID: string): Promise<void> {
+    const keys = new Set([...this.models.keys(), ...this.configurations.keys(), ...[...this.controllers.values()].map(pending => pending.instance)]);
+    for (const key of keys) {
+      const [plugin, system, root] = JSON.parse(key);
+      if (plugin === pluginID) this.invalidate({ pluginID: plugin, buildSystemID: system, root, options: {} });
+    }
+    const targets = [...this.targets.values()].filter(target => target.pluginId === pluginID);
+    const outcomes = await Promise.allSettled(targets.map(target => this.ports.providers.stop(target)));
+    const failure = outcomes.find(result => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+  }
+
   async dispose(): Promise<void> {
+    // Retry only failures retained before this close. A newly failed release
+    // remains visible to the caller and requires another explicit cleanup.
+    const retries = [...this.cleanupFailures.keys()];
     this.disposed = true;
     for (const pending of this.controllers.values()) pending.controller.abort(this.revoked());
     this.models.clear();
     this.modelInputs.clear();
     this.configurations.clear();
+    this.changed();
     const stops = await Promise.allSettled([...this.targets.values()].map(target => this.ports.providers.stop(target)));
-    await Promise.allSettled([...this.pendingTasks]);
+    // Cancelling a completion may register cleanup for its late native reply.
+    // Drain newly registered work as well as the first captured batch.
+    while (this.pendingTasks.size) await Promise.allSettled([...this.pendingTasks]);
+    await Promise.allSettled(retries.map(release => this.retainCleanup(release)));
     const failures = stops.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-    if (failures.length || this.cleanupFailures.length) throw Object.assign(new Error(this.message("cleanupFailed")),
-      { causes: [...failures.map(result => result.reason), ...this.cleanupFailures] });
+    if (failures.length || this.cleanupFailures.size) throw Object.assign(new Error(this.message("cleanupFailed")),
+      { causes: [...failures.map(result => result.reason), ...this.cleanupFailures.values()] });
   }
 }

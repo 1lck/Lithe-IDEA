@@ -443,49 +443,59 @@ const getScopedFileSystemStore = (workspaceId: string) =>
 // the replace-active open mode so both tear a project down the same way.
 const disposeWorkspaceServices = async (projectId: string, path: string): Promise<void> => {
   cancelFileWatcherRefreshes(projectId);
-  const { cancelJavaWorkspaceChanges } = await import(
-    "@/features/editor/lsp/java-workspace-change-scheduler"
-  );
-  cancelJavaWorkspaceChanges(projectId);
-  const { getJavaWorkspaceLanguageServerOwner } = await import(
-    "@/features/editor/lsp/java-workspace-language-server"
-  );
-  await getJavaWorkspaceLanguageServerOwner().stop({
-    workspaceId: projectId,
-    root: path,
-  });
-  await invoke("debug_stop_workspace_sessions", {
-    workspacePath: path,
-  }).catch((error) => {
-    console.error("Failed to stop debug sessions for the project:", error);
-  });
-  const terminalSessions = useTerminalStore.getStore(projectId).getState().sessions;
-  await Promise.all(
-    [...terminalSessions.values()].map(async (session) => {
-      if (!session.connectionId) {
+  const { windowsBuildWorkspaces } = await import("@/platform/build-workspaces");
+  // Drain Build independently: a failed stop must keep its owner retryable,
+  // while the existing Java/terminal cleanup still gets an opportunity to run.
+  const outcomes = await Promise.allSettled([
+    windowsBuildWorkspaces.close(projectId),
+    (async () => {
+      const { cancelJavaWorkspaceChanges } = await import(
+        "@/features/editor/lsp/java-workspace-change-scheduler"
+      );
+      cancelJavaWorkspaceChanges(projectId);
+      const { getJavaWorkspaceLanguageServerOwner } = await import(
+        "@/features/editor/lsp/java-workspace-language-server"
+      );
+      await getJavaWorkspaceLanguageServerOwner().stop({
+        workspaceId: projectId,
+        root: path,
+      });
+      await invoke("debug_stop_workspace_sessions", {
+        workspacePath: path,
+      }).catch((error) => {
+        console.error("Failed to stop debug sessions for the project:", error);
+      });
+      const terminalSessions = useTerminalStore.getStore(projectId).getState().sessions;
+      await Promise.all(
+        [...terminalSessions.values()].map(async (session) => {
+          if (!session.connectionId) {
+            return;
+          }
+
+          const command = session.remoteConnectionId
+            ? "close_remote_terminal"
+            : "close_terminal";
+          await invoke(command, { id: session.connectionId }).catch((error) => {
+            console.error("Failed to close terminal session:", error);
+          });
+        }),
+      );
+
+      const remote = parseRemotePath(path);
+      if (!remote) {
         return;
       }
 
-      const command = session.remoteConnectionId
-        ? "close_remote_terminal"
-        : "close_terminal";
-      await invoke(command, { id: session.connectionId }).catch((error) => {
-        console.error("Failed to close terminal session:", error);
+      await invoke("ssh_disconnect_only", {
+        connectionId: remote.connectionId,
+      }).catch((error) => {
+        console.error("Failed to disconnect remote workspace:", error);
       });
-    }),
-  );
-
-  const remote = parseRemotePath(path);
-  if (!remote) {
-    return;
-  }
-
-  await invoke("ssh_disconnect_only", {
-    connectionId: remote.connectionId,
-  }).catch((error) => {
-    console.error("Failed to disconnect remote workspace:", error);
-  });
-  await connectionStore.updateConnectionStatus(remote.connectionId, false).catch(() => {});
+      await connectionStore.updateConnectionStatus(remote.connectionId, false).catch(() => {});
+    })(),
+  ]);
+  const failure = outcomes.find(outcome => outcome.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
 };
 
 // Guards for the workspace-lifecycle replace-active mode: the dirty-buffer confirm runs

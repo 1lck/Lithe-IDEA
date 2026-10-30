@@ -314,6 +314,7 @@ fn main() {
                             plugin_host::declarative_plugins_manifest,
                             plugin_host::launch::declarative_plugins_language_launch,
                             plugin_host::build::declarative_plugins_build_launch,
+                            plugin_host::build::declarative_plugins_build_detect,
                             plugin_host::build_tools::declarative_plugins_build_tool,
                             plugin_host::build_configuration::declarative_plugins_build_prepare_configuration,
                             plugin_host::build_configuration::declarative_plugins_build_commit_configuration,

@@ -2,6 +2,7 @@ import { useDeclarativePluginUI } from "@/features/plugins/declarative-plugin-ui
 import { openDeclarativeWebWindow } from "@/features/plugins/declarative-plugin-launch";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { AgentTrigger } from "@/features/agent/components/agent-trigger";
+import { BuildTrigger } from "@/features/build/components/build-trigger";
 import {
   toggleMavenPane,
   toggleTerminalPane,
@@ -88,6 +89,7 @@ export function PluginActivityRail() {
       ))}
       <NotificationsTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       <AgentTrigger className={STRIPE_BUTTON_CLASS_NAME} />
+      <BuildTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       {isMavenAvailable ? (
         <Button
           type="button"

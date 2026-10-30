@@ -92345,6 +92345,118 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "build.window.title",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.detect",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.output",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.close",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.project",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.load",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.empty",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.tasks",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.stop",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.window.noOutput",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.preparing",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.running",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.succeeded",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.failed",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.phase.cancelled",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.detectionFailed",
+      "description": "Windows generic Build tool window",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

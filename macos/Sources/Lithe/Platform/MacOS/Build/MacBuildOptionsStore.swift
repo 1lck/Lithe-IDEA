@@ -1,5 +1,4 @@
 import Foundation
-import CoreFoundation
 import LitheCoreContracts
 import LitheModuleAPI
 
@@ -177,30 +176,15 @@ struct BuildProjectOptionsDocument: Codable, Equatable {
     var systems: [String: System] = [:]
 
     static func validate(_ value: Any) throws {
-        guard let document = value as? [String: Any], Set(document.keys) == ["version", "systems"],
-              let version = document["version"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(), version == 1, let systems = document["systems"] as? [String: [String: Any]], systems.count <= 32 else { throw BuildOptionsStorageError.invalid }
-        for (id, system) in systems {
-            guard !id.isEmpty, id.count <= 64, id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }),
-                  Set(system.keys).isSubset(of: ["options", "instanceDefaults", "instances", "savedChoices"]) else { throw BuildOptionsStorageError.invalid }
-            for key in ["options", "instanceDefaults"] {
-                if let value = system[key] { try validateValues(value) }
-            }
-            if let value = system["instances"] {
-                guard let roots = value as? [String: [String: Any]], roots.count <= 256,
-                      roots.keys.allSatisfy(validRoot) else { throw BuildOptionsStorageError.invalid }
-                for values in roots.values { try validateValues(values) }
-            }
-            if let value = system["savedChoices"], !(value is [String: [String]]) { throw BuildOptionsStorageError.invalid }
-        }
-    }
-
-    private static func validateValues(_ value: Any) throws {
-        guard let values = value as? [String: Any], values.count <= 256 else { throw BuildOptionsStorageError.invalid }
-        for (id, value) in values {
-            guard !id.isEmpty, id.count <= 128,
-                  id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".") }) else { throw BuildOptionsStorageError.invalid }
-            if value is String || value is [String] { continue }
-            if let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() { continue }
+        struct Payload: Encodable { let document: ToolingJSONValue }
+        struct Reply: Decodable { let status: String }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)
+            let document = try JSONDecoder().decode(ToolingJSONValue.self, from: data)
+            let result: Reply = try RustCoreBridge().executeResult(
+                command: "build.projectOptions", payload: Payload(document: document)).get()
+            guard result.status == "ok" else { throw BuildOptionsStorageError.invalid }
+        } catch {
             throw BuildOptionsStorageError.invalid
         }
     }

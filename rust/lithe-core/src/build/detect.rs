@@ -124,6 +124,10 @@ fn instance(
         }
     }
     let resolved = options::resolve(declaration, stored, model_values.as_ref());
+    // Hosts must not recreate scope/default/root merging when handing this
+    // exact instance to a provider. Explicit empty selections remain chosen.
+    instance["options"] = json!(resolved.chosen_values);
+    instance["droppedOptions"] = json!(resolved.dropped);
     instance["optionFingerprint"] = json!(options::fingerprint(declaration, &resolved));
     instance
 }

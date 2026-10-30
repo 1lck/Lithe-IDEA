@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "cases": [
+    { "name": "empty document", "valid": true, "document": {"version": 1, "systems": {}} },
+    { "name": "numeric schema const", "valid": true, "document": {"version": 1.0, "systems": {}} },
+    { "name": "per root empty selection and inactive custom choice", "valid": true, "document": {"version": 1, "systems": {"maven": {"instanceDefaults": {"profiles": ["ci"], "offline": false}, "instances": {"services/项目": {"profiles": []}, ".": {"settingsFile": "selected.xml"}}, "savedChoices": {"profiles": ["ci", "manual"]}}}} },
+    { "name": "unknown system retained", "valid": true, "document": {"version": 1, "systems": {"future-tool": {"options": {"custom.option": "saved"}}}} },
+    { "name": "boolean version", "valid": false, "document": {"version": true, "systems": {}} },
+    { "name": "unsupported version", "valid": false, "document": {"version": 2, "systems": {}} },
+    { "name": "unknown document field", "valid": false, "document": {"version": 1, "systems": {}, "extra": true} },
+    { "name": "unknown system field", "valid": false, "document": {"version": 1, "systems": {"maven": {"extra": true}}} },
+    { "name": "numeric option", "valid": false, "document": {"version": 1, "systems": {"maven": {"options": {"threads": 2}}}} },
+    { "name": "null option", "valid": false, "document": {"version": 1, "systems": {"maven": {"options": {"profiles": null}}}} },
+    { "name": "mixed list", "valid": false, "document": {"version": 1, "systems": {"maven": {"options": {"profiles": ["ci", false]}}}} },
+    { "name": "empty system id", "valid": false, "document": {"version": 1, "systems": {"": {}}} },
+    { "name": "invalid system id", "valid": false, "document": {"version": 1, "systems": {"maven.plugin": {}}} },
+    { "name": "invalid option id", "valid": false, "document": {"version": 1, "systems": {"maven": {"options": {"profile/value": []}}}} },
+    { "name": "root escape", "valid": false, "document": {"version": 1, "systems": {"maven": {"instances": {"../outside": {}}}}} },
+    { "name": "absolute root", "valid": false, "document": {"version": 1, "systems": {"maven": {"instances": {"/outside": {}}}}} },
+    { "name": "windows root", "valid": false, "document": {"version": 1, "systems": {"maven": {"instances": {"C:/outside": {}}}}} },
+    { "name": "empty segment", "valid": false, "document": {"version": 1, "systems": {"maven": {"instances": {"a//b": {}}}}} },
+    { "name": "backslash root", "valid": false, "document": {"version": 1, "systems": {"maven": {"instances": {"a\\b": {}}}}} },
+    { "name": "malformed saved choices", "valid": false, "document": {"version": 1, "systems": {"maven": {"savedChoices": {"profiles": [false]}}}} }
+  ]
+}

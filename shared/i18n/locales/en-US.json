@@ -9664,7 +9664,23 @@
     "build.errors.unsupportedSource": "This Build model source has not been connected to the Windows workflow.",
     "build.errors.cleanupFailed": "Build Provider cleanup failed.",
     "build.errors.projectToolRequiresAction": "Use the project tool explicitly to read this configuration.",
-    "build.errors.invalidConfiguration": "The native configuration could not be validated. Reload before saving; your draft has been kept."
+    "build.errors.invalidConfiguration": "The native configuration could not be validated. Reload before saving; your draft has been kept.",
+    "build.window.title": "Build",
+    "build.window.detect": "Reload build projects",
+    "build.window.output": "Build Output",
+    "build.window.close": "Close the Build window",
+    "build.window.project": "Build project",
+    "build.window.load": "Load project model",
+    "build.window.empty": "No supported build projects found.",
+    "build.window.tasks": "Tasks",
+    "build.window.stop": "Stop this operation",
+    "build.window.noOutput": "No output yet.",
+    "build.phase.preparing": "Preparing",
+    "build.phase.running": "Running",
+    "build.phase.succeeded": "Succeeded",
+    "build.phase.failed": "Failed",
+    "build.phase.cancelled": "Cancelled",
+    "build.errors.detectionFailed": "Build projects could not be detected. Check the team Build options document and reload."
   },
   "overrides": {
     "windows": {

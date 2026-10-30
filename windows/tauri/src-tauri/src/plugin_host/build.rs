@@ -6,7 +6,7 @@
 
 use super::{launch, lifecycle::LifecycleState, scan::core_execute, settings, store};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
 /// A provider process ready for the shared Core session runtime. This transport
@@ -22,6 +22,60 @@ pub struct BuildProviderLaunch {
     pub server_args: Vec<String>,
     pub initialization_options: Option<Value>,
     pub environment: std::collections::BTreeMap<String, String>,
+}
+
+/// Reads accepted declarations and team options for the shared detection walk.
+/// No provider process, default document, tool probe or Maven parser is started.
+#[tauri::command]
+pub async fn declarative_plugins_build_detect(
+    app: AppHandle,
+    workspace_path: String,
+) -> Result<Value, String> {
+    crate::blocking::run_blocking(move || {
+        let state = app.state::<super::PluginHostState>();
+        let lifecycle = app.state::<LifecycleState>();
+        let mut leases = Vec::new();
+        let mut plugins = Vec::new();
+        for package in state.packages().into_iter().filter(|package| {
+            package.entry.enabled
+                && package.entry.status == "accepted"
+                && package.manifest["buildSystems"]
+                    .as_array()
+                    .is_some_and(|systems| !systems.is_empty())
+        }) {
+            let Ok(lease) = lifecycle.acquire(&package.entry.plugin_id) else {
+                continue;
+            };
+            leases.push(lease);
+            plugins.push(json!({"manifest":package.manifest}));
+        }
+        let document = lithe_project::build_options::read_build_options(std::path::Path::new(
+            &workspace_path,
+        ))?;
+        let mut options = serde_json::Map::new();
+        let mut defaults = serde_json::Map::new();
+        let mut instances = serde_json::Map::new();
+        for (id, system) in document["systems"]
+            .as_object()
+            .ok_or("Invalid Build document")?
+        {
+            options.insert(id.clone(), system["options"].clone());
+            defaults.insert(id.clone(), system["instanceDefaults"].clone());
+            instances.insert(id.clone(), system["instances"].clone());
+        }
+        let mut detected = core_execute(
+            "build.detect",
+            json!({"workspaceRoot":workspace_path,"plugins":plugins,
+            "options":options,"instanceDefaults":defaults,"instanceOptions":instances}),
+        )?;
+        if detected["status"] != "ok" {
+            return Err("Build detection failed".into());
+        }
+        detected["plugins"] = json!(plugins);
+        detected["document"] = document;
+        Ok(detected)
+    })
+    .await
 }
 
 /// Resolves only an accepted package's declared provider. State directories are

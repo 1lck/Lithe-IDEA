@@ -106,6 +106,8 @@ pub enum CoreCommand {
     PluginsDeclarativeWorkspaceConfiguration,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
+    /// Validates a native team's persisted Build options (`build.projectOptions`).
+    BuildProjectOptions,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
     BuildInvocationPlan,
     /// Compares a build tool's or runtime's version output with its minimum (`build.checkToolVersion`).
@@ -582,6 +584,7 @@ impl CoreCommand {
                 Some(Self::PluginsDeclarativeWorkspaceConfiguration)
             }
             "build.detect" => Some(Self::BuildDetect),
+            "build.projectOptions" => Some(Self::BuildProjectOptions),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
             "build.resolveOptions" => Some(Self::BuildResolveOptions),

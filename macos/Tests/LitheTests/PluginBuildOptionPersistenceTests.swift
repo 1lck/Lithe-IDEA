@@ -12,6 +12,21 @@ import Testing
 @MainActor
 struct PluginBuildOptionPersistenceTests {
     @Test
+    func nativeDocumentValidationConsumesTheSameCoreFixtureAsWindows() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/build-project-options/validation.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let cases = try #require(fixture["cases"] as? [[String: Any]])
+        for item in cases {
+            let document = try #require(item["document"]), expected = try #require(item["valid"] as? Bool)
+            var valid = true
+            do { try BuildProjectOptionsDocument.validate(document) } catch { valid = false }
+            #expect(valid == expected, Comment(rawValue: String(describing: item["name"])))
+        }
+    }
+
+    @Test
     func privateDefaultsReachPlansAndResetWithoutChangingTheTeamDocument() async throws {
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-private-build-defaults-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspace) }

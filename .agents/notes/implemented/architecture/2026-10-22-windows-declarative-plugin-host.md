@@ -55,7 +55,7 @@ Core 请求 ID 在发起 IPC 前登记，因此进度或回复先于 IPC 确认�
 随执行返回的测试报告，所有事实继续经过 Core 计划与解码。它只保存有界输出和操作记录，
 保留非零退出码及失败报告；选项、工具、插件设置或包变化要求重新加载模型。调用方传入的
 选项和参数先复制，插件代次变化后已发布模型立即不可用，取消后的进度与晚到解码不能恢复旧状态。
-这层没有与原生界面和旧 Maven Store 接线，能力声明仍关闭，不能据组件测试宣称 Windows 已迁移。
+通用原生窗口的接线增量见下文；旧 Maven Store 仍未切换，能力声明仍关闭，不能据组件测试宣称 Windows 已迁移。
 
 原生配置读取独立于模型就绪状态：损坏 POM 时仍可通过 Maven 获取真实来源与非敏感字段。
 自动读取发现项目工具时，在发送任何 Provider 请求前返回需要显式动作的错误；只有产品的
@@ -96,6 +96,34 @@ Windows 的相邻临时文件复用 `.lithe-document-<pid>-<sequence>.tmp`，归
 Windows 批处理启动器的版本校验复用 Run 既有的 cmd 引用规则，不直接把 `.cmd` 当 PE 程序启动。
 Maven/JDK 以外的通用 toolchain 只消费已保存的 runtime 路径，缺失时明确要求选择；不调用
 Run 的全量工具版本发现。Core 声明的 command、environment 等候选仍可做文件系统发现。
+
+### Build 工作区与原生窗口接线（阶段 D，准入仍关闭）
+
+团队 Build 文档复用 `.lithe/build/options.json`，只读 adapter 拒绝越界别名、损坏、
+非普通文件和超过 2 MiB 的输入；缺失时不创建文件。结构校验交给 Core 的
+`build.projectOptions`，检测直接使用 Core 返回的逐根选项，不重写继承或空值规则。
+检测只读取当前已准入、启用且未被撤回的声明，不启动 Provider 或版本探针。
+
+`BuildWorkspaceOwner` 按打开的项目持有目录、模型和操作，窗口隐藏或切换不会销毁任务。
+关闭项目与替换项目共用同一异步清理入口，清理失败保留原所有者并阻止再次创建进程，
+可显式重试。Build 停止与已有 Java/终端清理分别得到执行机会；插件停用或更新在原生
+确认屏障前停止所有工作区的所属 Build 目标，即使重新检测已经清空了当前目录也不会
+丢掉历史目标。重新启用后再检测，旧检测、旧操作或旧插件代次不能重新发布结果。
+
+右侧通用 Build 窗口复用现有可调整面板，底部输出复用现有输出控件。当前增量提供
+检测、显式加载 Provider 模型、模型任务和按操作 ID 停止；超过 200 个任务使用已有
+虚拟列表。目录与模型只在自身变化时通知，进度在一次事件排空后合并通知，输出叶子
+只复制当前操作，不让工作台复制整份输出历史。
+
+正确做法：隐藏窗口后再打开仍看到原任务，关闭工程后等待其 Provider 停止；一个
+插件停止失败时，其他工作区仍必须完成自己的清理。不要把组件卸载当作工作区关闭，
+也不要因为目录刷新清空了列表就忘记之前启动的进程。
+
+代价是新增一层工作区所有者，必须保留失败清理状态，不能直接删除 Map 条目。
+测试覆盖受控界面点击、取消、窗口重挂载、10,000 项仅挂载可见行、插件确认屏障、
+清理失败及迟到检测。它们不替代 Windows/WebView2 实机。声明任务分组、依赖与报告
+呈现、配置草稿/确认、文件观察、Run/Java/Agent 消费者和旧数据迁移尚未完成；旧 Maven
+入口及共享命令继续保留，`buildSystems/buildProviders` 能力仍不开放。
 
 ### 存储、信任与安装（v0）
 
@@ -205,6 +233,14 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - 存储与启动的单测覆盖安装记录缺失/损坏隔离、bundled 最高版本选择、版本比较（含 prerelease）、扩展与文件名匹配（大小写与前导点）、packaged 路径逃逸拒绝、runtime 的 `LITHE_<TOOL>_PATH` 导出与 `PATH` 前置。
 - 前端回落链路测试：`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts` 断言契约插件启动映射与无归属文件返回 null；启动扫描步骤在 bootstrap 中执行。
 - M1 尚属静态与进程内验证：真实插件包安装→启用→语言服务器拉起的全链路实机验收随 M2/M3 完成，期间矩阵 `verificationStatus` 保持 pending。`./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh <base> HEAD` 随 PR 通过。
+
+团队文档及窗口接线的 2026-10-31 本地证据：Core 1,436 项、macOS 144 项、
+Windows 前端 111 项及隔离生命周期 6 项通过；前端构建、类型检查、Rust crates 和
+真实 bridge 25 项通过。团队文档四项为 6～10 毫秒。项目库共 49 项，48 项通过，
+唯一 POM watcher 超时已在改动前基线复现；不将其描述成全绿。Windows Cargo
+与基线相同，仅有两项 macOS 上不可用的 Windows API 错误，没有新增类型调用错误。
+报告位于 `.artifacts/test-stability/stage-d-build-document-*`、`stage-d-windows-build-*`
+及 `stage-d-build-lifecycle-listener.*`，这些不代替 Windows 原生验收。
 
 ## 适用范围
 

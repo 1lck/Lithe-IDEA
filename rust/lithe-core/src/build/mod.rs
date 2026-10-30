@@ -30,6 +30,7 @@ mod model_inputs;
 mod options;
 mod outputs;
 mod plans;
+mod project_options;
 mod run_preparation;
 mod select;
 mod template;
@@ -41,3 +42,4 @@ pub(crate) use manifest::{
     activation_event, programs, validate_declarations, BuildSystemDeclaration, DeclarationContext,
     ProviderProcess,
 };
+pub(crate) use project_options::project_options_command;

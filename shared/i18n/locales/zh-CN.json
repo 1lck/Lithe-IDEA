@@ -9664,7 +9664,23 @@
     "build.errors.unsupportedSource": "此构建模型来源尚未接入 Windows 工作流。",
     "build.errors.cleanupFailed": "构建 Provider 清理失败。",
     "build.errors.projectToolRequiresAction": "请明确选择使用项目工具来读取此配置。",
-    "build.errors.invalidConfiguration": "无法验证原生配置。请重新加载后保存，草稿已保留。"
+    "build.errors.invalidConfiguration": "无法验证原生配置。请重新加载后保存，草稿已保留。",
+    "build.window.title": "构建",
+    "build.window.detect": "重新检测构建项目",
+    "build.window.output": "构建输出",
+    "build.window.close": "关闭构建窗口",
+    "build.window.project": "构建项目",
+    "build.window.load": "加载项目模型",
+    "build.window.empty": "未检测到受支持的构建项目。",
+    "build.window.tasks": "任务",
+    "build.window.stop": "停止此操作",
+    "build.window.noOutput": "暂无输出。",
+    "build.phase.preparing": "准备中",
+    "build.phase.running": "运行中",
+    "build.phase.succeeded": "已成功",
+    "build.phase.failed": "已失败",
+    "build.phase.cancelled": "已取消",
+    "build.errors.detectionFailed": "无法检测构建项目。请检查团队构建选项文档后重新检测。"
   },
   "overrides": {
     "macos": {

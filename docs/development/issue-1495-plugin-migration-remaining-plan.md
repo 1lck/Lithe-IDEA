@@ -202,3 +202,21 @@ Core `1e66735` / SDK `af13e3c` / Maven `b426f42` 的
 仍只出现 preview 基线的 project_window_registry.rs 两项 macOS 平台 API 错误，
 没有新类型/签名调用错误；这不代表 Windows 原生验收。
 报告前缀为 `.artifacts/test-stability/stage-d-preview-*`，保留完整 HTML/JUnit。
+
+
+团队文档和 Windows 原生窗口接线（2026-10-31）：`build.projectOptions` 统一存储语法校验，
+macOS/Windows 复用共享 fixture；`build.detect` 直接返回按作用域与实例根合并的保存选项，
+保留空选择。Core 1,436 项、macOS 144 项计时通过。Windows 工作区所有者已接入项目
+关闭/替换及插件停用确认，目录刷新不丢失历史目标，失败清理保留所有者以供重试。通用
+Build 窗口复用现有侧栏/底部输出、模型任务虚拟列表；受控点击覆盖加载、执行、Stop、
+隐藏后恢复和迟到输出隔离。原生项目库 49 项中 48 项通过，唯一 POM watcher 超时
+已在改动前基线复现，新增团队文档与原生配置测试均通过；不能声称该 crate 全绿。
+报告前缀为 `.artifacts/test-stability/stage-d-build-document-*` 与 `stage-d-windows-build-*`。
+Windows 配置 UI/迁移、声明任务/依赖/报告呈现、文件观察、Run/Java/Agent 与实机验收
+仍未完成；不开放 Build 能力，不删除仍有消费者的旧 Maven 命令，不据此关闭阶段 D。
+
+此增量最终本地复验：Windows 前端 111 项及隔离插件生命周期 6 项全部通过，
+`bun run build` 和 TypeScript 检查通过；Rust crates、C ABI、链接符号、Git/Swift
+bridge 25 项通过。原生团队文档 4 项分别为 10/10/6/6 毫秒，完整项目库仍保留
+同一项基线 watcher 超时。Windows Cargo 仅有既有 `std::os::windows` 与
+`same_file::Handle::as_raw_handle` 两项 macOS API 错误；未进行 Windows 原生验收。

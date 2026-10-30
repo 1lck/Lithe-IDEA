@@ -49,6 +49,11 @@ mock.module("./declarative-plugin-ui", () => ({
 }));
 let stopRuns = async () => {};
 let stopLsp = async () => {};
+let stopBuild = async () => {};
+const refreshBuild = mock(async () => {});
+mock.module("@/platform/build-workspaces", () => ({
+  windowsBuildWorkspaces: { stopPlugin: () => stopBuild(), refresh: refreshBuild },
+}));
 mock.module("./declarative-plugin-process-owner", () => ({
   declarativePluginProcessOwner: { stop: () => stopRuns() },
 }));
@@ -61,6 +66,8 @@ afterEach(() => {
   dispose = undefined;
   invoke.mockClear();
   select.mockClear();
+  refreshBuild.mockClear();
+  stopBuild = async () => {};
   root = "C:/a";
   workspaceId = "workspace-a";
   editorOpened = true;
@@ -111,6 +118,25 @@ test("mutation acknowledgement waits for both process owners and carries failure
     stopRuns = async () => {};
     stopLsp = async () => {};
   }
+}, 5000);
+
+test("plugin mutation waits for Build cleanup before acknowledging and activation refreshes the catalog", async () => {
+  dispose = await initializePluginWebListeners();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  stopBuild = async () => { await gate; throw new Error("Build process retained"); };
+  const draining = handlers.get("declarative-plugin-lifecycle")!({
+    payload: { pluginId: "test.plugin", active: false, operationId: "build-mutation" },
+  });
+  try {
+    expect(invoke).not.toHaveBeenCalled();
+    release(); await draining;
+    expect(invoke).toHaveBeenCalledWith("declarative_plugins_lifecycle_ack", {
+      operationId: "build-mutation", error: "Error: Build process retained",
+    });
+    await handlers.get("declarative-plugin-lifecycle")!({ payload: { pluginId: "test.plugin", active: true } });
+    expect(refreshBuild).toHaveBeenCalledTimes(1);
+  } finally { release(); await draining; }
 }, 5000);
 
 test("openFile rejects another workspace and a workspace switch during canonicalization", async () => {

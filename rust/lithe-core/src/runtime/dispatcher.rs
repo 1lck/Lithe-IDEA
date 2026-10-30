@@ -268,6 +268,9 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }
+        CoreCommand::BuildProjectOptions => {
+            plugin_response(id, parsed.payload, crate::build::project_options_command)
+        }
         CoreCommand::BuildInvocationPlan => plugin_response(
             id,
             parsed.payload,

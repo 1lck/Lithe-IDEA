@@ -1,6 +1,6 @@
 //! The `build.*` commands: JSON in, outcome envelope out.
 //!
-//! Every command except `build.detect` takes `{manifest, buildSystemID,
+//! Every command except `build.detect` and `build.projectOptions` takes `{manifest, buildSystemID,
 //! request}` and validates the manifest again, as the `plugins.declarative.*`
 //! commands do, so a host never has to trust its own cache of a manifest.
 //! Malformed payloads fail the call; rejected declarations and requests come

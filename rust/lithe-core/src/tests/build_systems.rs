@@ -311,6 +311,10 @@ fn instance_options_drive_static_run_entries_without_crossing_roots_or_scopes() 
     let detection = &result["detection"];
     let a = instance(detection, "cargo:a");
     let b = instance(detection, "cargo:b");
+    assert_eq!(a["options"]["features"], json!([]));
+    assert_eq!(a["options"]["offline"], true);
+    assert_eq!(a["options"]["settingsFile"], "/fixture/a settings.xml");
+    assert_eq!(b["options"]["features"], json!(["gui"]));
     assert_ne!(a["optionFingerprint"], b["optionFingerprint"]);
     assert_eq!(
         a["model"]["run"][0]["args"],
