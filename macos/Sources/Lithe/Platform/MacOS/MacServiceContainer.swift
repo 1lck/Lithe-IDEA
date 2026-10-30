@@ -895,6 +895,8 @@ final class MacServiceContainer {
                 pluginWebPageLifecycle.enable(id.rawValue)
             },
             beforePackageReplacement: { id in
+                (moduleRuntime.capability(.executionWorkspace) as? ExecutionModuleCapability)?
+                    .buildSystemsFeature?.pluginPackageWillChange(id.rawValue)
                 pluginWebPageLifecycle.packageWillChange(id.rawValue)
                 pluginBackends.packageWillChange(id.rawValue)
                 // The running provider still executes the old files; the

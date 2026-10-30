@@ -41,6 +41,15 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
             buildSystems?.entries.filter { $0.modelState == .loaded && !$0.isReloadRequired }.compactMap(\.model) ?? []
         }
         run.configureBuildProjectOwnership { [weak buildSystems] in try buildSystems?.runProjectOwnership() ?? [] }
+        run.configureProviderConfigurationRuns { [weak buildSystems] inputs, root, workspace, hints, current, progress in
+            guard let buildSystems else { throw CancellationError() }
+            return try await buildSystems.prepareConfigurationRun(inputs: inputs, instanceRoot: root, workspace: workspace,
+                tool: hints, isCurrent: current, progress: progress)
+        }
+
+        buildSystems?.providerSystemsRevoked.sink { [weak run] systems in
+            run?.stopProviderConfigurations(buildSystemIDs: systems)
+        }.store(in: &activityObservers)
         buildSystems?.runGenerationInputsChanged.sink { [weak run] in
             run?.requestProviderGenerationInspection()
         }.store(in: &activityObservers)

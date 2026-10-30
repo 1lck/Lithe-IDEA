@@ -4581,6 +4581,30 @@ fn build_provider_configurations_persist_before_generation_and_reuse_identity() 
         updated_doc["configurations"][0]["extensions"]["annotations"],
         serde_json::json!({"label":"keep user metadata"})
     );
+    for execution in fixture["executionKinds"].as_array().unwrap() {
+        let mut reference = fixture["reference"].clone();
+        reference["execution"] = execution.clone();
+        let saved_kind = save(reference);
+        assert_eq!(saved_kind["ok"], true, "{saved_kind}");
+        assert_eq!(saved_kind["data"]["id"], saved["data"]["id"]);
+        let kind_document: Value =
+            serde_json::from_str(saved_kind["data"]["document"].as_str().unwrap()).unwrap();
+        assert_eq!(kind_document["configurations"][0]["execution"], *execution);
+        fs::write(&local, kind_document.to_string()).unwrap();
+        let kind_resolved = call("runConfig.resolve", serde_json::json!({"root":root}));
+        assert_eq!(kind_resolved["ok"], true, "{kind_resolved}");
+        assert_eq!(
+            kind_resolved["data"]["configurations"][0]["execution"],
+            *execution
+        );
+        let inputs = call(
+            "runConfig.providerLaunchInputs",
+            serde_json::json!({"root":root,"configurationId":saved_kind["data"]["id"],"providerRoot":"app"}),
+        );
+        assert_eq!(inputs["ok"], true, "{inputs}");
+        assert_eq!(inputs["data"]["launchOptions"]["execution"], *execution);
+        assert_eq!(inputs["data"]["reference"]["execution"], *execution);
+    }
     for (field, value) in [
         ("root", serde_json::json!("../escape")),
         ("root", serde_json::json!("/outside")),
@@ -4743,7 +4767,8 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         changed[1][field] = value;
         assert!(stale(inspect(Some(changed))), "{field}");
     }
-    let mut moved = original.clone(); moved[1]["mavenReactorPath"] = serde_json::json!(".");
+    let mut moved = original.clone();
+    moved[1]["mavenReactorPath"] = serde_json::json!(".");
     assert!(stale(inspect(Some(moved))));
     assert!(stale(inspect(Some(serde_json::json!([])))));
     assert!(
@@ -4808,4 +4833,67 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
     ] {
         assert_eq!(generate(invalid)["ok"], false);
     }
+}
+
+/// Providers receive saved typed choices; Core does not assemble a Maven goal or reread its POM.
+#[test]
+fn provider_launch_inputs_preserve_document_layers_and_current_reactor() {
+    let root = temporary_root("provider-launch-inputs");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("nested/app")).unwrap();
+    fs::create_dir_all(root.join("tools")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("nested/pom.xml"), "deliberately not a POM").unwrap();
+    let generated = serde_json::json!({"version":2,"configurations":[{"id":"service","name":"Service","provider":"spring-boot.maven","execution":"service",
+        "cwd":"nested","env":{},"toolchains":{"java":"project-jdk","maven":"project-maven"},
+        "extensions":{"maven":{"module":"app","reactorPath":"nested","jvmArguments":["-Dmessage=base value"],"programArguments":["base"],"profiles":[]}}}]});
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        generated.to_string(),
+    )
+    .unwrap();
+    let local = serde_json::json!({"version":2,"configurations":[{"id":"service","cwd":"tools","env":{"EXAMPLE":"value"},
+        "extensions":{"maven":{"jvmArguments":["-Dmessage=hello world","C:\\literal"],"programArguments":["a b","雪",""],"mainClass":"demo.app.Main","profiles":["run-profile"],"skipTests":false}}}]});
+    let call = |provider_root: &str, local: Option<Value>| -> Value {
+        let request = serde_json::json!({"id":"inputs","command":"runConfig.providerLaunchInputs","payload":{
+            "root":root,"configurationId":"service","providerRoot":provider_root,"localDocument":local}});
+        serde_json::from_str(&execute_json(&request.to_string())).unwrap()
+    };
+    let original = call("nested", None);
+    assert_eq!(original["ok"], true, "{original}");
+    assert_eq!(original["data"]["projectPath"], "nested/app");
+    assert_eq!(
+        original["data"]["launchOptions"]["runtimeArguments"],
+        serde_json::json!(["-Dmessage=base value"])
+    );
+    assert!(original["data"]["launchOptions"]
+        .get("workingDirectory")
+        .is_none());
+    let resolved = call("nested", Some(local.clone()));
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    assert_eq!(resolved["data"]["provider"], "spring-boot.maven");
+    assert_eq!(
+        resolved["data"]["launchOptions"],
+        serde_json::json!({"execution":"service","runtimeArguments":["-Dmessage=hello world","C:\\literal"],
+        "arguments":["a b","雪",""],"environment":{"EXAMPLE":"value"},"entrypoint":"demo.app.Main","workingDirectory":"tools"})
+    );
+    assert_eq!(
+        resolved["data"]["optionOverrides"],
+        serde_json::json!({"profiles":["run-profile"],"skipTests":false})
+    );
+    assert!(resolved["data"].get("executable").is_none());
+    assert_eq!(call(".", Some(local.clone()))["ok"], false);
+    assert_eq!(call("../outside", Some(local.clone()))["ok"], false);
+    fs::remove_dir_all(root.join("tools")).unwrap();
+    assert_eq!(call("nested", Some(local))["ok"], false);
+    assert_eq!(
+        fs::read_to_string(root.join(".lithe/run/generated.json")).unwrap(),
+        generated.to_string()
+    );
 }

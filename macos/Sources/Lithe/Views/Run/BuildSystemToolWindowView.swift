@@ -89,8 +89,13 @@ struct BuildSystemToolWindowView: View {
         .sheet(item: $argumentsPrompt) { prompt in
             BuildArgumentsSheet(prompt: prompt) { arguments in
                 argumentsPrompt = nil
-                run(.task(prompt.request.withUserArguments(arguments), title: prompt.title, needsArguments: false),
-                    entryID: prompt.entryID)
+                switch prompt.request {
+                case .task(let request):
+                    run(.task(request.withUserArguments(arguments), title: prompt.title, needsArguments: false), entryID: prompt.entryID)
+                case .run(var request):
+                    request.userArguments = arguments
+                    run(.application(request, title: prompt.title), entryID: prompt.entryID)
+                }
             } onCancel: {
                 argumentsPrompt = nil
             }
@@ -687,7 +692,7 @@ struct BuildSystemToolWindowView: View {
 
     private func promptArguments(_ task: DeclarativeBuildSystem.Task, entry: BuildSystemEntry, request: BuildTaskRequest) {
         let scope = request.target?.name ?? request.project?.name ?? entry.instance.displayName
-        argumentsPrompt = ArgumentsPrompt(entryID: entry.id, title: Self.title(task.displayName, scope: scope), request: request)
+        argumentsPrompt = ArgumentsPrompt(entryID: entry.id, title: Self.title(task.displayName, scope: scope), request: .task(request))
     }
 
     private func testRunnable(_ entry: BuildSystemEntry, project: BuildModel.Project?, isRoot: Bool) -> Runnable? {
@@ -969,7 +974,7 @@ struct BuildSystemToolWindowView: View {
         guard !feature.isRunning else { return }
         switch runnable {
         case .task(let request, let title, true):
-            argumentsPrompt = ArgumentsPrompt(entryID: entryID, title: title, request: request)
+            argumentsPrompt = ArgumentsPrompt(entryID: entryID, title: title, request: .task(request))
             return
         case .task(let request, let title, false):
             feature.runTask(entryID, request: request, title: title)
@@ -978,6 +983,11 @@ struct BuildSystemToolWindowView: View {
         case .debugApplication(let request, let title):
             model.debugBuildProviderApplication(entryID: entryID, request: request, title: title)
         case .application(let request, let title):
+            if request.userArguments.isEmpty,
+               feature.entries.first(where: { $0.id == entryID })?.declaration.providerRuns.first(where: { $0.id == request.run })?.execution == .task {
+                argumentsPrompt = ArgumentsPrompt(entryID: entryID, title: title, request: .run(request))
+                return
+            }
             model.runBuildProviderApplication(entryID: entryID, request: request, title: title)
         case .discoveredTest(let testID, let title):
             feature.runDiscoveredTest(entryID, testID: testID, title: title)
@@ -1035,7 +1045,11 @@ private struct ArgumentsPrompt: Identifiable {
     let id = UUID()
     let entryID: String
     let title: String
-    let request: BuildTaskRequest
+    enum Request {
+        case task(BuildTaskRequest)
+        case run(BuildRunRequest)
+    }
+    let request: Request
 }
 
 private extension BuildTaskRequest {

@@ -166,6 +166,13 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         )
     }
 
+    func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs {
+        switch core.providerLaunchInputs(at: projectURL, configurationID: configurationID, providerRoot: providerRoot) {
+        case .success(let value): return value
+        case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)
+        }
+    }
+
     func launchPlan(
         at projectURL: URL,
         configurationID: String,

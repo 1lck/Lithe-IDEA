@@ -160,9 +160,10 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     }
 
     func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
-                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String],
+                        workspaceURL: URL? = nil, launchOptions: BuildLaunchOptions? = nil) throws -> BuildProviderRequest {
         try preparationPlan(target, context: context, run: run, project: project, selectedTarget: selectedTarget,
-                            userArguments: userArguments, command: "build.prepareRunPlan")
+                            userArguments: userArguments, command: "build.prepareRunPlan", workspaceURL: workspaceURL, launchOptions: launchOptions)
     }
 
     func prepareDebugPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
@@ -172,7 +173,8 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     }
 
     private func preparationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
-                                 project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String], command: String) throws -> BuildProviderRequest {
+                                 project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String], command: String,
+                                 workspaceURL: URL? = nil, launchOptions: BuildLaunchOptions? = nil) throws -> BuildProviderRequest {
         struct Request: Encodable {
             let root: String
             let pluginDirectory: String?
@@ -183,11 +185,13 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             let project: BuildSelection
             let target: BuildSelection
             let userArguments: [String]
+            let workspaceRoot: String?
+            let launchOptions: BuildLaunchOptions?
         }
         let outcome: Outcome<PlanResult> = try execute(command, target: target,
             request: Request(root: context.root, pluginDirectory: context.pluginDirectory?.path,
                              workspaceStateDirectory: context.workspaceStateDirectory?.path, modelInputs: context.modelInputs, options: context.options, run: run,
-                             project: project, target: selectedTarget, userArguments: userArguments))
+                             project: project, target: selectedTarget, userArguments: userArguments, workspaceRoot: workspaceURL?.path, launchOptions: launchOptions))
         guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
             throw DeclarativePluginRejection(code: "plugin.build.invalidOutput", message: L10n.string("The build provider returned an invalid launch plan."))
         }
@@ -195,11 +199,11 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     }
 
     func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
-                              result: ToolingJSONValue) throws -> BuildRunPreparation {
-        struct Request: Encodable { let workspaceRoot: String; let root: String; let result: ToolingJSONValue }
+                              result: ToolingJSONValue, launchOptions: BuildLaunchOptions? = nil) throws -> BuildRunPreparation {
+        struct Request: Encodable { let workspaceRoot: String; let root: String; let result: ToolingJSONValue; let launchOptions: BuildLaunchOptions? }
         struct Reply: Decodable { let launch: BuildRunPreparation }
         let outcome: Outcome<Reply> = try execute("build.decodeRunPreparation", target: target,
-            request: Request(workspaceRoot: workspaceURL.path, root: root, result: result))
+            request: Request(workspaceRoot: workspaceURL.path, root: root, result: result, launchOptions: launchOptions))
         return outcome.value.launch
     }
 

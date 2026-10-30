@@ -114,8 +114,9 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
         public let displayName: String
         public let targetTags: [String]
         public let debugAdapter: String?
-        public init(id: String, displayName: String, targetTags: [String], debugAdapter: String? = nil) {
-            self.id = id; self.displayName = displayName; self.targetTags = targetTags; self.debugAdapter = debugAdapter
+        public let execution: BuildExecution
+        public init(id: String, displayName: String, targetTags: [String], debugAdapter: String? = nil, execution: BuildExecution = .application) {
+            self.id = id; self.displayName = displayName; self.targetTags = targetTags; self.debugAdapter = debugAdapter; self.execution = execution
         }
     }
     /// Optional public producer identities; never installation dependencies or private function access.
@@ -769,13 +770,30 @@ package struct BuildProviderRunReference: Codable, Hashable, Sendable {
     package let projectID: String
     package let targetID: String
     package let userArguments: [String]
+    package let execution: BuildExecution?
     package init(pluginID: String, buildSystemID: String, root: String, run: String,
-                 projectID: String, targetID: String, userArguments: [String] = []) {
+                 projectID: String, targetID: String, userArguments: [String] = [], execution: BuildExecution? = nil) {
         self.pluginID = pluginID; self.buildSystemID = buildSystemID; self.root = root; self.run = run
-        self.projectID = projectID; self.targetID = targetID; self.userArguments = userArguments
+        self.projectID = projectID; self.targetID = targetID; self.userArguments = userArguments; self.execution = execution
     }
     package var request: BuildRunRequest {
         BuildRunRequest(run: run, projectID: projectID, targetID: targetID, userArguments: userArguments)
+    }
+}
+
+/// Version-10 user choices. Providers own their interpretation and the host owns the process.
+package struct BuildLaunchOptions: Codable, Equatable, Sendable {
+    package let execution: BuildExecution
+    package var runtimeArguments: [String]
+    package var arguments: [String]
+    package var environment: [String: String]
+    package var workingDirectory: String?
+    package var entrypoint: String?
+
+    package init(execution: BuildExecution, runtimeArguments: [String] = [], arguments: [String] = [],
+                 environment: [String: String] = [:], workingDirectory: String? = nil, entrypoint: String? = nil) {
+        self.execution = execution; self.runtimeArguments = runtimeArguments; self.arguments = arguments
+        self.environment = environment; self.workingDirectory = workingDirectory; self.entrypoint = entrypoint
     }
 }
 
@@ -1149,9 +1167,10 @@ package protocol BuildSystemPlanning: Sendable {
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
         -> BuildTestPlan
     func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
-                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String],
+                        workspaceURL: URL?, launchOptions: BuildLaunchOptions?) throws -> BuildProviderRequest
     func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
-                              result: ToolingJSONValue) throws -> BuildRunPreparation
+                              result: ToolingJSONValue, launchOptions: BuildLaunchOptions?) throws -> BuildRunPreparation
     func prepareDebugPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
                           project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest
     func decodeDebugPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String, run: String,
@@ -1395,4 +1414,18 @@ package protocol BuildCommandRunning: Sendable {
         _ request: BuildCommandRequest,
         onOutput: @escaping @Sendable (String) -> Void
     ) async throws -> BuildCommandResult
+}
+
+// Legacy application callers retain version-4 preparation without inventing user choices.
+package extension BuildSystemPlanning {
+    func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+        try prepareRunPlan(target, context: context, run: run, project: project, selectedTarget: selectedTarget,
+                           userArguments: userArguments, workspaceURL: nil, launchOptions: nil)
+    }
+
+    func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
+                              result: ToolingJSONValue) throws -> BuildRunPreparation {
+        try decodeRunPreparation(target, workspaceURL: workspaceURL, root: root, result: result, launchOptions: nil)
+    }
 }

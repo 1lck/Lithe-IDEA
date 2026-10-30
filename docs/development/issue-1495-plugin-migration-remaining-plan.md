@@ -63,9 +63,9 @@
 | --- | --- | --- |
 | Agent 构建 → 输出/状态 → 停止 | 已实现并验证；`MavenService` 任务进程/API/状态机已删除；原生回归 159 项/6 组通过，真实 Agent + Maven 模块编译 4.787 秒通过 | Draft PR；不代替整阶段配置/加载/平台验收 |
 | Maven 配置和项目运行设置 | 项目默认和按根工具路径已切 Run local.json；Build 选项按实例保留团队默认及本机差异；协议 7 原生 XML 读取、确认保存、冲突保护和回读已经接通通用插件设置页及真实 Maven。旧设置表单 XML 读取与配置存储已删除；迁移器已接官方插件被动检测，验证后清理源并重新检测，315 项原生回归通过 | 正式包与完整 UI 验收 |
-| 项目加载、标签/搜索模块事实、运行配置 | 已删除 MavenService/FeatureModel 和 POM 专属加载；Run 工程路径、源码根、候选来自当前 Provider 模型，无 MavenProject 注入 | Java 入口生成的模块/reactor/源码角色已改为当前 Provider 归属，损坏 POM 共享 fixture、独立 reactor 同名类及真实 Swift bridge 通过；框架识别已改用 Maven 生效插件模型（含 Profile/继承），保留既有服务 ID；编译要求已改用 Maven 实际 execution/参数模型；Wrapper 元数据也已切入 Provider；框架/模块启动规划仍需迁移，Java 入口继续复用 JDT |
+| 项目加载、标签/搜索模块事实、运行配置 | 已删除 MavenService/FeatureModel 和 POM 专属加载；Run 工程路径、源码根、候选来自当前 Provider 模型，无 MavenProject 注入 | Java 入口生成的模块/reactor/源码角色已改为当前 Provider 归属，损坏 POM 共享 fixture、独立 reactor 同名类及真实 Swift bridge 通过；框架识别已改用 Maven 生效插件模型（含 Profile/继承），保留既有服务 ID；编译要求已改用 Maven 实际 execution/参数模型；Wrapper 元数据也已切入 Provider；协议 10 已接框架/模块 Provider 准备及原生 Run/Start All；Java 入口继续复用 JDT。剩余 Core/Windows 旧规划和框架 Debug 边界仍须核对 |
 | 依赖树与依赖导航 | 已删除旧 macOS 依赖进程、Swift 文本树桥、临时 adapter 与坐标路径 fallback；Build 用 Provider，导航用 JDT；245 项受影响原生回归通过，真实 Agent 构建及 Provider 编译/精确测试 2 项通过 | 完整 UI/JDT 实机流程、Windows 现存共享命令仍待迁移 |
-| Java 导入、运行/测试/调试准备 | Java 导入和 Run Maven 上下文已停用旧服务回退，按 reactor 根读取同一代 Build 输入；315 项受影响原生测试通过；Debug 已等待 Build 输入并检查 ABA 代次；旧 Maven 工程模型已从生产加载删除 | Java 主程序/Debug 的资源准备已接公开 Provider 项目任务（主资源/主加测试资源），Core 仅给未携带当前回执的旧消费者保留资源规划；框架/模块启动规划仍待迁移。协议 9 的 JDT 原样标识、报告精确重跑及工程隔离通过 350 项 macOS 回归、1368 项 Core/集成计时和 Maven 实测；删除宿主 Maven CLI/报告 adapter，测试 Debug 准备补配置 ABA；完整 Java/JDT 后端迁移留在阶段 E |
+| Java 导入、运行/测试/调试准备 | Java 导入和 Run Maven 上下文已停用旧服务回退，按 reactor 根读取同一代 Build 输入；315 项受影响原生测试通过；Debug 已等待 Build 输入并检查 ABA 代次；旧 Maven 工程模型已从生产加载删除 | Java 主程序/Debug 的资源准备已接公开 Provider 项目任务（主资源/主加测试资源），Core 仅给未携带当前回执的旧消费者保留资源规划；协议 10 已接框架/模块运行准备、保存引用、Agent 操作身份和 Stop；框架 Debug 的旧 Core 路径仍须核对。协议 9 的 JDT 原样标识、报告精确重跑及工程隔离通过 350 项 macOS 回归、1368 项 Core/集成计时和 Maven 实测；删除宿主 Maven CLI/报告 adapter，测试 Debug 准备补配置 ABA；完整 Java/JDT 后端迁移留在阶段 E |
 | Maven 执行中的测试报告 | 协议 8 随操作返回规范报告，Maven 后端用实际配置的 Surefire/Failsafe Mojo 目录和 Apache parser；删除插件内旧固定目录测试选择报告读取器；真实 Core/macOS/Maven 和两个 SDK 通过，Maven 3.6.3 兼容通过 | Java 精确测试宿主路径已切换并删除旧 adapter；Windows 旧共享命令仍未迁移；[固定提交 Java 8 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40792694290) 在两种 Maven 各 72 项通过；正式包验证仍依赖 SDK 发行 |
 | 共享 Maven 命令 | 未删除 | Windows 当前仍直接使用 scanner/launch/dependency/report 命令；接替当前消费者后才能删 Core 命令/fixture |
 | 发行包和双平台验收 | 未完成 | 最新正式 SDK/插件组合、macOS 完整 UI、Windows 实机、安装目录字节不变与进程清理 |
@@ -161,3 +161,26 @@ Wrapper 固定提交组合的 [Java 8 / 两种 Maven CI](https://github.com/Lith
 24 项 Swift bridge 通过。关闭图时先撤销订阅，避免停止 Provider 的通知排入新
 检查；后续 4 项生命周期复验通过。首次早期 AskPass 触发 5 秒连接期限，串行
 复验在相同期限内 4.359 秒通过；未放宽超时。
+
+
+运行选项和框架启动增量（2026-10-30）：协议 10 传递执行类型、独立参数数组、环境、
+入口和显式 cwd。Maven 后端用真实生效模型校验目标，使用同一 reactor 的 Maven
+执行计划/执行器编译依赖并只启动所选模块，不再让宿主生成框架目标 argv。
+原生 Run/Start All 的服务准备彼此独立，Stop、重置和晚到进程回调按操作身份隔离；
+Build 树按服务/任务声明发送类型化选项。插件停用/包更新同时撤销准备和运行进程。
+macOS 旧 scan/launch/diagnostics/report Swift 桥和旧工程模型类型已删除。
+Windows 共享 Maven 命令、Core 旧规划及完整 UI/正式发行验收仍未完成，不能关闭阶段 D。
+真实 Core→Maven 的 20 项集成再次通过，包括未安装兄弟模块、Spring Boot 精确 argv、
+工作目录和插件包清单不变；当前增量的原生和 SDK 验证结果以本次报告为准。
+
+
+本增量收尾验证（2026-10-30）：Swift 6.3.3 下 345 项测试通过（344 条计时记录），
+其中包含 Provider 服务的 Agent 启动→准备→输出→Stop 身份回归；Core 1403 条逐项
+计时通过。生产 macOS Provider 四项显式场景通过，新增 Profile/保存任务准备场景
+11.567 秒，另一次真实构建/测试为 6.753 秒；Node SDK 24 项、Java SDK 48 项和
+SDK 真实进程 E2E 六项通过。Core→Maven 20 项通过，包括实际 Spring Boot 启动和
+插件包字节不变。报告分别在 `.artifacts/test-stability/stage-d-framework-final-swift.html`、
+`stage-d-framework-final-core.html`、`stage-d-framework-native-swift.html` 和
+`stage-d-framework-native-workflow.html`；它们属于当前开发组合，不是正式发行证明。
+保存后的 service/task 分类和参数通过原子写回/读回，重新启动仍按当前插件声明
+与模型校验；没有为迁移增加包内可写状态或可跨工作树共享的缓存。

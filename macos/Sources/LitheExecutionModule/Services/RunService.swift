@@ -22,8 +22,8 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     @Published package private(set) var output = ""
     package private(set) var primaryExecutionID: String?
     @Published package private(set) var lastExitCode: Int32?
-    @Published package private(set) var optionsByConfigurationID: [String: RunOptions] = [:]
-    @Published package private(set) var projectToolchain = ProjectToolchainSelection()
+    @Published package private(set) var optionsByConfigurationID: [String: RunOptions] = [:] { didSet { providerLaunchRevision &+= 1 } }
+    @Published package private(set) var projectToolchain = ProjectToolchainSelection() { didSet { providerLaunchRevision &+= 1 } }
     /// Defaults saved in `.lithe/run/local.json`, read even before generation.
     /// `nil` until that layer saves defaults or while it cannot be read.
     @Published package private(set) var savedProjectToolchain: ProjectToolchainSelection?
@@ -151,6 +151,108 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     /// exists and a stopped session cannot still start one.
     private var modulePreLaunchProcesses: [String: any StreamingProcess] = [:]
     private var moduleOperationIDs: [String: String] = [:]
+    private var primaryProviderBuildSystemID: String?
+    private var moduleProviderBuildSystemIDs: [String: String] = [:]
+
+    /// Stop preparations and launched processes before their plugin files disappear.
+    package func stopProviderConfigurations(buildSystemIDs: Set<String>) {
+        if let owner = primaryProviderBuildSystemID, buildSystemIDs.contains(owner) { stop() }
+        for (id, owner) in moduleProviderBuildSystemIDs where buildSystemIDs.contains(owner) {
+            stopModule(sessionID: id)
+        }
+    }
+
+    private var providerLaunchRevision: UInt64 = 0
+    private var providerPrimaryPreparation: Task<Void, Never>?
+    private var providerModulePreparations: [String: Task<Void, Never>] = [:]
+    private typealias ConfigurationRunPreparer = @MainActor (ProviderLaunchInputs, String, URL, BuildProviderHints,
+        @escaping @MainActor @Sendable () -> Bool, @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> BuildRunPreparation
+    private var configurationRunPreparer: ConfigurationRunPreparer?
+
+    package func configureProviderConfigurationRuns(_ prepare: @escaping @MainActor (ProviderLaunchInputs, String, URL, BuildProviderHints,
+        @escaping @MainActor @Sendable () -> Bool, @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> BuildRunPreparation) {
+        configurationRunPreparer = prepare
+    }
+
+    private func needsProviderLaunch(_ configuration: RunConfiguration, javaLaunch: JavaDebugLaunchTarget?) -> Bool {
+        configurationRunPreparer != nil && javaLaunch == nil && (configuration.kind == .mavenModule || configuration.kind.mavenFramework != nil
+            || configuration.buildProvider?.execution != nil)
+    }
+
+    /// Each service owns its own preparation; a second Start never replaces another service's work.
+    private func prepareProviderConfiguration(_ configuration: RunConfiguration, workspace: URL, primary: Bool) {
+        guard let prepare = configurationRunPreparer else { return }
+        let operationID = primary ? (primaryExecutionID ?? UUID().uuidString) : UUID().uuidString
+        let load = projectLoadID, revision = providerLaunchRevision, generated = generationRevision
+        if primary { primaryExecutionID = operationID; isRunning = true; isPreparingBuildRun = true; runningTitle = configuration.name }
+        else {
+            moduleOperationIDs[configuration.id] = operationID
+            moduleSessions.append(RunSession(id: configuration.id, configurationID: configuration.id, title: configuration.name, output: "", isRunning: true, exitCode: nil))
+        }
+        let current: @MainActor @Sendable () -> Bool = { [weak self] in
+            guard let self, !Task.isCancelled, self.projectURL == workspace, self.projectLoadID == load,
+                  self.providerLaunchRevision == revision, self.generationRevision == generated else { return false }
+            return primary ? (self.primaryExecutionID == operationID && self.isRunning) : self.moduleOperationIDs[configuration.id] == operationID
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if primary {
+                    if self.primaryExecutionID == operationID { self.providerPrimaryPreparation = nil; self.isPreparingBuildRun = false }
+                } else if self.moduleOperationIDs[configuration.id] == operationID { self.providerModulePreparations[configuration.id] = nil }
+            }
+            do {
+                guard current() else { throw CancellationError() }
+                let providerRoot: String
+                if let reference = configuration.buildProvider { providerRoot = reference.root }
+                else if let context = try self.mavenContext(for: configuration) { providerRoot = context.reactorPath }
+                else { throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration.")) }
+                let operations = self.runConfigurationOperations
+                let inputs = try await Task.detached(priority: .userInitiated) {
+                    try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: providerRoot)
+                }.value
+                guard current() else { throw CancellationError() }
+                if primary { self.primaryProviderBuildSystemID = inputs.buildSystemID }
+                else { self.moduleProviderBuildSystemIDs[configuration.id] = inputs.buildSystemID }
+                let tool = configuration.buildProvider == nil
+                    ? try self.buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: providerRoot)
+                    : BuildProviderHints()
+                let prepared = try await prepare(inputs, providerRoot, workspace, tool, current) { [weak self] value in
+                    guard let self, current() else { return }
+                    let text = value.output ?? value.message.map { $0 + "\n" } ?? ""
+                    if primary { self.append(text) } else { self.appendModuleOutput(text, sessionID: configuration.id) }
+                }
+                let latest = try await Task.detached(priority: .userInitiated) {
+                    try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: providerRoot)
+                }.value
+                guard current(), latest == inputs else { throw CancellationError() }
+                try self.validateProviderGeneration(for: configuration)
+                if primary {
+                    self.providerPrimaryPreparation = nil
+                    _ = try self.launchPreparedRun(prepared, workspaceURL: workspace, title: configuration.name, configuration: configuration, retainingIdentity: operationID)
+                } else {
+                    self.providerModulePreparations[configuration.id] = nil
+                    self.startModuleSession(configuration, preparedPlan: prepared.launchPlan, preparationOperationID: operationID)
+                }
+            } catch {
+                guard (primary ? self.primaryExecutionID == operationID : self.moduleOperationIDs[configuration.id] == operationID) else { return }
+                if primary {
+                    if error is CancellationError { self.isRunning = false; self.runningTitle = nil }
+                    else { self.fail(error.localizedDescription) }
+                } else {
+                    self.providerModulePreparations[configuration.id] = nil
+                    self.moduleOperationIDs[configuration.id] = nil
+                    if let index = self.moduleSessions.firstIndex(where: { $0.id == configuration.id }) {
+                        self.moduleSessions[index].isRunning = false
+                        self.moduleSessions[index].exitCode = error is CancellationError ? nil : 1
+                    }
+                    if !(error is CancellationError) { self.appendModuleOutput(error.localizedDescription + "\n", sessionID: configuration.id) }
+                }
+            }
+        }
+        if primary { providerPrimaryPreparation = task } else { providerModulePreparations[configuration.id] = task }
+    }
+
     private let maximumOutputCharacters = 500_000
     /// The same bound the Windows pre-launch runner applies (`PRE_LAUNCH_TIMEOUT`
     /// in `windows/tauri/src-tauri/src/run.rs`). A resource step is a Maven
@@ -1002,6 +1104,11 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     /// A build provider has already prepared and Core has validated the launch.
     /// Reuse the native resolver/process/argument lease without a shadow run configuration.
     package func launchPreparedRun(_ preparation: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration? = nil) throws -> String {
+        try launchPreparedRun(preparation, workspaceURL: workspaceURL, title: title, configuration: configuration, retainingIdentity: nil)
+    }
+
+    private func launchPreparedRun(_ preparation: BuildRunPreparation, workspaceURL: URL, title: String,
+                                  configuration: RunConfiguration?, retainingIdentity: String?) throws -> String {
         let plan = preparation.launchPlan
         let workspace = workspaceURL.standardizedFileURL
         if let projectURL, projectURL != workspace { throw CancellationError() }
@@ -1017,17 +1124,25 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             throw RunConfigurationOperationFailure(message: message)
         }
         let toolchain = inspection.projectToolchain ?? ProjectToolchainSelection()
-        let options = RunOptions(javaHomePath: toolchain.javaHomePath,
-            mavenExecutablePath: toolchain.mavenExecutablePath, mavenJavaHomePath: toolchain.mavenJavaHomePath)
+        let options: RunOptions
+        if let configuration, retainingIdentity != nil {
+            options = effectiveOptions(for: configuration, mavenContext: try mavenContext(for: configuration))
+        } else {
+            options = RunOptions(javaHomePath: toolchain.javaHomePath,
+                mavenExecutablePath: toolchain.mavenExecutablePath, mavenJavaHomePath: toolchain.mavenJavaHomePath)
+        }
         let resolved = try executableResolver.resolve(plan, projectURL: workspace, options: options)
         let arguments = try prepareJavaLaunch(executablePath: resolved.executableURL.path, arguments: plan.arguments)
         // The preparation is handing off successfully, so Stop must not cancel
         // the provider request that is currently returning this application.
-        let runIdentity = buildPreparationID == nil ? nil : primaryExecutionID
+        let runIdentity = retainingIdentity ?? (buildPreparationID == nil ? nil : primaryExecutionID)
         buildPreparationID = nil
         isPreparingBuildRun = false
+        let preparationOutput = retainingIdentity == nil ? "" : output
+        let providerOwner = retainingIdentity == nil ? nil : primaryProviderBuildSystemID
         stop()
-        output = ""
+        primaryProviderBuildSystemID = providerOwner
+        output = preparationOutput
         lastExitCode = nil
         lastRunConfiguration = configuration
         buildRunWorkspace = workspace
@@ -1075,7 +1190,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         currentFileURL: URL?,
         javaLaunch: JavaDebugLaunchTarget? = nil
     ) {
-        if configuration.buildProvider != nil { startBuildProviderRun(configuration); return }
+        if configuration.buildProvider != nil && !needsProviderLaunch(configuration, javaLaunch: javaLaunch) { startBuildProviderRun(configuration); return }
         stop()
         do { try validateProviderGeneration(for: configuration) }
         catch { fail(error.localizedDescription); return }
@@ -1084,6 +1199,10 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         primaryExecutionID = UUID().uuidString
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
+        if needsProviderLaunch(configuration, javaLaunch: javaLaunch), let projectURL {
+            prepareProviderConfiguration(configuration, workspace: projectURL, primary: true)
+            return
+        }
         let mavenContext: MavenLaunchContext?
         do { mavenContext = try self.mavenContext(for: configuration) }
         catch { fail(error.localizedDescription); return }
@@ -1272,7 +1391,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         _ configuration: RunConfiguration,
         javaLaunch: JavaDebugLaunchTarget? = nil
     ) {
-        if configuration.buildProvider != nil { startBuildProviderRun(configuration); return }
+        if configuration.buildProvider != nil && !needsProviderLaunch(configuration, javaLaunch: javaLaunch) { startBuildProviderRun(configuration); return }
         guard configuration.kind != .currentFile else { return }
         stopModule(sessionID: configuration.id)
         startModuleSession(configuration, javaLaunch: javaLaunch)
@@ -1295,12 +1414,14 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         !moduleProcesses.isEmpty
             || !moduleLanguageExecutionSessions.isEmpty
             || !modulePreLaunchProcesses.isEmpty
+            || !providerModulePreparations.isEmpty
     }
 
     package func stopAllServices() {
         let sessionIDs = Set(moduleProcesses.keys)
             .union(moduleLanguageExecutionSessions.keys)
             .union(modulePreLaunchProcesses.keys)
+            .union(providerModulePreparations.keys)
         for sessionID in sessionIDs {
             stopModule(sessionID: sessionID)
         }
@@ -1318,6 +1439,8 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func stop() {
+        primaryProviderBuildSystemID = nil
+        providerPrimaryPreparation?.cancel(); providerPrimaryPreparation = nil
         let preparation = buildPreparationID
         buildPreparationID = nil
         isPreparingBuildRun = false
@@ -1942,19 +2065,23 @@ package final class RunService: ObservableObject, BuildRunLaunching {
 
     private func startModuleSession(
         _ configuration: RunConfiguration,
-        javaLaunch: JavaDebugLaunchTarget? = nil
+        javaLaunch: JavaDebugLaunchTarget? = nil,
+        preparedPlan: SharedLaunchPlan? = nil,
+        preparationOperationID: String? = nil
     ) {
         guard configurationStatus == .ready,
               let projectURL else { return }
+        let preparingSession = preparedPlan == nil ? nil : moduleSessions.first(where: { $0.id == configuration.id })
+        let preparationOutput = preparingSession?.output ?? ""
         moduleSessions.removeAll { $0.id == configuration.id }
         do { try validateProviderGeneration(for: configuration) }
         catch {
-            moduleSessions.append(RunSession(id: configuration.id, configurationID: configuration.id,
+            moduleSessions.append(RunSession(executionID: preparingSession?.executionID ?? UUID().uuidString, id: configuration.id, configurationID: configuration.id,
                 title: configuration.name, output: error.localizedDescription + "\n", isRunning: false, exitCode: 1))
             return
         }
         if let diagnostic = blockingToolchainDiagnostic(for: configuration) {
-            moduleSessions.append(RunSession(
+            moduleSessions.append(RunSession(executionID: preparingSession?.executionID ?? UUID().uuidString,
                 id: configuration.id,
                 configurationID: configuration.id,
                 title: configuration.name,
@@ -1966,7 +2093,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         }
         if extensionRequiredLanguageIDs.contains(configuration.kind.providerID),
            languageRunExtension(providerID: configuration.kind.providerID) == nil {
-            moduleSessions.append(RunSession(
+            moduleSessions.append(RunSession(executionID: preparingSession?.executionID ?? UUID().uuidString,
                 id: configuration.id,
                 configurationID: configuration.id,
                 title: configuration.name,
@@ -1976,10 +2103,14 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             ))
             return
         }
+        if preparedPlan == nil && needsProviderLaunch(configuration, javaLaunch: javaLaunch) {
+            prepareProviderConfiguration(configuration, workspace: projectURL, primary: false)
+            return
+        }
         let mavenContext: MavenLaunchContext?
         do { mavenContext = try self.mavenContext(for: configuration) }
         catch {
-            moduleSessions.append(RunSession(id: configuration.id, configurationID: configuration.id,
+            moduleSessions.append(RunSession(executionID: preparingSession?.executionID ?? UUID().uuidString, id: configuration.id, configurationID: configuration.id,
                 title: configuration.name, output: error.localizedDescription + "\n", isRunning: false, exitCode: 1))
             return
         }
@@ -1992,7 +2123,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             ? runtime.javaHomeURL(overridePath: configuredJavaHome)
             : runtime.mavenJavaHomeURL(overridePath: configuredJavaHome)
         if !configuredJavaHome.isEmpty && resolvedJavaHome == nil {
-            moduleSessions.append(RunSession(
+            moduleSessions.append(RunSession(executionID: preparingSession?.executionID ?? UUID().uuidString,
                 id: configuration.id,
                 configurationID: configuration.id,
                 title: configuration.name,
@@ -2005,6 +2136,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
 
         let plan: SharedLaunchPlan
         do {
+            if let preparedPlan { plan = preparedPlan } else {
             plan = try runConfigurationOperations.launchPlan(
                 at: projectURL,
                 configurationID: configuration.id,
@@ -2014,8 +2146,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                 debugPort: nil,
                 mavenContext: mavenContext
             )
+            }
         } catch {
-            moduleSessions.append(RunSession(
+            moduleSessions.append(RunSession(executionID: preparingSession?.executionID ?? UUID().uuidString,
                 id: configuration.id,
                 configurationID: configuration.id,
                 title: configuration.name,
@@ -2048,7 +2181,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         } catch {
             // A service that cannot start still becomes a session so the panel
             // shows which one failed and why, rather than silently omitting it.
-            moduleSessions.append(RunSession(
+            moduleSessions.append(RunSession(executionID: preparingSession?.executionID ?? UUID().uuidString,
                 id: configuration.id,
                 configurationID: configuration.id,
                 title: configuration.name,
@@ -2065,11 +2198,11 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         )
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
 
-        var session = RunSession(
+        var session = RunSession(executionID: preparingSession?.executionID ?? UUID().uuidString,
             id: configuration.id,
             configurationID: configuration.id,
             title: configuration.name,
-            output: "$ " + resolved.executableURL.lastPathComponent + " "
+            output: preparationOutput + "$ " + resolved.executableURL.lastPathComponent + " "
                 + (configuration.kind.isMavenBacked
                     ? redactedMavenArgumentsForDisplay(requestedArguments)
                     : requestedArguments).joined(separator: " ") + "\n\n",
@@ -2082,7 +2215,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         }
         moduleSessions.append(session)
 
-        let operationID = UUID().uuidString
+        let operationID = preparationOperationID ?? UUID().uuidString
         moduleOperationIDs[configuration.id] = operationID
         // The JVM waits for every pre-launch step, so an entry source with a
         // Maven resource step starts against the resources the step just wrote.
@@ -2156,6 +2289,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     private func stopModule(sessionID: String) {
+        moduleProviderBuildSystemIDs[sessionID] = nil
+        moduleOperationIDs[sessionID] = nil
+        providerModulePreparations.removeValue(forKey: sessionID)?.cancel()
         modulePreLaunchProcesses[sessionID]?.stop()
         modulePreLaunchProcesses[sessionID] = nil
         moduleProcesses[sessionID]?.stop()
@@ -2208,6 +2344,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         let activeSessionIDs = Set(moduleProcesses.keys)
             .union(moduleLanguageExecutionSessions.keys)
             .union(modulePreLaunchProcesses.keys)
+            .union(providerModulePreparations.keys)
         let staleSessionIDs = activeSessionIDs.filter { !validConfigurationIDs.contains($0) }
         for sessionID in staleSessionIDs {
             stopModule(sessionID: sessionID)
@@ -2219,19 +2356,23 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         _ process: any StreamingProcess,
         sessionID: String
     ) {
+        let operationID = moduleOperationIDs[sessionID]
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
-                self?.appendModuleOutput(chunk, sessionID: sessionID)
+                guard let self, self.moduleOperationIDs[sessionID] == operationID else { return }
+                self.appendModuleOutput(chunk, sessionID: sessionID)
             }
         }
         process.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
-                self?.finishModule(sessionID: sessionID, exitCode: exitCode)
+                guard let self, self.moduleOperationIDs[sessionID] == operationID else { return }
+                self.finishModule(sessionID: sessionID, exitCode: exitCode)
             }
         }
         process.onStateChange = { [weak self] event in
             Task { @MainActor [weak self] in
-                self?.consumeModuleLifecycle(event, sessionID: sessionID)
+                guard let self, self.moduleOperationIDs[sessionID] == operationID else { return }
+                self.consumeModuleLifecycle(event, sessionID: sessionID)
             }
         }
     }

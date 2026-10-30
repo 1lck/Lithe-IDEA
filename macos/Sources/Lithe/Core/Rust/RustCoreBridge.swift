@@ -344,159 +344,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let description: String
     }
 
-    struct MavenScanPayload: Decodable, Sendable {
-        struct SourceRoot: Decodable, Sendable {
-            let path: String
-            let kind: String
-
-            func makeModel() -> MavenSourceRoot? {
-                guard let kind = MavenSourceRootKind(rawValue: kind) else { return nil }
-                return MavenSourceRoot(path: path, kind: kind)
-            }
-        }
-
-        struct Profile: Decodable, Sendable {
-            let id: String
-            let isActiveByDefault: Bool
-        }
-
-        /// The core serializes Maven coordinates as `groupId` / `artifactId`,
-        /// matching Maven itself. Swift spells the same properties with a
-        /// capital D, so the mapping has to be explicit -- without it decoding
-        /// fails and the whole scan silently returns nil.
-        struct Module: Decodable, Sendable {
-            let relativePath: String
-            let groupID: String?
-            let artifactID: String
-            let version: String?
-            let packaging: String
-            let sourceRoots: [SourceRoot]?
-            let modules: [Module]
-
-            enum CodingKeys: String, CodingKey {
-                case relativePath
-                case groupID = "groupId"
-                case artifactID = "artifactId"
-                case version
-                case packaging
-                case sourceRoots
-                case modules
-            }
-
-            func makeModel(rootURL: URL) -> MavenModule {
-                MavenModule(
-                    relativePath: relativePath,
-                    url: rootURL.appendingPathComponent(relativePath),
-                    groupID: groupID,
-                    artifactID: artifactID,
-                    version: version,
-                    packaging: packaging,
-                    modules: modules.map { $0.makeModel(rootURL: rootURL) },
-                    sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
-                )
-            }
-        }
-
-        let relativePath: String
-        let groupID: String?
-        let artifactID: String
-        let version: String?
-        let packaging: String
-        let sourceRoots: [SourceRoot]?
-        let modules: [Module]
-        let profiles: [Profile]
-        let hasWrapper: Bool
-
-        enum CodingKeys: String, CodingKey {
-            case groupID = "groupId"
-            case relativePath
-            case artifactID = "artifactId"
-            case version
-            case packaging
-            case sourceRoots
-            case modules
-            case profiles
-            case hasWrapper
-        }
-
-        func makeProject(workspaceRootURL: URL) -> MavenProject {
-            let rootURL = relativePath == "."
-                ? workspaceRootURL
-                : workspaceRootURL.appending(path: relativePath, directoryHint: .isDirectory)
-            return MavenProject(
-                rootURL: rootURL,
-                pomURL: rootURL.appendingPathComponent("pom.xml"),
-                groupID: groupID,
-                artifactID: artifactID,
-                version: version,
-                packaging: packaging,
-                modules: modules.map { $0.makeModel(rootURL: rootURL) },
-                profiles: profiles.map {
-                    MavenProfile(id: $0.id, isActiveByDefault: $0.isActiveByDefault)
-                },
-                hasWrapper: hasWrapper,
-                sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
-            )
-        }
-    }
-
-    struct MavenDiagnosticsPayload: Decodable, Sendable {
-        struct Issue: Decodable, Sendable {
-            let path: String
-            let line: Int
-            let column: Int?
-            let severity: String
-            let message: String
-        }
-
-        let issues: [Issue]
-    }
-
-    struct MavenTestResultsPayload: Decodable, Sendable {
-        struct Failure: Decodable, Sendable {
-            let name: String
-            let kind: String
-            let message: String?
-            let path: String?
-            let line: Int?
-            let column: Int?
-        }
-
-        let testsRun: Int
-        let failures: Int
-        let errors: Int
-        let skipped: Int
-        let passed: Int
-        let success: Bool
-        let failureDetails: [Failure]
-        /// Absent from older Core builds; treated as no recorded outcomes.
-        let testCases: [MavenTestCaseOutcome]?
-    }
-
     struct JavaRunMarkersPayload: Decodable, Sendable {
         let markers: [JavaRunMarker]
-    }
-
-    struct MavenLaunchPlanPayload: Decodable, Sendable {
-        struct Executable: Decodable, Sendable {
-            let toolchain: String
-        }
-
-        let version: Int
-        let executable: Executable
-        let arguments: [String]
-        let workingDirectory: String
-        let configurationFingerprint: String
-
-        func makeModel() -> MavenLaunchPlan {
-            MavenLaunchPlan(
-                version: version,
-                toolchain: executable.toolchain,
-                arguments: arguments,
-                workingDirectory: workingDirectory,
-                configurationFingerprint: configurationFingerprint
-            )
-        }
     }
 
     struct SpringIndexPayload: Decodable, Sendable {
@@ -1549,18 +1398,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let destinationPath: String
     }
 
-    private struct MavenScanRequest: Encodable {
-        let root: String
-        let paths: [String]
-    }
-
-    private struct MavenLaunchPlanRequest: Encodable {
-        let root: String
-        let context: MavenLaunchContext
-        let module: String?
-        let goals: [String]
-    }
-
     private struct MarkdownRenderRequest: Encodable {
         let source: String
     }
@@ -2060,17 +1897,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     struct LspServerInfoPayload: Decodable, Sendable {
         let name: String
         let version: String?
-    }
-
-    private struct MavenDiagnosticsRequest: Encodable {
-        let root: String
-        let output: String
-    }
-
-    private struct MavenTestResultsRequest: Encodable {
-        let root: String
-        let output: String
-        let reports: MavenTestReportRequest?
     }
 
     private struct JavaRunMarkersRequest: Encodable {
@@ -2619,66 +2445,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         return response?.relocated == true
     }
 
-    func scanMaven(at rootURL: URL, paths: [String] = []) -> MavenScanPayload? {
-        try? scanMavenResult(at: rootURL, paths: paths).get()
-    }
-
-    func scanMavenResult(
-        at rootURL: URL,
-        paths: [String] = []
-    ) -> Result<MavenScanPayload?, CoreCallError> {
-        let result: Result<Envelope<MavenScanPayload>, CoreCallError> = decodeEnvelope(
-            command: "maven.scan",
-            payload: MavenScanRequest(
-                root: rootURL.standardizedFileURL.path,
-                paths: paths
-            )
-        )
-        return result.map(\.data)
-    }
-
-    func mavenLaunchPlan(
-        at rootURL: URL,
-        context: MavenLaunchContext,
-        module: String?,
-        goals: [String]
-    ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
-        executeResult(
-            command: "maven.launchPlan",
-            payload: MavenLaunchPlanRequest(
-                root: rootURL.standardizedFileURL.path,
-                context: context,
-                module: module,
-                goals: goals
-            )
-        )
-    }
-
-    func mavenDiagnostics(at rootURL: URL, output: String) -> MavenDiagnosticsPayload? {
-        execute(
-            command: "maven.diagnostics",
-            payload: MavenDiagnosticsRequest(
-                root: rootURL.standardizedFileURL.path,
-                output: output
-            )
-        )
-    }
-
-    func mavenTestResults(
-        at rootURL: URL,
-        output: String,
-        reports: MavenTestReportRequest? = nil
-    ) -> Result<MavenTestResultsPayload, CoreCallError> {
-        executeResult(
-            command: "maven.testResults",
-            payload: MavenTestResultsRequest(
-                root: rootURL.standardizedFileURL.path,
-                output: output,
-                reports: reports
-            )
-        )
-    }
-
     /// Combines JDT main/test discovery and recorded outcomes into gutter markers.
     func javaRunMarkers(
         mainMethods: [JavaMainMethod],
@@ -2769,6 +2535,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 toolchainCandidates: toolchainCandidates
             )
         )
+    }
+
+    func providerLaunchInputs(at rootURL: URL, configurationID: String, providerRoot: String) -> Result<ProviderLaunchInputs, CoreCallError> {
+        struct Request: Encodable { let root: String; let configurationId: String; let providerRoot: String }
+        return executeResult(command: "runConfig.providerLaunchInputs", payload: Request(root: rootURL.standardizedFileURL.path,
+            configurationId: configurationID, providerRoot: providerRoot))
     }
 
     func createLaunchPlan(

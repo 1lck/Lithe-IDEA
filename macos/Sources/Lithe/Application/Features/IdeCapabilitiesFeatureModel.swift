@@ -274,7 +274,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
         let previous = run.moduleSessions.first { $0.configurationID == id }?.executionID
         await model.startAPIConfiguration(configuration)
         try check(model, identity, grant: grant)
-        if configuration.buildProvider != nil {
+        if configuration.buildProvider != nil && (configuration.buildProvider?.execution ?? .application) == .application {
             guard let operationID = run.primaryExecutionID, operationID != previousPrimary,
                   run.lastConfiguration?.id == id else {
                 return failed("LAUNCH_FAILED", "Launch did not start. Check the IDE project readiness and any pending launch decision.")

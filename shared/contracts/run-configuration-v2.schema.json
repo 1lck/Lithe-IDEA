@@ -79,6 +79,7 @@
         "targetID"
       ],
       "properties": {
+        "execution": { "enum": ["application", "service", "task"] },
         "pluginID": {
           "type": "string",
           "minLength": 1,
@@ -163,7 +164,7 @@
         "then": {
           "required": ["extensions"],
           "properties": {
-            "execution": { "const": "application" },
+            "execution": { "enum": ["application", "service", "task"] },
             "command": false,
             "args": { "maxItems": 0 },
             "env": { "maxProperties": 0 },

@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 const EXPERIMENTAL_KEY: &str = "litheBuild";
 
 /// Build-provider protocol versions this client speaks, in preference order.
-const SUPPORTED_VERSIONS: [u64; 9] = [9, 8, 7, 6, 5, 4, 3, 2, 1];
+const SUPPORTED_VERSIONS: [u64; 10] = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 
 /// Feature name recorded in the session's server capabilities once a
 /// provider answered a supported version.
@@ -32,7 +32,7 @@ pub(crate) fn model_inputs_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 6 | 7 | 8 | 9))
+        .is_some_and(|version| matches!(version, 6 | 7 | 8 | 9 | 10))
 }
 
 /// Version 7 returns non-sensitive native settings and source/write metadata.
@@ -44,7 +44,7 @@ pub(crate) fn configuration_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 7 | 8 | 9))
+        .is_some_and(|version| matches!(version, 7 | 8 | 9 | 10))
 }
 
 /// Version 8 returns canonical reports with the completing test operation.
@@ -54,7 +54,7 @@ pub(crate) fn test_reports_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 8 | 9))
+        .is_some_and(|version| matches!(version, 8 | 9 | 10))
 }
 
 /// Version 9 passes public semantic selectors unchanged to the owning backend.
@@ -64,7 +64,17 @@ pub(crate) fn test_selectors_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        == Some(9)
+        .is_some_and(|version| matches!(version, 9 | 10))
+}
+
+/// Admission feature for typed user options and host-owned service/task launches.
+pub(crate) const RUN_OPTIONS_FEATURE: &str = "litheBuildRunOptions";
+/// Older sessions cannot silently discard user arguments or launch ownership.
+pub(crate) fn run_options_negotiated(capabilities: &Value) -> bool {
+    capabilities
+        .pointer("/experimental/litheBuild/version")
+        .and_then(Value::as_u64)
+        == Some(10)
 }
 
 /// Version 5 prepares a native debug target, never an adapter process.
@@ -76,7 +86,7 @@ pub(crate) fn debug_preparation_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 5 | 6 | 7 | 8 | 9))
+        .is_some_and(|version| matches!(version, 5 | 6 | 7 | 8 | 9 | 10))
 }
 
 /// Admission feature for the version 4 method.
@@ -130,7 +140,7 @@ pub(crate) fn execution_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9))
+        .is_some_and(|version| matches!(version, 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10))
 }
 
 /// Tests require an explicit version 3 agreement, independent of task support.
@@ -138,7 +148,7 @@ pub(crate) fn tests_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 3 | 4 | 5 | 6 | 7 | 8 | 9))
+        .is_some_and(|version| matches!(version, 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10))
 }
 
 /// A preparation has progress and cancellation, but its reply is a launch plan.
@@ -151,7 +161,7 @@ pub(crate) fn run_preparation_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 4 | 5 | 6 | 7 | 8 | 9))
+        .is_some_and(|version| matches!(version, 4 | 5 | 6 | 7 | 8 | 9 | 10))
 }
 
 /// Normalizes bounded progress; the engine checks the pending request identity.

@@ -113,6 +113,7 @@ package final class BuildSystemService: ObservableObject {
 
     /// Emitted after input storage changes, so subscribers never read willSet values.
     package let runGenerationInputsChanged = PassthroughSubject<Void, Never>()
+    package let providerSystemsRevoked = PassthroughSubject<Set<String>, Never>()
     @Published package private(set) var entries: [BuildSystemEntry] = [] {
         didSet { runGenerationInputsChanged.send() }
     }
@@ -166,7 +167,12 @@ package final class BuildSystemService: ObservableObject {
     private var preparedApplication: (source: BuildSystemPluginSource, operationID: String)?
     private let settings: @MainActor (String) -> [String: ToolingJSONValue]
     private let waitForRedetection: @Sendable () async throws -> Void
-    private let sources: @MainActor () -> [BuildSystemPluginSource]
+    private let registeredSources: @MainActor () -> [BuildSystemPluginSource]
+    // Startup registrations cannot describe a replacement package until restart.
+    private var replacedPluginIDs: Set<String> = []
+    private func sources() -> [BuildSystemPluginSource] {
+        registeredSources().filter { !replacedPluginIDs.contains($0.pluginID) }
+    }
 
     /// Bumped whenever the workspace changes, so late results are dropped.
     private var generation = 0
@@ -254,7 +260,7 @@ package final class BuildSystemService: ObservableObject {
         self.runLauncher = runLauncher
         self.settings = settings
         self.waitForRedetection = waitForRedetection
-        self.sources = sources
+        self.registeredSources = sources
         let configuration = BuildNativeConfigurationCoordinator(
             planner: planner, tools: tools, providers: providers, files: nativeConfigurationFiles,
             context: { [weak self] id in try self?.nativeConfigurationContext(id) },
@@ -559,7 +565,14 @@ package final class BuildSystemService: ObservableObject {
 
     /// Ends what a now disabled plugin started and detects again with the
     /// plugins enabled now, so its instances leave the tool window.
+    package func pluginPackageWillChange(_ pluginID: String) {
+        replacedPluginIDs.insert(pluginID)
+        pluginsChanged()
+    }
+
     package func pluginsChanged() {
+        let enabledSources = sources()
+        providerSystemsRevoked.send(Set(entries.filter { !enabledSources.contains($0.source) }.map { $0.instance.buildSystemID }))
         nativeConfiguration?.invalidate()
         providerConfigurationRevision += 1
         for producer in entries where producer.declaration.sharesModel {
@@ -1002,12 +1015,15 @@ package final class BuildSystemService: ObservableObject {
               !entry.isReloadRequired, entry.modelState == .loaded,
               let project = model.projects.first(where: { $0.id == request.projectID }),
               let target = model.targets.first(where: { $0.id == request.targetID && $0.projectID == project.id }),
-              entry.declaration.providerRuns.contains(where: { $0.id == request.run && (debugLaunch == nil || $0.debugAdapter != nil) }) else { return nil }
+              let declaration = entry.declaration.providerRuns.first(where: { $0.id == request.run && (debugLaunch == nil || $0.debugAdapter != nil) }) else { return nil }
+        guard configuration?.buildProvider.map({ ($0.execution ?? .application) == declaration.execution }) ?? true else { return nil }
+        let launchOptions = declaration.execution == .application ? nil : BuildLaunchOptions(
+            execution: declaration.execution, arguments: request.userArguments)
         let origin = configuration ?? RunConfiguration(id: "build:" + entryID + ":" + request.run + ":" + request.targetID,
-            name: title, kind: .process(provider: "build.provider"), execution: .application, modulePath: nil, mainClass: nil,
+            name: title, kind: .process(provider: "build.provider"), execution: declaration.execution == .service ? .service : (declaration.execution == .task ? .task : .application), modulePath: nil, mainClass: nil,
             buildProvider: BuildProviderRunReference(pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
                 root: entry.instance.root, run: request.run, projectID: request.projectID, targetID: request.targetID,
-                userArguments: request.userArguments))
+                userArguments: request.userArguments, execution: declaration.execution == .application ? nil : declaration.execution))
         if debugLaunch == nil { stopPreparedApplication() }
         let sourceRevision = fileRevision
         return startRun(entryID, title: title) { service, run in
@@ -1032,7 +1048,8 @@ package final class BuildSystemService: ObservableObject {
                     project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target), userArguments: request.userArguments)
             } else {
                 planned = try service.planner.prepareRunPlan(entry.target, context: context, run: request.run,
-                    project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target), userArguments: request.userArguments)
+                    project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target),
+                    userArguments: launchOptions == nil ? request.userArguments : [], workspaceURL: workspaceURL, launchOptions: launchOptions)
             }
             let validConfiguration = service.runValidity(.provider(planned), entry: entry, workspaceURL: workspaceURL, run: run)
             let isValid: @MainActor @Sendable () -> Bool = { [weak service] in
@@ -1069,7 +1086,7 @@ package final class BuildSystemService: ObservableObject {
                 return 0
             }
             let preparation = try await Task.detached(priority: .userInitiated) {
-                try planner.decodeRunPreparation(entry.target, workspaceURL: workspaceURL, root: context.root, result: result)
+                try planner.decodeRunPreparation(entry.target, workspaceURL: workspaceURL, root: context.root, result: result, launchOptions: launchOptions)
             }.value
             guard isValid() else { throw CancellationError() }
             guard let launcher = service.runLauncher else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
@@ -1079,6 +1096,98 @@ package final class BuildSystemService: ObservableObject {
             return 0
             }
         }
+    }
+
+    /// Independent service preparations share provider sessions, never the single Build task slot.
+    package func prepareConfigurationRun(inputs: ProviderLaunchInputs, instanceRoot: String, workspace: URL,
+        tool: BuildProviderHints, isCurrent: @escaping @MainActor @Sendable () -> Bool,
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> BuildRunPreparation {
+        guard workspace.standardizedFileURL == workspaceURL, let providers else { throw CancellationError() }
+        let candidates = entries.filter { $0.instance.root == instanceRoot && $0.instance.buildSystemID == inputs.buildSystemID
+            && (inputs.reference == nil || inputs.reference?.pluginID == $0.instance.pluginID)
+            && $0.instance.modelSource == .provider && $0.declaration.providerRuns.contains(where: { $0.execution == inputs.launchOptions.execution }) }
+        guard candidates.count == 1, let entry = candidates.first, entry.modelState == .loaded, !entry.isReloadRequired else {
+            throw BuildSystemServiceError(Self.providerUnsupportedMessage)
+        }
+        let workspaceGeneration = generation, revision = providerConfigurationRevision, files = fileRevision
+        let initialModel = entry.model, launchSettings = settings(entry.source.pluginID)
+        let fingerprint = optionFingerprint(entry, workspaceURL: workspace)
+        let valid: @MainActor @Sendable () -> Bool = { [weak self] in
+            guard let self, !Task.isCancelled, isCurrent(), self.workspaceURL == workspace.standardizedFileURL,
+                  self.generation == workspaceGeneration, self.providerConfigurationRevision == revision, self.fileRevision == files,
+                  self.settings(entry.source.pluginID) == launchSettings, let current = self.entry(entry.id),
+                  current.source == entry.source, current.model == initialModel, current.modelState == .loaded, !current.isReloadRequired,
+                  self.sources().contains(entry.source), fingerprint != nil else { return false }
+            return self.optionFingerprint(current, workspaceURL: workspace) == fingerprint
+        }
+        return try await withPlanContext(entry, workspaceURL: workspace) { base, _ in
+            guard valid() else { throw CancellationError() }
+            let proposed = base.options.merging(inputs.optionOverrides) { _, value in value }
+            let resolution = try planner.resolveOptions(entry.target, options: proposed, modelValues: initialModel?.optionValues)
+            guard inputs.optionOverrides.allSatisfy({ key, value in
+                !resolution.dropped.contains(key) && resolution.options.contains { $0.id == key && $0.value == value }
+            }) else { throw BuildSystemServiceError(L10n.string("The build option value is invalid. Inspect its current kind and choices.")) }
+            let context = BuildPlanContext(root: base.root, options: proposed, pluginDirectory: base.pluginDirectory,
+                workspaceStateDirectory: base.workspaceStateDirectory, modelInputs: base.modelInputs)
+            let launchTool: BuildProviderHints
+            if tool.toolExecutable != nil { launchTool = tool }
+            else {
+                let planner = planner, target = entry.target
+                let invocation = try planner.invocationPlan(target, root: entry.instance.root, settings: launchSettings)
+                let selected = try await tools.resolve(invocation, displayName: entry.instance.displayName, workspaceURL: workspace) { runtime, output in
+                    try planner.checkToolVersion(target, runtime: runtime, output: output)
+                }
+                guard valid() else { throw CancellationError() }
+                launchTool = BuildProviderHints(toolExecutable: selected.executableURL, toolEnvironment: selected.providerEnvironment)
+            }
+            guard case .provider(let modelRequest) = try planner.modelPlan(entry.target, context: context, outputFile: nil, providerHints: launchTool) else {
+                throw BuildSystemServiceError(Self.providerUnsupportedMessage)
+            }
+            let target = Self.providerTarget(entry, workspaceURL: workspace)
+            let raw = try await providers.send(modelRequest, to: target, timeout: Self.modelTimeout)
+            guard valid(), modelInputsAreCurrent(modelRequest) else { throw CancellationError() }
+            let planner = planner
+            let model = try await Task.detached(priority: .userInitiated) {
+                try planner.decodeModel(entry.target, workspaceURL: workspace, root: context.root, output: .providerResult(raw), options: context.options)
+            }.value
+            guard valid(), !model.truncated,
+                  let project = model.projects.first(where: { project in
+                      if let reference = inputs.reference { return project.id == reference.projectID }
+                      return project.path == inputs.projectPath
+                  }) else { throw CancellationError() }
+            let targets = model.targets.filter { target in
+                guard target.projectID == project.id else { return false }
+                if let reference = inputs.reference { return target.id == reference.targetID }
+                return target.name == inputs.provider
+            }
+            guard targets.count == 1, let selected = targets.first else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            let runs = entry.declaration.providerRuns.filter { $0.execution == inputs.launchOptions.execution
+                && (inputs.reference == nil || $0.id == inputs.reference?.run)
+                && ($0.targetTags.isEmpty || !Set($0.targetTags).isDisjoint(with: selected.tags)) }
+            guard runs.count == 1, let run = runs.first else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            let request = try planner.prepareRunPlan(entry.target, context: context, run: run.id, project: BuildSelection(project: project),
+                selectedTarget: BuildSelection(target: selected), userArguments: [], workspaceURL: workspace, launchOptions: inputs.launchOptions)
+            let prepared = try await providers.prepareRun(Self.request(request, with: launchTool), on: target, timeout: Self.modelTimeout) { value in
+                if valid() { progress(value) }
+            }
+            guard valid(), modelInputsAreCurrent(request) else { throw CancellationError() }
+            let result = try await Task.detached(priority: .userInitiated) {
+                try planner.decodeRunPreparation(entry.target, workspaceURL: workspace, root: context.root, result: prepared, launchOptions: inputs.launchOptions)
+            }.value
+            guard valid() else { throw CancellationError() }
+            return result
+        }
+    }
+
+    /// A portable prepared plan must use the exact executable selected for its private model read.
+    private static func request(_ request: BuildProviderRequest, with hints: BuildProviderHints) throws -> BuildProviderRequest {
+        guard let executable = hints.toolExecutable, case .object(var params) = request.params else { throw CancellationError() }
+        params["tool"] = .object(["executable": .string(executable.path)])
+        var environment = hints.toolEnvironment.mapValues(ToolingJSONValue.string)
+        if case .object(let options)? = params["environment"] { environment.merge(options) { _, value in value } }
+        params["environment"] = .object(environment)
+        return BuildProviderRequest(method: request.method, params: .object(params), optionFingerprint: request.optionFingerprint,
+            executesProjectCode: request.executesProjectCode, mayUseNetwork: request.mayUseNetwork)
     }
 
     private func stopPreparedApplication() {

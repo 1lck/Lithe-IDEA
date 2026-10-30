@@ -2154,6 +2154,26 @@ impl RuntimeSession {
                 )
                 .with_details("plugin.build.unavailable"));
             }
+            if request.params.get("launchOptions").is_some() {
+                if request.method != super::build_provider::PREPARE_RUN_METHOD {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Launch options apply only to run preparation.",
+                    ));
+                }
+                if !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::RUN_OPTIONS_FEATURE)
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::NotSupported,
+                        "The provider did not negotiate typed run options.",
+                    )
+                    .with_details("plugin.build.unavailable"));
+                }
+            }
             if request.params.get("selectorKind").is_some()
                 || request.params.get("selectors").is_some()
             {
@@ -11829,6 +11849,48 @@ public class Main {
         assert_eq!(event.result.as_ref().unwrap()["value"], result);
     }
 
+    /// User options must never be silently downgraded before a provider request.
+    #[test]
+    fn provider_run_options_require_version_ten_before_wire_send() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-run-options.json"
+        ))
+        .unwrap();
+        let params = json!({"launchOptions":fixture["launchOptions"]});
+        let old = plugin_backend(json!({"litheBuild":{"version":9}}));
+        let error =
+            build_request(&old, "lithe/build/prepareRun", params.clone(), None).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert!(old
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/build/prepareRun"));
+        let mut current = plugin_backend(json!({"litheBuild":{"version":10}}));
+        let error = build_request(&current, "lithe/build/model", params.clone(), None).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+        let operation = build_request(&current, "lithe/build/prepareRun", params, None).unwrap();
+        let id = current
+            .server
+            .await_request("lithe/build/prepareRun")
+            .unwrap();
+        let message = current
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "lithe/build/prepareRun")
+            .unwrap();
+        assert_eq!(message["params"]["launchOptions"], fixture["launchOptions"]);
+        current
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":fixture["result"]}));
+        let event = current.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        assert_eq!(event.result.as_ref().unwrap()["value"], fixture["result"]);
+    }
+
     #[test]
     fn provider_run_preparation_requires_version_four_and_returns_raw_plan() {
         for version in [1, 2, 3] {
@@ -12122,7 +12184,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [9, 8, 7, 6, 5, 4, 3, 2, 1] })
+            json!({ "versions": [10, 9, 8, 7, 6, 5, 4, 3, 2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -12665,7 +12727,7 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [9, 8, 7, 6, 5, 4, 3, 2, 1] },
+                "litheBuild": { "versions": [10, 9, 8, 7, 6, 5, 4, 3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })

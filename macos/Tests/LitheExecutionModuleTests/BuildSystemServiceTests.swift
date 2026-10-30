@@ -1649,8 +1649,8 @@ struct BuildSystemServiceTests {
         })
     }
 
-    @Test
-    func providerRunHandsValidatedPlanToNativeRunAndStopsOnDisable() async throws {
+    @Test(arguments: [false, true])
+    func providerRunHandsValidatedPlanToNativeRunAndStopsOnDisableOrReplacement(replace: Bool) async throws {
         let (planner, providers, launcher, harness) = try Self.runPreparationHarness()
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
@@ -1661,13 +1661,30 @@ struct BuildSystemServiceTests {
         #expect(launcher.launched.count == 1)
         #expect(launcher.launched.first?.arguments == ["example.Main", "a b"])
         #expect(planner.diagnosticOutputs.isEmpty)
-        harness.sources = []
+        if replace { harness.service.pluginPackageWillChange("dev.example") }
+        else { harness.sources = [] }
         // Detection may already have removed the model before plugin disable
         // is delivered. Process ownership must survive that disappearance.
         harness.service.detect()
         try #require(await harness.waitForEntries { $0.isEmpty })
         harness.service.pluginsChanged()
         #expect(launcher.stopped == ["prepared-app"])
+    }
+
+    @Test(arguments: [BuildExecution.service, .task])
+    func providerTreeRunsKeepExecutionKindAndTypedArguments(execution: BuildExecution) async throws {
+        let (planner, _, launcher, harness) = try Self.runPreparationHarness()
+        harness.sources = [fixtureSource(providerRuns: [.init(id: "application", displayName: "Run",
+            targetTags: ["application"], execution: execution)])]
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        var request = Self.runRequest
+        request.userArguments = ["a b", "雪", ""]
+        try #require(harness.service.runApplication(Self.instanceID, request: request, title: "Main") != nil)
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.runLaunchOptions == [BuildLaunchOptions(execution: execution, arguments: request.userArguments)])
+        #expect(launcher.lastConfiguration?.execution == (execution == .service ? .service : .task))
     }
 
     @Test
@@ -3270,6 +3287,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var discovery: BuildTestDiscovery?
         var discoveryGate: GatedBuildDecode?
         var runPreparationGate: GatedBuildDecode?
+        var runLaunchOptions: [BuildLaunchOptions?] = []
         var testRequests: [BuildTestRequest] = []
         var optionsResolution: BuildOptionsResolution?
         var loadedOptionsResolution: BuildOptionsResolution?
@@ -3312,6 +3330,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         get { access { $0.runPreparationGate } }
         set { access { $0.runPreparationGate = newValue } }
     }
+    var runLaunchOptions: [BuildLaunchOptions?] { access { $0.runLaunchOptions } }
     var decodedDependencyOutputs: [BuildCommandOutput] { access { $0.decodedDependencyOutputs } }
     var diagnostics: [BuildDiagnostic] {
         get { access { $0.diagnostics } }
@@ -3546,7 +3565,9 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     }
 
     func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
-                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String],
+                        workspaceURL: URL? = nil, launchOptions: BuildLaunchOptions? = nil) throws -> BuildProviderRequest {
+        access { $0.runLaunchOptions.append(launchOptions) }
         guard let providerRequest else { throw CancellationError() }
         return withInputs(providerRequest, context: context)
     }
@@ -3568,7 +3589,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     }
 
     func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
-                              result: ToolingJSONValue) throws -> BuildRunPreparation {
+                              result: ToolingJSONValue, launchOptions: BuildLaunchOptions? = nil) throws -> BuildRunPreparation {
         if let gate = access({ let gate = $0.runPreparationGate; $0.runPreparationGate = nil; return gate }) {
             gate.entered.open()
             guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }

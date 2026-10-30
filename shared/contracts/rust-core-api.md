@@ -1147,7 +1147,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.testPlan` | Plan a test run for a scope, suite, or case and say where its reports will be |
 | `build.testDiscoveryPlan` | Plan opt-in Provider test discovery for an instance |
 | `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
-| `build.prepareRunPlan` | Plan Provider-owned application preparation from a model target |
+| `build.prepareRunPlan` | Plan Provider-owned application/service/task preparation from a model target |
 | `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
 | `build.prepareDebugPlan` | Plan same-plugin native debug preparation (Provider v5) |
 | `build.decodeDebugPreparation` | Validate an existing instance-contained native debug program and bounded process facts |
@@ -2774,6 +2774,11 @@ provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, o
 execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
 Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
 plan passed to `build.decodeRunPreparation` before native process startup. Version 5 adds `lithe/build/prepareDebug`: raw native executable facts pass through `build.decodeDebugPreparation` and the existing DebugAdapter Registry, not private functions or a second DAP engine.
+Version 10 adds typed `launchOptions` for this run method and host-owned service/task
+preparation. These options require explicit version-10 negotiation before a
+request is written. The decoder accepts a workspace cwd outside the instance
+only when it matches the same host-validated explicit option. Native debug
+preparation retains its existing application contract.
 Other methods are `invalid_request`; tasks on version 1
 and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
 Every session offers
@@ -3263,10 +3268,12 @@ per-configuration toolchain path overrides the corresponding project default.
 
 Provider applications can be explicitly saved with `runConfig.createUserConfiguration`
 using `{root,scope:"local",name,type:"buildProvider",build:{pluginID,buildSystemID,
-root,run,projectID,targetID,userArguments?}}`. Core upserts the existing local
+root,run,projectID,targetID,userArguments?,execution?}}`. Core upserts the existing local
 reference by selector identity and retains its `user:` ID, unrelated configurations
 and project toolchain defaults. `extensions.build` in Run v2 holds the typed
-reference; process commands, top-level args/environment/toolchains/debug are
+reference; optional execution is application/service/task and must match the current
+declaration before preparing (omitted older references mean application). The saved
+configuration retains that execution kind when reopened. Process commands, top-level args/environment/toolchains/debug are
 refused for `build.provider`. Current model membership is revalidated by the
 native build workflow before every preparation. No generated document is needed:
 `runConfig.inspect` recognizes explicit saved local references and `runConfig.resolve`
@@ -3275,6 +3282,15 @@ or an explicit saved Provider reference retains the existing missing state.
 The platform guards the source snapshot, atomically writes only the local layer,
 then re-reads the result. `shared/fixtures/run-configuration/build-provider.json`
 is the canonical persistence example.
+
+`runConfig.providerLaunchInputs` takes `{root,configurationId,providerRoot,localDocument?}`
+and resolves the same document layers for one preparation. It returns bounded typed
+`launchOptions`, explicit build-option overrides and project identity without planning
+a tool command. Saved `build.provider` selectors additionally return the exact typed
+`reference`; the native Build service revalidates its plugin, instance, run, project,
+target and execution against the current enabled model. Parameters must be read again
+before process launch, and an invalidated configuration or operation rejects late replies.
+
 
 `runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
 document transformations. They validate scope, paths, supported types, stable
@@ -3753,8 +3769,8 @@ and the directories are absolute host paths used only as substitution text.
 | `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
 | `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true` (Provider v3), using the same effective options and effect metadata |
 | `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
-| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`; no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated |
-| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
+| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`, `launchOptions?`, `workspaceRoot?` (required for an explicit launch cwd); no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated; typed launch options and service/task execution require v10 |
+| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result`, same optional `launchOptions` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
 | `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug` (v5); no cross-package reference |
 | `build.decodeDebugPreparation` | `workspaceRoot`, instance `root`, selected `run`, raw `result` | `preparation` with declaration-owned `adapter`, normalized `root`, `program`, `arguments`, `workingDirectory`, `environment`; program is an existing regular file contained in the instance after canonicalization |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |

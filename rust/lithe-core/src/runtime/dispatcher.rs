@@ -2068,6 +2068,23 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigProviderLaunchInputs => {
+            match serde_json::from_value::<crate::execution::ProviderLaunchInputsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid provider launch input request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::execution::provider_launch_inputs)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::RunConfigCreateLaunchPlan => {
             match serde_json::from_value::<crate::execution::LaunchPlanRequest>(parsed.payload)
                 .map_err(|error| {

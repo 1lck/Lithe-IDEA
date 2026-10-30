@@ -374,6 +374,8 @@ pub enum CoreCommand {
     RunConfigCreateUserConfiguration,
     /// Produces the process plan for one configuration (`runConfig.createLaunchPlan`).
     RunConfigCreateLaunchPlan,
+    /// Resolves user choices for a provider-owned launch (`runConfig.providerLaunchInputs`).
+    RunConfigProviderLaunchInputs,
     /// Counts workspace uses of Java declarations (`java.codeVision`).
     JavaCodeVision,
     /// Resolves a package-qualified Java class name (`java.className`).
@@ -705,6 +707,7 @@ impl CoreCommand {
             "runConfig.saveEditorChanges" => Some(Self::RunConfigSaveEditorChanges),
             "runConfig.createUserConfiguration" => Some(Self::RunConfigCreateUserConfiguration),
             "runConfig.createLaunchPlan" => Some(Self::RunConfigCreateLaunchPlan),
+            "runConfig.providerLaunchInputs" => Some(Self::RunConfigProviderLaunchInputs),
             "java.codeVision" => Some(Self::JavaCodeVision),
             "java.className" => Some(Self::JavaClassName),
             "java.sourceDefinition" => Some(Self::JavaSourceDefinition),

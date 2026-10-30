@@ -407,7 +407,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options | `1`, `2`, `3` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports, v9 opaque semantic test selectors | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports, v9 opaque semantic test selectors, v10 typed run options and service/task preparation | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
 | `executableResolution` | Shared executable candidate ordering and strict selection; v2 canonical project/subproject toolchain registry bindings | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
@@ -459,7 +459,7 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 
 The macOS host sends its capability table with validation, marketplace filtering
 and install review. It advertises `buildSystems: [1, 2, 3]` and
-`buildProviders: [1, 2, 3, 4, 5, 6, 7, 8, 9]`; native Provider models, dependencies, tasks, tests and launch preparation
+`buildProviders: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
 but admission must use the actual host table. Windows does not yet advertise
@@ -1089,6 +1089,44 @@ the selected instance, including after resolving filesystem aliases.
 Unknown fields are ignored. The host calls `build.decodeRunPreparation`
 with its workspace root, instance root and raw result; any malformed plan
 fails as `plugin.build.invalidOutput` before executable resolution.
+
+#### Typed run options and service/task preparation (version 10)
+
+Version 10 retains versions 1–9 and extends the same `lithe/build/prepareRun`
+method. A provider run may declare `execution: "service"` or `"task"` only
+with `requires.buildProviders: 10`. It still uses `fromTargets.tags`, never
+host command or extension templates. Preparation ends before the host starts
+the process; the host owns stdout/stderr, process identity, Stop and cleanup.
+This version does not introduce provider-owned background services.
+
+The optional `launchOptions` object contains required `execution`
+(`application`, `service` or `task`), `runtimeArguments` and `arguments`
+(string arrays), and `environment` (a string map). Optional `entrypoint` is an
+opaque nonempty string of at most 4,096 UTF-8 bytes without NUL; the owning
+provider validates its meaning. Optional `workingDirectory` is a nonempty
+workspace-relative directory, `.` allowed, without backslashes, absolute
+paths, empty components or `..`. Unknown option fields are refused. Argument
+and environment bounds match the launch result above, including empty argv
+values. Options describe resolved user choices; providers must preserve
+argument boundaries and cannot silently ignore unsupported choices.
+
+`execution` must match the run declaration (default `application`). Service
+and task preparation require `launchOptions`; legacy application preparation
+without it retains version 4 behavior. Hosts must reject options before
+sending them to a session that negotiated a version below 10. Both SDKs
+likewise reject unsupported or malformed options before invoking a handler.
+Build options, resolved tool hints and native settings remain their existing
+sources; launch options do not create a second profile or tool configuration.
+
+The host supplies `workspaceRoot` to `build.prepareRunPlan` when options contain
+an explicit working directory. Core validates it against the canonical workspace,
+including aliases, before preparation. The host passes the same options to
+`build.decodeRunPreparation`; the result must use exactly that directory.
+Only this explicit override may lie outside the selected instance. Without
+an override the original instance containment rule still applies. Other
+launch result validation and cancellation/stale-result behavior are unchanged.
+Canonical fixtures: `fixtures/build-provider-run-options.plugin.json` and
+`fixtures/build-run-options.json`.
 
 #### Native debug preparation (version 5)
 

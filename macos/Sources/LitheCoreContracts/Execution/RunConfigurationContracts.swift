@@ -351,7 +351,25 @@ package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey { case javaHomePath, mavenExecutablePath, mavenJavaHomePath, pathOverrides }
 }
 
+/// Core resolves document layers without assembling the provider's command line.
+package struct ProviderLaunchInputs: Decodable, Equatable, Sendable {
+    package let reference: BuildProviderRunReference?
+    package let buildSystemID: String
+    package let provider: String
+    package let projectPath: String
+    package let launchOptions: BuildLaunchOptions
+    package let optionOverrides: [String: ToolingJSONValue]
+
+    package init(buildSystemID: String, provider: String, projectPath: String, launchOptions: BuildLaunchOptions,
+                 optionOverrides: [String: ToolingJSONValue] = [:], reference: BuildProviderRunReference? = nil) {
+        self.reference = reference
+        self.buildSystemID = buildSystemID; self.provider = provider; self.projectPath = projectPath
+        self.launchOptions = launchOptions; self.optionOverrides = optionOverrides
+    }
+}
+
 package protocol RunConfigurationOperations: Sendable {
+    func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs
     func saveBuildProviderConfiguration(_ reference: BuildProviderRunReference, name: String, at projectURL: URL) throws -> String
     /// Saves project defaults without modifying any service or requiring generated configurations.
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
@@ -415,6 +433,10 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs {
+        throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration."))
+    }
+
     func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
         inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil)
     }

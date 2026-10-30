@@ -1,115 +1,5 @@
 import Foundation
 
-package enum MavenSourceRootKind: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case mainJava
-    case mainResources
-    case testJava
-    case testResources
-    case generatedMain
-    case generatedTest
-
-    package var id: String { rawValue }
-    package var title: String {
-        switch self {
-        case .mainJava: "main Java"
-        case .mainResources: "main resources"
-        case .testJava: "test Java"
-        case .testResources: "test resources"
-        case .generatedMain: "generated main"
-        case .generatedTest: "generated test"
-        }
-    }
-}
-
-package struct MavenSourceRoot: Identifiable, Hashable, Sendable {
-    package let path: String
-    package let kind: MavenSourceRootKind
-
-    package init(path: String, kind: MavenSourceRootKind) {
-        self.path = path
-        self.kind = kind
-    }
-
-    package var id: String { "\(kind.rawValue):\(path)" }
-}
-
-package struct MavenProject: Identifiable, Hashable, Sendable {
-    package let rootURL: URL
-    package let pomURL: URL
-    package let groupID: String?
-    package let artifactID: String
-    package let version: String?
-    package let packaging: String
-    package let sourceRoots: [MavenSourceRoot]
-    package let modules: [MavenModule]
-    package let profiles: [MavenProfile]
-    package let hasWrapper: Bool
-
-    package init(
-        rootURL: URL,
-        pomURL: URL,
-        groupID: String?,
-        artifactID: String,
-        version: String?,
-        packaging: String,
-        modules: [MavenModule],
-        profiles: [MavenProfile],
-        hasWrapper: Bool,
-        sourceRoots: [MavenSourceRoot] = []
-    ) {
-        self.rootURL = rootURL
-        self.pomURL = pomURL
-        self.groupID = groupID
-        self.artifactID = artifactID
-        self.version = version
-        self.packaging = packaging
-        self.sourceRoots = sourceRoots
-        self.modules = modules
-        self.profiles = profiles
-        self.hasWrapper = hasWrapper
-    }
-
-    package var id: String { rootURL.path }
-    package var displayName: String { artifactID.isEmpty ? rootURL.lastPathComponent : artifactID }
-    package var isMultiModule: Bool { !modules.isEmpty }
-    package var allModules: [MavenModule] { modules + modules.flatMap { $0.allModules } }
-}
-
-package struct MavenModule: Identifiable, Hashable, Sendable {
-    package let relativePath: String
-    package let url: URL
-    package let groupID: String?
-    package let artifactID: String
-    package let version: String?
-    package let packaging: String
-    package let sourceRoots: [MavenSourceRoot]
-    package let modules: [MavenModule]
-
-    package init(
-        relativePath: String,
-        url: URL,
-        groupID: String?,
-        artifactID: String,
-        version: String?,
-        packaging: String,
-        modules: [MavenModule],
-        sourceRoots: [MavenSourceRoot] = []
-    ) {
-        self.relativePath = relativePath
-        self.url = url
-        self.groupID = groupID
-        self.artifactID = artifactID
-        self.version = version
-        self.packaging = packaging
-        self.sourceRoots = sourceRoots
-        self.modules = modules
-    }
-
-    package var id: String { relativePath }
-    package var displayName: String { artifactID.isEmpty ? relativePath : artifactID }
-    package var allModules: [MavenModule] { modules + modules.flatMap { $0.allModules } }
-}
-
 package struct MavenProfile: Identifiable, Hashable, Sendable {
     package let id: String
     package let isActiveByDefault: Bool
@@ -266,25 +156,6 @@ package struct MavenTestCaseOutcome: Codable, Equatable, Sendable {
     }
 }
 
-/// Identifies the XML reports a finished Maven test run wrote.
-package struct MavenTestReportRequest: Codable, Equatable, Sendable {
-    /// Workspace-relative module directory, when the run selected one.
-    package let module: String?
-    /// Workspace-relative test file; Core finds its module when `module` is nil.
-    package let sourcePath: String?
-    /// Binary class names; empty reads every report the run wrote.
-    package let classes: [String]
-    /// Run start in Unix milliseconds; older reports belong to earlier runs.
-    package let notBeforeMillis: UInt64
-
-    package init(module: String? = nil, sourcePath: String? = nil, classes: [String], notBeforeMillis: UInt64) {
-        self.module = module
-        self.sourcePath = sourcePath
-        self.classes = classes
-        self.notBeforeMillis = notBeforeMillis
-    }
-}
-
 package struct MavenLaunchContext: Codable, Equatable, Sendable {
     package static let currentVersion = 1
 
@@ -328,28 +199,6 @@ package struct MavenLaunchContext: Codable, Equatable, Sendable {
         self.skipTests = skipTests
         self.mavenExecutablePath = mavenExecutablePath
         self.javaHomePath = javaHomePath
-    }
-}
-
-package struct MavenLaunchPlan: Equatable, Sendable {
-    package let version: Int
-    package let toolchain: String
-    package let arguments: [String]
-    package let workingDirectory: String
-    package let configurationFingerprint: String
-
-    package init(
-        version: Int,
-        toolchain: String,
-        arguments: [String],
-        workingDirectory: String,
-        configurationFingerprint: String
-    ) {
-        self.version = version
-        self.toolchain = toolchain
-        self.arguments = arguments
-        self.workingDirectory = workingDirectory
-        self.configurationFingerprint = configurationFingerprint
     }
 }
 

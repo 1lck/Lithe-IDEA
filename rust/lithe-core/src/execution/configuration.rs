@@ -117,6 +117,21 @@ pub struct LaunchPlanRequest {
     pub maven_context: Option<crate::project::MavenLaunchContextRequest>,
 }
 
+/// Resolves saved Run choices without assembling a build tool's command line.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderLaunchInputsRequest {
+    /// Canonical workspace owned by the native host.
+    pub root: String,
+    /// Stable identity resolved through the generated/team/local document layers.
+    pub configuration_id: String,
+    /// Current provider instance, supplied by the owning build model.
+    pub provider_root: String,
+    /// Optional host-owned replacement for the machine-local document.
+    #[serde(default)]
+    pub local_document: Option<Value>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Runtime path groups resolved by the Java project model before launch.
@@ -239,6 +254,9 @@ pub struct BuildProviderRunReference {
     pub project_id: String,
     #[serde(rename = "targetID")]
     pub target_id: String,
+    /// Omitted older references are applications; the current declaration must match at launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<Execution>,
     #[serde(default)]
     pub user_arguments: Vec<String>,
 }
@@ -253,7 +271,8 @@ impl BuildProviderRunReference {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
         };
-        if !identifier(&self.plugin_id)
+        if self.execution == Some(Execution::Group)
+            || !identifier(&self.plugin_id)
             || !identifier(&self.build_system_id)
             || !identifier(&self.run)
             || [&self.project_id, &self.target_id]
@@ -1878,6 +1897,7 @@ fn create_build_provider_configuration(
     let encoded = serde_json::to_value(reference).expect("reference encodes");
     let mut identity = encoded.clone();
     identity.as_object_mut().unwrap().remove("userArguments");
+    identity.as_object_mut().unwrap().remove("execution");
     let items = document["configurations"]
         .as_array_mut()
         .ok_or_else(|| CoreError::new(ErrorCode::ParseFailed, "configurations must be an array"))?;
@@ -1888,6 +1908,7 @@ fn create_build_provider_configuration(
         let mut saved = item["extensions"]["build"].clone();
         if let Some(object) = saved.as_object_mut() {
             object.remove("userArguments");
+            object.remove("execution");
         }
         saved == identity
     });
@@ -1904,7 +1925,7 @@ fn create_build_provider_configuration(
             "Run configuration must be an object",
         )
     })?;
-    let managed = json!({"id":id,"name":name,"provider":"build.provider","execution":"application",
+    let managed = json!({"id":id,"name":name,"provider":"build.provider","execution":reference.execution.unwrap_or_default(),
         "cwd":reference.root,"confidence":"declared"});
     object.extend(
         managed
@@ -2093,6 +2114,117 @@ fn javac_compile_step(
         step["classpath"] = Value::Array(classpath.to_vec());
     }
     step
+}
+
+/// Extracts existing Run document values; framework goals and runtime semantics stay in providers.
+pub fn provider_launch_inputs(request: ProviderLaunchInputsRequest) -> Result<Value, CoreError> {
+    let root = existing_root(&request.root)?;
+    if invalid_relative_path(&request.provider_root)
+        || !project_directory_exists(&root, &request.provider_root)
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "The provider instance leaves the workspace.",
+        ));
+    }
+    let explicit_cwd = configuration_override_has_key(
+        &root,
+        request.local_document.as_ref(),
+        &request.configuration_id,
+        "cwd",
+    )?;
+    let resolved = resolve(ResolveRequest {
+        root: request.root,
+        toolchain_candidates: Vec::new(),
+        local_document: request.local_document,
+    })?;
+    let config = resolved["configurations"]
+        .as_array()
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|value| value["id"] == request.configuration_id)
+        })
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Run configuration is unavailable.",
+            )
+        })?;
+    if config["provider"] == "build.provider" {
+        let reference: BuildProviderRunReference =
+            serde_json::from_value(config["extensions"]["build"].clone()).map_err(|_| {
+                CoreError::new(
+                    ErrorCode::ParseFailed,
+                    "Invalid build provider run reference",
+                )
+            })?;
+        reference.validate()?;
+        if reference.root != request.provider_root || config["disabled"] == true {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Run configuration belongs to a different provider instance or is disabled.",
+            ));
+        }
+        return Ok(
+            json!({"buildSystemID":reference.build_system_id,"provider":reference.run,"projectPath":reference.root,
+            "launchOptions":{"execution":reference.execution.unwrap_or_default(),"runtimeArguments":[],"arguments":reference.user_arguments,"environment":{}},
+            "optionOverrides":{},"reference":reference}),
+        );
+    }
+    let maven = &config["extensions"]["maven"];
+    if !maven.is_object() || config["provider"].as_str().is_none() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Run configuration has no provider-owned launch inputs.",
+        ));
+    }
+    if maven["reactorPath"]
+        .as_str()
+        .is_some_and(|path| path != request.provider_root)
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Run configuration belongs to a different provider instance.",
+        ));
+    }
+    let module = maven["module"].as_str().unwrap_or(".");
+    let project = workspace_maven_path(Some(&request.provider_root), module);
+    if invalid_relative_path(module) || !project_directory_exists(&root, &project) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Run configuration project is unavailable.",
+        ));
+    }
+    let mut options = json!({"execution":config["execution"],"runtimeArguments":maven["jvmArguments"].as_array().cloned().unwrap_or_default(),
+        "arguments":maven["programArguments"].as_array().cloned().unwrap_or_default(),"environment":config["env"]});
+    if explicit_cwd {
+        options["workingDirectory"] = config["cwd"].clone();
+    }
+    if let Some(main) = maven["mainClass"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+    {
+        options["entrypoint"] = json!(main);
+    }
+    if config["provider"] == "maven.module" {
+        let mut args = config["args"].as_array().cloned().unwrap_or_default();
+        args.extend(options["arguments"].as_array().cloned().unwrap_or_default());
+        options["arguments"] = json!(args);
+    }
+    let mut overrides = json!({});
+    if let Some(profiles) = maven["profiles"]
+        .as_array()
+        .filter(|values| !values.is_empty())
+    {
+        overrides["profiles"] = json!(profiles);
+    }
+    if let Some(skip) = maven["skipTests"].as_bool() {
+        overrides["skipTests"] = json!(skip);
+    }
+    Ok(
+        json!({"buildSystemID":"maven","provider":config["provider"],"projectPath":project,"launchOptions":options,"optionOverrides":overrides}),
+    )
 }
 
 /// Resolves one configuration into the exact executable, arguments, and environment.
@@ -2998,7 +3130,7 @@ fn validate_configuration(configuration: &RunConfiguration) -> Result<(), CoreEr
             || !configuration.env.is_empty()
             || !configuration.toolchains.is_empty()
             || configuration.debug.is_some()
-            || configuration.execution != Execution::Application
+            || configuration.execution != reference.execution.unwrap_or_default()
         {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,

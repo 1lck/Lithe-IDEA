@@ -62,8 +62,8 @@ struct RunConfigurationIntegrationTests {
         }
     }
 
-    @Test
-    func savedBuildProviderReferenceWorksWithoutGeneratedConfiguration() throws {
+    @Test(arguments: [BuildExecution.application, .service, .task])
+    func savedBuildProviderReferenceWorksWithoutGeneratedConfiguration(execution: BuildExecution) throws {
         let core = RustCoreBridge()
         try #require(core.isAvailable)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-config-" + UUID().uuidString)
@@ -71,12 +71,17 @@ struct RunConfigurationIntegrationTests {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("app"), withIntermediateDirectories: true)
         let store = MacRunConfigurationStore(core: core, storage: MacFileStorage(), preferences: RunTestKeyValueStore())
         let reference = BuildProviderRunReference(pluginID: "dev.example.gradle", buildSystemID: "gradle", root: "app",
-            run: "application", projectID: "p", targetID: "t", userArguments: ["a b", "--x=one two"])
+            run: "application", projectID: "p", targetID: "t", userArguments: ["a b", "--x=one two"], execution: execution == .application ? nil : execution)
         let id = try store.saveBuildProviderConfiguration(reference, name: "Main", at: root)
         #expect(store.inspect(at: root).status == .ready)
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
         let resolved = try store.resolve(at: root, toolchainCandidates: [])
         #expect(resolved.configurations.first?.configuration.buildProvider == reference)
+        #expect(resolved.configurations.first?.configuration.execution.rawValue == execution.rawValue)
+        let inputs = try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: "app")
+        #expect(inputs.reference == reference)
+        #expect(inputs.launchOptions.execution == execution)
+        #expect(inputs.launchOptions.arguments == reference.userArguments)
         #expect(resolved.configurations.first?.configuration.id == id)
         #expect(try store.saveBuildProviderConfiguration(reference, name: "Renamed", at: root) == id)
         #expect(try store.resolve(at: root, toolchainCandidates: []).configurations.count == 1)
@@ -3228,20 +3233,9 @@ struct RunConfigurationIntegrationTests {
             store: RunTestKeyValueStore()
         )
         runtime.openProject(at: root)
-        let project = MavenProject(
-            rootURL: root,
-            pomURL: root.appendingPathComponent("pom.xml"),
-            groupID: nil,
-            artifactID: "fixture",
-            version: nil,
-            packaging: "jar",
-            modules: [],
-            profiles: [],
-            hasWrapper: false
-        )
 
         #expect(runtime.javaExecutableURL(overridePath: "/local/JDK 21")?.path == "/local/JDK 21/bin/java")
-        #expect(runtime.mavenExecutable(at: project.rootURL, overridePath: "/local/Maven 3.9/bin/mvn")?.path == "/local/Maven 3.9/bin/mvn")
+        #expect(runtime.mavenExecutable(at: root, overridePath: "/local/Maven 3.9/bin/mvn")?.path == "/local/Maven 3.9/bin/mvn")
         #expect(runtime.environment(for: .maven, javaHomeOverride: "/local/Maven JDK")["JAVA_HOME"] == "/local/Maven JDK")
     }
 
@@ -4156,28 +4150,6 @@ struct RunConfigurationIntegrationTests {
             preferences: preferences,
             javaMavenOperations: RunTestJavaMavenOperations(),
             runConfigurationOperations: operations
-        )
-        let modules = ["backend", "worker"].map { path in
-            MavenModule(
-                relativePath: path,
-                url: root.appendingPathComponent(path),
-                groupID: nil,
-                artifactID: path,
-                version: nil,
-                packaging: "jar",
-                modules: []
-            )
-        }
-        let project = MavenProject(
-            rootURL: root,
-            pomURL: root.appendingPathComponent("pom.xml"),
-            groupID: nil,
-            artifactID: "fixture",
-            version: nil,
-            packaging: "pom",
-            modules: modules,
-            profiles: [],
-            hasWrapper: false
         )
         return RunServiceFixture(
             root: root,
@@ -5459,49 +5431,6 @@ private struct RunTestJavaMavenOperations: JavaMavenOperations {
 
 @Suite("Core payload decoding")
 struct CorePayloadDecodingTests {
-    /// The core spells Maven coordinates the way Maven does -- `groupId` and
-    /// `artifactId`. Swift spells the same properties with a capital D, and
-    /// `artifactId` is non-optional, so a missing key mapping made the whole
-    /// scan decode to nil and the Maven panel claimed the project had no pom.
-    /// The failure is silent: the bridge discards decoding errors.
-    @Test
-    func mavenScanDecodesTheCoordinateSpellingTheCoreEmits() throws {
-        let json = """
-        {
-          "relativePath": ".",
-          "groupId": "com.lithe.demo",
-          "artifactId": "full-stack-demo",
-          "version": "1.0.0-SNAPSHOT",
-          "packaging": "pom",
-          "hasWrapper": true,
-          "profiles": [],
-          "modules": [
-            {
-              "groupId": "com.lithe.demo",
-              "artifactId": "backend-api",
-              "relativePath": "backend-api",
-              "version": "1.0.0-SNAPSHOT",
-              "packaging": "jar",
-              "modules": []
-            }
-          ]
-        }
-        """
-
-        let payload = try JSONDecoder().decode(
-            RustCoreBridge.MavenScanPayload.self,
-            from: Data(json.utf8)
-        )
-        let project = payload.makeProject(
-            workspaceRootURL: FileManager.default.temporaryDirectory
-                .appendingPathComponent("lithe-maven-core-payload", isDirectory: true)
-        )
-
-        #expect(project.artifactID == "full-stack-demo")
-        #expect(project.modules.map(\.artifactID) == ["backend-api"])
-        #expect(project.modules.map(\.relativePath) == ["backend-api"])
-    }
-
     /// Same root cause, quieter symptom: `hunkId` decoded as nil left every
     /// diff row unattached to its hunk instead of failing outright.
     @Test

@@ -350,6 +350,43 @@ struct IdeCapabilitiesTests {
     }
 
     @Test
+    func savedProviderServiceKeepsAgentIdentityThroughPreparationOutputAndStop() async throws {
+        let fixture = try ProviderCapabilityExecutionFixture(execution: .service)
+        defer { fixture.remove() }
+        let entered = TestGate(), release = TestGate(), launched = TestGate()
+        fixture.run.configureProviderConfigurationRuns { inputs, _, _, _, _, _ in
+            #expect(inputs.reference == fixture.reference)
+            entered.open()
+            guard await release.waitUntilOpen(timeout: .seconds(5)) else { throw CancellationError() }
+            return try JSONDecoder().decode(BuildRunPreparation.self, from: Data(
+                #"{"executable":{"kind":"command","value":"fixture"},"arguments":["Main"],"workingDirectory":".","environment":{}}"#.utf8))
+        }
+        await fixture.run.loadProject(at: fixture.root, files: [])
+        let observer = fixture.run.$moduleSessions.sink { sessions in
+            if sessions.contains(where: { $0.output.contains("Main") }) { launched.open() }
+        }
+        defer { observer.cancel(); release.open() }
+        let actions = CapabilityActionsFixture(root: fixture.root)
+        actions.execution = fixture.execution
+        actions.startConfiguration = { fixture.run.startConfiguration($0) }
+        let feature = IdeCapabilitiesFeatureModel(model: actions)
+        feature.allowExecute = true; feature.enable()
+        try await WorkbenchTestScope.withCleanup({ await feature.shutdown() }) { _ in
+            let started = await feature.call("lithe_run_start", arguments: ["configurationID": fixture.configurationID])
+            let operation = try #require(started["operationID"] as? String)
+            #expect(await entered.waitUntilOpen(timeout: .seconds(5)))
+            release.open()
+            #expect(await launched.waitUntilOpen(timeout: .seconds(5)))
+            let running = await feature.call("lithe_operation_output", arguments: ["operationID": operation])
+            #expect(running["state"] as? String == "running")
+            #expect((running["output"] as? String)?.contains("Main") == true)
+            let stopped = await feature.call("lithe_operation_stop", arguments: ["operationID": operation])
+            #expect(stopped["stopRequested"] as? Bool == true)
+            #expect(!fixture.run.hasRunningServices)
+        }
+    }
+
+    @Test
     func savedProviderRunKeepsItsAgentIdentityAcrossPreparationAndLaunch() async throws {
         let fixture = try ProviderCapabilityExecutionFixture()
         defer { fixture.remove() }
@@ -496,14 +533,15 @@ private final class CapabilityActionsFixture: IdeCapabilityActions {
 @MainActor
 private final class ProviderCapabilityExecutionFixture {
     let root: URL
-    let reference = BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "fixture", root: ".",
-        run: "application", projectID: "project", targetID: "main", userArguments: [])
+    let reference: BuildProviderRunReference
     let configurationID: String
     let process = CapabilityProcessFixture()
     let run: RunService
     let execution: ExecutionFeatureAccess
 
-    init() throws {
+    init(execution: BuildExecution? = nil) throws {
+        reference = BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "fixture", root: ".",
+            run: "application", projectID: "project", targetID: "main", userArguments: [], execution: execution)
         let core = RustCoreBridge()
         try #require(core.isAvailable)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-agent-" + UUID().uuidString, isDirectory: true)
@@ -521,7 +559,7 @@ private final class ProviderCapabilityExecutionFixture {
                 executableResolver: resolver, languageProviderCatalog: .compatibilityFallback,
                 languageRunProviders: .standard(catalog: .compatibilityFallback))
             let runFeature = RunFeatureModel(service: run)
-            execution = ExecutionFeatureAccess(runFeature: runFeature,
+            self.execution = ExecutionFeatureAccess(runFeature: runFeature,
                 tests: LanguageTestService(executableResolver: resolver, processFactory: { CapabilityProcessFixture() }),
                 projectDevelopment: ProjectDevelopmentFeatureModel(runFeature: runFeature), buildSystems: nil)
         } catch {

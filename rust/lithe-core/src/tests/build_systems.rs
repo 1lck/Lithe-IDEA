@@ -2732,3 +2732,112 @@ fn model_inputs_reject_invalid_manifests_models_and_snapshot_smuggling() {
         assert_eq!(plan["status"], "rejected", "{change}: {plan}");
     }
 }
+
+/// Public typed choices survive planning; only an explicit workspace cwd widens containment.
+#[test]
+fn provider_run_options_preserve_argv_and_validate_declared_execution_and_cwd() {
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-run-options.plugin.json"
+    ))
+    .unwrap();
+    let fixture: Value =
+        serde_json::from_str(contract_file!("fixtures/build-run-options.json")).unwrap();
+    let workspace = TemporaryWorkspace::new("provider-run-options");
+    workspace.write("app/Main.java", "class Main {}");
+    workspace.write("tools/readme.txt", "working directory");
+    let mut request: Value =
+        serde_json::from_str::<Value>(contract_file!("fixtures/build-run-preparation.json"))
+            .unwrap()["request"]
+            .clone();
+    request["root"] = json!("app");
+    request["run"] = json!("service");
+    request["workspaceRoot"] = json!(workspace.root());
+    request["launchOptions"] = fixture["launchOptions"].clone();
+    let plan = |manifest: Value, request: Value| {
+        build_prepare_run_plan_command(
+            json!({"manifest":manifest,"buildSystemID":"gradle","request":request}),
+        )
+    };
+    let result = plan(manifest.clone(), request.clone()).unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    assert_eq!(
+        result["plan"]["provider"]["params"]["launchOptions"],
+        fixture["launchOptions"]
+    );
+    for (field, value) in [
+        ("execution", json!("application")),
+        ("arguments", json!(["bad\u{0}"])),
+        ("runtimeArguments", json!(vec!["x"; 1025])),
+        ("environment", json!({"INVALID=NAME":"x"})),
+        ("environment", json!({"X":"bad\u{0}"})),
+        ("workingDirectory", json!("../outside")),
+        ("workingDirectory", json!("tools/missing")),
+        ("entrypoint", json!("")),
+        ("privateGoal", json!("secret")),
+    ] {
+        let mut invalid = request.clone();
+        invalid["launchOptions"][field] = value;
+        let result = plan(manifest.clone(), invalid);
+        assert!(
+            result.is_err() || result.unwrap()["status"] == "rejected",
+            "{field}"
+        );
+    }
+    let mut absent = request.clone();
+    absent.as_object_mut().unwrap().remove("launchOptions");
+    assert_eq!(
+        plan(manifest.clone(), absent).unwrap()["status"],
+        "rejected"
+    );
+    let mut old = manifest.clone();
+    old["requires"]["buildProviders"] = json!(9);
+    assert_eq!(validate(old.clone())["status"], "rejected");
+    old["buildSystems"][0]["run"][0]["execution"] = json!("application");
+    let mut application = request.clone();
+    application["launchOptions"]["execution"] = json!("application");
+    assert_eq!(validate(old.clone())["status"], "ok");
+    assert_eq!(plan(old, application).unwrap()["status"], "rejected");
+    let decode = |options: Value, result: Value| {
+        build_decode_run_preparation_command(json!({"manifest":manifest,"buildSystemID":"gradle",
+        "request":{"workspaceRoot":workspace.root(),"root":"app","launchOptions":options,"result":result}})).unwrap()
+    };
+    let decoded = decode(fixture["launchOptions"].clone(), fixture["result"].clone());
+    assert_eq!(decoded["status"], "ok", "{decoded}");
+    assert_eq!(decoded["launch"], fixture["result"]);
+    let mut wrong = fixture["result"].clone();
+    wrong["workingDirectory"] = json!("app");
+    assert_eq!(
+        decode(fixture["launchOptions"].clone(), wrong)["status"],
+        "rejected"
+    );
+    assert_eq!(
+        decode(Value::Null, fixture["result"].clone())["status"],
+        "rejected"
+    );
+    std::fs::remove_dir_all(workspace.0.join("tools")).unwrap();
+    assert_eq!(
+        decode(fixture["launchOptions"].clone(), fixture["result"].clone())["status"],
+        "rejected"
+    );
+}
+
+/// Canonical containment must survive a user-selected directory's filesystem alias.
+#[cfg(unix)]
+#[test]
+fn provider_run_options_refuse_explicit_cwd_symlinks_outside_workspace() {
+    let workspace = TemporaryWorkspace::new("provider-options-symlink");
+    let outside = TemporaryWorkspace::new("provider-options-outside");
+    workspace.write("app/Main.java", "class Main {}");
+    std::os::unix::fs::symlink(&outside.0, workspace.0.join("escape")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-run-options.plugin.json"
+    ))
+    .unwrap();
+    let mut fixture: Value =
+        serde_json::from_str(contract_file!("fixtures/build-run-options.json")).unwrap();
+    fixture["launchOptions"]["workingDirectory"] = json!("escape");
+    fixture["result"]["workingDirectory"] = json!("escape");
+    let result = build_decode_run_preparation_command(json!({"manifest":manifest,"buildSystemID":"gradle",
+        "request":{"workspaceRoot":workspace.root(),"root":"app","launchOptions":fixture["launchOptions"],"result":fixture["result"]}})).unwrap();
+    assert_eq!(result["error"]["code"], "plugin.build.invalidOutput");
+}

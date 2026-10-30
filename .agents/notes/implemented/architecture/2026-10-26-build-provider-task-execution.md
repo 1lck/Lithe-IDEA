@@ -443,3 +443,49 @@ node scripts/sdk-e2e.mjs --source /path/to/Lithe-IDEA --working-tree --build-wor
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacLivePluginRegistry.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Debug/MacBuildDebugLaunchResolver.swift`
 - `shared/fixtures/debug/adapter-selection-v1.json`
+
+
+### 运行选项的公开边界（2026-10-30，协议 10）
+
+框架和模块的启动规划不能把服务伪装成应用，也不能在宿主拼接一条 Maven shell
+命令。沿用协议 4 的准备方法，协议 10 允许显式 service/task 声明和已解析的用户
+选项；准备结束后进程仍属于既有 Run 宿主，取消、输出与 Stop 不转移给新的后台
+服务系统。参数始终保留数组边界，包括空参数、空格、Unicode 和反斜杠。构建
+Profiles、工具选择和原生配置仍来自现有链路，不再维护运行专用的影子配置。
+
+安装准入与会话协商分别检查新版本，旧后端必须在发送前拒绝选项，两种 SDK 在
+进入 handler 前再次校验。不能让旧协议忽略新增字段后启动一个与用户选择不同
+的进程。显式 cwd 只允许当前工作区内的规范目录，并要求解码时使用同一选项；
+没有覆盖时保留实例根限制，不能借新字段放宽旧应用或原生 Debug 的边界。
+
+Maven 插件现已发布服务和模块任务目标。原生 Run/Start All 的每个服务独立读取
+有效选项、获取当前模型并准备启动，不占用 Build 的单任务槽；准备结束后仍由
+原有 Run 会话拥有进程。主 Run 保留操作身份，停止、重置、参数或配置 ABA
+会拒绝迟到结果，已停止进程的回调不能覆盖同名新会话。插件停用或更新在移除
+包文件前停止有关准备和进程；更新后的旧启动注册不可继续使用，重启后才重新
+读取新包。Build 树也按声明发送执行类型，模块任务先收集 argv。
+
+保存的 Provider 引用可保留 service/task 分类，重开后仍参与原有 Start All 和单项
+服务入口；缺省的历史 application 引用保持原有含义。再次启动按当前模型重查
+完整选择器，声明改变执行类型时拒绝启动。保存只更新原引用，保留稳定 ID、参数
+和无关扩展，不存一份可执行路径或类路径。Agent 在服务准备时取得的操作 ID
+贯穿启动、输出查询和 Stop，进程创建不会替换该身份。
+
+例如所选 app 依赖同 reactor 的 core，但 core 尚未安装到本机仓库，插件使用
+Maven 的执行计划和 Mojo 执行器先构建依赖，再只在 app 执行框架目标。不要
+直接运行 `-am spring-boot:run`，它会把目标也应用于父工程和依赖工程。框架参数
+按该版本实际 Mojo 描述符写入，无法精确保留的参数明确拒绝；不建立平行类路径
+或插件执行模型。原生运行配置仍保留旧稳定 ID 和用户覆盖，领域参数由后端读取。
+
+macOS 无调用者的旧 Maven scan/launch/diagnostics/report 桥和旧 MavenProject/
+MavenModule 类型已删除；Java/JDT 专属功能留在阶段 E。Windows 仍使用共享旧
+Maven 命令，因此其 Core 实现尚不能删除，阶段 D 也尚未达到整体退出条件。
+没有新增运行时资源或共享缓存；已安装包继续只读。正式 mirror 同步仍须等待
+preview 合并，开发端到端用例通过显式参数测试工作树，不伪造发行版本。
+
+
+本增量验证：Swift 6.3.3 的 345 项回归（344 条计时记录）、Core 1403 条计时、
+四项生产 macOS Provider 场景、20 项真实 Core→Maven、Node 24/Java 48 项 SDK
+单测及六项 SDK E2E 通过。新增已保存任务准备和 Profile 场景为 11.567 秒，保持
+默认模型、默认选项、插件包哈希及准备/进程清理边界。原生与共享边界、契约、
+Agent Notes、bundle 只读和测试稳定性检查通过；对应报告路径见剩余迁移计划。

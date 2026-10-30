@@ -200,24 +200,40 @@ pub(crate) fn build_decode_test_discovery_command(payload: Value) -> Result<Valu
 
 /// `build.prepareRunPlan`: validates a provider-owned target launch request.
 pub(crate) fn build_prepare_run_plan_command(payload: Value) -> Result<Value, CoreError> {
-    with_build_system(
+    with_manifest(
         payload,
         "build.prepareRunPlan",
         "plan",
-        |build_system, request: &super::run_preparation::PrepareRunRequest| {
-            super::run_preparation::plan(build_system, request)
+        |build_system, request: &super::run_preparation::PrepareRunRequest, manifest| {
+            super::run_preparation::plan(
+                build_system,
+                request,
+                manifest
+                    .requires()
+                    .get("buildProviders")
+                    .copied()
+                    .unwrap_or(1),
+            )
         },
     )
 }
 
 /// `build.decodeRunPreparation`: validates portable process launch data.
 pub(crate) fn build_decode_run_preparation_command(payload: Value) -> Result<Value, CoreError> {
-    with_build_system(
+    with_manifest(
         payload,
         "build.decodeRunPreparation",
         "launch",
-        |build_system, request: &super::run_preparation::DecodeRunPreparationRequest| {
-            super::run_preparation::decode(build_system, request)
+        |build_system, request: &super::run_preparation::DecodeRunPreparationRequest, manifest| {
+            super::run_preparation::decode(
+                build_system,
+                request,
+                manifest
+                    .requires()
+                    .get("buildProviders")
+                    .copied()
+                    .unwrap_or(1),
+            )
         },
     )
 }

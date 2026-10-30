@@ -2,7 +2,7 @@ import Foundation
 
 package struct RunSession: Identifiable, Hashable, Sendable {
     /// Stable for one execution; replacing the output slot creates a new identity.
-    package let executionID = UUID().uuidString
+    package let executionID: String
     package let id: String
     package let configurationID: String
     package let title: String
@@ -14,6 +14,7 @@ package struct RunSession: Identifiable, Hashable, Sendable {
     package var javaUpdateSource: URL?
 
     package init(
+        executionID: String = UUID().uuidString,
         id: String,
         configurationID: String,
         title: String,
@@ -21,6 +22,7 @@ package struct RunSession: Identifiable, Hashable, Sendable {
         isRunning: Bool,
         exitCode: Int32? = nil
     ) {
+        self.executionID = executionID
         self.id = id
         self.configurationID = configurationID
         self.title = title

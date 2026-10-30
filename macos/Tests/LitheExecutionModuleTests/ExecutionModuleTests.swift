@@ -9,6 +9,106 @@ import Testing
 @MainActor
 struct ExecutionModuleTests {
     @Test
+    func providerServicesPrepareIndependentlyAndStoppedRepliesCannotLaunchOverReplacements() async throws {
+        let operations = ProviderChoicesRunOperations()
+        let root = URL(fileURLWithPath: "/workspace")
+        var processes: [TestStreamingProcess] = []
+        let started = AsyncStream<Void>.makeStream(bufferingPolicy: .unbounded)
+        let first = ProviderPreparationGate(), second = ProviderPreparationGate(), replacement = ProviderPreparationGate()
+        var calls: [String: Int] = [:]
+        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(), processFactory: {
+            let process = TestStreamingProcess(); process.onStart = { started.continuation.yield(()) }; processes.append(process); return process
+        }, fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations, executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback))
+        defer { service.reset(); first.release.continuation.yield(()); second.release.continuation.yield(()); replacement.release.continuation.yield(()); started.continuation.finish() }
+        service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
+        service.configureProviderConfigurationRuns { inputs, _, _, _, current, progress in
+            let count = calls[inputs.projectPath, default: 0]; calls[inputs.projectPath] = count + 1
+            let gate = inputs.projectPath == "second" ? second : (count == 0 ? first : replacement)
+            gate.entered.continuation.yield(())
+            // This bounded fake deliberately ignores caller cancellation until its owned gate opens.
+            let waiter = Task { try await awaitSignal(gate.release.stream) }
+            defer { waiter.cancel(); gate.finished.continuation.yield(()) }
+            try await waiter.value
+            progress(BuildProviderProgress(message: current() ? "current preparation" : "stale preparation"))
+            return try JSONDecoder().decode(BuildRunPreparation.self, from: Data(#"{"executable":{"kind":"toolchain","value":"project-maven"},"arguments":["prepared"],"workingDirectory":".","environment":{}}"#.utf8))
+        }
+        await service.loadProject(at: root, files: [])
+        service.runAllServices()
+        try await awaitSignal(first.entered.stream); try await awaitSignal(second.entered.stream)
+        #expect(service.hasRunningServices && processes.isEmpty)
+        let oldSession = try #require(service.moduleSessions.first { $0.configurationID == "first" })
+        service.stopModule(oldSession)
+        second.release.continuation.yield(())
+        try await awaitSignal(started.stream)
+        #expect(processes.count == 1)
+        #expect(service.moduleSessions.first { $0.configurationID == "second" }?.isRunning == true)
+        service.startConfiguration(operations.configurations[0])
+        try await awaitSignal(replacement.entered.stream)
+        first.release.continuation.yield(())
+        try await awaitSignal(first.finished.stream)
+        replacement.release.continuation.yield(())
+        try await awaitSignal(started.stream)
+        #expect(processes.count == 2)
+        #expect(!service.moduleSessions.contains { $0.output.contains("stale preparation") })
+        #expect(service.moduleSessions.allSatisfy { $0.isRunning })
+        let oldOutput = processes[0].onOutput, oldExit = processes[0].onTermination
+        let secondSession = try #require(service.moduleSessions.first { $0.configurationID == "second" })
+        service.stopModule(secondSession)
+        oldOutput?("late stopped output"); oldExit?(7)
+        processes[1].onOutput?("replacement barrier")
+        try await awaitTestValue(service.$moduleSessions) { $0.contains { $0.output.contains("replacement barrier") } }
+        #expect(!service.moduleSessions.contains { $0.output.contains("late stopped output") })
+        service.stopProviderConfigurations(buildSystemIDs: ["maven"])
+        #expect(!service.hasRunningServices && processes.allSatisfy { !$0.isRunning })
+    }
+
+    @Test(arguments: ["launch", "stop", "reset", "disable"])
+    func providerPrimaryPreparationRetainsIdentityAndRejectsStoppedOrResetResults(outcome: String) async throws {
+        let operations = ProviderChoicesRunOperations(), gate = ProviderPreparationGate()
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true), process = TestStreamingProcess()
+        let started = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        process.onStart = { started.continuation.yield(()) }
+        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(directories: [root]),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback))
+        defer { service.reset(); gate.release.continuation.yield(()); started.continuation.finish() }
+        service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
+        service.configureProviderConfigurationRuns { inputs, _, _, _, _, _ in
+            #expect(inputs.launchOptions.arguments == ["a b", "雪"])
+            gate.entered.continuation.yield(())
+            let waiter = Task { try await awaitSignal(gate.release.stream) }
+            defer { waiter.cancel(); gate.finished.continuation.yield(()) }
+            try await waiter.value
+            return try JSONDecoder().decode(BuildRunPreparation.self, from: Data(#"{"executable":{"kind":"toolchain","value":"project-maven"},"arguments":["prepared"],"workingDirectory":".","environment":{}}"#.utf8))
+        }
+        await service.loadProject(at: root, files: [])
+        service.run(configuration: operations.configurations[0], currentFileURL: nil)
+        let identity = service.primaryExecutionID
+        try await awaitSignal(gate.entered.stream)
+        #expect(service.isRunning && service.isPreparingBuildRun)
+        if outcome == "stop" { service.stop() }
+        if outcome == "reset" { service.reset() }
+        if outcome == "disable" { service.stopProviderConfigurations(buildSystemIDs: ["maven"]) }
+        gate.release.continuation.yield(())
+        if outcome == "launch" {
+            try await awaitSignal(started.stream)
+            #expect(service.primaryExecutionID == identity)
+            #expect(process.startRequests.first?.arguments == ["prepared"])
+            #expect(service.isRunning && !service.isPreparingBuildRun)
+            service.stopProviderConfigurations(buildSystemIDs: ["other"])
+            #expect(service.isRunning)
+            service.stopProviderConfigurations(buildSystemIDs: ["maven"])
+            #expect(!service.isRunning && !process.isRunning)
+        } else {
+            try await awaitSignal(gate.finished.stream)
+            #expect(process.startRequests.isEmpty && !service.isRunning)
+        }
+    }
+
+    @Test
     func staleProviderGenerationBlocksPrimaryServicesAndAgentPathsAndClearsAfterABA() async throws {
         let operations = FreshnessRecordingRunConfigurationOperations()
         operations.staleProviderModel = true
@@ -2709,4 +2809,34 @@ private final class TestLanguageExecutionSession: LanguageExecutionSession {
     func sleep() async {}
     func shutdown() async {}
     func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+}
+
+
+/// Two Maven services with resolved choices. Any legacy goal-planning call fails the test.
+private struct ProviderChoicesRunOperations: RunConfigurationOperations {
+    let configurations = ["first", "second"].map { id in RunConfiguration(id: id, name: id,
+        kind: .mavenFramework(.quarkus), execution: .service, modulePath: id, mainClass: nil, mavenReactorPath: ".") }
+    func inspect(at _: URL) -> ProjectRunConfigurationInspection { .init(status: .ready, diagnostics: []) }
+    func generate(at _: URL, files _: [URL], modulePaths _: [String], javaEntrypoints _: JavaEntrypoints?, projectOwnership _: [RunProjectOwnership]?) throws -> RunConfigurationGenerationResult { .init(entryCount: 2) }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        .init(configurations: configurations.map { .init(configuration: $0, options: RunOptions()) }, diagnostics: [], defaultConfigurationID: configurations.first?.id)
+    }
+    func providerLaunchInputs(at _: URL, configurationID: String, providerRoot _: String) throws -> ProviderLaunchInputs {
+        .init(buildSystemID: "maven", provider: "quarkus.maven", projectPath: configurationID,
+              launchOptions: .init(execution: .service, arguments: ["a b", "雪"]))
+    }
+    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+        Issue.record("Provider-owned Maven service reached the legacy Core goal planner")
+        throw RunFixtureError.failed
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
+}
+
+@MainActor
+private final class ProviderPreparationGate {
+    let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let finished = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    deinit { entered.continuation.finish(); release.continuation.finish(); finished.continuation.finish() }
 }

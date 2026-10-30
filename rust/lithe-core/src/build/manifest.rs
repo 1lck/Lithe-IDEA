@@ -1450,6 +1450,19 @@ impl BuildSystemDeclaration {
         if provider_tests && context.build_providers_version < 3 {
             return Err(invalid(&field, "Provider tests require buildProviders 3."));
         }
+        if context.build_providers_version < 10
+            && self.run.iter().any(|run| {
+                run.source == TaskSource::Provider
+                    && run
+                        .execution
+                        .is_some_and(|execution| execution != BuildExecution::Application)
+            })
+        {
+            return Err(invalid(
+                &field,
+                "Provider service/task preparation requires buildProviders 10.",
+            ));
+        }
         if provider_runs && context.build_providers_version < 4 {
             return Err(invalid(
                 &field,
@@ -1923,7 +1936,12 @@ impl BuildSystemDeclaration {
                     "Run IDs are unique identifiers that start with a letter.",
                 ));
             }
-            if run.debug.is_some() && run.source != TaskSource::Provider {
+            if run.debug.is_some()
+                && (run.source != TaskSource::Provider
+                    || run
+                        .execution
+                        .is_some_and(|execution| execution != BuildExecution::Application))
+            {
                 return Err(invalid(
                     &field,
                     "Debug preparation requires a provider run.",
@@ -1939,14 +1957,14 @@ impl BuildSystemDeclaration {
                     || run.from_tasks.is_some()
                     || !run.arguments.is_empty()
                     || !run.extension.is_empty()
-                    || run
-                        .execution
-                        .is_some_and(|execution| execution != BuildExecution::Application)
                     || run.name.as_ref().is_some_and(|name| {
                         name.trim().is_empty() || name.len() > MAX_TEXT || name.contains("${")
                     })
                 {
-                    return Err(invalid(&field, "Provider runs require target tags, application execution, and no host command templates."));
+                    return Err(invalid(
+                        &field,
+                        "Provider runs require target tags and no host command templates.",
+                    ));
                 }
                 let from = run.from_targets.as_mut().expect("validated target source");
                 from.tags = sorted_unique(std::mem::take(&mut from.tags));

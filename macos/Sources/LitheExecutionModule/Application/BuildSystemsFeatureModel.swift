@@ -183,6 +183,7 @@ package final class BuildSystemsFeatureModel: ObservableObject {
         service.setInstanceOption(entryID, optionID: optionID, value: value)
     }
     package func pluginsChanged() { service.pluginsChanged() }
+    package func pluginPackageWillChange(_ pluginID: String) { service.pluginPackageWillChange(pluginID) }
     package func stopRun() { service.stopRun() }
     package func cancelRun(_ id: UUID) { service.cancelRun(id) }
     package func stop() { service.stop() }
