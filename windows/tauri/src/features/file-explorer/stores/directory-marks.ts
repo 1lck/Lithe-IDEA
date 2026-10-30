@@ -5,6 +5,7 @@ import {
   writeIndexingSettings,
 } from "./workspace-indexing";
 import { useCallback, useEffect, useState } from "react";
+import { closestWorkspaceRoot } from "@/features/workspace/types/workspace-root";
 import {
   getRelativePath,
   isCaseInsensitivePath,
@@ -93,8 +94,7 @@ export function migrateDirectoryMarks(root: string, source: string, destination?
 }
 /** The closest workspace owns preferences, including nested added roots. */
 export function directoryMarkRoot(path: string, roots: readonly string[]): string | undefined {
-  return roots.filter((root) => pathStartsWithRoot(path, root))
-    .sort((a, b) => getPathIdentity(b).length - getPathIdentity(a).length)[0];
+  return closestWorkspaceRoot(path, roots);
 }
 
 export function migrateWorkspaceDirectoryMarks(roots: readonly string[], source: string, destination?: string) {

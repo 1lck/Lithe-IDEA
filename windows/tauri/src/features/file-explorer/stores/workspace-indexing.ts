@@ -17,20 +17,64 @@ const key = (root: string) =>
   `lithe.workspace-directory-marks.${getPathIdentity(root).replace(/\/+$/, "")}`;
 export const indexingSettingsStorageKey = (root: string) =>
   `lithe.workspace-indexing.${getPathIdentity(root).replace(/\/+$/, "")}`;
+export type IndexingErrorCode =
+  | "invalidSettings"
+  | "readFailed"
+  | "writeFailed"
+  | "configureFailed";
+export class IndexingSettingsError extends Error {
+  constructor(
+    readonly code: IndexingErrorCode,
+    cause?: unknown,
+  ) {
+    super(code, { cause });
+    this.name = "IndexingSettingsError";
+  }
+}
+
+function readStoredValue(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch (cause) {
+    throw new IndexingSettingsError("readFailed", cause);
+  }
+}
+
 export function readIndexingSettings(root: string): IndexingSettings {
-  const raw = window.localStorage.getItem(indexingSettingsStorageKey(root));
-  if (!raw) return { gitIgnoreEnabled: true, includedDirectories: [], previousRoles: {} };
-  const value = JSON.parse(raw);
+  const raw = readStoredValue(indexingSettingsStorageKey(root));
+  if (raw === null) return { gitIgnoreEnabled: true, includedDirectories: [], previousRoles: {} };
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (cause) {
+    throw new IndexingSettingsError("invalidSettings", cause);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new IndexingSettingsError("invalidSettings");
+  const settings = value as Record<string, unknown>;
   if (
-    typeof value.gitIgnoreEnabled !== "boolean" ||
-    !Array.isArray(value.includedDirectories) ||
-    !value.includedDirectories.every((path: unknown) => typeof path === "string")
+    typeof settings.gitIgnoreEnabled !== "boolean" ||
+    !Array.isArray(settings.includedDirectories) ||
+    !settings.includedDirectories.every((path: unknown) => typeof path === "string") ||
+    (settings.previousRoles !== undefined &&
+      (!settings.previousRoles ||
+        typeof settings.previousRoles !== "object" ||
+        Array.isArray(settings.previousRoles) ||
+        !Object.values(settings.previousRoles).every((role) => typeof role === "string")))
   )
-    throw new Error("Invalid indexing settings");
-  return { ...value, previousRoles: value.previousRoles ?? {} };
+    throw new IndexingSettingsError("invalidSettings");
+  return {
+    gitIgnoreEnabled: settings.gitIgnoreEnabled,
+    includedDirectories: settings.includedDirectories,
+    previousRoles: (settings.previousRoles ?? {}) as Record<string, string>,
+  };
 }
 export function writeIndexingSettings(root: string, settings: IndexingSettings) {
-  window.localStorage.setItem(indexingSettingsStorageKey(root), JSON.stringify(settings));
+  try {
+    window.localStorage.setItem(indexingSettingsStorageKey(root), JSON.stringify(settings));
+  } catch (cause) {
+    throw new IndexingSettingsError("writeFailed", cause);
+  }
   window.dispatchEvent(new window.CustomEvent(indexingEvent, { detail: root }));
 }
 
@@ -45,7 +89,7 @@ export async function configureWorkspaceIndexing(
   const identity = getPathIdentity(root);
   const operation = async () => {
     const settings = readIndexingSettings(root);
-    const raw = window.localStorage.getItem(key(root));
+    const raw = readStoredValue(key(root));
     const marks = raw ? JSON.parse(raw).marks : {};
     const response = await executeCore<IndexingStatus>({
       id: crypto.randomUUID(),
@@ -60,7 +104,7 @@ export async function configureWorkspaceIndexing(
         refresh,
       },
     });
-    if (!response.ok) throw new Error(response.error.message);
+    if (!response.ok) throw new IndexingSettingsError("configureFailed", response.error);
     revisions.set(identity, response.data.revision);
     return response.data;
   };

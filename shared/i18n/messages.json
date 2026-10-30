@@ -91330,12 +91330,41 @@
       "id": "indexing.remoteUnsupported",
       "description": "Remote workspace indexing exclusion capability",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "Directory indexing exclusions are not supported for remote projects.",
         "arguments": []
       }
+    },
+    {
+      "id": "indexing.invalidSettings",
+      "description": "Project indexing settings failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "indexing.readFailed",
+      "description": "Project indexing settings failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "indexing.writeFailed",
+      "description": "Project indexing settings failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "indexing.configureFailed",
+      "description": "Project indexing settings failure",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

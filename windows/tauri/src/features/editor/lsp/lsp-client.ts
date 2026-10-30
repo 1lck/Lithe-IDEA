@@ -1,5 +1,9 @@
 import { canUseNativeFileSearch } from "@/features/file-search/utils/file-search-paths";
 import { configureWorkspaceIndexing } from "@/features/file-explorer/stores/workspace-indexing";
+import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { closestWorkspaceRoot } from "@/features/workspace/types/workspace-root";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import {
   getLspSessionSnapshot,
   getLspWorkspaceSessionSnapshot,
@@ -37,7 +41,7 @@ import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-cont
 import { useBufferStore } from "../stores/buffer.store";
 import type { EditorTextChange } from "../types/editor.types";
 import { logger } from "../utils/logger";
-import { normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
+import { getRelativePath, joinPath, normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { getLanguageDisplayName } from "../utils/language-id";
 import {
   isBuiltInLspPath,
@@ -888,16 +892,22 @@ export class LspClient {
     scope: WorkspaceLaunchScope,
     intent: LspFileStartIntent = "attach",
   ): Promise<LspFileAttachmentOutcome> {
-    if (canUseNativeFileSearch(scope.root)) {
-      const relative = filePath
-        .replace(/\\/g, "/")
-        .slice(scope.root.replace(/\\/g, "/").replace(/\/+$/, "").length + 1);
+    const policyRoot = () => {
+      if (!workspaceRuntimeRegistry.hasWorkspace(scope.workspaceId)) return undefined;
+      const state = useFileSystemStore.getStore(scope.workspaceId).getState();
+      return closestWorkspaceRoot(filePath,
+        getNativeWorkspaceRootPaths(state.rootFolderPath, state.workspaceFolders));
+    };
+    const root = canUseNativeFileSearch(filePath) ? policyRoot() : undefined;
+    if (root) {
+      const relative = getRelativePath(filePath, root);
       const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : ".";
-      const indexing = await configureWorkspaceIndexing(scope.root, [parent]);
+      const indexing = await configureWorkspaceIndexing(root, [parent]);
+      if (policyRoot() !== root) return { kind: "cancelled", reason: "superseded" };
       if (
         Object.keys(indexing.excludedDirectories).some(
           (directory) =>
-            directory === "." || relative === directory || relative.startsWith(directory + "/"),
+            directory === "." || pathStartsWithRoot(filePath, joinPath(root, directory)),
         )
       )
         return { kind: "cancelled", reason: "excluded" };

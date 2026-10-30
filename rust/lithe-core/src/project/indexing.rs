@@ -227,6 +227,7 @@ pub(crate) fn prepare_provider_exclusions(root: &Path) -> Result<(), CoreError> 
         context.prepare_parent(root, "")?;
         super::files::snapshot(super::files::WorkspaceSnapshotRequest {
             root: root.to_string_lossy().into_owned(),
+            workspace_roots: Vec::new(),
             hidden_directory_names: Vec::new(),
             hidden_file_patterns: Vec::new(),
             include_tree: false,
@@ -480,7 +481,11 @@ mod tests {
         let workspace = Workspace::new();
         workspace.configure(&["ignored"], &[], false);
         let uri = url::Url::from_directory_path(&workspace.0).unwrap();
-        let directory = workspace.0.join("ignored").to_string_lossy().into_owned();
+        let directory = workspace
+            .0
+            .join("ignored")
+            .to_string_lossy()
+            .replace('\\', "/");
         assert_eq!(
             java_import_exclusions(uri.as_str()),
             vec![directory.clone(), format!("{directory}/**")]
@@ -540,6 +545,181 @@ mod tests {
             files::DIRECTORY_VISITS.with_borrow_mut(|trace| *trace = None);
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn nested_roots_prune_real_inventories_search_and_incremental_refills() {
+        let parent = Workspace::new();
+        let nested = Workspace(parent.0.join("ignored"));
+        parent.configure(&[], &[], false);
+        fs::write(
+            nested.0.join("Visible.java"),
+            "class Visible { String needle; }",
+        )
+        .unwrap();
+        let roots = vec![parent.0.clone(), nested.0.clone()];
+        let search = |root: &Path, roots: &[PathBuf]| {
+            files::search(
+                serde_json::from_value(json!({
+                    "root": root, "workspaceRoots": roots, "query":"needle", "maxFileResults":0
+                }))
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            search(&parent.0, &[]).matches.len(),
+            3,
+            "warm the legacy parent index"
+        );
+        for git in [false, true] {
+            if git {
+                nested.git(&["init", "--quiet"]);
+                fs::write(nested.0.join(".gitignore"), "deep/\n").unwrap();
+            }
+            nested.configure(if git { &[] } else { &["deep"] }, &[], git);
+            files::DIRECTORY_VISITS.with_borrow_mut(|trace| *trace = Some(Vec::new()));
+            let inventory = files::snapshot(
+                serde_json::from_value(json!({
+                    "root":parent.0, "workspaceRoots":roots, "includeTree":false
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(inventory.files, ["src/Included.java"]);
+            files::DIRECTORY_VISITS.with_borrow(|trace| {
+                assert!(!trace
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .any(|path| path.starts_with(&nested.0)))
+            });
+            assert_eq!(search(&parent.0, &roots).matches.len(), 1);
+            assert_eq!(
+                search(&nested.0, &roots)
+                    .matches
+                    .iter()
+                    .map(|item| item.path.as_str())
+                    .collect::<Vec<_>>(),
+                ["Visible.java"]
+            );
+            let warm = files::warm_search_index(
+                serde_json::from_value(json!({
+                    "root":parent.0,"workspaceRoots":roots
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(warm.file_count, 1);
+            search_index::update_cached_file(&parent.0, &nested.0.join("Visible.java"));
+            let updated = files::update_search_index(
+                serde_json::from_value(json!({
+                    "root":parent.0,"workspaceRoots":roots,"paths":["ignored/Visible.java"]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                updated.file_count, 1,
+                "watcher updates cannot refill a delegated subtree"
+            );
+            let preview = files::replace_preview(serde_json::from_value(json!({
+                "root":parent.0,"workspaceRoots":roots,"query":"needle","replacement":"changed",
+                "paths":["ignored/Visible.java"],"textOverrides":{"ignored/Visible.java":"needle"}
+            })).unwrap()).unwrap();
+            assert!(
+                preview.files.is_empty(),
+                "explicit paths and dirty overrides also obey ownership"
+            );
+            let names = files::search_everywhere(serde_json::from_value(json!({
+                "root":parent.0,"workspaceRoots":roots,"query":"Visible","includeGeneratedFileNames":true
+            })).unwrap()).unwrap();
+            assert!(names.matches.is_empty());
+        }
+        // Another window's registered policy does not delegate this window's scan.
+        assert_eq!(search(&parent.0, &[]).matches.len(), 3);
+        let status = context(&nested.0).unwrap();
+        release(ReleaseIndexingRequest {
+            root: nested.0.to_string_lossy().into_owned(),
+            revision: status.owner_revision,
+        })
+        .unwrap();
+        assert_eq!(
+            search(&parent.0, &[parent.0.clone()]).matches.len(),
+            3,
+            "removing an added root restores parent scanning even while its policy is retired"
+        );
+    }
+
+    #[test]
+    fn unavailable_roots_do_not_break_scoped_search_or_missing_descendant_boundaries() {
+        let workspace = Workspace::new();
+        workspace.configure(&[], &[], false);
+        let unavailable_sibling = workspace.0.with_extension("disconnected");
+        let roots = vec![workspace.0.clone(), unavailable_sibling];
+        let response = files::search(
+            serde_json::from_value(json!({
+                "root":workspace.0,"workspaceRoots":roots,"scopePaths":["src"],
+                "query":"needle","maxFileResults":0,"maxResults":1
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(response.matches.len(), 1);
+        let nested = workspace.0.join("ignored");
+        fs::remove_dir_all(&nested).unwrap();
+        let request =
+            json!({"root":workspace.0,"workspaceRoots":[workspace.0,nested],"includeTree":false});
+        assert_eq!(
+            files::snapshot(serde_json::from_value(request.clone()).unwrap())
+                .unwrap()
+                .files,
+            ["src/Included.java"]
+        );
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("Reappeared.java"), "class Reappeared {}").unwrap();
+        assert_eq!(
+            files::snapshot(serde_json::from_value(request).unwrap())
+                .unwrap()
+                .files,
+            ["src/Included.java"],
+            "reappearing delegated content cannot leak into the parent"
+        );
+    }
+
+    #[test]
+    fn nested_root_fixture_keeps_scopes_caps_and_tree_browsing_independent() {
+        let parent = Workspace::new();
+        let nested = Workspace(parent.0.join("ignored"));
+        parent.configure(&[], &[], false);
+        nested.configure(&["deep"], &[], false);
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/workspace/indexing-policy-v1.json"
+        ))
+        .unwrap();
+        for case in fixture["ownershipCases"].as_array().unwrap() {
+            let roots = if case["nestedRegistered"].as_bool().unwrap() {
+                vec![parent.0.clone(), nested.0.clone()]
+            } else {
+                vec![parent.0.clone()]
+            };
+            let response = files::search(serde_json::from_value(json!({
+                "root":parent.0,"workspaceRoots":roots,"query":"needle","scopePaths":["ignored"],
+                "maxFileResults":0,"maxResults":1
+            })).unwrap()).unwrap();
+            assert_eq!(
+                response.matches.len(),
+                case["parentScopedMatches"].as_u64().unwrap() as usize
+            );
+        }
+        let tree = files::list_directories(
+            serde_json::from_value(json!({
+                "root":parent.0,"paths":["ignored/deep"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tree.directories[0].children[0].name, "Excluded.java");
     }
 
     #[test]

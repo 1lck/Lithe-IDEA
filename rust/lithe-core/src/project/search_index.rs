@@ -65,6 +65,7 @@ struct IndexKey {
     hidden_directories: Vec<String>,
     hidden_file_patterns: Vec<String>,
     names_only: bool,
+    delegated_roots: Vec<PathBuf>,
     policy_revision: u64,
 }
 
@@ -83,6 +84,7 @@ fn key(root: &Path, rules: &VisibilityRules) -> IndexKey {
         hidden_directories: rules.hidden_directories.clone(),
         hidden_file_patterns: rules.hidden_file_patterns.clone(),
         names_only: false,
+        delegated_roots: rules.delegated_roots.clone(),
         policy_revision: super::indexing::context(root).map_or(0, |policy| policy.revision),
     }
 }
@@ -175,7 +177,11 @@ pub(crate) fn update_cached_file(root: &Path, path: &Path) {
         let rules = VisibilityRules {
             hidden_directories: cache_key.hidden_directories,
             hidden_file_patterns: cache_key.hidden_file_patterns,
+            delegated_roots: cache_key.delegated_roots,
         };
+        if rules.is_delegated(&absolute) {
+            continue;
+        }
         if let Ok(mut index) = index.write() {
             index.update_file(&absolute, &relative, metadata.as_ref(), &rules);
         }
@@ -215,11 +221,15 @@ pub(crate) fn update_paths(
         let effective_rules = VisibilityRules {
             hidden_directories: cache_key.hidden_directories,
             hidden_file_patterns: cache_key.hidden_file_patterns,
+            delegated_roots: cache_key.delegated_roots,
         };
         for value in paths {
             let Some(absolute) = normalized_update_path(root, value) else {
                 continue;
             };
+            if effective_rules.is_delegated(&absolute) {
+                continue;
+            }
             let relative = relative_path(&absolute, root);
             // Both name and content indexes exclude nested linked worktrees.
             if is_inside_nested_linked_worktree(root, &relative) {
@@ -456,6 +466,9 @@ fn collect_files(
     policy: Option<&super::indexing::IndexingContext>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
+    if rules.is_delegated(path) {
+        return Ok(());
+    }
     if let Some(policy) = policy {
         if policy.reason(&relative_path(path, root), true)?.is_some() {
             return Ok(());
@@ -646,6 +659,7 @@ mod tests {
         let root = crate::tests::support::temporary_root("search-missing-descendant");
         let rules = VisibilityRules {
             hidden_directories: vec![],
+            delegated_roots: Vec::new(),
             hidden_file_patterns: vec![],
         };
         let mut paths = Vec::new();
@@ -724,6 +738,7 @@ mod tests {
         }
         let rules = VisibilityRules {
             hidden_directories: vec![],
+            delegated_roots: Vec::new(),
             hidden_file_patterns: vec![],
         };
         let mut paths = Vec::new();
@@ -768,6 +783,7 @@ mod tests {
         // judge the same list.
         let rules = VisibilityRules {
             hidden_directories: vec![],
+            delegated_roots: Vec::new(),
             hidden_file_patterns: fixture["hiddenFilePatterns"]
                 .as_array()
                 .unwrap()
@@ -837,6 +853,7 @@ mod tests {
         for index in 0..32 {
             let rules = VisibilityRules {
                 hidden_directories: vec![],
+                delegated_roots: Vec::new(),
                 hidden_file_patterns: vec![format!("exclude-{index}/")],
             };
             let content = get_or_build(&root, &rules).unwrap();

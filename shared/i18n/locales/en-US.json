@@ -9563,7 +9563,11 @@
     "indexing.gitReason": "Excluded from indexing by Git ignore rules",
     "indexing.inheritedReason": "Excluded from indexing by a parent directory",
     "indexing.incomplete": "Some directories could not be scanned. Automatic project analysis was not refreshed.",
-    "indexing.remoteUnsupported": "Directory indexing exclusions are not supported for remote projects."
+    "indexing.remoteUnsupported": "Directory indexing exclusions are not supported for remote projects.",
+    "indexing.invalidSettings": "Project indexing settings are invalid. The saved data has been preserved.",
+    "indexing.readFailed": "Could not read project indexing settings. Try reopening the project.",
+    "indexing.writeFailed": "Could not save project indexing settings. Your previous settings remain unchanged.",
+    "indexing.configureFailed": "Could not apply project indexing exclusions. Try reopening the project."
   },
   "overrides": {
     "windows": {

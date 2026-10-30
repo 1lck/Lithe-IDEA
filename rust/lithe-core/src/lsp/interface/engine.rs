@@ -8777,7 +8777,7 @@ mod tests {
             apply_indexing_to_sessions(&root, vec![harness.session()]).unwrap();
             let mut expected = vec![json!("**/vendor/**")];
             if excluded {
-                let directory = root.join("reactor").to_string_lossy().into_owned();
+                let directory = root.join("reactor").to_string_lossy().replace('\\', "/");
                 expected.extend([json!(directory), json!(format!("{directory}/**"))]);
             }
             let notifications = notifications(&harness, "workspace/didChangeConfiguration");

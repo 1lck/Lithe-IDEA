@@ -4407,3 +4407,17 @@ until the next explicit configuration for that root.
 `workspace.search.scopePaths` optionally limits candidates to workspace-relative
 files or directory subtrees before applying result caps. It never establishes a new
 policy root. Empty scopes search the full registered project.
+
+Inventory snapshots, search (including Search Everywhere and its pages), index
+warm/update requests and replacement previews accept optional `workspaceRoots`:
+the absolute native roots explicitly opened in the calling workspace. Omission or
+an empty array preserves single-root behavior. Core canonicalizes the roots and
+prunes strict descendant roots from the current root's inventory and indexes;
+the host queries each descendant using its own policy. Directory listing remains
+available. Explicit replacement paths and text overrides cannot bypass ownership.
+The effective descendant set is part of each index cache key and is retained for
+save/watcher updates. It is request-local, never inferred from process-global
+indexing policies or retired roots. Hosts discard in-flight results when their
+workspace root set changes. Removing a nested root restores parent scanning.
+An unavailable non-current root does not fail a scoped request for an accessible
+root; a missing descendant retains its ownership boundary until removed by the host.

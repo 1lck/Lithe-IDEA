@@ -96,7 +96,9 @@ export async function searchFilesContent(
       .filter(
         (root) =>
           !request.scope_paths?.length ||
-          request.scope_paths.some((scope) => pathStartsWithRoot(scope, root)),
+          request.scope_paths.some(
+            (scope) => pathStartsWithRoot(scope, root) || pathStartsWithRoot(root, scope),
+          ),
       )
       .map(async (root) => {
         await configureWorkspaceIndexing(root);
@@ -105,6 +107,7 @@ export async function searchFilesContent(
           command: "workspace.search",
           payload: {
             root,
+            workspaceRoots: request.root_paths,
             query: request.query,
             caseSensitive: request.case_sensitive ?? false,
             wholeWords: request.whole_word ?? false,
@@ -112,8 +115,12 @@ export async function searchFilesContent(
             maxResults,
             maxFileResults: 0,
             scopePaths: request.scope_paths
-              ?.filter((scope) => pathStartsWithRoot(scope, root))
-              .map((scope) => getRelativePath(scope, root).replace(/\\/g, "/") || "."),
+              ?.filter(
+                (scope) => pathStartsWithRoot(scope, root) || pathStartsWithRoot(root, scope),
+              )
+              .map((scope) =>
+                pathStartsWithRoot(root, scope) ? "." : getRelativePath(scope, root),
+              ),
             fileMask: "",
           },
         });
@@ -164,11 +171,11 @@ export async function searchFilesContent(
 }
 
 export async function fffEnsureWorkspaces(rootPaths: readonly string[]): Promise<void> {
-  await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root)));
+  await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths)));
 }
 
 export async function fffScanStatus(rootPaths: readonly string[]): Promise<FffScanStatus> {
-  const files = await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root)));
+  const files = await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths)));
   const count = files.reduce((total, entries) => total + entries.length, 0);
   return {
     is_scanning: false,
@@ -194,7 +201,7 @@ export async function fffSearchFiles(
 
 export async function fffListFiles(rootPaths: readonly string[]): Promise<FffIndexedFile[]> {
   const workspaces = await Promise.all(
-    rootPaths.map(async (root) => ({ root, files: await listWorkspaceFiles(root) })),
+    rootPaths.map(async (root) => ({ root, files: await listWorkspaceFiles(root, rootPaths) })),
   );
   return workspaces.flatMap(({ root, files }) =>
     files.map((relativePath) => ({
@@ -209,7 +216,10 @@ export async function fffTrackAccess(_path: string): Promise<void> {
   // Access ranking is frontend-owned until the shared contract exposes it.
 }
 
-async function listWorkspaceFiles(root: string): Promise<string[]> {
+async function listWorkspaceFiles(
+  root: string,
+  workspaceRoots: readonly string[],
+): Promise<string[]> {
   await configureWorkspaceIndexing(root);
   const response = await executeCore<{
     root: CoreWorkspaceNode;
@@ -218,7 +228,7 @@ async function listWorkspaceFiles(root: string): Promise<string[]> {
   }>({
     id: crypto.randomUUID(),
     command: "workspace.snapshot",
-    payload: { root, includeTree: false },
+    payload: { root, workspaceRoots, includeTree: false },
   });
   const data = coreData(response);
   if (data.incompleteDirectories?.length)

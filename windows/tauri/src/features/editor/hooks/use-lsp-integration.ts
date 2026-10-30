@@ -1,3 +1,4 @@
+import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
 import { useIndexingVersion } from "@/features/file-explorer/stores/workspace-indexing";
 import { useEffect, useMemo, useRef } from "react";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
@@ -43,7 +44,7 @@ type DocumentChangeOwnerState =
   | { phase: "flushing"; completion: Promise<void> };
 
 interface LspDocumentOwner {
-  indexingVersion: number;
+  indexingKey: string;
   // One record owns every asynchronous resource for one editor attachment.
   state: LspDocumentOwnerState;
   changes: DocumentChangeOwnerState;
@@ -71,11 +72,16 @@ export const useLspIntegration = ({
   contentRevision = 0,
 }: UseLspIntegrationOptions) => {
   const indexingVersion = useIndexingVersion();
-  const indexingVersionRef = useRef(indexingVersion);
-  indexingVersionRef.current = indexingVersion;
   const lspClient = useMemo(() => LspClient.getInstance(), []);
   const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
+  // Root membership changes must withdraw old attachments even when settings are unchanged.
+  const indexingKey = JSON.stringify([
+    workspaceId, indexingVersion, getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
+  ]);
+  const indexingKeyRef = useRef(indexingKey);
+  indexingKeyRef.current = indexingKey;
   const installedExtensions = useExtensionStore.use.installedExtensions();
   const activeFilePath = enabled ? filePath : undefined;
   const isLspSupported = useMemo(
@@ -108,11 +114,11 @@ export const useLspIntegration = ({
     const existingOwner = documentOwnersRef.current.get(filePath);
     const owner: LspDocumentOwner =
       existingOwner &&
-      existingOwner.indexingVersion === indexingVersion &&
+      existingOwner.indexingKey === indexingKey &&
       !isTerminalOwnerState(existingOwner.state)
         ? existingOwner
         : {
-            indexingVersion,
+            indexingKey,
             state: { phase: "scheduled" },
             changes: { phase: "idle", completion: Promise.resolve() },
           };
@@ -122,7 +128,7 @@ export const useLspIntegration = ({
       const isStillOpen = Boolean(
         getSourceEditorBufferByPath(useBufferStore.getState().buffers, filePath),
       );
-      if (isStillOpen && indexingVersionRef.current === indexingVersion) return;
+      if (isStillOpen && indexingKeyRef.current === indexingKey) return;
 
       if (owner.state.phase === "stopping" || owner.state.phase === "stopped") return;
       const previousState = owner.state;
@@ -157,7 +163,7 @@ export const useLspIntegration = ({
 
     if (
       existingOwner &&
-      existingOwner.indexingVersion === indexingVersion &&
+      existingOwner.indexingKey === indexingKey &&
       !isTerminalOwnerState(existingOwner.state)
     ) {
       return cleanupDocument;
@@ -209,7 +215,7 @@ export const useLspIntegration = ({
       cancelInitialization();
       cleanupDocument();
     };
-  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, workspaceId, indexingVersion]);
+  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, workspaceId, indexingKey]);
 
   useEffect(() => {
     if (!enabled || !filePath || !isLspSupported) return;

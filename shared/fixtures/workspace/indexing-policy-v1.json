@@ -3,21 +3,49 @@
   "command": "workspace.configureIndexing",
   "request": {
     "root": "/workspace",
-    "manualExcludedDirectories": ["vendor"],
-    "includedDirectories": ["generated/examples"],
+    "manualExcludedDirectories": [
+      "vendor"
+    ],
+    "includedDirectories": [
+      "generated/examples"
+    ],
     "gitIgnoreEnabled": true,
     "refresh": false,
-    "paths": ["vendor", "generated"]
+    "paths": [
+      "vendor",
+      "generated"
+    ]
   },
   "response": {
     "revision": 1,
-    "excludedDirectories": {"vendor": "manual"},
+    "excludedDirectories": {
+      "vendor": "manual"
+    },
     "gitIgnoreFailed": false
   },
   "cases": [
-    {"path": "vendor/src", "reason": "manual"},
-    {"path": "generated/examples", "reason": null},
-    {"path": "generated", "reason": null}
+    {
+      "path": "vendor/src",
+      "reason": "manual"
+    },
+    {
+      "path": "generated/examples",
+      "reason": null
+    },
+    {
+      "path": "generated",
+      "reason": null
+    }
   ],
-  "notes": "generated is a traversal ancestor of an include exception and cannot be pruned as a whole. Hidden-path rules are separate."
+  "notes": "generated is a traversal ancestor of an include exception and cannot be pruned as a whole. Hidden-path rules are separate.",
+  "ownershipCases": [
+    {
+      "nestedRegistered": true,
+      "parentScopedMatches": 0
+    },
+    {
+      "nestedRegistered": false,
+      "parentScopedMatches": 1
+    }
+  ]
 }

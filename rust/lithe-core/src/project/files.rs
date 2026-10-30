@@ -55,6 +55,9 @@ const MAX_OPEN_FILE_SIZE: u64 = 32 * 1024 * 1024;
 /// Workspace root and visibility overrides used to build a file-tree snapshot.
 pub struct WorkspaceSnapshotRequest {
     pub root: String,
+    /// Explicit roots of this workspace; nested roots own their inventories independently.
+    #[serde(default)]
+    pub workspace_roots: Vec<String>,
     #[serde(default)]
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
@@ -92,6 +95,9 @@ pub struct SearchRequest {
     #[serde(default)]
     pub scope_paths: Vec<String>,
     pub root: String,
+    /// Request-local ownership boundaries; omitted roots preserve single-root behavior.
+    #[serde(default)]
+    pub workspace_roots: Vec<String>,
     pub query: String,
     #[serde(default)]
     pub case_sensitive: bool,
@@ -124,6 +130,9 @@ pub struct SearchRequest {
 /// Workspace root and visibility rules used to warm or invalidate an index.
 pub struct SearchIndexRequest {
     pub root: String,
+    /// Explicit workspace roots used when warming this index variant.
+    #[serde(default)]
+    pub workspace_roots: Vec<String>,
     #[serde(default)]
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
@@ -135,6 +144,9 @@ pub struct SearchIndexRequest {
 /// Changed workspace-relative paths to apply to a cached search index.
 pub struct SearchIndexUpdateRequest {
     pub root: String,
+    /// Explicit workspace roots used when rebuilding after an update.
+    #[serde(default)]
+    pub workspace_roots: Vec<String>,
     #[serde(default)]
     pub paths: Vec<String>,
     #[serde(default)]
@@ -158,6 +170,9 @@ pub struct SearchIndexStatusResponse {
 /// Search and replacement options used to produce a non-mutating preview.
 pub struct ReplacementPreviewRequest {
     pub root: String,
+    /// Nested roots are previewed through their own root and policy.
+    #[serde(default)]
+    pub workspace_roots: Vec<String>,
     pub query: String,
     pub replacement: String,
     #[serde(default)]
@@ -207,7 +222,8 @@ pub fn snapshot(request: WorkspaceSnapshotRequest) -> Result<WorkspaceSnapshotRe
     let root = existing_root(&request.root)?;
     let indexing_policy = super::indexing::context(&root);
     search_index::invalidate_root(&root);
-    let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
+    let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns)
+        .with_workspace_roots(&root, &request.workspace_roots);
     let mut files = Vec::new();
     let mut nested_worktrees = Vec::new();
     let mut incomplete_directories = Vec::new();
@@ -343,7 +359,8 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     let rules = VisibilityRules::new(
         request.hidden_directory_names.clone(),
         request.hidden_file_patterns.clone(),
-    );
+    )
+    .with_workspace_roots(&root, &request.workspace_roots);
     let index = search_index::get_or_build(&root, &rules)?;
     let index = index
         .read()
@@ -432,7 +449,8 @@ fn search_with_index(
         let path = &indexed_file.path;
         if page.is_some_and(|page| !page.accepts_path(path))
             || !scope_allows(&request.scope_paths, path)
-            || !file_mask_allows(&masks, path) {
+            || !file_mask_allows(&masks, path)
+        {
             continue;
         }
         let file = root.join(path);
@@ -488,7 +506,8 @@ pub(crate) fn search_everywhere_with_page(
     let rules = VisibilityRules::new(
         request.hidden_directory_names.clone(),
         request.hidden_file_patterns.clone(),
-    );
+    )
+    .with_workspace_roots(&root, &request.workspace_roots);
     let matcher = Matcher::new(
         &query,
         request.case_sensitive,
@@ -533,6 +552,7 @@ pub(crate) fn search_everywhere_with_page(
                 .cloned()
                 .collect(),
             hidden_file_patterns: rules.hidden_file_patterns.clone(),
+            delegated_roots: rules.delegated_roots.clone(),
         };
         let names = search_index::get_names(&root, &name_rules)?;
         let names = names
@@ -793,7 +813,8 @@ pub fn replace_preview(
     let rules = VisibilityRules::new(
         request.hidden_directory_names.clone(),
         request.hidden_file_patterns.clone(),
-    );
+    )
+    .with_workspace_roots(&root, &request.workspace_roots);
     let shared_index = search_index::get_or_build(&root, &rules)?;
     let index = shared_index
         .read()
@@ -836,7 +857,7 @@ pub fn replace_preview(
             continue;
         }
         let file = root.join(&relative);
-        if super::indexing::is_excluded(&root, &file, false)? {
+        if rules.is_delegated(&file) || super::indexing::is_excluded(&root, &file, false)? {
             continue;
         }
         let text = request
@@ -881,7 +902,8 @@ pub fn warm_search_index(
     request: SearchIndexRequest,
 ) -> Result<SearchIndexStatusResponse, CoreError> {
     let root = existing_root(&request.root)?;
-    let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
+    let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns)
+        .with_workspace_roots(&root, &request.workspace_roots);
     let index = search_index::get_or_build(&root, &rules)?;
     let index = index
         .read()
@@ -900,7 +922,8 @@ pub fn update_search_index(
     request: SearchIndexUpdateRequest,
 ) -> Result<SearchIndexStatusResponse, CoreError> {
     let root = existing_root(&request.root)?;
-    let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
+    let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns)
+        .with_workspace_roots(&root, &request.workspace_roots);
     if request.paths.iter().any(|path| {
         path.ends_with(".gitignore")
             || path.contains(".git/")
@@ -988,6 +1011,8 @@ pub fn write_file(request: FileWriteRequest) -> Result<FileWriteResponse, CoreEr
 pub(crate) struct VisibilityRules {
     pub(crate) hidden_directories: Vec<String>,
     pub(crate) hidden_file_patterns: Vec<String>,
+    /// Canonical nested roots delegated by this request, never by the global policy registry.
+    pub(crate) delegated_roots: Vec<PathBuf>,
 }
 
 impl VisibilityRules {
@@ -1005,7 +1030,30 @@ impl VisibilityRules {
         Self {
             hidden_directories: normalize(directories),
             hidden_file_patterns: normalize(files),
+            delegated_roots: Vec::new(),
         }
+    }
+
+    /// Binds scan ownership to the caller's workspace without changing directory browsing.
+    fn with_workspace_roots(mut self, root: &Path, roots: &[String]) -> Self {
+        for value in roots {
+            // Disconnected siblings must not fail an otherwise valid scoped request.
+            // Missing descendants still retain their boundary until the host removes the root.
+            let candidate = search_index::canonicalize_with_missing_components(Path::new(value))
+                .unwrap_or_else(|| PathBuf::from(value));
+            if candidate != root && candidate.starts_with(root) {
+                self.delegated_roots.push(candidate);
+            }
+        }
+        self.delegated_roots.sort();
+        self.delegated_roots.dedup();
+        self
+    }
+
+    pub(crate) fn is_delegated(&self, path: &Path) -> bool {
+        self.delegated_roots
+            .iter()
+            .any(|root| path.starts_with(root))
     }
 
     pub(crate) fn is_hidden(&self, path: &str, is_directory: bool) -> bool {
@@ -1092,7 +1140,7 @@ fn scan_node(
         .and_then(|value| value.to_str())
         .unwrap_or("Workspace")
         .to_string();
-    if super::indexing::is_excluded(root, path, metadata.is_dir())? {
+    if rules.is_delegated(path) || super::indexing::is_excluded(root, path, metadata.is_dir())? {
         return Ok(WorkspaceNode {
             path: relative,
             name,
@@ -1163,7 +1211,7 @@ fn collect_snapshot_files(
     incomplete_directories: &mut Vec<String>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
-    if super::indexing::is_excluded(root, path, true)? {
+    if rules.is_delegated(path) || super::indexing::is_excluded(root, path, true)? {
         return Ok(());
     }
     let listing = visible_children(path, root, rules, ChildOrder::Traversal)?;

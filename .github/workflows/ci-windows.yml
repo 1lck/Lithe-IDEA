@@ -267,7 +267,7 @@ jobs:
           bun test src/features/editor/lsp/language-server-navigation.test.ts src/features/editor/lsp/java-navigation-marker-loader.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts src/features/editor/engines/monaco/java-implementation-markers.test.ts src/features/editor/engines/monaco/java-run-markers.test.ts
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-definition-link.json -- src/features/editor/engines/monaco/definition-link.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-semantic-tokens.json -- src/platform/lsp-core-adapter.test.ts src/features/editor/lsp/lsp-client-semantic-tokens.test.ts src/features/editor/lsp/lsp-client-navigation-context.test.ts src/features/editor/engines/monaco/semantic-token-provider.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-semantic-tokens.json -- src/platform/lsp-core-adapter.test.ts src/features/editor/lsp/lsp-client-semantic-tokens.test.ts src/features/editor/lsp/lsp-client-navigation-context.test.ts src/features/editor/lsp/lsp-client-indexing.test.ts src/features/editor/hooks/use-lsp-integration-indexing.test.tsx src/features/editor/engines/monaco/semantic-token-provider.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-ownership.json -- src/features/editor/extensions/api.owner-navigation.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -369,7 +369,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 2
         run: |
-          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-tree.json -- src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx src/features/file-explorer/components/file-explorer-selection.test.tsx src/features/file-explorer/components/file-explorer-reveal.test.tsx src/features/file-explorer/stores/directory-marks.test.ts src/features/sidebar/utils/tree-selection.test.ts src/utils/path-helpers.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-tree.json -- src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx src/features/file-explorer/components/file-explorer-selection.test.tsx src/features/file-explorer/components/file-explorer-reveal.test.tsx src/features/file-explorer/stores/directory-marks.test.ts src/features/file-explorer/stores/workspace-indexing.test.ts src/features/sidebar/utils/tree-selection.test.ts src/utils/path-helpers.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test F4 focused file navigation
@@ -590,7 +590,7 @@ jobs:
 
       - name: Test quick-open file search, number input steppers and editor settings route
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-quick-open-number-input.json -- src/features/quick-open/hooks/use-file-loader.test.tsx src/features/quick-open/hooks/use-file-search.test.tsx src/ui/number-input.test.tsx src/features/settings/components/editor-settings-routing.test.tsx
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-quick-open-number-input.json -- src/features/quick-open/hooks/use-file-loader.test.tsx src/features/quick-open/hooks/use-file-search.test.tsx src/features/file-search/lib/file-search-api.test.ts src/features/file-search/hooks/use-fff-search.test.tsx src/ui/number-input.test.tsx src/features/settings/components/editor-settings-routing.test.tsx
 
       - name: Test wheel scroll animation and container wheel ownership
         shell: pwsh
