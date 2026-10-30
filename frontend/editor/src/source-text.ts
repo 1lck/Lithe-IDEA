@@ -11,6 +11,10 @@ type Piece = Readonly<{
   last: string;
   sourceLength: number;
   length: number;
+  /** Line breaks inside the piece, each counted once whatever its spelling. */
+  breaks: number;
+  /** Length of the text after the last line break. */
+  tail: number;
 }>;
 const height = (piece: Piece | undefined) => piece?.height ?? 0;
 const length = (piece: Piece | undefined) => piece?.length ?? 0;
@@ -18,13 +22,21 @@ const sourceLength = (piece: Piece | undefined) => piece?.sourceLength ?? 0;
 
 function leaf(text: string): Piece | undefined {
   if (!text) return undefined;
-  return { text, first: text[0], last: text[text.length - 1], height: 1, sourceLength: text.length, length: text.length - (text.match(/\r\n/g)?.length ?? 0) };
+  let breaks = 0, crlfs = 0, lineStart = 0;
+  for (const lineBreak of text.matchAll(/\r\n|\r|\n/g)) {
+    breaks++;
+    if (lineBreak[0].length === 2) crlfs++;
+    lineStart = lineBreak.index + lineBreak[0].length;
+  }
+  return { text, first: text[0], last: text[text.length - 1], height: 1, sourceLength: text.length, length: text.length - crlfs,
+    breaks, tail: text.length - lineStart };
 }
 function branch(left: Piece | undefined, right: Piece | undefined): Piece | undefined {
   if (!left) return right;
   if (!right) return left;
   return { left, right, first: left.first, last: right.last, height: Math.max(left.height, right.height) + 1,
-    sourceLength: left.sourceLength + right.sourceLength, length: left.length + right.length };
+    sourceLength: left.sourceLength + right.sourceLength, length: left.length + right.length,
+    breaks: left.breaks + right.breaks, tail: right.breaks > 0 ? right.tail : left.tail + right.length };
 }
 function balance(left: Piece | undefined, right: Piece | undefined): Piece | undefined {
   if (height(left) > height(right) + 1) {
@@ -75,6 +87,18 @@ function sourceOffset(piece: Piece | undefined, offset: number): number {
   return offset <= leftLength ? sourceOffset(piece.left, offset)
     : sourceLength(piece.left) + sourceOffset(piece.right, offset - leftLength);
 }
+function positionAt(piece: Piece | undefined, offset: number): SourcePosition {
+  if (!piece) return { line: 0, column: 0 };
+  if (piece.text !== undefined) {
+    const before = leaf(piece.text.slice(0, rawOffset(piece.text, offset)));
+    return { line: before?.breaks ?? 0, column: before?.tail ?? 0 };
+  }
+  const left = piece.left!;
+  if (offset <= left.length) return positionAt(left, offset);
+  const right = positionAt(piece.right, offset - left.length);
+  return right.line > 0 ? { line: left.breaks + right.line, column: right.column }
+    : { line: left.breaks, column: left.tail + right.column };
+}
 function split(piece: Piece | undefined, offset: number): [Piece | undefined, Piece | undefined] {
   if (!piece || offset <= 0) return [undefined, piece];
   if (offset >= piece.length) return [piece, undefined];
@@ -104,7 +128,8 @@ function slice(piece: Piece | undefined, offset: number, count: number): string 
 }
 
 export interface NormalizedTextChange { rangeOffset: number; rangeLength: number; text: string }
-export interface SourceTextChange { offset: number; length: number; text: string }
+export interface SourcePosition { line: number; column: number }
+export interface SourceTextChange { offset: number; length: number; text: string; start: SourcePosition; end: SourcePosition }
 
 export class SourceText {
   private current: Piece | undefined;
@@ -192,7 +217,8 @@ export class SourceText {
       }
       const offset = sourceOffset(previous, range.start);
       return { offset, length: sourceOffset(previous, range.end) - offset,
-        text: slice(this.current, range.start + before, range.end - range.start + inside) };
+        text: slice(this.current, range.start + before, range.end - range.start + inside),
+        start: positionAt(previous, range.start), end: positionAt(previous, range.end) };
     });
   }
 

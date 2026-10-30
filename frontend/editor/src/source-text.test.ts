@@ -67,8 +67,26 @@ test("expanded source patches never split neighboring emoji", () => {
   const original = "😀x🙂";
   const source = new SourceText(original, 1);
   const patches = source.apply([{ rangeOffset: 2, rangeLength: 1, text: "中" }], 2);
-  expect(patches).toEqual([{ offset: 0, length: 5, text: "😀中🙂" }]);
+  expect(patches).toEqual([{ offset: 0, length: 5, text: "😀中🙂",
+    start: { line: 0, column: 0 }, end: { line: 0, column: 5 } }]);
   expect(applyNative(original, patches)).toBe(source.value);
+});
+
+test("patch positions match the source across chunks and every newline spelling", () => {
+  const original = "left\rmiddle\nright\r\n".repeat(1000);
+  const source = new SourceText(original, 1);
+  const positionOf = (offset: number) => {
+    const lines = original.slice(0, offset).split(/\r\n|\r|\n/);
+    return { line: lines.length - 1, column: lines[lines.length - 1].length };
+  };
+  const normalizedLength = normalized(original).length;
+  let version = 1;
+  for (const rangeOffset of [1, 5, 11, 17, 1500, 1501, 9000, normalizedLength - 2]) {
+    version += 1;
+    const [patch] = source.apply([{ rangeOffset, rangeLength: 0, text: "" }], version);
+    expect(patch.start).toEqual(positionOf(patch.offset));
+    expect(patch.end).toEqual(positionOf(patch.offset + patch.length));
+  }
 });
 
 test("mixed newline piece edits keep normalized offsets valid after deletions", () => {
