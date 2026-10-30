@@ -18,7 +18,7 @@ enum PluginHostEditorFlush {
     static func run(
         timeout: Duration = defaultTimeout,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
-        request: @MainActor (@escaping @MainActor (Bool) -> Void) -> Void
+        request: (@escaping @MainActor @Sendable (Bool) -> Void) -> Void
     ) async -> Bool {
         let waiter = Waiter()
         return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in

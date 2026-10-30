@@ -433,7 +433,7 @@ struct PluginHostEditorFlushTests {
     }
 
     @Test func aTimeoutThatFiresFirstGivesFalseAndTheLateAnswerIsIgnored() async {
-        var late: (@MainActor (Bool) -> Void)?
+        var late: (@MainActor @Sendable (Bool) -> Void)?
 
         let confirmed = await PluginHostEditorFlush.run(
             timeout: .seconds(1), sleep: { _ in }, request: { late = $0 }
