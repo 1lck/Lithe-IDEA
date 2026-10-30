@@ -13,6 +13,85 @@
 数据源、精确全文搜索匹配范围、文件修改/保存事务、可替换预览标签和 Windows
 适配。三个完整安装插件的 UI 验收尚未全部完成，不把分层集成测试等同于整机验收。
 
+## API-01–44 完成度总表（PR #1595）
+
+这是**实现范围**，不是发布或全平台验收结论。已公开表示已注册到 Core 白名单及 macOS
+宿主分发、插件可按权限调用；仍需以 `getCapabilities` 判断当前宿主支持的方法。
+既有能力是本次复用的基线，不计为本 PR 新增交付。部分完成逐项写明缺口；未做不代表
+IDE 内部没有相关功能。官方 SDK 新 API 封装/发布和三个完整安装插件整机验收仍未全部完成。
+Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
+
+| ID | 本轮状态 | 可用部分与明确缺口 |
+| --- | --- | --- |
+| API-01 | 已公开 | 能力发现、backend:2 激活、订阅 dispose；新装后端仍需重启 |
+| API-02 | 部分完成 | ui:4 无工具窗口的声明命令与 didRun；动态 register/有结果的 execute 未做 |
+| API-03 | 部分完成 | 既有命令 placements 可用；通用菜单、快捷键贡献、context.set/状态栏未做 |
+| API-04 | 部分完成 | didChangeContexts 与 watch 事件；文档/选区/活动编辑器语义事件未做 |
+| API-05 | 已公开 | listContexts/getContext/getFolders，context/generation 与 rootID |
+| API-06 | 已公开 | readDirectory/stat/readFile；公共读上限 128 KiB，内部上限不冒充协议能力 |
+| API-07 | 已公开 | watch + subscriptions/notify/dispose，context/session 回收与溢出重扫 |
+| API-08 | 部分完成 | findFiles/findText 分页与取消；只搜磁盘，精确匹配范围尚为 null |
+| API-09 | 已公开 | documents/list/getSnapshot、editor/getActive/getSelections，含 dirty/版本/编码/EOL |
+| API-10 | 已公开 | applyEdits/replaceSelections/insertText；版本校验、IME/只读拒绝、一次 Undo |
+| API-11 | 未做 | 公共 save/saveAs/close 与工作区文件变更接口未接入 |
+| API-12 | 未做 | 公共多文件 edit、content provider、showDiff 未接入 |
+| API-13 | 部分完成 | 既有 ui:3 原生 Tree/List/Form；通用独立后端数据源/懒加载未做 |
+| API-14 | 部分完成 | 既有包内网页 bridge、状态/生命周期；通用双向页面消息未做 |
+| API-15 | 部分完成 | editor/open/reveal 返回 documentID/version；range 只起点光标，替换预览标签未做 |
+| API-16 | 已公开 | preview/openHTML 支持 split/previewOnly；browser/openExternal 支持 HTTP(S)/已保存 HTML |
+| API-17 | 部分完成 | 三类窗口消息和按钮/取消；通用 QuickPick/InputBox/授权文件句柄未做 |
+| API-18 | 未做 | 通用剪贴板与 revealInFinder API 未开放 |
+| API-19 | 部分完成 | 已有声明式设置 1/2；通用 settings.get/inspect/update/events 未做 |
+| API-20 | 部分完成 | global/backend/workspace 可写目录与网页状态；统一 KV/配额/session API 未做 |
+| API-21 | 既有能力 | 协议 2 credentials/get/set/delete；权限与插件隔离不变 |
+| API-22 | 部分完成 | 既有函数进度与取消；独立 output channel、通用 log/progress API 未做 |
+| API-23 | 部分完成 | 已有进程声明与运行时解析；通用 toolchains/process 服务未开放 |
+| API-24 | 未做 | 插件专属终端 create/sendText/onExit 未开放 |
+| API-25 | 既有能力 | 语言/LSP 贡献与成熟上游链路；本 PR 不新增语言语义 Provider |
+| API-26 | 未做 | 公共诊断 collection/events API 未开放；既有 LSP 诊断不等于该 API |
+| API-27 | 未做 | 通用主题、片段、装饰贡献未实现；既有 UI 图标不等价于完整主题 API |
+| API-28 | 未做 | 公共 custom editor 文档 owner/保存/撤销/恢复未开放 |
+| API-29 | 既有能力 | #1517 BuildProvider 1–6/model inputs；本轮旧 SDK E2E 兼容，不代表新指南齐全 |
+| API-30 | 既有能力 | 已有 debugAdapters 1/2 与 DAP 宿主；本 PR 不重建调试协议 |
+| API-31 | 既有能力 | 已有 vcsProviders:1；不包含内置 Git 公共读取面 |
+| API-32 | 未做 | 通用 ServiceProvider 仍为提案 |
+| API-33 | 既有能力 | 已有 projectGenerators:1；新 hooks 不在本轮 |
+| API-34 | 未做 | 插件公共 IDE/AI/MCP 授权面未开放；独立 broker 不能直接转授 |
+| API-35 | 未做 | 跨插件依赖/导出、远程 Provider 剩余接续未完成 |
+| API-36 | 未做 | WASM/WASI 非本轮前置，未引入运行时 |
+| API-37 | 部分完成 | getCapabilities 提供协议/方法/预算/后端执行位置；语言包与环境/主题事件未做 |
+| API-38 | 未做 | 通用受管 fetch/download 未开放 |
+| API-39 | 未做 | 通用 authentication session/provider 未开放 |
+| API-40 | 部分完成 | 上下文携带 local/remote；新文件/编辑器服务对 remote 明确拒绝，非远程执行实现 |
+| API-41 | 部分完成 | onWorkspaceOpen/onCommand、后台两路、initialize 超时/有界通知；内容匹配与全局冷启预算未做 |
+| API-42 | 未做 | 内置 Git 公共 SCM 只读快照/events 未开放 |
+| API-43 | 未做 | 保存前事件/带超时编辑尚未开放 |
+| API-44 | 未做 | 插件贡献 Skills/Hooks/MCP 候选及独立授权评审未完成 |
+
+### 当前公共调用面汇总
+
+所有宿主请求以 `lithe/host/` 为前缀；这里的点号是阅读简写，正式方法使用 `/`。
+精确参数、返回、权限、预算及失败语义见
+[契约公共方法表](../../shared/contracts/plugins/v1/README.md#public-document-file-and-window-methods-protocol-version-3)。
+
+| 分组 | 已开放请求 | 权限 |
+| --- | --- | --- |
+| 协商/释放 | getCapabilities、subscriptions.dispose | 隐式，仅本会话 |
+| 工作区上下文 | workspace.listContexts/getContext/getFolders | workspace.metadata |
+| 文件读取 | workspace.readDirectory/stat/readFile | workspace.files.read |
+| 监听/搜索 | workspace.watch；workspace.findFiles/findText | workspace.files.watch；workspace.search |
+| 文档/选区 | documents.list/getSnapshot；editor.getActive/getSelections | documents.read |
+| 版本化编辑 | editor.applyEdits/replaceSelections/insertText | editor.edit |
+| 打开/定位 | editor.open/reveal | editor.open |
+| 预览/浏览器 | preview.openHTML；browser.openExternal | preview.open；browser.open |
+| 窗口消息 | window.showInformation/showWarning/showError | window.messages |
+| 本插件凭据 | credentials.get/set/delete | credentials.store |
+
+宿主通知：workspace.didChangeContexts、subscriptions.notify、commands.didRun。
+纯命令：ui:4 + backend:2，不再需要假窗口；didRun 不代表业务执行成功，也不伪装成
+有结果的 commands.execute。完整工作流、旧协议降级、dirty/Unicode/Undo、资源清理的
+实际验证证据见 PR 说明与 `.artifacts/test-stability/`，不要用这张表替代运行时验收。
+
 ## 1. 目标与范围
 
 让第三方开发者不修改 Lithe 源码，就能完成“读取选区并转换文本”“显示工程文件树”“打开 HTML 预览”等完整工作流。优先把 Mac 已有功能接成有权限、版本、生命周期和文档的公共 API，而不是重写 IDE 或先换插件运行时。
