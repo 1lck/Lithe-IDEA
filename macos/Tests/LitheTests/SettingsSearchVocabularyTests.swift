@@ -126,6 +126,9 @@ struct SettingsSearchVocabularyTests {
         #expect(SettingsSearchVocabulary.matches(query: "字体", category: .editor, localize: localize))
         #expect(SettingsSearchVocabulary.matches(query: "搜索字体", category: .editor, localize: localize))
         #expect(SettingsSearchVocabulary.matches(query: "缩进", category: .editor, localize: localize))
+        for query in ["行间距", "配色", "空白符", "光标", "连字", "滚动"] {
+            #expect(SettingsSearchVocabulary.matches(query: query, category: .editor, localize: localize))
+        }
         #expect(!SettingsSearchVocabulary.matches(query: "字体", category: .terminal, localize: localize))
     }
 

@@ -10,6 +10,8 @@
  * an event for a connection the panel is not yet listening to.
  */
 
+import { createTranslator } from "@/i18n/locale";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { invoke } from "@/platform/tauri-core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AgentConnectionState } from "../types/agent.types";
@@ -61,7 +63,11 @@ interface AgentEventEnvelope {
 }
 
 function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === "agent.composer.connectionClosed") {
+    return new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)(message));
+  }
+  return error instanceof Error ? error : new Error(message);
 }
 
 export function createTauriAgentTransport(): AgentTransport {

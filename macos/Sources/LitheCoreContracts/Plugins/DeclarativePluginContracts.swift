@@ -603,7 +603,7 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
     public struct Command: Equatable, Codable, Sendable {
         public let id: String
         public let title: String
-        public let toolWindowID: String
+        public let toolWindowID: String?
         public let order: Int
         public let placements: [ModuleContributionPlacement]
         public let icon: PluginUIIcon?
@@ -624,7 +624,7 @@ public struct DeclarativeUIContributions: Equatable, Codable, Sendable {
                 ModuleContribution(
                     id: command.id + "." + placement.rawValue, kind: .command,
                     title: command.title, placement: placement, order: command.order,
-                    actionID: command.id, visibility: ["toolWindowID": command.toolWindowID], uiIcon: command.icon
+                    actionID: command.id, visibility: command.toolWindowID.map { ["toolWindowID": $0] } ?? [:], uiIcon: command.icon
                 )
             }
         }

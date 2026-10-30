@@ -51,6 +51,8 @@ package extension Array where Element == RunConfigurationDiagnostic {
 
 package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     package let status: ProjectRunConfigurationStatus
+    /// Saved tasks can be ready while this process still needs to detect other entries.
+    package let requiresGeneration: Bool
     package let diagnostics: [RunConfigurationDiagnostic]
     package var recoveryAction: RunConfigurationRecoveryAction = .none
     package var recoveryPath: String? = nil
@@ -63,9 +65,11 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
         diagnostics: [RunConfigurationDiagnostic],
         recoveryAction: RunConfigurationRecoveryAction = .none,
         recoveryPath: String? = nil,
-        projectToolchain: ProjectToolchainSelection? = nil
+        projectToolchain: ProjectToolchainSelection? = nil,
+        requiresGeneration: Bool = false
     ) {
         self.status = status
+        self.requiresGeneration = requiresGeneration
         self.diagnostics = diagnostics
         self.recoveryAction = recoveryAction
         self.recoveryPath = recoveryPath

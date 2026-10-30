@@ -109,7 +109,9 @@ extension AppModel {
             editorTabOrderFeature.repositoryDiffReturnTabs[id] = previous
         }
         editorTabOrderFeature.focus(.repositoryDiff(id))
-        gitFeatureIfActive?.activateRepositoryDiffSession(id)
+        if editorTabOrderFeature.providerDiffs[id] == nil && !editorTabOrderFeature.loadingProviderDiffs.contains(id) {
+            gitFeatureIfActive?.activateRepositoryDiffSession(id)
+        }
         terminalPlacementFeature.activateDocument()
         mediaFeature.deactivate()
         activeDocumentID = nil

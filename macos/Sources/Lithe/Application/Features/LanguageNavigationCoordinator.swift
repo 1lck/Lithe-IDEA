@@ -128,12 +128,17 @@ final class LanguageNavigationCoordinator: ObservableObject {
         kind: LanguageNavigationResultKind,
         values: [LanguageServerLocation],
         documentURL: URL,
+        position: LanguageServerPosition,
         supportsImplementation: Bool
     ) -> ImplementationFallbackDecision {
         let shouldFallback = method == "textDocument/definition"
             && kind == .definitions
             && values.count == 1
             && values[0].url.standardizedFileURL == documentURL.standardizedFileURL
+            && (position.line > values[0].range.start.line
+                || (position.line == values[0].range.start.line && position.utf16Column >= values[0].range.start.utf16Column))
+            && (position.line < values[0].range.end.line
+                || (position.line == values[0].range.end.line && position.utf16Column < values[0].range.end.utf16Column))
             && supportsImplementation
         return ImplementationFallbackDecision(
             shouldRequestImplementations: shouldFallback,

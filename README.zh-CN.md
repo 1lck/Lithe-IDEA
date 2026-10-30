@@ -16,12 +16,12 @@
 
   <p>
     <a href="https://hellogithub.com/repository/1lck/Lithe-IDEA" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=633af067f07d4d16af010b9dc16c0b8d&amp;claim_uid=7NYd4yvRlGtqfgr" alt="Featured | HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54"></a>
-    <a href="https://atomgit.com/lithe_IDEA/Lithe-IDEA"><img src="https://atomgit.com/lithe_IDEA/Lithe-IDEA/star/new_badge.svg" alt="AtomGit G-Star" style="width: 250px; height: 54px;" width="250" height="54"></a>
     <a href="https://trendshift.io/repositories/124763?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-124763" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/124763" alt="1lck%2FLithe-IDEA | Trendshift" width="250" height="55"/></a>
+    <a href="https://atomgit.com/lithe_IDEA/Lithe-IDEA"><img src="https://atomgit.com/lithe_IDEA/Lithe-IDEA/star/new_badge.svg" alt="AtomGit G-Star" style="width: 250px; height: 54px;" width="250" height="54"></a>
   </p>
 
   <p>
-    <a href="https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/Lithe-IDEA/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="最新版本"></a>
+    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=flat&label=release&logo=github&logoColor=white" alt="最新版本"></a>
     <a href="https://github.com/1lck/Lithe-IDEA/releases"><img src="https://img.shields.io/github/downloads/1lck/Lithe-IDEA/total?style=flat&label=downloads&logo=github&logoColor=white" alt="累计下载量"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-111827?style=flat&logo=apple&logoColor=white" alt="macOS 13+">
     <img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat&logo=windows&logoColor=white" alt="Windows x64">
@@ -65,7 +65,7 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 ## macOS 提示“无法打开 Lithe.app”
 
-如果 macOS 提示“Apple 无法验证 Lithe.app 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，通常是因为手动下载的安装包尚未经过 Apple 公证。请先确认应用来自可信的 [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest)，然后选择以下任一方式：
+如果 macOS 提示“Apple 无法验证 Lithe.app 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，通常是因为手动下载的安装包尚未经过 Apple 公证。请先确认应用来自可信的 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest)，然后选择以下任一方式：
 
 <p align="center">
   <img src="./docs/assets/screenshots/macos-app-verification-warning.png" width="492" alt="macOS 提示无法打开 Lithe.app">
@@ -109,50 +109,73 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 ## 产品截图
 
-<p align="center">
-  <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="双击 Shift 全局搜索">
-  <img src="./docs/assets/screenshots/git-diff-review.png" width="49%" alt="Git 双栏 Diff 审查">
-</p>
+以下为 macOS 版截图，保留了中文功能标注。点击图片可查看原图细节。
+
+### Git、Diff 与工作树
+
+在同一窗口切换项目、审查 Diff、编写提交信息，并查看和管理 Git 工作树。
 
 <p align="center">
-  <img src="./docs/assets/screenshots/ai-commit-message.png" width="49%" alt="使用 AI 自动生成 Commit Message">
-  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="49%" alt="项目自动识别和一键运行配置">
+  <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git、Diff 与工作树"></a>
+</p>
+
+### 全局搜索与 Markdown 预览
+
+双击 Shift 搜索文件、符号和操作；Markdown 支持双栏编辑、预览和目录导航。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="全局搜索与 Markdown 预览"></a>
 </p>
 
 <details>
 <summary>更多截图</summary>
-<br>
+
+### Git 历史与分支浏览
+
+结合分支列表、提交图、筛选器和变更文件浏览 Git 历史。
 
 <p align="center">
-  <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F 全局搜索和替换">
-  <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="自定义 AI Commit Message 格式">
+  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git 历史与分支浏览"></a>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="从本机 AI 工具导入 API 配置">
-  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="按语言配置语言服务">
-</p>
+### HTML 预览与运行服务
+
+并排编辑和预览 HTML，在运行面板中查看项目入口与服务配置。
 
 <p align="center">
-  <img src="./docs/assets/screenshots/markdown-mermaid-preview.png" width="49%" alt="Markdown Mermaid 图表渲染和实时预览">
-  <img src="./docs/assets/screenshots/markdown-rich-preview.png" width="49%" alt="Markdown 多语法渲染和实时预览">
+  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML 预览与运行服务"></a>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/screenshots/memory-monitor-annotated.png" width="49%" alt="低内存占用和应用内存监控">
-  <img src="./docs/assets/screenshots/memory-monitor.png" width="49%" alt="应用内存占用详情">
-</p>
+### 插件管理与原生调试
+
+管理语言服务、构建和调试插件；图中同时展示 LLDB 反汇编与寄存器视图。
 
 <p align="center">
-  <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="多行编辑器标签">
+  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="插件管理与原生调试"></a>
+</p>
+
+### AI 对话与上下文
+
+在编辑区中与 Agent 对话，展开命令执行记录，查看上下文用量、文件更改和会话统计。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI 对话与上下文"></a>
+</p>
+
+### Agent 资源与 MCP 配置
+
+集中管理 Agent 的指令、技能、Hooks 和 MCP 配置，在对话中查看运行耗时与 Token 用量。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-mcp-settings.png"><img src="./docs/assets/screenshots/agent-mcp-settings.png" width="100%" alt="Agent 资源与 MCP 配置"></a>
 </p>
 
 </details>
 
 ## 下载与安装
 
-- **macOS 13+：**前往 [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
-- **Windows x64：**前往 [GitHub Releases](https://github.com/Lithe-IDEA/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
+- **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
+- **Windows x64：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
 
 macOS 推荐使用 Homebrew 安装和更新：
 
@@ -258,6 +281,17 @@ open dist/Lithe.app
   经济模式低至 0.5 折！<a href="https://pateway.ai/?ch=68i69k">通过此链接注册可获试用额度</a>，还可参与不定时活动领取免费额度，双向推荐奖励最高达 150 美元。
 </p>
 
+<p align="center">
+  <a href="https://apinebula.ai/ref/8dhC67x0">
+    <img src="./docs/assets/sponsors/apinebula-banner.jpg" width="720" alt="APINEBULA">
+  </a>
+</p>
+<p align="center">
+  感谢 APINEBULA 赞助本项目！<br>
+  APINEBULA 是银河录像局旗下的企业级 AI 聚合平台，通过一个 API 接入 Claude、GPT、Gemini 等主流模型，价格低至 1 折，支持高并发、正式合同、对公打款与开票，适用于 AI 编程、Agent 开发和业务系统集成。<br>
+  <a href="https://apinebula.ai/ref/8dhC67x0">通过此链接注册</a>，首次充值时填写优惠码 <strong>Lithe</strong>，可享九折优惠。
+</p>
+
 <a href="mailto:2188718831@qq.com">想显示在下方？</a>
 
 <table>
@@ -269,6 +303,16 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> 提供主流大模型 API 中转服务，支持统一密钥、智能容灾及 Codex、Claude Code 专属通道。人民币 1:1 充值，无手续费，新用户可享首充折扣和 $1 体验额度。
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://timicc.com">
+        <img src="./docs/assets/sponsors/timicc.png" width="64" alt="TIMI CC">
+      </a>
+    </td>
+    <td>
+      <a href="https://timicc.com"><strong>TIMI CC</strong></a> 是企业级 AI 中继平台，专注于稳定性与优质服务，为 Claude Code、Codex 等主流 AI 编程工具提供快速、稳定、高质量的模型接入服务。
     </td>
   </tr>
   <tr>
@@ -289,6 +333,16 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> 提供统一 API 接入，一个密钥即可调用 Claude、GPT、Gemini 和 DeepSeek 等模型，兼容主流 AI 编程工具。新用户注册可获 $5 体验额度。
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9">
+        <img src="./docs/assets/sponsors/zeus.png" width="64" alt="Zeus 宙斯中转站">
+      </a>
+    </td>
+    <td>
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9"><strong>Zeus 宙斯中转站</strong></a> 提供 GPT、Claude、Grok 及 GPT Image 中转服务，最低 0.08 倍率，支持开票与对公付款。
     </td>
   </tr>
   <tr>

@@ -188,6 +188,40 @@ struct SearchEverywhereBehaviorTests {
     }
 
     @Test
+    func rustPortDeliversNamesBeforeSymbolsAndCancelsAnObservedRequest() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "class Name { void NameMethod() {} }".write(to: root.appendingPathComponent("Name.java"),
+            atomically: true, encoding: .utf8)
+        let operations = RustWorkspaceOperations(core: RustCoreBridge())
+        let batches = OSAllocatedUnfairLock(initialState: [SearchEverywhereResults]())
+        let final = try #require(await operations.searchEverywhere(at: root, query: "Name", options: .default,
+            visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []), includeGeneratedFileNames: true,
+            kinds: [.file, .type, .symbol], onResults: { batch in batches.withLock { $0.append(batch) } }))
+        let snapshots = batches.withLock { $0 }
+        #expect(snapshots.first?.fileMatches.first?.url.lastPathComponent == "Name.java")
+        #expect(snapshots.first?.classMatches.isEmpty == true)
+        #expect(snapshots.contains { !$0.classMatches.isEmpty })
+        #expect(final.classMatches.first?.symbolName == "Name")
+        let started = TestGate(), resume = TestGate()
+        defer { resume.open() }
+        let cancelled = Task {
+            await operations.searchEverywhere(at: root, query: "Name", options: .default,
+                visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []), includeGeneratedFileNames: true,
+                kinds: [.file, .type], onResults: { _ in
+                    started.open()
+                    #expect(resume.waitSynchronously())
+                })
+        }
+        defer { cancelled.cancel() }
+        try #require(await started.waitUntilOpen())
+        cancelled.cancel()
+        resume.open()
+        #expect(await cancelled.value == nil)
+    }
+
+    @Test
     func searchExclusionsPersistWithoutHidingProjectFiles() throws {
         let suite = "lithe-search-exclusions-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -558,11 +592,159 @@ struct SearchEverywhereBehaviorTests {
     }
 
     @Test(arguments: [ColorScheme.dark, .light])
-    func previewSelectionKeepsFocusColorAndMouseScrollPosition(scheme: ColorScheme) async throws {
-        let operations = PreviewSelectionOperations()
+    func nativeScrollLoadsPast200AndKeepsViewportAndPreview(scheme: ColorScheme) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("search-pages-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for index in 0..<257 {
+            try "preview".write(to: root.appendingPathComponent(String(format: "name%03d.swift", index)), atomically: true, encoding: .utf8)
+        }
+        let feature = SearchFeatureModel(operations: RustWorkspaceOperations(core: RustCoreBridge()))
+        defer { feature.reset() }
+        await feature.searchEverywhere(at: root, query: "name", options: .default,
+            visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []), kinds: [.file], isCurrent: { true })
+        #expect(feature.searchEverywhereResults.totalCount == 50)
+        let session = SearchSessionFeatureModel()
+        session.beginSearchEverywhere(query: "name")
+        session.isEverywherePreviewVisible = true
+        let suite = "search-pages-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var previewedURL: URL?
+        let view = SearchEverywhereView(feature: feature, session: session,
+            settings: AppSettings(store: MacUserDefaultsStore(defaults: defaults)),
+            actionMatches: { _ in [LitheAction(id: "fixture.name", title: "Name action", subtitle: "", group: .window, perform: {})] },
+            search: { _, _ in }, dismiss: {}, openResult: { _ in }, performAction: { _ in },
+            revealInFinder: { _ in }, copyPath: { _, _ in }, relativePath: { $0.lastPathComponent }, moduleLabel: { _ in "" },
+            loadPreviewDocument: { url, _ in EditorDocument(url: url, text: "preview", modificationDate: nil) },
+            makePreviewEditor: { document, _ in
+                previewedURL = document.url
+                return AnyView(TextField("Preview fixture", text: .constant(document.text)))
+            })
+        let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        parent.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme).frame(width: 1000, height: 800))
+        parent.contentView = host
+        parent.makeKeyAndOrderFront(nil)
+        defer { session.endSearchEverywhere(); parent.contentView = nil; parent.close() }
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        func settle(_ condition: () -> Bool) async -> Bool {
+            let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                parent.childWindows?.first?.contentView?.layoutSubtreeIfNeeded()
+                if condition() { return true }
+                await Task.yield()
+            } while ContinuousClock().now < deadline
+            return condition()
+        }
+        try #require(await settle { previewedURL != nil })
+        let content = try #require(parent.childWindows?.first?.contentView)
+        let scroll = try #require(descendants(content).compactMap { $0 as? NSScrollView }
+            .first { ($0.documentView?.bounds.height ?? 0) > $0.contentSize.height })
+        let document = try #require(scroll.documentView)
+        let selected = previewedURL
+        for expected in [100, 150, 200, 250, 257] {
+            let ids = feature.searchEverywhereResults.fileMatches.map(\.id)
+            let offset = NSPoint(x: 0, y: max(0, document.bounds.height - scroll.contentSize.height - 80))
+            scroll.contentView.scroll(to: offset)
+            scroll.reflectScrolledClipView(scroll.contentView)
+            try #require(await settle { feature.searchEverywhereResults.totalCount == expected && !feature.isSearchingEverywhere },
+                "expected \(expected), loaded \(feature.searchEverywhereResults.totalCount), failed \(feature.searchEverywhereFailed), offset \(scroll.contentView.bounds), document \(document.bounds)")
+            #expect(Array(feature.searchEverywhereResults.fileMatches.prefix(ids.count)).map(\.id) == ids)
+            #expect(abs(scroll.contentView.bounds.origin.y - offset.y) < 1)
+            #expect(previewedURL == selected)
+            #expect(scroll.visibleRect.height >= 72)
+        }
+        #expect(feature.searchEverywhereResults.nextCursor == nil)
+        #expect(Set(feature.searchEverywhereResults.allMatches.map(\.id)).count == 257)
+    }
+
+    @Test(arguments: [true, false])
+    func implicitSelectionFollowsFilesAfterActionsAndBetterCandidates(actionsFirst: Bool) async throws {
+        let finish = TestGate()
+        let feature = SearchFeatureModel(operations: PreviewSelectionOperations(
+            resultCount: 2, finishStreaming: actionsFirst ? nil : finish))
+        defer { finish.open(); feature.reset() }
+        let session = SearchSessionFeatureModel()
+        session.beginSearchEverywhere(query: "")
+        session.isEverywherePreviewVisible = true
+        let suite = "search-default-selection-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var previewed: URL?
+        var opened: URL?
+        var actionCount = 0
+        let view = SearchEverywhereView(feature: feature, session: session,
+            settings: AppSettings(store: MacUserDefaultsStore(defaults: defaults)),
+            actionMatches: { query in actionsFirst && !query.isEmpty ? [LitheAction(id: "fixture.name", title: "Name action", subtitle: "", group: .window, perform: {})] : [] },
+            search: { _, _ in }, dismiss: {}, openResult: { opened = $0.url },
+            performAction: { _ in actionCount += 1 }, revealInFinder: { _ in }, copyPath: { _, _ in },
+            relativePath: { $0.lastPathComponent }, moduleLabel: { _ in "" },
+            loadPreviewDocument: { url, _ in EditorDocument(url: url, text: "preview", modificationDate: nil) },
+            makePreviewEditor: { document, _ in
+                previewed = document.url
+                return AnyView(TextField("Preview fixture", text: .constant(document.text)))
+            })
+        let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: view)
+        parent.contentView = host
+        parent.makeKeyAndOrderFront(nil)
+        defer { session.endSearchEverywhere(); parent.contentView = nil; parent.close() }
+        func settle(_ condition: () -> Bool) async -> Bool {
+            let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                parent.childWindows?.first?.contentView?.layoutSubtreeIfNeeded()
+                if condition() { return true }
+                await Task.yield()
+            } while ContinuousClock().now < deadline
+            return condition()
+        }
+        try #require(await settle { parent.childWindows?.first?.initialFirstResponder != nil })
+        let popup = try #require(parent.childWindows?.first)
+        let field = try #require(popup.initialFirstResponder as? NSTextField)
+        try #require(await settle { field.currentEditor() != nil })
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.insertText("name", replacementRange: editor.selectedRange())
+        try #require(await settle { field.stringValue == "name" && popup.frame.height > 84 })
+        func enter() throws {
+            NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                isARepeat: false, keyCode: 36)))
+        }
+        if actionsFirst { try enter(); #expect(actionCount == 1) }
+        let request = Task {
+            await feature.searchEverywhere(at: URL(fileURLWithPath: "/fixture"), query: "name", options: .default,
+                visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []), isCurrent: { true })
+        }
+        defer { finish.open(); request.cancel() }
+        if !actionsFirst {
+            try #require(await settle { previewed?.lastPathComponent == "name00.swift" })
+        }
+        finish.open()
+        await request.value
+        let expected = actionsFirst ? "name00.swift" : "name00-first.swift"
+        #expect(await settle { previewed?.lastPathComponent == expected })
+        try enter()
+        #expect(opened?.lastPathComponent == expected)
+        #expect(actionCount == (actionsFirst ? 1 : 0), "Enter must activate the current first file without navigation")
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light], [40, 199, SearchEverywhereResults.providerLimit])
+    func previewSelectionKeepsFocusColorAndMouseScrollPosition(scheme: ColorScheme, resultCount: Int) async throws {
+        let finishStreaming = TestGate()
+        let operations = PreviewSelectionOperations(resultCount: resultCount, finishStreaming: finishStreaming)
         let feature = SearchFeatureModel(operations: operations)
-        await feature.searchEverywhere(at: URL(fileURLWithPath: "/fixture"), query: "name", options: .default,
-            visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []), isCurrent: { true })
+        let request = Task {
+            await feature.searchEverywhere(at: URL(fileURLWithPath: "/fixture"), query: "name", options: .default,
+                visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []), isCurrent: { true })
+        }
+        defer { finishStreaming.open(); request.cancel(); feature.reset() }
         let session = SearchSessionFeatureModel()
         session.everywhereQuery = "name"
         session.isEverywherePreviewVisible = true
@@ -621,23 +803,43 @@ struct SearchEverywhereBehaviorTests {
         #expect(openedURL == nil, "A single mouse click must only preview")
         let previewField = try #require(descendants(content).compactMap { $0 as? NSTextField }
             .first { $0.stringValue == "preview" })
+        // Large result sets must retain both panes; it must not displace either pane.
+        // SwiftUI may extend the native scroll view beyond its clipping host
+        // to accommodate scroller chrome (17pt on CI). Assert the visible pane.
+        let listFrame = scroll.convert(scroll.visibleRect, to: content)
+        let previewFrame = previewField.convert(previewField.bounds, to: content)
+        #expect(listFrame.width == content.bounds.width)
+        #expect(listFrame.height >= 72)
+        #expect(previewFrame.height > 0)
+        #expect(content.bounds.contains(listFrame))
+        #expect(content.bounds.contains(previewFrame))
+        #expect(!listFrame.intersects(previewFrame))
         #expect(popup.makeFirstResponder(previewField))
         await settle { previewField.currentEditor() != nil }
         #expect(scroll.contentView.bounds.origin == originalOffset, "Mouse selection must not recenter the list")
         #expect(popup.frame == originalFrame, "Selecting a file must not move or resize the popup")
-        func selectedColor() throws -> NSColor {
+        func selectedColor(row: Int = 7) throws -> NSColor {
             content.layoutSubtreeIfNeeded()
-            let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
-            content.cacheDisplay(in: content.bounds, to: bitmap)
-            let sample = document.convert(NSPoint(x: 400, y: 4 + 7 * 24 + 12), to: content)
-            let scale = CGFloat(bitmap.pixelsWide) / content.bounds.width
-            let y = content.isFlipped ? sample.y : content.bounds.height - sample.y
-            return try #require(bitmap.colorAt(x: Int(sample.x * scale), y: Int(y * scale))?.usingColorSpace(.deviceRGB))
+            let sample = document.convert(NSPoint(x: 400, y: 4 + row * 24 + 12), to: content)
+            // The assertion needs one background pixel, not a full popup snapshot on every poll.
+            let sampleRect = NSRect(origin: sample, size: NSSize(width: 1, height: 1))
+            let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: sampleRect))
+            content.cacheDisplay(in: sampleRect, to: bitmap)
+            return try #require(bitmap.colorAt(x: 0, y: 0)?.usingColorSpace(.deviceRGB))
         }
         await settle("focused color") { (try? selectedColor()).map { $0.blueComponent > $0.redComponent + 0.1 } == true }
         let color = try selectedColor()
         #expect(color.blueComponent > color.redComponent + 0.1, "Preview focus keeps the active selection color")
 
+        #expect(feature.isSearchingEverywhere, "The list and preview are usable before the search finishes")
+        finishStreaming.open()
+        await request.value
+        #expect(!feature.isSearchingEverywhere)
+        await settle("selection survives a higher-ranked candidate arriving") {
+            previewedURL?.lastPathComponent == "name07.swift"
+                && (try? selectedColor(row: 8)).map { $0.blueComponent > $0.redComponent + 0.1 } == true
+        }
+        #expect(scroll.contentView.bounds.origin == originalOffset)
         let searchField = try #require(popup.initialFirstResponder as? NSTextField)
         #expect(popup.makeFirstResponder(searchField))
         for _ in 0..<20 {
@@ -645,6 +847,8 @@ struct SearchEverywhereBehaviorTests {
                 timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "",
                 isARepeat: false, keyCode: 125)))
             await Task.yield()
+            // Stop once native keyboard navigation has demonstrated the required scroll.
+            if scroll.contentView.bounds.origin.y > originalOffset.y { break }
         }
         await settle { scroll.contentView.bounds.origin.y > originalOffset.y }
         #expect(scroll.contentView.bounds.origin.y > originalOffset.y, "Keyboard navigation must still reveal offscreen rows")
@@ -655,14 +859,14 @@ struct SearchEverywhereBehaviorTests {
         // The first row begins after the list's 4pt vertical padding.
         let firstRow = NSRect(x: 0, y: 4, width: 1, height: 24)
         await settle("new query starts at the first result") {
-            previewedURL?.lastPathComponent == "name00.swift" && scroll.contentView.bounds.contains(firstRow)
+            previewedURL?.lastPathComponent == "name00-first.swift" && scroll.contentView.bounds.contains(firstRow)
         }
         #expect(scroll.contentView.bounds.contains(firstRow))
         // Non-mouse activation must open even while the preview is visible.
         NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
             isARepeat: false, keyCode: 36)))
-        #expect(openedURL?.lastPathComponent == "name00.swift", "Return must open the selected result with preview enabled")
+        #expect(openedURL?.lastPathComponent == "name00-first.swift", "Return must open the selected result with preview enabled")
     }
 
     @Test(arguments: [ColorScheme.dark, .light])
@@ -973,16 +1177,32 @@ struct SearchEverywhereBehaviorTests {
 }
 
 private struct PreviewSelectionOperations: SearchOperations {
+    var resultCount = 40
+    var finishStreaming: TestGate?
     var onInvalidate: @Sendable () -> Void = {}
     var onSearch: @Sendable (Set<SearchResultKind>) -> Void = { _ in }
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) { onInvalidate() }
     func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
     func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>) -> SearchEverywhereResults? {
         onSearch(kinds)
-        return .init(fileMatches: (0..<40).map { index in
+        return .init(fileMatches: (0..<resultCount).map { index in
             FileSearchResult(url: rootURL.appendingPathComponent(String(format: "name%02d.swift", index)),
                 line: nil, preview: "", kind: .file, matchingDegree: 100)
         }, contentMatches: [])
+    }
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions,
+        visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>,
+        onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
+    ) async -> SearchEverywhereResults? {
+        guard let initial = searchEverywhere(at: rootURL, query: query, options: options,
+            visibilityRules: visibilityRules, includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds)
+        else { return nil }
+        onResults(initial)
+        guard let finishStreaming else { return initial }
+        #expect(await finishStreaming.waitUntilOpen(timeout: .seconds(10)))
+        let higherRanked = FileSearchResult(url: rootURL.appendingPathComponent("name00-first.swift"),
+            line: nil, preview: "", kind: .file, matchingDegree: 1000)
+        return .init(fileMatches: [higherRanked] + initial.fileMatches.dropLast())
     }
     func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }

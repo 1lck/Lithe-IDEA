@@ -26,6 +26,8 @@ mod setup;
 mod untracked_directories;
 
 pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
+// Re-exported for the cfg(test) integration tests only; production code reads the
+// threshold inside `untracked_directories` itself.
 #[cfg(test)]
 pub(crate) use untracked_directories::UNTRACKED_DIRECTORY_SUMMARY_THRESHOLD;
 pub use untracked_directories::{untracked_directory, GitUntrackedDirectoryRequest};
@@ -919,7 +921,11 @@ pub fn workspace_repositories(
             let entry = entry.map_err(repository_scan_error)?;
             let name = entry.file_name().to_string_lossy().to_string();
             if name == ".git" {
-                discovered_repositories.insert(canonical_directory.clone());
+                // Only openable repositories join the workspace list; a dangling gitfile
+                // entry must not poison status and reference loads for sibling roots.
+                if git_entry_opens_as_repository(&entry.path()) {
+                    discovered_repositories.insert(canonical_directory.clone());
+                }
                 continue;
             }
             if !repository_scan_directory_is_visible(&name) {
@@ -4285,6 +4291,41 @@ fn repository_scan_error(error: std::io::Error) -> CoreError {
     .with_details(error.to_string())
 }
 
+/// Resolves the gitdir a `.git` gitfile points at, mirroring Git's `read_gitfile`:
+/// the target may be absolute or relative to the gitfile's own directory.
+/// Returns `None` when the file is not a valid gitfile Git would open.
+fn resolve_gitfile_gitdir(gitfile: &Path, contents: &str) -> Option<PathBuf> {
+    let line = contents.lines().next()?;
+    let target = line.strip_prefix("gitdir:")?.trim().trim_matches('"');
+    if target.is_empty() {
+        return None;
+    }
+    let target_path = Path::new(target);
+    if target_path.is_absolute() {
+        return Some(target_path.to_path_buf());
+    }
+    Some(gitfile.parent()?.join(target_path))
+}
+
+/// A discovered `.git` entry only counts as a repository when Git can open it:
+/// a directory needs `HEAD`, and a gitfile pointer must resolve to a gitdir that
+/// holds `HEAD`. Stale submodule or worktree pointers (for example a leftover
+/// submodule gitfile whose `.git/modules` directory was removed) would otherwise
+/// be listed as a workspace repository and fail every status or reference load
+/// for the healthy sibling repositories.
+fn git_entry_opens_as_repository(git_path: &Path) -> bool {
+    if git_path.is_dir() {
+        return git_path.join("HEAD").is_file();
+    }
+    let contents = match std::fs::read_to_string(git_path) {
+        Ok(contents) => contents,
+        Err(_) => return false,
+    };
+    resolve_gitfile_gitdir(git_path, &contents)
+        .map(|gitdir| gitdir.join("HEAD").is_file())
+        .unwrap_or(false)
+}
+
 fn discover_containing_repository(root: &Path) -> Result<Option<PathBuf>, CoreError> {
     let output = execute_git_readonly(
         &root.to_string_lossy(),
@@ -5614,28 +5655,46 @@ fn failed_git_result(error: CoreError) -> GitCommandResponse {
 fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreError> {
     let mut tracked = Vec::new();
     let mut untracked = Vec::new();
-    let status_arguments = vec![
-        "status".to_string(),
-        "--porcelain=v1".to_string(),
-        "-z".to_string(),
-        "--untracked-files=all".to_string(),
-    ];
-    let status = execute_git(root, &status_arguments, None)?;
-    if status.exit_code != 0 {
-        return Ok(status);
+    let mut tracked_paths = HashSet::new();
+    let mut untracked_paths = HashSet::new();
+    let literal_paths = [("GIT_LITERAL_PATHSPECS".to_string(), "1".to_string())];
+    let mut final_response = successful_git_result();
+    // Rollback is often called once per selected file. Never enumerate unrelated
+    // untracked trees for every file, and keep path arguments below Windows limits.
+    for batch in pathspec_batches(paths, LS_FILES_PATHSPEC_BUDGET) {
+        let mut arguments = vec![
+            "status".to_string(),
+            "--porcelain=v2".to_string(),
+            "-z".to_string(),
+            "--untracked-files=all".to_string(),
+            "--".to_string(),
+        ];
+        arguments.extend_from_slice(batch);
+        let status = execute_git_with_environment(root, &arguments, None, true, &literal_paths)?;
+        if status.exit_code != 0 {
+            return Ok(status);
+        }
+        // The shared parser consumes rename source records too; a source name
+        // beginning with `?? ` must not be mistaken for an untracked path.
+        for change in parse_status(status.stdout.as_bytes(), true) {
+            if change.untracked {
+                untracked_paths.insert(change.path);
+            } else {
+                tracked_paths.insert(change.path);
+            }
+        }
+        final_response = status;
     }
-    let untracked_paths = status
-        .output
-        .split('\0')
-        .filter_map(|record| record.strip_prefix("?? "))
-        .collect::<HashSet<_>>();
     for path in paths {
         // A summarized untracked directory (`dir/`) is reported file by file.
-        let is_untracked = untracked_paths.contains(path.as_str())
-            || (path.ends_with('/')
-                && untracked_paths
-                    .iter()
-                    .any(|untracked| untracked.starts_with(path.as_str())));
+        // A staged deletion can coexist with an untracked disk copy at the
+        // same path. Restore HEAD rather than cleaning that retained copy.
+        let is_untracked = !tracked_paths.contains(path.as_str())
+            && (untracked_paths.contains(path.as_str())
+                || (path.ends_with('/')
+                    && untracked_paths
+                        .iter()
+                        .any(|untracked| untracked.starts_with(path.as_str()))));
         if is_untracked {
             untracked.push(path.clone());
         } else {
@@ -5643,7 +5702,6 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
         }
     }
 
-    let mut final_response = status;
     if !tracked.is_empty() {
         let arguments = vec![
             "restore".to_string(),
@@ -5659,21 +5717,31 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
             .iter()
             .flat_map(|path| [path.as_str(), "\0"])
             .collect::<String>();
-        let restored = execute_git(root, &arguments, Some(pathspec_input))?;
+        let restored = execute_git_with_environment(
+            root,
+            &arguments,
+            Some(pathspec_input),
+            false,
+            &literal_paths,
+        )?;
         if restored.exit_code != 0 {
             return Ok(restored);
         }
         final_response = restored;
     }
-    if !untracked.is_empty() {
+    for batch in pathspec_batches(&untracked, LS_FILES_PATHSPEC_BUDGET) {
         let mut arguments = vec![
             "clean".to_string(),
             "-f".to_string(),
             "-d".to_string(),
             "--".to_string(),
         ];
-        arguments.extend(untracked);
-        return execute_git(root, &arguments, None);
+        arguments.extend_from_slice(batch);
+        let cleaned = execute_git_with_environment(root, &arguments, None, false, &literal_paths)?;
+        if cleaned.exit_code != 0 {
+            return Ok(cleaned);
+        }
+        final_response = cleaned;
     }
     Ok(final_response)
 }

@@ -3,6 +3,7 @@
 mod classpath_jar;
 mod configuration;
 mod detectors;
+pub(crate) mod generated_layer;
 mod java_selection;
 mod launch_command;
 pub use java_selection::{

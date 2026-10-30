@@ -499,7 +499,7 @@ struct LitheApp: App {
             exit(1)
         }
         let store = MacUserDefaultsStore()
-        if LithePerformanceBaseline.isEnabled {
+        if LithePerformanceBaseline.isEnabled || LitheSignpost.settingsLatencyTracingEnabled {
             LitheSignpost.configureBaselineOutput { line in
                 FileHandle.standardError.write(Data(line.utf8))
             }
@@ -507,6 +507,15 @@ struct LitheApp: App {
         let settings = AppSettings(
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
+        )
+        // Created outside the service container so the update checker (which
+        // is not part of any project model) shares the proxy policy. The
+        // policy itself is normalized by Rust Core.
+        let networkSessionProvider = MacNetworkSessionProvider(
+            preferences: settings.networkProxyPreferences,
+            policyResolver: { [proxyPolicyBridge = RustCoreBridge()] configuration in
+                proxyPolicyBridge.networkProxyPolicy(from: configuration)
+            }
         )
         let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter { [weak settings] in
             Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
@@ -547,7 +556,8 @@ struct LitheApp: App {
                             : .normal,
                         moduleStore: moduleStore,
                         gitPerformanceLogger: gitPerformanceLogger,
-                        applicationLogging: applicationLogWriter
+                        applicationLogging: applicationLogWriter,
+                        networkSessionProvider: networkSessionProvider
                     ).services
                 )
             },
@@ -573,9 +583,14 @@ struct LitheApp: App {
             memorySampler: MacProcessMemorySampler()
         ))
         Self.emitPerformanceBaselineMarker(LithePerformanceBaseline.configurationMarker())
-        let updateChecker = UpdateChecker(diagnosticSink: { message in
-            Self.appendApplicationLog(applicationLogWriter, message: message)
-        })
+        let updateChecker = UpdateChecker(
+            diagnosticSink: { message in
+                Self.appendApplicationLog(applicationLogWriter, message: message)
+            },
+            sessionFactory: { [networkSessionProvider] configuration in
+                networkSessionProvider.makeSession(configuration: configuration)
+            }
+        )
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
         appDelegate.flushApplicationLogs = { await applicationLogWriter.finishSession() }
@@ -924,21 +939,30 @@ private struct ProjectWindowMissingSessionView: View {
     }
 }
 
-private struct SettingsWindowHost: View {
+struct SettingsWindowHost: View {
     @ObservedObject var projectSessions: ProjectSessionManager
     @ObservedObject var settings: AppSettings
 
     var body: some View {
-        if let model = projectSessions.settingsModel {
-            SettingsWindow(
-                model: model,
-                settings: settings,
-                projectSessions: projectSessions,
-                bindingID: projectSessions.settingsBindingID
-            ) {
-                projectSessions.releaseSettings(for: model.id)
+        // A restored scene initially has no model. Keep a real host mounted so
+        // its appearance can establish the same binding as an explicit command.
+        ZStack {
+            Color.clear.allowsHitTesting(false).accessibilityHidden(true)
+            if let model = projectSessions.settingsModel {
+                let bindingID = projectSessions.settingsBindingID
+                SettingsWindow(
+                    model: model,
+                    settings: settings,
+                    projectSessions: projectSessions,
+                    bindingID: bindingID
+                ) {
+                    projectSessions.releaseSettings(for: model.id, bindingID: bindingID)
+                }
+                .id(model.id)
             }
-            .id(model.id)
+        }
+        .onAppear {
+            projectSessions.prepareSettingsForPresentation()
         }
     }
 }
@@ -1010,7 +1034,6 @@ private struct SettingsWindow: View {
         )
         .onDisappear {
             viewState.pendingPluginEnabledStates.removeAll()
-            model.isSettingsPresented = false
             onDisappear()
         }
     }

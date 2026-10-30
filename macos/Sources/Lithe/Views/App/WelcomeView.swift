@@ -102,9 +102,12 @@ struct WelcomeView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 LitheSearchField("Search projects", text: $projectFilter, focus: $searchFocused)
-                .frame(maxWidth: 220)
+                .frame(minWidth: 180, idealWidth: 220, maxWidth: 220)
+                .layoutPriority(1)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("welcome-project-search")
 
-                Spacer()
+                Spacer(minLength: 0)
 
                 HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Button("New Project") {
@@ -117,16 +120,32 @@ struct WelcomeView: View {
                     }
                     .buttonStyle(LitheActionButtonStyle())
 
-                    Button("Clone Repository") {
-                        model.showCloneRepository()
-                    }
-                    .buttonStyle(LitheActionButtonStyle())
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: LitheTheme.ActionButton.spacing) {
+                            Button("Clone Repository") { model.showCloneRepository() }
+                                .buttonStyle(LitheActionButtonStyle())
+                            if model.canManageRemoteConnections {
+                                Button("Remote Development") { model.showRemoteConnections() }
+                                    .buttonStyle(LitheActionButtonStyle())
+                            }
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("welcome-secondary-actions")
 
-                    if model.canManageRemoteConnections {
-                        Button("Remote Development") {
-                            model.showRemoteConnections()
+                        LitheMenu {
+                            LitheContextMenuItem.action("Clone Repository") { model.showCloneRepository() }
+                            if model.canManageRemoteConnections {
+                                LitheContextMenuItem.action("Remote Development") { model.showRemoteConnections() }
+                            }
+                        } label: {
+                            Text("More")
                         }
                         .buttonStyle(LitheActionButtonStyle())
+                        .help("More actions")
+                        .accessibilityLabel("More actions")
+                        .accessibilityIdentifier("welcome-more-actions")
+                        .fixedSize(horizontal: true, vertical: false)
                     }
                 }
             }

@@ -664,7 +664,7 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
         CoreCommand::WorkspaceSearchEverywhere => {
-            match serde_json::from_value::<SearchRequest>(parsed.payload)
+            match serde_json::from_value::<project::SearchPageRequest>(parsed.payload)
                 .map_err(|error| {
                     CoreError::new(
                         ErrorCode::InvalidRequest,
@@ -672,7 +672,7 @@ fn execute(request: &str) -> CoreResponse {
                     )
                     .with_details(error.to_string())
                 })
-                .and_then(project::search_everywhere)
+                .and_then(project::search_page)
             {
                 Ok(data) => CoreResponse::success(
                     id,
@@ -1476,6 +1476,26 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::NetworkProxyPolicy => {
+            match serde_json::from_value::<crate::network::NetworkProxyPolicyRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid network proxy policy request",
+                )
+                .with_details(error.to_string())
+            })
+            .map(crate::network::proxy_policy)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Proxy policy response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspPlainSnippet => {
             match serde_json::from_value::<crate::lsp::PlainSnippetRequest>(parsed.payload).map_err(
                 |error| {
@@ -1718,6 +1738,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspSaveDocument => {
+            match serde_json::from_value::<crate::lsp::SaveDocumentRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP save-document request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::save_document)
+            {
+                Ok(sent) => CoreResponse::success(id, json!({"sent": sent})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspSyncDocument => {
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1833,6 +1868,24 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::JavaPrepareLaunch => {
+            match serde_json::from_value::<crate::lsp::JavaPrepareLaunchRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Java launch preparation request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::java_prepare_launch)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java launch operation should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaNavigationMarkers => {
             match serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1880,6 +1933,21 @@ fn execute(request: &str) -> CoreResponse {
                 .and_then(crate::lsp::plugin_host_response)
             {
                 Ok(()) => CoreResponse::success(id, json!({})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspHostNotify => {
+            match serde_json::from_value::<crate::lsp::PluginHostNotification>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid host notification")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_host_notify)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Host notification response should encode"),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

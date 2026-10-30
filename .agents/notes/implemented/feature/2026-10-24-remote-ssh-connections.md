@@ -91,3 +91,13 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core remote::
 - `rust/lithe-core/src/remote/`
 - `rust/lithe-remote/src/client/launch.rs`
 - `scripts/remote/build-remote-servers.sh`
+
+
+### 远程开发主面板的统一呈现
+
+主入口从 SwiftUI sheet 改为已有 `LitheCenteredPopup` 的有标题表单模式，与打开项目和 Git 表单
+共用窗口外框、居中定位、父窗口事件隔离及 `animationBehavior = .none`；不再使用系统 sheet 展开动作。
+取消与保存成功通过显式回调复位 `isRemoteConnectionsPresented`，原生窗口关闭走同一 binding；
+内容消失仍调用 `feature.close()` 清理连接任务。输入框、按钮样式、业务动作与面板尺寸保持原实现，
+认证提示与目录浏览的内部 sheet 不在本次迁移范围内。验证复用 `LitheCenteredPopupTests` 的打开、
+父窗口跟随、无动画、关闭清理与嵌套选择器场景，以及远程连接/路由回归；真实 SSH 登录仍需独立验收。

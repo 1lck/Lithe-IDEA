@@ -15,6 +15,7 @@ import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useTranslation } from "@/i18n/locale-provider";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
 import { requestApplicationQuit } from "@/features/window/utils/request-window-close";
+import { GearSixIcon as SettingsIcon } from "@/ui/icons";
 import {
   Menubar,
   MenubarContent,
@@ -216,6 +217,13 @@ const WindowMenuBar = ({
           </MenubarItem>
           <MenubarItem onClick={() => handleCommand("file.localHistory")}>
             {t("menu.showLocalHistory")}
+          </MenubarItem>
+          <MenubarSeparator />
+          <MenubarItem shortcut="mod+," onClick={() => handleClickEmit("menu_open_settings")}>
+            <span className="flex items-center gap-2">
+              <SettingsIcon className="size-3.5 shrink-0" />
+              {t("menu.settings")}
+            </span>
           </MenubarItem>
           <MenubarSeparator />
           <MenubarItem shortcut="mod+w" onClick={() => handleClickEmit("menu_close_tab")}>

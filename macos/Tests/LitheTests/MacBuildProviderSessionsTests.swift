@@ -9,6 +9,105 @@ import Testing
 /// process a request reuses, and when the host stops or restarts it.
 @MainActor
 struct MacBuildProviderSessionsTests {
+    @Test(arguments: [false, true])
+    func documentSavesReachCoreAndPropagateTransportFailure(fails: Bool) async throws {
+        let core = ScriptedProviderCore()
+        let session = LanguageServerRuntimeSession(
+            providerID: "java", executableURL: URL(fileURLWithPath: "/tools/jdtls"),
+            arguments: [], environment: [:], core: core)
+        let file = URL(fileURLWithPath: "/workspace/Main.java")
+        defer { session.stop() }
+        try session.notifyDocumentSaved(file, text: "before startup")
+        #expect(core.savedTexts.isEmpty)
+        try session.start(rootURL: file.deletingLastPathComponent(), workspaceFingerprint: nil)
+        core.saveFails = fails
+        if fails {
+            #expect(throws: (any Error).self) { try session.notifyDocumentSaved(file, text: "saved") }
+        } else {
+            try session.notifyDocumentSaved(file, text: "saved")
+        }
+        #expect(core.savedTexts == ["saved"])
+        #expect(core.syncedTexts.isEmpty)
+        session.stop()
+        try #require(await core.destroyed.waitUntilOpen())
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func javaLaunchPreparationDecodesSharedTargetsAndCancelsItsOwnedOperation(cancel: Bool, buildFailed: Bool) async throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        struct Fixture: Decodable {
+            struct Case: Decodable { let target: JavaDebugLaunchTarget }
+            let cases: [Case]
+        }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/lsp/java-launch-preparation-v1.json")))
+        for item in fixture.cases {
+            let core = ScriptedProviderCore()
+            let session = LanguageServerRuntimeSession(
+                providerID: "java", executableURL: URL(fileURLWithPath: "/tools/jdtls"),
+                arguments: [], environment: [:], core: core
+            )
+            let workspace = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
+            try session.start(rootURL: workspace, workspaceFingerprint: nil)
+            let finished = TestGate()
+            let request = Task { @MainActor () -> Result<JavaLaunchPreparation, Error> in
+                defer { finished.open() }
+                do { return .success(try await session.prepareJavaLaunch(
+                    fileURL: workspace.appendingPathComponent("Main.java"), mainClass: "demo.Main"
+                )) } catch { return .failure(error) }
+            }
+            defer { request.cancel(); session.stop() }
+            try #require(await core.commandStarted.waitUntilOpen())
+            if cancel {
+                request.cancel()
+                try #require(await core.functionCancelled.waitUntilOpen())
+            } else {
+                let target = try JSONDecoder().decode(ToolingJSONValue.self, from: JSONEncoder().encode(item.target))
+                var result: [String: ToolingJSONValue] = [
+                    "kind": .string(buildFailed ? "buildFailed" : "ready"), "target": target
+                ]
+                if buildFailed {
+                    result["failure"] = .object([
+                        "code": .string("javaBuildCompilationErrors"),
+                        "message": .string("The Java project build reported compilation errors."),
+                        "report": .object(["markerScope": .string("launchTarget"),
+                            "builderFailedEarlier": .bool(false), "elapsedMilliseconds": .integer(25),
+                            "recovery": .string("rebuildJavaIndex")])
+                    ])
+                }
+                core.finishJavaLaunch(.object(result))
+            }
+            try #require(await finished.waitUntilOpen(), "Java launch did not finish before its local deadline")
+            switch await request.value {
+            case .success(let preparation):
+                #expect(!cancel)
+                if buildFailed {
+                    guard case .buildFailed(let target, let failure) = preparation else {
+                        Issue.record("A terminal build failure must retain its evidence and launch target")
+                        return
+                    }
+                    #expect(target == item.target)
+                    #expect(failure.code == "javaBuildCompilationErrors")
+                    #expect(failure.message == L10n.string("The Java project build reported compilation errors."))
+                    #expect(failure.report?.elapsedMilliseconds == 25)
+                    #expect(failure.report?.recovery == .rebuildJavaIndex)
+                } else {
+                    #expect(preparation == .ready(item.target))
+                }
+            case .failure(let error):
+                #expect(cancel)
+                #expect(error is CancellationError)
+                #expect(core.cancelledOperations == ["java-launch"])
+            }
+            #expect(session.isRunning)
+            #expect(core.stopCalls.isEmpty)
+            session.stop()
+            try #require(await core.destroyed.waitUntilOpen())
+        }
+    }
+
     @Test
     func preparedPluginKeepsConfigurationAndQueuedWorkspaceChanges() async throws {
         let core = ScriptedProviderCore()
@@ -486,6 +585,32 @@ struct MacBuildProviderSessionsTests {
         #expect(fixture.endedBackends.calls == [.init(token: token, immediately: true)])
     }
 
+    /// Core's event drain waits on the session lock while the server's reader
+    /// applies a message, so it runs off the main actor. A request sent while a
+    /// drain is out waits for it, so that drain cannot return the request's
+    /// reply before the operation is registered.
+    @Test
+    func aHeldEventDrainNeitherBlocksTheMainActorNorOvertakesARequest() async throws {
+        let fixture = try ProviderFixture()
+        defer {
+            fixture.core.releaseHeldPoll()
+            fixture.remove()
+        }
+        _ = try await fixture.sessions.pluginFunctions(of: fixture.target)
+        fixture.core.holdNextPoll()
+        // This test runs on the main actor: it resumes here only because the
+        // held drain runs elsewhere.
+        try #require(await fixture.core.pollHeld.waitUntilOpen())
+
+        // The call runs on the main actor up to its wait for the drain; the
+        // release is queued behind it.
+        let call = Task { @MainActor in try await fixture.invoke("workspace.build") }
+        let release = Task { @MainActor in fixture.core.releaseHeldPoll() }
+        await release.value
+        #expect(try await call.value == .object(["built": .bool(true)]))
+        #expect(fixture.core.requestsWhilePollHeld == 0)
+    }
+
     /// Stopping a provider whose write is blocked does not wait on it: Core's
     /// stop runs off the main actor and the backend is ended after the grace.
     @Test
@@ -720,6 +845,14 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     /// a write to a backend that stopped reading would, until `releaseStuckSend`.
     let stuckSendStarted = TestGate()
     private let stuckSendReleased = TestGate()
+    /// Opened when a poll armed by `holdNextPoll()` is blocked; it stays
+    /// blocked, as Core's drain does behind a busy session lock, until
+    /// `releaseHeldPoll()`.
+    let pollHeld = TestGate()
+    private let heldPollReleased = TestGate()
+    private var _holdNextPoll = false
+    private var _pollIsHeld = false
+    private var _requestsWhilePollHeld = 0
     private let initialState: String
     private let readyAfterStop: Bool
     private let backgroundStart: Bool
@@ -729,10 +862,18 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     private var events: [String: [LanguageServerRuntimeEvent]] = [:]
     private var _startCalls: [StartCall] = []
     private var _stopCalls: [String] = []
+    private var _cancelledOperations: [String] = []
     private var _buildRequests: [String] = []
     private var _buildParams: [ToolingJSONValue] = []
     private var _functionRequests: [FunctionCall] = []
     private var _syncedTexts: [String] = []
+    private var _savedTexts: [String] = []
+    private var _saveFails = false
+    var savedTexts: [String] { lock.withLock { _savedTexts } }
+    var saveFails: Bool {
+        get { lock.withLock { _saveFails } }
+        set { lock.withLock { _saveFails = newValue } }
+    }
     private var _workspaceConfigurations: [ToolingJSONValue?] = []
     private var _workspaceChanges: [LanguageServerWorkspaceFileChange] = []
 
@@ -754,6 +895,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     }
     var startCalls: [StartCall] { lock.withLock { _startCalls } }
     var stopCalls: [String] { lock.withLock { _stopCalls } }
+    var cancelledOperations: [String] { lock.withLock { _cancelledOperations } }
     var buildRequests: [String] { lock.withLock { _buildRequests } }
     var buildParams: [ToolingJSONValue] { lock.withLock { _buildParams } }
     var functionRequests: [FunctionCall] { lock.withLock { _functionRequests } }
@@ -855,6 +997,11 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     /// Lets the blocked send fail the way a write to a killed process does.
     func releaseStuckSend() { stuckSendReleased.open() }
 
+    func holdNextPoll() { lock.withLock { _holdNextPoll = true } }
+    func releaseHeldPoll() { heldPollReleased.open() }
+    /// Function requests that reached Core while a held poll was out.
+    var requestsWhilePollHeld: Int { lock.withLock { _requestsWhilePollHeld } }
+
     /// `workspace.build` reports progress then succeeds, `snapshot.read`
     /// fails with a plugin code, `workspace.wait` runs until cancelled,
     /// `workspace.stuck` blocks like a write to a backend that stopped
@@ -881,6 +1028,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
             ))
         }
         let operation = lock.withLock {
+            if _pollIsHeld { _requestsWhilePollHeld += 1 }
             _functionRequests.append(FunctionCall(pluginID: pluginID, functionID: functionID))
             let operationID = "\(sessionID)-fn-\(_functionRequests.count)"
             switch functionID {
@@ -957,7 +1105,17 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     }
 
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent] {
-        lock.withLock { events.removeValue(forKey: sessionID) ?? [] }
+        let hold = lock.withLock {
+            defer { _holdNextPoll = false }
+            _pollIsHeld = _holdNextPoll
+            return _holdNextPoll
+        }
+        if hold {
+            pollHeld.open()
+            _ = heldPollReleased.waitSynchronously(timeout: 5)
+            lock.withLock { _pollIsHeld = false }
+        }
+        return lock.withLock { events.removeValue(forKey: sessionID) ?? [] }
     }
 
     func syncLanguageServerDocument(
@@ -970,10 +1128,19 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
 
     func closeLanguageServerDocument(sessionID _: String, fileURL _: URL) {}
 
+    func saveLanguageServerDocument(sessionID _: String, fileURL _: URL, text: String)
+        -> Result<Bool, LanguageServerRuntimeFailure> {
+        lock.withLock {
+            _savedTexts.append(text)
+            return _saveFails ? .failure(LanguageServerRuntimeFailure(
+                code: "processFailed", message: "Save transport failed.", details: nil)) : .success(true)
+        }
+    }
+
     func requestLanguageServerOperation(
         sessionID _: String, operation: LanguageServerOperation, fileURL _: URL?, virtualURI _: String?,
         position _: LanguageServerPosition?, newName _: String?, range _: LanguageServerRange?,
-        diagnostics _: [LanguageServerDiagnostic], completionItem _: LanguageServerCompletionItem?,
+        diagnostics _: [LanguageServerDiagnostic], completionContext: LanguageServerCompletionContext?, completionItem _: LanguageServerCompletionItem?,
         codeAction _: LanguageServerCodeAction?, command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
         if operation == .executeCommand, command?.command == "example.startDebugSession" {
@@ -992,8 +1159,24 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
         }
     }
 
+    func prepareJavaLaunch(
+        sessionID _: String, fileURL _: URL, mainClass _: String?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        commandStarted.open()
+        return .success(LanguageServerRuntimeOperation(operationID: "java-launch"))
+    }
+
+    func finishJavaLaunch(_ result: ToolingJSONValue) {
+        lock.withLock {
+            events["provider-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(
+                type: "requestCompleted", operationID: "java-launch", result: result
+            ))
+        }
+    }
+
     func cancelLanguageServerOperation(sessionID: String, operationID: String) {
         lock.withLock {
+            _cancelledOperations.append(operationID)
             events[sessionID, default: []].append(LanguageServerRuntimeEvent(
                 type: "requestCompleted", operationID: operationID,
                 error: LanguageServerRuntimeError(

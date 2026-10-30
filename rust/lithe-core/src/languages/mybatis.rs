@@ -3,7 +3,7 @@
 use crate::protocol::{CoreError, ErrorCode, MybatisIndexResponse, MybatisStatementResponse};
 use regex::Regex;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
@@ -100,31 +100,48 @@ pub fn mybatis_index(request: MybatisIndexRequest) -> Result<MybatisIndexRespons
         .set_language(&tree_sitter_java::LANGUAGE.into())
         .is_ok();
 
-    let mut java_types = Vec::new();
+    // XML mappers name every Java type worth parsing. A mapper interface lives
+    // in a file named after its top-level type, which is one segment of some
+    // namespace (`a.b.Outer.Inner` names `Outer.java`). Parsing every Java
+    // source instead dominated the index on large projects, and hosts rebuild
+    // the index whenever a Java buffer changes.
     let mut xml_mappers = Vec::new();
+    let mut java_paths = Vec::new();
     for path in &paths {
         if !is_mybatis_source_path(path) {
+            continue;
+        }
+        if is_java_path(path) {
+            java_paths.push(path);
             continue;
         }
         let Some(content) = source_content(&root, path, &request.text_overrides) else {
             continue;
         };
-        let relative = slash_path(path);
-        match path
-            .extension()
-            .and_then(|value| value.to_str())
-            .map(str::to_ascii_lowercase)
-            .as_deref()
-        {
-            Some("java") if java_parser => {
-                java_types.extend(java_mapper_types(&mut parser, &relative, &content));
+        if let Some(mapper) = xml_mapper(&slash_path(path), &content) {
+            xml_mappers.push(mapper);
+        }
+    }
+    let mapper_type_names = xml_mappers
+        .iter()
+        .flat_map(|mapper| mapper.namespace.split('.'))
+        .map(str::to_owned)
+        .collect::<HashSet<_>>();
+
+    let mut java_types = Vec::new();
+    if java_parser {
+        for path in java_paths {
+            let names_mapper_type = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|stem| mapper_type_names.contains(stem));
+            if !names_mapper_type {
+                continue;
             }
-            Some("xml") => {
-                if let Some(mapper) = xml_mapper(&relative, &content) {
-                    xml_mappers.push(mapper);
-                }
-            }
-            _ => {}
+            let Some(content) = source_content(&root, path, &request.text_overrides) else {
+                continue;
+            };
+            java_types.extend(java_mapper_types(&mut parser, &slash_path(path), &content));
         }
     }
 
@@ -383,6 +400,12 @@ fn xml_mapper(path: &str, source: &str) -> Option<XmlMapper> {
         path: path.to_string(),
         statements,
     })
+}
+
+fn is_java_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("java"))
 }
 
 fn is_mybatis_source_path(path: &Path) -> bool {

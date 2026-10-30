@@ -7,9 +7,14 @@ import {
   clearProjectPreparation,
   type ProjectPreparation,
 } from "@/features/run/stores/project-preparation.store";
+import {
+  clearLanguageServerProgress,
+  finishLanguageServerImport,
+  recordLanguageServerProgress,
+} from "@/features/run/stores/language-server-progress.store";
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
-import { readJavaBuildFailure, type JavaBuildReport } from "@/platform/java-launch-readiness";
+import { type JavaBuildReport } from "@/platform/java-launch-readiness";
 import { frontendTrace } from "@/utils/frontend-trace";
 import {
   createSessionLifecycle,
@@ -413,13 +418,6 @@ async function dispatchRuntimeEvent(event: RuntimeEvent, workspacePath?: string)
       });
     }
   }
-  if (event.type === "diagnostics" && event.uri) {
-    await emit("lsp://diagnostics", {
-      uri: event.uri,
-      version: event.version,
-      diagnostics: normalizeCoreValue(event.diagnostics ?? []),
-    });
-  }
   if (event.type === "stateChanged" && event.state === "failed") {
     await emit("lsp://server-crashed", {});
   }
@@ -448,6 +446,20 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   }
   if (event.type === "stateChanged" && event.state === "failed" && session.languageId === "java") {
     failProjectPreparation(session.workspacePath, session.id);
+  }
+  if (event.type === "log") {
+    recordLanguageServerProgress(session, event.message, event.detail);
+  }
+  if (event.type === "stateChanged" && event.state === "ready") {
+    finishLanguageServerImport(session.id);
+  }
+  // A new process (including a recovery under the same session) never ends
+  // the work of the previous one, so its tasks are dropped with it.
+  if (
+    event.type === "stateChanged" &&
+    (event.state === "processStarting" || event.state === "failed" || event.state === "stopped")
+  ) {
+    clearLanguageServerProgress(session.id);
   }
 
   await dispatchRuntimeEvent(event, session.workspacePath);
@@ -514,12 +526,49 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
   }
 }
 
+/** One `textDocument/publishDiagnostics` payload as the editor receives it. */
+export interface LspDiagnosticsPublication {
+  uri: string;
+  version?: number;
+  diagnostics: unknown;
+}
+
+/** Payload of `lsp://diagnostics`: every document whose diagnostics changed in one Core drain. */
+export interface LspDiagnosticsBatch {
+  publications: LspDiagnosticsPublication[];
+}
+
 async function poll(session: Session, timeoutMilliseconds = 30_000): Promise<RuntimeEvent[]> {
   const response = await core<{ events: RuntimeEvent[]; projectPreparation?: ProjectPreparation }>("lsp.waitEvents", {
     sessionId: session.id,
     timeoutMilliseconds,
   });
-  for (const event of response.events) await dispatchSessionEvent(session, event);
+  // A publication replaces the document's previous diagnostics, so a drain
+  // only needs the newest one per URI. Delivering them as one event keeps a
+  // workspace import, which publishes for thousands of files, from costing an
+  // IPC round trip and a store update per file while requests wait behind them.
+  const diagnostics = new Map<string, RuntimeEvent>();
+  const flushDiagnostics = async () => {
+    if (diagnostics.size === 0) return;
+    const publications = [...diagnostics].map(([uri, event]) => ({
+      uri,
+      version: event.version,
+      diagnostics: normalizeCoreValue(event.diagnostics ?? []),
+    }));
+    diagnostics.clear();
+    await emit("lsp://diagnostics", { publications } satisfies LspDiagnosticsBatch);
+  };
+  for (const event of response.events) {
+    if (event.type === "diagnostics") {
+      if (event.uri) diagnostics.set(event.uri, event);
+      continue;
+    }
+    // Diagnostics published before a lifecycle change reach the editor first,
+    // as they did when each one was forwarded on its own.
+    if (event.type === "stateChanged") await flushDiagnostics();
+    await dispatchSessionEvent(session, event);
+  }
+  await flushDiagnostics();
   if (session.languageId === "java" && response.projectPreparation) {
     updateProjectPreparation(session.workspacePath, session.id, response.projectPreparation);
   }
@@ -1005,6 +1054,7 @@ async function start(args: JsonRecord): Promise<void> {
 
 async function stopSession(session: Session, preservePreparation = false): Promise<void> {
   if (session.languageId === "java" && !preservePreparation) clearProjectPreparation(session.workspacePath, session.id);
+  clearLanguageServerProgress(session.id);
   const key = sessionKey(session.workspacePath, session.languageId);
   stoppingSessionIds.add(session.id);
   removeSessionMappings(session);
@@ -1261,11 +1311,6 @@ function relativePathKey(workspacePath: string, relativePath: string): string {
     : normalized;
 }
 
-/** JDT reports modular classes as `module/pkg.Type`; configurations keep `pkg.Type`. */
-function mainClassMatches(reported: string, configured: string): boolean {
-  return reported === configured || reported.endsWith(`/${configured}`);
-}
-
 export const LSP_OPERATION_BY_COMMAND = {
   lsp_get_completions: "completion",
   lsp_resolve_completion: "resolveCompletion",
@@ -1312,6 +1357,7 @@ function semanticPayload(command: string, args: JsonRecord, session: Session): J
   if (typeof args.line === "number") {
     payload.position = { line: args.line, utf16Column: args.character ?? 0 };
   }
+  if (command === "lsp_get_completions") payload.completionContext = args.completionContext;
   if (command === "lsp_rename") payload.newName = args.newName;
   if (command === "lsp_resolve_completion") payload.completionItem = args.completionItem;
   if (command === "lsp_get_inlay_hints") {
@@ -1346,7 +1392,7 @@ function unwrapResult(command: string, result: any): unknown {
   const normalized = normalizeCoreValue(result) as JsonRecord;
   switch (command) {
     case "lsp_get_completions":
-      return normalized.items ?? [];
+      return { items: normalized.items ?? [], isIncomplete: normalized.isIncomplete === true };
     case "lsp_resolve_completion":
       return normalized.item ?? null;
     case "lsp_get_hover": {
@@ -1397,7 +1443,10 @@ async function semanticRequest(command: string, args: JsonRecord): Promise<unkno
   const session = sessionForFile(args.sessionFilePath ?? args.filePath);
   const result = await requestOperation(session, semanticPayload(command, args, session));
   // A stopped/replaced attachment must not repaint the new session's document.
-  if (command === "lsp_get_semantic_tokens" && fileSessions.get(key) !== attachment) return null;
+  if (fileSessions.get(key) !== attachment) {
+    if (command === "lsp_get_semantic_tokens") return null;
+    if (command === "lsp_get_completions") return { items: [], isIncomplete: false };
+  }
   return unwrapResult(command, result);
 }
 
@@ -1647,8 +1696,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
-      // Prefer ranged changes when present, but keep full text so Core can
-      // fall back to a full-document didChange for unsafe multi-change batches.
+      // Absent when the ranged changes alone describe the edit.
       text: args.content ?? "",
       ...(contentChanges.length > 0 ? { contentChanges } : {}),
     });
@@ -1656,10 +1704,9 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
   }
   if (command === "lsp_document_save") {
     const session = sessionForFile(args.filePath, args.attachmentId);
-    await synchronizeDocument("documentSave", session, args.filePath, {
+    await core("lsp.saveDocument", {
       sessionId: session.id,
       uri: fileUri(args.filePath),
-      languageId: args.languageId ?? session.languageId,
       text: args.content ?? "",
     });
     return undefined as T;
@@ -1782,114 +1829,19 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
   }
   if (command === "java_prepare_run_launch") {
     const workspacePath = String(args.workspacePath ?? "");
-    const sourcePath = String(args.sourcePath ?? "");
-    const configuredMainClass = String(args.mainClass ?? "");
     const session = sessionForWorkspace(workspacePath, "java");
-    const execute = async (
-      title: string,
-      javaCommand: string,
-      arguments_: unknown[],
-      coreTimeoutMilliseconds = LSP_REQUEST_TIMEOUT_MS,
-    ) => {
-      const result = normalizeCoreValue(
-        await requestOperation(
-          session,
-          {
-            sessionId: session.id,
-            operation: "executeCommand",
-            command: { title, command: javaCommand, arguments: arguments_ },
-          },
-          "lsp.request",
-          coreTimeoutMilliseconds,
-        ),
-      ) as JsonRecord;
-      return result?.value;
-    };
-    // Core asks JDT for launchable classes and normalizes the answer; the
-    // target is the entry generated from this exact source file.
-    const entrypoints = await requestJavaEntrypoints(session);
-    const relativeSource = workspaceRelativeKey(workspacePath, sourcePath);
-    const exact = entrypoints.entries.filter(
-      (entry) =>
-        relativeSource !== null &&
-        relativePathKey(workspacePath, entry.sourcePath) === relativeSource,
-    );
-    const selected =
-      exact.length === 1
-        ? exact[0]
-        : exact.find((entry) => mainClassMatches(entry.mainClass, configuredMainClass)) ?? null;
-    if (!selected) {
-      throw lspAdapterError(
-        "invalid_response",
-        "The Java language service could not identify one launch target for this source file.",
-      );
-    }
-    // Core drops blank project names; a missing one reaches Java Debug Server
-    // as "any project", and Core reports the resulting marker scope back in
-    // the build report.
-    const projectName = selected.projectName;
-    // Core serializes this build behind JDT project configuration and earlier
-    // builds, and reports compilation errors, build failures, and cancellation
-    // as distinct structured errors carrying the evidence behind the verdict.
-    //
-    // A terminal build failure is returned with the resolved launch target so
-    // the application workflow can ask the user and continue this same attempt.
-    // Cancellation and timeouts still throw because they produced no verdict.
-    let buildFailure: ReturnType<typeof readJavaBuildFailure> = null;
-    try {
-      const buildStatus = await execute(
-        "Build Java Workspace",
-        "vscode.java.buildWorkspace",
-        [
-          JSON.stringify({
-            mainClass: selected.mainClass,
-            projectName,
-            filePath: sourcePath,
-            isFullBuild: false,
-          }),
-        ],
-        JAVA_BUILD_TIMEOUT_MS,
-      );
-      if (Number(buildStatus) !== 1) {
-        throw lspAdapterError(
-          "invalid_response",
-          "The Java language service returned an unexpected project build status.",
-        );
-      }
-    } catch (reason) {
-      buildFailure = readJavaBuildFailure(reason);
-      if (!buildFailure) throw reason;
-    }
-    // Explicit runtime scope excludes test Main classes (issue #379). Let JDT
-    // choose from the owning project model, including custom source/output roots.
-    const paths = await execute("Resolve Java Runtime Classpath", "vscode.java.resolveClasspath", [
-      selected.mainClass,
-      projectName ?? "",
-    ]);
-    if (!Array.isArray(paths) || paths.length !== 2) {
-      throw lspAdapterError(
-        "invalid_response",
-        "The Java language service returned an invalid runtime classpath.",
-      );
-    }
-    const modulePaths = Array.isArray(paths[0])
-      ? paths[0].filter((value): value is string => typeof value === "string")
-      : [];
-    const classPaths = Array.isArray(paths[1])
-      ? paths[1].filter((value): value is string => typeof value === "string")
-      : [];
-    if (modulePaths.length === 0 && classPaths.length === 0) {
-      throw lspAdapterError(
-        "invalid_response",
-        "The Java language service returned no runtime paths.",
-      );
-    }
-    const target = { mainClass: selected.mainClass, projectName, modulePaths, classPaths };
-    return (
-      buildFailure
-        ? { kind: "buildFailed", target, failure: buildFailure }
-        : { kind: "ready", target }
-    ) as T;
+    // Core owns selection, the serialized build, and classpath resolution as
+    // one operation. The host deadline covers all three bounded Core phases.
+    return (await requestOperation(
+      session,
+      {
+        sessionId: session.id,
+        sourcePath: String(args.sourcePath ?? ""),
+        mainClass: String(args.mainClass ?? ""),
+      },
+      "java.prepareLaunch",
+      JAVA_BUILD_TIMEOUT_MS + 2 * LSP_REQUEST_TIMEOUT_MS,
+    )) as T;
   }
   if (command === "java_navigation_markers") {
     const session = sessionForFile(args.sessionFilePath ?? args.filePath);

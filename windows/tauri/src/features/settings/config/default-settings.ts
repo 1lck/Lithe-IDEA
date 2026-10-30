@@ -72,6 +72,7 @@ export const defaultSettings: Settings = {
   inlayHints: true,
   codeLens: true,
   semanticTokens: true,
+  javaProjectImportOnOpen: "automatic",
   breadcrumbShowSymbols: true,
   // Terminal
   terminalFontFamily: DEFAULT_MONO_FONT_FAMILY,
@@ -206,6 +207,8 @@ export const defaultSettings: Settings = {
   autoRefreshGitStatus: true,
   showUntrackedFiles: true,
   showStagedFirst: true,
+  showGitChangelists: true,
+  showGitParentReferences: true,
   gitDefaultDiffView: "unified",
   openDiffOnClick: true,
   showGitStatusInFileTree: true,
@@ -217,7 +220,6 @@ export const defaultSettings: Settings = {
   gitFetchSubmodules: "inherit",
   gitFetchTags: "inherit",
   githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
-  enableInlineGitBlame: true,
   enableGitGutter: true,
 };
 

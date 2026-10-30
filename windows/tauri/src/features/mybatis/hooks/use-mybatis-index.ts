@@ -7,11 +7,14 @@ import { useMybatisStore } from "../stores/mybatis.store";
 import { EMPTY_MYBATIS_INDEX } from "../types/mybatis.types";
 import {
   collectMybatisIndexPaths,
+  editAffectsMybatisIndex,
   isMybatisIndexPath,
   workspaceRelativeMybatisPath,
 } from "../utils/mybatis-index-paths";
 
-const RELOAD_DELAY_MS = 300;
+// A reload parses the workspace again and copies every open file across IPC, so
+// it waits for the same pause as autosave rather than for a gap between words.
+const RELOAD_DELAY_MS = 1_000;
 
 export function useMybatisIndex() {
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
@@ -71,7 +74,12 @@ export function useMybatisIndex() {
       const changed = state.buffers.some((buffer) => {
         if (!buffer.path || !isMybatisIndexPath(buffer.path) || !hasTextContent(buffer)) return false;
         const previousBuffer = previous.buffers.find((candidate) => candidate.id === buffer.id);
-        return !previousBuffer || !hasTextContent(previousBuffer) || previousBuffer.content !== buffer.content;
+        // A newly opened file may hold a mapper the index has not paired yet.
+        if (!previousBuffer || !hasTextContent(previousBuffer)) return true;
+        return (
+          previousBuffer.content !== buffer.content &&
+          editAffectsMybatisIndex(buffer.path)
+        );
       });
       if (changed) scheduleReload();
     });

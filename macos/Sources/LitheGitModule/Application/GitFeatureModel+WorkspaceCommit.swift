@@ -23,7 +23,7 @@ extension GitFeatureModel {
 
     private func prepareWorkspaceCommit(message: String, amend: Bool, push: Bool) async -> Bool {
         loadChangelistsIfNeeded()
-        guard !isCommitting, pendingSubmoduleCommitPlan == nil,
+        guard !isCommitting, !isWorktreeCommitBlocked, pendingSubmoduleCommitPlan == nil,
               workspaceCommitAttempt == nil || workspaceCommitAttempt?.succeeded == true else { return false }
         if let error = changelistCommitError { notify?(error); return false }
         let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -119,7 +119,7 @@ extension GitFeatureModel {
         includeParentReferences: Bool, retry: Bool, reviewed: GitWorkspaceCommitPlan? = nil,
         pushTargets: [String: GitWorkspaceConfirmedPushTarget]? = nil,
         previousChoices: [String: GitWorkspacePushTargetQuestion] = [:]) async -> GitSubmoduleCommitPlan? {
-        guard !isStagingChanges else { notify?("Wait for staging to finish before reviewing the commit plan."); return nil }
+        guard !isStagingChanges, !isWorktreeCommitBlocked else { notify?("Wait for staging to finish before reviewing the commit plan."); return nil }
         guard let workspace = workspaceURLProvider?() else { return nil }
         let generation = workspaceCommitGeneration
         let base = workspace.standardizedFileURL.pathComponents

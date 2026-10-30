@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 @testable import LitheGitModule
 import LitheSearchModule
 import Testing
@@ -6,6 +8,488 @@ import Testing
 
 @Suite("Git status observation", .serialized)
 struct GitStatusObservationTests {
+    @Test @MainActor
+    func mountedCommitPanelObservesExternalEditsAndKeepsRollbackEnabledDuringBackgroundReads() async throws {
+        let fixture = try GitObservationFixture(label: "mounted-commit-refresh")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        let barrier = GitObservationReadBarrier()
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            stashesProvider: { _ in await barrier.waitIfArmed(); return [] })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+        let recorder = GitObservationRecorder()
+        let workspace = makeObservationModel(recorder: recorder, refreshGit: { await feature.refreshGitFromMetadataChange() })
+        let suite = "commit-observation-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let settings = AppSettings(store: MacUserDefaultsStore(defaults: defaults))
+        let draft = CommitDraftFeatureModel()
+        let workflow = CommitWorkflowCoordinator(draft: draft, activateGit: { feature },
+            workspaceGeneration: { workspace.workspaceGeneration }, generate: { _ in "" }, notify: { _ in })
+        let host = NSHostingView(rootView: ChangesSidebarView(feature: feature, draft: draft,
+            commitWorkflow: workflow, workbench: WorkbenchFeatureModel(), hasBackgroundImage: false,
+            openSavedDiff: { _, _, _ in }, selectChange: { _ in }, setStaging: { _, _ in },
+            openFile: { _, _ in }, showLocalHistory: { _ in }, revealInFinder: { _ in },
+            copyPath: { _, _ in }, showSettings: { _ in })
+            .environmentObject(settings).environment(\.locale, Locale(identifier: "en")))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 449, height: 800),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.center()
+        window.orderFront(nil)
+        var heldRead: Task<Void, Never>?
+        let application = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        application.accessibilitySetValue(true, forAttribute: attribute)
+        defer {
+            heldRead?.cancel(); barrier.release.open(); workspace.reset(); feature.reset()
+            for popup in window.childWindows ?? [] { popup.close() }
+            window.contentView = nil; window.close()
+            application.accessibilitySetValue(previous, forAttribute: attribute)
+            defaults.removePersistentDomain(forName: suite)
+        }
+        try await startObservation(workspace, at: root, recorder: recorder)
+        _ = try await AgentNativeControlTestSupport.frame(of: "git-rollback", in: host)
+        let tracked = root.appendingPathComponent("tracked.txt")
+        try Data("external edit\n".utf8).write(to: tracked)
+        try #require(await waitUntil { feature.gitChanges.contains { $0.path == "tracked.txt" } })
+        #expect(await commitPanelRendered(host) { commitPanelContainsText("tracked.txt", in: host) })
+        let added = root.appendingPathComponent("external-new.txt")
+        try Data("external creation\n".utf8).write(to: added)
+        try #require(await waitUntil { feature.gitChanges.contains { $0.path == "external-new.txt" } })
+        #expect(await commitPanelRendered(host) { commitPanelContainsText("external-new.txt", in: host) })
+        try FileManager.default.removeItem(at: added)
+        try #require(await waitUntil { !feature.gitChanges.contains { $0.path == "external-new.txt" } })
+        #expect(await commitPanelRendered(host) {
+            !commitPanelContainsText("external-new.txt", in: host) && commitPanelContainsText("tracked.txt", in: host)
+        })
+        try await fixture.git(["add", "tracked.txt"], at: root)
+        try #require(await waitUntil { feature.gitChanges.first { $0.path == "tracked.txt" }?.isStaged == true })
+        // Keep this same mounted panel, then hold an unrelated read after status publication.
+        workspace.prepareForModuleRelease()
+        await barrier.arm()
+        let readFinished = TestGate()
+        heldRead = Task { await feature.refreshGit(); readFinished.open() }
+        try #require(await barrier.entered.waitUntilOpen())
+        #expect(feature.isRefreshingGit)
+        #expect(try await AgentNativeControlTestSupport.isEnabled("git-rollback", in: host))
+        let frame = try await AgentNativeControlTestSupport.frame(of: "git-rollback", in: host)
+        let point = host.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            window.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
+        }
+        #expect(await commitPanelRendered(host) {
+            window.childWindows?.contains { $0 is NSPanel && $0.isVisible } == true
+        })
+        #expect(feature.pendingRollbackSelection?.includedChanges.map(\.path) == ["tracked.txt"])
+        feature.cancelRollbackChanges()
+        #expect(await commitPanelRendered(host) { window.childWindows?.contains { $0.isVisible } != true })
+        barrier.release.open()
+        try #require(await readFinished.waitUntilOpen())
+        await heldRead?.value
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root) == "tracked.txt",
+                "Opening and cancelling the review must not modify the real index")
+    }
+
+    @Test @MainActor
+    func realGitCommitFilesPreparesOnlySelectedFilesAndPreservesTheirPartialIndex() async throws {
+        let fixture = try GitObservationFixture(label: "prepare-commit-files")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        let head = try await fixture.git(["rev-parse", "HEAD"], at: root)
+        try Data("staged content\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try Data("unrelated staged content\n".utf8).write(to: root.appendingPathComponent("excluded.txt"))
+        try await fixture.git(["add", "."], at: root)
+        try Data("unstaged content\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try Data("selected new content\n".utf8).write(to: root.appendingPathComponent("included.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let selected = feature.gitChanges.filter { ["tracked.txt", "included.txt"].contains($0.path) }
+        #expect(selected.count == 2 && feature.canPrepareCommitFiles(selected))
+        #expect(await feature.prepareCommitFiles(selected))
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root) == "included.txt\ntracked.txt")
+        #expect(try await fixture.git(["show", ":tracked.txt"], at: root) == "staged content")
+        #expect(try String(contentsOf: root.appendingPathComponent("tracked.txt"), encoding: .utf8) == "unstaged content\n")
+        #expect(try String(contentsOf: root.appendingPathComponent("excluded.txt"), encoding: .utf8) == "unrelated staged content\n")
+        #expect(try await fixture.git(["rev-parse", "HEAD"], at: root) == head, "Preparation never creates a commit")
+    }
+
+    @Test @MainActor
+    func realGitCommitFilesAcceptsAnUntrackedDirectoryExpandingIntoIndexEntries() async throws {
+        let fixture = try GitObservationFixture(label: "prepare-commit-directory")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("new/sub"), withIntermediateDirectories: true)
+        let paths = ["new/sub/two.txt"] + (1...101).map { "new/file-\($0).txt" }
+        for path in paths {
+            try Data(path.utf8).write(to: root.appendingPathComponent(path))
+        }
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let directory = try #require(feature.gitChanges.first { $0.isUntrackedDirectory })
+        #expect(await feature.prepareCommitFiles([directory]))
+        let staged = try await fixture.git(["diff", "--cached", "--name-only"], at: root)
+        #expect(Set(staged.split(separator: "\n").map(String.init)) == Set(paths))
+    }
+
+    @Test @MainActor
+    func realGitCommitFilesUnstagesAnExcludedCopyWithoutUnstagingItsSelectedSource() async throws {
+        let fixture = try GitObservationFixture(label: "prepare-commit-copy")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try await fixture.git(["config", "status.renames", "copies"], at: root)
+        try Data("initial\n".utf8).write(to: root.appendingPathComponent("copy.txt"))
+        try Data("source staged\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try await fixture.git(["add", "."], at: root)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(feature.gitChanges.contains { $0.indexStatus == "C" })
+        let source = try #require(feature.gitChanges.first { $0.path == "tracked.txt" })
+        #expect(await feature.prepareCommitFiles([source]))
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root) == "tracked.txt")
+        #expect(try await fixture.git(["show", ":tracked.txt"], at: root) == "source staged")
+        #expect(try String(contentsOf: root.appendingPathComponent("copy.txt"), encoding: .utf8) == "initial\n")
+    }
+
+    @Test @MainActor
+    func realGitDeleteRefusesADirectoryContainingAnIndependentNestedRepository() async throws {
+        let fixture = try GitObservationFixture(label: "delete-nested-repository")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("folder"), withIntermediateDirectories: true)
+        for number in 1...101 {
+            try Data("ordinary content\n".utf8).write(to: root.appendingPathComponent("folder/file-\(number).txt"))
+        }
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let directory = try #require(feature.gitChanges.first { $0.repositoryRoot == root && $0.path == "folder/" })
+        // The menu captured a safe directory summary before a nested checkout
+        // appeared. A fresh ownership check must protect that checkout.
+        try await fixture.initializeRepository(at: root.appendingPathComponent("folder/nested"))
+        var writes = 0
+        #expect(await !feature.deleteCommitFiles([directory]) { writes += 1; return true })
+        #expect(writes == 0 && !feature.isDeletingCommitFiles)
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func realGitDeleteRefreshesMissingAdditionsAndPreservesTrackedDeletionAndUnrelatedIndex(partialFailure: Bool) async throws {
+        let fixture = try GitObservationFixture(label: "delete-refresh")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try Data("keep staged\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        for path in ["deleted.txt", "retained.txt", "unrelated.txt"] {
+            try Data(path.utf8).write(to: root.appendingPathComponent(path))
+        }
+        try await fixture.git(["add", "."], at: root)
+        try Data("keep unstaged\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try Data("untracked\n".utf8).write(to: root.appendingPathComponent("untracked.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let targets = feature.gitChanges.filter { ["deleted.txt", "retained.txt", "untracked.txt", "tracked.txt"].contains($0.path) }
+        #expect(targets.count == 4)
+        // Only fixture files are removed; native Trash ownership is tested separately.
+        let result = await feature.deleteCommitFiles(targets) {
+            for path in ["deleted.txt", "untracked.txt"] + (partialFailure ? [] : ["retained.txt", "tracked.txt"]) {
+                do { try FileManager.default.removeItem(at: root.appendingPathComponent(path)) }
+                catch { Issue.record(error); return false }
+            }
+            return !partialFailure
+        }
+        #expect(result != partialFailure)
+        #expect(!feature.gitChanges.contains { ["deleted.txt", "untracked.txt"].contains($0.path) })
+        #expect(feature.gitChanges.contains { $0.path == "retained.txt" } == partialFailure)
+        let tracked = try #require(feature.gitChanges.first { $0.path == "tracked.txt" })
+        #expect(tracked.workTreeStatus == (partialFailure ? "M" : "D"))
+        #expect(try await fixture.git(["show", ":tracked.txt"], at: root) == "keep staged")
+        #expect(try await fixture.git(["show", ":unrelated.txt"], at: root) == "unrelated.txt")
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root)
+            == (partialFailure ? "retained.txt\ntracked.txt\nunrelated.txt" : "tracked.txt\nunrelated.txt"))
+    }
+
+    @Test @MainActor
+    func realGitDeleteOfACopyNeverUnstagesItsIndependentlyModifiedSource() async throws {
+        let fixture = try GitObservationFixture(label: "delete-copy-refresh")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try await fixture.git(["config", "status.renames", "copies"], at: root)
+        try Data("initial\n".utf8).write(to: root.appendingPathComponent("copy.txt"))
+        try Data("staged source\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try await fixture.git(["add", "."], at: root)
+        try Data("unstaged source\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let copy = try #require(feature.gitChanges.first { $0.path == "copy.txt" && $0.indexStatus == "C" })
+        #expect(await feature.deleteCommitFiles([copy]) {
+            do { try FileManager.default.removeItem(at: root.appendingPathComponent("copy.txt")); return true }
+            catch { Issue.record(error); return false }
+        })
+        #expect(feature.gitChanges.map(\.path) == ["tracked.txt"])
+        #expect(try await fixture.git(["show", ":tracked.txt"], at: root) == "staged source")
+        #expect(try String(contentsOf: root.appendingPathComponent("tracked.txt"), encoding: .utf8) == "unstaged source\n")
+    }
+
+    @Test
+    @MainActor
+    func realGitRollbackCheckedFilesRestoresIndexAndWorktreeButNotUncheckedEdits() async throws {
+        let fixture = try GitObservationFixture(label: "rollback-checked")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        for path in ["second.txt", "unchecked.txt"] {
+            try Data("initial\n".utf8).write(to: root.appendingPathComponent(path))
+        }
+        try await fixture.git(["add", "."], at: root)
+        try await fixture.git(["commit", "-qm", "three files"], at: root)
+        for path in ["tracked.txt", "second.txt", "unchecked.txt"] {
+            try Data("staged edit\n".utf8).write(to: root.appendingPathComponent(path))
+        }
+        try await fixture.git(["add", "tracked.txt", "second.txt"], at: root)
+        try Data("partially staged edit\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let included = GitRollbackSelection.initialTargets(changes: feature.gitChanges, selectedIDs: [])
+        #expect(Set(included.map(\.path)) == ["tracked.txt", "second.txt"])
+        let before = try await fixture.git(["diff", "--cached"], at: root)
+        feature.requestRollbackChanges(feature.gitChanges, included: included)
+        feature.cancelRollbackChanges()
+        #expect(try await fixture.git(["diff", "--cached"], at: root) == before)
+        #expect(try String(contentsOf: root.appendingPathComponent("tracked.txt"), encoding: .utf8) == "partially staged edit\n")
+        feature.requestRollbackChanges(feature.gitChanges, included: included)
+        let captured = try #require(feature.pendingRollbackSelection)
+        feature.cancelRollbackChanges()
+        await feature.confirmRollbackChanges(captured)
+        for path in ["tracked.txt", "second.txt"] {
+            #expect(try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8) == "initial\n")
+        }
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root).isEmpty)
+        #expect(try String(contentsOf: root.appendingPathComponent("unchecked.txt"), encoding: .utf8) == "staged edit\n")
+        #expect(feature.gitChanges.map(\.path) == ["unchecked.txt"])
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func realGitRollbackAddedFilesRequiresExplicitDeletion(deleteAdded: Bool) async throws {
+        let fixture = try GitObservationFixture(label: "rollback-added")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        for path in ["added.txt", "untracked.txt", "intent.txt"] {
+            try Data("keep new content\n".utf8).write(to: root.appendingPathComponent(path))
+        }
+        try await fixture.git(["add", "added.txt"], at: root)
+        try await fixture.git(["add", "-N", "intent.txt"], at: root)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        feature.requestRollbackChanges(feature.gitChanges, included: feature.gitChanges)
+        var captured = try #require(feature.pendingRollbackSelection)
+        #expect(!captured.deleteAddedFiles && captured.hasIncludedAdditions)
+        captured.deleteAddedFiles = deleteAdded
+        await feature.confirmRollbackChanges(captured)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root).isEmpty)
+        for path in ["added.txt", "untracked.txt", "intent.txt"] {
+            #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) != deleteAdded)
+            if !deleteAdded {
+                #expect(try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8) == "keep new content\n")
+            }
+        }
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func realGitRollbackCopyNeverRestoresOrUnstagesItsUncheckedSource(deleteAdded: Bool) async throws {
+        let fixture = try GitObservationFixture(label: "rollback-copy")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try await fixture.git(["config", "status.renames", "copies"], at: root)
+        try Data("initial\n".utf8).write(to: root.appendingPathComponent("copy.txt"))
+        try Data("staged source edit\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try await fixture.git(["add", "."], at: root)
+        try Data("unstaged source edit\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let copy = try #require(feature.gitChanges.first { $0.indexStatus == "C" })
+        #expect(copy.path == "copy.txt" && copy.originalPath == "tracked.txt")
+        let before = try await fixture.git(["diff", "--cached", "--", "tracked.txt"], at: root)
+        feature.requestRollbackChanges(feature.gitChanges, included: [copy])
+        var captured = try #require(feature.pendingRollbackSelection)
+        #expect(captured.hasIncludedAdditions)
+        captured.deleteAddedFiles = deleteAdded
+        await feature.confirmRollbackChanges(captured)
+        #expect(try await fixture.git(["diff", "--cached", "--", "tracked.txt"], at: root) == before)
+        #expect(try String(contentsOf: root.appendingPathComponent("tracked.txt"), encoding: .utf8) == "unstaged source edit\n")
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root) == "tracked.txt")
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("copy.txt").path) != deleteAdded)
+    }
+
+    @Test(arguments: ["rename", "delete", "retained-delete"])
+    @MainActor
+    func realGitRollbackRestoresRenameAndDeletionIncludingRetainedDiskCopy(kind: String) async throws {
+        let fixture = try GitObservationFixture(label: "rollback-" + kind)
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        if kind == "rename" { try await fixture.git(["mv", "tracked.txt", "renamed.txt"], at: root) }
+        else if kind == "delete" { try await fixture.git(["rm", "tracked.txt"], at: root) }
+        else {
+            try await fixture.git(["rm", "--cached", "tracked.txt"], at: root)
+            try Data("retained edit\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        }
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        feature.requestRollbackChanges(feature.gitChanges, included: feature.gitChanges)
+        await feature.confirmRollbackChanges(try #require(feature.pendingRollbackSelection))
+        #expect(try String(contentsOf: root.appendingPathComponent("tracked.txt"), encoding: .utf8) == "initial\n")
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("renamed.txt").path))
+        #expect(try await fixture.git(["status", "--porcelain"], at: root).isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func realGitRollbackLinkedWorktreeNeverChangesPrimaryIndexOrFiles() async throws {
+        let fixture = try GitObservationFixture(label: "rollback-worktree")
+        let primary = fixture.url.appendingPathComponent("primary", isDirectory: true)
+        let linked = fixture.url.appendingPathComponent("linked", isDirectory: true)
+        try await fixture.initializeRepository(at: primary)
+        try await fixture.git(["worktree", "add", "-qb", "rollback-test", linked.path], at: primary)
+        for root in [primary, linked] {
+            try Data("staged edit\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+            try await fixture.git(["add", "tracked.txt"], at: root)
+        }
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { primary }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == linked })
+        await feature.inspectWorktree(worktree)
+        let scoped = feature.commitFeature(for: worktree)
+        scoped.requestRollbackChanges(scoped.gitChanges, included: scoped.gitChanges)
+        await scoped.confirmRollbackChanges(try #require(scoped.pendingRollbackSelection))
+        #expect(try await fixture.git(["status", "--porcelain"], at: linked).isEmpty)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: primary) == "tracked.txt")
+        #expect(try String(contentsOf: primary.appendingPathComponent("tracked.txt"), encoding: .utf8) == "staged edit\n")
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func realGitWorktreeRefreshAndStageAllExcludeIndependentNestedRepositories(linkedCheckout: Bool) async throws {
+        let fixture = try GitObservationFixture(label: "worktree-nested-repository")
+        let primary = fixture.url.appendingPathComponent("primary", isDirectory: true)
+        let linked = fixture.url.appendingPathComponent("linked", isDirectory: true)
+        try await fixture.initializeRepository(at: primary)
+        try await fixture.git(["config", "user.name", "Lithe Tests"], at: primary)
+        try await fixture.git(["config", "user.email", "tests@lithe.local"], at: primary)
+        try await fixture.git(["config", "commit.gpgsign", "false"], at: primary)
+        try await fixture.git(["config", "core.hooksPath", "/dev/null"], at: primary)
+        try await fixture.git(["worktree", "add", "-q", "-b", "nested-test", linked.path], at: primary)
+        let checkout = linkedCheckout ? linked : primary
+        let nested = checkout.appendingPathComponent("nested", isDirectory: true)
+        try await fixture.initializeRepository(at: nested)
+        try Data("nested staged edit\n".utf8).write(to: nested.appendingPathComponent("tracked.txt"))
+        try await fixture.git(["add", "tracked.txt"], at: nested)
+        let nestedHEAD = try await fixture.git(["rev-parse", "HEAD"], at: nested)
+        let nestedIndex = try await fixture.git(["ls-files", "--stage"], at: nested)
+        try Data("checkout edit\n".utf8).write(to: checkout.appendingPathComponent("tracked.txt"))
+        try Data("checkout addition\n".utf8).write(to: checkout.appendingPathComponent("new.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { primary }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == checkout })
+        let expectedPaths: Set<String> = ["tracked.txt", "new.txt"]
+        await feature.inspectWorktree(worktree)
+        #expect(Set(feature.gitWorktreeInspection?.changes.map(\.path) ?? []) == expectedPaths)
+        await feature.refreshWorktreeChanges(worktree)
+        #expect(Set(feature.gitWorktreeInspection?.changes.map(\.path) ?? []) == expectedPaths)
+        await feature.refreshWorktrees()
+        #expect(Set(feature.gitWorktreeInspection?.changes.map(\.path) ?? []) == expectedPaths)
+        let scoped = feature.commitFeature(for: worktree)
+        #expect(Set(scoped.gitChanges.map(\.path)) == expectedPaths)
+        // Worktrees' toolbar stages through the host; Commit's checkbox batch
+        // uses the scoped model. Neither entry point may add the nested root.
+        await feature.setWorktreeStaging(scoped.activeChangelistChanges, staged: true, in: worktree)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: checkout) == "new.txt\ntracked.txt")
+        #expect(try await !fixture.git(["ls-files", "--stage"], at: checkout).contains("160000"))
+        let staged = try #require(feature.gitWorktreeInspection?.changes)
+        await feature.setWorktreeStaging(staged, staged: false, in: worktree)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: checkout).isEmpty)
+        await scoped.refreshGit()
+        #expect(scoped.availableRepositoryRoots == [checkout])
+        #expect(Set(scoped.gitChanges.map(\.path)) == expectedPaths)
+        let stageAll = scoped.beginSetStaging(scoped.activeChangelistChanges, staged: true, includeWorkingTreeChanges: true)
+        await scoped.finishSetStaging(stageAll, staged: true)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: checkout) == "new.txt\ntracked.txt")
+        #expect(try await !fixture.git(["ls-files", "--stage"], at: checkout).contains("160000"))
+        #expect(await scoped.commitStagedChanges(message: "Keep nested repository independent", amend: false))
+        #expect(try await fixture.git(["log", "-1", "--format=%s"], at: checkout) == "Keep nested repository independent")
+        #expect(try await !fixture.git(["ls-tree", "-r", "HEAD"], at: checkout).contains("160000"))
+        #expect(!FileManager.default.fileExists(atPath: checkout.appendingPathComponent(".gitmodules").path))
+        #expect(try await fixture.git(["rev-parse", "HEAD"], at: nested) == nestedHEAD)
+        #expect(try await fixture.git(["ls-files", "--stage"], at: nested) == nestedIndex)
+        #expect(scoped.gitChanges.isEmpty && feature.gitWorktreeInspection?.changes.isEmpty == true)
+    }
+
+    @Test
+    @MainActor
+    func realGitWorktreeComposerCommitsOnlySelectedCheckout() async throws {
+        let fixture = try GitObservationFixture(label: "worktree-composer")
+        let primary = fixture.url.appendingPathComponent("primary", isDirectory: true)
+        let linked = fixture.url.appendingPathComponent("linked", isDirectory: true)
+        try await fixture.initializeRepository(at: primary)
+        try await fixture.git(["config", "user.name", "Lithe Tests"], at: primary)
+        try await fixture.git(["config", "user.email", "tests@lithe.local"], at: primary)
+        try await fixture.git(["config", "commit.gpgsign", "false"], at: primary)
+        try await fixture.git(["config", "core.hooksPath", "/dev/null"], at: primary)
+        try await fixture.git(["worktree", "add", "-q", "-b", "composer", linked.path], at: primary)
+        for root in [primary, linked] {
+            try Data("Changed in \(root.lastPathComponent)\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+            try await fixture.git(["add", "tracked.txt"], at: root)
+        }
+        let originalHEAD = try await fixture.git(["rev-parse", "HEAD"], at: primary)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { primary }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.refreshWorktrees()
+        let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == linked })
+        await feature.inspectWorktree(worktree)
+        let scoped = feature.commitFeature(for: worktree)
+        #expect(scoped.activeChangelistChanges.contains { $0.isStaged })
+        #expect(await scoped.commitStagedChanges(message: "Selected checkout only", amend: false))
+        #expect(try await fixture.git(["rev-parse", "HEAD"], at: primary) == originalHEAD)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: primary) == "tracked.txt")
+        #expect(try await fixture.git(["rev-parse", "HEAD"], at: linked) != originalHEAD)
+        #expect(try await fixture.git(["log", "-1", "--format=%s"], at: linked) == "Selected checkout only")
+        #expect(try await fixture.git(["status", "--porcelain"], at: linked).isEmpty)
+        #expect(feature.gitRepositoryRoot == primary && scoped.gitChanges.isEmpty)
+        #expect(feature.gitWorktreeInspection?.changes.isEmpty == true)
+    }
+
     @Test(arguments: [false, true])
     @MainActor
     func realGitRemovedFromIndexFileRefreshesWithoutCrashing(staged: Bool) async throws {
@@ -541,7 +1025,10 @@ private struct GitObservationWatchContextProvider: GitWatchContextProviding {
 }
 
 @MainActor
-private func makeObservationModel(recorder: GitObservationRecorder) -> WorkspaceFeatureModel {
+private func makeObservationModel(
+    recorder: GitObservationRecorder,
+    refreshGit: @escaping @MainActor @Sendable () async -> Void = {}
+) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: GitObservationWorkspaceOperations(),
         fileOperations: MacWorkspaceFileOperations(),
@@ -570,12 +1057,50 @@ private func makeObservationModel(recorder: GitObservationRecorder) -> Workspace
             recorder.projectServiceReloadCount += 1
         },
         refreshGit: {
+            await refreshGit()
             recorder.gitRefreshCount += 1
         },
         updateHistoryVisibilityRules: { _ in },
         onSnapshotLoaded: { _, _, _ in }
     )
     return model
+}
+
+private actor GitObservationReadBarrier {
+    let entered = TestGate(), release = TestGate()
+    private var armed = false
+
+    func arm() { armed = true }
+
+    func waitIfArmed() async {
+        guard armed else { return }
+        armed = false
+        entered.open()
+        #expect(await release.waitUntilOpen(timeout: .seconds(8)))
+    }
+}
+
+@MainActor
+private func commitPanelContainsText(_ text: String, in value: Any) -> Bool {
+    let element = value as AnyObject
+    // Checkbox values are numbers, not NSStrings; bridge only after dispatch.
+    let rawValue: Any? = element.accessibilityValue?()
+    if rawValue as? String == text || element.accessibilityLabel?() == text { return true }
+    let children = element.accessibilityChildren?() ?? (value as? NSView)?.subviews ?? []
+    return children.contains { commitPanelContainsText(text, in: $0) }
+}
+
+@MainActor
+private func commitPanelRendered(_ host: NSView, until condition: () -> Bool) async -> Bool {
+    func renderFrame() { CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true) }
+    let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(2))
+    repeat {
+        host.layoutSubtreeIfNeeded()
+        renderFrame()
+        if condition() { return true }
+        await Task.yield()
+    } while clock.now < deadline
+    return condition()
 }
 
 @MainActor

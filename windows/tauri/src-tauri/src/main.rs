@@ -4,6 +4,7 @@ mod agent;
 mod agent_clipboard;
 mod agent_provider_settings;
 mod ai_commit;
+mod blocking;
 mod core;
 mod date_time;
 mod debug;
@@ -31,6 +32,7 @@ mod secure_storage;
 mod shelf_storage;
 mod terminal;
 mod watcher;
+mod window_background;
 mod window_title;
 
 use file_events::TauriFileChangeEmitter;
@@ -149,8 +151,11 @@ fn main() {
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
             plugin_host::install::cleanup_stale_snapshots(app.handle());
+            let initial_background = window_background::initial_background(app.handle());
             for config in initial_windows.iter().filter(|config| config.create) {
-                tauri::WebviewWindowBuilder::from_config(app.handle(), config)?.build()?;
+                tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
+                    .background_color(initial_background)
+                    .build()?;
             }
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
@@ -164,6 +169,7 @@ fn main() {
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
+                terminal::close_window_terminals(window.app_handle(), window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
                 window_title::remove_window(window.app_handle(), window.label());
                 if let Some(watcher) = window.try_state::<Arc<DocumentWatcher>>() {
@@ -280,11 +286,12 @@ fn main() {
                             language_tools::uninstall_language_tools,
                             maven::maven_load_configuration,
                             maven::maven_resolve_effective_configuration,
+                            maven::maven_read_user_settings,
+                            maven::maven_write_user_local_repository,
                             maven::maven_write_configuration,
                             maven::maven_create_dependency_output,
                             maven::maven_remove_dependency_output,
                             run::run_list_java_sources,
-                            run::run_write_generated,
                             run::run_write_documents,
                             run::run_write_stdin,
                             run::maven_resolve_installation,

@@ -4,6 +4,8 @@ import {
   invokeLsp as invoke,
   isLspSemanticCommandSupported,
   ownsLspSession,
+  type LspDiagnosticsBatch,
+  type LspDiagnosticsPublication,
 } from "@/platform/lsp-core-adapter";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
@@ -16,11 +18,14 @@ import {
 } from "./language-server-feedback";
 import type {
   CompletionItem,
+  CompletionList,
+  CompletionContext,
   Hover,
   PublishDiagnosticsParams,
 } from "vscode-languageserver-protocol";
 import {
   convertLSPDiagnostic,
+  type OwnerDiagnosticsUpdate,
   useDiagnosticsStore,
 } from "@/features/diagnostics/stores/diagnostics.store";
 import type {
@@ -30,7 +35,9 @@ import type {
 } from "@/features/diagnostics/types/diagnostics.types";
 import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
+import { flushLspDocumentChanges } from "./pending-document-changes";
 import type { EditorTextChange } from "../types/editor.types";
+import { replayEditorTextChanges } from "../utils/editor-text-change";
 import { logger } from "../utils/logger";
 import { normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { getLanguageDisplayName } from "../utils/language-id";
@@ -482,7 +489,10 @@ export class LspClient {
    * their entries instead of leaving empty rows behind, and so that a very
    * large workspace cannot grow the store without limit.
    */
-  private retainWorkspaceDiagnostics(filePath: string, diagnosticCount: number): boolean {
+  private retainWorkspaceDiagnostics(
+    filePath: string,
+    diagnosticCount: number,
+  ): "store" | "clear" | "ignore" {
     const trackingKey = trackedFileKey(filePath);
     const isDocumentOpen = this.isDocumentOpen(filePath);
     const decision = decideWorkspaceDiagnostics({
@@ -495,8 +505,7 @@ export class LspClient {
 
     if (decision === "clear") {
       this.workspaceDiagnosticFiles.delete(trackingKey);
-      useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
-      return false;
+      return "clear";
     }
 
     if (decision === "ignore") {
@@ -508,21 +517,22 @@ export class LspClient {
             `dropping diagnostics for additional unopened files such as ${filePath}`,
         );
       }
-      return false;
+      return "ignore";
     }
 
     if (!isDocumentOpen) this.workspaceDiagnosticFiles.set(trackingKey, filePath);
-    return true;
+    return "store";
   }
 
   /** Drops diagnostics kept for unopened files under a workspace being closed. */
   private clearWorkspaceDiagnostics(workspacePath: string): void {
-    const { clearDiagnosticsForOwner } = useDiagnosticsStore.getState().actions;
+    const updates: OwnerDiagnosticsUpdate[] = [];
     for (const [trackingKey, filePath] of this.workspaceDiagnosticFiles) {
       if (!pathStartsWithRoot(filePath, workspacePath)) continue;
       this.workspaceDiagnosticFiles.delete(trackingKey);
-      clearDiagnosticsForOwner(filePath, "lsp");
+      updates.push({ filePath, diagnostics: null });
     }
+    useDiagnosticsStore.getState().actions.applyOwnerDiagnostics("lsp", updates);
     this.workspaceDiagnosticLimitReported = false;
   }
 
@@ -566,83 +576,82 @@ export class LspClient {
     return LspClient.instance;
   }
 
+  /**
+   * Applies one Core drain of `publishDiagnostics` payloads with a single store
+   * update. The path context is read once per batch, not once per file.
+   */
+  private applyDiagnosticsBatch(publications: readonly LspDiagnosticsPublication[]): void {
+    if (publications.length === 0) return;
+    const sourceBufferPaths = useBufferStore
+      .getState()
+      .buffers.filter(shouldStartLsp)
+      .map((buffer) => buffer.path);
+    const openDocumentPaths = new Set(
+      [...this.documents.values()]
+        .filter((document) => document.phase === "open")
+        .map((document) => document.filePath),
+    );
+    const workspaceRoots = this.activeWorkspaceRoots();
+    const updates: OwnerDiagnosticsUpdate[] = [];
+
+    for (const publication of publications) {
+      const { uri } = publication;
+      if (!uri) {
+        logger.error("LSPClient", "No uri in diagnostics payload:", publication);
+        continue;
+      }
+      const diagnostics = (publication.diagnostics ?? []) as PublishDiagnosticsParams["diagnostics"];
+      const publishedFilePath = filePathFromUri(uri);
+      const filePath = resolvePublishedDiagnosticsFilePath(
+        publishedFilePath,
+        sourceBufferPaths,
+        openDocumentPaths,
+        workspaceRoots,
+      );
+      if (!filePath) {
+        logger.debug(
+          "LSPClient",
+          `Ignoring diagnostics outside the open workspaces: ${publishedFilePath}`,
+        );
+        continue;
+      }
+
+      const retention = this.retainWorkspaceDiagnostics(filePath, diagnostics.length);
+      if (retention === "clear") {
+        updates.push({ filePath, diagnostics: null });
+        continue;
+      }
+      if (retention === "ignore") continue;
+
+      const publishedVersion = publication.version;
+      const currentVersion = this.documents.get(trackedFileKey(filePath))?.version;
+      if (
+        typeof publishedVersion === "number" &&
+        typeof currentVersion === "number" &&
+        publishedVersion < currentVersion
+      ) {
+        logger.debug(
+          "LSPClient",
+          `Ignoring stale diagnostics for ${filePath}: ${publishedVersion} < ${currentVersion}`,
+        );
+        continue;
+      }
+
+      updates.push({
+        filePath,
+        diagnostics: diagnostics.map((diagnostic) => convertLSPDiagnostic(filePath, diagnostic)),
+      });
+    }
+
+    useDiagnosticsStore.getState().actions.applyOwnerDiagnostics("lsp", updates);
+  }
+
   private async setupDiagnosticsListener() {
     try {
       logger.debug("LSPClient", "Setting up diagnostics listener");
-      const unlisten = await listen<PublishDiagnosticsParams>("lsp://diagnostics", (event) => {
+      const unlisten = await listen<LspDiagnosticsBatch>("lsp://diagnostics", (event) => {
         try {
-          if (!event.payload) {
-            logger.error("LSPClient", "No payload in diagnostics event");
-            return;
-          }
-
-          const { uri, diagnostics } = event.payload;
-
-          if (!uri) {
-            logger.error("LSPClient", "No uri in diagnostics payload:", event.payload);
-            return;
-          }
-
-          logger.debug("LSPClient", `Received diagnostics for ${uri}:`, diagnostics);
-
-          const publishedFilePath = filePathFromUri(uri);
-          const sourceBufferPaths = useBufferStore
-            .getState()
-            .buffers.filter(shouldStartLsp)
-            .map((buffer) => buffer.path);
-          const filePath = resolvePublishedDiagnosticsFilePath(
-            publishedFilePath,
-            sourceBufferPaths,
-            new Set(
-              [...this.documents.values()]
-                .filter((document) => document.phase === "open")
-                .map((document) => document.filePath),
-            ),
-            this.activeWorkspaceRoots(),
-          );
-
-          if (!filePath) {
-            logger.debug(
-              "LSPClient",
-              `Ignoring diagnostics outside the open workspaces: ${publishedFilePath}`,
-            );
-            return;
-          }
-
-          if (!this.retainWorkspaceDiagnostics(filePath, diagnostics?.length ?? 0)) return;
-
-          const publishedVersion = event.payload.version;
-          const currentVersion = this.documents.get(trackedFileKey(filePath))?.version;
-          if (
-            typeof publishedVersion === "number" &&
-            typeof currentVersion === "number" &&
-            publishedVersion < currentVersion
-          ) {
-            logger.debug(
-              "LSPClient",
-              `Ignoring stale diagnostics for ${filePath}: ${publishedVersion} < ${currentVersion}`,
-            );
-            return;
-          }
-
-          // Convert LSP diagnostics to our internal format
-          const diagnosticsList = diagnostics || [];
-          const convertedDiagnostics = diagnosticsList.map((d) =>
-            convertLSPDiagnostic(filePath, d),
-          );
-          logger.debug(
-            "LSPClient",
-            `Converted ${convertedDiagnostics.length} diagnostics for ${filePath}`,
-          );
-
-          // Update diagnostics store
-          const { setDiagnostics } = useDiagnosticsStore.getState().actions;
-          setDiagnostics(filePath, convertedDiagnostics, "lsp");
-
-          logger.debug(
-            "LSPClient",
-            `Updated diagnostics for ${filePath}: ${convertedDiagnostics.length} items`,
-          );
+          this.applyDiagnosticsBatch(event.payload?.publications ?? []);
         } catch (innerError) {
           logger.error("LSPClient", "Error processing diagnostics event:", innerError);
         }
@@ -1176,7 +1185,7 @@ export class LspClient {
     const availability = await this.ensureDocumentReady(target, scope, content, feature);
     const document = normalizeLspDocumentTarget(target);
     if (lspSessionFilePath(document) === document.filePath) {
-      await this.synchronizeDocument(document.filePath, content);
+      await this.synchronizeAfterQueuedChanges(document.filePath, content);
     }
     return availability;
   }
@@ -1356,7 +1365,8 @@ export class LspClient {
     target: LspDocumentTargetInput,
     line: number,
     character: number,
-  ): Promise<CompletionItem[]> {
+    completionContext?: CompletionContext,
+  ): Promise<CompletionList> {
     const document = normalizeLspDocumentTarget(target);
     try {
       logger.debug(
@@ -1367,20 +1377,21 @@ export class LspClient {
         "LSPClient",
         `Active language servers: ${Array.from(this.activeLanguageServers).join(", ")}`,
       );
-      const completions = await invoke<CompletionItem[]>("lsp_get_completions", {
+      const completions = await invoke<CompletionList>("lsp_get_completions", {
         ...lspDocumentRequestArgs(document),
         line,
         character,
+        completionContext,
       });
-      if (completions.length === 0) {
+      if (completions.items.length === 0) {
         logger.warn("LSPClient", "LSP returned 0 completions - checking LSP status");
       } else {
-        logger.debug("LSPClient", `Got ${completions.length} completions from LSP server`);
+        logger.debug("LSPClient", `Got ${completions.items.length} completions from LSP server`);
       }
       return completions;
     } catch (error) {
       logger.error("LSPClient", "LSP completion error:", error);
-      return [];
+      return { items: [], isIncomplete: false };
     }
   }
 
@@ -1941,7 +1952,7 @@ export class LspClient {
 
   private async notifyDocumentChange(
     filePath: string,
-    content: string | undefined,
+    content: string,
     version: number,
     contentChanges?: EditorTextChange[],
   ): Promise<void> {
@@ -1952,25 +1963,41 @@ export class LspClient {
       return;
     }
 
+    // Ranges reach the server only if they lead from the text it has to the text
+    // the editor shows; anything else, such as a reload or a save that already
+    // published them, is sent whole. Core is not given the text to compare, since
+    // that would copy a large document across IPC for every pause in typing.
+    const ranges = contentChanges?.length && replayEditorTextChanges(document.content, contentChanges) === content
+      ? contentChanges
+      : undefined;
     try {
-      await invoke<void>("lsp_document_change", {
-        filePath,
-        content,
-        version,
-        contentChanges,
-        attachmentId,
-      });
+      const sendFullText = () => invoke<void>("lsp_document_change", { filePath, content, version, attachmentId });
+      if (ranges) {
+        await invoke<void>("lsp_document_change", { filePath, version, contentChanges: ranges, attachmentId })
+          .catch(sendFullText);
+      } else {
+        await sendFullText();
+      }
       const current = this.documents.get(attachmentKey);
       if (current?.phase === "open" && current.attachmentId === attachmentId) {
-        this.documents.set(attachmentKey, {
-          ...current,
-          version,
-          content: content ?? current.content,
-        });
+        this.documents.set(attachmentKey, { ...current, version, content });
       }
     } catch (error) {
       logger.error("LSPClient", "LSP document change error:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Publishes `content` once the queued ranges are out. Those usually carry the
+   * same text, which spares copying the whole document ahead of the debounce.
+   */
+  private async synchronizeAfterQueuedChanges(filePath: string, content: string): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = this.fileAttachmentIds.get(attachmentKey);
+    await flushLspDocumentChanges(filePath);
+    if (this.fileAttachmentIds.get(attachmentKey) === attachmentId) {
+      await this.synchronizeDocument(filePath, content);
     }
   }
 
@@ -1984,10 +2011,12 @@ export class LspClient {
     contentChanges?: EditorTextChange[],
   ): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = this.fileAttachmentIds.get(attachmentKey);
     const previous = this.documentChangeTasks.get(attachmentKey) ?? Promise.resolve();
     const task = previous.catch(() => undefined).then(async () => {
       const document = this.documents.get(attachmentKey);
-      if (document?.phase !== "open" || document.content === content) return;
+      if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId
+          || this.fileAttachmentIds.get(attachmentKey) !== attachmentId || document.content === content) return;
       await this.notifyDocumentChange(
         filePath,
         content,
@@ -2005,9 +2034,15 @@ export class LspClient {
     return task;
   }
 
-  async notifyDocumentSave(filePath: string, content: string): Promise<void> {
+  async notifyDocumentSave(filePath: string, content: string, currentContent?: string): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
     const attachmentId = this.fileAttachmentIds.get(attachmentKey);
+    if (currentContent !== undefined) {
+      await this.synchronizeAfterQueuedChanges(filePath, currentContent);
+    }
+    // Finish the editor's preceding changes before reporting the disk save.
+    // Core rejects a delayed save whose text has already been superseded.
+    await this.documentChangeTasks.get(attachmentKey);
     const document = this.documents.get(attachmentKey);
     if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId) {
       return;

@@ -670,10 +670,6 @@ impl LogManager {
         self.emit(LogLevel::parse(level), scope, message, fields);
     }
 
-    pub fn set_diagnostic_enabled(&self, enabled: bool) -> LogSettingsSnapshot {
-        self.set_diagnostic_category(enabled, None)
-    }
-
     pub fn set_diagnostic_category(
         &self,
         enabled: bool,
@@ -2720,7 +2716,7 @@ mod tests {
         assert!(manager
             .set_custom_root(Some(directory.join("custom")))
             .is_err());
-        assert!(manager.set_diagnostic_enabled(true).diagnostic_enabled);
+        assert!(manager.set_diagnostic_category(true, None).diagnostic_enabled);
         manager.emit_json("error", "runtime.console".into(), "still safe".into(), None);
         drop(manager);
         fs::remove_dir_all(directory).unwrap();

@@ -9,6 +9,7 @@
 //! is cleared at startup, so a crash cannot leave trees behind or feed an old
 //! tree to a later session.
 
+use crate::blocking::run_blocking;
 use crate::run::{atomic_write, resolve_java_home, resolve_maven_executable};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -17,8 +18,10 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 mod settings_xml;
+mod user_settings;
 
 use settings_xml::parse_local_repository;
+pub use user_settings::{MavenUserSettings, WriteMavenUserLocalRepositoryArgs};
 
 const MAVEN_CONFIGURATION_VERSION: u32 = 1;
 /// Cache subdirectory holding one dependency-tree file per active session.
@@ -66,33 +69,42 @@ pub struct WriteMavenConfigurationArgs {
 }
 
 #[tauri::command]
-pub fn maven_load_configuration(
+pub async fn maven_load_configuration(
     app: AppHandle,
     root: PathBuf,
     reactor_path: String,
 ) -> Result<MavenStoredConfiguration, String> {
-    let root = existing_directory(&root)?;
-    let portable = read_optional::<MavenPortableConfiguration>(&portable_path(&root))?;
-    let local = read_optional::<MavenLocalConfiguration>(&local_path(&app, &root, &reactor_path)?)?;
-    validate_versions(portable.as_ref(), local.as_ref())?;
-    Ok(MavenStoredConfiguration { portable, local })
+    run_blocking(move || {
+        let _transaction = crate::run::configuration_transaction();
+        let root = existing_directory(&root)?;
+        let portable = read_optional::<MavenPortableConfiguration>(&portable_path(&root))?;
+        let local =
+            read_optional::<MavenLocalConfiguration>(&local_path(&app, &root, &reactor_path)?)?;
+        validate_versions(portable.as_ref(), local.as_ref())?;
+        Ok(MavenStoredConfiguration { portable, local })
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn maven_write_configuration(
+pub async fn maven_write_configuration(
     app: AppHandle,
     args: WriteMavenConfigurationArgs,
 ) -> Result<(), String> {
-    let root = existing_directory(&args.root)?;
-    validate_versions(
-        args.configuration.portable.as_ref(),
-        args.configuration.local.as_ref(),
-    )?;
-    write_optional(&portable_path(&root), args.configuration.portable.as_ref())?;
-    write_optional(
-        &local_path(&app, &root, &args.reactor_path)?,
-        args.configuration.local.as_ref(),
-    )
+    run_blocking(move || {
+        let _transaction = crate::run::configuration_transaction();
+        let root = existing_directory(&args.root)?;
+        validate_versions(
+            args.configuration.portable.as_ref(),
+            args.configuration.local.as_ref(),
+        )?;
+        write_optional(&portable_path(&root), args.configuration.portable.as_ref())?;
+        write_optional(
+            &local_path(&app, &root, &args.reactor_path)?,
+            args.configuration.local.as_ref(),
+        )
+    })
+    .await
 }
 
 /// Arguments for resolving the configuration a Maven launch would use. Every
@@ -135,6 +147,25 @@ pub struct MavenEffectiveConfiguration {
 ///
 /// The Maven executable and JDK come from the same resolution the launch path
 /// uses, which keeps the reported values identical to the launched ones.
+/// Reads the user-level Maven settings; works without an open project.
+#[tauri::command]
+pub async fn maven_read_user_settings() -> Result<MavenUserSettings, String> {
+    run_blocking(|| user_settings::read(&required_user_home()?)).await
+}
+
+/// Writes `<localRepository>` to the user-level Maven settings after the user
+/// confirmed it, then returns the settings as read back from disk.
+#[tauri::command]
+pub async fn maven_write_user_local_repository(
+    args: WriteMavenUserLocalRepositoryArgs,
+) -> Result<MavenUserSettings, String> {
+    run_blocking(move || user_settings::write_local_repository(&required_user_home()?, args)).await
+}
+
+fn required_user_home() -> Result<PathBuf, String> {
+    user_home_directory().ok_or_else(|| user_settings::NO_HOME_ERROR.to_string())
+}
+
 #[tauri::command]
 pub async fn maven_resolve_effective_configuration(
     args: ResolveEffectiveConfigurationArgs,

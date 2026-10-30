@@ -23,6 +23,7 @@ struct AgentActivityPresentationTests {
             for popup in window.childWindows ?? [] { popup.close() }
             window.close()
         }
+        window.displayIfNeeded()
         host.layoutSubtreeIfNeeded()
         try await openPanel(.edits, in: host, window: window)
         let popup = try #require(await waitForPopup(in: window, updating: host))
@@ -534,6 +535,8 @@ struct AgentActivityPresentationTests {
     }
 
     private func click(_ pointFromTop: NSPoint, in view: NSView, window: NSWindow, throughApplication: Bool = false) throws {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         let point = NSPoint(x: pointFromTop.x, y: view.isFlipped ? pointFromTop.y : view.bounds.height - pointFromTop.y)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             let event = try #require(NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [],

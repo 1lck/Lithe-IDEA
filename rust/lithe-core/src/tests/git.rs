@@ -61,9 +61,19 @@ fn workspace_repositories_discovers_multiple_child_repositories() {
     // and beyond the former depth limit, even below an existing repository.
     let nested = (0..40).fold(first.join("vendor"), |path, _| path.join("d"));
     fs::create_dir_all(&nested).expect("nested worktree directory should be creatable");
+    // The gitdir must really exist: discovery opens the gitfile pointer instead of
+    // trusting the marker alone, so the worktree fixture needs a gitdir with HEAD.
+    let nested_gitdir = root
+        .join("fixture")
+        .join("git")
+        .join("worktrees")
+        .join("nested");
+    fs::create_dir_all(&nested_gitdir).expect("worktree gitdir should be creatable");
+    fs::write(nested_gitdir.join("HEAD"), "ref: refs/heads/main\n")
+        .expect("worktree HEAD should be writable");
     fs::write(
         nested.join(".git"),
-        "gitdir: /fixture/git/worktrees/nested\n",
+        format!("gitdir: {}\n", nested_gitdir.display()),
     )
     .expect("worktree marker should be writable");
     fs::create_dir_all(&first).expect("first repository directory should be creatable");
@@ -101,6 +111,47 @@ fn workspace_repositories_discovers_multiple_child_repositories() {
             { "path": reported_repository_path(&second) },
             { "path": reported_repository_path(&nested) }
         ])
+    );
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
+#[test]
+fn workspace_repositories_skips_dangling_gitfile_pointers() {
+    let root = temporary_root("workspace-repositories-stale-gitfile");
+    let healthy = root.join("healthy");
+    fs::create_dir_all(&healthy).expect("healthy repository directory should be creatable");
+    assert!(Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&healthy)
+        .output()
+        .expect("git should be available")
+        .status
+        .success());
+    // A leftover submodule gitfile whose gitdir was removed is not a repository Git can
+    // open; listing it would fail status and reference loads for the whole workspace.
+    let stale = root.join("reference").join("stale-submodule");
+    fs::create_dir_all(&stale).expect("stale marker directory should be creatable");
+    fs::write(
+        stale.join(".git"),
+        "gitdir: ../../.git/modules/documents/stale\n",
+    )
+    .expect("stale gitfile should be writable");
+
+    let request = serde_json::json!({
+        "id": "workspace-repositories-stale-gitfile",
+        "command": "workspace.repositories",
+        "payload": {"root": root}
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("workspace repositories request should encode"),
+    ))
+    .expect("workspace repositories response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"]["repositories"],
+        serde_json::json!([{ "path": reported_repository_path(&healthy) }])
     );
 
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
@@ -5032,7 +5083,9 @@ fn line_history_repository(label: &str) -> std::path::PathBuf {
             .output()
             .expect("git should be available")
     };
-    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["init", "-q", "--initial-branch=master"])
+        .status
+        .success());
     assert!(run(&["config", "core.autocrlf", "false"]).status.success());
     assert!(run(&["config", "user.name", "Tester"]).status.success());
     assert!(run(&["config", "user.email", "test@example.com"])

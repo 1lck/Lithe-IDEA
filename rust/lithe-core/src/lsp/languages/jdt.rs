@@ -813,6 +813,22 @@ const MAX_HEAP_PREFIX: &str = "-Xmx";
 /// Language-server log level used when the plugin does not choose one.
 const DEFAULT_LOG_LEVEL_ARGUMENT: &str = "-Dlog.level=ALL";
 const LOG_LEVEL_PREFIX: &str = "-Dlog.level=";
+/// JVM defaults vscode-java and the JDT LS CI launch the language server with.
+///
+/// The throughput collector with a 20% GC-time budget and a slowly adapting
+/// size policy returns heap to the OS once an import settles, instead of
+/// holding the 2 GB ceiling for the life of the session. `-Xlog:disable` keeps
+/// JVM warnings off stdout, which carries the LSP stream. The installed-VM
+/// scan is redundant because the host sends `java.configuration.runtimes`.
+/// A plugin option with the same key replaces the default; see
+/// `tuning_arguments`.
+const JDTLS_TUNING_ARGUMENTS: [&str; 5] = [
+    "-XX:+UseParallelGC",
+    "-XX:GCTimeRatio=4",
+    "-XX:AdaptiveSizePolicyWeight=90",
+    "-Xlog:disable",
+    "-DDetectVMInstallationsJob.disabled=true",
+];
 
 /// Removes every argument starting with `prefix` and returns the last one
 /// that is acceptable. The JVM honors the last occurrence, so that is the one
@@ -859,6 +875,58 @@ fn is_heap_size(value: &str) -> bool {
     mebibytes > CONSTRAINED_HEAP_MEBIBYTES
 }
 
+/// Returns the tuning defaults the plugin's JVM options leave unset. An option
+/// with the same key replaces a default, and any garbage-collector selection
+/// replaces the default collector, since the JVM refuses two collectors.
+fn tuning_arguments(custom_jvm_arguments: &[String]) -> Vec<String> {
+    let chooses_collector = custom_jvm_arguments
+        .iter()
+        .any(|argument| is_collector_selection(argument));
+    JDTLS_TUNING_ARGUMENTS
+        .iter()
+        .filter(|default| !(chooses_collector && is_collector_selection(default)))
+        .filter(|default| {
+            let key = jvm_option_key(default);
+            !custom_jvm_arguments
+                .iter()
+                .any(|argument| jvm_option_key(argument) == key)
+        })
+        .map(|default| default.to_string())
+        .collect()
+}
+
+/// A tuning default exactly as the host writes it. It is host-owned, so a
+/// relaunch rebuilds it instead of reading it back as a plugin choice.
+fn is_tuning_default(argument: &str) -> bool {
+    JDTLS_TUNING_ARGUMENTS.contains(&argument)
+}
+
+fn is_collector_selection(argument: &str) -> bool {
+    argument
+        .strip_prefix("-XX:")
+        .and_then(|option| option.strip_prefix(['+', '-']))
+        .is_some_and(|option| option.starts_with("Use") && option.ends_with("GC"))
+}
+
+/// The part of a JVM option that identifies it regardless of its value:
+/// `-XX:` options by name without the `+`/`-` toggle, every `-Xlog` option as
+/// one key because they combine into a single logging configuration, and other
+/// options by the text before `=`.
+fn jvm_option_key(argument: &str) -> String {
+    if let Some(option) = argument.strip_prefix("-XX:") {
+        let option = option.trim_start_matches(['+', '-']);
+        let name = option.split_once('=').map_or(option, |(name, _)| name);
+        return format!("-XX:{name}");
+    }
+    if argument.starts_with("-Xlog") {
+        return "-Xlog".to_string();
+    }
+    argument
+        .split_once('=')
+        .map_or(argument, |(name, _)| name)
+        .to_string()
+}
+
 fn is_log_level(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -878,6 +946,8 @@ fn wrapper_arguments(
         .collect();
     let max_heap = take_plugin_choice(&mut jvm_arguments, MAX_HEAP_PREFIX, is_heap_size)
         .unwrap_or_else(|| DEFAULT_MAX_HEAP_ARGUMENT.to_string());
+    jvm_arguments.retain(|argument| !is_tuning_default(argument));
+    let tuning = tuning_arguments(&jvm_arguments);
     let mut arguments = without_wrapper_owned_arguments(arguments);
     if let Some(java_executable) = java_executable {
         arguments.push("--java-executable".to_string());
@@ -886,6 +956,13 @@ fn wrapper_arguments(
     arguments.extend([
         "--jvm-arg=-Xms256m".to_string(),
         format!("--jvm-arg={max_heap}"),
+    ]);
+    arguments.extend(
+        tuning
+            .into_iter()
+            .map(|argument| format!("--jvm-arg={argument}")),
+    );
+    arguments.extend([
         format!("--jvm-arg={METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
         "-data".to_string(),
         data_directory.to_string_lossy().into_owned(),
@@ -911,6 +988,9 @@ fn direct_java_arguments(
         ),
         "-Xms256m".to_string(),
         max_heap,
+    ];
+    adapted.extend(tuning_arguments(&custom_jvm_arguments));
+    adapted.extend([
         "--add-modules=ALL-SYSTEM".to_string(),
         "--add-opens=java.base/java.util=ALL-UNNAMED".to_string(),
         "--add-opens=java.base/java.lang=ALL-UNNAMED".to_string(),
@@ -920,7 +1000,7 @@ fn direct_java_arguments(
         "-Dlog.protocol=true".to_string(),
         log_level,
         format!("{METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
-    ];
+    ]);
     adapted.extend(custom_jvm_arguments);
     adapted.extend([
         "-jar".to_string(),
@@ -1025,6 +1105,7 @@ fn is_jdt_owned_jvm_argument(argument: &str) -> bool {
         || argument.starts_with("-Declipse.product=")
         || argument.starts_with("-Dosgi.bundles.defaultStartLevel=")
         || argument.starts_with("-Dlog.protocol=")
+        || is_tuning_default(argument)
         || is_metadata_location_argument(argument)
         || is_lombok_agent_argument(argument)
 }
@@ -1061,9 +1142,9 @@ fn without_wrapper_owned_arguments(arguments: &[String]) -> Vec<String> {
             || argument.starts_with("-data=")
             || argument.starts_with("--jvm-arg=-Xms")
             || argument.starts_with("--jvm-arg=-Xmx")
-            || argument
-                .strip_prefix("--jvm-arg=")
-                .is_some_and(is_metadata_location_argument);
+            || argument.strip_prefix("--jvm-arg=").is_some_and(|value| {
+                is_metadata_location_argument(value) || is_tuning_default(value)
+            });
         if owns_following_value {
             index += usize::from(index + 1 < arguments.len()) + 1;
         } else {
@@ -1623,11 +1704,53 @@ mod tests {
                 "/jdk/bin/java",
                 "--jvm-arg=-Xms256m",
                 "--jvm-arg=-Xmx2048m",
+                "--jvm-arg=-XX:+UseParallelGC",
+                "--jvm-arg=-XX:GCTimeRatio=4",
+                "--jvm-arg=-XX:AdaptiveSizePolicyWeight=90",
+                "--jvm-arg=-Xlog:disable",
+                "--jvm-arg=-DDetectVMInstallationsJob.disabled=true",
                 "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-data",
                 data_directory.to_string_lossy().as_ref()
             ]
         );
+    }
+
+    #[test]
+    fn java_start_lets_plugin_jvm_options_replace_the_tuning_defaults() {
+        let tuning_of = |arguments: &[String]| {
+            arguments
+                .iter()
+                .filter_map(|argument| argument.strip_prefix("--jvm-arg="))
+                .filter(|argument| argument.starts_with("-XX:") || argument.starts_with("-Xlog"))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+        let mut context = java_start_context();
+        context.arguments = vec![
+            "--jvm-arg=-XX:+UseG1GC".to_string(),
+            "--jvm-arg=-XX:GCTimeRatio=9".to_string(),
+            "--jvm-arg=-Xlog:gc*:file=/tmp/gc.log".to_string(),
+        ];
+        let first = adapt_start(&context);
+        context.arguments = first.arguments.clone();
+        let second = adapt_start(&context);
+
+        assert_eq!(first, second);
+        // The plugin's collector replaces ParallelGC, and its own GC-time
+        // ratio and logging replace the host's; the untouched default stays.
+        assert_eq!(
+            tuning_of(&first.arguments),
+            vec![
+                "-XX:+UseG1GC",
+                "-XX:GCTimeRatio=9",
+                "-Xlog:gc*:file=/tmp/gc.log",
+                "-XX:AdaptiveSizePolicyWeight=90",
+            ]
+        );
+        assert!(first
+            .arguments
+            .contains(&"--jvm-arg=-DDetectVMInstallationsJob.disabled=true".to_string()));
     }
 
     #[test]
@@ -1748,6 +1871,11 @@ mod tests {
                 "-javaagent:/jdtls/lombok/lombok.jar",
                 "-Xms256m",
                 "-Xmx4g",
+                "-XX:+UseParallelGC",
+                "-XX:GCTimeRatio=4",
+                "-XX:AdaptiveSizePolicyWeight=90",
+                "-Xlog:disable",
+                "-DDetectVMInstallationsJob.disabled=true",
                 "--add-modules=ALL-SYSTEM",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",

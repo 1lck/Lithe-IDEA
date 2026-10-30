@@ -192,8 +192,6 @@ struct VcsFileDiffSheet: View {
     let fontFamily: String
     let openFile: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var rows: [DiffRow]?
-    @State private var isOverLimit = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -209,12 +207,21 @@ struct VcsFileDiffSheet: View {
             }
             .padding(12)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            content
+            VcsFileDiffContent(diff: diff, fontFamily: fontFamily)
         }
         .frame(minWidth: 640, idealWidth: 960, minHeight: 400, idealHeight: 640)
         .background(LitheTheme.editor)
-        .task(id: diff.id) { await buildRows() }
     }
+}
+
+/// The same native comparison renderer for a dialog and a persistent editor tab.
+struct VcsFileDiffContent: View {
+    let diff: VcsFileDiff
+    let fontFamily: String
+    @State private var rows: [DiffRow]?
+    @State private var isOverLimit = false
+
+    var body: some View { content.task(id: diff.id) { await buildRows() } }
 
     @ViewBuilder
     private var content: some View {
@@ -262,7 +269,7 @@ struct VcsFileDiffSheet: View {
         guard !diff.isBinary, !diff.isTooLarge else { return }
         let base = diff.base ?? ""
         let current = diff.current ?? ""
-        let limit = Self.lineLimit
+        let limit = VcsFileDiffSheet.lineLimit
         let built = await Task.detached(priority: .userInitiated) { () -> [LocalHistoryDiffRow]? in
             let lines = base.utf8.lazy.filter { $0 == 0x0A }.count + current.utf8.lazy.filter { $0 == 0x0A }.count
             guard lines <= limit else { return nil }
