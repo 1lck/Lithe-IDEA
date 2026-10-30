@@ -662,13 +662,75 @@ pub async fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunc
 }
 
 fn resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
+    resolve_launch_with_java_probes(args, true)
+}
+
+/// Build discovery may inspect workspace launchers but must not execute them
+/// merely to decide which installed JDK matches the project requirements.
+pub(crate) fn resolve_build_launch(
+    args: ResolveLaunchArgs,
+) -> Result<(ResolvedLaunch, bool), String> {
     let root = existing_directory(&args.root)?;
     let working_directory = resolve_working_directory(&root, &args.working_directory)?;
-    let java_home = resolve_java_home(&root, &args.java_home_path)?;
+    let mut aliases: Vec<PathBuf> = args
+        .runtime_executable_paths
+        .values()
+        .map(PathBuf::from)
+        .collect();
+    for home in [&args.java_home_path, &args.maven_java_home_path] {
+        if home.trim().is_empty() {
+            continue;
+        }
+        let home = if Path::new(home).is_absolute() {
+            PathBuf::from(home)
+        } else {
+            root.join(home)
+        };
+        if let Some(java) = java_executable(&home) {
+            aliases.push(java);
+        }
+        // Keep the lexical directory as well: java_executable may normalize a
+        // junction before the build adapter can recognize project ownership.
+        aliases.push(home.join("bin/java.exe"));
+        aliases.push(home.join("bin/java"));
+    }
+    if args.executable.toolchain.as_deref() == Some("project-maven") {
+        let configured = Path::new(&args.maven_executable_path);
+        let configured = if configured.is_absolute() {
+            configured.to_path_buf()
+        } else {
+            root.join(configured)
+        };
+        if !args.maven_executable_path.trim().is_empty() {
+            aliases.extend(custom_maven_executable_candidates(&configured));
+        }
+        for directory in [&root, &working_directory] {
+            for name in ["mvnw.cmd", "mvnw.bat", "mvnw"] {
+                aliases.push(directory.join(name));
+            }
+        }
+    }
+    let resolved = resolve_launch_with_java_probes(args, false)?;
+    let selected = Path::new(&resolved.executable);
+    let project_code = selected.starts_with(&root)
+        || aliases.iter().any(|alias| {
+            alias.starts_with(&root) && alias.is_file() && normalize_path(alias) == selected
+        });
+    Ok((resolved, project_code))
+}
+
+fn resolve_launch_with_java_probes(
+    args: ResolveLaunchArgs,
+    allow_project_java_probes: bool,
+) -> Result<ResolvedLaunch, String> {
+    let root = existing_directory(&args.root)?;
+    let working_directory = resolve_working_directory(&root, &args.working_directory)?;
+    let java_home =
+        resolve_java_home_with_probes(&root, &args.java_home_path, allow_project_java_probes)?;
     let maven_java_home = if args.maven_java_home_path.trim().is_empty() {
         java_home.clone()
     } else {
-        resolve_java_home(&root, &args.maven_java_home_path)?
+        resolve_java_home_with_probes(&root, &args.maven_java_home_path, allow_project_java_probes)?
     };
     let executable = resolve_executable(
         &root,
@@ -1196,7 +1258,6 @@ pub fn cleanup_legacy_appdata(app: &AppHandle) {
         let _ = fs::remove_dir_all(&run_dir);
     }
 }
-
 
 fn workspace_relative(root: &Path, path: &Path) -> Option<String> {
     path.strip_prefix(root)
@@ -1800,6 +1861,14 @@ pub(crate) fn resolve_java_home(
     root: &Path,
     override_path: &str,
 ) -> Result<Option<String>, String> {
+    resolve_java_home_with_probes(root, override_path, true)
+}
+
+fn resolve_java_home_with_probes(
+    root: &Path,
+    override_path: &str,
+    allow_project_probes: bool,
+) -> Result<Option<String>, String> {
     let configured = override_path.trim();
     if !configured.is_empty() {
         let path = if Path::new(configured).is_absolute() {
@@ -1815,8 +1884,18 @@ pub(crate) fn resolve_java_home(
         ));
     }
     // Resolving a JDK must not also run Maven wrappers or Node probes.
-    select_project_java(Some(root), &discover_java_runtimes(Some(root)))
-        .map(|selection| selection.id)
+    let homes = java_home_candidates(Some(root))
+        .into_iter()
+        .filter(|home| allow_project_probes || !project_java_probe(home, root))
+        .collect();
+    select_project_java(Some(root), &probe_java_homes(homes)).map(|selection| selection.id)
+}
+
+fn project_java_probe(home: &Path, root: &Path) -> bool {
+    home.starts_with(root)
+        || normalize_path(home).starts_with(root)
+        || java_executable(home)
+            .is_some_and(|executable| normalize_path(&executable).starts_with(root))
 }
 
 fn resolve_executable(
@@ -2575,6 +2654,19 @@ fn take_running_session(
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn build_java_discovery_excludes_project_homes_before_a_version_probe() {
+        let root = Path::new("C:/fixture/workspace");
+        assert!(project_java_probe(
+            &root.join(".lithe/toolchains/jdk"),
+            root
+        ));
+        assert!(!project_java_probe(
+            Path::new("C:/fixture/machine-jdk"),
+            root
+        ));
+    }
 
     fn reserve_test_launch(
         pending: &mut HashMap<RunSessionKey, PendingLaunch>,

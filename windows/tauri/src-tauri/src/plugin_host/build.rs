@@ -76,7 +76,7 @@ pub async fn declarative_plugins_build_launch(
     }).await
 }
 
-fn build_state_directory(
+pub(super) fn build_state_directory(
     plugin_state: &std::path::Path,
     system: &str,
 ) -> Result<std::path::PathBuf, String> {
@@ -92,7 +92,7 @@ fn build_state_directory(
     Ok(plugin_state.join("build-systems").join(system))
 }
 
-fn build_workspace_key(workspace: &str) -> String {
+pub(super) fn build_workspace_key(workspace: &str) -> String {
     let path = workspace.replace('\\', "/");
     let path = if path.starts_with("//") || path.as_bytes().get(1) == Some(&b':') {
         path.to_lowercase()

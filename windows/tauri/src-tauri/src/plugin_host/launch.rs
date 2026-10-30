@@ -457,7 +457,7 @@ fn run_version_probe(command: &mut Command, tool: &str) -> Result<(Vec<u8>, Vec<
     run_process_probe(command, tool, false)
 }
 
-fn run_process_probe(
+pub(super) fn run_process_probe(
     command: &mut Command,
     tool: &str,
     require_success: bool,

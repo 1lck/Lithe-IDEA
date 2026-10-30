@@ -2027,6 +2027,23 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigProjectToolchain => {
+            match serde_json::from_value::<crate::execution::ProjectToolchainRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid project toolchain request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::execution::project_toolchain)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::RunConfigGenerate => {
             match serde_json::from_value::<crate::execution::GenerateRequest>(parsed.payload)
                 .map_err(|error| {

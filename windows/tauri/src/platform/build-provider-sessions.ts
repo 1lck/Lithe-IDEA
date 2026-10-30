@@ -1,5 +1,6 @@
 import { pluginPlanGuard } from "@/features/plugins/declarative-plugin-lifecycle";
 import { invoke } from "@/platform/tauri-core";
+import { awaitBuildPreparation } from "./build-provider-operation";
 import {
   requestCoreBuildProvider,
   startCoreBuildProvider,
@@ -41,17 +42,6 @@ function key(target: CoreBuildProviderTarget): string {
 
 function cancelled(): Error & { code: string } {
   return Object.assign(new Error("Build Provider inputs changed."), { code: "cancelled" });
-}
-
-function awaitPreparation<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise;
-  signal.throwIfAborted();
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => { signal.removeEventListener("abort", abort); reject(signal.reason ?? cancelled()); };
-    signal.addEventListener("abort", abort, { once: true });
-    promise.then(value => { signal.removeEventListener("abort", abort); resolve(value); },
-      error => { signal.removeEventListener("abort", abort); reject(error); });
-  });
 }
 
 /** Serializes launch resolution/replacement, while requests run independently
@@ -102,7 +92,7 @@ export class WindowsBuildProviderSessions {
       if (this.preparing.get(owner) === preparing) this.preparing.delete(owner);
     };
     void preparing.then(releasePreparation, releasePreparation);
-    const identity = await awaitPreparation(preparing, request.signal);
+    const identity = await awaitBuildPreparation(preparing, request.signal);
     current();
     if (this.launches.get(owner) !== identity) throw cancelled();
     return await this.ports.request<T>(target, request);

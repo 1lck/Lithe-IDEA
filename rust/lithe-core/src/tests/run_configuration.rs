@@ -6,6 +6,68 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+#[test]
+fn project_toolchain_selection_matches_shared_fixture_without_writing_local_data() {
+    let root = temporary_root("provider-toolchain-selection");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    let _cleanup = Cleanup(root.clone());
+    let local = root.join(".lithe/run/local.json");
+    let original = b"{ corrupt saved document remains untouched }";
+    fs::write(&local, original).unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/project-toolchain-selection.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let expected = &fixture["expected"][case["name"].as_str().unwrap()];
+        let mut request = case["request"].clone();
+        request["root"] = serde_json::json!(root);
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"project-toolchain", "command":"runConfig.projectToolchain", "payload":request
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        if let Some(code) = expected["errorCode"].as_str() {
+            assert_eq!(
+                response["error"]["code"], code,
+                "{}: {response}",
+                case["name"]
+            );
+        } else {
+            assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+            assert_eq!(response["data"], *expected, "{}", case["name"]);
+        }
+        assert_eq!(fs::read(&local).unwrap(), original);
+    }
+    let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+        "id":"project-toolchain-disk", "command":"runConfig.projectToolchain", "payload":{"root":root,"path":"."}
+    }).to_string())).unwrap();
+    assert_eq!(response["ok"], false);
+    assert_eq!(fs::read(&local).unwrap(), original);
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/local.json"),
+        r#"{"version":1,"toolchains":{"project-node":{"executable":"C:/Example Node/node.exe"}}}"#,
+    )
+    .unwrap();
+    let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+        "id":"project-toolchain-runtimes", "command":"runConfig.projectToolchain", "payload":{"root":root,"path":".","localDocument":{"version":2,"configurations":[]}}
+    }).to_string())).unwrap();
+    assert_eq!(
+        response["data"]["toolchain"]["runtimeExecutablePaths"]["project-node"],
+        "C:/Example Node/node.exe"
+    );
+    assert_eq!(fs::read(&local).unwrap(), original);
+}
+
 /// A Maven goal is not evidence of a launchable application. Only confirmed
 /// production entries can promote that exact module to a Spring service.
 #[test]

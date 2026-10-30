@@ -10,6 +10,7 @@
 
 pub mod install;
 pub mod build;
+pub mod build_tools;
 #[cfg(test)]
 mod install_tests;
 pub mod launch;

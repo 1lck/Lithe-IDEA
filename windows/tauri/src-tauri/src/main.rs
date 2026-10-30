@@ -312,6 +312,7 @@ fn main() {
                             plugin_host::declarative_plugins_manifest,
                             plugin_host::launch::declarative_plugins_language_launch,
                             plugin_host::build::declarative_plugins_build_launch,
+                            plugin_host::build_tools::declarative_plugins_build_tool,
                             plugin_host::launch::declarative_plugins_language_owner,
                             plugin_host::install::declarative_plugins_prepare_disk_install,
                             plugin_host::install::declarative_plugins_confirm_disk_install,

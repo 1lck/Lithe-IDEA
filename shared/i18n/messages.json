@@ -92279,6 +92279,55 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "build.errors.inputsChanged",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.invalidExecutionResult",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.missingProject",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.incompleteModel",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.wrongPlugin",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.unsupportedSource",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.errors.cleanupFailed",
+      "description": "Windows Build Provider workspace failure",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

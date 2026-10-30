@@ -1,5 +1,8 @@
 //! Run-configuration schemas, layered overrides, and deterministic generation.
 
+mod project_toolchain;
+pub(crate) use project_toolchain::{project_toolchain, ProjectToolchainRequest};
+
 use super::generated_layer::{self, GeneratedLayer};
 use super::types::{Confidence, Execution, RunCategory};
 use crate::languages::{JavaEntrypointFact, JavaEntrypointFacts};

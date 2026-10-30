@@ -9655,7 +9655,14 @@
     "javaImport.import": "Import",
     "javaImport.manual": "Manually",
     "javaImport.onOpen": "Import Java projects on open",
-    "javaImport.onOpenDescription": "Ask lets you adjust Maven settings first. Manual waits until you open a Java file, run code, or reload Maven."
+    "javaImport.onOpenDescription": "Ask lets you adjust Maven settings first. Manual waits until you open a Java file, run code, or reload Maven.",
+    "build.errors.inputsChanged": "Build inputs changed.",
+    "build.errors.invalidExecutionResult": "Invalid Build execution result.",
+    "build.errors.missingProject": "The current Build model does not contain this project.",
+    "build.errors.incompleteModel": "Load the complete current Build model before running this operation.",
+    "build.errors.wrongPlugin": "The Build tool belongs to another plugin.",
+    "build.errors.unsupportedSource": "This Build model source has not been connected to the Windows workflow.",
+    "build.errors.cleanupFailed": "Build Provider cleanup failed."
   },
   "overrides": {
     "windows": {

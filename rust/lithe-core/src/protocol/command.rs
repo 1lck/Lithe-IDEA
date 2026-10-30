@@ -364,6 +364,8 @@ pub enum CoreCommand {
     LspDestroyServer,
     /// Validates layered run-configuration documents (`runConfig.inspect`).
     RunConfigInspect,
+    /// Reads effective saved tool paths for one Provider root (`runConfig.projectToolchain`).
+    RunConfigProjectToolchain,
     /// Selects an automatic project JDK (`runConfig.selectJava`).
     RunConfigSelectJava,
     /// Regenerates detected run configurations (`runConfig.generate`).
@@ -706,6 +708,7 @@ impl CoreCommand {
             "lsp.waitEvents" => Some(Self::LspWaitEvents),
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
+            "runConfig.projectToolchain" => Some(Self::RunConfigProjectToolchain),
             "runConfig.selectJava" => Some(Self::RunConfigSelectJava),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
