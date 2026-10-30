@@ -29,9 +29,11 @@ final class AppSettings: ObservableObject {
         static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
+        static let editorAppearance = "settings.editorAppearance"
         static let editorFontFamily = "settings.editorFontFamily"
         static let editorSoftWrap = "settings.editorSoftWrap"
         static let editorMinimap = "settings.editorMinimap"
+        static let javaKeywordNavigationFilter = "settings.javaKeywordNavigationFilter"
         static let projectTreeRowHeight = "settings.projectTreeRowHeight"
         static let tabWidth = "settings.tabWidth"
         static let editorTabLayoutMode = "settings.editorTabLayoutMode"
@@ -109,7 +111,26 @@ final class AppSettings: ObservableObject {
             InterfaceLanguage.select(language.rawValue)
         }
     }
-    @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
+    @Published var editorFontSize: Double {
+        didSet {
+            let normalized = EditorAppearanceSettings.normalizedFontSize(editorFontSize)
+            if editorFontSize != normalized {
+                editorFontSize = normalized
+                return
+            }
+            defaults.set(editorFontSize, forKey: Key.editorFontSize)
+        }
+    }
+    @Published var editorAppearance: EditorAppearanceSettings {
+        didSet {
+            let normalized = EditorAppearanceSettings(values: editorAppearance.storedValues)
+            if editorAppearance != normalized {
+                editorAppearance = normalized
+                return
+            }
+            defaults.set(editorAppearance.storedValues, forKey: Key.editorAppearance)
+        }
+    }
     /// 代码编辑器编程字体族。默认是随包分发的 JetBrains Mono，只有在用户
     /// 显式选择系统字体后才偏离打包字体；终端、Output 工具窗和提交信息
     /// 输入框继续使用打包字体，与 IDEA 的 Editor/Console 字体分工一致。
@@ -121,6 +142,11 @@ final class AppSettings: ObservableObject {
     /// 折行布局对超大文件有行数阈值兜底，见 `LitheTextViewportLayout`。
     @Published var editorSoftWrapEnabled: Bool {
         didSet { defaults.set(editorSoftWrapEnabled, forKey: Key.editorSoftWrap) }
+    }
+    /// 跳过 Java 关键字的定义查询。关键字没有定义，但语言服务器对它们可能要等数秒；
+    /// 默认开启，关闭后恢复每次都向语言服务器查询的行为。
+    @Published var javaKeywordNavigationFilterEnabled: Bool {
+        didSet { defaults.set(javaKeywordNavigationFilterEnabled, forKey: Key.javaKeywordNavigationFilter) }
     }
     @Published var editorMinimapEnabled: Bool {
         didSet { defaults.set(editorMinimapEnabled, forKey: Key.editorMinimap) }
@@ -387,12 +413,18 @@ final class AppSettings: ObservableObject {
         let storedLanguage = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
         language = storedLanguage
         InterfaceLanguage.select(storedLanguage.rawValue)
-        editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        editorFontSize = EditorAppearanceSettings.normalizedFontSize(
+            defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
+        )
+        editorAppearance = EditorAppearanceSettings(
+            values: defaults.object(forKey: Key.editorAppearance) as? [String: Any] ?? [:]
+        )
         editorFontFamily = EditorFontResolution.normalizedFamily(
             defaults.string(forKey: Key.editorFontFamily)
         )
         editorSoftWrapEnabled = defaults.object(forKey: Key.editorSoftWrap) as? Bool ?? false
         editorMinimapEnabled = defaults.object(forKey: Key.editorMinimap) as? Bool ?? true
+        javaKeywordNavigationFilterEnabled = defaults.object(forKey: Key.javaKeywordNavigationFilter) as? Bool ?? true
         projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
         editorTabLayoutMode = EditorTabLayoutMode(
@@ -601,9 +633,11 @@ final class AppSettings: ObservableObject {
         themePreference = .dark
         language = .defaultLanguage
         editorFontSize = 13
+        editorAppearance = EditorAppearanceSettings()
         editorFontFamily = EditorFontDefaults.monospacedFamily
         editorSoftWrapEnabled = false
         editorMinimapEnabled = true
+        javaKeywordNavigationFilterEnabled = true
         projectTreeRowHeight = 24
         tabWidth = 4
         editorTabLayoutMode = .singleLine

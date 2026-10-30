@@ -25172,6 +25172,131 @@
       }
     },
     {
+      "id": "maven.userSettings.conflict",
+      "description": "Windows UI: the settings.xml changed on disk after it was read; the edit was not saved",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.declared",
+      "description": "Windows UI: the local repository shown comes from this settings.xml",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.defaultValue",
+      "description": "Windows UI: marks the shown local repository as Maven's built-in default rather than a configured value",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.description",
+      "description": "Windows UI: explains that the user-level Maven settings apply to every project unless the project overrides them",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.emptyRepository",
+      "description": "Windows UI: the local repository path to save is empty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.invalid",
+      "description": "Windows UI: the user-level settings.xml is malformed and will not be rewritten",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.invalidFile",
+      "description": "Windows UI: the user-level settings.xml is not a valid settings document, so it was not changed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.loading",
+      "description": "Windows UI: status while reading the user-level Maven settings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.missing",
+      "description": "Windows UI: the user-level settings.xml does not exist yet",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.noHome",
+      "description": "Windows UI: the user profile directory holding .m2 cannot be determined",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.notDeclared",
+      "description": "Windows UI: the settings.xml exists but declares no local repository",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.readFailed",
+      "description": "Windows UI: the user-level Maven settings could not be read; error is the system message",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "maven.userSettings.reload",
+      "description": "Windows UI: button that reads the user-level settings.xml again",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.reloadProject",
+      "description": "Windows UI: after saving, the open project uses the new repository once Maven is reloaded",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.save",
+      "description": "Windows UI: button that writes the local repository to the user-level settings.xml",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "maven.userSettings.saveFailed",
+      "description": "Windows UI: writing the user-level settings.xml failed; error is the system message",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
+      "id": "maven.userSettings.title",
+      "description": "Windows UI: settings group for the user-level Maven settings.xml shared by all projects",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "maven.versionManagedFrom",
       "description": "Windows UI: maven.versionManagedFrom",
       "platforms": [
@@ -64878,11 +65003,32 @@
       ]
     },
     {
+      "id": "navigation.resolving",
+      "description": "Windows UI: shown while a slow navigation request is still running; target is a translated navigation kind such as definition",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "target": "string"
+      }
+    },
+    {
       "id": "navigation.typeDefinition",
       "description": "Windows UI: navigation.typeDefinition",
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "navigation.waitingForImport",
+      "description": "Windows UI: navigation is unavailable while the language server imports the project",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string",
+        "percent": "integer"
+      }
     },
     {
       "id": "newProject.backToStarters",
@@ -65798,6 +65944,26 @@
       ]
     },
     {
+      "id": "preparation.currentProject",
+      "description": "Windows UI: Java module the language server is importing; name comes from the language server",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "preparation.downloading",
+      "description": "Windows UI: dependency the Java import is downloading; artifact comes from the build tool",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "artifact": "string"
+      }
+    },
+    {
       "id": "preparation.explanation",
       "description": "Windows UI: preparation.explanation",
       "platforms": [
@@ -65817,6 +65983,16 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "preparation.importingPercent",
+      "description": "Windows UI: status bar label while the Java project imports, with the import percentage",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "percent": "integer"
+      }
     },
     {
       "id": "preparation.logs",
@@ -74061,10 +74237,15 @@
     },
     {
       "id": "ui.more",
-      "description": "Windows UI: ui.more",
+      "description": "More actions overflow trigger",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "More",
+        "arguments": []
+      }
     },
     {
       "id": "ui.morePages",
@@ -91154,6 +91335,906 @@
           "arg1"
         ]
       }
+    },
+    {
+      "id": "git.rollback.title",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rollback Changes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.confirm",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rollback",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.include",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Include in rollback",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.deleteAdded",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete local copies of added files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.warning",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.stale",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected changes changed. Reopen the rollback dialog and review them again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rollback.success",
+      "description": "macOS reviewed Git rollback dialog and operation feedback.",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Rolled back %@",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "vcs.commitFiles.commitFiles",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Commit Files…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.diffNewTab",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show Diff in New Tab",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.deleteAction",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.addToVcs",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add to VCS",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.adding",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Adding to VCS…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.deleting",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Deleting…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.deleteTitle",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.trashWarning",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "These files will be moved to the macOS Trash.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.vcsDeleteWarning",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The version control provider will delete these files and record their removal. They may not be moved to Trash.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.ownershipChanged",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Some selected files belong to another version control root. Refresh and select them again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.status.refreshFailed",
+      "description": "A local Git mutation could not confirm the updated status; keep the previous rows until retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not refresh Git status. Refresh to verify the changes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "vcs.commitFiles.stagingChanged",
+      "description": "macOS Commit file context actions, confirmations and validation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The staged files changed. Review the checked files before committing.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaKeywordNavigationFilter",
+      "description": "Native UI: Skip definition lookups for Java keywords",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip definition lookups for Java keywords",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceAbsolute",
+      "description": "Source editor appearance: Absolute",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Absolute",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceAppliesImmediatelyToSourceEditorsInAllProjects",
+      "description": "Source editor appearance: Applies immediately to source editors in all projects.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Applies immediately to source editors in all projects.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBlink",
+      "description": "Source editor appearance: Blink",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Blink",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBlock",
+      "description": "Source editor appearance: Block",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Block",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBoundary",
+      "description": "Source editor appearance: Boundary",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Boundary",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceColorizeBracketPairs",
+      "description": "Source editor appearance: Colorize bracket pairs",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Colorize bracket pairs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursor",
+      "description": "Source editor appearance: Cursor",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursorBlinking",
+      "description": "Source editor appearance: Cursor blinking",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor blinking",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceCursorStyle",
+      "description": "Source editor appearance: Cursor style",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cursor style",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorColorScheme",
+      "description": "Source editor appearance: Editor color scheme",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorColorsFollowLightAndDarkAppearanceIndependentlyOfTheInterfaceTheme",
+      "description": "Source editor appearance: Editor colors follow light and dark appearance independently of the interface theme.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor colors follow light and dark appearance independently of the interface theme.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceEditorDisplay",
+      "description": "Source editor appearance: Editor display",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor display",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceFontLigatures",
+      "description": "Source editor appearance: Font ligatures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Font ligatures",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceHighlightCurrentLine",
+      "description": "Source editor appearance: Highlight current line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Highlight current line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceItalicComments",
+      "description": "Source editor appearance: Italic comments",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Italic comments",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceLineNumbers",
+      "description": "Source editor appearance: Line numbers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line numbers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceLineSpacing",
+      "description": "Source editor appearance: Line spacing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line spacing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceRelative",
+      "description": "Source editor appearance: Relative",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Relative",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceRenderWhitespace",
+      "description": "Source editor appearance: Render whitespace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Render whitespace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceScrollBeyondLastLine",
+      "description": "Source editor appearance: Scroll beyond last line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Scroll beyond last line",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSelection",
+      "description": "Source editor appearance: Selection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Selection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceShowIndentGuides",
+      "description": "Source editor appearance: Show indent guides",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show indent guides",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSmooth",
+      "description": "Source editor appearance: Smooth",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Smooth",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSmoothScrolling",
+      "description": "Source editor appearance: Smooth scrolling",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Smooth scrolling",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSoftWrap",
+      "description": "Source editor appearance: Soft wrap",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Soft wrap",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSolid",
+      "description": "Source editor appearance: Solid",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Solid",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceStickyScroll",
+      "description": "Source editor appearance: Sticky scroll",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sticky scroll",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceSyntaxHighlighting",
+      "description": "Source editor appearance: Syntax highlighting",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Syntax highlighting",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceTrailing",
+      "description": "Source editor appearance: Trailing",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Trailing",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceUnderline",
+      "description": "Source editor appearance: Underline",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Underline",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceVSCode",
+      "description": "Bundled editor color scheme product name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "VS Code",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceIntelliJIDEA",
+      "description": "Bundled editor color scheme product name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "IntelliJ IDEA",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeInfo",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Bracket colors follow the selected editor color scheme.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeEnabled",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enabled by color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorAppearanceBracketSchemeDisabled",
+      "description": "Editor syntax scheme bracket behavior",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disabled by color scheme",
+        "arguments": []
+      }
+    },
+    {
+      "id": "lsp.completion.invalidTriggerKind",
+      "description": "Completion request validation from shared Core",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Invalid completion trigger kind",
+        "arguments": []
+      }
+    },
+    {
+      "id": "lsp.completion.missingTriggerCharacter",
+      "description": "Completion request validation from shared Core",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Completion trigger character is required",
+        "arguments": []
+      }
+    },
+    {
+      "id": "java.launch.error.buildStatus",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned an unexpected project build status.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned an unexpected project build status."
+      }
+    },
+    {
+      "id": "java.launch.error.classpathEmpty",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned no runtime paths.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned no runtime paths."
+      }
+    },
+    {
+      "id": "java.launch.error.classpathInvalid",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned an invalid runtime classpath.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned an invalid runtime classpath."
+      }
+    },
+    {
+      "id": "java.launch.error.provider",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Java launch preparation requires the Java language service.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "Java launch preparation requires the Java language service."
+      }
+    },
+    {
+      "id": "java.launch.error.request",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Invalid Java launch preparation request",
+        "arguments": []
+      },
+      "windows": {
+        "key": "Invalid Java launch preparation request"
+      }
+    },
+    {
+      "id": "java.launch.error.target",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service could not identify one launch target for this source file.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service could not identify one launch target for this source file."
+      }
+    },
+    {
+      "id": "java.launch.error.unsupported",
+      "description": "Shared Java launch preparation failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Java launch preparation is not supported by this runtime.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "Java launch preparation is not supported by this runtime."
+      }
+    },
+    {
+      "id": "java.launch.error.save",
+      "description": "Java launch stops when a workspace document cannot be saved",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java launch stopped because modified files could not be saved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "java.launch.error.compilation",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java project build reported compilation errors.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java project build reported compilation errors."
+      }
+    },
+    {
+      "id": "java.launch.error.buildFailed",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service could not complete the project build. Check the Java language server log for the build error.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service could not complete the project build. Check the Java language server log for the build error."
+      }
+    },
+    {
+      "id": "java.launch.error.buildCancelled",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java project build was cancelled before it finished.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java project build was cancelled before it finished."
+      }
+    },
+    {
+      "id": "java.launch.error.unknownBuildStatus",
+      "description": "Shared Java launch build outcome",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The Java language service returned an unknown project build status.",
+        "arguments": []
+      },
+      "windows": {
+        "key": "The Java language service returned an unknown project build status."
+      }
+    },
+    {
+      "id": "backgroundTasks.explanation",
+      "description": "Windows UI: explains that background tasks finish by themselves and cannot be cancelled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "backgroundTasks.more",
+      "description": "Windows UI: status bar suffix counting further background tasks",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "backgroundTasks.title",
+      "description": "Windows UI: status bar popover title listing language-server background work",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "backgroundTasks.untitled",
+      "description": "Windows UI: name for a language-server background task that reported no title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.ask",
+      "description": "Windows UI: import-on-open option that asks first",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.askOnOpen",
+      "description": "Windows UI: notification asking whether to import a Java project that was just opened",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "project": "string"
+      }
+    },
+    {
+      "id": "javaImport.automatic",
+      "description": "Windows UI: import-on-open option that imports immediately",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.configureFirst",
+      "description": "Windows UI: action that opens Maven settings before importing",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.import",
+      "description": "Windows UI: action that starts importing the Java project",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.manual",
+      "description": "Windows UI: import-on-open option that waits until the project model is needed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.onOpen",
+      "description": "Windows UI: setting label for what opening a Java project does with the language-server import",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "javaImport.onOpenDescription",
+      "description": "Windows UI: explains the Java import-on-open choices, including that manual still imports when needed",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

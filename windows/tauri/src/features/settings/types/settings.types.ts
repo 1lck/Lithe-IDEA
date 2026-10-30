@@ -25,6 +25,8 @@ export type TabCloseButtonVisibility = "active" | "hover" | "always";
 // Matches the macOS EditorTabLayoutMode raw values.
 export type EditorTabLayoutMode = "singleLine" | "multipleRows";
 export type WindowChromeDensity = "focused" | "comfortable";
+/** Whether opening a Java project starts importing it into the language server. */
+export type JavaProjectImportOnOpen = "automatic" | "ask" | "manual";
 export type FileTreeSortOrder = "folders-first" | "name";
 // Where a project opens when the ask-first dialog is disabled. The false branch of the
 // retired openFoldersInNewWindow boolean maps to "attach", which was its old behavior.
@@ -69,6 +71,7 @@ export interface Settings {
   inlayHints: boolean;
   codeLens: boolean;
   semanticTokens: boolean;
+  javaProjectImportOnOpen: JavaProjectImportOnOpen;
   breadcrumbShowSymbols: boolean;
   // Terminal
   terminalFontFamily: string;

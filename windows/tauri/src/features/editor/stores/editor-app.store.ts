@@ -414,7 +414,12 @@ async function saveEditorBufferById(
 
     try {
       const { LspClient } = await import("@/features/editor/lsp/lsp-client");
-      await LspClient.getInstance().notifyDocumentSave(activeBuffer.path, contentToSave);
+      const currentBuffer = getBufferById(bufferStore.getState().buffers, activeBuffer.id);
+      if (currentBuffer && isEditorContent(currentBuffer) && currentBuffer.path === activeBuffer.path) {
+        await LspClient.getInstance().notifyDocumentSave(
+          activeBuffer.path, contentToSave, currentBuffer.content,
+        );
+      }
 
       if (settings.lintOnSave) {
         const { lintContent } = await import("@/features/editor/linter/linter-service");

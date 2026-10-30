@@ -150,12 +150,18 @@ struct EditorAreaView: View {
                     }
                 }
             }
-
-            if model.isImplementationChooserVisible && groupID == nil {
-                LanguageImplementationChooserView()
+        }
+        .overlay(alignment: .topLeading) {
+            if groupID == nil {
+                Color.clear.frame(width: 1, height: 1)
+                    .litheDropdown(isPresented: Binding(
+                        get: { model.isImplementationChooserVisible },
+                        set: { if !$0 { model.dismissImplementationChooser() } }
+                    ), searchOnTyping: true) {
+                        LanguageImplementationChooserView().environmentObject(model)
+                    }
                     .padding(.top, 48)
-                    .padding(.horizontal, 24)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                    .padding(.leading, 24)
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
@@ -168,6 +174,7 @@ struct EditorAreaView: View {
         }
         .onAppear { if groupID == nil, let activeItem { model.editorTabOrderFeature.focus(activeItem) } }
         .onChange(of: activeItem) { item in
+            if groupID == nil, model.isImplementationChooserVisible { model.closeLanguageNavigationResults() }
             if groupID == nil, let item { model.editorTabOrderFeature.focus(item) }
         }
         .onChange(of: model.openDocuments.map(\.id)) { ids in
@@ -1168,6 +1175,9 @@ struct EditorAreaView: View {
     }
 
     private func repositoryDiffTitle(_ id: UUID) -> String {
+        if let diff = model.editorTabOrderFeature.providerDiffs[id] {
+            return L10n.string("Repository Diff: \(diff.fileURL.lastPathComponent)")
+        }
         guard let session = model.gitFeatureIfActive?.repositoryDiffSessions[id] else { return L10n.string("Repository Diff") }
         if let comparison = session.branchComparison {
             let target = comparison.targetReference?.shortName ?? L10n.string("Working Tree")
@@ -1182,7 +1192,9 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private func repositoryDiffContent(_ id: UUID) -> some View {
-        if let feature = model.gitFeatureIfActive, let session = feature.repositoryDiffSessions[id] {
+        if let diff = model.editorTabOrderFeature.providerDiffs[id] {
+            VcsFileDiffContent(diff: diff, fontFamily: settings.editorFontFamily)
+        } else if let feature = model.gitFeatureIfActive, let session = feature.repositoryDiffSessions[id] {
             RepositoryDiffSessionView(feature: feature, session: session, fontFamily: settings.editorFontFamily)
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)

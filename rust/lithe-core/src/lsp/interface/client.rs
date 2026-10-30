@@ -40,7 +40,7 @@ pub(super) fn client_initialize_for_plugin(
             }],
             "capabilities": {
                 "textDocument": {
-                    "synchronization": {},
+                    "synchronization": { "didSave": true },
                     "completion": {
                         "dynamicRegistration": true,
                         "contextSupport": true,
@@ -676,6 +676,19 @@ pub(super) fn client_apply_server_message_for_plugin(
                 }
                 state.text_document_sync =
                     text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
+                state.text_document_save_include_text = match result
+                    .get("capabilities")
+                    .and_then(|value| value.pointer("/textDocumentSync/save"))
+                {
+                    Some(Value::Bool(true)) => Some(false),
+                    Some(Value::Object(options)) => Some(
+                        options
+                            .get("includeText")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    ),
+                    _ => None,
+                };
                 if let Some(options) = result
                     .get("capabilities")
                     .and_then(|c| c.get("semanticTokensProvider"))
@@ -942,8 +955,40 @@ fn validate_lsp_method(method: &str) -> Result<(), CoreError> {
 fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreError> {
     let text_document = json!({ "uri": request.uri });
     match request.method.as_str() {
-        "textDocument/completion"
-        | "textDocument/hover"
+        "textDocument/completion" => {
+            let context = request.completion_context.as_ref();
+            let kind = context
+                .and_then(|v| v.get("triggerKind"))
+                .and_then(Value::as_u64)
+                .unwrap_or(1);
+            if !(1..=3).contains(&kind)
+                || context.is_some_and(|v| {
+                    !v.is_object() || v.get("triggerKind").and_then(Value::as_u64).is_none()
+                })
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid completion trigger kind",
+                ));
+            }
+            let mut trigger = json!({"triggerKind": kind});
+            if kind == 2 {
+                let character = context
+                    .and_then(|v| v.get("triggerCharacter"))
+                    .and_then(Value::as_str)
+                    .filter(|v| v.chars().count() == 1)
+                    .ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Completion trigger character is required",
+                        )
+                    })?;
+                trigger["triggerCharacter"] = json!(character);
+            }
+            Ok(json!({"textDocument": text_document,
+                "position": lsp_position_json(required_position(request)?), "context": trigger}))
+        }
+        "textDocument/hover"
         | "textDocument/definition"
         | "textDocument/declaration"
         | "textDocument/typeDefinition"
@@ -1173,7 +1218,8 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
     let result = result?;
     match method {
         Some("textDocument/completion") => Some(json!({
-            "items": parse_completion_items(result)
+            "items": parse_completion_items(result),
+            "isIncomplete": result.get("isIncomplete").and_then(Value::as_bool).unwrap_or(false)
         })),
         Some("completionItem/resolve") => parse_completion_item(result).map(|item| {
             json!({

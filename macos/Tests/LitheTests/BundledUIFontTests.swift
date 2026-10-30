@@ -195,25 +195,26 @@ struct BundledUIFontTests {
                                   weight: .bold, design: .monospaced))
     }
 
-    @Test func embeddedEditorReadsOnlyBundledFontDirectory() throws {
+    @Test(arguments: ["JetBrainsMono-Regular.ttf", "Inter-Regular.otf"])
+    func embeddedEditorReadsOnlyBundledFontDirectory(filename: String) throws {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let editor = temporary.appendingPathComponent("MonacoEditor")
         let fonts = temporary.appendingPathComponent("Fonts")
         try FileManager.default.createDirectory(at: editor, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: fonts, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let font = fonts.appendingPathComponent("JetBrainsMono-Regular.ttf")
+        let font = fonts.appendingPathComponent(filename)
         let bytes = Data([0, 1, 2, 3])
         try bytes.write(to: font)
         try bytes.write(to: temporary.appendingPathComponent("outside.ttf"))
         let assets = MonacoWorkbenchAssets(root: editor, fontsRoot: fonts)
         let webView = WKWebView(frame: .zero)
         defer { webView.stopLoading() }
-        let request = FontAssetTask("lithe-editor://app/fonts/JetBrainsMono-Regular.ttf")
+        let request = FontAssetTask("lithe-editor://app/fonts/\(filename)")
         assets.webView(webView, start: request)
         #expect(request.finished && request.error == nil)
         #expect(request.data == bytes)
-        #expect(request.response?.mimeType == "font/ttf")
+        #expect(request.response?.mimeType == (filename.hasSuffix(".otf") ? "font/otf" : "font/ttf"))
         for path in ["fonts/../outside.ttf", "fonts/../../outside.ttf", "fonts/OFL.txt"] {
             let denied = FontAssetTask("lithe-editor://app/\(path)")
             assets.webView(webView, start: denied)

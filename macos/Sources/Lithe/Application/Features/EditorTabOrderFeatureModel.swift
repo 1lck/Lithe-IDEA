@@ -18,6 +18,11 @@ final class EditorTabOrderFeatureModel: ObservableObject {
             if agentSessionByTab.keys.contains(where: { !open.contains($0) }) {
                 agentSessionByTab = agentSessionByTab.filter { open.contains($0.key) }
             }
+            let diffs = Set(repositoryDiffIDs)
+            providerDiffs = providerDiffs.filter { diffs.contains($0.key) }
+            loadingProviderDiffs.formIntersection(diffs)
+            for (id, task) in providerDiffTasks where !diffs.contains(id) { task.cancel() }
+            providerDiffTasks = providerDiffTasks.filter { diffs.contains($0.key) }
         }
     }
     @Published private(set) var groupLayout: EditorGroupLayout = .group(UUID())
@@ -142,6 +147,11 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     @Published var repositoryDiffSelected = false
     var repositoryDiffReturnTabs: [UUID: EditorTabItem] = [:]
     var repositoryDiffKeys: [UUID: RepositoryDiffTabKey] = [:]
+    /// Loaded plugin comparisons share the existing diff tab/group lifecycle,
+    /// without activating Git or storing them in Git's comparison sessions.
+    @Published var providerDiffs: [UUID: VcsFileDiff] = [:]
+    var loadingProviderDiffs: Set<UUID> = []
+    var providerDiffTasks: [UUID: Task<Void, Never>] = [:]
 
     var repositoryDiffIDs: [UUID] {
         items.compactMap {
