@@ -1337,6 +1337,7 @@ function semanticPayload(command: string, args: JsonRecord, session: Session): J
   if (typeof args.line === "number") {
     payload.position = { line: args.line, utf16Column: args.character ?? 0 };
   }
+  if (command === "lsp_get_completions") payload.completionContext = args.completionContext;
   if (command === "lsp_rename") payload.newName = args.newName;
   if (command === "lsp_resolve_completion") payload.completionItem = args.completionItem;
   if (command === "lsp_get_inlay_hints") {
@@ -1371,7 +1372,7 @@ function unwrapResult(command: string, result: any): unknown {
   const normalized = normalizeCoreValue(result) as JsonRecord;
   switch (command) {
     case "lsp_get_completions":
-      return normalized.items ?? [];
+      return { items: normalized.items ?? [], isIncomplete: normalized.isIncomplete === true };
     case "lsp_resolve_completion":
       return normalized.item ?? null;
     case "lsp_get_hover": {
@@ -1422,7 +1423,10 @@ async function semanticRequest(command: string, args: JsonRecord): Promise<unkno
   const session = sessionForFile(args.sessionFilePath ?? args.filePath);
   const result = await requestOperation(session, semanticPayload(command, args, session));
   // A stopped/replaced attachment must not repaint the new session's document.
-  if (command === "lsp_get_semantic_tokens" && fileSessions.get(key) !== attachment) return null;
+  if (fileSessions.get(key) !== attachment) {
+    if (command === "lsp_get_semantic_tokens") return null;
+    if (command === "lsp_get_completions") return { items: [], isIncomplete: false };
+  }
   return unwrapResult(command, result);
 }
 

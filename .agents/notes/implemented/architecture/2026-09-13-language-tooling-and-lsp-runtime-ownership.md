@@ -82,6 +82,22 @@ Rename/Formatting/Code Action/Resolve/Execute Command 目前仍是
 LSP-only，未声明能力时返回明确的 capability 错误。Provider 抛错不会
 让路由提前结束，用于隔离第三方语言服务器故障。
 
+### 连续输入时刷新补全
+
+补全结果不仅包含候选项，还包含服务器的 `isIncomplete`（候选尚不完整）标记。
+Core 必须保留这个列表级标记，空列表也不能丢；平台合并本地候选时保留任一
+provider 的未完整状态。两端把它映射为 Monaco 的 `incomplete`，把 Monaco
+触发原因换算为 LSP 数值，再交给 Core 校验并生成请求 context。继续输入需要新候选时，由 Monaco
+重新请求，不在 Mac 和 Windows 各实现缓存刷新算法。旧的只读候选数组接口
+只供不消费列表状态的兼容调用，编辑器必须使用完整列表接口。
+
+参考 OpenIDEA `fff2c711` 的 `convert.rs` 和 `completion.ts` 保留列表状态的
+处理方式；它使用 CodeMirror，我们复用现有 Monaco 0.55.1 的对应机制，不迁移
+其编辑器实现，也不增加语言语义引擎。仅把 `isIncomplete` 固定为 true 会增加
+不必要的服务器请求，因此保留上游实际值。验证包括共享 fixture、Swift 路由、
+Windows 适配器，以及真实 WebKit/Monaco 中从 `a` 继续输入 `b` 后出现第二次
+请求才返回的 `abacus` 候选；原有过期结果与资源清理边界继续适用。
+
 ### Windows 语义颜色请求
 
 Windows 的语义高亮复用 Core 已有 `semanticTokens` 操作与请求时捕获的图例，

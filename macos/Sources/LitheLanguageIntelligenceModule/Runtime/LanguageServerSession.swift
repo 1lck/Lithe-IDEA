@@ -593,10 +593,19 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         position: LanguageServerPosition,
         completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
     ) throws {
-        try request(.completion, fileURL: fileURL, position: position) { result in
+        try completionList(fileURL: fileURL, position: position, context: nil) {
+            completion($0.map(\.items))
+        }
+    }
+
+    package func completionList(
+        fileURL: URL, position: LanguageServerPosition, context: LanguageServerCompletionContext?,
+        completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
+    ) throws {
+        try request(.completion, fileURL: fileURL, position: position, completionContext: context) { result in
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: CompletionPayload.self)
-            }.map { $0.makeModels() })
+            }.map { LanguageServerCompletionList(items: $0.makeModels(), isIncomplete: $0.isIncomplete ?? false) })
         }
     }
 
@@ -753,7 +762,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             core.requestLanguageServerOperation(
                 sessionID: sessionID, operation: .executeCommand, fileURL: nil,
                 virtualURI: nil, position: nil, newName: nil, range: nil,
-                diagnostics: [], completionItem: nil, codeAction: nil, command: command
+                diagnostics: [], completionContext: nil, completionItem: nil, codeAction: nil, command: command
             )
         }) {
         case .success(let started): operation = started
@@ -1220,6 +1229,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         newName: String? = nil,
         range: LanguageServerRange? = nil,
         diagnostics: [LanguageServerDiagnostic] = [],
+        completionContext: LanguageServerCompletionContext? = nil,
         completionItem: LanguageServerCompletionItem? = nil,
         codeAction: LanguageServerCodeAction? = nil,
         command: LanguageServerCommand? = nil,
@@ -1237,6 +1247,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             newName: newName,
             range: range,
             diagnostics: diagnostics,
+            completionContext: completionContext,
             completionItem: completionItem,
             codeAction: codeAction,
             command: command
@@ -1750,6 +1761,7 @@ private struct CompletionItemPayload: Decodable {
 }
 
 private struct CompletionPayload: Decodable {
+    let isIncomplete: Bool?
     let items: [CompletionItemPayload]
     func makeModels() -> [LanguageServerCompletionItem] { items.map { $0.makeModel() } }
 }

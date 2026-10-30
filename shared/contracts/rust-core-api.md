@@ -3946,6 +3946,18 @@ Missing or stale HEAD rejects the amendment before writing; plain Continue,
 Skip and Abort do not require this field. Both products must send the HEAD
 reviewed by the amendment editor. See [Rebase sessions](git-rebase-session.md).
 
+Completion requests accept optional `completionContext` with LSP `triggerKind`
+(`1` invoked, `2` trigger character, `3` incomplete-list refresh) and
+`triggerCharacter` (required and one character for kind `2`). Missing context
+means invoked. Core validates and maps this into LSP `params.context`.
+Completion results carry `{ items, isIncomplete }`; array and null server results
+are complete. The flag is list-scoped and survives empty lists and host provider
+merging. Both Monaco adapters set `CompletionList.incomplete` and forward Monaco's
+trigger context, so continued typing can request additional candidates instead of
+filtering a partial cache. Existing document-version, cancellation and attachment
+checks still reject obsolete results. The fixture is
+`shared/fixtures/lsp/completion-refresh-v1.json`.
+
 Completion items returned by the LSP client and runtime preserve `insertTextFormat`
 (`1` for plain text, `2` for snippets; absent values default to `1`). Hosts retain
 this field through completion resolution. Monaco applies snippet text with its

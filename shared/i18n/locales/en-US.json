@@ -9527,7 +9527,9 @@
     "java.launch.error.compilation": "The Java project build reported compilation errors.",
     "java.launch.error.buildFailed": "The Java language service could not complete the project build. Check the Java language server log for the build error.",
     "java.launch.error.buildCancelled": "The Java project build was cancelled before it finished.",
-    "java.launch.error.unknownBuildStatus": "The Java language service returned an unknown project build status."
+    "java.launch.error.unknownBuildStatus": "The Java language service returned an unknown project build status.",
+    "lsp.completion.invalidTriggerKind": "Invalid completion trigger kind",
+    "lsp.completion.missingTriggerCharacter": "Completion trigger character is required"
   },
   "overrides": {
     "windows": {

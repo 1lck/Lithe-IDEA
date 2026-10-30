@@ -830,6 +830,7 @@
 "Complete commit message" = "Complete commit message";
 "Complete sign-in in your browser. Your credentials are managed by Codex." = "Complete sign-in in your browser. Your credentials are managed by Codex.";
 "Completed" = "Completed";
+"Completion trigger character is required" = "Completion trigger character is required";
 "Completions" = "Completions";
 "Compression is unavailable. Showing complete retained output." = "Compression is unavailable. Showing complete retained output.";
 "Concise" = "Concise";
@@ -1822,6 +1823,7 @@
 "Invalid Java launch preparation request" = "Invalid Java launch preparation request";
 "Invalid MCP tool configuration" = "Invalid MCP tool configuration";
 "Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”)." = "Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”).";
+"Invalid completion trigger kind" = "Invalid completion trigger kind";
 "Invalid plugin icon resource: %@" = "Invalid plugin icon resource: %@";
 "Invalid plugin web entry: %@" = "Invalid plugin web entry: %@";
 "Invalid shared instruction request." = "Invalid shared instruction request.";
@@ -4640,6 +4642,8 @@
 "java.launch.error.unsupported" = "Java launch preparation is not supported by this runtime.";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
+"lsp.completion.invalidTriggerKind" = "Invalid completion trigger kind";
+"lsp.completion.missingTriggerCharacter" = "Completion trigger character is required";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
 "main Java" = "main Java";

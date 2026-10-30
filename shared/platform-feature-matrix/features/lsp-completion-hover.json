@@ -9,7 +9,8 @@
       "rust/lithe-core/src/lsp/languages/jdt.rs",
       "rust/lithe-core/src/lsp/interface/engine.rs",
       "shared/fixtures/lsp/java-completion-v1.json",
-      "shared/fixtures/lsp"
+      "shared/fixtures/lsp",
+      "shared/fixtures/lsp/completion-refresh-v1.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -20,11 +21,12 @@
       "rust/lithe-core/src/lsp/languages/jdt.rs",
       "rust/lithe-core/src/lsp/interface/engine.rs",
       "shared/fixtures/lsp/java-completion-v1.json",
-      "shared/fixtures/lsp"
+      "shared/fixtures/lsp",
+      "shared/fixtures/lsp/completion-refresh-v1.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Language Tooling",
-  "verification": "在相同 Java fixture 中验证补全、Hover、排序、超时和空结果。Java 构造器和方法补全使用 JDT LS 的 guessMethodArguments=off：输入 new No 后接受 Node 候选应得到 Node()，光标在括号内；方法调用同样不插入参数名，构造器重载候选由 JDT LS 合并为类型候选。验证 initialize、didChangeConfiguration 与 workspace/configuration 三个配置入口一致，父级和叶级 section 均保留插件 favoriteStaticMembers、filteredTypes 等其他补全配置，其他语言 snippet、Java 方法补全签名展示及自动导入仍正常。"
+  "verification": "在相同 Java fixture 中验证补全、Hover、排序、超时和空结果。Java 构造器和方法补全使用 JDT LS 的 guessMethodArguments=off：输入 new No 后接受 Node 候选应得到 Node()，光标在括号内；方法调用同样不插入参数名，构造器重载候选由 JDT LS 合并为类型候选。验证 initialize、didChangeConfiguration 与 workspace/configuration 三个配置入口一致，父级和叶级 section 均保留插件 favoriteStaticMembers、filteredTypes 等其他补全配置，其他语言 snippet、Java 方法补全签名展示及自动导入仍正常。 连续输入时保留 isIncomplete 并通过 LSP triggerKind=3 重新请求候选；验证空未完整列表、完整/空响应、触发字符、快速修改及文档关闭/会话替换后的过期结果。"
 }

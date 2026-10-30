@@ -9527,7 +9527,9 @@
     "java.launch.error.compilation": "Java 项目构建报告了编译错误。",
     "java.launch.error.buildFailed": "Java 语言服务未能完成项目构建，请查看 Java 语言服务器日志了解构建错误。",
     "java.launch.error.buildCancelled": "Java 项目构建在完成前已被取消。",
-    "java.launch.error.unknownBuildStatus": "Java 语言服务返回了未知的项目构建状态。"
+    "java.launch.error.unknownBuildStatus": "Java 语言服务返回了未知的项目构建状态。",
+    "lsp.completion.invalidTriggerKind": "补全请求的触发类型无效",
+    "lsp.completion.missingTriggerCharacter": "补全请求缺少有效的触发字符"
   },
   "overrides": {
     "macos": {

@@ -1576,6 +1576,36 @@ async function verify() {
       } finally { await window.lithe.retain([]); }
     }
   });
+  await check("typing after an incomplete list asks the host for new candidates", async () => {
+    const id = "completion-refresh", text = "a";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "java", readonly: false });
+    editor.setPosition(new Position(1, 2));
+    const controller = SuggestController.get(editor)!;
+    const suggestModel = (controller as any).model;
+    const listeners: { dispose(): void }[] = [];
+    const candidate = (label: string) => new Promise<void>((resolve) => {
+      const listener = suggestModel.onDidSuggest((event: any) => {
+        if (event.completionModel.items.some((item: any) => item.completion.label === label)) {
+          listener.dispose(); resolve();
+        }
+      });
+      listeners.push(listener);
+    });
+    try {
+      const initial = candidate("alpha");
+      suggestModel.trigger({ auto: false });
+      await withDeadline(initial, "initial completion was not displayed");
+      const refreshed = candidate("abacus");
+      editor.trigger("keyboard", "type", { text: "b" });
+      await withDeadline(refreshed, "continued typing reused an incomplete list instead of requesting new candidates");
+      assert(editor.getModel()!.getValue() === "ab", "completion refresh changed the buffer");
+    } finally {
+      for (const listener of listeners) listener.dispose();
+      suggestModel.cancel();
+      await window.lithe.retain([]);
+    }
+  });
   await check("accepted completion expands snippets imports and tab stops in one undo", async () => {
     const text = "// header\nsample", id = "snippet-accept";
     await send({ type: "open", text });
