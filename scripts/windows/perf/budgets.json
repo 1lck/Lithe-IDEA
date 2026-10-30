@@ -20,6 +20,8 @@
     "typingBursts.maxMs": 33,
     "typingBursts.mainThreadMsPerKey": 25,
     "typingBursts.ipcKilobytesPerKey": 8,
+    "textBlockRecolor.stillColoredLines": 0,
+    "textBlockRecolor.lostColorLines": 0,
     "keyRepeat.p95Ms": 20,
     "keyRepeat.maxMs": 33,
     "keyRepeat.ipcKilobytesPerKey": 8,

@@ -14,6 +14,7 @@ import { percentile, totalBlockingTime, frameSummary } from "./lib/stats.mjs";
 const TYPED = "int total = orders.stream().mapToInt(Order::amount).sum();\nif (total > limit) log(\"over limit\");\n";
 const TYPING_INTERVAL_MILLISECONDS = 80;
 const KEY_REPEAT_INTERVAL_MILLISECONDS = 33;
+const RECOLOR_DISTANCE_LINES = 300;
 const THINKING_PAUSE = { keys: 8, pauseMilliseconds: 400 };
 const EDITOR_LINES = ".monaco-editor .view-lines";
 const TAB_SELECTOR = '[role="tab"]';
@@ -100,6 +101,38 @@ const typingBursts = {
     await harness.quiet();
     await harness.goToLine(Math.floor(LARGE_FILE_LINES / 2));
     return harness.typeMeasured(TYPED, TYPING_INTERVAL_MILLISECONDS, THINKING_PAUSE);
+  },
+};
+
+// A text block stays open to the end of the file, unlike a block comment, which
+// the next Javadoc in the fixture would close.
+const textBlockRecolor = {
+  id: "textBlockRecolor",
+  title: "Open and close a text block far above the viewport while typing",
+  async run(harness) {
+    await setupProject(harness);
+    await harness.openFile(LARGE_FILE);
+    await harness.quiet();
+    const edited = Math.floor(LARGE_FILE_LINES / 2);
+    const below = edited + RECOLOR_DISTANCE_LINES;
+    await harness.goToLine(below);
+    const colored = await harness.multiColorLines();
+    if (colored === 0) throw new Error("The fixture shows no multi-color lines to compare");
+
+    await harness.goToLine(edited);
+    await harness.page.keyboard.press("Enter");
+    // Fast enough that tokens from the first keys arrive after the next edit.
+    await harness.page.keyboard.type('String s = """ unterminated', { delay: 25 });
+    await harness.goToLine(below);
+    const stillColored = await harness.settled(() => harness.multiColorLines(), (lines) => lines === 0);
+
+    await harness.goToLine(edited);
+    await harness.page.keyboard.press("Shift+ArrowDown");
+    await harness.page.keyboard.press("Shift+End");
+    await harness.page.keyboard.press("Delete");
+    await harness.goToLine(below);
+    const recolored = await harness.settled(() => harness.multiColorLines(), (lines) => lines === colored);
+    return { stillColoredLines: stillColored, lostColorLines: colored - recolored };
   },
 };
 
@@ -245,6 +278,7 @@ export const SCENARIOS = [
   typing,
   typingLarge,
   typingBursts,
+  textBlockRecolor,
   keyRepeat,
   scroll,
   tabs,

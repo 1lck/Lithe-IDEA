@@ -7,6 +7,8 @@ import { PROJECT_ROOT } from "./fixture.mjs";
 import { keySummary, totalBlockingTime } from "./stats.mjs";
 
 const STEP_TIMEOUT_MILLISECONDS = 30_000;
+const SETTLE_TIMEOUT_MILLISECONDS = 8_000;
+const SETTLE_POLL_MILLISECONDS = 100;
 const TREE_ROW = "[data-file-path]";
 const EDITOR_LINES = ".monaco-editor .view-lines";
 const OPEN_FOLDER_BUTTON = /^(Open|打开)$/;
@@ -174,7 +176,8 @@ export class Harness {
   }
 
   async focusEditor() {
-    await this.page.locator(EDITOR_LINES).first().click({ position: { x: 300, y: 200 } });
+    // The line layer scrolls away with the content; the guard stays in the viewport.
+    await this.page.locator(".monaco-editor .overflow-guard").first().click({ position: { x: 300, y: 200 } });
   }
 
   async goToLine(line) {
@@ -184,6 +187,28 @@ export class Harness {
     await this.page.keyboard.press("Enter");
     await this.quiet();
     await this.page.keyboard.press("End");
+  }
+
+  /** Polls `read` until `done` accepts its value or the deadline passes, returning the last value. */
+  async settled(read, done) {
+    const deadline = performance.now() + SETTLE_TIMEOUT_MILLISECONDS;
+    let value = await read();
+    while (!done(value) && performance.now() < deadline) {
+      await delay(SETTLE_POLL_MILLISECONDS);
+      value = await read();
+    }
+    return value;
+  }
+
+  /** Counts the visible lines whose code renders in more than one token color. */
+  async multiColorLines() {
+    return this.page.evaluate((selector) => {
+      const lines = [...document.querySelector(selector).querySelectorAll(".view-line")];
+      return lines.filter((line) => {
+        const colors = new Set([...line.querySelectorAll("span > span")].map((span) => span.className));
+        return colors.size > 1;
+      }).length;
+    }, EDITOR_LINES);
   }
 
   /**
