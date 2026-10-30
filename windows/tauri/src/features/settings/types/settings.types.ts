@@ -223,7 +223,6 @@ export interface Settings {
   gitFetchSubmodules: "inherit" | "no" | "onDemand" | "yes";
   gitFetchTags: "inherit" | "all" | "none" | "prune";
   githubSidebarSectionOrder: Array<"pull-requests" | "issues" | "actions">;
-  enableInlineGitBlame: boolean;
   /** Git change markers in the editor gutter; clicking one opens its inline review. */
   enableGitGutter: boolean;
 }

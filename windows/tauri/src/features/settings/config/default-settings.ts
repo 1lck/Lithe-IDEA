@@ -220,9 +220,6 @@ export const defaultSettings: Settings = {
   gitFetchSubmodules: "inherit",
   gitFetchTags: "inherit",
   githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
-  // Like IDEA, the current line's author is opt-in: following the caret it
-  // annotates every line the user moves through.
-  enableInlineGitBlame: false,
   enableGitGutter: true,
 };
 

@@ -294,7 +294,11 @@ export function adaptCoreResult<T>(
         file_path: asRecord(args).filePath ?? "",
         lines: lines.map((line: JsonRecord) => ({
           line_number: line.line,
-          total_lines: lines.length,
+          // Core emits one entry per source line, so every entry covers exactly
+          // that line; the gutter shape expresses it as a single-line span.
+          // Using the entry count here made every span swallow the whole file,
+          // so the lookup attributed a line to an arbitrary commit.
+          total_lines: 1,
           commit_hash: line.commitHash,
           is_uncommitted: /^0+$/.test(String(line.commitHash ?? "")),
           author: line.authorName,

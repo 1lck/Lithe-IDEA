@@ -12418,6 +12418,48 @@
       ]
     },
     {
+      "id": "git.blame.annotate",
+      "description": "Windows UI: git.blame.annotate",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.copyRevision",
+      "description": "Windows UI: git.blame.copyRevision",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.hide",
+      "description": "Windows UI: git.blame.hide",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.revisionCopied",
+      "description": "Windows UI: git.blame.revisionCopied",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.showDiff",
+      "description": "Windows UI: git.blame.showDiff",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "git.blame.uncommitted",
+      "description": "Windows UI: git.blame.uncommitted",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "git.branch",
       "description": "Windows UI: git.branch",
       "platforms": [
@@ -70054,20 +70096,6 @@
     {
       "id": "settings.git.gutterDescription",
       "description": "Windows UI: settings.git.gutterDescription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.git.inlineBlame",
-      "description": "Windows UI: settings.git.inlineBlame",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "settings.git.inlineBlameDescription",
-      "description": "Windows UI: settings.git.inlineBlameDescription",
       "platforms": [
         "windows"
       ]
