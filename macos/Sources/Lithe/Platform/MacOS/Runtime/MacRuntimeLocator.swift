@@ -3,7 +3,7 @@ import Foundation
 
 struct MacRuntimeLocator: RuntimeLocator {
     func environment() -> [String: String] {
-        ProcessInfo.processInfo.environment
+        MacLoginShellEnvironment.shared.merged(ProcessInfo.processInfo.environment)
     }
 
     func defaultExecutableSearchPath() -> String? {
