@@ -2,6 +2,7 @@
 .build/
 rust/target/
 rust/*/target/
+/gpui/target/
 /.worktrees/
 .swiftpm/
 .idea/
