@@ -649,10 +649,14 @@ package final class BuildSystemService: ObservableObject {
             if case .maven(let context)? = languageImportsByEntryID[entry.id] {
                 reactor = context.reactorPath
             } else { reactor = nil }
-            return model.projects.map { project in
-                RunProjectOwnership(path: project.path, mavenReactorPath: reactor,
+            return try model.projects.map { project in
+                if reactor != nil && project.properties["run.modelVersion"] != "1" {
+                    throw BuildSystemServiceError(L10n.string("Update the Maven Build plugin before generating Run configurations."))
+                }
+                return RunProjectOwnership(path: project.path, mavenReactorPath: reactor,
                     contentRoots: model.contentRoots.filter { $0.projectID == project.id && ["source", "testSource", "generatedSource", "generatedTestSource"].contains($0.kind) }
-                        .map { RunProjectOwnership.SourceRoot(path: $0.path, kind: $0.kind) })
+                        .map { RunProjectOwnership.SourceRoot(path: $0.path, kind: $0.kind) },
+                    name: project.name, mavenRunProvider: reactor == nil ? nil : project.properties["run.provider"])
             }
         }
     }

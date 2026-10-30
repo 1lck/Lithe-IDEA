@@ -10,9 +10,12 @@ package struct RunProjectOwnership: Codable, Equatable, Sendable {
         package init(path: String, kind: String) { self.path = path; self.kind = kind }
     }
     package let path: String
+    package let name: String?
+    package let mavenRunProvider: String?
     package let mavenReactorPath: String?
     package let contentRoots: [SourceRoot]
-    package init(path: String, mavenReactorPath: String?, contentRoots: [SourceRoot]) {
+    package init(path: String, mavenReactorPath: String?, contentRoots: [SourceRoot], name: String? = nil, mavenRunProvider: String? = nil) {
+        self.name = name; self.mavenRunProvider = mavenRunProvider
         self.path = path; self.mavenReactorPath = mavenReactorPath; self.contentRoots = contentRoots
     }
 }

@@ -63,7 +63,7 @@
 | --- | --- | --- |
 | Agent 构建 → 输出/状态 → 停止 | 已实现并验证；`MavenService` 任务进程/API/状态机已删除；原生回归 159 项/6 组通过，真实 Agent + Maven 模块编译 4.787 秒通过 | Draft PR；不代替整阶段配置/加载/平台验收 |
 | Maven 配置和项目运行设置 | 项目默认和按根工具路径已切 Run local.json；Build 选项按实例保留团队默认及本机差异；协议 7 原生 XML 读取、确认保存、冲突保护和回读已经接通通用插件设置页及真实 Maven。旧设置表单 XML 读取与配置存储已删除；迁移器已接官方插件被动检测，验证后清理源并重新检测，315 项原生回归通过 | 正式包与完整 UI 验收 |
-| 项目加载、标签/搜索模块事实、运行配置 | 已删除 MavenService/FeatureModel 和 POM 专属加载；Run 工程路径、源码根、候选来自当前 Provider 模型，无 MavenProject 注入 | Java 入口生成的模块/reactor/源码角色已改为当前 Provider 归属，损坏 POM 共享 fixture、独立 reactor 同名类及真实 Swift bridge 通过；框架检测、部分工具链推断和框架/模块启动规划仍需迁移，Java 入口继续复用 JDT |
+| 项目加载、标签/搜索模块事实、运行配置 | 已删除 MavenService/FeatureModel 和 POM 专属加载；Run 工程路径、源码根、候选来自当前 Provider 模型，无 MavenProject 注入 | Java 入口生成的模块/reactor/源码角色已改为当前 Provider 归属，损坏 POM 共享 fixture、独立 reactor 同名类及真实 Swift bridge 通过；框架识别已改用 Maven 生效插件模型（含 Profile/继承），保留既有服务 ID；部分工具链推断和框架/模块启动规划仍需迁移，Java 入口继续复用 JDT |
 | 依赖树与依赖导航 | 已删除旧 macOS 依赖进程、Swift 文本树桥、临时 adapter 与坐标路径 fallback；Build 用 Provider，导航用 JDT；245 项受影响原生回归通过，真实 Agent 构建及 Provider 编译/精确测试 2 项通过 | 完整 UI/JDT 实机流程、Windows 现存共享命令仍待迁移 |
 | Java 导入、运行/测试/调试准备 | Java 导入和 Run Maven 上下文已停用旧服务回退，按 reactor 根读取同一代 Build 输入；315 项受影响原生测试通过；Debug 已等待 Build 输入并检查 ABA 代次；旧 Maven 工程模型已从生产加载删除 | Java 主程序/Debug 的资源准备已接公开 Provider 项目任务（主资源/主加测试资源），Core 仅给未携带当前回执的旧消费者保留资源规划；框架/模块启动规划仍待迁移。协议 9 的 JDT 原样标识、报告精确重跑及工程隔离通过 350 项 macOS 回归、1368 项 Core/集成计时和 Maven 实测；删除宿主 Maven CLI/报告 adapter，测试 Debug 准备补配置 ABA；完整 Java/JDT 后端迁移留在阶段 E |
 | Maven 执行中的测试报告 | 协议 8 随操作返回规范报告，Maven 后端用实际配置的 Surefire/Failsafe Mojo 目录和 Apache parser；删除插件内旧固定目录测试选择报告读取器；真实 Core/macOS/Maven 和两个 SDK 通过，Maven 3.6.3 兼容通过 | Java 精确测试宿主路径已切换并删除旧 adapter；Windows 旧共享命令仍未迁移；[固定提交 Java 8 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40792694290) 在两种 Maven 各 72 项通过；正式包验证仍依赖 SDK 发行 |
@@ -124,3 +124,10 @@ Run Profile/JDT 一致性增量（2026-10-30）：生产宿主在单次资源准
 归属生成最新验证：1399 项 Core/集成、285 项 Swift 计时通过，新的 Core 共享 fixture 用例 17 毫秒；当前工作树源码的 SDK E2E 6 项通过。Windows Cargo 检查与 preview 基线同为两项 macOS 平台错误，无新增公开类型调用错误；不代表 Windows 原生通过。
 
 生成归属补充验收：生产 macOS Provider 集成 4 项全部通过，临时 Profile 的当前模型/归属/导入一致、双 reactor 隔离、真实配置读回和构建测试均覆盖；最慢 5.252 秒。全 Rust crates 与真实 bridge 检查通过。该记录不替代完整 UI 和 Windows 原生验收。
+
+框架识别补充验收（2026-10-30）：Maven 生效模型发布框架选择和模型版本；宿主拒绝
+旧插件元数据，Core 关闭 POM 框架检测，保留同 reactor 既有 ID、重名模块和独立
+reactor。1399 项普通 Core 计时、286 项 Swift、4 项生产 Provider 集成及 17 项
+真实 Core→Maven 集成通过，Profile/继承/仅插件管理与损坏 POM 场景 2.127 秒。
+这轮未重跑真实 JDT；既有专用集成记录保留。旧启动规划、工具链推断及发行/双平台
+完整验收仍未完成。

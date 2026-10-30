@@ -3145,15 +3145,19 @@ never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
 relative `modulePaths`, optional schema-versioned `javaEntrypoints` from the
 current `lsp.request` result, and optional `projectOwnership`. The latter is a
 host projection of current enabled Provider projects: `{ path,
-mavenReactorPath?, contentRoots: [{ path, kind }] }`, using workspace-relative
+name?, mavenReactorPath?, mavenRunProvider?, contentRoots: [{ path, kind }] }`, using workspace-relative
 paths and the model's `source`/`testSource`/generated-source roles. Core validates
 project/root containment, unique project paths, roles and bounds (2,000 projects,
 10,000 content roots). When supplied, including `[]`, these facts own Java
 module/reactor membership and source sets: `modulePaths` and ancestor POM
 inference do not supplement them. An omitted snapshot retains the current
-Windows generator's legacy ownership path. Framework detection and remaining
-legacy toolchain requirements are separate compatibility paths and still need
-migration. See `fixtures/run-configuration/provider-project-ownership.json`.
+Windows generator's legacy ownership path. `mavenRunProvider` is the Maven
+backend's effective framework selection (`spring-boot.maven`, `quarkus.maven`,
+`micronaut.maven`), requiring `name` and reactor ownership. Core projects existing
+service IDs and toolchain bindings without scanning POMs; duplicate labels use
+module paths within each reactor. This authoritative snapshot also disables the
+legacy Maven framework detector. Remaining toolchain requirements and launch
+planning still need migration. See `fixtures/run-configuration/provider-project-ownership.json`.
 Java configurations with the same class and module name in independent reactors
 remain distinct; a common reactor retains its existing configuration IDs.
  When Java tooling is still preparing, omission

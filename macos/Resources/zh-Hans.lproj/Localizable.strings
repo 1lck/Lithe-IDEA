@@ -4281,6 +4281,7 @@
 "Update required" = "需要更新";
 "Update running service" = "更新运行中的服务";
 "Update status" = "更新状态";
+"Update the Maven Build plugin before generating Run configurations." = "请先更新 Maven Build 插件，再生成运行配置。";
 "Update this CLI using its original installer, then check again." = "请使用原安装器更新此 CLI，然后重新检测。";
 "Update to" = "可更新至";
 "Update to %@" = "更新到 %@";
@@ -8876,6 +8877,7 @@
 "native.updateCurrentBranch" = "更新当前分支";
 "native.updateLitheToUseThisConfigurationVersion" = "请更新 Lithe 以使用此版本的配置。";
 "native.updateLog" = "更新日志";
+"native.updateMavenBeforeRunGeneration" = "请先更新 Maven Build 插件，再生成运行配置。";
 "native.updateNow" = "立即更新";
 "native.updateParentRepositoryReferences" = "更新父仓库引用";
 "native.updateProject" = "更新项目";

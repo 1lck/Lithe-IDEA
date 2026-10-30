@@ -4281,6 +4281,7 @@
 "Update required" = "Update required";
 "Update running service" = "Update running service";
 "Update status" = "Update status";
+"Update the Maven Build plugin before generating Run configurations." = "Update the Maven Build plugin before generating Run configurations.";
 "Update this CLI using its original installer, then check again." = "Update this CLI using its original installer, then check again.";
 "Update to" = "Update to";
 "Update to %@" = "Update to %@";
@@ -8876,6 +8877,7 @@
 "native.updateCurrentBranch" = "Update Current Branch";
 "native.updateLitheToUseThisConfigurationVersion" = "Update Lithe to use this configuration version.";
 "native.updateLog" = "Update log";
+"native.updateMavenBeforeRunGeneration" = "Update the Maven Build plugin before generating Run configurations.";
 "native.updateNow" = "Update Now";
 "native.updateParentRepositoryReferences" = "Update parent repository references";
 "native.updateProject" = "Update Project";

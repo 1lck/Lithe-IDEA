@@ -12,19 +12,32 @@ struct BuildSystemServiceTests {
         let planner = FakeBuildPlanner()
         planner.importEnabled = true; planner.dynamicOptions = true
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
-            #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/checks","kind":"testSource"},{"projectID":"p","path":"app/resources","kind":"resource"}]}"#)])
+            #"{"projects":[{"id":"p","path":"app","name":"App","properties":{"run.modelVersion":"1","run.provider":"quarkus.maven"}}],"contentRoots":[{"projectID":"p","path":"app/checks","kind":"testSource"},{"projectID":"p","path":"app/resources","kind":"resource"}]}"#)])
         let harness = Harness(planner: planner)
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
         let ownership = try harness.service.runProjectOwnership()
         #expect(ownership == [RunProjectOwnership(path: "app", mavenReactorPath: "app",
-            contentRoots: [.init(path: "app/checks", kind: "testSource")])])
+            contentRoots: [.init(path: "app/checks", kind: "testSource")], name: "App", mavenRunProvider: "quarkus.maven")])
         harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
         #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
         #expect(try harness.service.runProjectOwnership() == ownership)
         harness.service.reset(workspaceURL: nil)
+        #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
+    }
+
+    @Test
+    func runGenerationRejectsMavenModelsWithoutBackendRunMetadata() async throws {
+        let planner = FakeBuildPlanner()
+        planner.importEnabled = true; planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"p","path":"app","name":"App"}]}"#)])
+        let harness = Harness(planner: planner)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
         #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
     }
 

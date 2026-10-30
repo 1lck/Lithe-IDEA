@@ -14,7 +14,7 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "12";
+const GENERATOR_REVISION: &str = "13";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -821,10 +821,26 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .collect::<BTreeSet<_>>();
     let mut detected = detected_configurations(
         &root,
-        maven_root.as_ref().map(|(path, _)| path.as_path()),
+        request
+            .project_ownership
+            .is_none()
+            .then(|| maven_root.as_ref().map(|(path, _)| path.as_path()))
+            .flatten(),
         &claimed,
     )?;
-    adopt_annotated_main_classes(&mut detected, &annotated_main_classes, maven_relative_path);
+    if let Some(projects) = &request.project_ownership {
+        detected.extend(
+            super::project_ownership::services(projects)
+                .into_iter()
+                .filter(|item| !claimed.contains(&item.id)),
+        );
+    }
+    adopt_annotated_main_classes(
+        &mut detected,
+        &annotated_main_classes,
+        maven_relative_path,
+        request.project_ownership.as_deref(),
+    );
     // Counts real entry points, not documents: the always-present "Current File"
     // fallback is excluded so an empty project still reports zero and the UI can
     // say so, while a detected npm service correctly reports one.
@@ -832,10 +848,30 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let mut snapshot = project_inputs(&root, &java_entry_sources(&configurations))?;
     // Unknown subtrees cannot delete known configurations or baseline inputs.
     // Invalid required documents still fail instead of being silently overwritten.
+    let authoritative_service_ids = request.project_ownership.as_ref().map(|_| {
+        configurations
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.provider.as_str(),
+                    "spring-boot.maven" | "quarkus.maven" | "micronaut.maven"
+                )
+            })
+            .map(|item| item.id.clone())
+            .collect::<BTreeSet<_>>()
+    });
     if !snapshot.unreadable_paths.is_empty() {
         if let Some(previous) = read_document(&root, "run/generated.json")? {
             retain_unknown_inputs(&mut configurations, &mut snapshot, previous);
         }
+    }
+    if let Some(ids) = authoritative_service_ids {
+        configurations.retain(|item| {
+            !matches!(
+                item.provider.as_str(),
+                "spring-boot.maven" | "quarkus.maven" | "micronaut.maven"
+            ) || ids.contains(&item.id)
+        });
     }
     disambiguate_configuration_names(&mut configurations);
     let entry_count = configurations
@@ -1129,6 +1165,7 @@ fn adopt_annotated_main_classes(
     configurations: &mut [RunConfiguration],
     annotated: &[(String, String)],
     maven_root: Option<&str>,
+    projects: Option<&[super::project_ownership::RunProjectOwnership]>,
 ) {
     for configuration in configurations
         .iter_mut()
@@ -1141,7 +1178,15 @@ fn adopt_annotated_main_classes(
         // module is ambiguous, and guessing would start the wrong service.
         let mut matches = annotated
             .iter()
-            .filter(|(path, _)| within_maven_module(path, &module, maven_root))
+            .filter(|(path, _)| match projects {
+                Some(projects) => {
+                    super::project_ownership::owner(projects, path).is_some_and(|owner| {
+                        owner.maven_reactor_path.as_deref() == Some(configuration.cwd.as_str())
+                            && owner.path == workspace_maven_path(Some(&configuration.cwd), &module)
+                    })
+                }
+                None => within_maven_module(path, &module, maven_root),
+            })
             .map(|(path, qualified_name)| (path, qualified_name));
         let Some((source_path, main_class)) = matches.next() else {
             continue;

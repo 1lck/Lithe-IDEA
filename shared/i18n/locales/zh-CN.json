@@ -9519,7 +9519,8 @@
     "remote.pluginUnapproved": "远程插件包不属于已批准的安装。",
     "remote.pluginHostUnsupported": "此主机无法接收兼容的插件包，请更新远程服务。",
     "remote.pluginApprovalRequired": "远程插件包更改了已批准的命令或权限，请先安装并批准该版本。",
-    "remote.pluginPlatformUnavailable": "插件 {plugin} 没有适用于 {platform} 的已批准包，请安装兼容版本。"
+    "remote.pluginPlatformUnavailable": "插件 {plugin} 没有适用于 {platform} 的已批准包，请安装兼容版本。",
+    "native.updateMavenBeforeRunGeneration": "请先更新 Maven Build 插件，再生成运行配置。"
   },
   "overrides": {
     "macos": {

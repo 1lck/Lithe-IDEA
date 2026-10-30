@@ -110,8 +110,14 @@ reactor 根及该项目的主/测试源码根交给 Core。Core 只校验、选�
 `projectOwnership: []` 是明确的空模型，不能偷偷用 POM 补齐；不传该字段才保留
 现有 Windows 消费者的兼容路径。快照未准备好、失效或截断时宿主拒绝生成，
 工作区或 Build 代次变化后拒绝旧 JDT 答复。只转交声明 Java 导入的 Provider 模型，
-其他构建插件不能凭共享目录占用 Java 项目。这是旧生成器的分步迁移：框架识别、
-旧 Maven 启动规划及剩余工具链推断仍待迁移，不能据此声称整个生成器已移出 Core。
+其他构建插件不能凭共享目录占用 Java 项目。Maven 后端现在从生效的
+`MavenProject.getBuildPlugins()` 识别框架，包含当前 Profile 和父 POM 继承；
+仅放在插件管理（pluginManagement）中的插件不算已经应用。模型通过公开属性
+`run.modelVersion` / `run.provider` 发布结果，宿主只投影项目名和服务标识。
+Core 收到当前快照后关闭旧 POM 框架检测，只生成与既有配置 ID 一致的服务。
+旧插件缺少模型版本时明确要求更新，不能退回宿主解析；后端缓存指纹包含扩展 JAR
+字节，更新扩展也会使旧快照失效。旧 Maven 启动规划及剩余工具链推断仍待迁移，
+不能据此声称整个生成器已移出 Core。
 
 正确例子：Maven 模型把 `custom-checks` 声明为测试源码，即按测试源码生成配置。
 不要因为路径里没有 `test` 就改成主源码，也不要遇到损坏的 POM 就覆盖上游提供的
@@ -154,6 +160,12 @@ reactor 根及该项目的主/测试源码根交给 Core。Core 只校验、选�
 
 ## 验证
 
+- 框架识别增量：1399 项 Core 计时、286 项 Swift、4 项生产 macOS Provider 集成、
+  C ABI/24 项 bridge 及完整 Rust crates 通过。共享 fixture 经 Core 22 毫秒和
+  真实 Swift bridge 32 毫秒验证；缺少后端元数据的模型拒绝生成，2 毫秒。
+  真实 Core→Maven 17 项通过，其中 Profile/继承、仅插件管理及损坏 POM 下的框架
+  配置生成 2.127 秒；退出后包文件清单不变。该轮普通 Core 计时没有启用真实 JDT，
+  真实 JDT 的证据仍是下述专用集成记录；不能把早退用例当成新的 JDT 运行证据。
 - 2026-10-30 的归属生成增量通过 1399 项 Core/集成计时与 285 项 Swift 回归。
   新共享 fixture 的 Core 用例 17 毫秒；Swift 使用生产存储和真实 Core bridge，验证
   生成文档的 reactor、模块、同名配置 ID 与源码角色。Windows Cargo 检查与同一

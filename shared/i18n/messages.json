@@ -90832,6 +90832,17 @@
         "plugin": "string",
         "platform": "string"
       }
+    },
+    {
+      "id": "native.updateMavenBeforeRunGeneration",
+      "description": "Native UI: Maven model upgrade required for authoritative Run generation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Update the Maven Build plugin before generating Run configurations.",
+        "arguments": []
+      }
     }
   ]
 }

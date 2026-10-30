@@ -11,6 +11,12 @@ use std::collections::BTreeSet;
 pub struct RunProjectOwnership {
     /// Workspace-relative project directory, including `.` for the root.
     pub path: String,
+    /// Upstream project label; required for a published Maven service.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Maven backend's effective framework selection, never inferred here.
+    #[serde(default)]
+    pub maven_run_provider: Option<String>,
     /// Existing Maven import ownership; absent for other project kinds.
     #[serde(default)]
     pub maven_reactor_path: Option<String>,
@@ -67,6 +73,21 @@ pub(super) fn validate(projects: &[RunProjectOwnership]) -> Result<(), CoreError
                 .maven_reactor_path
                 .as_deref()
                 .is_some_and(|root| !portable(root) || !contains(root, &project.path))
+        {
+            return Err(invalid());
+        }
+        if project
+            .maven_run_provider
+            .as_deref()
+            .is_some_and(|provider| {
+                !matches!(
+                    provider,
+                    "spring-boot.maven" | "quarkus.maven" | "micronaut.maven"
+                ) || project.maven_reactor_path.is_none()
+                    || project.name.as_deref().is_none_or(|name| {
+                        name.is_empty() || name.len() > 256 || name.chars().any(char::is_control)
+                    })
+            })
         {
             return Err(invalid());
         }
@@ -134,4 +155,78 @@ impl RunProjectOwnership {
             _ => JavaSourceSetResponse::Other,
         }
     }
+}
+
+/// Projects Maven's selected services into existing persisted Run identities.
+/// Names are disambiguated within each reactor, preserving existing overrides.
+pub(super) fn services(
+    projects: &[RunProjectOwnership],
+) -> Vec<super::configuration::RunConfiguration> {
+    use super::configuration::{DebugCapability, RunConfiguration};
+    use super::types::{Confidence, Execution, RunCategory};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    let mut counts = BTreeMap::new();
+    for project in projects {
+        if let (Some(root), Some(name)) = (&project.maven_reactor_path, &project.name) {
+            *counts.entry((root, name)).or_insert(0usize) += 1;
+        }
+    }
+    projects
+        .iter()
+        .filter_map(|project| {
+            let provider = project.maven_run_provider.as_ref()?;
+            let root = project.maven_reactor_path.as_ref()?;
+            let label = project.name.as_ref()?;
+            let module = if root == &project.path {
+                "."
+            } else if root == "." {
+                &project.path
+            } else {
+                project.path.strip_prefix(&(root.clone() + "/"))?
+            };
+            let name = if counts.get(&(root, label)) == Some(&1) {
+                label.as_str()
+            } else {
+                module
+            };
+            let directory = if root == "." {
+                String::new()
+            } else {
+                format!("{root}/")
+            };
+            let source = if project.path == "." {
+                "pom.xml".to_string()
+            } else {
+                format!("{}/pom.xml", project.path)
+            };
+            Some(RunConfiguration {
+                id: format!("{provider}:{directory}{name}"),
+                name: name.to_string(),
+                provider: provider.clone(),
+                execution: Execution::Service,
+                category: RunCategory::Project,
+                command: None,
+                args: Vec::new(),
+                cwd: root.clone(),
+                env: BTreeMap::new(),
+                confidence: Confidence::Declared,
+                toolchains: [
+                    ("java".to_string(), "project-jdk".to_string()),
+                    ("maven".to_string(), "project-maven".to_string()),
+                ]
+                .into_iter()
+                .collect(),
+                debug: Some(DebugCapability {
+                    adapter: "jdwp".to_string(),
+                }),
+                members: Vec::new(),
+                extensions: [("maven".to_string(), json!({"module": module}))]
+                    .into_iter()
+                    .collect(),
+                disabled: false,
+                source: Some(source),
+            })
+        })
+        .collect()
 }

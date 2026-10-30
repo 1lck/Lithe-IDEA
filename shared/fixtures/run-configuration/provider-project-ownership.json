@@ -10,24 +10,77 @@
   "javaEntrypoints": {
     "schemaVersion": 1,
     "entries": [
-      { "sourcePath": "alpha/app/custom-checks/demo/Main.java", "mainClass": "demo.Main", "projectName": "alpha-app" },
-      { "sourcePath": "beta/app/sources/demo/Main.java", "mainClass": "demo.Main", "projectName": "beta-app" }
+      {
+        "sourcePath": "alpha/app/custom-checks/demo/Main.java",
+        "mainClass": "demo.Main",
+        "projectName": "alpha-app"
+      },
+      {
+        "sourcePath": "beta/app/sources/demo/Main.java",
+        "mainClass": "demo.Main",
+        "projectName": "beta-app"
+      }
     ],
     "diagnostics": []
   },
   "projectOwnership": [
-    { "path": "alpha", "mavenReactorPath": "alpha", "contentRoots": [] },
-    { "path": "alpha/app", "mavenReactorPath": "alpha", "contentRoots": [
-      { "path": "alpha/app/custom-checks", "kind": "testSource" }
-    ] },
-    { "path": "beta/app", "mavenReactorPath": "beta", "contentRoots": [
-      { "path": "beta/app/sources", "kind": "source" }
-    ] }
+    {
+      "path": "alpha",
+      "mavenReactorPath": "alpha",
+      "contentRoots": [],
+      "name": "reactor"
+    },
+    {
+      "path": "alpha/app",
+      "mavenReactorPath": "alpha",
+      "contentRoots": [
+        {
+          "path": "alpha/app/custom-checks",
+          "kind": "testSource"
+        }
+      ],
+      "name": "app",
+      "mavenRunProvider": "quarkus.maven"
+    },
+    {
+      "path": "beta/app",
+      "mavenReactorPath": "beta",
+      "contentRoots": [
+        {
+          "path": "beta/app/sources",
+          "kind": "source"
+        }
+      ],
+      "name": "app",
+      "mavenRunProvider": "spring-boot.maven"
+    }
   ],
   "expected": {
     "configurations": [
-      { "id": "java-main:demo.Main:alpha/app", "cwd": "alpha", "module": "app", "sourceSet": "test" },
-      { "id": "java-main:demo.Main:beta/app", "cwd": "beta", "module": "app", "sourceSet": "main" }
+      {
+        "id": "java-main:demo.Main:alpha/app",
+        "cwd": "alpha",
+        "module": "app",
+        "sourceSet": "test"
+      },
+      {
+        "id": "java-main:demo.Main:beta/app",
+        "cwd": "beta",
+        "module": "app",
+        "sourceSet": "main"
+      }
+    ],
+    "services": [
+      {
+        "id": "quarkus.maven:alpha/app",
+        "cwd": "alpha",
+        "module": "app"
+      },
+      {
+        "id": "spring-boot.maven:beta/app",
+        "cwd": "beta",
+        "module": "app"
+      }
     ]
   }
 }
