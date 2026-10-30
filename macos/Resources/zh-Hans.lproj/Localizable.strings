@@ -242,6 +242,7 @@
 "Add to %@" = "添加到 %@";
 "Add to Another Conversation" = "添加到其他会话";
 "Add to Current Conversation · %@" = "添加到当前会话 · %@";
+"Add to VCS" = "添加到 VCS";
 "Add to Watches" = "添加到监视";
 "Add to favorites" = "加入收藏";
 "Add tool windows and commands to the workbench" = "向工作台添加工具窗口和命令";
@@ -250,6 +251,7 @@
 "Added" = "新增";
 "Added by plugins" = "由插件添加";
 "Added memory usage visibility to the status bar." = "已在状态栏中加入内存占用显示。";
+"Adding to VCS…" = "正在添加到 VCS…";
 "Additional Search Paths" = "额外搜索路径";
 "Additional class patterns" = "其他类模式";
 "Additions" = "新增";
@@ -788,6 +790,7 @@
 "Comment posted" = "评论已发表";
 "Comments" = "评论";
 "Commit" = "提交";
+"Commit Files…" = "提交文件…";
 "Commit History" = "提交历史";
 "Commit History (%lld)" = "提交历史（%lld 条）";
 "Commit Message" = "提交信息";
@@ -993,6 +996,7 @@
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "Could not read the selected built-in background." = "无法读取所选的内置背景。";
 "Could not read this file" = "无法读取此文件";
+"Could not refresh Git status. Refresh to verify the changes." = "无法刷新 Git 状态。请刷新以确认更改结果。";
 "Could not register Lithe MCP in %@: %@" = "无法在 %@ 中注册 Lithe MCP：%@";
 "Could not remove Lithe MCP from %@: %@" = "无法从 %@ 中移除 Lithe MCP：%@";
 "Could not restore local history" = "无法恢复本地历史";
@@ -1117,6 +1121,7 @@
 "Delete ChangeList" = "删除更改列表";
 "Delete ChangeList?" = "删除更改列表？";
 "Delete Chat" = "删除对话";
+"Delete Files" = "删除文件";
 "Delete Hook?" = "删除 Hook？";
 "Delete Selected Branch" = "删除所选分支";
 "Delete Tag…" = "删除标签…";
@@ -1124,6 +1129,7 @@
 "Delete branch?" = "删除分支？";
 "Delete chat" = "删除会话";
 "Delete collected application logs?" = "删除已收集的应用日志？";
+"Delete local copies of added files" = "删除新增文件的本地副本";
 "Delete only Lithe-managed logs in the active directory across all modules and sessions. Filters do not limit this action. New events will continue to be recorded." = "仅删除生效目录中由 Lithe 管理的所有模块和会话日志。筛选条件不限制清理范围，后续事件仍会继续记录。";
 "Delete provider" = "删除供应商";
 "Delete tag '%@'?" = "删除标签“%@”？";
@@ -1133,6 +1139,8 @@
 "Deleted branch '%@'" = "已删除分支“%@”";
 "Deleted references: %@" = "已删除引用：%@";
 "Deleted tag '%@'" = "已删除标签“%@”";
+"Delete…" = "删除…";
+"Deleting…" = "正在删除…";
 "Deletions" = "删除";
 "Deny" = "拒绝";
 "Dependencies" = "依赖";
@@ -1753,6 +1761,7 @@
 "Include" = "包含范围";
 "Include a short body when useful" = "有必要时包含简短正文";
 "Include in commit" = "包含在提交中";
+"Include in rollback" = "纳入回滚";
 "Include non-project items" = "包含非项目文件";
 "Include the URL path when Git looks up HTTP credentials." = "Git 查找 HTTP 凭据时是否把 URL 路径也纳入匹配。";
 "Increase Font Size" = "增大字号";
@@ -3187,8 +3196,11 @@
 "Roll back Agent changes?" = "回撤 Agent 的修改？";
 "Roll back all" = "回撤全部";
 "Roll back the selected changes?" = "回滚选中的更改？";
+"Rollback" = "回滚";
+"Rollback Changes" = "回滚更改";
 "Rollback could not restore the changed file. It remains at %@. Restore it manually before retrying." = "回撤时无法恢复发生冲突的文件，文件仍保留在 %@。请先手动恢复再重试。";
 "Rollback could not verify the moved file. Check the Trash before retrying." = "回撤时无法核对已移动的文件，请先检查废纸篓再重试。";
+"Rolled back %@" = "已回滚 %@";
 "Rolling back…" = "正在回滚…";
 "Routes API-key and Codex subscription requests through a local proxy on this Mac to show model calls, time to first token, output speed and context composition. Requests and credentials are forwarded unchanged and never stored. Applies after reconnecting." = "通过本机本地代理转发 API Key 和 Codex 订阅请求，用于显示模型调用次数、首 token 延迟、输出速度和上下文构成。请求与凭据原样转发，不会保存。重新连接后生效。";
 "Ruby Support" = "Ruby 支持";
@@ -3447,6 +3459,7 @@
 "Show Conflict Files" = "显示冲突文件";
 "Show Dependencies" = "显示依赖";
 "Show Diff" = "显示 Diff";
+"Show Diff in New Tab" = "在新标签页中显示差异";
 "Show Diff with Working Tree" = "显示与工作区的 Diff";
 "Show Disassembly" = "显示反汇编";
 "Show Editor Preview" = "显示编辑器预览";
@@ -3566,6 +3579,7 @@
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Some dependencies are not shown." = "部分依赖未显示。";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
+"Some selected files belong to another version control root. Refresh and select them again." = "部分所选文件属于其他版本控制根目录。请刷新后重新选择。";
 "Some special files could not be copied" = "部分特殊文件未能复制";
 "Sort by Last Updated" = "按最近更新排序";
 "Sort by Name" = "按名称排序";
@@ -3601,6 +3615,7 @@
 "Stage this change block" = "暂存此更改代码块";
 "Stage your files in Changes, enter a commit message, and create the first commit." = "在“更改”面板暂存文件、填写提交消息，然后创建首次提交。";
 "Staged" = "已暂存";
+"Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe." = "将回滚勾选文件中已暂存和未暂存的更改。Lithe 无法撤销此操作。";
 "Staged changes" = "已暂存更改";
 "Staged files changed before generation finished" = "生成完成前，已暂存的文件发生了变化";
 "Stale record" = "陈旧记录";
@@ -4018,6 +4033,7 @@
 "The selected branch diff is sent to the active AI provider when you generate." = "生成时，所选分支的差异内容会发送给当前 AI 服务商。";
 "The selected branches have no textual changes to summarize." = "所选分支之间没有可供总结的文本更改。";
 "The selected built-in background is unavailable in this build." = "此版本不提供所选的内置背景。";
+"The selected changes changed. Reopen the rollback dialog and review them again." = "所选更改已发生变化。请重新打开回滚弹窗并再次检查。";
 "The selected file changed before generation finished" = "生成完成前，选中的文件已发生变化";
 "The selected file has no textual diff to summarize." = "所选文件没有可用于总结的文本 Diff。";
 "The selected file must be inside the current workspace." = "所选文件必须位于当前工作区内。";
@@ -4040,6 +4056,7 @@
 "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "正式版缺少有效的发布者签名，未执行安装。请等待新版本，或从可信来源手动安装。";
 "The staged changes have no textual diff to summarize." = "已暂存的更改没有可用于总结的文本 Diff。";
 "The staged changes will be committed and the current branch will be pushed to its configured remote." = "暂存的更改将被提交，并推送当前分支到已配置的远程仓库。";
+"The staged files changed. Review the checked files before committing." = "已暂存的文件发生了变化。请在提交前检查勾选的文件。";
 "The stopped source file is no longer available: %@" = "程序停住的源文件已不存在：%@";
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "开关控制是否使用 Lithe 共享区块，不会停用 Agent 或它的自有指令。请先保存共享修改再操作开关。点击行可编辑完整原生文件。";
 "The terminal directory is outside the remote workspace." = "终端目录不在远程工作区内。";
@@ -4061,6 +4078,7 @@
 "The version control client could not be run. Check that it is installed." = "无法运行版本控制客户端。请检查它是否已安装。";
 "The version control provider failed to start." = "版本控制 Provider 启动失败。";
 "The version control provider stopped before it was ready." = "版本控制 Provider 在就绪前已停止。";
+"The version control provider will delete these files and record their removal. They may not be moved to Trash." = "版本控制插件将删除这些文件并记录删除操作，文件可能不会移入废纸篓。";
 "The working copy is locked by an interrupted action. Run Cleanup, then try again." = "工作副本被中断的操作锁定。请先执行清理，然后重试。";
 "The working copy is out of date. Update it, then commit again." = "工作副本已过期。请先更新，再重新提交。";
 "The working copy was cleaned up." = "工作副本已清理。";
@@ -4078,6 +4096,7 @@
 "These are the options Lithe will use for the next ordinary Fetch." = "这是 Lithe 下次普通 Fetch 使用的选项。";
 "These choices apply to this Fetch only. Git configuration and credentials remain unchanged." = "这些选项仅用于本次获取。Git 配置和凭据保持不变。";
 "These defaults apply only to this project on this computer. Run configurations inherit them unless overridden. Use the Project save scope in a run configuration to share settings with your team." = "这些默认设置仅作用于这台电脑上的此项目。运行配置默认继承，单独设置时可覆盖。需要与团队共享的设置，请在运行配置中选择“项目”保存范围。";
+"These files will be moved to the macOS Trash." = "这些文件将移到 macOS 废纸篓。";
 "These overrides affect only this run configuration. Clear a path to inherit the project environment." = "以下覆盖值仅影响当前运行配置。清空路径可恢复继承项目环境。";
 "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running." = "这些进程已脱离所在的终端或工具，在后台独立运行，例如守护进程和开发服务器。勾选的项目会在 Lithe 退出时结束；未勾选的项目继续运行。";
 "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "这些程序是 Lithe 意外关闭前在 Lithe 中启动的。勾选的项目会立即结束；未勾选的项目继续运行，Lithe 之后不再管理它们。";
@@ -4663,6 +4682,14 @@
 "git.diff.repositoryPreviewEmptyTitle" = "仓库差异";
 "git.diff.repositoryPreviewTitle" = "仓库差异: %1$@";
 "git.log.olderCommitsFailed" = "无法加载更早的提交，点击刷新历史";
+"git.rollback.confirm" = "回滚";
+"git.rollback.deleteAdded" = "删除新增文件的本地副本";
+"git.rollback.include" = "纳入回滚";
+"git.rollback.stale" = "所选更改已发生变化。请重新打开回滚弹窗并再次检查。";
+"git.rollback.success" = "已回滚 %1$@";
+"git.rollback.title" = "回滚更改";
+"git.rollback.warning" = "将回滚勾选文件中已暂存和未暂存的更改。Lithe 无法撤销此操作。";
+"git.status.refreshFailed" = "无法刷新 Git 状态。请刷新以确认更改结果。";
 "git.unifiedView" = "统一视图";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "java.launch.error.buildCancelled" = "Java 项目构建在完成前已被取消。";
@@ -9262,6 +9289,17 @@
 "ui.retry" = "重试";
 "ui.save" = "保存";
 "upstream commit(s)" = "个上游提交";
+"vcs.commitFiles.addToVcs" = "添加到 VCS";
+"vcs.commitFiles.adding" = "正在添加到 VCS…";
+"vcs.commitFiles.commitFiles" = "提交文件…";
+"vcs.commitFiles.deleteAction" = "删除…";
+"vcs.commitFiles.deleteTitle" = "删除文件";
+"vcs.commitFiles.deleting" = "正在删除…";
+"vcs.commitFiles.diffNewTab" = "在新标签页中显示差异";
+"vcs.commitFiles.ownershipChanged" = "部分所选文件属于其他版本控制根目录。请刷新后重新选择。";
+"vcs.commitFiles.stagingChanged" = "已暂存的文件发生了变化。请在提交前检查勾选的文件。";
+"vcs.commitFiles.trashWarning" = "这些文件将移到 macOS 废纸篓。";
+"vcs.commitFiles.vcsDeleteWarning" = "版本控制插件将删除这些文件并记录删除操作，文件可能不会移入废纸篓。";
 "version managed from %@" = "依赖管理前版本为 %@";
 "— Click the Run icon in the editor gutter" = "— 点击编辑器行号栏中的运行图标";
 "— Launch a" = "— 启动";

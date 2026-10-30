@@ -67,7 +67,9 @@ extension WorkbenchModuleUIRegistry {
                             openFile: { [weak model] url in model?.openFile(url, allowsOutsideWorkspace: true) },
                             revealInFinder: { [weak model] url in model?.revealProjectItemInFinder(url) },
                             copyPath: { [weak model] url in model?.copyProjectItemPath(url, relative: false) },
-                            hide: { [weak model] in model?.workbenchFeature.setVisibility(tool, isVisible: false) }
+                            hide: { [weak model] in model?.workbenchFeature.setVisibility(tool, isVisible: false) },
+                            showDiffInNewTab: { [weak model] in model?.showVcsDiffInNewTab($0, rootID: $1) },
+                            deleteFiles: { [weak model] in model?.requestDeleteVcsFiles($0, rootID: $1) }
                         )
                     ))
                 },
