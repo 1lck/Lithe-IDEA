@@ -15,7 +15,7 @@ struct PluginHostServiceDispatchTests {
     /// A window keeps its context ID while its workspace changes; the
     /// generation grows, so an older reference expires.
     @Test
-    func reopeningAnotherWorkspaceKeepsTheIDWithTheNextGeneration() {
+    func reopeningAnotherWorkspaceKeepsTheIDWithTheNextGeneration() throws {
         let contexts = PluginWorkspaceContexts()
         let window = NSObject()
         let first = contexts.open(owner: window, rootURL: URL(fileURLWithPath: "/tmp/orders"), remote: nil)
