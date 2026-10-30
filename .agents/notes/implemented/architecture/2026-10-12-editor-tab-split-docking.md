@@ -31,6 +31,13 @@ Git 的工作区、工作树、目录、分支、历史提交和 Stash/Shelf 比
 所有仓库比较入口通过 `AppModel` 的共享标签动作进入 `EditorTabItem.repositoryDiff(UUID)`。
 同一个仓库、文件和版本组合再次打开时切回已有标签；不同文件、不同提交以及不同类型的比较可以并存。
 工作区文件身份不包含暂存状态，暂存或后台刷新不会额外产生标签。仓库路径参与身份，避免嵌套仓库同名文件互相覆盖。
+Commit 右键“在新标签页中显示差异”是明确例外：即使已存在同一文件的比较，也创建独立 ID 和会话。
+普通“显示差异”和单击仍按比较身份复用，不因新增入口破坏去重。
+
+插件 VCS 的独立比较也使用同一编辑标签与分屏生命周期，但内容来自所属 Provider（版本控制插件后端），
+不能为 SVN 等插件激活 Git 或把内容放入 Git 会话。先创建加载中的标签，再异步读取基线；
+返回时只填充原标签，不抢回用户已经切走的焦点。标签所有者保存每个读取任务，关闭标签或工作区即取消并移除，
+迟到的成功或失败不能复活标签或发布旧错误。隐藏的比较宿主继续保留滚动状态，但不接收命中或辅助功能访问。
 
 每个标签由 `GitRepositoryDiffSession` 单独拥有比较内容、加载状态、文件列表、空白符选项和请求代次。
 `GitFeatureModel` 仍共享 Git 服务、监听和写入工作流，不为标签复制整套功能模型。
@@ -78,6 +85,8 @@ Esc、来源卸载和取消均清理面板；无效落点不改布局。焦点�
 - 用 SwiftUI 位移移动整张标签：会受标签栏裁剪且参与连续布局；保留现有原生浮动预览。
 - 一个可复用的 Diff 预览标签：不能同时对照多个文件与版本，用户明确要求多标签，因此拆分比较会话而不是复用一个缓冲区。
 - 每标签复制整个 Git 功能模型：会重复仓库监听、服务和写入状态；只拆分比较内容和加载生命周期。
+- 插件比较另开一套覆盖层或借用 Git 的比较模型：会绕过普通标签清理或引入错误的仓库事实；
+  复用标签身份和原生内容宿主，只由 Provider 返回比较数据。
 
 ## 后果
 
@@ -96,6 +105,9 @@ Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两�
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 原生事件检查右侧、底部半区、释放提交、Esc 取消、重排、关闭与焦点；实机预览另检查真实字体资源、代码输入、灰色浮动标签及分隔器调整。
 - `EditorTabOrderFeatureModelTests` 对工作区、目录、分支/引用、历史、保存更改、冲突与行标记入口在深浅主题下挂载原生编辑分组，检查普通标签、切换保留、分屏与共享关闭；`GitModuleTests` 检查独立会话并发加载、关闭一个会话、刷新及迟到结果隔离。组件验证不替代完整产品与 Windows 实机验收。
+- `EditorTabOrderFeatureModelTests.explicitNewDiffTabKeepsAnIndependentSessionWhileOrdinaryOpenReusesItsPreview`
+  验证同文件显式新标签与普通去重共存；`VcsProviderAppModelTests.providerDiffTabsOwnTheirPendingRequestsWithoutStealingFocus`
+  用可控 Provider 覆盖返回、关闭标签、关闭工作区的时序与资源释放，不使用真实网络等待。
 
 ## 适用范围
 

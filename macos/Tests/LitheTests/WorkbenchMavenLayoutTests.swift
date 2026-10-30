@@ -6,6 +6,17 @@ import Testing
 @Suite("Workbench Maven layout")
 @MainActor
 struct WorkbenchMavenLayoutTests {
+    @Test func initialLayoutWidensTheSidebarWithoutOverwritingSavedDimensions() {
+        let store = WorkbenchLayoutStore(store: MavenLayoutTestStore())
+        let workspace = URL(fileURLWithPath: "/fixture/default-layout")
+        #expect(store.load(for: workspace).sidebarWidth == 360)
+        #expect(store.load(for: workspace).topPaneHeight == nil)
+        #expect(WorkbenchLayout.defaultTopPaneFraction == 0.72)
+        store.save(WorkbenchLayout(sidebarWidth: 320, topPaneHeight: 410), for: workspace)
+        #expect(store.load(for: workspace).sidebarWidth == 320)
+        #expect(store.load(for: workspace).topPaneHeight == 410)
+    }
+
     @Test func legacyLayoutStillDecodes() throws {
         let data = Data(#"{"sidebarWidth":320,"topPaneHeight":280}"#.utf8)
         let layout = try JSONDecoder().decode(WorkbenchLayout.self, from: data)

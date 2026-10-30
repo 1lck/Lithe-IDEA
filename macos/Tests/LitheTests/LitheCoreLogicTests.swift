@@ -4076,6 +4076,55 @@ struct EditorDocumentTests {
         #expect(refreshCount == refreshesAfterLoad + 1)
     }
 
+    @Test(arguments: [false, true]) @MainActor
+    func gitOperationThawSchedulesOwnedRefreshWithoutHoldingTheActionOpen(resetBeforeRefresh: Bool) async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/git-thaw"), file = workspace.appendingPathComponent("App.swift")
+        let factory = TestDirectoryWatcherFactory()
+        let initialStarted = TestGate(), initialRelease = TestGate(), initialFinished = TestGate()
+        let thawStarted = TestGate(), thawRelease = TestGate(), thawFinished = TestGate(), refreshed = TestGate()
+        var refreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(snapshotAvailability: [true], files: [file]),
+            fileOperations: ExistingWorkspaceFileOperations(paths: [file.path]),
+            provider: SequencedGitWatchContextProvider([nil]), watcherFactory: factory,
+            refreshGit: { refreshCount += 1; if thawRelease.isOpen { refreshed.open() } },
+            observationDelay: { _ in
+                if !initialStarted.isOpen {
+                    initialStarted.open()
+                    defer { initialFinished.open() }
+                    guard await initialRelease.waitUntilOpen() else { throw CancellationError() }
+                } else {
+                    thawStarted.open()
+                    defer { thawFinished.open() }
+                    guard await thawRelease.waitUntilOpen() else { throw CancellationError() }
+                }
+                try Task.checkCancellation()
+            })
+        defer { initialRelease.open(); thawRelease.open(); model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let loaded = refreshCount
+        let source = try #require(factory.source)
+        source.emit([file.path])
+        try #require(await initialStarted.waitUntilOpen())
+        model.beginGitOperationFreeze(); model.beginGitOperationFreeze()
+        initialRelease.open()
+        try #require(await initialFinished.waitUntilOpen())
+        await model.endGitOperationFreeze(waitForRefresh: false)
+        #expect(model.gitOperationFreezeDepth == 1 && refreshCount == loaded)
+        await model.endGitOperationFreeze(waitForRefresh: false)
+        try #require(await thawStarted.waitUntilOpen())
+        #expect(model.gitOperationFreezeDepth == 0 && refreshCount == loaded)
+        if resetBeforeRefresh { model.reset() }
+        thawRelease.open()
+        try #require(await thawFinished.waitUntilOpen())
+        if resetBeforeRefresh { #expect(refreshCount == loaded) }
+        else {
+            try #require(await refreshed.waitUntilOpen())
+            #expect(refreshCount == loaded + 1)
+        }
+    }
+
     @Test
     func directoryWatchConfigurationNormalizesAndDeduplicatesCoveredRoots() {
         let repository = URL(fileURLWithPath: "/tmp/lithe-watch/repository")

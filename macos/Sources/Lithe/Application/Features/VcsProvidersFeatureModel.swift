@@ -612,6 +612,90 @@ final class VcsProvidersFeatureModel: ObservableObject {
                       title: L10n.string("Cleaning up…"), as: VcsEmptyResult.self) != nil
     }
 
+    func canAdd(_ changes: [VcsChange], in rootID: String) -> Bool {
+        canChangeFiles(changes, in: rootID)
+            && changes.allSatisfy { $0.status == .unversioned }
+    }
+
+    func canDelete(_ changes: [VcsChange], in rootID: String) -> Bool {
+        canChangeFiles(changes, in: rootID)
+            && changes.allSatisfy { ![.unversioned, .ignored, .deleted, .missing].contains($0.status) }
+    }
+
+    func canTrash(_ changes: [VcsChange], in rootID: String) -> Bool {
+        canChangeFiles(changes, in: rootID, requiresProvider: false)
+            && changes.allSatisfy { $0.status == .unversioned }
+    }
+
+    private func canChangeFiles(_ changes: [VcsChange], in rootID: String, requiresProvider: Bool = true) -> Bool {
+        guard runningOperation == nil, !isDetecting, let root = root(rootID), !root.isRefreshing,
+              !isTruncated, (!requiresProvider || root.supports(.fileOperations)),
+              let workspaceURL, !changes.isEmpty else { return false }
+        return changes.allSatisfy {
+            root.snapshot?.changes.contains($0) == true
+                && Self.workspacePath($0.path, rootID: rootID, workspaceURL: workspaceURL) != nil
+                && !containsOtherRoot($0, in: root)
+        }
+    }
+
+    /// A recursive add/delete must not cross a nested working copy, even when
+    /// the selected directory itself belongs to the enclosing provider.
+    private func containsOtherRoot(_ change: VcsChange, in root: VcsRootState) -> Bool {
+        guard let workspaceURL else { return true }
+        let target = root.url.appendingPathComponent(change.path).standardizedFileURL.path
+        return (allRootIDs + ambiguous.map(\.id)).filter { $0 != root.id }.contains {
+            let path = Self.rootURL(id: $0, workspaceURL: workspaceURL).path
+            return path == target || path.hasPrefix(target + "/")
+        }
+    }
+
+    func trash(_ changes: [VcsChange], in rootID: String,
+               action: @MainActor () async -> Bool) async -> Bool {
+        guard canTrash(changes, in: rootID), await owns(changes, in: rootID), canTrash(changes, in: rootID) else { return false }
+        let generation = generation
+        runningOperation = RunningOperation(rootID: rootID, title: L10n.string("Deleting…"))
+        defer {
+            if self.generation == generation { runningOperation = nil; refresh(rootID) }
+        }
+        return await action()
+    }
+
+    func add(_ changes: [VcsChange], in rootID: String) async -> Bool {
+        guard canAdd(changes, in: rootID), await owns(changes, in: rootID), canAdd(changes, in: rootID) else { return false }
+        return await perform(.add(paths: Array(Set(changes.map(\.path))).sorted()), in: rootID,
+                             title: L10n.string("Adding to VCS…"), as: VcsEmptyResult.self) != nil
+    }
+
+    /// No filesystem fallback: a provider refusal must not turn into an
+    /// untracked disk deletion (notably for working copies such as SVN).
+    func delete(_ changes: [VcsChange], in rootID: String) async -> Bool {
+        guard canDelete(changes, in: rootID), await owns(changes, in: rootID), canDelete(changes, in: rootID) else { return false }
+        return await perform(.delete(paths: Array(Set(changes.map(\.path))).sorted()), in: rootID,
+                             title: L10n.string("Deleting…"), as: VcsEmptyResult.self) != nil
+    }
+
+    private func owns(_ changes: [VcsChange], in rootID: String) async -> Bool {
+        guard let workspaceURL else { return false }
+        let paths = changes.compactMap { Self.workspacePath($0.path, rootID: rootID, workspaceURL: workspaceURL) }
+        guard paths.count == changes.count else { return false }
+        let planner = planner, roots = allRootIDs, ambiguous = ambiguous.map(\.id), generation = generation
+        do {
+            let owners = try await Task.detached(priority: .userInitiated) {
+                try planner.owners(roots: roots, ambiguous: ambiguous, paths: paths)
+            }.value
+            guard self.generation == generation, !Task.isCancelled,
+                  allRootIDs == roots, self.ambiguous.map(\.id) == ambiguous else { return false }
+            guard owners.count == paths.count, owners.allSatisfy({ $0 == rootID }) else {
+                report(L10n.string("Some selected files belong to another version control root. Refresh and select them again."), rootID: rootID)
+                return false
+            }
+            return true
+        } catch {
+            if self.generation == generation { report(Self.message(for: error), rootID: rootID) }
+            return false
+        }
+    }
+
     func baseContent(_ path: String, in rootID: String) async throws -> VcsBaseContent {
         try await request(.baseContent(path: path), rootID: rootID, timeout: Self.statusTimeout, as: VcsBaseContent.self)
     }
@@ -634,6 +718,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
     /// base compares with nothing, and so does a deleted one.
     func diff(for change: VcsChange, in rootID: String) async throws -> VcsFileDiff {
         guard let root = root(rootID) else { throw CancellationError() }
+        let generation = generation
         let fileURL = root.url.appendingPathComponent(change.path).standardizedFileURL
         var current: String? = ""
         var isBinary = false
@@ -651,6 +736,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
             isTooLarge = (content.content?.utf8.count ?? 0) > Self.diffByteLimit
             base = isBinary || isTooLarge ? nil : content.content ?? ""
         }
+        guard self.generation == generation, !Task.isCancelled else { throw CancellationError() }
         return VcsFileDiff(
             rootID: rootID, path: change.path, fileURL: fileURL,
             base: base, current: isBinary || isTooLarge ? nil : current,
@@ -775,11 +861,13 @@ final class VcsProvidersFeatureModel: ObservableObject {
             roots[index].negotiation = reply.negotiation
         }
         let planner = planner
-        return try await Task.detached(priority: .userInitiated) {
+        let value = try await Task.detached(priority: .userInitiated) {
             try planner.decodeReply(
                 operation, capabilities: reply.negotiation.capabilities, reply: reply.value, as: Value.self
             )
         }.value
+        guard self.generation == generation, !Task.isCancelled else { throw CancellationError() }
+        return value
     }
 
     private func target(for state: VcsRootState) -> VcsProviderTarget? {
