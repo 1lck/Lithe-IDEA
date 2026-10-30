@@ -9662,7 +9662,8 @@
     "build.errors.incompleteModel": "Load the complete current Build model before running this operation.",
     "build.errors.wrongPlugin": "The Build tool belongs to another plugin.",
     "build.errors.unsupportedSource": "This Build model source has not been connected to the Windows workflow.",
-    "build.errors.cleanupFailed": "Build Provider cleanup failed."
+    "build.errors.cleanupFailed": "Build Provider cleanup failed.",
+    "build.errors.projectToolRequiresAction": "Use the project tool explicitly to read this configuration."
   },
   "overrides": {
     "windows": {

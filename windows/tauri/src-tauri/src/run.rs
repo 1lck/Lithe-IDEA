@@ -732,6 +732,23 @@ fn resolve_launch_with_java_probes(
     } else {
         resolve_java_home_with_probes(&root, &args.maven_java_home_path, allow_project_java_probes)?
     };
+    if !allow_project_java_probes {
+        if let Some(id) = args.executable.toolchain.as_deref() {
+            // Generic Run discovery probes every tool. Build may only consume
+            // its saved runtime path here; other declared candidate kinds use
+            // their own filesystem discovery without running unrelated tools.
+            if !matches!(id, "project-jdk" | "project-maven")
+                && !args
+                    .runtime_executable_paths
+                    .get(id)
+                    .is_some_and(|path| !path.trim().is_empty())
+            {
+                return Err(format!(
+                    "Choose a local executable for toolchain {id} before Build discovery."
+                ));
+            }
+        }
+    }
     let executable = resolve_executable(
         &root,
         &working_directory,
@@ -1505,13 +1522,20 @@ fn select_project_java(
 }
 
 fn probe_java_homes(homes: Vec<PathBuf>) -> Vec<JavaRuntime> {
+    collect_java_homes(homes, probe_java_home)
+}
+
+fn collect_java_homes(
+    homes: Vec<PathBuf>,
+    inspect: impl Fn(&Path) -> Option<JavaRuntime>,
+) -> Vec<JavaRuntime> {
     let mut java = Vec::new();
     let mut seen_homes = std::collections::HashSet::new();
     for home in homes {
         if !seen_homes.insert(home.clone()) {
             continue;
         }
-        if let Some(runtime) = probe_java_home(&home) {
+        if let Some(runtime) = inspect(&home) {
             java.push(runtime);
         }
     }
@@ -1820,6 +1844,31 @@ pub(crate) fn probe_java_home(home: &Path) -> Option<JavaRuntime> {
     })
 }
 
+fn read_java_home(home: &Path) -> Option<JavaRuntime> {
+    java_executable(home)?;
+    let path = home.join("release");
+    let mut file = fs::File::open(&path).ok()?;
+    if file.metadata().ok()?.len() > 64 * 1024 {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(
+        &mut std::io::Read::take(&mut file, 64 * 1024 + 1),
+        &mut bytes,
+    )
+    .ok()?;
+    if bytes.len() > 64 * 1024 {
+        return None;
+    }
+    let contents = std::str::from_utf8(&bytes).ok()?;
+    let version = lithe_core::execution::java_version_from_release(contents)?.to_owned();
+    Some(JavaRuntime {
+        home_path: normalize_path(home).to_string_lossy().into_owned(),
+        version,
+        vendor: String::new(),
+    })
+}
+
 fn probe_maven(executable: &Path) -> Option<MavenRuntime> {
     if !executable.is_file() {
         return None;
@@ -1888,7 +1937,12 @@ fn resolve_java_home_with_probes(
         .into_iter()
         .filter(|home| allow_project_probes || !project_java_probe(home, root))
         .collect();
-    select_project_java(Some(root), &probe_java_homes(homes)).map(|selection| selection.id)
+    let runtimes = if allow_project_probes {
+        probe_java_homes(homes)
+    } else {
+        collect_java_homes(homes, read_java_home)
+    };
+    select_project_java(Some(root), &runtimes).map(|selection| selection.id)
 }
 
 fn project_java_probe(home: &Path, root: &Path) -> bool {
@@ -2213,7 +2267,7 @@ fn is_batch_file(executable: &str) -> bool {
         })
 }
 
-fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
+pub(crate) fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
     if is_batch_file(executable) {
         return batch_command(executable, arguments);
     }
@@ -2654,6 +2708,30 @@ fn take_running_session(
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn build_jdk_metadata_reads_the_full_version_without_executing_its_launcher() {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(temp_project());
+        fs::create_dir_all(fixture.0.join("bin")).unwrap();
+        for name in ["java.exe", "java"] {
+            fs::write(fixture.0.join("bin").join(name), "not an executable").unwrap();
+        }
+        let release = fixture.0.join("release");
+        fs::write(&release, "JAVA_VERSION=\"21.0.12+7\"\n").unwrap();
+        assert_eq!(read_java_home(&fixture.0).unwrap().version, "21.0.12+7");
+        fs::write(&release, "JAVA_VERSION=\"unknown\"\n").unwrap();
+        assert!(read_java_home(&fixture.0).is_none());
+        fs::write(&release, vec![b'x'; 64 * 1024 + 1]).unwrap();
+        assert!(read_java_home(&fixture.0).is_none());
+        fs::remove_file(&release).unwrap();
+        assert!(read_java_home(&fixture.0).is_none());
+    }
 
     #[test]
     fn build_java_discovery_excludes_project_homes_before_a_version_probe() {

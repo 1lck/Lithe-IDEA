@@ -19,9 +19,9 @@ pub use classpath_jar::{
 pub(crate) use configuration::*;
 pub(crate) use detectors::{scan, DirectoryContext};
 pub use launch_command::{
-    java_feature_version_from_release, plan_launch_command, plan_launch_command_request,
-    LaunchCommandPlan, LaunchCommandPlanRequest, LaunchCommandPlanResponse,
-    WINDOWS_COMMAND_LINE_LIMIT,
+    java_feature_version_from_release, java_version_from_release, plan_launch_command,
+    plan_launch_command_request, LaunchCommandPlan, LaunchCommandPlanRequest,
+    LaunchCommandPlanResponse, WINDOWS_COMMAND_LINE_LIMIT,
 };
 
 pub(crate) mod workspace_scan;

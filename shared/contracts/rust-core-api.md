@@ -53,6 +53,11 @@ launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
+Rust native adapters may call `execution::java_version_from_release` to read the
+full JDK version from bounded host-read `release` metadata, then reuse Core's
+runtime candidate ordering. Passive Build discovery never falls back to running
+Java when that metadata is missing or invalid; explicit tool execution owns probes.
+
 ### Remote workspace path identity
 
 Workspace-aware commands accept an optional top-level `remoteWorkspace` with

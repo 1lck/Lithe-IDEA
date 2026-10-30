@@ -48,12 +48,24 @@ export interface BuildTestSelection {
   selectorKind?: string; selectors?: string[]; userArguments?: string[];
 }
 
+export interface BuildNativeConfiguration {
+  format: "litheBuildConfiguration";
+  version: 1;
+  sources: Array<{
+    id: string; scope: "installation" | "user" | "workspace"; uri: string; revision: string; writable: boolean;
+    rootElement: { name: string; namespace: string };
+    fields: Array<{ id: string; kind: "text" | "file" | "directory" | "boolean" | "stringList";
+      value: unknown; effectiveValue: unknown; effectiveSource: string; path: string[]; itemElement?: string }>;
+  }>;
+}
+
 interface BuildWork {
   record: BuildOperation;
   current: () => void;
   context: string;
+  tool: BuildToolContext;
   perform: (command: string, request: Record<string, unknown>) => Promise<unknown>;
-  decode: <R extends Record<string, unknown>>(command: string, request: Record<string, unknown>) => Promise<R>;
+  decode: <R extends Record<string, unknown>>(command: string, request: Record<string, unknown>, includeContext?: boolean) => Promise<R>;
 }
 
 export interface WorkspacePorts {
@@ -137,6 +149,17 @@ export class WindowsBuildProviderWorkspace {
       const result = await operation.perform("build.dependencyPlan", { project });
       return await operation.decode("build.decodeDependencies", { result, project: project?.path });
     });
+  }
+
+  readConfiguration(instance: BuildInstance, allowProjectTool = false) {
+    return this.begin<BuildNativeConfiguration>(instance, false, async operation => {
+      if (operation.tool.executesProjectCode && !allowProjectTool) {
+        throw Object.assign(new Error(this.message("projectToolRequiresAction")), { code: "build.configuration.projectToolRequiresAction" });
+      }
+      const result = await operation.perform("build.configurationPlan", { refresh: true });
+      const decoded = await operation.decode<{ configuration: BuildNativeConfiguration }>("build.decodeConfiguration", { result }, false);
+      return decoded.configuration;
+    }, false);
   }
 
   executeTask(instance: BuildInstance, task: string, projectID?: string, userArguments: string[] = []) {
@@ -227,10 +250,10 @@ export class WindowsBuildProviderWorkspace {
         }
         const base = { root: snapshot.root, options: snapshot.options, pluginDirectory: context.pluginDirectory,
           workspaceStateDirectory: context.workspaceStateDirectory, tool: { ...context.tool, environment: context.environment } };
-        const decode = async <R extends Record<string, unknown>>(command: string, request: Record<string, unknown>) => {
+        const decode = async <R extends Record<string, unknown>>(command: string, request: Record<string, unknown>, includeContext = true) => {
           current();
           const result = await this.owned(this.ports.core<R>(command, context.manifest, snapshot.buildSystemID, {
-            workspaceRoot: this.workspacePath, root: snapshot.root, options: snapshot.options, ...request,
+            ...(includeContext ? { workspaceRoot: this.workspacePath, root: snapshot.root, options: snapshot.options } : {}), ...request,
           }, this.workspacePath), controller.signal);
           current(); return result;
         };
@@ -256,7 +279,7 @@ export class WindowsBuildProviderWorkspace {
             } }), controller.signal);
           current(); return value;
         };
-        const value = await body({ record, current, perform, decode, context: contextIdentity });
+        const value = await body({ record, current, perform, decode, context: contextIdentity, tool: context });
         current(); record.phase = record.exitCode !== undefined && record.exitCode !== 0 ? "failed" : "succeeded";
         return value;
       } catch (error) {

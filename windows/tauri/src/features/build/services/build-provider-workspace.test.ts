@@ -36,6 +36,7 @@ function fixture() {
     if (command === "build.decodeDiagnostics") return { diagnostics: [{ message: "compile error", line: 3 }] };
     if (command === "build.decodeTestResults") return { results: { failed: 1, suites: [{ name: "FailedTest" }] } };
     if (command === "build.decodeTestDiscovery") return { discovery: { tests: [{ id: "opaque-selector", suite: "A", case: "method" }] } };
+    if (command === "build.decodeConfiguration") return { configuration: { format: "litheBuildConfiguration", version: 1, sources: [] } };
     throw new Error(`Unexpected Core command ${command}`);
   }) as typeof buildCore;
   const workspace = new WindowsBuildProviderWorkspace("C:/work", {
@@ -60,6 +61,39 @@ function fixture() {
 }
 
 describe("Windows Build Provider workspace operations", () => {
+  test("native configuration reads before a model exists and sends an exact decode request", async () => {
+    const f = fixture();
+    try {
+      const result = await f.workspace.readConfiguration(instance).completion;
+      expect(result).toMatchObject({ format: "litheBuildConfiguration", sources: [] });
+      expect(f.workspace.model(instance)).toBeUndefined();
+      expect(f.coreCalls.map(call => call.command)).toEqual(["build.configurationPlan", "build.decodeConfiguration"]);
+      expect(Object.keys(f.coreCalls[1]!.request)).toEqual(["result"]);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("automatic configuration reads stop before a project tool is sent to the Provider", async () => {
+    const f = fixture(); f.tools({ ...context, executesProjectCode: true });
+    try {
+      await expect(f.workspace.readConfiguration(instance).completion).rejects.toMatchObject({ code: "build.configuration.projectToolRequiresAction" });
+      expect(f.coreCalls).toHaveLength(0); expect(f.sent).toHaveLength(0);
+      await f.workspace.readConfiguration(instance, true).completion;
+      expect(f.sent).toHaveLength(1);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("configuration decoding cancelled by a workspace revision cannot return a stale snapshot", async () => {
+    const f = fixture(), gate = deferred<unknown>(); f.holdCore("build.decodeConfiguration", gate.promise);
+    const operation = f.workspace.readConfiguration(instance), completed = operation.completion.catch(error => error.code);
+    try {
+      await f.entered.decode.promise;
+      f.workspace.invalidate(instance);
+      expect(await completed).toBe("cancelled");
+      gate.resolve({ configuration: { format: "litheBuildConfiguration", version: 1, sources: [] } });
+      expect(f.workspace.operations()[0]?.phase).toBe("cancelled");
+    } finally { gate.resolve({}); await completed; await f.workspace.dispose(); }
+  }, 5000);
+
   test("model, dependencies and a failed task use shared plans and retain diagnostics and test reports", async () => {
     const f = fixture();
     try {

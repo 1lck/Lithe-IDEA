@@ -57,13 +57,25 @@ Core 请求 ID 在发起 IPC 前登记，因此进度或回复先于 IPC 确认�
 选项和参数先复制，插件代次变化后已发布模型立即不可用，取消后的进度与晚到解码不能恢复旧状态。
 这层没有与原生界面和旧 Maven Store 接线，能力声明仍关闭，不能据组件测试宣称 Windows 已迁移。
 
+原生配置读取独立于模型就绪状态：损坏 POM 时仍可通过 Maven 获取真实来源与非敏感字段。
+自动读取发现项目工具时，在发送任何 Provider 请求前返回需要显式动作的错误；只有产品的
+“使用项目工具读取”动作才允许继续，不能因发现失败偷偷切回旧 Maven 配置服务。
+配置的 Core 解码只接收结果本身，不向严格的配置契约塞入模型根或选项字段。选项/插件/工作区
+失效和取消继续覆盖读取及解码；这里只接了服务层读取，设置页草稿、确认保存、Windows
+原生文件的冲突保护写回及旧配置迁移仍待完成。
+
 原生工具解析复用 Run 注册表；`runConfig.projectToolchain` 只读 `.lithe/run/local.json`
 的默认值和最近路径覆盖，并读取既有 runtime 选择。它不解析 POM、不创建 Run 文档，损坏
-文件明确失败。自动 JDK 选择复用 Core 版本排序，但在探测前排除工作区内的 JDK 或指向
-工作区程序的别名；显式路径只检查存在。工具依赖按 Core 顺序解析，选中的 JAVA_HOME/PATH
+文件明确失败。被动自动 JDK 选择只读取有界的 `release` 元数据，经 Core 提取完整版本后
+复用版本排序，缺失或损坏时不回退到运行 Java；项目程序及别名不参与机器 JDK 发现，显式
+路径只检查存在。工具依赖按 Core 顺序解析，选中的 JAVA_HOME/PATH
 与明确声明的环境输入才交给 Provider，Core 选项环境保持更高优先级。项目启动器，包括指向
 外部程序的项目 Wrapper 别名，都标记为项目代码，不为发现版本执行它们。任务和模型必须
 使用同一份已准入清单、工具和设置快照，不能在工具变化后继续消费旧模型。
+工具发现本身不创建 Provider 状态目录；显式任务需要进程探针时才创建可写状态。
+Windows 批处理启动器的版本校验复用 Run 既有的 cmd 引用规则，不直接把 `.cmd` 当 PE 程序启动。
+Maven/JDK 以外的通用 toolchain 只消费已保存的 runtime 路径，缺失时明确要求选择；不调用
+Run 的全量工具版本发现。Core 声明的 command、environment 等候选仍可做文件系统发现。
 
 ### 存储、信任与安装（v0）
 
@@ -145,7 +157,7 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - 2026-10-24 Windows Release 实机验收：Playwright/CDP 连接真实 WebView2，测试包安装、ui 1 文本渲染、工作区关闭重开、状态隔离、两个产品窗口归属、主题/语言与重载、过期工作区 openFile 拒绝、双窗口卸载关闭全部插件页均通过；无重复确认异常，外站 HTTP GET 为零，安装包及发行资源哈希不变，应用正常退出。该测试包不替代真实语言服务器的完整安装→启动→即时设置验收，也不覆盖停靠布局。
 - 管理并发回归：`lifecycle.rs` 覆盖原生使用计数排空、禁止晚到获取、逐窗口确认、停止失败、窗口断开和有界超时；`lsp-core-adapter.test.ts` 用可控 Core 响应覆盖停止期间晚到的服务器，断言先停止再拒绝，且 `pluginId` 没有丢失。`plugin-lifecycle-listener.test.ts` 验证收到停用事件立即撤销入口、等待运行和 LSP 两方后才确认。
 - Build 传输基础：`build-provider-sessions.test.ts` 和 `lsp-core-adapter.test.ts` 覆盖包/设置/运行时变化、逐目标停止、停止失败后阻止新请求、解析中取消、插件代次和工作区关闭、早于 IPC 确认的进度与回复，以及原始字段与稳定错误码。新增回归在 macOS 的 Bun 逐项计时入口通过；这不代表 Windows 原生进程、共享语言会话或产品 Maven 工作流已验收。资源复用回归明确拒绝复制新的 Windows Provider 状态。
-- 领域编排：`build-provider-workspace.test.ts`、`build-core-api.test.ts` 覆盖模型到任务/依赖/报告、模型目标、原始 Java 选择器、工具及插件代次失效、参数快照、取消和晚到回复、逐目标清理失败、有界输出与历史。Maven 独立仓库的[集成脚本](https://github.com/Lithe-IDEA/lithe-plugin-maven/blob/codex/issue-1495-maven-domain/scripts/test-windows-workspace.mjs)使用宿主生产 TypeScript、当前 Core 和真实 Maven reactor，7 个步骤验证普通及模型任务、单方法、成功及失败报告和包字节不变；此 macOS/Linux lane 不等于 Windows 原生或产品 UI 验收。共享工具选择 fixture 与 Core 全量逐项计时 1434 项通过，Windows Cargo 在 macOS 仅遇到项目窗口注册表既有的两个 Windows API 错误，原生测试尚未运行。
+- 领域编排：`build-provider-workspace.test.ts`、`build-core-api.test.ts` 覆盖模型到任务/依赖/报告、模型目标、原始 Java 选择器、工具及插件代次失效、参数快照、取消和晚到回复、逐目标清理失败、有界输出与历史。Maven 独立仓库的[集成脚本](https://github.com/Lithe-IDEA/lithe-plugin-maven/blob/codex/issue-1495-maven-domain/scripts/test-windows-workspace.mjs)使用宿主生产 TypeScript、当前 Core 和真实 Maven reactor，8 个步骤增加损坏 POM 下的配置读取、来源字节和探针状态清理，验证普通及模型任务、单方法、成功及失败报告和包字节不变；此 macOS/Linux lane 不等于 Windows 原生或产品 UI 验收。固定宿主 ed10dc4 / SDK 4886c90 / Maven 8c85347 的[开发 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41068473354)已通过当时的 7 步工作区及 Java 8 两种 Maven、Java 17 框架调试，新增配置读取是后续本地验证，不混作该组合的 CI 证据。共享工具选择 fixture 与 Core 全量逐项计时 1434 项通过，Windows Cargo 在 macOS 仅遇到项目窗口注册表既有的两个 Windows API 错误，原生测试尚未运行。
 - 工作区与界面回归：`web.rs` 覆盖双工作区窗口/状态键隔离和文本转义；`plugin-lifecycle-listener.test.ts` 验证其他工作区请求、路径解析中切换工作区以及成功确认；`workspace-lifecycle.test.ts` 验证关闭工作区时清理网页。`declarative-plugin-ui.test.ts` 用 Hello Lithe fixture 验证文本窗口与命令面板、菜单、工具栏三处贡献及撤销，受控刷新同时覆盖相关与无关插件的撤销。CI 按文件分进程执行插件套件，避免原生命令和事件 mock 跨套件泄漏。
 - 启动计划回归：`launch.rs` 验证必需资源缺失、运行时依赖缺失、目录资源与普通文件入口的区别，以及有输出但非零退出的校验命令。`tests.rs` 还覆盖完整扫描的有序发布，`web.rs` 用有界通道覆盖写入与撤销交错、旧页面实例和旧工作区版本拒绝。Windows Rust 最终计时运行记录 357 项，其中 354 通过、3 项夹具跳过；前端受影响测试分别在隔离进程中运行，报告保存在 `.artifacts/test-stability/`。这些测试不替代双工作区真实 WebView2、真实语言服务器与停靠界面的产品验收。
 

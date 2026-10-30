@@ -308,7 +308,12 @@ Micronaut Maven Plugin 4.7.2 的真实开发目标验证了启动前暂停、标
 这组集成使用 Java 21 和 Maven 3.9.16，CI 在 Java 17 的现代 Maven 车道执行；
 Provider 的 Java 8 / Maven 3.6.3 兼容车道保持独立。Java 8 的 JDI 辅助程序在编译和
 运行时都从所选 JDK 加载 `tools.jar`，不能借用 Maven 的另一个 `JAVA_HOME`。
-这些进程证据不替代宿主断点 UI 或完整 Micronaut 应用验收，因此矩阵仍保持待验收。
+后续本地夹具把 Micronaut 换成真实应用：固定 Platform 4.7.6（Core/注解处理器
+4.7.14），由编译期依赖注入创建服务及 HTTP 控制器，恢复 JVM 后通过回环请求验证
+Netty 服务确实调用了未安装的 reactor 兄弟依赖。真实 Quarkus/Micronaut 四步集成在
+Java 21 / Maven 3.9.16 通过，应用异常及 HTTP 请求分别有显式失败和期限，包字节不变。
+此增量不混作此前固定组合 CI 中普通 Micronaut main 的证据，也不替代宿主断点 UI、
+正式发行包和 Windows 原生验收，因此矩阵仍保持待验收。
 
 ## 考虑过的备选方案
 

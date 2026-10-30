@@ -8,7 +8,6 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Serialize)]
@@ -50,7 +49,7 @@ pub async fn declarative_plugins_build_tool(
         let workspace = std::fs::canonicalize(&workspace_path).map_err(|error| error.to_string())?;
         let state = build::build_state_directory(&store::plugin_state_directory(&app, &plugin_id)?, &build_system_id)?;
         let workspace_state = state.join(build::build_workspace_key(&workspace_path));
-        std::fs::create_dir_all(&workspace_state).map_err(|error| error.to_string())?;
+        if check_versions { std::fs::create_dir_all(&workspace_state).map_err(|error| error.to_string())?; }
         let inherited: HashMap<String, String> = std::env::vars().collect();
         let mut forwarded = BTreeMap::from([("PATH".into(), std::env::var("PATH").unwrap_or_default())]);
         for name in invocation["environmentInputs"].as_array().into_iter().flatten().filter_map(Value::as_str) {
@@ -525,12 +524,10 @@ fn check_version(
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
+        .map(str::to_owned)
         .collect();
-    let mut command = Command::new(&selected.path);
-    command
-        .args(arguments)
-        .envs(&selected.environment)
-        .current_dir(state);
+    let mut command = run::command_for_executable(&selected.path.to_string_lossy(), &arguments);
+    command.envs(&selected.environment).current_dir(state);
     let (stdout, stderr) = launch::run_process_probe(&mut command, "Build tool version", false)?;
     let output = format!(
         "{}\n{}",

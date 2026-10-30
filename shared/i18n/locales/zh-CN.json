@@ -9662,7 +9662,8 @@
     "build.errors.incompleteModel": "请先加载完整的当前构建模型，再执行此操作。",
     "build.errors.wrongPlugin": "构建工具属于其他插件。",
     "build.errors.unsupportedSource": "此构建模型来源尚未接入 Windows 工作流。",
-    "build.errors.cleanupFailed": "构建 Provider 清理失败。"
+    "build.errors.cleanupFailed": "构建 Provider 清理失败。",
+    "build.errors.projectToolRequiresAction": "请明确选择使用项目工具来读取此配置。"
   },
   "overrides": {
     "macos": {

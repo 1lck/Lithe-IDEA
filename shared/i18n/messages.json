@@ -92328,6 +92328,13 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "build.errors.projectToolRequiresAction",
+      "description": "Windows native Build settings require an explicit project tool read",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }
