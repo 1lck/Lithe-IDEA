@@ -1,0 +1,38 @@
+{
+  "id": "plugin-host-editor-file-window-services",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "插件宿主服务（内部实现，尚未对插件开放）：读取已打开文档与选区并按版本整批编辑（一个撤销步骤，IME 组字期间拒绝）；工作区文件分页读目录、stat、读文件、监听与文件名/全文搜索（逐段 O_NOFOLLOW，远程拒绝）；在指定窗口打开/定位编辑器、打开 HTML 预览、用系统浏览器打开 http/https 或本地文件、显示带按钮的插件消息",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/EditorDocumentService.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+EditorDocumentService.swift",
+      "frontend/editor/src/plugin-edits.ts",
+      "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacPluginWorkspaceFileService.swift",
+      "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceSecurePath.swift",
+      "macos/Sources/Lithe/Application/Features/PluginHostEditorService.swift",
+      "macos/Sources/Lithe/Application/Features/PluginHostPreviewService.swift",
+      "macos/Sources/Lithe/Application/Features/PluginHostBrowserService.swift",
+      "macos/Sources/Lithe/Application/Features/PluginHostMessageService.swift",
+      "macos/Tests/LitheTests/EditorTextEditPlannerTests.swift",
+      "macos/Tests/LitheTests/EditorDocumentServiceTests.swift",
+      "macos/Tests/LitheTests/PluginWorkspaceFileServiceTests.swift",
+      "macos/Tests/LitheTests/PluginHostEditorServiceTests.swift",
+      "macos/Tests/LitheTests/PluginHostBrowserServiceTests.swift",
+      "macos/Tests/LitheTests/PluginHostMessageServiceTests.swift",
+      "macos/Tests/LitheTests/HTMLPreviewBridgeIsolationTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "docs/development/macos-plugin-api-plan.md"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "macOS 单测：scripts/macos/test/test-macos.sh --filter \"EditorTextEditPlannerTests|EditorDocumentServiceTests|PluginWorkspaceFileServiceTests|PluginHostEditorServiceTests|PluginHostBrowserServiceTests|PluginHostMessageServiceTests|HTMLPreviewBridgeIsolationTests\"；前端：frontend/editor 下运行 plugin-edits.test.ts。服务接入宿主分发、对插件开放后，按计划 §7 用三个验收插件（选区转换器、分页文件浏览器、HTML 预览启动器）在 debug 应用中原生验收：版本冲突与 IME 组字时编辑被拒、撤销一步回退整批编辑；符号链接与 .. 越界被拒、远程工作区返回 authorityUnsupported；后台窗口打开文件不抢焦点、消息限频生效；验收后关闭应用并确认无残留进程。",
+  "notes": "本条覆盖 #1548 计划的 API-06–API-10、API-15–API-17（三种消息）。这些服务目前只是 Mac 内部实现，没有注册进 hostDispatcher，也没在 Core HOST_METHODS 登记，用户与插件都还观察不到，所以实现状态为部分实现、验证为待验证。HTML 预览不暴露插件 bridge 已有回归测试。QuickPick/InputBox、可替换预览标签和纯预览模式未做。Windows/Tauri 不在本轮范围。"
+}

@@ -31,6 +31,7 @@ const MIX_PROVIDER_FIXTURE: &str =
     contract_file!("fixtures/build-provider-language-server.plugin.json");
 const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings-v2.plugin.json");
 const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend.plugin.json");
+const WORKSPACE_BACKEND_FIXTURE: &str = contract_file!("fixtures/backend-workspace.plugin.json");
 const DEBUG_ADAPTER_FIXTURE: &str = contract_file!("fixtures/debug-adapter.plugin.json");
 const DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE: &str =
     contract_file!("fixtures/debug-adapter-language-server.plugin.json");
@@ -61,6 +62,7 @@ fn fixture(name: &str) -> Value {
         "build-provider-language-server.plugin.json" => MIX_PROVIDER_FIXTURE,
         "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
         "backend.plugin.json" => BACKEND_FIXTURE,
+        "backend-workspace.plugin.json" => WORKSPACE_BACKEND_FIXTURE,
         "debug-adapter.plugin.json" => DEBUG_ADAPTER_FIXTURE,
         "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
         "debug-adapter-remote-attach.plugin.json" => DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
@@ -84,6 +86,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         NODE_RUNTIME_FIXTURE,
         PUBLISHER_BUNDLED_FIXTURE,
         BACKEND_FIXTURE,
+        WORKSPACE_BACKEND_FIXTURE,
         DEBUG_ADAPTER_FIXTURE,
         DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         OFFICIAL_JAVA,
@@ -762,6 +765,51 @@ fn plugin_backend_is_planned_without_a_workspace_and_names_its_host_services() {
         hosted(json!({ "backend": [1], "ui": [1, 2], "serverProcess": [1] }))["status"],
         "ok"
     );
+}
+
+/// A `backend` 2 process starts without a page, its plan names its version
+/// so the host may start it on `onWorkspaceOpen`, and `workspace.metadata`
+/// grants the `workspace` host service. A host that only runs `backend` 1
+/// refuses the manifest instead of starting a process it would misuse.
+#[test]
+fn workspace_backend_is_planned_with_its_version_and_workspace_service() {
+    let outcome = validate(fixture("backend-workspace.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let launch = language_server_launch_plan_command(json!({
+        "manifest": fixture("backend-workspace.plugin.json"),
+        "backend": true,
+        "request": {
+            "pluginDirectory": "/plugins/workspace-backend",
+            "stateDirectory": "/state/workspace-backend",
+            "architecture": "arm64"
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(launch["status"], "ok", "{launch}");
+    assert_eq!(
+        launch["plan"]["backend"],
+        json!({ "hostServices": ["workspace"], "version": 2 })
+    );
+
+    let hosted = |host: Value| {
+        validate_command(json!({
+            "manifest": fixture("backend-workspace.plugin.json"),
+            "hostCapabilities": host,
+        }))
+        .expect("payload is well formed")
+    };
+    let old_host = hosted(json!({ "backend": [1], "serverProcess": [1] }));
+    assert_eq!(old_host["error"]["code"], "plugin.api.unsupported");
+    assert_eq!(old_host["error"]["field"], "requires.backend");
+    assert_eq!(
+        hosted(json!({ "backend": [1, 2], "serverProcess": [1] }))["status"],
+        "ok"
+    );
+
+    // A page-only backend 1 manifest stays valid as backend 2.
+    let mut manifest = fixture("backend.plugin.json");
+    manifest["requires"]["backend"] = json!(2);
+    assert_eq!(validate(manifest)["status"], "ok");
 }
 
 /// Icon trust boundaries are shared; native decoding remains with the macOS host.

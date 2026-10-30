@@ -111,6 +111,54 @@ struct MacPluginBackendSessionsTests {
         }
     }
 
+    /// A command run from the plugin's UI and the events of its
+    /// subscriptions reach the running backend as host notifications, in
+    /// the order the host sent them.
+    @Test
+    func commandsAndSubscriptionEventsReachTheRunningBackendInOrder() async throws {
+        let fixture = try BackendFixture(backendVersion: 2)
+        defer { fixture.remove() }
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        let owner = ModuleID("\(BackendFixture.pluginID).ui")
+        let subscriptions = fixture.sessions.hostDispatcher.subscriptions
+        let subscriptionID = subscriptions.add(pluginID: BackendFixture.pluginID, contextID: nil) {}
+
+        fixture.sessions.runCommand(
+            "query.run", owner: owner,
+            context: PluginWorkspaceContextReference(contextID: "w-1", generation: 2)
+        )
+        subscriptions.notify(pluginID: BackendFixture.pluginID, subscriptionID: subscriptionID, event: ["kind": .string("changed")])
+        fixture.sessions.runCommand("query.stop", owner: owner, context: nil)
+
+        #expect(await fixture.core.waitForNotifications(3))
+        #expect(fixture.core.notifications.map(\.method) == [
+            "lithe/host/commands/didRun", "lithe/host/subscriptions/notify", "lithe/host/commands/didRun",
+        ])
+        #expect(fixture.core.notifications.first?.params == .object([
+            "commandID": .string("query.run"),
+            "context": .object(["contextID": .string("w-1"), "generation": .integer(2)]),
+        ]))
+        #expect(fixture.core.notifications.last?.params == .object(["commandID": .string("query.stop")]))
+    }
+
+    /// A version 1 backend has no command notification, and a command that
+    /// is not an activation event does not start a stopped backend.
+    @Test
+    func aCommandReachesNoBackendThatCannotReceiveIt() async throws {
+        let first = try BackendFixture()
+        defer { first.remove() }
+        _ = try await first.sessions.pluginFunctions(ofPlugin: BackendFixture.pluginID)
+        first.sessions.runCommand("query.run", owner: ModuleID("\(BackendFixture.pluginID).ui"), context: nil)
+        #expect(first.core.notifications.isEmpty)
+
+        let stopped = try BackendFixture(backendVersion: 2)
+        defer { stopped.remove() }
+        stopped.sessions.runCommand("query.run", owner: ModuleID("\(BackendFixture.pluginID).ui"), context: nil)
+        stopped.sessions.runCommand("query.run", owner: ModuleID("dev.example.other.ui"), context: nil)
+        #expect(stopped.core.starts.isEmpty)
+        #expect(stopped.core.notifications.isEmpty)
+    }
+
     /// The answer never echoes a secret, and a request outside the
     /// credentials service is refused even if Core forwarded it.
     @Test
@@ -174,16 +222,23 @@ private struct BackendFixture {
     let core = ScriptedBackendCore()
     let sessions: MacPluginBackendSessions
 
-    init(prepareState: @escaping @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void = { _, _ in }) throws {
+    init(
+        backendVersion: Int = 1,
+        prepareState: @escaping @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void = { _, _ in }
+    ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-backend-\(UUID().uuidString)", isDirectory: true)
         packageURL = root.appendingPathComponent("package", isDirectory: true)
         stateRoot = root.appendingPathComponent("state", isDirectory: true)
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
             .appendingPathComponent("shared/contracts/plugins/v1/fixtures/backend.plugin.json")
-        let object = try #require(
+        var object = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )
+        if var requires = object["requires"] as? [String: Any] {
+            requires["backend"] = backendVersion
+            object["requires"] = requires
+        }
         _ = try DeclarativePluginTestSupport.writePackage(at: packageURL, manifest: object)
         let executable = packageURL.appendingPathComponent("bin/backend")
         try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -238,17 +293,26 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
         let outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
     }
 
+    struct Notification: Equatable {
+        let sessionID: String
+        let method: String
+        let params: ToolingJSONValue
+    }
+
     private let lock = NSLock()
     private var nextSession = 0
     private var events: [String: [LanguageServerRuntimeEvent]] = [:]
     private var _starts: [Start] = []
     private var _stops: [String] = []
     private var _responses: [Response] = []
+    private var _notifications: [Notification] = []
     private var waiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
+    private var notificationWaiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
 
     var starts: [Start] { lock.withLock { _starts } }
     var stops: [String] { lock.withLock { _stops } }
     var responses: [Response] { lock.withLock { _responses } }
+    var notifications: [Notification] { lock.withLock { _notifications } }
 
     func startPluginLanguageServer(
         pluginID: String, providerID _: String, executableURL _: URL, arguments: [String],
@@ -308,6 +372,36 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
             if ready { return continuation.resume(returning: true) }
             DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [self] in
                 lock.withLock { waiters.removeValue(forKey: id) }?.continuation.resume(returning: false)
+            }
+        }
+    }
+
+    func notifyPluginBackend(
+        sessionID: String, method: String, params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        let satisfied = lock.withLock {
+            _notifications.append(Notification(sessionID: sessionID, method: method, params: params))
+            let ready = notificationWaiters.filter { $0.value.count <= _notifications.count }
+            ready.keys.forEach { notificationWaiters.removeValue(forKey: $0) }
+            return ready.values.map(\.continuation)
+        }
+        satisfied.forEach { $0.resume(returning: true) }
+        return .success(true)
+    }
+
+    /// Notifications are sent off the main actor; like `waitForResponses`,
+    /// a watchdog fails the wait after five seconds instead of hanging.
+    func waitForNotifications(_ count: Int) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let id = UUID()
+            let ready: Bool = lock.withLock {
+                guard _notifications.count < count else { return true }
+                notificationWaiters[id] = (count, continuation)
+                return false
+            }
+            if ready { return continuation.resume(returning: true) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [self] in
+                lock.withLock { notificationWaiters.removeValue(forKey: id) }?.continuation.resume(returning: false)
             }
         }
     }
