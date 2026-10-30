@@ -533,6 +533,7 @@ struct LitheApp: App {
         }
         self.applicationLogWriter = applicationLogWriter
         applicationLogWriter.record(level: "info", scope: "session", message: "session started")
+        MacLoginShellEnvironment.shared.attach(logging: applicationLogWriter)
         let gitPerformanceLogger = MacGitPerformanceLogger(writer: applicationLogWriter)
         MacBundledFontRegistry.registerFonts { message in
             Self.appendApplicationLog(applicationLogWriter, message: message)

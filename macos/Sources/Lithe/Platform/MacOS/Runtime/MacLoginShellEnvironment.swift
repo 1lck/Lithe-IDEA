@@ -36,6 +36,9 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
 
     private let lock = NSLock()
     private var overlay: [String: String] = [:]
+    private var logging: (any ApplicationLogging)?
+    /// Outcomes from before the log writer exists; startup runs ahead of it.
+    private var pendingRecords: [(level: String, message: String, fields: [String: String])] = []
 
     init(overlay: [String: String] = [:]) {
         self.overlay = overlay
@@ -46,6 +49,43 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
     func merged(_ base: [String: String]) -> [String: String] {
         let overlay = lock.withLock { self.overlay }
         return base.merging(overlay) { current, _ in current }
+    }
+
+    /// Sends the startup outcome, and every later refresh, to the application log.
+    /// Records carry the shell's name, timing and counts, never variable values.
+    func attach(logging: any ApplicationLogging) {
+        let pending = lock.withLock {
+            self.logging = logging
+            defer { pendingRecords.removeAll() }
+            return pendingRecords
+        }
+        for record in pending {
+            logging.record(level: record.level, scope: "application", message: record.message, fields: record.fields)
+        }
+    }
+
+    private func record(level: String, message: String, fields: [String: String]) {
+        let logging = lock.withLock {
+            if self.logging == nil { pendingRecords.append((level, message, fields)) }
+            return self.logging
+        }
+        logging?.record(level: level, scope: "application", message: message, fields: fields)
+    }
+
+    private func recordRead(
+        _ environment: [String: String]?, shell: String, source: String, started: ContinuousClock.Instant
+    ) {
+        var fields = [
+            "shell": URL(fileURLWithPath: shell).lastPathComponent,
+            "source": source,
+            "duration": String(describing: started.duration(to: .now))
+        ]
+        if let environment {
+            fields["variables"] = String(environment.count)
+            record(level: "info", message: "login shell environment read", fields: fields)
+        } else {
+            record(level: "warning", message: "login shell environment unavailable", fields: fields)
+        }
     }
 
     private func replaceOverlay(_ environment: [String: String]) {
@@ -74,8 +114,10 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
             loginPath = cachedPath
         } else {
             // A slow rc file must not delay the first start indefinitely.
-            guard let login = read(shell: shell, timeout: shellTimeout ?? coldStartTimeout),
-                  let path = login["PATH"], !path.isEmpty else { return nil }
+            let started = ContinuousClock.now
+            let login = read(shell: shell, timeout: shellTimeout ?? coldStartTimeout)
+            shared.recordRead(login, shell: shell, source: "startup", started: started)
+            guard let login, let path = login["PATH"], !path.isEmpty else { return nil }
             shared.replaceOverlay(login)
             writeCache(path, to: cacheURL)
             loginPath = path
@@ -83,7 +125,10 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
         applyPath(mergedPath(login: loginPath, inherited: environment["PATH"]))
         guard cachedPath?.isEmpty == false else { return nil }
         return {
-            guard let login = read(shell: shell, timeout: shellTimeout ?? refreshTimeout) else { return }
+            let started = ContinuousClock.now
+            let login = read(shell: shell, timeout: shellTimeout ?? refreshTimeout)
+            shared.recordRead(login, shell: shell, source: "refresh", started: started)
+            guard let login else { return }
             shared.replaceOverlay(login)
             if let path = login["PATH"], !path.isEmpty {
                 writeCache(path, to: cacheURL)
@@ -109,18 +154,22 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
     /// The environment of `shell` started as an interactive login shell, or `nil`
     /// when it fails or does not finish within `timeout`.
     static func read(shell: String, timeout: TimeInterval) -> [String: String]? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-ilc", "printf '\(marker)'; /usr/bin/env -0; printf '\(marker)'"]
-        process.standardInput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        let output = Pipe()
-        process.standardOutput = output
         // Keep this read from looping back into itself through a shell that starts Lithe.
         var environment = ProcessInfo.processInfo.environment
         environment[skipVariable] = "1"
-        process.environment = environment
-
+        // stdout stays raw bytes: one non-UTF-8 greeting or value must not discard the
+        // rest, and stderr is not mixed in between the markers.
+        // `FileHandle.nullDevice` has no descriptor posix_spawn can duplicate.
+        guard let discardedErrors = FileHandle(forWritingAtPath: "/dev/null") else { return nil }
+        let output = Pipe()
+        let process = MacManagedProcess(
+            executableURL: URL(fileURLWithPath: shell),
+            arguments: ["-ilc", "printf '\(marker)'; /usr/bin/env -0; printf '\(marker)'"],
+            environment: environment,
+            standardInput: FileHandle.nullDevice,
+            standardOutput: output.fileHandleForWriting,
+            standardError: discardedErrors
+        )
         let finished = DispatchSemaphore(value: 0)
         let collected = OutputBox()
         // Drain while waiting: a large environment would otherwise fill the pipe
@@ -133,20 +182,21 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
             try process.run()
         } catch {
             try? output.fileHandleForWriting.close()
+            try? discardedErrors.close()
             return nil
         }
         try? output.fileHandleForWriting.close()
+        try? discardedErrors.close()
         guard finished.wait(timeout: .now() + timeout) == .success else {
-            // Interactive shells ignore SIGTERM. A background job an rc file started can
-            // keep the pipe open after this; its reader then ends with that job.
-            kill(process.processIdentifier, SIGKILL)
+            // Ends the shell and every job its rc file left in the process group, so
+            // nothing outlives the read and the pipe reaches end-of-file.
+            process.terminateAndWait()
             return nil
         }
-        process.waitUntilExit()
+        // Both markers prove the output is complete, whatever the shell's exit status.
         return parse(collected.get())
     }
 
-    /// Parses `MARK<env -0 output>MARK`, ignoring greetings rc files print around it.
     static func parse(_ data: Data) -> [String: String]? {
         let marker = Data(self.marker.utf8)
         guard let start = data.range(of: marker),

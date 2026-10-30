@@ -46,6 +46,13 @@ Maven 安装目录。做法参考 OpenIDEA（Apache-2.0），出处写在仓库�
    的默认环境和 JDT 的 JDK 发现都经过这里。
 5. 设置 `LITHE_SKIP_SHELL_ENV=1` 可以关闭整个读取；读取 shell 时也会给子 shell 带上它，
    防止 shell 再启动 Lithe 时循环。
+6. shell 经 `MacManagedProcess` 在独立进程组里启动。超时或 shell 退出后整组结束，
+   rc 文件留在后台的任务也会被清理，不会占着输出管道或残留进程。stdout 按原始字节解析，
+   stderr 丢弃：不用 `MacProcessRunner`，因为它把 stderr 混进输出，并且整段输出只要有
+   一个非 UTF-8 字节就会变成空串。
+7. 每次读取（启动、后台刷新）在应用日志里记一条：shell 名、来源、耗时、变量个数，
+   失败记 warning。日志写入器在读取之后才创建，启动那条先暂存，`attach(logging:)`
+   时补写。日志里永远不写变量的值。
 
 开发者要注意：新代码需要“用户的环境”时调用 `runtimeLocator.environment()`，
 不要直接读 `ProcessInfo.processInfo.environment`，否则拿不到登录 shell 的变量。
@@ -105,7 +112,8 @@ Maven 安装目录。做法参考 OpenIDEA（Apache-2.0），出处写在仓库�
   读取 `shared/fixtures/run-configuration/automatic-java-selection.json`，覆盖精确版本优先、
   最旧的更新版本、同版本内按来源优先级。
 - `./scripts/macos/test/test-macos.sh`：`MacLoginShellEnvironmentTests` 用假 shell 覆盖
-  标记解析、超时、冷/热启动缓存、关闭开关和“已有值优先”；`MacRuntimeDiscoveryTests`
+  标记解析、rc 后台任务导致的超时、冷/热启动缓存、关闭开关、“已有值优先”和
+  不含变量值的日志；`MacRuntimeDiscoveryTests`
   覆盖 mise/asdf/`~/.jdks` 的 JDK 和跳过 shim 的 Maven 发现。
 - `./scripts/architecture/verify-shared-contracts.sh`。
 

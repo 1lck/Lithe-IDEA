@@ -17,6 +17,8 @@ struct MacLoginShellEnvironmentTests {
         defer { fixture.remove() }
         try fixture.writeRC("""
         echo 'Welcome back'
+        printf '\\377 legacy-encoded motd\\n'
+        echo 'rc warning' >&2
         export LITHE_TEST_RC='two words'
         export PATH=/fixture/mise/shims:$PATH
         """)
@@ -33,8 +35,9 @@ struct MacLoginShellEnvironmentTests {
     func aShellThatHangsTimesOut() throws {
         let fixture = try ShellFixture()
         defer { fixture.remove() }
-        // `exec` keeps the hang in the shell's own process, which the timeout kills.
-        try fixture.writeRC("exec sleep 30")
+        // The hang is in a job the rc file started, which holds the output pipe open;
+        // the timeout ends the whole process group, not only the shell.
+        try fixture.writeRC("sleep 30 &\nwait")
 
         #expect(MacLoginShellEnvironment.read(shell: fixture.shell, timeout: 0.2) == nil)
     }
@@ -101,6 +104,30 @@ struct MacLoginShellEnvironmentTests {
     }
 
     @Test
+    func readOutcomesReachTheLogWithoutVariableValues() throws {
+        let fixture = try ShellFixture()
+        defer { fixture.remove() }
+        try fixture.writeRC("export LITHE_TEST_SECRET=hunter2")
+        let shared = MacLoginShellEnvironment()
+        let environment = ["SHELL": fixture.shell, "PATH": "/usr/bin:/bin"]
+
+        // Startup runs before the log writer exists; its outcome waits for it.
+        MacLoginShellEnvironment.activate(
+            cacheURL: fixture.root.appendingPathComponent("login-path"),
+            environment: environment, shared: shared, applyPath: { _ in }
+        )
+        let log = RecordingLog()
+        shared.attach(logging: log)
+
+        let record = try #require(log.records.first)
+        #expect(log.records.count == 1)
+        #expect(record.message == "login shell environment read")
+        #expect(record.fields["shell"] == "shell")
+        #expect(record.fields["source"] == "startup")
+        #expect(!record.fields.values.contains { $0.contains("hunter2") })
+    }
+
+    @Test
     func theOptOutSkipsTheShell() throws {
         let fixture = try ShellFixture()
         defer { fixture.remove() }
@@ -114,6 +141,24 @@ struct MacLoginShellEnvironmentTests {
         #expect(refresh == nil)
         #expect(!applied)
     }
+}
+
+private final class RecordingLog: ApplicationLogging, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [(message: String, fields: [String: String])] = []
+
+    var records: [(message: String, fields: [String: String])] { lock.withLock { stored } }
+
+    func record(level: String, scope: String, message: String, fields: [String: String]) {
+        lock.withLock { stored.append((message, fields)) }
+    }
+
+    func collect(query: ApplicationLogQuery) async throws -> ApplicationLogCollection {
+        throw CocoaError(.featureUnsupported)
+    }
+
+    func configureDiagnostic(category: String?, enabled: Bool) async {}
+    func clear() async throws {}
 }
 
 private struct ShellFixture {
