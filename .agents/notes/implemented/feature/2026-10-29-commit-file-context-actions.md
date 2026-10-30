@@ -43,6 +43,9 @@ Git 提交准备见[工作区提交计划](2026-09-27-workspace-git-commit-plans
 - 发出请求前检查根、状态快照、路径和忙状态；异步根归属检查返回后再次检查工作区代次与根集合。
   目录内部存在其他已识别或归属歧义的根时拒绝递归操作；根发现被截断时不假定未返回的区域安全。
 - Git 删除在执行前重新发现实际仓库，阻止确认期间才出现的嵌套仓库或 linked worktree 被整目录移走。
+  Git 目录删除同样避开 Provider 的普通根和歧义根（歧义目录虽未选定 VCS，仍是独立工作副本）。
+- 废纸篓会移走整个目录，所以 Git 和插件的未版本化目录删除在执行前都在有界预算内重新发现 Provider 根。
+  新结果与缓存不一致、被截断或失败时拒绝本次删除并重新发现，提示用户刷新后重新选择；不在旧缓存上继续执行。
   这是已发现范围的保护，不是与外部客户端之间的原子文件系统锁。
 
 ### 删除确认与编辑器保护
@@ -91,7 +94,8 @@ Provider 自身负责服务器与工作副本的原子性，宿主不保证其�
 ## 验证
 
 - `macos/Tests/LitheTests/VcsProviderHostTests.swift`：真实菜单回调、精确排序批次、能力缺失、嵌套和歧义根、
-  异步所有权过期、操作互斥与重置后的迟到结果；同文件的 `VcsProviderAppModelTests` 覆盖新标签请求生命周期。
+  异步所有权过期、操作互斥与重置后的迟到结果、废纸篓前重新发现确认期间新增的嵌套根；同文件的
+  `VcsProviderAppModelTests` 覆盖新标签请求生命周期，以及真实 Git 目录删除避开 Provider 歧义根和确认期间新增的根。
 - `macos/Tests/LitheTests/CommitFileDeletionTests.swift`：取消、替换、同意重放、同步输入后脏/过期/取消/失败，
   Provider 批次、首错停止和干净文档清理；原生窗口 Escape/关闭及实际按钮分别验证取消和确认。
 - `macos/Tests/LitheTests/GitStatusObservationTests.swift`：真实 Git 仓库中的提交准备、废纸篓动作前新嵌套仓库保护；

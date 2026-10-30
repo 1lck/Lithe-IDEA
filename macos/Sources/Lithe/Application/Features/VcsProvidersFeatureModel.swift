@@ -642,17 +642,65 @@ final class VcsProvidersFeatureModel: ObservableObject {
     /// the selected directory itself belongs to the enclosing provider.
     private func containsOtherRoot(_ change: VcsChange, in root: VcsRootState) -> Bool {
         guard let workspaceURL else { return true }
-        let target = root.url.appendingPathComponent(change.path).standardizedFileURL.path
-        return (allRootIDs + ambiguous.map(\.id)).filter { $0 != root.id }.contains {
-            let path = Self.rootURL(id: $0, workspaceURL: workspaceURL).path
+        let others = (allRootIDs + ambiguous.map(\.id)).filter { $0 != root.id }
+        return Self.hasRoot(others.map { Self.rootURL(id: $0, workspaceURL: workspaceURL) },
+                            atOrBelow: root.url.appendingPathComponent(change.path))
+    }
+
+    /// Every root and ambiguous directory of the last detection, Git
+    /// included, so a recursive Git deletion keeps out of them too.
+    var knownRootURLs: [URL] {
+        guard let workspaceURL else { return [] }
+        return (allRootIDs + ambiguous.map(\.id)).map { Self.rootURL(id: $0, workspaceURL: workspaceURL) }
+    }
+
+    /// True when one of `roots` is `target` or lies inside it.
+    nonisolated static func hasRoot(_ roots: [URL], atOrBelow target: URL) -> Bool {
+        let target = target.standardizedFileURL.path
+        return roots.contains {
+            let path = $0.standardizedFileURL.path
             return path == target || path.hasPrefix(target + "/")
         }
     }
 
+    /// Detects the roots again off the main thread, within Core's directory
+    /// budget, and tells whether the last detection still holds. A recursive
+    /// deletion asks first: the cached roots miss a working copy created
+    /// while its confirmation was open. False when detection fails, runs out
+    /// of budget, finds other roots, or the workspace changes; a stale answer
+    /// starts a detection so the next selection sees the new roots. True
+    /// without a workspace or a provider plugin, where nothing is detected.
+    func confirmRootsAreCurrent() async -> Bool {
+        guard let workspaceURL else { return true }
+        let sources = sources()
+        guard !sources.isEmpty else { return true }
+        let mappings = mappingStore.mappings(workspaceURL: workspaceURL)
+        let planner = planner, generation = generation
+        let detection = await Task.detached(priority: .userInitiated) {
+            try? planner.detectRoots(workspaceURL: workspaceURL, manifests: sources.map(\.manifest), mappings: mappings)
+        }.value
+        guard self.generation == generation, !Task.isCancelled else { return false }
+        guard let detection, !detection.truncated, !isTruncated, detection.roots.map(\.id) == allRootIDs,
+              detection.ambiguous.map(\.id) == ambiguous.map(\.id) else {
+            detect()
+            return false
+        }
+        return true
+    }
+
+    /// Native Trash removes a directory with everything inside, so the roots
+    /// are detected again before it runs, not only read from the cache.
     func trash(_ changes: [VcsChange], in rootID: String,
                action: @MainActor () async -> Bool) async -> Bool {
-        guard canTrash(changes, in: rootID), await owns(changes, in: rootID), canTrash(changes, in: rootID) else { return false }
         let generation = generation
+        guard canTrash(changes, in: rootID), await owns(changes, in: rootID) else { return false }
+        guard await confirmRootsAreCurrent() else {
+            if self.generation == generation {
+                report(L10n.string("Some selected files belong to another version control root. Refresh and select them again."), rootID: rootID)
+            }
+            return false
+        }
+        guard self.generation == generation, canTrash(changes, in: rootID) else { return false }
         runningOperation = RunningOperation(rootID: rootID, title: L10n.string("Deleting…"))
         defer {
             if self.generation == generation { runningOperation = nil; refresh(rootID) }

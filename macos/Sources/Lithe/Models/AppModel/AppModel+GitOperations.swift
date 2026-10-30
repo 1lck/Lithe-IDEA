@@ -1,5 +1,6 @@
 import Foundation
 import LitheGitModule
+import LitheModuleAPI
 
 extension AppModel {
     func makeCommitFileDeletion() -> CommitFileDeletionFeatureModel {
@@ -128,23 +129,32 @@ extension AppModel {
             return self.workspaceFeature.workspaceGeneration == generation
                 && feature.availableRepositoryRoots.contains(root)
         }
+        // Provider roots include ambiguous directories: a nested working copy
+        // whose VCS is not chosen yet still must not go to the Trash.
+        let isEligible: @MainActor () -> Bool = { [weak self, weak feature] in
+            guard let self, let feature, feature.canRollbackChanges,
+                  self.vcsProvidersFeature?.isTruncated != true else { return false }
+            let nestedRoots = feature.availableRepositoryRoots + (self.vcsProvidersFeature?.knownRootURLs ?? [])
+            return changes.allSatisfy { change in
+                feature.gitChanges.contains(change)
+                    && !VcsProvidersFeatureModel.hasRoot(nestedRoots, atOrBelow: change.url)
+            }
+        }
         commitFileDeletion.request(changes.map(\.url), root: root,
             isCurrent: isCurrent,
-            isEligible: { [weak self, weak feature] in
-                guard let self, let feature, feature.canRollbackChanges,
-                      self.vcsProvidersFeature?.isTruncated != true else { return false }
-                let nestedRoots = feature.availableRepositoryRoots
-                    + (self.vcsProvidersFeature?.roots.map(\.url) ?? [])
-                return changes.allSatisfy { change in
-                    feature.gitChanges.contains(change) && !nestedRoots.contains { candidate in
-                        let path = candidate.standardizedFileURL.path
-                        let target = change.url.standardizedFileURL.path
-                        return path == target || path.hasPrefix(target + "/")
+            isEligible: isEligible,
+            delete: { [weak self, weak feature, weak deletion] urls in
+                guard let self, let feature, let deletion else { return false }
+                // Git finds its own nested repositories again below; plugin
+                // roots created during the confirmation need a fresh detection.
+                if let providers = self.vcsProvidersFeature {
+                    guard await providers.confirmRootsAreCurrent(), isCurrent(), isEligible() else {
+                        if isCurrent() {
+                            self.showNotification(L10n.string("Some selected files belong to another version control root. Refresh and select them again."))
+                        }
+                        return false
                     }
                 }
-            },
-            delete: { [weak feature, weak deletion] urls in
-                guard let feature, let deletion else { return false }
                 return await feature.deleteCommitFiles(changes) {
                     await deletion.trash(urls, root: root, isCurrent: isCurrent)
                 }

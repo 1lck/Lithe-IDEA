@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import SwiftUI
 import LitheCoreContracts
+import LitheGitModule
 import LitheModuleAPI
 import Testing
 @testable import Lithe
@@ -176,6 +177,30 @@ struct VcsProviderHostTests {
         try #require(await fixture.settled())
         #expect(!fixture.feature.canDelete(changes.filter { $0.path == "tracked" }, in: ""))
         #expect(fixture.providers.requests.allSatisfy { $0.operation.name != "fileOperation" })
+    }
+
+    /// Native Trash removes the whole directory, so a working copy created
+    /// inside it after the last detection must stop the deletion.
+    @Test(arguments: [false, true])
+    func trashDetectsRootsAgainBeforeRemovingADirectory(nestedRootAppeared: Bool) async throws {
+        let fixture = try VcsFeatureFixture(roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([("folder", "unversioned")])
+        try #require(await fixture.open())
+        let directory = try #require(fixture.feature.root("")?.snapshot?.changes)
+        try #require(fixture.feature.canTrash(directory, in: ""))
+        if nestedRootAppeared {
+            fixture.planner.detection = try VcsTestData.detection(
+                roots: [("", "svn"), ("folder/nested", "git")], workspaceURL: fixture.workspaceURL)
+        }
+        let detections = fixture.planner.detectCount
+        var trashed = 0
+        let result = await fixture.feature.trash(directory, in: "") { trashed += 1; return true }
+        #expect(result == !nestedRootAppeared && trashed == (nestedRootAppeared ? 0 : 1))
+        #expect(fixture.planner.detectCount > detections)
+        #expect((fixture.feature.failure != nil) == nestedRootAppeared)
+        try #require(await fixture.settled())
+        #expect(fixture.feature.canTrash(directory, in: "") == !nestedRootAppeared)
     }
 
     @Test
@@ -841,6 +866,64 @@ struct VcsProviderAppModelTests {
         #expect(feature.workspaceURL == nil)
         #expect(feature.roots.isEmpty)
         #expect(!feature.isDetecting)
+    }
+
+    /// A Git deletion of an untracked directory keeps out of every provider
+    /// root: an ambiguous directory already known, and one that only a fresh
+    /// detection finds after the confirmation opened.
+    @Test(arguments: ["ambiguous", "created-during-confirmation"])
+    func gitDirectoryDeletionKeepsOutOfProviderRoots(nested: String) async throws {
+        let root = try Self.makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try await Self.git(["init", "-q"], at: root)
+        try Data("tracked\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try await Self.git(["add", "tracked.txt"], at: root)
+        try await Self.git(["commit", "-q", "-m", "initial"], at: root)
+        let folder = root.appendingPathComponent("folder", isDirectory: true).standardizedFileURL
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("nested"), withIntermediateDirectories: true)
+        try Data("content\n".utf8).write(to: folder.appendingPathComponent("nested/file.txt"))
+        // Enough files that Git reports the directory as one summary row.
+        for number in 1...101 {
+            try Data("ordinary content\n".utf8).write(to: folder.appendingPathComponent("file-\(number).txt"))
+        }
+
+        let fixture = try VcsFeatureFixture(workspaceURL: root, roots: [("", "git")],
+                                            ambiguous: nested == "ambiguous" ? ["folder/nested"] : [])
+        defer { fixture.close() }
+        let model = Self.makeModel(fixture)
+        defer { model.commitFileDeletion.reset() }
+        let git = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        git.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { git.reset() }
+        await git.refreshGit()
+        let directory = try #require(git.gitChanges.first { $0.path == "folder/" })
+        fixture.feature.reset(workspaceURL: root)
+        try #require(await awaitChange(on: fixture.feature) {
+            !fixture.feature.isDetecting && !fixture.feature.knownRootURLs.isEmpty
+        })
+
+        model.requestDeleteCommitFiles([directory], feature: git)
+        if nested == "ambiguous" {
+            #expect(model.commitFileDeletion.pending == nil)
+            return
+        }
+        let request = try #require(model.commitFileDeletion.pending)
+        // A checkout appears inside the directory before the user confirms.
+        fixture.planner.detection = try VcsTestData.detection(
+            roots: [("", "git"), ("folder/nested", "svn")], workspaceURL: root)
+        let detections = fixture.planner.detectCount
+        await model.commitFileDeletion.confirm(request)
+        #expect(fixture.planner.detectCount > detections)
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("nested/file.txt").path))
+    }
+
+    private static func git(_ arguments: [String], at directory: URL) async throws {
+        let result = try await TestProcess.run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            arguments: ["-c", "user.email=tests@lithe.local", "-c", "user.name=Lithe Tests"] + arguments,
+            currentDirectoryURL: directory
+        )
+        try #require(result.terminationStatus == 0, "\(String(decoding: result.output, as: UTF8.self))")
     }
 
     private static func makeWorkspace() throws -> URL {
