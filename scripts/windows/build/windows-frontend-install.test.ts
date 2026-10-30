@@ -65,6 +65,7 @@ if (process.argv.includes("--locker")) {
   const server = net.createServer();
   server.listen(0, "127.0.0.1", () => {
     const ownership = net.connect(Number(process.env.LITHE_INSTALL_OWNER_PORT), "127.0.0.1");
+    // test-stability: allow(typescript-real-timer) reason: Real child TCP ownership ACK needs a bounded OS watchdog before the parent may exit.
     ownership.setTimeout(5000, () => { throw Error("Locker ownership handshake timed out"); });
     ownership.once("error", error => { throw error; });
     ownership.once("connect", () => ownership.write(JSON.stringify({
@@ -138,6 +139,7 @@ async function waitForOwnedProcesses(root: string, owned: OwnedProcess[]) {
     });
     let result: number[] | undefined;
     let failure: Error | undefined;
+    // test-stability: allow(typescript-real-timer) reason: Bound the real native handle waiter; shared handles remain owned until its worker thread exits.
     const timer = setTimeout(() => {
       failure = new Error("Native process-handle waiter exceeded its 7 second deadline");
       // terminate() completes after the native wait thread exits. Never let the
@@ -209,6 +211,7 @@ async function withInstaller(
     sockets.add(socket);
     socket.once("close", () => sockets.delete(socket));
     socket.on("error", (error) => ownershipErrors.push(String(error)));
+    // test-stability: allow(typescript-real-timer) reason: Bound the real child process ownership socket; timeout destroys that socket and teardown reclaims captured handles.
     socket.setTimeout(5000, () => socket.destroy(new Error("Process ownership request timed out")));
     let message = "";
     socket.on("data", (chunk) => {
@@ -259,6 +262,7 @@ async function withInstaller(
   });
   try {
     await new Promise<void>((resolve, reject) => {
+      // test-stability: allow(typescript-real-timer) reason: Real loopback listen completion needs a local deadline; failure still closes this invocation-owned server.
       const timer = setTimeout(
         () => reject(new Error("Ownership server startup exceeded 5 seconds")),
         5000,
@@ -388,6 +392,7 @@ async function withInstaller(
   for (const socket of sockets) socket.destroy();
   try {
     await new Promise<void>((resolve, reject) => {
+      // test-stability: allow(typescript-real-timer) reason: Bound real socket/server shutdown after all owned sockets were destroyed; no simulated clock can prove OS release.
       const timer = setTimeout(
         () => reject(new Error("Ownership server cleanup exceeded 5 seconds")),
         5000,
