@@ -33,8 +33,9 @@ export function formatGitBlameDate(unixSeconds: number): string {
 /**
  * Builds the per-line gutter annotations. IDEA annotates every line, so
  * consecutive lines of one commit repeat the same label instead of leaving a
- * blank gutter that reads as missing data. The date leads the label, matching
- * the annotate column users compare against IDEA.
+ * blank gutter that reads as missing data. The date leads the label with a
+ * single space before the author, matching the annotate column users compare
+ * against IDEA.
  */
 export function buildGitBlameGutterEntries(
   blame: GitBlame,
@@ -46,7 +47,7 @@ export function buildGitBlameGutterEntries(
   for (const line of lines) {
     const label = line.is_uncommitted
       ? options.uncommittedLabel
-      : `${formatGitBlameDate(line.time)}, ${line.author}`;
+      : `${formatGitBlameDate(line.time)} ${line.author}`;
     entries.set(line.line_number, {
       commitHash: line.commit_hash,
       text: label,

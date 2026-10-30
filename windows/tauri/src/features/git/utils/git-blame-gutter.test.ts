@@ -45,7 +45,7 @@ describe("git blame gutter entries", () => {
     // IDEA annotates each line; a blank gutter on the second line of a block
     // reads as missing attribution rather than as shared authorship.
     for (const lineNumber of [1, 2, 3]) {
-      expect(entries.get(lineNumber)?.text).toBe("2025/10/30, Ada");
+      expect(entries.get(lineNumber)?.text).toBe("2025/10/30 Ada");
     }
     expect(entries.get(2)?.commitHash).toBe(FIRST);
     expect(entries.get(3)?.commitHash).toBe(SECOND);
