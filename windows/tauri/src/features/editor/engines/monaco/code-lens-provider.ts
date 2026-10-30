@@ -21,6 +21,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { filePathFromUri } from "@/features/editor/lsp/workspace-edit";
 import { MONACO_HIGHLIGHT_LANGUAGE_IDS } from "./language";
 import { filePathFromLitheModelUri } from "./model-uri";
+import { createHiddenModelRefresh } from "./surface-visibility";
 
 const EXECUTE_LSP_CODE_LENS_COMMAND = "lithe.executeLspCodeLens";
 const SHOW_REFERENCES_COMMAND = "editor.action.showReferences";
@@ -158,28 +159,43 @@ export function registerMonacoCodeLensProvider(): void {
 
   const lspClient = LspClient.getInstance();
   const codeLensesChanged = new Emitter<Monaco.languages.CodeLensProvider>();
+  // Monaco treats a failed provider as "no lenses", so a hidden tab gets its
+  // last lenses back instead of a server request on every document open.
+  const lastLenses = new WeakMap<Monaco.editor.ITextModel, Monaco.languages.CodeLensList>();
+  const hiddenModels = createHiddenModelRefresh(() => codeLensesChanged.fire(provider));
   const provider: Monaco.languages.CodeLensProvider = {
     onDidChange: codeLensesChanged.event,
     async provideCodeLenses(model, token) {
-      const filePath = filePathFromModel(model);
-      const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
-      if (
-        !target ||
-        !isDocumentFeatureAvailable(lspClient.getDocumentAvailability(target, "codeLens")) ||
-        (!target.documentUri && !lspClient.isDocumentOpen(target.filePath))
-      ) {
-        return { lenses: [] };
+      if (hiddenModels.skipIfHidden(model.uri.toString())) {
+        return lastLenses.get(model) ?? { lenses: [] };
       }
-
-      const lenses = await lspClient.getCodeLens(target);
-      if (token.isCancellationRequested) return { lenses: [] };
-
-      return {
-        lenses: lenses
-          .map((lens) => toMonacoCodeLens(filePath, lens, target))
-          .filter((lens): lens is Monaco.languages.CodeLens => lens !== null),
-      };
+      const list = await provideVisibleCodeLenses(model, token);
+      if (!token.isCancellationRequested) lastLenses.set(model, list);
+      return list;
     },
+  };
+  const provideVisibleCodeLenses = async (
+    model: Monaco.editor.ITextModel,
+    token: Monaco.CancellationToken,
+  ): Promise<Monaco.languages.CodeLensList> => {
+    const filePath = filePathFromModel(model);
+    const target = lspDocumentTargetForEditorPath(useBufferStore.getState().buffers, filePath);
+    if (
+      !target ||
+      !isDocumentFeatureAvailable(lspClient.getDocumentAvailability(target, "codeLens")) ||
+      (!target.documentUri && !lspClient.isDocumentOpen(target.filePath))
+    ) {
+      return { lenses: [] };
+    }
+
+    const lenses = await lspClient.getCodeLens(target);
+    if (token.isCancellationRequested) return { lenses: [] };
+
+    return {
+      lenses: lenses
+        .map((lens) => toMonacoCodeLens(filePath, lens, target))
+        .filter((lens): lens is Monaco.languages.CodeLens => lens !== null),
+    };
   };
   useLspStore.subscribe((state, previousState) => {
     const currentStatus = state.lspStatus;

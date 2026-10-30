@@ -36,6 +36,7 @@ export const EditorSettings = () => {
       lineNumbers: state.settings.lineNumbers,
       lintOnSave: state.settings.lintOnSave,
       maxOpenTabs: state.settings.maxOpenTabs,
+      tabLimitPolicy: state.settings.tabLimitPolicy,
       parameterHints: state.settings.parameterHints,
       renderIndentGuides: state.settings.renderIndentGuides,
       renderWhitespace: state.settings.renderWhitespace,
@@ -390,6 +391,28 @@ export const EditorSettings = () => {
             onChange={(val) => updateSetting("maxOpenTabs", val)}
             className={SETTINGS_CONTROL_WIDTHS.numberCompact}
             size="md"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={t("settings.editor.tabLimitPolicy")}
+          description={t("settings.editor.tabLimitPolicyDescription")}
+          onReset={() => updateSetting("tabLimitPolicy", getDefaultSetting("tabLimitPolicy"))}
+          canReset={settings.tabLimitPolicy !== getDefaultSetting("tabLimitPolicy")}
+        >
+          <SettingsSelect
+            value={settings.tabLimitPolicy}
+            options={[
+              {
+                value: "leastRecentlyUsed",
+                label: t("settings.editor.tabLimitPolicy.leastRecentlyUsed"),
+              },
+              { value: "oldestOpened", label: t("settings.editor.tabLimitPolicy.oldestOpened") },
+            ]}
+            onChange={(value) =>
+              updateSetting("tabLimitPolicy", value as typeof settings.tabLimitPolicy)
+            }
+            className={SETTINGS_CONTROL_WIDTHS.default}
           />
         </SettingRow>
 

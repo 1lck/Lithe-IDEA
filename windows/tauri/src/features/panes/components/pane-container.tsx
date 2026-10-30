@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import type { Buffer } from "@/features/editor/stores/buffer.store";
@@ -29,7 +29,10 @@ import {
   resolveDropTarget,
 } from "@/features/tabs/utils/internal-tab-drag";
 import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";
-import { reconcileMountedEditorBuffers } from "../utils/mounted-editor-buffers";
+import {
+  assignEditorSurfaceKeys,
+  reconcileMountedEditorBuffers,
+} from "../utils/mounted-editor-buffers";
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
 import { usePaneStore } from "../stores/pane.store";
@@ -117,6 +120,18 @@ interface PaneContainerProps {
 }
 
 const MAX_MOUNTED_EDITOR_BUFFERS = 8;
+/**
+ * Hides a mounted editor tab while keeping its Monaco layout. `visibility`
+ * alone left the tab's whole DOM in every style recalculation, and WebView2
+ * restyles a visibility-hidden Monaco tree about 25x slower than a visible
+ * one: opening a file next to a hidden tab cost 100-250 ms. Skipping the
+ * contents with `content-visibility` keeps their cached layout, so Monaco is
+ * not resized to zero; `visibility` keeps the empty slot from taking clicks.
+ */
+const HIDDEN_EDITOR_SLOT_STYLE = {
+  visibility: "hidden",
+  contentVisibility: "hidden",
+} as const satisfies CSSProperties;
 
 type EditorBufferShell = Pick<EditorContent, "id" | "path" | "name" | "type" | "readOnly">;
 type PaneRenderBuffer = Exclude<Buffer, EditorContent> | EditorBufferShell;
@@ -192,6 +207,8 @@ export function PaneContainer({ pane }: PaneContainerProps) {
     recentIds: [] as readonly string[],
     mountedIds: [] as readonly string[],
   });
+  const editorSurfaceKeysRef = useRef<ReadonlyMap<string, string>>(new Map());
+  const editorSurfaceKeyCounterRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const workspaceScopeId = useWorkspaceStoreScopeId();
   const activeWorkspaceId = useActiveWorkspaceId();
@@ -588,11 +605,32 @@ export function PaneContainer({ pane }: PaneContainerProps) {
     [pane.id, handleFileOpen, openSidebarResourceInPane],
   );
 
-  const mountedEditorBuffers = paneBuffers.filter(
-    (buffer): buffer is EditorBufferShell =>
-      isStandardEditorBuffer(buffer) &&
-      (buffer.id === activeBuffer?.id || mountedEditorBufferIds.includes(buffer.id)),
+  // Decide the mounted set during render with the same LRU rule the effect
+  // above records, so a newly opened file takes over the evicted file's editor
+  // surface in this render instead of mounting a ninth editor first.
+  const standardEditorBuffers = paneBuffers.filter(isStandardEditorBuffer);
+  const renderedEditorBufferIds = reconcileMountedEditorBuffers(
+    {
+      recentIds: mountedEditorBufferStateRef.current.recentIds,
+      mountedIds: mountedEditorBufferIds,
+    },
+    standardEditorBuffers.map((buffer) => buffer.id),
+    activeBuffer && isStandardEditorBuffer(activeBuffer) ? activeBuffer.id : null,
+    MAX_MOUNTED_EDITOR_BUFFERS,
+  ).recentIds;
+  const editorSurfaceKeys = assignEditorSurfaceKeys(
+    editorSurfaceKeysRef.current,
+    renderedEditorBufferIds,
+    () => `editor-surface-${++editorSurfaceKeyCounterRef.current}`,
   );
+  editorSurfaceKeysRef.current = editorSurfaceKeys;
+  const mountedEditorBuffers = standardEditorBuffers
+    .filter((buffer) => editorSurfaceKeys.has(buffer.id))
+    .map((buffer) => ({ buffer, surfaceKey: editorSurfaceKeys.get(buffer.id) ?? buffer.id }))
+    // Render surfaces in creation order so a key change never moves DOM nodes.
+    .sort((left, right) =>
+      Number(left.surfaceKey.slice(15)) - Number(right.surfaceKey.slice(15)),
+    );
 
   const renderActiveBuffer = useCallback(
     (buffer: PaneRenderBuffer) => {
@@ -815,18 +853,19 @@ export function PaneContainer({ pane }: PaneContainerProps) {
                   </div>
                 );
               })}
-            {mountedEditorBuffers.map((buffer) => {
+            {mountedEditorBuffers.map(({ buffer, surfaceKey }) => {
               const isActive = buffer.id === activeBuffer?.id;
               return (
                 <div
-                  key={buffer.id}
+                  key={surfaceKey}
                   className="absolute inset-0"
-                  style={isActive ? undefined : { visibility: "hidden" }}
+                  style={isActive ? undefined : HIDDEN_EDITOR_SLOT_STYLE}
                 >
                   <CodeEditor
                     paneId={pane.id}
                     bufferId={buffer.id}
                     isActiveSurface={isActive && isActivePane}
+                    isVisibleSurface={isActive}
                     readOnly={buffer.readOnly}
                   />
                 </div>

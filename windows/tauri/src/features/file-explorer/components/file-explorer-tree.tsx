@@ -794,6 +794,19 @@ function FileExplorerTreeComponent({
     setEditingValue("");
   };
 
+  // Rows are memoized by identity of these callbacks. Handing them the inline
+  // editors directly made every row re-render whenever the tree rendered.
+  const inlineEditingRef = useRef({ finish: finishInlineEditing, cancel: cancelInlineEditing });
+  inlineEditingRef.current = { finish: finishInlineEditing, cancel: cancelInlineEditing };
+  const submitRowInlineEditing = useCallback(
+    (value: string, file: FileEntry) => inlineEditingRef.current.finish(file, value),
+    [],
+  );
+  const cancelRowInlineEditing = useCallback(
+    (file: FileEntry) => inlineEditingRef.current.cancel(file),
+    [],
+  );
+
   const openPathInTab = useCallback(
     async (path: string) => {
       if (onFileOpen) {
@@ -1743,6 +1756,10 @@ function FileExplorerTreeComponent({
             const previousRow = visibleRows[index - 1];
             const nextRow = visibleRows[index + 1];
             const isEditingRow = row.file.isEditing || row.file.isRenaming;
+            // Every visible row is re-prepared on each tree render (selection,
+            // opened file), so the mark lookup runs once per row, not per prop.
+            const directoryMark =
+              marks[getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."];
             const guideTargets: Array<FileTreeGuideTarget | null> =
               fileTreeSettings.showIndentGuidesInFileTree
                 ? getGuideAncestorRows(visibleRows, index).map((ancestor) =>
@@ -1778,22 +1795,13 @@ function FileExplorerTreeComponent({
                     ? selectedPaths.has(row.file.path)
                     : highlightedPath === row.file.path
                 }
-                directoryMark={
-                  marks[getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."]
-                }
+                directoryMark={directoryMark}
                 semanticKind={
-                  marks[
-                    getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."
-                  ] === "sources"
+                  directoryMark === "sources"
                     ? "folder.source-root"
-                    : marks[
-                          getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") || "."
-                        ] === "resources"
+                    : directoryMark === "resources"
                       ? "folder.resources-root"
-                      : marks[
-                            getRelativePath(row.file.path, rootFolderPath).replace(/\\/g, "/") ||
-                              "."
-                          ] === "package"
+                      : directoryMark === "package"
                         ? "folder.package"
                         : row.semanticKind
                 }
@@ -1807,8 +1815,8 @@ function FileExplorerTreeComponent({
                 isDragging={dragState.isDragging}
                 editingValue={isEditingRow ? editingValue : undefined}
                 onEditingValueChange={setEditingValue}
-                onSubmit={(value, file) => finishInlineEditing(file, value)}
-                onCancel={cancelInlineEditing}
+                onSubmit={submitRowInlineEditing}
+                onCancel={cancelRowInlineEditing}
                 getGitStatusDecoration={getGitStatusDecoration}
                 rowId={getFileTreeRowId(row.file.path)}
                 searchQuery={displayedTreeSearch?.query}

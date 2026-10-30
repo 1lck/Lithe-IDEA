@@ -11,6 +11,7 @@ import { toMonacoLanguageId } from "../engines/monaco/language";
 import { defineActiveMonacoTheme, defineMonacoTheme } from "../engines/monaco/theme";
 import { useMonacoEditorSettings } from "../engines/monaco/use-monaco-editor-settings";
 import { EDITOR_CONSTANTS } from "../config/constants";
+import { MONACO_INPUT_OPTIONS } from "../engines/monaco/input-options";
 
 interface NotebookCodeCellEditorProps {
   id: string;
@@ -69,6 +70,7 @@ export function NotebookCodeCellEditor({
 
     const model = monacoEditor.createModel(value, monacoLanguage, modelUri);
     const editor = monacoEditor.create(container, {
+      ...MONACO_INPUT_OPTIONS,
       model,
       automaticLayout: true,
       fontFamily,

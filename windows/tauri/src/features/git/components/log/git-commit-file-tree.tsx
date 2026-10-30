@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import {
   useFileTreePresentation,
@@ -20,6 +20,7 @@ import type { GitCommitFile } from "../../types/git.types";
 import { getCommitFileStatusColorClassName } from "../../utils/git-file-status-visuals";
 import { gitFileTreeOrder } from "../../utils/git-file-tree-order";
 import { compareGitFileNames } from "../../utils/natural-file-name-compare";
+import { installTreeGuideVisibility } from "@/features/file-explorer/lib/tree-guide-visibility";
 
 export function countCommitFileTreeLeaves(node: PathTreeNode<GitCommitFile>): number {
   if (node.type === "leaf") return 1;
@@ -176,6 +177,9 @@ export function GitCommitFileTree({
   // IntelliJ's commit-files tree scrolls horizontally instead of truncating long names,
   // like the changes tree: the tree widens to the widest rendered row (see
   // use-tree-content-width.ts) and the viewport scrolls both ways.
+  useEffect(() => {
+    installTreeGuideVisibility();
+  }, []);
   const treeContentWidth = useTreeContentWidth({
     viewportRef,
     rowSelector: "[data-sidebar-tree-row]",

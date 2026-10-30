@@ -735,9 +735,12 @@ pub fn get_bundled_extensions_path(app: AppHandle) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Returns raw bytes instead of serializing each byte as a JSON array element.
 #[tauri::command]
-pub async fn read_local_file(path: PathBuf) -> Result<Vec<u8>, String> {
-    run_blocking(move || fs::read(path).map_err(|error| error.to_string())).await
+pub async fn read_local_file(path: PathBuf) -> Result<tauri::ipc::Response, String> {
+    run_blocking(move || fs::read(path).map_err(|error| error.to_string()))
+        .await
+        .map(tauri::ipc::Response::new)
 }
 
 fn read_bounded(reader: &mut impl Read, max_bytes: usize) -> io::Result<BoundedFileRead> {

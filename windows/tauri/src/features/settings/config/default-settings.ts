@@ -189,7 +189,8 @@ export const defaultSettings: Settings = {
   // Other
   lastSettingsTab: "general",
   extensionsActiveTab: "all",
-  maxOpenTabs: 100,
+  maxOpenTabs: 20,
+  tabLimitPolicy: "leastRecentlyUsed",
   //// File tree
   fileTreeSortOrder: "folders-first",
   fileTreeIndentSize: 16,

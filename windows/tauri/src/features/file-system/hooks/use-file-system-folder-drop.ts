@@ -1,6 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
@@ -107,16 +107,23 @@ export const useFileSystemFolderDrop = (
   treatPaneDropAsGlobal = false,
 ) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  // Callers pass inline callbacks. Reading them through refs keeps the native
+  // listeners registered once instead of re-subscribing over IPC on every render.
+  const onDropRef = useRef(onDrop);
+  onDropRef.current = onDrop;
+  const treatPaneDropAsGlobalRef = useRef(treatPaneDropAsGlobal);
+  treatPaneDropAsGlobalRef.current = treatPaneDropAsGlobal;
 
   useEffect(() => {
     const currentWindow = getCurrentWindow();
+    let disposed = false;
     let unlistenWindow: (() => void) | null = null;
     let unlistenWebview: (() => void) | null = null;
     let domTeardown: (() => void) | null = null;
 
     const handleExternalPayload = async (payload: { type: string; paths?: string[] }) => {
       await handleExternalFileDropPayload(payload, {
-        onDrop,
+        onDrop: (paths) => onDropRef.current(paths),
         setDraggingOver: setIsDraggingOver,
         onError: (error) => {
           console.error("Error handling dropped items:", error);
@@ -143,7 +150,7 @@ export const useFileSystemFolderDrop = (
 
         const position = payload.position;
         const target = position ? resolveClientPoint(position).element : null;
-        const route = getExternalFileDropRoute(target, treatPaneDropAsGlobal);
+        const route = getExternalFileDropRoute(target, treatPaneDropAsGlobalRef.current);
 
         if (route === "terminal") {
           if (payload.type === "drop" && payload.paths) {
@@ -173,19 +180,31 @@ export const useFileSystemFolderDrop = (
         await handleExternalPayload(payload);
       };
 
-      unlistenWindow = await currentWindow.onDragDropEvent((event) =>
+      // Registration is asynchronous; an owner disposed meanwhile must still
+      // release the listener once it exists, or every remount leaks one.
+      const windowUnlisten = await currentWindow.onDragDropEvent((event) =>
         handleNativeDragDrop(event.payload),
       );
+      if (disposed) {
+        windowUnlisten();
+        return;
+      }
+      unlistenWindow = windowUnlisten;
 
       const currentWebview = getCurrentWebview();
-      unlistenWebview = await currentWebview.onDragDropEvent((event) =>
+      const webviewUnlisten = await currentWebview.onDragDropEvent((event) =>
         handleNativeDragDrop(event.payload),
       );
+      if (disposed) {
+        webviewUnlisten();
+        return;
+      }
+      unlistenWebview = webviewUnlisten;
 
       const onDomDragOver = (event: DragEvent) => {
         if (getInternalTabDragData()) return;
         if (!isExternalFileDrag(event)) return;
-        if (!isGlobalExternalFileDropEventTarget(event, treatPaneDropAsGlobal)) {
+        if (!isGlobalExternalFileDropEventTarget(event, treatPaneDropAsGlobalRef.current)) {
           setIsDraggingOver(false);
           return;
         }
@@ -197,7 +216,7 @@ export const useFileSystemFolderDrop = (
           return;
         }
         if (!isExternalFileDrag(event)) return;
-        if (!isGlobalExternalFileDropEventTarget(event, treatPaneDropAsGlobal)) {
+        if (!isGlobalExternalFileDropEventTarget(event, treatPaneDropAsGlobalRef.current)) {
           setIsDraggingOver(false);
           return;
         }
@@ -207,7 +226,7 @@ export const useFileSystemFolderDrop = (
       const onDomEnter = (event: DragEvent) => {
         if (getInternalTabDragData()) return;
         if (!isExternalFileDrag(event)) return;
-        if (!isGlobalExternalFileDropEventTarget(event, treatPaneDropAsGlobal)) {
+        if (!isGlobalExternalFileDropEventTarget(event, treatPaneDropAsGlobalRef.current)) {
           setIsDraggingOver(false);
           return;
         }
@@ -237,14 +256,15 @@ export const useFileSystemFolderDrop = (
       };
     };
 
-    setupListener();
+    void setupListener();
 
     return () => {
+      disposed = true;
       if (unlistenWindow) unlistenWindow();
       if (unlistenWebview) unlistenWebview();
       if (domTeardown) domTeardown();
     };
-  }, [onDrop, treatPaneDropAsGlobal]);
+  }, []);
 
   return { isDraggingOver };
 };
