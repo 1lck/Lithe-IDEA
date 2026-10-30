@@ -72,6 +72,10 @@ macOS 和 Windows 可以用不同的 UI 技术实现，但用户看到的交互�
   表格横向滚动处理，不挤掉提交说明。
 - 如果尺寸需要在重启后保留，只在拖动结束时通过现有布局持久化机制保存
   最终尺寸，不要在拖动过程中持续写入持久化存储。
+- macOS 首次打开、尚无已保存尺寸的工作区，左侧栏默认宽度为 360pt，上半区默认占可用高度的
+  72%，让中文 Commit 的“修订提交（上一次）”保持一行，并减少初始底部工具窗占用。
+  默认值由 `WorkbenchLayout` 统一提供，主布局、浮层与功能模型不得各留一份数字。
+  这是初始布局，不是新的最小尺寸；已有工作区宽高和用户拖动结果优先，不迁移或覆盖旧配置。
 - Windows 编辑器标签栏的滚轮处理和活动标签可见性判断必须使用内层可滚动
   列表，不能使用包含导航按钮的外层工具栏。滚动直接更新 DOM，不写入应用
   状态；手动处理滚轮时使用可取消的原生事件监听，避免浏览器再次应用水平
@@ -211,6 +215,10 @@ IDEA 的 [BranchesTreeComponent](https://github.com/JetBrains/intellij-community
   关闭后重新打开也会挂回。
 - `GitGraphInteractionTests.splitPaneBounds` 在两种方向、两种位置及折叠状态
   验证原生子视图身份、可见尺寸和传入的确定尺寸，防止恢复为堆栈尺寸探测。
+- `WorkbenchMavenLayoutTests.initialLayoutWidensTheSidebarWithoutOverwritingSavedDimensions` 验证新默认值及旧尺寸优先；
+  `CommitActionButtonStyleTests.defaultSidebarKeepsAmendOnOneLineBesideTheOtherActions` 验证中英文、明暗主题下的
+  单行高度、按钮对齐与互不重叠。带实际语言包、字体和图标的临时宿主另检查中文标签及原生截图，
+  普通 SwiftPM 几何测试不代替完整工作台视觉验收。
 - `LitheSplitPaneCollapseTests.outerDragSuspendsRowChrome` 使用原生分隔条
   事件和 69 行嵌套分支样式，检查拖动时右键覆盖层消失、祖先状态传播、行
   内容保持挂载、鼠标松开后覆盖层恢复。测试计时仅作诊断，不代表真实帧率。

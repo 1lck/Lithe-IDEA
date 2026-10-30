@@ -15,6 +15,7 @@ mod github;
 mod languages;
 mod lsp;
 mod mcp;
+mod network;
 pub mod plugins;
 pub mod process;
 mod project;
@@ -74,6 +75,11 @@ pub fn git_askpass_main(prompt: &str) -> i32 {
 
 /// Shared classification for ordinary project watcher events after root resolution.
 pub use project::is_workspace_event_relevant;
+
+/// Rewrites `<localRepository>` in a Maven settings document while keeping
+/// every other element and comment, so hosts editing the user's own
+/// `settings.xml` share the writer JDT LS settings generation already uses.
+pub use project::settings_with_local_repository;
 
 /// Connects an authorized native window to the local IDE broker's request notifications.
 /// The host retains the callback until close; receivers claim IDs through `ideHost.control`

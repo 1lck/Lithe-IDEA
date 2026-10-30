@@ -154,6 +154,51 @@ test("locate expands collapsed ancestors and renders the offscreen current file"
   expect(container.querySelectorAll('[role="treeitem"]').length).toBeLessThan(40);
 });
 
+test("locate matches a forward-slash active path against a backslash tree", async () => {
+  const nativeRoot = "C:\\workspace\\reveal";
+  const nativeDirectory = `${nativeRoot}\\src`;
+  const nativeTarget = `${nativeDirectory}\\z-current.ts`;
+  const nativeChildren = children.map((child) => ({
+    ...child,
+    path: child.path.split("/").join("\\"),
+  }));
+  useFileSystemStore.setState({
+    rootFolderPath: nativeRoot,
+    files: [
+      {
+        name: "reveal",
+        path: nativeRoot,
+        isDir: true,
+        children: [{ name: "src", path: nativeDirectory, isDir: true, children: nativeChildren }],
+      },
+    ],
+  });
+  await act(async () =>
+    root.render(
+      <LocaleProvider language="en-US">
+        <FileExplorerTree
+          files={useFileSystemStore.getState().files}
+          activePath={targetPath}
+          rootFolderPath={nativeRoot}
+          onFileSelect={() => {}}
+          onCreateNewFileInDirectory={() => {}}
+        />
+      </LocaleProvider>,
+    ),
+  );
+  const nativeTargetRow = () =>
+    [...container.querySelectorAll<HTMLElement>("[data-path]")].find(
+      (row) => row.dataset.path === nativeTarget,
+    );
+  expect(nativeTargetRow()).toBeUndefined();
+
+  await locate();
+
+  expect(useFileTreeStore.getState().expandedPaths.has(nativeDirectory)).toBe(true);
+  expect(viewport().scrollTop).toBeGreaterThan(0);
+  expect(nativeTargetRow()).not.toBeUndefined();
+});
+
 test("locate scrolls again when the active file has not changed", async () => {
   await act(async () => root.render(<ProjectTree />));
   await locate();

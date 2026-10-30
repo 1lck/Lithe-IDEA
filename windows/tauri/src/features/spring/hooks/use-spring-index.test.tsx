@@ -3,7 +3,9 @@ import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useSpringStore } from "../stores/spring.store";
@@ -430,4 +432,56 @@ test("a cancellation the hook did not request fails the load instead of leaving 
   });
   await mount();
   expect(useSpringStore.getStore(WORKSPACE_A).getState().phase).toBe("failed");
+});
+
+function javaBuffer(path: string, content: string, savedContent = content): EditorContent {
+  return {
+    id: path,
+    type: "editor",
+    path,
+    name: path.split("/").pop()!,
+    isPinned: false,
+    isPreview: false,
+    isActive: true,
+    content,
+    savedContent,
+    isDirty: content !== savedContent,
+    isVirtual: false,
+    tokens: [],
+  };
+}
+
+test("opening clean Java files does not rescan; unsaved edits do and are the only overrides", async () => {
+  await mount();
+  requestIndex.mockClear();
+  const bufferStore = useBufferStore.getStore(WORKSPACE_A);
+  const controller = `${ROOT_A}/src/Controller.java`;
+  const service = `${ROOT_A}/src/Service.java`;
+
+  await act(async () => {
+    bufferStore.setState({ buffers: [javaBuffer(controller, "class Controller {}")] });
+  });
+  await act(async () => {
+    bufferStore.setState({
+      buffers: [
+        javaBuffer(controller, "class Controller {}"),
+        javaBuffer(service, "class Service {}"),
+      ],
+    });
+  });
+  expect(scheduled).toHaveLength(0);
+
+  await act(async () => {
+    bufferStore.setState({
+      buffers: [
+        javaBuffer(controller, "class Controller { }", "class Controller {}"),
+        javaBuffer(service, "class Service {}"),
+      ],
+    });
+  });
+  expect(scheduled).toHaveLength(1);
+  await act(async () => scheduled[0].reload());
+  expect(requestIndex.mock.calls[0][0].textOverrides).toEqual({
+    "src/Controller.java": "class Controller { }",
+  });
 });

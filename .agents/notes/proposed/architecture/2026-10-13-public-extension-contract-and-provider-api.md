@@ -4,13 +4,13 @@
 
 ## 先说结论
 
-PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；到 2026-10-28，Mac 已有原生 Tree/List/Form、包内网页和独立后端，不再只是静态文本窗口。下一步先走 macOS 路线，把已有编辑器、文件和命令功能开放成有授权、版本与生命周期的公共 API，再接续领域 Provider（提供业务数据、行为或进程的实现）。不恢复任意第三方 Swift Bundle 动态加载，也不把 WASM 运行时作为补齐 API 的前置条件；任务与公开文档待办见 [macOS 插件 API 实施计划](../../../../docs/development/macos-plugin-api-plan.md)。
+PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；到 2026-10-30，Mac 已有原生 Tree/List/Form、包内网页和独立后端，不再只是静态文本窗口。下一步先走 macOS 路线，把已有编辑器、文件和命令功能开放成有授权、版本与生命周期的公共 API，再接续领域 Provider（提供业务数据、行为或进程的实现）。不恢复任意第三方 Swift Bundle 动态加载，也不把 WASM 运行时作为补齐 API 的前置条件；任务与公开文档待办见 [macOS 插件 API 实施计划](../../../../docs/development/macos-plugin-api-plan.md)。
 
 ## 问题
 
 最初的 API level 2 要求窗口使用 `text`，命令只能打开自身窗口，插件校验依赖语言或 UI。这是第一阶段的历史背景，不是今天的完整能力表：当前 Core 已允许纯 Build/VCS/Debug/项目生成器插件，Mac 的 `ui:3` 也已经支持原生树、列表和表单。
 
-当前缺口在于通用接入：`ui.commands` 仍绑定自身窗口；原生动态数据源绑定自身构建系统和唯一实例；`backend:1` 是每插件一个应用级进程，只由自身网页调用。函数协议 v2 已有本插件凭据服务，但尚不是通用工作区/编辑器 SDK。开发者不能因为内部 Swift 模块能操作文件或编辑器，就直接从第三方后端调用它。领域能力的进一步迁移也不能与通用宿主 API 混为一谈。
+当前缺口在于通用接入：`ui.commands` 仍绑定自身窗口；原生动态数据源绑定自身构建系统和唯一实例；`backend:1` 是每插件一个应用级本机进程，只由自身网页调用，不识别远程工作区。函数协议 v2 已有本插件凭据服务，但尚不是通用工作区/编辑器 SDK。开发者不能因为内部 Swift 模块能操作文件或编辑器，就直接从第三方后端调用它。领域能力的进一步迁移也不能与通用宿主 API 混为一谈。
 
 ## 提案
 
@@ -46,11 +46,11 @@ PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；
 
 公共 Extension Contract（插件和宿主交换能力声明及调用结果的协议）覆盖 Language/LSP、BuildSystem/Task、RunConfiguration/Test、DebugAdapter 和 ServiceProvider。Provider 提供业务行为、进程协议或数据，宿主负责发现、调度、权限、展示、取消、超时、失效结果和资源生命周期。纯 Build/Debug 等入口已存在；尚待定义的通用 Services 与独立命令也不应为了通过校验而造空语言或空窗口。
 
-版本控制（VCS）也作为领域扩展点接入，内置 Git 与插件 VCS 共用同一统一模型，见[统一 VCS 模型与 Provider 接入](2026-10-22-unified-vcs-provider-model.md)。
+版本控制（VCS）也作为领域扩展点接入，但第一期统一模型只服务插件 Provider：内置 Git 按 2026-10-22 评审暂不接入，仍由 Git 模块持有，见[统一 VCS 模型与 Provider 接入](2026-10-22-unified-vcs-provider-model.md)。因此插件目前没有读取内置 Git 状态的公共入口，是否开放只读快照见实施计划 API-42。
 
 内置模块和插件尽量实现相同领域 Provider 契约。Build/Run/Test/Debug 等采用类型化 Registry（按能力类型登记和查询实现的目录），组合根负责装配通用适配器，不按新增插件名追加分支。先盘点并复用已有语言服务器、构建工具、运行/测试和 DAP（调试适配器协议）链路；上游拥有的项目、任务和依赖事实仍由原工具提供，避免再造一套解释器、工程模型或调试 UI。
 
-2026-10-28 盘点时，[PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517) 正在扩展原生 Build/Run/Test/Debug 准备与只读工程模型输入，尚未合并。相关工作先跟踪其最终版本，不另建协议，也不把该 PR 的能力记成当前 Mac 已发布支持。
+[PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517) 已于 2026-10-28 合并，扩展了原生 Build/Run/Test/Debug 准备与只读工程模型输入；Mac 已声明 `buildProviders:1–6`、`buildModelInputs:1`、`debugAdapters:1/2`（以 `PluginTypes.swift` 的 `hostCapabilities` 为准）。后续只补文档、SDK 对齐和端到端验收，不另建协议。[PR #1515](https://github.com/1lck/Lithe-IDEA/pull/1515) 于 2026-10-29 合并，把远程工作区的文件、工作区、终端、Build 以及 Build/VCS/语言 Provider 启动路由到远程适配器，但它是阶段性实现，范围见下一节。
 
 Debug 的统一内核、三层能力、插件声明与迁移验收见[统一调试内核与调试适配器 Registry](2026-10-25-unified-debug-engine-and-adapter-registry.md)，跟踪当前仓库的 [#1210](https://github.com/1lck/Lithe-IDEA/issues/1210)。寄存器、内存、反汇编等可选能力另见[可选调试扩展](2026-10-25-optional-debug-extensions.md)，插件依赖与导出另见[平台级独立提案](2026-10-25-plugin-dependencies-and-exports.md)；两者都不作为 #1210 的前置条件。这些提案没有开放新字段，也不改变其他领域 Provider 的设计。
 
@@ -59,6 +59,14 @@ Debug 的统一内核、三层能力、插件声明与迁移验收见[统一调�
 Services 接入容器、Spring Boot、数据库和本地服务。后续统一设计 ServiceProvider/ServiceDescriptor/Instance/Status/Actions/Logs 的语义；这些名称是设计目标，当前没有公布字段全集或承诺已经实现。
 
 宿主必须区分插件创建并拥有的资源与用户独立运行的外部服务。禁用插件时注销贡献、关闭它拥有的连接/监听/进程和任务；对外部服务释放观察或连接，不能默认停止外部实例。用户显式调用停止动作时另行核对授权与目标。权限、归属与取消语义先进入契约和 fixtures，再接入真实服务。
+
+### 工作区 authority、激活与保存前事件
+
+远程工作区（见[远程工作区按根目录路由](../../implemented/architecture/2026-10-24-remote-workspace-routing.md)）在本机以空占位根目录打开，由 `RemoteWorkspaceRegistry` 绑定会话和远程根；`backend:1` 与网页 bridge 目前只认本机工作区。公共 API 的资源标识因此需要显式 authority：首版只承诺本机，未实现的 authority 明确拒绝，不把占位根或远程路径当本机路径，也不静默在本机执行。
+
+激活事件目前只能与已声明的 Provider 或窗口命令一一对应，没有独立命令、工作区匹配事件和统一的启动预算；应用也没有工作区信任概念，只有逐操作确认。这两点在实施计划 M0 定稿（API-40、API-41），本 Note 不预设答案。保存前事件（`documents.onWillSave`，API-43）依赖版本化编辑与严格截止时间，晚于单文档编辑落地。
+
+Agent 的 Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，插件没有贡献来源。是否允许插件提供候选（API-44）与 IDE broker 的威胁建模一起评审：候选只能经用户确认写入明确来源，不能自动启用。
 
 ### 版本与兼容性
 

@@ -360,6 +360,7 @@ private struct ActiveSessionChrome: View {
                 feature: session.vcsProvidersFeature, fontFamily: session.settings.editorFontFamily,
                 openFile: { [weak session] in session?.openFile($0, allowsOutsideWorkspace: true) }
             ))
+            .modifier(CommitFileDeletionPresentation(feature: session.commitFileDeletion))
 
     }
 

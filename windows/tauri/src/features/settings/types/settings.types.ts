@@ -20,11 +20,15 @@ type EditorCursorStyle =
   | "block-outline"
   | "underline-thin";
 type EditorCursorBlinking = "blink" | "smooth" | "phase" | "expand" | "solid";
+/** Which tab closes when the tab limit is exceeded (IntelliJ's tab closing policy). */
+export type TabLimitPolicy = "leastRecentlyUsed" | "oldestOpened";
 type TerminalCursorInactiveStyle = "outline" | "block" | "bar" | "underline" | "none";
 export type TabCloseButtonVisibility = "active" | "hover" | "always";
 // Matches the macOS EditorTabLayoutMode raw values.
 export type EditorTabLayoutMode = "singleLine" | "multipleRows";
 export type WindowChromeDensity = "focused" | "comfortable";
+/** Whether opening a Java project starts importing it into the language server. */
+export type JavaProjectImportOnOpen = "automatic" | "ask" | "manual";
 export type FileTreeSortOrder = "folders-first" | "name";
 // Where a project opens when the ask-first dialog is disabled. The false branch of the
 // retired openFoldersInNewWindow boolean maps to "attach", which was its old behavior.
@@ -69,6 +73,7 @@ export interface Settings {
   inlayHints: boolean;
   codeLens: boolean;
   semanticTokens: boolean;
+  javaProjectImportOnOpen: JavaProjectImportOnOpen;
   breadcrumbShowSymbols: boolean;
   // Terminal
   terminalFontFamily: string;
@@ -188,6 +193,7 @@ export interface Settings {
     | "skill"
     | "agent";
   maxOpenTabs: number;
+  tabLimitPolicy: TabLimitPolicy;
   //// File tree
   fileTreeSortOrder: FileTreeSortOrder;
   fileTreeIndentSize: number;
@@ -220,7 +226,6 @@ export interface Settings {
   gitFetchSubmodules: "inherit" | "no" | "onDemand" | "yes";
   gitFetchTags: "inherit" | "all" | "none" | "prune";
   githubSidebarSectionOrder: Array<"pull-requests" | "issues" | "actions">;
-  enableInlineGitBlame: boolean;
   /** Git change markers in the editor gutter; clicking one opens its inline review. */
   enableGitGutter: boolean;
 }

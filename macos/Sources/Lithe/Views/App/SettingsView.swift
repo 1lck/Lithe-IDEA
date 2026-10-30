@@ -438,6 +438,7 @@ struct SettingsView: View {
                     case .git:
                         GitSettingsPage(settings: settings)
                     case .updates: updatesSettings
+                    case .network: NetworkSettingsView(settings: settings)
                     case .processTermination: ProcessTerminationSettingsView(settings: settings)
                     case .diagnostics: diagnosticsSettings
                     case .plugins: EmptyView()

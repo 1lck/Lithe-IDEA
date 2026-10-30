@@ -131,6 +131,7 @@ const EDITOR_CURSOR_STYLES = new Set<Settings["editorCursorStyle"]>([
   "block-outline",
   "underline-thin",
 ]);
+const TAB_LIMIT_POLICIES = new Set<Settings["tabLimitPolicy"]>(["leastRecentlyUsed", "oldestOpened"]);
 const EDITOR_CURSOR_BLINKING_MODES = new Set<Settings["editorCursorBlinking"]>([
   "blink",
   "smooth",
@@ -157,6 +158,11 @@ const EDITOR_TAB_LAYOUT_MODES = new Set<Settings["editorTabLayoutMode"]>([
 const WINDOW_CHROME_DENSITIES = new Set<Settings["windowChromeDensity"]>([
   "focused",
   "comfortable",
+]);
+const JAVA_PROJECT_IMPORT_ON_OPEN = new Set<Settings["javaProjectImportOnOpen"]>([
+  "automatic",
+  "ask",
+  "manual",
 ]);
 const FILE_TREE_SORT_ORDERS = new Set<Settings["fileTreeSortOrder"]>(["folders-first", "name"]);
 const PROJECT_OPEN_DESTINATIONS = new Set<Settings["projectOpenDefaultDestination"]>([
@@ -268,6 +274,12 @@ function normalizeEditorCursorStyle(value: unknown): Settings["editorCursorStyle
     : defaultSettings.editorCursorStyle;
 }
 
+function normalizeTabLimitPolicy(value: unknown): Settings["tabLimitPolicy"] {
+  return TAB_LIMIT_POLICIES.has(value as Settings["tabLimitPolicy"])
+    ? (value as Settings["tabLimitPolicy"])
+    : defaultSettings.tabLimitPolicy;
+}
+
 function normalizeEditorCursorBlinking(value: unknown): Settings["editorCursorBlinking"] {
   return EDITOR_CURSOR_BLINKING_MODES.has(value as Settings["editorCursorBlinking"])
     ? (value as Settings["editorCursorBlinking"])
@@ -292,6 +304,12 @@ function normalizeEditorTabLayoutMode(value: unknown): Settings["editorTabLayout
   return EDITOR_TAB_LAYOUT_MODES.has(value as Settings["editorTabLayoutMode"])
     ? (value as Settings["editorTabLayoutMode"])
     : defaultSettings.editorTabLayoutMode;
+}
+
+function normalizeJavaProjectImportOnOpen(value: unknown): Settings["javaProjectImportOnOpen"] {
+  return JAVA_PROJECT_IMPORT_ON_OPEN.has(value as Settings["javaProjectImportOnOpen"])
+    ? (value as Settings["javaProjectImportOnOpen"])
+    : defaultSettings.javaProjectImportOnOpen;
 }
 
 function normalizeWindowChromeDensity(value: unknown): Settings["windowChromeDensity"] {
@@ -553,6 +571,9 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.editorCursorStyle = normalizeEditorCursorStyle(
     (normalizedSettings as { editorCursorStyle?: unknown }).editorCursorStyle,
   );
+  normalizedSettings.tabLimitPolicy = normalizeTabLimitPolicy(
+    (normalizedSettings as { tabLimitPolicy?: unknown }).tabLimitPolicy,
+  );
   normalizedSettings.editorCursorBlinking = normalizeEditorCursorBlinking(
     (normalizedSettings as { editorCursorBlinking?: unknown }).editorCursorBlinking,
   );
@@ -567,6 +588,9 @@ export function normalizeSettings(settings: Settings): Settings {
   );
   normalizedSettings.windowChromeDensity = normalizeWindowChromeDensity(
     (normalizedSettings as { windowChromeDensity?: unknown }).windowChromeDensity,
+  );
+  normalizedSettings.javaProjectImportOnOpen = normalizeJavaProjectImportOnOpen(
+    (normalizedSettings as { javaProjectImportOnOpen?: unknown }).javaProjectImportOnOpen,
   );
   normalizedSettings.fileTreeSortOrder = normalizeFileTreeSortOrder(
     (normalizedSettings as { fileTreeSortOrder?: unknown }).fileTreeSortOrder,
@@ -708,6 +732,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
     return normalizeEditorCursorStyle(value) as Settings[K];
   }
 
+  if (key === "tabLimitPolicy") {
+    return normalizeTabLimitPolicy(value) as Settings[K];
+  }
+
   if (key === "editorCursorBlinking") {
     return normalizeEditorCursorBlinking(value) as Settings[K];
   }
@@ -726,6 +754,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "windowChromeDensity") {
     return normalizeWindowChromeDensity(value) as Settings[K];
+  }
+
+  if (key === "javaProjectImportOnOpen") {
+    return normalizeJavaProjectImportOnOpen(value) as Settings[K];
   }
 
   if (key === "fileTreeSortOrder") {
