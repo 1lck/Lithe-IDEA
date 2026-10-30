@@ -71912,6 +71912,368 @@
       ]
     },
     {
+      "id": "settings.network.checkFailed",
+      "description": "Native UI: The connection check failed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The connection check failed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.connectionSucceeded",
+      "description": "Native UI: Connection succeeded in %@ ms.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connection succeeded in %@ ms.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "settings.network.credentialsUnavailable",
+      "description": "Native UI: Proxy credentials cannot be saved in this build.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Proxy credentials cannot be saved in this build.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.enterAddressAndPort",
+      "description": "Native UI: Enter a server address and a port between 1 and 65535 first.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a server address and a port between 1 and 65535 first.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.exclusions",
+      "description": "Native UI: Exclusion list",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Exclusion list",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.exclusionsPlaceholder",
+      "description": "Native UI: For example 127.0.0.1, localhost, *.internal.example",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "For example 127.0.0.1, localhost, *.internal.example",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.host",
+      "description": "Native UI: Server address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Server address",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.hostPlaceholder",
+      "description": "Native UI: For example 127.0.0.1",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "For example 127.0.0.1",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.exclusions",
+      "description": "Native UI: Addresses that bypass the proxy, separated by commas. Entries support wildcard domains such as *.internal.example.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Addresses that bypass the proxy, separated by commas. Entries support wildcard domains such as *.internal.example.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.host",
+      "description": "Native UI: The proxy server's host name or IP address, for example 127.0.0.1.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The proxy server's host name or IP address, for example 127.0.0.1.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.mode",
+      "description": "Native UI: Follow system uses the proxies configured in macOS network settings. No proxy contacts every host directly. Custom routes requests through the server configured below.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Follow system uses the proxies configured in macOS network settings. No proxy contacts every host directly. Custom routes requests through the server configured below.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.password",
+      "description": "Native UI: Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.passwordSaved",
+      "description": "Native UI: A password is saved for its original proxy. An empty field reuses it only when the proxy type, address, port and username match.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A password is saved for its original proxy. An empty field reuses it only when the proxy type, address, port and username match.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.port",
+      "description": "Native UI: The proxy server's port, for example 7890.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The proxy server's port, for example 7890.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.scope",
+      "description": "Native UI: These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.type",
+      "description": "Native UI: HTTP proxies carry HTTPS requests through CONNECT. SOCKS5 tunnels every protocol and port.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "HTTP proxies carry HTTPS requests through CONNECT. SOCKS5 tunnels every protocol and port.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.username",
+      "description": "Native UI: Leave empty when the proxy does not require authentication.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Leave empty when the proxy does not require authentication.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.mode.custom",
+      "description": "Native UI: Custom proxy server",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Custom proxy server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.mode.followSystem",
+      "description": "Native UI: Follow system proxy",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Follow system proxy",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.mode.noProxy",
+      "description": "Native UI: No proxy",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No proxy",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.optional",
+      "description": "Native UI: Optional",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Optional",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.portPlaceholder",
+      "description": "Native UI: For example 7890",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "For example 7890",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.proxyAnsweredWithHTTP",
+      "description": "Native UI: The proxy answered with HTTP %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The proxy answered with HTTP %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "settings.network.proxyMode",
+      "description": "Native UI: Proxy mode",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Proxy mode",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.proxyServer",
+      "description": "Native UI: Proxy server",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Proxy server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.proxyType",
+      "description": "Native UI: Proxy type",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Proxy type",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.testConnection",
+      "description": "Native UI: Test connection",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Test connection",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.testing",
+      "description": "Native UI: Testing…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Testing…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.title",
+      "description": "Native UI: Network",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Network",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.type.http",
+      "description": "Native UI: HTTP",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "HTTP",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.type.socks5",
+      "description": "Native UI: SOCKS5",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SOCKS5",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.username",
+      "description": "Native UI: Username",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Username",
+        "arguments": []
+      }
+    },
+    {
       "id": "settings.noMatching",
       "description": "Windows UI: settings.noMatching",
       "platforms": [

@@ -1476,6 +1476,26 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::NetworkProxyPolicy => {
+            match serde_json::from_value::<crate::network::NetworkProxyPolicyRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid network proxy policy request",
+                )
+                .with_details(error.to_string())
+            })
+            .map(crate::network::proxy_policy)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Proxy policy response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspPlainSnippet => {
             match serde_json::from_value::<crate::lsp::PlainSnippetRequest>(parsed.payload).map_err(
                 |error| {

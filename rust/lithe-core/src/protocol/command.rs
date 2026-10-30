@@ -294,6 +294,9 @@ pub enum CoreCommand {
     /// Resolves the line comment token for a file extension
     /// (`editor.lineCommentToken`).
     EditorLineCommentToken,
+    /// Normalizes the stored proxy settings into the policy a network stack
+    /// must apply (`network.proxyPolicy`).
+    NetworkProxyPolicy,
     /// Reduces an LSP snippet to insertion text (`lsp.plainSnippet`).
     LspPlainSnippet,
     /// Provides same-document fallback completions (`lsp.builtinCompletions`).
@@ -665,6 +668,7 @@ impl CoreCommand {
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
             "editor.lineEdit" => Some(Self::EditorLineEdit),
             "editor.lineCommentToken" => Some(Self::EditorLineCommentToken),
+            "network.proxyPolicy" => Some(Self::NetworkProxyPolicy),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),
             "lsp.builtinCompletions" => Some(Self::LspBuiltinCompletions),
             "lsp.builtinHover" => Some(Self::LspBuiltinHover),
@@ -825,6 +829,12 @@ mod tests {
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }
+    }
+
+    #[test]
+    fn parses_network_proxy_policy_command() {
+        assert!(CoreCommand::parse("network.proxyPolicy").is_some());
+        assert!(CoreCommand::parse("network.unknown").is_none());
     }
 
     #[test]
