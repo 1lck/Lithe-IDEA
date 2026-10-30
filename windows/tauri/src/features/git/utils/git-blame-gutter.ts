@@ -20,16 +20,16 @@ export function escapeGitBlameHtml(value: string): string {
 }
 
 /**
- * Formats the authoring date the way IDEA and macOS annotate a line: an
- * absolute, app-language date instead of a relative one, so a stale
- * annotation cannot read as "3 days ago" forever.
+ * Formats the authoring date the way IDEA annotates a line: an absolute date
+ * instead of a relative one, zero padded so the column keeps a steady width
+ * (`08/08/2026` rather than `8/8/2026`). Month order follows the app language.
  */
 export function formatGitBlameDate(unixSeconds: number, language: string): string {
   if (!Number.isFinite(unixSeconds) || unixSeconds <= 0) return "";
   return new Intl.DateTimeFormat(language, {
     year: "numeric",
-    month: "numeric",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(unixSeconds * 1000));
 }
 

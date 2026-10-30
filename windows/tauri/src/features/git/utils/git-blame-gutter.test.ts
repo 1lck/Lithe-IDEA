@@ -97,6 +97,14 @@ describe("git blame gutter markup", () => {
 });
 
 describe("git blame date", () => {
+  test("zero pads the month and day in the app language", () => {
+    const singleDigits = Date.UTC(2026, 7, 8, 12, 0, 0) / 1000;
+
+    // Padded fields keep the annotation column from jumping between commits.
+    expect(formatGitBlameDate(singleDigits, "en-US")).toBe("08/08/2026");
+    expect(formatGitBlameDate(singleDigits, "zh-CN")).toBe("2026/08/08");
+  });
+
   test("renders an absolute date in the app language", () => {
     const english = formatGitBlameDate(AUTHOR_TIME, "en-US");
     const chinese = formatGitBlameDate(AUTHOR_TIME, "zh-CN");
