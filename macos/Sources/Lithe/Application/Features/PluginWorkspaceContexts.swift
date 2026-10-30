@@ -6,9 +6,11 @@ import LitheModuleAPI
 // Note: 插件后端的工作区上下文、身份与存储范围的决策见 .agents/notes/implemented/architecture/2026-10-30-plugin-backend-workspace-context.md
 
 /// One open workspace in one window, as plugin backends see it (function
-/// protocol 3). `generation` grows whenever the window's folders or
-/// authority change, so a backend holding an older one learns that its
-/// view is stale (`plugin.host.contextExpired`) instead of acting on it.
+/// protocol 3). The context ID lives as long as the window shows that
+/// workspace; another workspace in the window is another context.
+/// `generation` grows when the same workspace's folders or authority
+/// change, so a backend holding an older one learns that its view is stale
+/// (`plugin.host.contextExpired`) instead of acting on it.
 struct PluginWorkspaceContext: Equatable, Sendable {
     /// Where the workspace's files and processes are. Only `local` is
     /// served by file and process services today; they refuse `remote`
@@ -20,8 +22,10 @@ struct PluginWorkspaceContext: Equatable, Sendable {
     }
 
     struct Folder: Equatable, Sendable {
-        /// Stable for the same location across restarts, without the path.
-        let rootID: String
+        /// The folder's location, `stateKey`-style: the local path, or the
+        /// connection and remote path. Backends see it only as a per-plugin
+        /// `rootID` (`PluginWorkspaceRootIDs`).
+        let location: String
         let name: String
         /// The folder on this Mac. For a remote workspace it is the empty
         /// placeholder, never the workspace: services must not read it.
@@ -56,6 +60,7 @@ final class PluginWorkspaceContexts {
     private var contextsByOwner: [ObjectIdentifier: PluginWorkspaceContext] = [:]
     private var closeObservers: [UUID: @MainActor (String) -> Void] = [:]
     private var openObservers: [UUID: @MainActor (PluginWorkspaceContext) -> Void] = [:]
+    private var revisionObservers: [UUID: @MainActor (Int) -> Void] = [:]
     private var nextContextNumber = 1
 
     init() {}
@@ -83,8 +88,9 @@ final class PluginWorkspaceContexts {
     }
 
     /// Opens or replaces the window's context. The same workspace again
-    /// keeps the context unchanged; another one keeps the context ID with
-    /// the next generation, and closes what the old one owned.
+    /// keeps the context unchanged, or moves it to the next generation when
+    /// its folders or authority changed. Another workspace closes the old
+    /// context, and what it owned, and opens a new context ID.
     @discardableResult
     func open(owner: AnyObject, rootURL: URL, remote: (connectionID: String, remoteRoot: String)?) -> PluginWorkspaceContext {
         let root = rootURL.standardizedFileURL
@@ -101,23 +107,25 @@ final class PluginWorkspaceContexts {
             name = root.lastPathComponent
         }
         let folder = PluginWorkspaceContext.Folder(
-            rootID: Self.rootID(stateKey), name: name, localURL: root, remotePath: remote?.remoteRoot
+            location: stateKey, name: name, localURL: root, remotePath: remote?.remoteRoot
         )
         let key = ObjectIdentifier(owner)
         let previous = contextsByOwner[key]
         if let previous, previous.authority == authority, previous.folders == [folder] {
             return previous
         }
+        // The same workspace keeps its ID; another one is a new context.
+        let continued = previous.flatMap { $0.stateKey == stateKey ? $0 : nil }
         let contextID: String
-        if let previous {
-            contextID = previous.contextID
+        if let continued {
+            contextID = continued.contextID
         } else {
             contextID = "w-\(nextContextNumber)"
             nextContextNumber += 1
         }
         let context = PluginWorkspaceContext(
             contextID: contextID,
-            generation: (previous?.generation ?? 0) + 1,
+            generation: (continued?.generation ?? 0) + 1,
             name: name,
             authority: authority,
             folders: [folder],
@@ -125,10 +133,11 @@ final class PluginWorkspaceContexts {
         )
         contextsByOwner[key] = context
         revision += 1
-        if previous != nil {
-            for observer in closeObservers.values { observer(contextID) }
+        if let previous {
+            for observer in closeObservers.values { observer(previous.contextID) }
         }
         for observer in openObservers.values { observer(context) }
+        notifyRevision()
         return context
     }
 
@@ -137,6 +146,11 @@ final class PluginWorkspaceContexts {
         guard let context = contextsByOwner.removeValue(forKey: ObjectIdentifier(owner)) else { return }
         revision += 1
         for observer in closeObservers.values { observer(context.contextID) }
+        notifyRevision()
+    }
+
+    private func notifyRevision() {
+        for observer in revisionObservers.values { observer(revision) }
     }
 
     /// Called with the context ID whenever a context closes or moves to a
@@ -156,18 +170,44 @@ final class PluginWorkspaceContexts {
         return id
     }
 
+    /// Called once with the new `revision` after every open, change, or
+    /// close, after the close and open observers.
+    @discardableResult
+    func observeRevision(_ observer: @escaping @MainActor (Int) -> Void) -> UUID {
+        let id = UUID()
+        revisionObservers[id] = observer
+        return id
+    }
+
     func removeObserver(_ id: UUID) {
         closeObservers[id] = nil
         openObservers[id] = nil
-    }
-
-    /// `r` and 16 hex digits of the location's SHA-256.
-    static func rootID(_ location: String) -> String {
-        "r" + SHA256.hash(data: Data(location.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+        revisionObservers[id] = nil
     }
 
     /// Names the state directory of a context without the user's path.
     static func stateDigest(_ stateKey: String) -> String {
         SHA256.hash(data: Data(stateKey.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// The `rootID`s backends see. Each is `r` and 16 hex digits of an
+/// HMAC-SHA256 of the plugin ID and the folder's location under a secret
+/// the host keeps, so it is stable for the same plugin and location across
+/// restarts, differs between plugins, and cannot be computed from a guessed
+/// path without the secret.
+struct PluginWorkspaceRootIDs: Sendable {
+    private let key: SymmetricKey
+
+    init(secret: Data) {
+        key = SymmetricKey(data: secret)
+    }
+
+    func rootID(of location: String, pluginID: String) -> String {
+        var message = Data(pluginID.utf8)
+        message.append(0)
+        message.append(Data(location.utf8))
+        let code = HMAC<SHA256>.authenticationCode(for: message, using: key)
+        return "r" + Data(code).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 }

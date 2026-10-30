@@ -10,6 +10,10 @@ protocol PluginBackendActivating: AnyObject {
     /// Returns at once; the backends start in the background. `owner`
     /// limits `onCommand:<id>` to the plugin whose UI module declares it.
     func activate(event: String, owner: ModuleID?)
+    /// The user ran one of the owner plugin's commands: its `backend` 2
+    /// starts when it declares `onCommand:<id>`, and the running backend
+    /// receives `lithe/host/commands/didRun` with the window's context.
+    func runCommand(_ commandID: String, owner: ModuleID, context: PluginWorkspaceContextReference?)
 }
 
 /// How a host service failed, as a function protocol 3 backend sees it.
@@ -27,8 +31,22 @@ enum PluginHostErrorCode: String, Sendable, CaseIterable {
     /// The resource changed since the version the request named.
     case versionConflict = "plugin.host.versionConflict"
     case invalidParams = "plugin.host.invalidParams"
-    /// Too large, too many, or too often.
+    /// Too large or too many; too often is `.rateLimited`.
     case limitExceeded = "plugin.host.limitExceeded"
+    /// The resource the request names does not exist.
+    case notFound = "plugin.host.notFound"
+    /// The resource exists but may not be written.
+    case readOnly = "plugin.host.readOnly"
+    /// The method exists but this host does not support an option it got.
+    case unsupportedOption = "plugin.host.unsupportedOption"
+    /// A state the operation needs does not hold, such as a missing parent
+    /// directory or a resource that already exists.
+    case preconditionFailed = "plugin.host.preconditionFailed"
+    /// The host cannot serve the request right now; the same request may
+    /// succeed when retried later.
+    case busy = "plugin.host.busy"
+    /// The plugin sent requests of this kind too often.
+    case rateLimited = "plugin.host.rateLimited"
     case cancelled = "plugin.host.cancelled"
     case timeout = "plugin.host.timeout"
     /// The backend went away while the host worked on its request.
@@ -41,14 +59,18 @@ enum PluginHostErrorCode: String, Sendable, CaseIterable {
 struct PluginHostServiceError: Error, Equatable, Sendable {
     let code: PluginHostErrorCode
     let message: String
+    /// Facts the backend may act on, such as `{ currentVersion }` of a
+    /// version conflict. The same rule as the message applies.
+    let details: [String: ToolingJSONValue]?
 
-    init(_ code: PluginHostErrorCode, _ message: String) {
+    init(_ code: PluginHostErrorCode, _ message: String, details: [String: ToolingJSONValue]? = nil) {
         self.code = code
         self.message = message
+        self.details = details
     }
 
     var failure: PluginHostRequestFailure {
-        PluginHostRequestFailure(message: message, code: code.rawValue)
+        PluginHostRequestFailure(message: message, code: code.rawValue, details: details.map { .object($0) })
     }
 }
 
@@ -92,7 +114,24 @@ final class PluginHostSubscriptions {
     }
 
     private var entries: [String: [String: Entry]] = [:]
+    private var sequences: [String: Int] = [:]
     private var nextNumber = 1
+    /// Sends `lithe/host/subscriptions/notify` to the plugin's backend.
+    var deliver: (@MainActor (_ pluginID: String, _ params: ToolingJSONValue) -> Void)?
+
+    /// Sends one event of a live subscription to its backend, with the next
+    /// sequence number of that subscription. An event of a disposed
+    /// subscription is dropped.
+    func notify(pluginID: String, subscriptionID: String, event: [String: ToolingJSONValue]) {
+        guard entries[pluginID]?[subscriptionID] != nil else { return }
+        let sequence = (sequences[subscriptionID] ?? 0) + 1
+        sequences[subscriptionID] = sequence
+        deliver?(pluginID, .object([
+            "subscriptionID": .string(subscriptionID),
+            "sequence": .integer(sequence),
+            "event": .object(event),
+        ]))
+    }
 
     /// Records a subscription and returns its ID for the backend.
     func add(pluginID: String, contextID: String?, dispose: @escaping @MainActor () -> Void) -> String {
@@ -108,12 +147,17 @@ final class PluginHostSubscriptions {
 
     /// Unknown and already disposed IDs succeed, as the contract says.
     func dispose(pluginID: String, subscriptionID: String) {
-        entries[pluginID]?.removeValue(forKey: subscriptionID)?.dispose()
+        guard let entry = entries[pluginID]?.removeValue(forKey: subscriptionID) else { return }
+        sequences[subscriptionID] = nil
+        entry.dispose()
     }
 
     func disposeAll(pluginID: String) {
         guard let removed = entries.removeValue(forKey: pluginID) else { return }
-        for entry in removed.values { entry.dispose() }
+        for (id, entry) in removed {
+            sequences[id] = nil
+            entry.dispose()
+        }
     }
 
     func disposeAll(contextID: String) {
@@ -121,6 +165,7 @@ final class PluginHostSubscriptions {
             guard let owned = entries[pluginID] else { continue }
             for (id, entry) in owned where entry.contextID == contextID {
                 entries[pluginID]?[id] = nil
+                sequences[id] = nil
                 entry.dispose()
             }
         }
@@ -134,7 +179,9 @@ final class PluginHostSubscriptions {
 @MainActor
 final class PluginHostServiceDispatcher {
     /// Services every plugin-owned session may call without a grant.
-    static let implicitServices: Set<String> = ["host", "subscriptions"]
+    /// `commands` has no methods: its notification brings the plugin's own
+    /// commands to its backend.
+    static let implicitServices: Set<String> = ["host", "subscriptions", "commands"]
 
     let contexts: PluginWorkspaceContexts
     let subscriptions = PluginHostSubscriptions()
@@ -218,7 +265,7 @@ final class PluginHostServiceDispatcher {
         if request.method == "lithe/host/subscriptions/dispose" {
             guard case .string(let id)? = params["subscriptionID"] else {
                 return .failure(PluginHostServiceError(
-                    .invalidParams, L10n.string("The params of \(request.method) must be an object.")
+                    .invalidParams, L10n.string("The params of \(request.method) must name a subscriptionID.")
                 ).failure)
             }
             subscriptions.dispose(pluginID: pluginID, subscriptionID: id)
@@ -280,25 +327,37 @@ final class PluginCredentialHostService: PluginHostServiceHandling {
 }
 
 /// `workspace`: the contexts a backend works in (`workspace.metadata`).
-/// Paths appear only for a local authority; a context's state directory is
-/// private to the plugin and created on first use, outside the bundle.
+/// Paths appear only for a local authority. A context's state directory is
+/// private to the plugin, outside the bundle, and created by `getContext`
+/// only: listing the contexts creates nothing, so a backend that never
+/// works in a workspace leaves no directory for it.
 @MainActor
 final class PluginWorkspaceHostService: PluginHostServiceHandling {
     let service = "workspace"
     private let contexts: PluginWorkspaceContexts
     private let backendStateDirectory: (String) -> URL
+    private let rootIDSecret: () -> Data
+    private lazy var rootIDs = PluginWorkspaceRootIDs(secret: rootIDSecret())
     private let fileManager: FileManager
 
     /// `backendStateDirectory` gives a plugin's `${stateDir}`, which must be
     /// a platform-writable directory; context state lives below it.
+    /// `rootIDSecret` is read once, for the first described folder; it must
+    /// stay the same across launches for root IDs to stay stable.
     init(
         contexts: PluginWorkspaceContexts,
         backendStateDirectory: @escaping (String) -> URL,
+        rootIDSecret: @escaping () -> Data,
         fileManager: FileManager = .default
     ) {
         self.contexts = contexts
         self.backendStateDirectory = backendStateDirectory
+        self.rootIDSecret = rootIDSecret
         self.fileManager = fileManager
+    }
+
+    func rootID(of folder: PluginWorkspaceContext.Folder, pluginID: String) -> String {
+        rootIDs.rootID(of: folder.location, pluginID: pluginID)
     }
 
     func stateDirectory(of context: PluginWorkspaceContext, pluginID: String) -> URL {
@@ -310,20 +369,29 @@ final class PluginWorkspaceHostService: PluginHostServiceHandling {
     func answer(_ call: PluginHostCall) async -> Result<ToolingJSONValue, PluginHostServiceError> {
         switch call.request.method {
         case "lithe/host/workspace/listContexts":
-            var described: [ToolingJSONValue] = []
-            for context in contexts.contexts {
-                switch describe(context, pluginID: call.pluginID) {
-                case .success(let value): described.append(value)
-                case .failure(let error): return .failure(error)
-                }
-            }
-            return .success(.object(["revision": .integer(contexts.revision), "contexts": .array(described)]))
+            let described = contexts.contexts.map { describe($0, pluginID: call.pluginID) }
+            return .success(.object([
+                "revision": .integer(contexts.revision),
+                "contexts": .array(described.map { .object($0) }),
+            ]))
         case "lithe/host/workspace/getContext":
             guard let context = call.context else { return .failure(Self.missingContext) }
-            return describe(context, pluginID: call.pluginID)
+            let directory = stateDirectory(of: context, pluginID: call.pluginID)
+            do {
+                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            } catch {
+                return .failure(PluginHostServiceError(
+                    .failed, L10n.string("The host could not create the plugin's workspace state directory.")
+                ))
+            }
+            var object = describe(context, pluginID: call.pluginID)
+            object["stateDirectory"] = .string(directory.path)
+            return .success(.object(object))
         case "lithe/host/workspace/getFolders":
             guard let context = call.context else { return .failure(Self.missingContext) }
-            return .success(.object(["folders": .array(context.folders.map { Self.describe($0, authority: context.authority) })]))
+            return .success(.object(["folders": .array(context.folders.map {
+                describe($0, authority: context.authority, pluginID: call.pluginID)
+            })]))
         default:
             return .failure(PluginHostServiceError(
                 .unavailable, L10n.string("The host does not serve \(call.request.method).")
@@ -335,35 +403,31 @@ final class PluginWorkspaceHostService: PluginHostServiceHandling {
         PluginHostServiceError(.invalidParams, L10n.string("The workspace context reference is malformed."))
     }
 
-    private func describe(_ context: PluginWorkspaceContext, pluginID: String) -> Result<ToolingJSONValue, PluginHostServiceError> {
-        let directory = stateDirectory(of: context, pluginID: pluginID)
-        do {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        } catch {
-            return .failure(PluginHostServiceError(
-                .failed, L10n.string("The host could not create the plugin's workspace state directory.")
-            ))
-        }
+    /// A context without its state directory, which only `getContext` gives.
+    private func describe(_ context: PluginWorkspaceContext, pluginID: String) -> [String: ToolingJSONValue] {
         let authority: [String: ToolingJSONValue]
         switch context.authority {
         case .local: authority = ["kind": .string("local")]
         case .remote(let id): authority = ["kind": .string("remote"), "id": .string(id)]
         }
-        return .success(.object([
+        return [
             "contextID": .string(context.contextID),
             "generation": .integer(context.generation),
             "name": .string(context.name),
             "authority": .object(authority),
-            "folders": .array(context.folders.map { Self.describe($0, authority: context.authority) }),
-            "stateDirectory": .string(directory.path),
-        ]))
+            "folders": .array(context.folders.map { describe($0, authority: context.authority, pluginID: pluginID) }),
+        ]
     }
 
-    private static func describe(
+    private func describe(
         _ folder: PluginWorkspaceContext.Folder,
-        authority: PluginWorkspaceContext.Authority
+        authority: PluginWorkspaceContext.Authority,
+        pluginID: String
     ) -> ToolingJSONValue {
-        var object: [String: ToolingJSONValue] = ["rootID": .string(folder.rootID), "name": .string(folder.name)]
+        var object: [String: ToolingJSONValue] = [
+            "rootID": .string(rootID(of: folder, pluginID: pluginID)),
+            "name": .string(folder.name),
+        ]
         // The local directory of a remote workspace is a placeholder.
         if authority == .local { object["path"] = .string(folder.localURL.path) }
         return .object(object)

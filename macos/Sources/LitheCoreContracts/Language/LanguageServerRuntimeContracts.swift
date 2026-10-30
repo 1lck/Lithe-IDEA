@@ -538,6 +538,14 @@ package protocol LanguageServerRuntimeCore: Sendable {
         hostRequestID: String,
         outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
     ) -> Result<Void, LanguageServerRuntimeFailure>
+    /// Sends a plugin backend one host notification (`lsp.hostNotify`), such
+    /// as a subscription event. `true` when Core wrote it; `false` when the
+    /// backend negotiated a function protocol without it.
+    func notifyPluginBackend(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure>
     /// Replaces the configuration a running plugin server reads and tells it
     /// through `workspace/didChangeConfiguration`.
     func updateWorkspaceConfiguration(
@@ -804,6 +812,17 @@ package extension LanguageServerRuntimeCore {
         ))
     }
 
+    func notifyPluginBackend(
+        sessionID _: String,
+        method _: String,
+        params _: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin host notifications are not supported by this runtime."
+        ))
+    }
+
     func updateWorkspaceConfiguration(
         sessionID _: String,
         configuration _: ToolingJSONValue
@@ -862,14 +881,18 @@ package struct PluginHostRequest: Equatable, Sendable {
 /// The host could not complete a host-service request. The message reaches
 /// the backend; never put a secret in it. `code` is a `plugin.host.*` code
 /// Core passes to a function protocol 3 backend; nil, or a code Core does
-/// not pass, reaches it as `plugin.host.failed`.
+/// not pass, reaches it as `plugin.host.failed`. `details` is an object of
+/// facts the backend may act on, such as a document's current version; Core
+/// passes it within 4 KiB to a protocol 3 backend and drops it otherwise.
 package struct PluginHostRequestFailure: Error, Equatable, Sendable {
     package let message: String
     package let code: String?
+    package let details: ToolingJSONValue?
 
-    package init(message: String, code: String? = nil) {
+    package init(message: String, code: String? = nil, details: ToolingJSONValue? = nil) {
         self.message = message
         self.code = code
+        self.details = details
     }
 }
 

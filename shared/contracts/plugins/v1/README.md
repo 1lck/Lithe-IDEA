@@ -1880,7 +1880,8 @@ granted services as `lsp.startServer.hostServices` (from the launch plan's
 
 Version 3 keeps every rule of version 2 and adds capability discovery,
 subscription disposal, workspace contexts, a context on each call, typed host
-failures, and cancellation of host requests.
+failures with details, cancellation of host requests, and host
+notifications.
 
 | Request | Params | Result | Granted by |
 | --- | --- | --- | --- |
@@ -1891,12 +1892,16 @@ failures, and cancellation of host requests.
 | `lithe/host/workspace/getFolders` | `{ context: { contextID, generation } }` | `{ folders: [<folder>] }` | `workspace.metadata` |
 
 - Core answers `getCapabilities` itself. `services` maps each service the
-  session may call (the implicit `host` and `subscriptions`, and the granted
-  ones) to `{ methods }`; it lists nothing the session may not call.
-  `backendAuthority` is `"local"`: the backend runs on the machine that runs
-  Lithe. `limits` gives `pendingHostRequests`, `functionResultBytes`, and
-  `messageBytes`. A backend must check `services` instead of assuming a
-  method from the version.
+  session may use (the implicit `host`, `subscriptions`, and `commands`, and
+  the granted ones) to `{ methods, notifications }`: the requests it may
+  send and the [host notifications](#host-notifications-protocol-version-3)
+  it may receive. It lists nothing the session may not use, and a host
+  grants only the services it has handlers for, so a listed method never
+  fails for want of one. `backendAuthority` is `"local"`: the backend runs on
+  the machine that runs Lithe. `limits` gives `pendingHostRequests`,
+  `functionResultBytes`, `errorMessageBytes` (the cut of a host failure's
+  message), `errorDetailsBytes`, and `notificationBytes`. A backend must
+  check `services` instead of assuming a method from the version.
 - A context is one open workspace in one window:
 
   ```json
@@ -1911,13 +1916,17 @@ failures, and cancellation of host requests.
   ```
 
   `contextID` uses the key alphabet and lives as long as the window shows
-  that workspace. `generation` is a positive integer that grows every time
-  the context's folders or authority change; a request naming an older
-  generation, or a closed context, is `plugin.host.contextExpired`, and the
-  backend asks again. `revision` of `listContexts` grows whenever a context
-  opens, closes, or changes.
-- `rootID` identifies one root folder stably for the same path, across
-  restarts, without revealing the path. `path` is present only for a
+  that workspace: a window that switches to another workspace closes the
+  context and opens one with a new `contextID`, so state a backend keyed by
+  the ID never carries over to a different workspace. `generation` starts at
+  1 and grows every time the same workspace's folders or authority change; a
+  request naming an older generation, or a closed context, is
+  `plugin.host.contextExpired`, and the backend asks again. `revision` of
+  `listContexts` grows whenever a context opens, closes, or changes.
+- `rootID` identifies one root folder stably for the same location, across
+  restarts, without revealing the path. It is keyed per plugin with a host
+  secret, so two plugins see different IDs for the same folder and an ID
+  cannot be computed from a guessed path. `path` is present only for a
   `local` authority.
 - `authority.kind` is `local` or `remote` (a remote workspace, which also
   has `authority.id`, an opaque connection ID). For a `remote` context the
@@ -1927,7 +1936,9 @@ failures, and cancellation of host requests.
   not implement with `plugin.host.authorityUnsupported`; they never read the
   placeholder or run the operation locally instead.
 - `stateDirectory` is private to the plugin and the workspace, outside the
-  plugin package and the application bundle, and created on first use.
+  plugin package and the application bundle. Only `getContext` returns it,
+  and creates it then; `listContexts` entries carry every other field and
+  create nothing, so listing many windows leaves no directories behind.
   `${stateDir}` is the plugin-wide state. Both survive disabling and
   updating the plugin and are deleted when it is uninstalled.
 - A page call may name its context: `lsp.functionRequest.context`
@@ -1935,12 +1946,17 @@ failures, and cancellation of host requests.
   `params.context` of `lithe/function/invoke`. A malformed reference is
   `plugin.function.invalidParams`; a backend that negotiated version 1 or 2
   receives the call without it. The host fills it from the page's window.
-- A host failure may carry a code:
-  `lsp.hostResponse.error: { message, code? }`. Core passes these codes to
-  a version 3 backend, each with its own JSON-RPC error code so a backend
-  can branch on the number alone; any other code, no code, or a version 2
-  backend gets `plugin.host.failed`. `fixtures/function-protocol.json`
-  (`hostFailures`) lists the mapping.
+- A host failure may carry a code and details:
+  `lsp.hostResponse.error: { message, code?, details? }`. Core passes these
+  codes to a version 3 backend, each with its own JSON-RPC error code so a
+  backend can branch on the number alone; any other code, no code, or a
+  version 2 backend gets `plugin.host.failed`. `details` is an object of at
+  most 4 KiB serialized (for example `{ currentVersion }` with
+  `versionConflict`, or `{ retryAfterMilliseconds }` with `rateLimited`);
+  it reaches a version 3 backend as `error.data.details` and is dropped
+  otherwise. Details that are not an object, or larger, are dropped too;
+  the failure itself still reaches the backend. `fixtures/function-protocol.json` (`hostFailures`)
+  lists the mapping.
 
   | Code | JSON-RPC | Meaning |
   | --- | --- | --- |
@@ -1954,9 +1970,19 @@ failures, and cancellation of host requests.
   | `plugin.host.versionConflict` | `-32013` | A document or resource version differs from the expected one |
   | `plugin.host.limitExceeded` | `-32014` | A host limit was exceeded |
   | `plugin.host.timeout` | `-32015` | The host's deadline passed |
+  | `plugin.host.notFound` | `-32016` | The named resource does not exist |
+  | `plugin.host.readOnly` | `-32017` | The resource or workspace cannot be written |
+  | `plugin.host.unsupportedOption` | `-32018` | The host does not implement a requested option |
+  | `plugin.host.preconditionFailed` | `-32019` | A state the request requires does not hold, such as a missing user confirmation |
+  | `plugin.host.busy` | `-32020` | The resource is in use; retry later |
+  | `plugin.host.rateLimited` | `-32021` | Too many requests in a period; retry after `details.retryAfterMilliseconds` when given |
 
-  Codes from `-32010` are in the JSON-RPC server-defined range and leave
-  `-32000` to backends' own failures. Versions 1 and 2 keep their numbers.
+  JSON-RPC reserves `-32768` to `-32000` for the protocol and lets
+  implementations define `-32099` to `-32000` as server errors. `-32000`
+  to `-32009` stay free for backends' own failures, which many JSON-RPC
+  libraries already use from `-32000`, so host codes start at `-32010` and
+  grow by one; a code is never reused for another meaning. Versions 1 and
+  2 keep their numbers.
 - A backend may cancel its own pending host request with `$/cancelRequest`.
   Core answers it at once with `-32800` and `plugin.host.cancelled`, frees
   the slot, and publishes `hostRequestCancelled { hostRequestID }` so the host
@@ -1970,6 +1996,39 @@ failures, and cancellation of host requests.
   operation (`plugin.function.recursiveCall`), so a page call never waits on
   itself through the host.
 
+### Host notifications (protocol version 3)
+
+The host tells a version 3 backend about changes with JSON-RPC
+notifications; the backend answers none of them. The host sends them through
+Core with `lsp.hostNotify { sessionId, method, params }`, which returns
+`{ delivered }`: `false` when the session negotiated an older version, which
+then never sees them.
+
+| Notification | Params | Granted by |
+| --- | --- | --- |
+| `lithe/host/workspace/didChangeContexts` | `{ revision }` | `workspace.metadata` |
+| `lithe/host/subscriptions/notify` | `{ subscriptionID, sequence, event }` | every plugin-owned session |
+| `lithe/host/commands/didRun` | `{ commandID, context? }` | every plugin-owned session |
+
+- `didChangeContexts` follows every change `revision` of `listContexts`
+  counts; the backend calls `listContexts` for the contexts. A backend that
+  starts later reads them itself.
+- `subscriptions/notify` carries one `event` object of the named
+  subscription. `sequence` starts at 1 and grows by one per subscription, so
+  a backend can detect a gap; nothing follows a disposal.
+- `commands/didRun` reaches the plugin's backend when the user runs one of
+  the plugin's commands. `commandID` is the command's ID; `context`
+  (`{ contextID, generation }`) is the window's context when it has one. A
+  running backend receives it in order with the other notifications; a
+  stopped one is started for it only when it declares
+  `onCommand:<commandID>`, and receives it once ready.
+- `revision` and `sequence` are positive integers, `event` is an object,
+  and serialized params are at most `limits.notificationBytes`. Core refuses
+  any other method, a service the session is not granted, malformed params,
+  a session that is not plugin-owned, or one that is not ready, with
+  `invalid_request`. `fixtures/function-protocol.json`
+  (`hostNotifications`) holds the cases.
+
 ### Compatibility
 
 - Packages of every API level are unchanged: functions add no manifest field.
@@ -1980,13 +2039,14 @@ failures, and cancellation of host requests.
   new protocol version, offered next to the old one.
 - A backend that answers `version: 1` keeps working unchanged: version 2
   only adds host services. A backend that answers `version: 2` keeps
-  working unchanged: version 3 only adds methods, the call context, and
-  failure codes, all of which it never sees.
+  working unchanged: version 3 only adds methods, notifications, the call
+  context, and failure codes and details, all of which it never sees.
 - `requires.backend: 1` packages keep their meaning; a new behavior of the
   backend capability is `backend` 2, never a silent change of version 1.
 - `fixtures/function-protocol.json` holds the golden cases, including the
-  host requests (`hostRequests`), call contexts (`invocationContexts`), and
-  host failure codes (`hostFailures`). Rust Core tests run them, and a scripted backend covers routing, result, failure, cancellation,
+  host requests (`hostRequests`), call contexts (`invocationContexts`), host
+  failure codes (`hostFailures`), and host notifications
+  (`hostNotifications`). Rust Core tests run them, and a scripted backend covers routing, result, failure, cancellation,
   deadline, late reply, revocation, and compatibility with a build-only
   backend.
 

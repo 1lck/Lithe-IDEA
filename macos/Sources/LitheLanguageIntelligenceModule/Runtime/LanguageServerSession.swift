@@ -923,6 +923,25 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Sends the backend one host notification. Core writes it to the
+    /// backend's input like an answer, so it is sent off the main actor.
+    /// `false` when the session is not running, the backend negotiated a
+    /// protocol without the notification, or Core refused it.
+    package func notify(method: String, params: ToolingJSONValue) async -> Bool {
+        guard let sessionID, isRunning else { return false }
+        let core = core
+        let sending = Task.detached(priority: .userInitiated) {
+            core.notifyPluginBackend(sessionID: sessionID, method: method, params: params)
+        }
+        switch await sending.value {
+        case .success(let delivered):
+            return delivered
+        case .failure(let failure):
+            onLog?(.warning, "Plugin host notification was not delivered", failure.message, nil)
+            return false
+        }
+    }
+
     /// Codes Core puts in `details` when it refuses a call before it reaches
     /// the backend. Any other `details`, such as an OS error text from a
     /// failed write, is a diagnostic and never becomes the page's code.

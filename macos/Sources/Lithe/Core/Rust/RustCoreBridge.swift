@@ -2078,6 +2078,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let message: String
             /// Omitted when nil.
             let code: String?
+            /// Omitted when nil.
+            let details: ToolingJSONValue?
         }
 
         let sessionId: String
@@ -4046,7 +4048,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         hostRequestID: String,
         result: ToolingJSONValue?,
         failureMessage: String?,
-        failureCode: String? = nil
+        failureCode: String? = nil,
+        failureDetails: ToolingJSONValue? = nil
     ) -> Result<Void, CoreCallError> {
         executeVoid(
             command: "lsp.hostResponse",
@@ -4054,9 +4057,32 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 sessionId: sessionID,
                 hostRequestID: hostRequestID,
                 result: failureMessage == nil ? (result ?? .null) : nil,
-                error: failureMessage.map { .init(message: $0, code: failureCode) }
+                error: failureMessage.map { .init(message: $0, code: failureCode, details: failureDetails) }
             )
         )
+    }
+
+    private struct LspHostNotifyRequest: Encodable {
+        let sessionId: String
+        let method: String
+        let params: ToolingJSONValue
+    }
+
+    private struct LspHostNotifyResponse: Decodable {
+        let delivered: Bool
+    }
+
+    /// Sends a plugin backend one host notification. `false` when the
+    /// backend negotiated a function protocol without the notification.
+    func lspHostNotify(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, CoreCallError> {
+        executeResult(
+            command: "lsp.hostNotify",
+            payload: LspHostNotifyRequest(sessionId: sessionID, method: method, params: params)
+        ).map { (response: LspHostNotifyResponse) in response.delivered }
     }
 
     /// Cancels a pending operation. Its completion event still arrives, carrying

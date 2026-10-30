@@ -90848,6 +90848,22 @@
       }
     },
     {
+      "id": "native.theParamsOfMustNameASubscriptionID",
+      "description": "Native UI: The params of %@ must name a subscriptionID.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The params of %@ must name a subscriptionID.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.theWorkspaceContextReferenceIsMalformed",
       "description": "Native UI: The workspace context reference is malformed.",
       "platforms": [

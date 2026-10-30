@@ -3914,6 +3914,7 @@
 "The official plugin package signature is missing." = "缺少官方插件包签名。";
 "The official plugin signing key is unavailable." = "官方插件签名密钥不可用。";
 "The params of %@ must be an object." = "%@ 的参数必须是对象。";
+"The params of %@ must name a subscriptionID." = "%@ 的参数必须指明 subscriptionID。";
 "The patch changes the base commit's tree into the target commit's tree." = "补丁将基准提交的文件内容变为目标提交的文件内容。";
 "The plugin archive expands beyond the allowed size: %@" = "插件压缩包解压后超出允许的大小：%@";
 "The plugin archive is larger than %@ MB." = "插件压缩包超过 %@ MB。";
@@ -8548,6 +8549,7 @@
 "native.theOfficialPluginPackageSignatureIsMissing" = "缺少官方插件包签名。";
 "native.theOfficialPluginSigningKeyIsUnavailable" = "官方插件签名密钥不可用。";
 "native.theParamsOfMustBeAnObject" = "%1$@ 的参数必须是对象。";
+"native.theParamsOfMustNameASubscriptionID" = "%1$@ 的参数必须指明 subscriptionID。";
 "native.thePatchChangesTheBaseCommitSTreeIntoTheTargetCommitSTree" = "补丁将基准提交的文件内容变为目标提交的文件内容。";
 "native.thePluginArchiveExpandsBeyondTheAllowedSize" = "插件压缩包解压后超出允许的大小：%1$@";
 "native.thePluginArchiveIsLargerThanLldMb" = "插件压缩包超过 %1$@ MB。";

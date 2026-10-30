@@ -422,7 +422,8 @@ final class MacServiceContainer {
             let backendDirectories = MacPluginStateDirectories(fileStorage: fileStorage)
             hostDispatcher.register(PluginWorkspaceHostService(
                 contexts: .shared,
-                backendStateDirectory: { backendDirectories.backendStateDirectory(pluginID: $0) }
+                backendStateDirectory: { backendDirectories.backendStateDirectory(pluginID: $0) },
+                rootIDSecret: { MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)) }
             ))
             let sessions = MacPluginBackendSessions(
                 launchResolver: pluginLaunchResolver,

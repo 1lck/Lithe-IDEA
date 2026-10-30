@@ -9520,6 +9520,7 @@
     "native.thePluginBackendIsNoLongerRunning": "The plugin backend is no longer running.",
     "native.thePluginIsNotAllowedToUseTheHostService": "The plugin is not allowed to use the host service {arg1}.",
     "native.theParamsOfMustBeAnObject": "The params of {arg1} must be an object.",
+    "native.theParamsOfMustNameASubscriptionID": "The params of {arg1} must name a subscriptionID.",
     "native.theWorkspaceContextReferenceIsMalformed": "The workspace context reference is malformed.",
     "native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory": "The host could not create the plugin's workspace state directory.",
     "native.theResourcePathMustBeRelativeUseSeparatorsAndNotContainOr": "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\".",

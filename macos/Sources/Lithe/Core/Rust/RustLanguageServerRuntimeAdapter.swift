@@ -349,8 +349,17 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         }
         return lspHostResponse(
             sessionID: sessionID, hostRequestID: hostRequestID, result: result,
-            failureMessage: failure?.message, failureCode: failure?.code
+            failureMessage: failure?.message, failureCode: failure?.code, failureDetails: failure?.details
         ).mapError(Self.runtimeFailure)
+    }
+
+    func notifyPluginBackend(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        lspHostNotify(sessionID: sessionID, method: method, params: params)
+            .mapError(Self.runtimeFailure)
     }
 
     func updateWorkspaceConfiguration(

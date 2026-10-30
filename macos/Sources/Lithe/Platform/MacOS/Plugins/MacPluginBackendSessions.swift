@@ -80,6 +80,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// A replaced or removed package never starts again in this launch.
     private var replacedPluginIDs: Set<String> = []
     private var running: [String: Running] = [:]
+    private var contextObserver: UUID?
 
     /// One process, from its start until it is dropped. `session` is set as
     /// soon as the process is launched, so a stop during initialize ends it.
@@ -87,6 +88,10 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         let settings: [String: ToolingJSONValue]
         var task: Task<LanguageServerRuntimeSession, Error>?
         var session: LanguageServerRuntimeSession?
+        /// What Core granted the session, set when the process launches.
+        var hostServices: Set<String> = []
+        /// Notifications reach the backend in the order the host sent them.
+        var notifications: Task<Void, Never>?
 
         init(settings: [String: ToolingJSONValue]) {
             self.settings = settings
@@ -128,12 +133,22 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             dispatcher.register(PluginCredentialHostService(credentials: credentials))
             self.hostDispatcher = dispatcher
         }
+        // Running backends learn of every opened, changed, or closed
+        // context; one that starts later asks `listContexts` itself.
+        contextObserver = self.hostDispatcher.contexts.observeRevision { [weak self] revision in
+            self?.contextsDidChange(revision: revision)
+        }
+        self.hostDispatcher.subscriptions.deliver = { [weak self] pluginID, params in
+            self?.notify(pluginID: pluginID, method: "lithe/host/subscriptions/notify", params: params)
+        }
     }
 
     /// Records the backends of the plugins loaded at launch. Every project
     /// window registers the same startup snapshot; a package installed later
-    /// waits for the next launch like its pages.
+    /// waits for the next launch like its pages. A plugin registered while
+    /// a workspace is already open gets its `onWorkspaceOpen` at once.
     func register(_ plugins: [InstalledPluginPackage]) {
+        var added: Set<String> = []
         for plugin in plugins where plugin.descriptor.declaresBackend {
             let id = plugin.descriptor.id.rawValue
             guard !replacedPluginIDs.contains(id), packages[id] == nil else { continue }
@@ -144,7 +159,9 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
                 activationEvents: plugin.descriptor.activationEvents,
                 backendVersion: Self.backendVersion(ofManifest: plugin.descriptor.normalizedManifest)
             )
+            added.insert(id)
         }
+        activateForOpenWorkspaces(added)
     }
 
     func declaresBackend(_ pluginID: String) -> Bool {
@@ -200,19 +217,81 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// backend never holds up the workspace or the command. A backend that
     /// is already running stays as it is.
     func activate(event: String, owner: ModuleID? = nil) {
-        let starting = pluginIDs(activatedBy: event, owner: owner).filter { running[$0] == nil }
-        guard !starting.isEmpty else { return }
+        start(pluginIDs(activatedBy: event, owner: owner).filter { running[$0] == nil })
+    }
+
+    /// Queues the start of each plugin's backend; `then` runs for each one
+    /// that is ready, in the queue's order.
+    private func start(
+        _ pluginIDs: [String],
+        then: (@MainActor (_ pluginID: String) -> Void)? = nil
+    ) {
+        guard !pluginIDs.isEmpty else { return }
         let previous = activationQueue
         activationQueue = Task { @MainActor [weak self] in
             await previous?.value
-            for pluginID in starting {
+            for pluginID in pluginIDs {
                 guard let self, !Task.isCancelled else { return }
                 do {
                     _ = try await self.session(for: pluginID)
+                    then?(pluginID)
                 } catch {
                     if !(error is CancellationError) { self.onActivationFailure?(pluginID, error) }
                 }
             }
+        }
+    }
+
+    /// The plugins among `pluginIDs` that start on `onWorkspaceOpen` start
+    /// now when a workspace is already open, as if it had just opened.
+    private func activateForOpenWorkspaces(_ pluginIDs: Set<String>) {
+        guard !pluginIDs.isEmpty, !hostDispatcher.contexts.contexts.isEmpty else { return }
+        start(self.pluginIDs(activatedBy: "onWorkspaceOpen").filter {
+            pluginIDs.contains($0) && running[$0] == nil
+        })
+    }
+
+    func runCommand(_ commandID: String, owner: ModuleID, context: PluginWorkspaceContextReference?) {
+        let pluginID = String(owner.rawValue.dropLast(".ui".count))
+        guard owner.rawValue.hasSuffix(".ui"), let package = packages[pluginID], package.backendVersion >= 2,
+              !disabledPluginIDs.contains(pluginID) else { return }
+        var params: [String: ToolingJSONValue] = ["commandID": .string(commandID)]
+        if let context {
+            params["context"] = .object([
+                "contextID": .string(context.contextID), "generation": .integer(context.generation),
+            ])
+        }
+        let deliver: @MainActor (String) -> Void = { [weak self] pluginID in
+            self?.notify(pluginID: pluginID, method: "lithe/host/commands/didRun", params: .object(params))
+        }
+        // A ready backend gets it in order with the notifications sent from
+        // now; a starting one after its start. A stopped one starts only on
+        // its own `onCommand:<id>`.
+        if running[pluginID]?.session != nil {
+            deliver(pluginID)
+        } else if running[pluginID] != nil || package.activationEvents.contains("onCommand:\(commandID)") {
+            start([pluginID], then: deliver)
+        }
+    }
+
+    /// Tells every running backend granted `workspace` that the contexts
+    /// changed; it asks `listContexts` for them.
+    private func contextsDidChange(revision: Int) {
+        for (pluginID, entry) in running where entry.hostServices.contains("workspace") {
+            notify(pluginID: pluginID, method: "lithe/host/workspace/didChangeContexts",
+                   params: .object(["revision": .integer(revision)]))
+        }
+    }
+
+    /// Sends a host notification to the plugin's running backend, after the
+    /// ones sent before it. A backend that is not running, or negotiated a
+    /// protocol without the notification, does not receive it.
+    private func notify(pluginID: String, method: String, params: ToolingJSONValue) {
+        guard let entry = running[pluginID], let session = entry.session else { return }
+        let previous = entry.notifications
+        entry.notifications = Task { @MainActor in
+            await previous?.value
+            _ = await session.notify(method: method, params: params)
         }
     }
 
@@ -222,8 +301,11 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         stop(pluginID)
     }
 
+    /// The backend may start again; with a workspace open, one that starts
+    /// on `onWorkspaceOpen` starts now instead of with the next workspace.
     func enable(_ pluginID: String) {
         disabledPluginIDs.remove(pluginID)
+        activateForOpenWorkspaces([pluginID])
     }
 
     /// Stops the backend before its package is replaced, rolled back, or
@@ -238,6 +320,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         hostDispatcher.endSession(pluginID: pluginID)
         guard let entry = running.removeValue(forKey: pluginID) else { return }
         entry.task?.cancel()
+        entry.notifications?.cancel()
         entry.session?.stop()
     }
 
@@ -310,6 +393,11 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         // leaves behind can be ended when the backend is gone.
         let backendToken = UUID().uuidString
         environment.merge(MacPluginBackendProcesses.environment(token: backendToken)) { _, token in token }
+        // Core lists in `getCapabilities` what it grants, so it is granted
+        // only what this host serves: a listed method never fails for want
+        // of a handler.
+        let served = Set(hostDispatcher.registeredServices)
+        let hostServices = backend.hostServices.filter { served.contains($0) }
         let session = LanguageServerRuntimeSession(
             providerID: "pluginBackend:\(pluginID)",
             executableURL: executableURL,
@@ -323,7 +411,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             // are the backend's only callers.
             moduleID: ModuleID("\(pluginID).ui"),
             pluginID: pluginID,
-            hostServices: backend.hostServices
+            hostServices: hostServices
         )
         let endBackendProcesses = endBackendProcesses
         let hostDispatcher = hostDispatcher
@@ -332,7 +420,8 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         session.onReleased = { endBackendProcesses(backendToken, false) }
         // A new process starts with no subscriptions and nothing in flight.
         hostDispatcher.endSession(pluginID: pluginID)
-        hostDispatcher.beginSession(pluginID: pluginID, hostServices: backend.hostServices)
+        hostDispatcher.beginSession(pluginID: pluginID, hostServices: hostServices)
+        entry.hostServices = Set(hostServices)
         session.onHostRequest = { [weak session] request in
             hostDispatcher.handle(request, pluginID: pluginID) { outcome in
                 session?.respond(to: request.id, with: outcome)

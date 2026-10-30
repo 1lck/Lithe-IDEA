@@ -3914,6 +3914,7 @@
 "The official plugin package signature is missing." = "The official plugin package signature is missing.";
 "The official plugin signing key is unavailable." = "The official plugin signing key is unavailable.";
 "The params of %@ must be an object." = "The params of %@ must be an object.";
+"The params of %@ must name a subscriptionID." = "The params of %@ must name a subscriptionID.";
 "The patch changes the base commit's tree into the target commit's tree." = "The patch changes the base commit's tree into the target commit's tree.";
 "The plugin archive expands beyond the allowed size: %@" = "The plugin archive expands beyond the allowed size: %@";
 "The plugin archive is larger than %@ MB." = "The plugin archive is larger than %@ MB.";
@@ -8548,6 +8549,7 @@
 "native.theOfficialPluginPackageSignatureIsMissing" = "The official plugin package signature is missing.";
 "native.theOfficialPluginSigningKeyIsUnavailable" = "The official plugin signing key is unavailable.";
 "native.theParamsOfMustBeAnObject" = "The params of %1$@ must be an object.";
+"native.theParamsOfMustNameASubscriptionID" = "The params of %1$@ must name a subscriptionID.";
 "native.thePatchChangesTheBaseCommitSTreeIntoTheTargetCommitSTree" = "The patch changes the base commit's tree into the target commit's tree.";
 "native.thePluginArchiveExpandsBeyondTheAllowedSize" = "The plugin archive expands beyond the allowed size: %1$@";
 "native.thePluginArchiveIsLargerThanLldMb" = "The plugin archive is larger than %1$@ MB.";

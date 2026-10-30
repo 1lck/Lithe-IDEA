@@ -9520,6 +9520,7 @@
     "native.thePluginBackendIsNoLongerRunning": "插件后端已不在运行。",
     "native.thePluginIsNotAllowedToUseTheHostService": "插件无权使用宿主服务 {arg1}。",
     "native.theParamsOfMustBeAnObject": "{arg1} 的参数必须是对象。",
+    "native.theParamsOfMustNameASubscriptionID": "{arg1} 的参数必须指明 subscriptionID。",
     "native.theWorkspaceContextReferenceIsMalformed": "工作区上下文引用格式不正确。",
     "native.theHostCouldNotCreateThePluginsWorkspaceStateDirectory": "宿主无法创建插件的工作区状态目录。",
     "native.theResourcePathMustBeRelativeUseSeparatorsAndNotContainOr": "资源路径必须是相对路径，使用“/”分隔，且不能包含“.”或“..”。",

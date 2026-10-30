@@ -12,37 +12,65 @@ import Testing
 struct PluginHostServiceDispatchTests {
     private static let pluginID = "dev.lithe.fixture.workspacebackend"
 
-    /// A window keeps its context ID while its workspace changes; the
-    /// generation grows, so an older reference expires.
+    /// Another workspace in the same window is another context: the old
+    /// one closes and its references expire. The same workspace again
+    /// changes nothing.
     @Test
-    func reopeningAnotherWorkspaceKeepsTheIDWithTheNextGeneration() throws {
+    func anotherWorkspaceInTheWindowIsANewContext() throws {
         let contexts = PluginWorkspaceContexts()
         let window = NSObject()
+        var closed: [String] = []
+        var revisions: [Int] = []
+        contexts.observeClose { closed.append($0) }
+        contexts.observeRevision { revisions.append($0) }
         let first = contexts.open(owner: window, rootURL: URL(fileURLWithPath: "/tmp/orders"), remote: nil)
         let same = contexts.open(owner: window, rootURL: URL(fileURLWithPath: "/tmp/orders"), remote: nil)
         let second = contexts.open(owner: window, rootURL: URL(fileURLWithPath: "/tmp/billing"), remote: nil)
 
         #expect(first == same)
         #expect(first.generation == 1)
-        #expect(second.contextID == first.contextID)
-        #expect(second.generation == 2)
+        #expect(second.contextID != first.contextID)
+        #expect(second.generation == 1)
+        #expect(closed == [first.contextID])
+        #expect(revisions == [2, 3])
         #expect(throws: PluginHostServiceError.self) { try contexts.resolve(first.reference).get() }
         #expect(try contexts.resolve(second.reference).get() == second)
 
         contexts.close(owner: window)
         #expect(throws: PluginHostServiceError.self) { try contexts.resolve(second.reference).get() }
         #expect(contexts.contexts.isEmpty)
+        #expect(revisions == [2, 3, 4])
     }
 
-    /// A root ID is stable for a location and reveals no path.
+    /// A root ID is stable for a plugin and location, differs between
+    /// plugins and secrets, and reveals no path.
     @Test
-    func rootIDsAreStableAndOpaque() {
-        let id = PluginWorkspaceContexts.rootID("/Users/me/orders")
-        #expect(id == PluginWorkspaceContexts.rootID("/Users/me/orders"))
-        #expect(id != PluginWorkspaceContexts.rootID("/Users/me/billing"))
+    func rootIDsAreStablePerPluginAndOpaque() {
+        let rootIDs = PluginWorkspaceRootIDs(secret: Fixture.rootIDSecret)
+        let id = rootIDs.rootID(of: "/Users/me/orders", pluginID: Self.pluginID)
+        #expect(id == PluginWorkspaceRootIDs(secret: Fixture.rootIDSecret).rootID(of: "/Users/me/orders", pluginID: Self.pluginID))
+        #expect(id != rootIDs.rootID(of: "/Users/me/billing", pluginID: Self.pluginID))
+        #expect(id != rootIDs.rootID(of: "/Users/me/orders", pluginID: "dev.example.other"))
+        #expect(id != PluginWorkspaceRootIDs(secret: Data(repeating: 9, count: 32)).rootID(of: "/Users/me/orders", pluginID: Self.pluginID))
         #expect(id.count == 17)
         #expect(id.hasPrefix("r"))
         #expect(!id.contains("orders"))
+    }
+
+    /// The secret is created once with owner-only access and read back the
+    /// same on the next load.
+    @Test
+    func theRootIDSecretIsCreatedOnceAndKept() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-root-id-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("PluginHost/root-id.key")
+        let first = MacPluginRootIDSecret.load(from: url)
+        let second = MacPluginRootIDSecret.load(from: url)
+        #expect(first.count == MacPluginRootIDSecret.byteCount)
+        #expect(first == second)
+        let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+        #expect(permissions == 0o600)
     }
 
     /// A session serves only its granted services, plus the implicit ones.
@@ -99,6 +127,11 @@ struct PluginHostServiceDispatchTests {
         }
         #expect(list["revision"] == .integer(fixture.contexts.revision))
         #expect(entries.count == 1)
+        // Listing creates no state directory.
+        let workspaces = fixture.stateRoot
+            .appendingPathComponent(Self.pluginID, isDirectory: true)
+            .appendingPathComponent("backend/workspaces", isDirectory: true)
+        #expect(!FileManager.default.fileExists(atPath: workspaces.path))
 
         let described = try await fixture.dispatcher.dispatch(
             PluginHostRequest(
@@ -114,10 +147,12 @@ struct PluginHostServiceDispatchTests {
             Issue.record("getContext returned \(described)")
             return
         }
-        #expect(entries.first == described)
+        var withoutDirectory = object
+        withoutDirectory["stateDirectory"] = nil
+        #expect(entries.first == .object(withoutDirectory))
         #expect(object["authority"] == .object(["kind": .string("local")]))
         #expect(folder["path"] == .string("/tmp/orders"))
-        #expect(folder["rootID"] == .string(PluginWorkspaceContexts.rootID("/tmp/orders")))
+        #expect(folder["rootID"] == .string(Fixture.rootID("/tmp/orders")))
         let expectedRoot = fixture.stateRoot
             .appendingPathComponent(Self.pluginID, isDirectory: true)
             .appendingPathComponent("backend/workspaces", isDirectory: true)
@@ -151,7 +186,7 @@ struct PluginHostServiceDispatchTests {
         #expect(context.authority == .remote(id: "conn-1"))
         #expect(context.name == "orders")
         #expect(folders == .object(["folders": .array([.object([
-            "rootID": .string(PluginWorkspaceContexts.rootID("remote:conn-1:/srv/orders")),
+            "rootID": .string(Fixture.rootID("remote:conn-1:/srv/orders")),
             "name": .string("orders"),
         ])])]))
     }
@@ -221,11 +256,46 @@ struct PluginHostServiceDispatchTests {
         #expect(subscriptions.count(pluginID: Self.pluginID) == 0)
     }
 
-    /// Typed failures keep their code on the way to Core.
+    /// Typed failures keep their code and details on the way to Core.
     @Test
     func aServiceErrorBecomesAFailureWithItsCode() {
         let failure = PluginHostServiceError(.versionConflict, "changed").failure
         #expect(failure == PluginHostRequestFailure(message: "changed", code: "plugin.host.versionConflict"))
+        let detailed = PluginHostServiceError(.versionConflict, "changed", details: ["currentVersion": .integer(4)]).failure
+        #expect(detailed.details == .object(["currentVersion": .integer(4)]))
+    }
+
+    /// Every error code a host reports is one Core passes on, each once.
+    @Test
+    func everyHostErrorCodeIsDistinct() {
+        let codes = PluginHostErrorCode.allCases.map(\.rawValue)
+        #expect(Set(codes).count == codes.count)
+        #expect(codes.contains("plugin.host.rateLimited"))
+        #expect(codes.contains("plugin.host.busy"))
+    }
+
+    /// Events of a live subscription reach the backend with a sequence that
+    /// grows per subscription; a disposed one sends nothing more.
+    @Test
+    func subscriptionEventsCarryAGrowingSequence() {
+        let subscriptions = PluginHostSubscriptions()
+        let log = DeliveryLog()
+        subscriptions.deliver = { pluginID, params in log.items.append((pluginID, params)) }
+        let id = subscriptions.add(pluginID: Self.pluginID, contextID: nil) {}
+        subscriptions.notify(pluginID: Self.pluginID, subscriptionID: id, event: ["kind": .string("changed")])
+        subscriptions.notify(pluginID: Self.pluginID, subscriptionID: id, event: ["kind": .string("changed")])
+        subscriptions.notify(pluginID: "dev.example.other", subscriptionID: id, event: [:])
+        subscriptions.dispose(pluginID: Self.pluginID, subscriptionID: id)
+        subscriptions.notify(pluginID: Self.pluginID, subscriptionID: id, event: [:])
+
+        #expect(log.items.map(\.0) == [Self.pluginID, Self.pluginID])
+        let fields = log.items.map { item -> [String: ToolingJSONValue] in
+            guard case .object(let object) = item.1 else { return [:] }
+            return object
+        }
+        #expect(fields.map { $0["sequence"] } == [.integer(1), .integer(2)])
+        #expect(fields.first?["subscriptionID"] == .string(id))
+        #expect(fields.first?["event"] == .object(["kind": .string("changed")]))
     }
 
     /// Only a `backend` 2 starts on activation events; a manifest whose
@@ -249,7 +319,13 @@ struct PluginHostServiceDispatchTests {
     }
 
     @MainActor
+    private final class DeliveryLog {
+        var items: [(String, ToolingJSONValue)] = []
+    }
+
+    @MainActor
     private struct Fixture {
+        static let rootIDSecret = Data(repeating: 7, count: 32)
         let contexts = PluginWorkspaceContexts()
         let dispatcher: PluginHostServiceDispatcher
         let stateRoot: URL
@@ -261,8 +337,13 @@ struct PluginHostServiceDispatchTests {
             let directories = MacPluginStateDirectories(rootURL: stateRoot)
             dispatcher.register(PluginWorkspaceHostService(
                 contexts: contexts,
-                backendStateDirectory: { directories.backendStateDirectory(pluginID: $0) }
+                backendStateDirectory: { directories.backendStateDirectory(pluginID: $0) },
+                rootIDSecret: { Self.rootIDSecret }
             ))
+        }
+
+        static func rootID(_ location: String) -> String {
+            PluginWorkspaceRootIDs(secret: rootIDSecret).rootID(of: location, pluginID: PluginHostServiceDispatchTests.pluginID)
         }
 
         func remove() {

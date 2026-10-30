@@ -19,10 +19,11 @@ extension AppModel {
         let target = contribution.kind == .toolWindow ? contribution.id : contribution.visibility["toolWindowID"]
         guard let target, workspaceURL != nil,
               services.moduleRuntime.availableContributions()[owner]?.contains(contribution) == true else { return }
-        // A plugin command also starts its `backend` 2 when the plugin
-        // declares `onCommand:<id>`; the window opens without waiting.
+        // A plugin command reaches its `backend` 2, which starts first when
+        // the plugin declares `onCommand:<id>`; the window opens without
+        // waiting.
         if contribution.kind == .command, let commandID = contribution.actionID {
-            services.pluginBackendActivation?.activate(event: "onCommand:\(commandID)", owner: owner)
+            services.pluginBackendActivation?.runCommand(commandID, owner: owner, context: pluginWebWorkspaceContext)
         }
         let window = WorkbenchFeatureModel.ToolWindow(rawValue: target)
         if !openOnly && contribution.kind == .toolWindow && workbenchFeature.isVisible(window) {
