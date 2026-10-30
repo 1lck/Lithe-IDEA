@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 @testable import LitheGitModule
 import LitheSearchModule
 import Testing
@@ -6,6 +8,94 @@ import Testing
 
 @Suite("Git status observation", .serialized)
 struct GitStatusObservationTests {
+    @Test @MainActor
+    func mountedCommitPanelObservesExternalEditsAndKeepsRollbackEnabledDuringBackgroundReads() async throws {
+        let fixture = try GitObservationFixture(label: "mounted-commit-refresh")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        let barrier = GitObservationReadBarrier()
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            stashesProvider: { _ in await barrier.waitIfArmed(); return [] })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+        let recorder = GitObservationRecorder()
+        let workspace = makeObservationModel(recorder: recorder, refreshGit: { await feature.refreshGitFromMetadataChange() })
+        let suite = "commit-observation-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let settings = AppSettings(store: MacUserDefaultsStore(defaults: defaults))
+        let draft = CommitDraftFeatureModel()
+        let workflow = CommitWorkflowCoordinator(draft: draft, activateGit: { feature },
+            workspaceGeneration: { workspace.workspaceGeneration }, generate: { _ in "" }, notify: { _ in })
+        let host = NSHostingView(rootView: ChangesSidebarView(feature: feature, draft: draft,
+            commitWorkflow: workflow, workbench: WorkbenchFeatureModel(), hasBackgroundImage: false,
+            openSavedDiff: { _, _, _ in }, selectChange: { _ in }, setStaging: { _, _ in },
+            openFile: { _, _ in }, showLocalHistory: { _ in }, revealInFinder: { _ in },
+            copyPath: { _, _ in }, showSettings: { _ in })
+            .environmentObject(settings).environment(\.locale, Locale(identifier: "en")))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 449, height: 800),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.center()
+        window.orderFront(nil)
+        var heldRead: Task<Void, Never>?
+        let application = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (application.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        application.accessibilitySetValue(true, forAttribute: attribute)
+        defer {
+            heldRead?.cancel(); barrier.release.open(); workspace.reset(); feature.reset()
+            for popup in window.childWindows ?? [] { popup.close() }
+            window.contentView = nil; window.close()
+            application.accessibilitySetValue(previous, forAttribute: attribute)
+            defaults.removePersistentDomain(forName: suite)
+        }
+        try await startObservation(workspace, at: root, recorder: recorder)
+        _ = try await AgentNativeControlTestSupport.frame(of: "git-rollback", in: host)
+        let tracked = root.appendingPathComponent("tracked.txt")
+        try Data("external edit\n".utf8).write(to: tracked)
+        try #require(await waitUntil { feature.gitChanges.contains { $0.path == "tracked.txt" } })
+        #expect(await commitPanelRendered(host) { commitPanelContainsText("tracked.txt", in: host) })
+        let added = root.appendingPathComponent("external-new.txt")
+        try Data("external creation\n".utf8).write(to: added)
+        try #require(await waitUntil { feature.gitChanges.contains { $0.path == "external-new.txt" } })
+        #expect(await commitPanelRendered(host) { commitPanelContainsText("external-new.txt", in: host) })
+        try FileManager.default.removeItem(at: added)
+        try #require(await waitUntil { !feature.gitChanges.contains { $0.path == "external-new.txt" } })
+        #expect(await commitPanelRendered(host) {
+            !commitPanelContainsText("external-new.txt", in: host) && commitPanelContainsText("tracked.txt", in: host)
+        })
+        try await fixture.git(["add", "tracked.txt"], at: root)
+        try #require(await waitUntil { feature.gitChanges.first { $0.path == "tracked.txt" }?.isStaged == true })
+        // Keep this same mounted panel, then hold an unrelated read after status publication.
+        workspace.prepareForModuleRelease()
+        await barrier.arm()
+        let readFinished = TestGate()
+        heldRead = Task { await feature.refreshGit(); readFinished.open() }
+        try #require(await barrier.entered.waitUntilOpen())
+        #expect(feature.isRefreshingGit)
+        #expect(try await AgentNativeControlTestSupport.isEnabled("git-rollback", in: host))
+        let frame = try await AgentNativeControlTestSupport.frame(of: "git-rollback", in: host)
+        let point = host.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            window.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
+        }
+        #expect(await commitPanelRendered(host) {
+            window.childWindows?.contains { $0 is NSPanel && $0.isVisible } == true
+        })
+        #expect(feature.pendingRollbackSelection?.includedChanges.map(\.path) == ["tracked.txt"])
+        feature.cancelRollbackChanges()
+        #expect(await commitPanelRendered(host) { window.childWindows?.contains { $0.isVisible } != true })
+        barrier.release.open()
+        try #require(await readFinished.waitUntilOpen())
+        await heldRead?.value
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root) == "tracked.txt",
+                "Opening and cancelling the review must not modify the real index")
+    }
+
     @Test @MainActor
     func realGitCommitFilesPreparesOnlySelectedFilesAndPreservesTheirPartialIndex() async throws {
         let fixture = try GitObservationFixture(label: "prepare-commit-files")
@@ -935,7 +1025,10 @@ private struct GitObservationWatchContextProvider: GitWatchContextProviding {
 }
 
 @MainActor
-private func makeObservationModel(recorder: GitObservationRecorder) -> WorkspaceFeatureModel {
+private func makeObservationModel(
+    recorder: GitObservationRecorder,
+    refreshGit: @escaping @MainActor @Sendable () async -> Void = {}
+) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: GitObservationWorkspaceOperations(),
         fileOperations: MacWorkspaceFileOperations(),
@@ -964,12 +1057,50 @@ private func makeObservationModel(recorder: GitObservationRecorder) -> Workspace
             recorder.projectServiceReloadCount += 1
         },
         refreshGit: {
+            await refreshGit()
             recorder.gitRefreshCount += 1
         },
         updateHistoryVisibilityRules: { _ in },
         onSnapshotLoaded: { _, _, _ in }
     )
     return model
+}
+
+private actor GitObservationReadBarrier {
+    let entered = TestGate(), release = TestGate()
+    private var armed = false
+
+    func arm() { armed = true }
+
+    func waitIfArmed() async {
+        guard armed else { return }
+        armed = false
+        entered.open()
+        #expect(await release.waitUntilOpen(timeout: .seconds(8)))
+    }
+}
+
+@MainActor
+private func commitPanelContainsText(_ text: String, in value: Any) -> Bool {
+    let element = value as AnyObject
+    // Checkbox values are numbers, not NSStrings; bridge only after dispatch.
+    let rawValue: Any? = element.accessibilityValue?()
+    if rawValue as? String == text || element.accessibilityLabel?() == text { return true }
+    let children = element.accessibilityChildren?() ?? (value as? NSView)?.subviews ?? []
+    return children.contains { commitPanelContainsText(text, in: $0) }
+}
+
+@MainActor
+private func commitPanelRendered(_ host: NSView, until condition: () -> Bool) async -> Bool {
+    func renderFrame() { CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true) }
+    let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(2))
+    repeat {
+        host.layoutSubtreeIfNeeded()
+        renderFrame()
+        if condition() { return true }
+        await Task.yield()
+    } while clock.now < deadline
+    return condition()
 }
 
 @MainActor

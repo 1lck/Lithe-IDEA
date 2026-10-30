@@ -1762,8 +1762,10 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package var canRollbackChanges: Bool {
+        // Background reads do not own the index/worktree. Mutation revisions
+        // reject their stale results; only pending writes must block rollback.
         !isCommitting && !isStagingChanges && !isWorktreeCommitBlocked && !changelistEditingDisabled
-            && !isRefreshingGit && !isRollingBackChanges
+            && !isRollingBackChanges
             && !isPerformingStashOperation && !isPerformingShelfOperation && !isPerformingBranchOperation
             && !isPerformingWorktreeOperation && !isMutatingWorktreeChanges && !isRefreshingWorktreeChanges
             && !isResolvingGitOperation && !historyEditing.isBusy && !patchExchange.isBusy && !interactiveRebase.isBusy

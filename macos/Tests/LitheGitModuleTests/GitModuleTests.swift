@@ -3239,6 +3239,38 @@ struct GitModuleTests {
     }
 
     @Test
+    func backgroundReadDoesNotDisableRollbackOrResurrectItsOldRows() async throws {
+        let root = URL(fileURLWithPath: "/workspace"), sibling = root.appendingPathComponent("sibling")
+        let change = GitChange(repositoryRoot: root, path: "checked.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: " ")
+        let probe = WorktreeChangesProbe(root: URL(fileURLWithPath: "/unused"), changes: [change])
+        let entered = GitModuleTestGate(), release = GitModuleTestGate()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            repositoryRoots: [root, sibling], discardAllHandler: { probe.mutate($0, action: "discard") })),
+            snapshotProvider: { url in
+                let snapshot = probe.snapshot(url)
+                if url == sibling, probe.snapshotRoots.filter({ $0 == sibling }).count == 2 {
+                    entered.open()
+                    _ = await release.waitUntilOpen()
+                }
+                return snapshot
+            })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        let refresh = Task { await feature.refreshGit() }
+        defer { refresh.cancel(); release.open(); feature.reset() }
+        try #require(await entered.waitUntilOpen())
+        #expect(feature.isRefreshingGit && feature.canRollbackChanges)
+        feature.requestRollbackChanges([change], included: [change])
+        let reviewed = try #require(feature.pendingRollbackSelection)
+        await feature.confirmRollbackChanges(reviewed)
+        #expect(feature.gitChanges.isEmpty && !feature.isRollingBackChanges && feature.canRollbackChanges)
+        release.open()
+        try #require(await waitForGitTaskCompletion(refresh))
+        #expect(feature.gitChanges.isEmpty)
+    }
+
+    @Test
     func rollbackConfirmationSurvivesDismissalAndStopsAtFirstFailure() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let changes = ["checked.txt", "blocked.txt", "untouched.txt"].map {
