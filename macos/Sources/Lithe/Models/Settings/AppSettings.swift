@@ -54,6 +54,12 @@ final class AppSettings: ObservableObject {
         static let gitFetchOptions = "settings.gitFetchOptions"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
+        static let networkProxyMode = "settings.networkProxyMode"
+        static let networkProxyType = "settings.networkProxyType"
+        static let networkProxyHost = "settings.networkProxyHost"
+        static let networkProxyPort = "settings.networkProxyPort"
+        static let networkProxyUsername = "settings.networkProxyUsername"
+        static let networkProxyExclusions = "settings.networkProxyExclusions"
         static let commitMessageAI = "settings.commitMessageAI"
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
@@ -213,6 +219,94 @@ final class AppSettings: ObservableObject {
     }
     @Published var projectOpenBehavior: ProjectOpenBehavior {
         didSet { defaults.set(projectOpenBehavior.rawValue, forKey: Key.projectOpenBehavior) }
+    }
+    /// Read by the Keychain migration in the composition root, which runs
+    /// without an `AppSettings` path for secrets.
+    nonisolated static let networkProxyPasswordKey = "proxy.password"
+    let networkProxyPreferences = NetworkProxyPreferences()
+    @Published var networkProxyMode: NetworkProxyMode {
+        didSet {
+            defaults.set(networkProxyMode.rawValue, forKey: Key.networkProxyMode)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyType: NetworkProxyType {
+        didSet {
+            defaults.set(networkProxyType.rawValue, forKey: Key.networkProxyType)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyHost: String {
+        didSet {
+            defaults.set(networkProxyHost, forKey: Key.networkProxyHost)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyPort: Int {
+        didSet {
+            defaults.set(networkProxyPort, forKey: Key.networkProxyPort)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyUsername: String {
+        didSet {
+            defaults.set(networkProxyUsername, forKey: Key.networkProxyUsername)
+            updateNetworkProxyPreferences()
+        }
+    }
+    /// Hosts that bypass a custom proxy, one entry per element; the settings
+    /// page edits them as one comma-separated string.
+    @Published var networkProxyExclusions: [String] {
+        didSet {
+            defaults.set(networkProxyExclusions, forKey: Key.networkProxyExclusions)
+            updateNetworkProxyPreferences()
+        }
+    }
+
+    private func updateNetworkProxyPreferences() {
+        // The snapshot carries the stored values as entered; normalization
+        // and validation are owned by Rust Core (`network.proxyPolicy`).
+        var configuration = networkProxyPreferences.snapshot
+        configuration.mode = networkProxyMode
+        configuration.type = networkProxyType
+        configuration.host = networkProxyHost
+        configuration.port = networkProxyPort
+        configuration.username = networkProxyUsername
+        configuration.exclusions = networkProxyExclusions
+        networkProxyPreferences.update(configuration)
+    }
+
+    /// Drafts retain the saved credential's identity. Only a newly typed
+    /// password is unbound; Rust decides whether a saved one matches this draft.
+    func networkProxyCandidate(type: NetworkProxyType, host: String, port: Int,
+                               username: String, passwordDraft: String) -> NetworkProxyConfiguration {
+        var configuration = networkProxyPreferences.snapshot
+        configuration.mode = .custom
+        configuration.type = type
+        configuration.host = host
+        configuration.port = port
+        configuration.username = username
+        if !passwordDraft.isEmpty {
+            configuration.password = passwordDraft
+            configuration.passwordIdentity = nil
+        }
+        return configuration
+    }
+
+    /// Loading must use the identity stored with the secret, not today's
+    /// mutable endpoint. This also prevents rebinding after a failed save.
+    func updateNetworkProxyCredential(_ credential: NetworkProxyCredential?) {
+        networkProxyCredential = credential
+        var configuration = networkProxyPreferences.snapshot
+        configuration.password = credential?.password ?? ""
+        configuration.passwordIdentity = credential?.identity
+        networkProxyPreferences.update(configuration)
+    }
+
+    @Published private(set) var networkProxyCredential: NetworkProxyCredential? = nil
+
+    var networkProxyHasSavedPassword: Bool {
+        networkProxyCredential?.password.isEmpty == false
     }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
@@ -375,6 +469,16 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = ProjectOpenBehavior(
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
+        networkProxyMode = NetworkProxyMode(
+            rawValue: defaults.string(forKey: Key.networkProxyMode) ?? ""
+        ) ?? .system
+        networkProxyType = NetworkProxyType(
+            rawValue: defaults.string(forKey: Key.networkProxyType) ?? ""
+        ) ?? .http
+        networkProxyHost = defaults.string(forKey: Key.networkProxyHost) ?? ""
+        networkProxyPort = defaults.object(forKey: Key.networkProxyPort) as? Int ?? 0
+        networkProxyUsername = defaults.string(forKey: Key.networkProxyUsername) ?? ""
+        networkProxyExclusions = defaults.stringArray(forKey: Key.networkProxyExclusions) ?? []
         let selectedPreset = KeyboardShortcutPreset(
             rawValue: defaults.string(forKey: Key.keyboardShortcutPreset) ?? ""
         ) ?? .macOS
@@ -420,6 +524,10 @@ final class AppSettings: ObservableObject {
         repairImportedAgentProviders()
         AppThemeRuntime.shared.activate(colorTheme)
         updateGitExecutionPreferences()
+        // Property initialization does not fire didSet, so the snapshot the
+        // network layer reads must be synced explicitly once, here at the end
+        // of initialization — a reload must keep the saved policy effective.
+        updateNetworkProxyPreferences()
     }
 
     var terminalShellPath: String? {
@@ -561,6 +669,12 @@ final class AppSettings: ObservableObject {
         gitUseCredentialHelper = true
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
+        networkProxyMode = .system
+        networkProxyType = .http
+        networkProxyHost = ""
+        networkProxyPort = 0
+        networkProxyUsername = ""
+        networkProxyExclusions = []
         commitMessageAI = .default
         agentCommand = ""
         agentArguments = ""
@@ -581,6 +695,8 @@ final class AppSettings: ObservableObject {
         setKeyboardShortcutOverrides([:])
         javaBuildFailurePolicies = [:]
         defaults.set(nil, forKey: Key.javaBuildFailurePolicies)
+        // All stored properties are initialized; the snapshot can now read self.
+        updateNetworkProxyPreferences()
     }
 
     func setKeyboardShortcutOverrides(_ value: [String: [KeyboardShortcutBinding]]) {

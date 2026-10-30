@@ -184,11 +184,17 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     static let releasePageURL = AppUpdateChannel.stableReleaseURL
 
     init(bundle: Bundle = .main, preferences: UserDefaults = .standard,
-         diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) }) {
+         diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) },
+         sessionFactory: @escaping @Sendable (URLSessionConfiguration) -> MacNetworkSessionLease = {
+             MacNetworkSessionProvider.makeSession(configuration: $0, plan: nil)
+         }) {
         self.preferences = preferences
         selectedChannel = AppUpdateChannel.saved(in: preferences,
             defaultChannel: MacAppIdentity(bundleIdentifier: bundle.bundleIdentifier).isDevelopment ? .autobuild : .stable)
-        stableRollback = MacStableRollback(diagnosticSink: diagnosticSink)
+        // Only the rollback downloader goes through our own session; the
+        // Sparkle updater keeps its internal network stack, which always
+        // follows the system proxy.
+        stableRollback = MacStableRollback(diagnosticSink: diagnosticSink, sessionFactory: sessionFactory)
         self.bundle = bundle
         buildIdentity = UpdateBuildIdentity(info: bundle.infoDictionary ?? [:])
         currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
