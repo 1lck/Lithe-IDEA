@@ -110,6 +110,21 @@ activation event, and a plugin may consist of grammars alone.
 - `grammar.kind` names the highlighting engine. Version 2 defines only
   `monarch`; another engine is added as a new kind in a later version, so a
   plugin can move between engines without changing anything else.
+- This is a static package contribution: `languages[]` belongs to the manifest
+  and `grammar.path` references a package JSON file. No public host method accepts
+  inline grammar JSON to dynamically register, replace, or dispose a highlighting
+  provider. Live installation/update/withdrawal of eligible static packages does
+  not imply such an API or automatic reload after arbitrary file changes;
+  installed packages remain read-only.
+- Adding another language or grammar using the supported structure needs only
+  plugin data; changing its rules does not itself raise the API version. A new
+  engine or capability kind still needs an implemented host adapter and an
+  explicit contract; an arbitrary new `kind` string cannot supply one.
+- This contribution does not register completion, hover, definition, symbol,
+  formatting, rename, or Code Action providers backed by ordinary plugin
+  functions. Those independent provider bindings are not implemented; existing
+  LSP support and `editor/registerActions` are separate capabilities, not a
+  substitute for them.
 - `grammar.path` is a package-relative file that stays inside the package.
   Hosts read it read-only from the installed package, pass its text to
   `plugins.declarative.decodeGrammar`, and hand the returned object to the

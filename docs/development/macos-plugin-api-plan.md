@@ -47,7 +47,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-22 | 部分完成 | 既有函数进度与取消；独立 output channel、通用 log/progress API 未做 |
 | API-23 | 部分完成 | 已有进程声明与运行时解析；通用 toolchains/process 服务未开放 |
 | API-24 | 未做 | 插件专属终端 create/sendText/onExit 未开放 |
-| API-25 | 部分完成 | 既有语言/LSP 贡献；新增 `languages:2` 声明式语法（`grammar.kind` 先支持 monarch，不依赖 LSP，Mac 免重启）；语言语义 Provider 未做 |
+| API-25 | 部分完成 | 既有语言/LSP 贡献；新增 `languages:2` 的清单与包内 JSON 语法/编辑配置，仅支持 Monarch；运行期传入 JSON 动态注册/替换高亮 Provider、独立语言语义 Provider 未做，详见下方范围说明 |
 | API-26 | 未做 | 公共诊断 collection/events API 未开放；既有 LSP 诊断不等于该 API |
 | API-27 | 部分完成 | 独立 `editor/registerActions` 绑定普通函数与文档范围，不依赖 LSP/Build/Run；通用主题、片段、其他装饰未做 |
 | API-28 | 未做 | 公共 custom editor 文档 owner/保存/撤销/恢复未开放 |
@@ -67,6 +67,29 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-42 | 未做 | 内置 Git 公共 SCM 只读快照/events 未开放 |
 | API-43 | 未做 | 保存前事件/带超时编辑尚未开放 |
 | API-44 | 未做 | 插件贡献 Skills/Hooks/MCP 候选及独立授权评审未完成 |
+
+### API-25：JSON 配置的支持范围与局限
+
+当前新增的是**静态编辑器资源贡献**，不是任意 Provider（能力提供者）的运行期注册框架。
+
+| 场景 | 当前支持范围 |
+| --- | --- |
+| 新增文本格式或高亮规则 | 通过插件清单 `languages[]` 声明文件类型，`grammar.path` 引用包内 JSON 语法；宿主校验后由 worker 执行，不需要 LSP 或后端 |
+| 注释、括号、自动配对 | 可仅贡献 `configuration`，不要求同时提供 grammar |
+| 安装、更新、停用或卸载纯静态贡献 | 随已验证插件包的生命周期更新编辑器；这不等于插件可以调用动态 Provider 注册方法，也不授权修改已安装包或监听任意 JSON 文件自动重载 |
+| 运行中直接提交 JSON，注册、替换或释放高亮 Provider | 尚未开放公共方法；当前不是接收任意内联 grammar 的注册入口 |
+| 用 JSON 将独立补全、悬浮、定义、符号、格式化、重命名或 Code Action 绑定到普通插件函数 | 尚未开放；既有 LSP 能力不等于已有这些独立 Provider 接口，`editor/registerActions` 也不提供它们 |
+| 切换语法引擎或新增宿主不认识的能力种类 | `grammar.kind` 当前仅接受 `monarch`；TextMate、tree-sitter 等新引擎及新能力种类仍需宿主适配和明确契约，不能只增加一个 JSON `kind` 值 |
+
+新增一个使用**已支持结构**的语言实例、语法规则或编辑配置，只改插件内容，不因此升级宿主 API；
+只有使用当前新增静态字段时才要求已有的 `languages:2`。不要把“新增 Provider 实例”与
+“新增宿主能力种类”混为一谈，也不要据此把整个 API-25 标记为完成。
+
+本项目前只接线 macOS；插件高亮超过 128 Ki UTF-16 单位或 10,000 行时保持普通文本，
+嵌入语言在该 worker 适配器中按普通文本处理。Windows 接入、SDK 新能力封装与发布、
+打包后安装真实插件的完整验收仍未完成，功能矩阵保持 partial/pending。
+决策边界见[独立插件编辑器 API](../../.agents/notes/implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)，
+正式资源契约见[语法与编辑配置](../../shared/contracts/plugins/v1/README.md#grammars-and-editor-configuration-languages-2)。
 
 ### 当前公共调用面汇总
 
