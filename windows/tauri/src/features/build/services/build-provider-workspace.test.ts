@@ -31,6 +31,10 @@ function fixture() {
   let providerGate: Promise<unknown> | undefined, stopFailure = false;
   let prepareGate: Promise<boolean> | undefined, commitGate: Promise<void> | undefined, commitFailure = false;
   let nativeConfiguration = structuredClone(configuration);
+  let nativeCurrent = true;
+  let watchCloseGate: Promise<void> | undefined;
+  const watchClosing = deferred<void>();
+  const watches: Array<{ changed: () => void; closed: boolean; rechecks: number }> = [];
   let cancelFailures = 0;
   const entered = { tool: deferred<void>(), provider: deferred<void>(), decode: deferred<void>(), prepare: deferred<void>(), commit: deferred<void>() };
   const core = (async (command: string, _manifest: unknown, _system: string, request: Record<string, unknown>) => {
@@ -63,6 +67,7 @@ function fixture() {
       stop: async target => { stopped.push(target.pluginId); if (stopFailure) throw new Error("process retained"); },
     },
     configurationFiles: {
+      check: async () => ({ current: nativeCurrent, paths: ["C:/fixture/settings.xml"] }),
       prepare: async () => { fileCalls.push("prepare"); entered.prepare.resolve(); return await prepareGate ?? true; },
       commit: async () => {
         fileCalls.push("commit");
@@ -73,8 +78,14 @@ function fixture() {
       },
       cancel: async () => { fileCalls.push("cancel"); if (cancelFailures-- > 0) throw new Error("native release failed"); },
     },
+    watchConfiguration: (_target, _sources, changed) => {
+      const state = { changed, closed: false, rechecks: 0 }; watches.push(state);
+      return { recheck: () => { state.rechecks++; if (!nativeCurrent) changed(); }, dispose: async () => { watchClosing.resolve(); await watchCloseGate; state.closed = true; } };
+    },
   });
-  return { workspace, coreCalls, sent, stopped, entered, fileCalls,
+  return { workspace, coreCalls, sent, stopped, entered, fileCalls, watches,
+    watchClosing: watchClosing.promise, holdWatchClose: (gate: Promise<void>) => { watchCloseGate = gate; },
+    sourceCurrent: (current: boolean) => { nativeCurrent = current; },
     fingerprint: (value: string) => { syncFingerprint = value; },
     tools: (value: BuildToolContext) => { tools = value; }, holdTools: (value: Promise<BuildToolContext> | undefined) => { toolGate = value; },
     holdProvider: (value: Promise<unknown> | undefined) => { providerGate = value; },
@@ -85,6 +96,68 @@ function fixture() {
 }
 
 describe("Windows Build Provider workspace operations", () => {
+  test("plugin revocation waits for native source retirement before acknowledging cleanup", async () => {
+    const f = fixture(), gate = deferred<void>(); let acknowledged = false;
+    try {
+      await f.workspace.readConfiguration(instance).completion; f.holdWatchClose(gate.promise);
+      const closing = f.workspace.stopPlugin(instance.pluginID).then(() => { acknowledged = true; });
+      await f.watchClosing; expect(acknowledged).toBe(false);
+      gate.resolve(); await closing;
+      expect(acknowledged).toBe(true); expect(f.watches[0]!.closed).toBe(true);
+    } finally { gate.resolve(); await f.workspace.dispose(); }
+  }, 5000);
+
+  test("models observe native sources without opening settings and refuse changed sources before execution", async () => {
+    const f = fixture();
+    f.tools({ ...context, manifest: { id: instance.pluginID, buildSystems: [{ id: instance.buildSystemID, configuration: { source: "provider" } }] } });
+    try {
+      await f.workspace.loadModel(instance).completion;
+      expect(f.sent.map(request => request.method)).toEqual(["build.configurationPlan", "build.modelPlan"]);
+      expect(f.watches).toHaveLength(1); const count = f.sent.length;
+      f.sourceCurrent(false);
+      await expect(f.workspace.executeTask(instance, "compile").completion).rejects.toThrow("changed");
+      expect(f.sent).toHaveLength(count); expect(f.workspace.model(instance)).toBeUndefined();
+    } finally { await f.workspace.dispose(); }
+    expect(f.watches.every(watch => watch.closed)).toBe(true);
+  }, 5000);
+
+  test("an external source event revokes its native configuration and model immediately", async () => {
+    const f = fixture();
+    try {
+      await f.workspace.loadModel(instance).completion;
+      const snapshot = await f.workspace.readConfiguration(instance).completion;
+      f.watches[0]!.changed(); await Promise.resolve();
+      expect(f.workspace.configurationIsCurrent(instance, snapshot)).toBe(false);
+      expect(f.workspace.model(instance)).toBeUndefined();
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("own publication notifications do not cancel readback and old leases cannot revoke the new receipt", async () => {
+    const f = fixture(), commit = deferred<void>(); f.holdCommit(commit.promise);
+    try {
+      const snapshot = await f.workspace.readConfiguration(instance).completion;
+      const saved = f.workspace.saveConfiguration(instance, snapshot, edits);
+      await f.entered.commit.promise;
+      f.watches[0]!.changed(); await Promise.resolve();
+      expect(f.workspace.operationSummary(saved.operationID)?.phase).not.toBe("cancelled");
+      commit.resolve(); const readback = await saved.completion;
+      f.watches[0]!.changed(); await Promise.resolve();
+      expect(f.workspace.configurationIsCurrent(instance, readback)).toBe(true);
+      expect(f.watches[1]!.rechecks).toBe(1);
+    } finally { commit.resolve(); await f.workspace.dispose(); }
+  }, 5000);
+
+  test("a failed write rechecks its retained source lease and cannot leave a changed receipt current", async () => {
+    const f = fixture(); f.failCommit();
+    try {
+      const snapshot = await f.workspace.readConfiguration(instance).completion;
+      f.sourceCurrent(false);
+      await expect(f.workspace.saveConfiguration(instance, snapshot, edits).completion).rejects.toThrow("changed on disk");
+      expect(f.watches[0]!.rechecks).toBe(1);
+      expect(f.workspace.configurationIsCurrent(instance, snapshot)).toBe(false);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
   test("source edits expire discovery while Core watch changes revoke model and report snapshots", async () => {
     const f = fixture();
     try {

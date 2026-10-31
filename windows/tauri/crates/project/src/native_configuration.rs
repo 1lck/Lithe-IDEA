@@ -29,6 +29,46 @@ pub struct PreparedNativeConfiguration {
     replacement: String,
 }
 
+/// Checks non-sensitive source versions without returning private XML. Alias
+/// and resolved target paths both remain observable after symlink replacement.
+pub fn check_sources(sources: &Value) -> Result<Value, NativeConfigurationError> {
+    use NativeConfigurationError::*;
+    let sources = sources
+        .as_array()
+        .filter(|sources| sources.len() <= 16)
+        .ok_or(Invalid)?;
+    let mut current = true;
+    let mut paths = Vec::new();
+    for source in sources {
+        let expected = source["revision"].as_str().ok_or(Invalid)?;
+        if expected != "missing"
+            && !(expected.len() == 71
+                && expected.starts_with("sha256:")
+                && expected[7..]
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+        {
+            return Err(Invalid);
+        }
+        if source["uri"].as_str().is_none_or(|uri| uri.len() > 8192) {
+            return Err(Invalid);
+        }
+        let path = source_path(source)?;
+        let target = resolve_target(&path)?;
+        let text = read_with_writability(&target, false)?;
+        let revision = text
+            .as_ref()
+            .map(|text| format!("sha256:{:x}", Sha256::digest(text.as_bytes())))
+            .unwrap_or_else(|| "missing".into());
+        current &= expected == revision;
+        paths.push(path);
+        if paths.last() != Some(&target) {
+            paths.push(target);
+        }
+    }
+    Ok(json!({"current":current,"paths":paths}))
+}
+
 /// Prepares only changed, Core-approved fields against exact source bytes.
 pub fn prepare(
     manifest: &Value,
@@ -152,7 +192,25 @@ fn source_path(source: &Value) -> Result<PathBuf, NativeConfigurationError> {
 }
 
 fn read(path: &Path) -> Result<Option<String>, NativeConfigurationError> {
+    read_with_writability(path, true)
+}
+
+fn read_with_writability(
+    path: &Path,
+    require_writable: bool,
+) -> Result<Option<String>, NativeConfigurationError> {
     use NativeConfigurationError::*;
+    match fs::metadata(path) {
+        Ok(metadata) if !metadata.is_file() || metadata.len() > MAX_BYTES => {
+            return Err(Unreadable);
+        }
+        Ok(metadata) if require_writable && metadata.permissions().readonly() => {
+            return Err(ReadOnly);
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(Unreadable),
+    }
     let mut file = match fs::File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -162,7 +220,7 @@ fn read(path: &Path) -> Result<Option<String>, NativeConfigurationError> {
     if !metadata.is_file() || metadata.len() > MAX_BYTES {
         return Err(Unreadable);
     }
-    if metadata.permissions().readonly() {
+    if require_writable && metadata.permissions().readonly() {
         return Err(ReadOnly);
     }
     let mut bytes = Vec::new();

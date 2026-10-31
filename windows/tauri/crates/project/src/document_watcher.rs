@@ -86,8 +86,15 @@ impl DocumentWatcher {
         for document in &mut documents {
             if let (Some(parent), Some(name)) = (document.path.parent(), document.path.file_name())
             {
-                if let Ok(parent) = parent.canonicalize() {
-                    document.path = parent.join(name);
+                if let Some(path) = parent.ancestors().find_map(|ancestor| {
+                    let canonical = ancestor.canonicalize().ok()?;
+                    Some(
+                        canonical
+                            .join(parent.strip_prefix(ancestor).ok()?)
+                            .join(name),
+                    )
+                }) {
+                    document.path = path;
                 }
             }
         }
@@ -113,9 +120,14 @@ impl DocumentWatcher {
             .owners
             .values()
             .flat_map(|(_, documents)| {
-                documents
-                    .iter()
-                    .filter_map(|document| document.path.parent().map(Path::to_path_buf))
+                documents.iter().filter_map(|document| {
+                    document
+                        .path
+                        .ancestors()
+                        .skip(1)
+                        .find(|parent| parent.is_dir())
+                        .map(Path::to_path_buf)
+                })
             })
             .collect();
         drop(leases);
@@ -227,6 +239,63 @@ mod tests {
             let _ = self.0.send(event);
         }
     }
+    #[test]
+    fn missing_source_parents_are_observed_without_creating_user_directories() {
+        let directory =
+            std::env::temp_dir().join(format!("lithe-missing-doc-parent-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(directory.clone());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let watcher = DocumentWatcher::new(Arc::new(ChannelEmitter(sender))).unwrap();
+        let parent = directory.join(".m2");
+        let documents = vec![DocumentWatch {
+            id: "native-source".into(),
+            path: parent.join("settings.xml"),
+        }];
+        watcher
+            .replace("window-input", 1, documents.clone())
+            .unwrap();
+        assert!(
+            !parent.exists(),
+            "registering a missing source is read-only"
+        );
+        std::fs::create_dir(&parent).unwrap();
+        let event = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("missing parent notification deadline");
+        assert_eq!(event.id, "native-source");
+        watcher
+            .replace("window-input", 2, documents.clone())
+            .unwrap();
+        assert!(
+            watcher
+                .watches
+                .lock()
+                .unwrap()
+                .directories
+                .contains(&parent.canonicalize().unwrap())
+        );
+        std::fs::write(&documents[0].path, "<settings/>").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let event = receiver
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .expect("created source notification deadline");
+            if event.generation == 2 {
+                assert_eq!(event.id, "native-source");
+                break;
+            }
+        }
+        watcher.remove_owner("window-input").unwrap();
+        assert!(watcher.watches.lock().unwrap().directories.is_empty());
+    }
+
     #[test]
     fn native_parent_watch_survives_replacement_and_another_window_closing() {
         let directory =

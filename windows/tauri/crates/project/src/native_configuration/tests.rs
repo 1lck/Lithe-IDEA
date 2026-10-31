@@ -53,6 +53,76 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn source_checks_return_only_versions_and_paths_for_existing_or_missing_files() {
+    let f = Fixture::new();
+    let missing = f.snapshot();
+    assert_eq!(check_sources(&missing["sources"]).unwrap()["current"], true);
+    fs::write(
+        &f.path,
+        "<settings><servers>fixture-private-value</servers></settings>",
+    )
+    .unwrap();
+    assert_eq!(
+        check_sources(&missing["sources"]).unwrap()["current"],
+        false
+    );
+    let result = check_sources(&f.snapshot()["sources"]).unwrap();
+    assert_eq!(result["current"], true);
+    assert_eq!(result["paths"][0], f.path.to_string_lossy().as_ref());
+    assert!(!result.to_string().contains("fixture-private-value"));
+    assert!(!result.to_string().contains("settings>"));
+    fs::remove_file(&f.path).unwrap();
+    assert_eq!(check_sources(&missing["sources"]).unwrap()["current"], true);
+}
+
+#[test]
+fn source_checks_bound_requests_and_reject_non_files_before_opening() {
+    let f = Fixture::new();
+    let snapshot = f.snapshot();
+    let mut invalid = snapshot["sources"].clone();
+    invalid[0]["revision"] = json!("invalid");
+    assert_eq!(
+        check_sources(&invalid),
+        Err(NativeConfigurationError::Invalid)
+    );
+    assert_eq!(
+        check_sources(&json!(vec![snapshot["sources"][0].clone(); 17])),
+        Err(NativeConfigurationError::Invalid)
+    );
+    fs::create_dir(&f.path).unwrap();
+    assert_eq!(
+        check_sources(&snapshot["sources"]),
+        Err(NativeConfigurationError::Unreadable)
+    );
+}
+
+#[test]
+fn source_checks_can_observe_read_only_installation_settings_without_enabling_writes() {
+    let f = Fixture::new();
+    fs::write(&f.path, "<settings/>").unwrap();
+    let original = fs::metadata(&f.path).unwrap().permissions();
+    struct Restore(PathBuf, fs::Permissions);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            fs::set_permissions(&self.0, self.1.clone()).unwrap();
+        }
+    }
+    let _restore = Restore(f.path.clone(), original.clone());
+    let mut read_only = original;
+    read_only.set_readonly(true);
+    fs::set_permissions(&f.path, read_only).unwrap();
+    let snapshot = f.snapshot();
+    assert_eq!(
+        check_sources(&snapshot["sources"]).unwrap()["current"],
+        true
+    );
+    assert!(matches!(
+        f.prepare(&snapshot, json!("new"), &[]),
+        Err(NativeConfigurationError::ReadOnly)
+    ));
+}
+
+#[test]
 fn edits_preserve_comments_secrets_and_permissions_through_existing_atomic_publication() {
     let f = Fixture::new();
     fs::write(&f.path,"<settings><!--preserved--><servers><server><password>fixture-private-value</password></server></servers></settings>").unwrap();

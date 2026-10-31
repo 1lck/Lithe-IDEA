@@ -4,6 +4,7 @@ import { invoke } from "@/platform/tauri-core";
 import { isLocalDocumentPath } from "@/platform/document-files";
 import type { useBufferStore } from "../stores/buffer.store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { documentWatchInputs, type DocumentWatchInput } from "@/platform/document-watch-inputs";
 
 type BufferStore = ReturnType<typeof useBufferStore.getStore>;
 type Target = { id: string; path: string; bufferId: string; store: BufferStore };
@@ -25,12 +26,14 @@ export interface DocumentWatchDependencies {
   register: (generation: number, documents: { id: string; path: string }[]) => Promise<unknown>;
   schedule?: (callback: () => void) => () => void;
   gitChanged?: (change: GitChange) => void;
+  inputs?: { snapshot: () => DocumentWatchInput[]; subscribe: (callback: () => void) => () => void };
 }
 
 /** One controller per WebView; native leases are independently owned by its window. */
 export async function createDocumentWatches(dependencies: DocumentWatchDependencies) {
   let stopped = false;
   let targets = new Map<string, Target>();
+  let inputs = new Map<string, DocumentWatchInput>();
   const ids = new WeakMap<BufferStore, number>();
   let sequence = 0;
   let signature = "";
@@ -97,17 +100,24 @@ export async function createDocumentWatches(dependencies: DocumentWatchDependenc
         next.set(id, { id, path: buffer.path, bufferId: buffer.id, store });
       }
     }
-    const nextSignature = JSON.stringify([...next.values()].map(({ id, path }) => ({ id, path })));
+    inputs = new Map((dependencies.inputs?.snapshot() ?? []).filter(input => {
+      if (isLocalDocumentPath(input.path)) return true;
+      input.registered(false); return false;
+    }).map(input => [input.id, input]));
+    const documents = [...next.values(), ...inputs.values()].map(({ id, path }) => ({ id, path }));
+    const nextSignature = JSON.stringify(documents);
     targets = next;
     for (const id of [...pending]) if (!targets.has(id)) pending.delete(id);
     if (force || signature !== nextSignature) {
       signature = nextSignature;
       const current = ++generation;
-      const documents = [...targets.values()].map(({ id, path }) => ({ id, path }));
+      const capturedInputs = [...inputs.values()];
       registration = registration.then(async () => {
         if (stopped || current !== generation) return;
+        let success = true;
         try { await dependencies.register(current, documents); }
-        catch (error) { console.error("Document watch registration failed; saving remains guarded", error); }
+        catch (error) { success = false; console.error("Document watch registration failed; saving remains guarded", error); }
+        if (!stopped && current === generation) for (const input of capturedInputs) input.registered(success);
         if (!stopped && current === generation) for (const id of targets.keys()) void reconcile(id);
       });
     } else {
@@ -115,17 +125,22 @@ export async function createDocumentWatches(dependencies: DocumentWatchDependenc
     }
   };
   unlisten = await dependencies.listen((payload) => {
-    if (!stopped && payload.generation === generation && targets.has(payload.id)) void reconcile(payload.id);
+    if (stopped || payload.generation !== generation) return;
+    const input = inputs.get(payload.id);
+    if (input) { input.changed(); snapshot(true); }
+    else if (targets.has(payload.id)) void reconcile(payload.id);
   });
   const unsubscribe = dependencies.subscribe(() => snapshot());
-  const removeFocus = dependencies.focus(() => snapshot(true));
+  const unsubscribeInputs = dependencies.inputs?.subscribe(() => snapshot());
+  const removeFocus = dependencies.focus(() => { snapshot(true); for (const input of inputs.values()) input.changed(); });
   snapshot(true);
   return async () => {
     stopped = true;
     cancelScheduledReconciliation?.();
     cancelScheduledReconciliation = undefined;
-    unsubscribe(); unlisten?.(); removeFocus();
-    targets.clear(); pending.clear();
+    unsubscribe(); unsubscribeInputs?.(); unlisten?.(); removeFocus();
+    for (const input of inputs.values()) input.registered(false);
+    targets.clear(); inputs.clear(); pending.clear();
     await registration;
     await dependencies.register(++generation, []);
   };
@@ -141,6 +156,7 @@ export function initializeDocumentWatches() {
       listen: (callback) => listen<{ generation: number; id: string }>("document-file-changed", ({ payload }) => callback(payload)),
       focus: (callback) => { window.addEventListener("focus", callback); return () => window.removeEventListener("focus", callback); },
       register: (generation, documents) => invoke("set_document_watches", { generation, documents }),
+      inputs: documentWatchInputs,
     });
   });
   return lifecycle;

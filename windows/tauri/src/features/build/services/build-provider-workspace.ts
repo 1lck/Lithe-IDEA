@@ -1,100 +1,12 @@
-import type { pluginPlanGuard } from "@/features/plugins/declarative-plugin-lifecycle";
-import type { buildCore } from "@/platform/build-core-api";
-import type { windowsBuildProviders } from "@/platform/build-provider-sessions";
 import { awaitBuildPreparation } from "@/platform/build-provider-operation";
 import type { CoreBuildProviderTarget } from "@/platform/lsp-core-adapter";
 import { BuildResultStore, type BuildDiagnostic, type BuildTestResults, type BuildTestSelector } from "./build-results";
 import { BuildFileInputs } from "./build-file-inputs";
+import type { BuildConfigurationWatch, BuildConfigurationSourceVersion } from "./build-configuration-watch";
 
-export interface BuildProject {
-  id: string; name: string; path: string; parentID?: string;
-  displayName?: string; properties: Record<string, string>;
-}
-export interface BuildDependencyNode {
-  name: string; group?: string; version?: string; scope?: string;
-  properties?: Record<string, string>; children?: BuildDependencyNode[];
-}
-export interface BuildDependencies {
-  project: string; dependencies: BuildDependencyNode[]; truncated: boolean;
-}
-export interface BuildDependencySnapshot extends BuildDependencies { revision: string }
-
-export interface BuildModel {
-  projects: BuildProject[];
-  targets: Array<{ id: string; projectID: string; name: string; path: string; tags: string[]; properties: Record<string, string> }>;
-  tasks: Array<{ id: string; projectID: string; name: string; path: string; template: string;
-    execution: "task" | "service"; properties: Record<string, string>; displayName?: string; description?: string; category?: string[]; group?: string }>;
-  contentRoots: Array<{ projectID: string; path: string; kind: string }>;
-  optionValues: Record<string, string[]>;
-  truncated?: boolean;
-}
-
-export interface BuildToolContext {
-  manifest: Record<string, unknown>;
-  identity?: unknown;
-  pluginDirectory: string;
-  workspaceStateDirectory: string;
-  tool: { executable: string };
-  environment: Record<string, string>;
-  executesProjectCode: boolean;
-}
-
-export interface BuildInstance {
-  pluginID: string; buildSystemID: string; root: string;
-  options: Record<string, unknown>;
-}
-
-export interface BuildOperation {
-  id: string;
-  instance: BuildInstance;
-  phase: "preparing" | "running" | "succeeded" | "failed" | "cancelled";
-  output: string;
-  exitCode?: number;
-  error?: string;
-}
-
-export interface BuildTestSelection {
-  projectID?: string; targetID?: string; suite?: string; case?: string;
-  selectorKind?: string; selectors?: string[]; userArguments?: string[];
-}
-
-export interface BuildNativeConfiguration {
-  format: "litheBuildConfiguration";
-  version: 1;
-  sources: Array<{
-    id: string; scope: "installation" | "user" | "workspace"; uri: string; revision: string; writable: boolean;
-    rootElement: { name: string; namespace: string };
-    fields: Array<{ id: string; kind: "text" | "file" | "directory" | "boolean" | "stringList";
-      value: unknown; effectiveValue: unknown; effectiveSource: string; path: string[]; itemElement?: string }>;
-  }>;
-}
-
-interface BuildWork {
-  record: BuildOperation;
-  current: () => void;
-  context: string;
-  tool: BuildToolContext;
-  signal: AbortSignal;
-  native: <T>(task: Promise<T>) => Promise<T>;
-  retainCleanup: (release: () => Promise<unknown>) => Promise<unknown>;
-  perform: (command: string, request: Record<string, unknown>) => Promise<unknown>;
-  decode: <R extends Record<string, unknown>>(command: string, request: Record<string, unknown>, includeContext?: boolean) => Promise<R>;
-}
-
-export interface WorkspacePorts {
-  core: typeof buildCore;
-  providers: Pick<typeof windowsBuildProviders, "send" | "stop">;
-  tools: (target: CoreBuildProviderTarget, root: string, checkVersions: boolean) => Promise<BuildToolContext>;
-  guard: typeof pluginPlanGuard;
-  translate: (key: string) => string;
-  configurationFiles?: {
-    prepare: (target: CoreBuildProviderTarget, root: string, operationID: string, snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits) => Promise<boolean>;
-    commit: (operationID: string) => Promise<void>;
-    cancel: (operationID: string) => Promise<void>;
-  };
-}
-
-export interface BuildNativeConfigurationEdits { sourceID: string; revision: string; values: Record<string, unknown> }
+import type { BuildProject, BuildDependencies, BuildDependencySnapshot, BuildModel, BuildInstance, BuildOperation,
+  BuildTestSelection, BuildNativeConfiguration, BuildNativeConfigurationEdits, BuildWork, WorkspacePorts } from "./build-provider-types";
+export type * from "./build-provider-types";
 
 const MAX_OUTPUT_CHARACTERS = 500_000;
 const MAX_COMPLETED_OPERATIONS = 50;
@@ -125,7 +37,10 @@ export class WindowsBuildProviderWorkspace {
   private disposed = false;
   private readonly revisions = new Map<string, number>();
   private readonly models = new Map<string, BuildModel>();
-  private readonly modelInputs = new Map<string, { options: string; context: string; sync: string; current: () => void }>();
+  private readonly modelInputs = new Map<string, { options: string; context: string; sync: string; nativeSources?: BuildConfigurationSourceVersion[]; current: () => void }>();
+  private readonly nativeWatches = new Map<string, BuildConfigurationWatch>();
+  private readonly nativeRetirements = new Map<Promise<unknown>, string>();
+  private readonly configurationSaves = new Map<string, number>();
   private readonly dependencyResults = new Map<string, { instance: string; snapshot: BuildDependencySnapshot }>();
   private readonly configurations = new Map<string, { snapshot: string; context: string; options: string; current: () => void }>();
   private readonly cleanupFailures = new Map<() => Promise<unknown>, unknown>();
@@ -212,6 +127,7 @@ export class WindowsBuildProviderWorkspace {
     this.fileInputs.forget(key);
     for (const [id, cached] of this.dependencyResults) if (cached.instance === key) this.dependencyResults.delete(id);
     this.configurations.delete(key);
+    this.retireNativeWatch(key);
     for (const pending of this.controllers.values()) if (pending.instance === key) pending.controller.abort(this.revoked());
     this.factsChanged();
     this.changed();
@@ -234,16 +150,26 @@ export class WindowsBuildProviderWorkspace {
     this.invalidate(instance);
     const started = this.begin<BuildModel>(instance, false, async operation => {
       const before = await operation.decode<{ sync: { fingerprint: string; watch: string[] } }>("build.syncFingerprint", { projects: [] });
+      let nativeSources: BuildConfigurationSourceVersion[] | undefined;
+      const declaration = (operation.tool.manifest.buildSystems as Array<{ id: string; configuration?: { source?: string } }> | undefined)
+        ?.find(system => system.id === operation.record.instance.buildSystemID);
+      if (declaration?.configuration?.source === "provider") {
+        const result = await operation.perform("build.configurationPlan", { refresh: true });
+        const decoded = await operation.decode<{ configuration: BuildNativeConfiguration }>("build.decodeConfiguration", { result }, false);
+        this.rememberConfiguration(operation, decoded.configuration);
+        nativeSources = decoded.configuration.sources.map(({ uri, revision }) => ({ uri, revision }));
+      }
       const result = await operation.perform("build.modelPlan", { refresh: true });
       const decoded = await operation.decode<{ model: BuildModel }>("build.decodeModel", { result });
       const after = await operation.decode<typeof before>("build.syncFingerprint", { projects: [] });
       if (before.sync.fingerprint !== after.sync.fingerprint) { this.invalidate(operation.record.instance); operation.current(); }
       const watched = await operation.decode<typeof before>("build.syncFingerprint", { projects: decoded.model.projects.map(project => project.path) });
+      if (nativeSources) await this.checkNativeSources(operation, nativeSources);
       operation.current();
       const selected = operation.record.instance;
       this.fileInputs.remember(owner(selected), watched.sync.watch);
       this.models.set(owner(selected), structuredClone(decoded.model));
-      this.modelInputs.set(owner(selected), { options: fingerprint(selected.options), context: operation.context, sync: watched.sync.fingerprint, current: operation.current });
+      this.modelInputs.set(owner(selected), { options: fingerprint(selected.options), context: operation.context, sync: watched.sync.fingerprint, nativeSources, current: operation.current });
       this.factsChanged();
       return decoded.model;
     }, false);
@@ -294,26 +220,53 @@ export class WindowsBuildProviderWorkspace {
       previous.current();
       const files = this.ports.configurationFiles;
       if (!files) throw new Error(this.message("unsupportedSource"));
-      const target = { workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID };
-      const preparing = files.prepare(target, selected.root, operation.record.id, savedSnapshot, savedEdits);
-      try {
-        const changed = await operation.native(preparing);
-        operation.current();
-        if (!changed) return savedSnapshot;
-        const committing = files.commit(operation.record.id).then(() => this.nativeConfigurationChanged(selected, operation.record.id));
-        await operation.native(committing);
-        operation.current();
-        const result = await operation.perform("build.configurationPlan", { refresh: true });
-        const decoded = await operation.decode<{ configuration: BuildNativeConfiguration }>("build.decodeConfiguration", { result }, false);
-        this.rememberConfiguration(operation, decoded.configuration);
-        return decoded.configuration;
-      } finally {
-        // Cancellation can precede a native prepare reply. Retain that reply
-        // and cancel only after it finishes, so a late token cannot leak XML.
-        const cleanup = operation.retainCleanup(() => preparing.then(() => files.cancel(operation.record.id), () => files.cancel(operation.record.id)));
-        if (!operation.signal.aborted) await cleanup;
-      }
+      return this.savingConfiguration(key, async () => {
+        const target = { workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID };
+        const preparing = files.prepare(target, selected.root, operation.record.id, savedSnapshot, savedEdits);
+        try {
+          const changed = await operation.native(preparing);
+          operation.current();
+          if (!changed) return savedSnapshot;
+          const committing = files.commit(operation.record.id).then(() => this.nativeConfigurationChanged(selected, operation.record.id));
+          await operation.native(committing);
+          operation.current();
+          const result = await operation.perform("build.configurationPlan", { refresh: true });
+          const decoded = await operation.decode<{ configuration: BuildNativeConfiguration }>("build.decodeConfiguration", { result }, false);
+          this.rememberConfiguration(operation, decoded.configuration);
+          return decoded.configuration;
+        } finally {
+          // Cancellation can precede a native prepare reply. Retain that reply
+          // and cancel only after it finishes, so a late token cannot leak XML.
+          const cleanup = operation.retainCleanup(() => preparing.then(() => files.cancel(operation.record.id), () => files.cancel(operation.record.id)));
+          if (!operation.signal.aborted) await cleanup;
+        }
+      });
     }, false);
+  }
+
+  private async savingConfiguration<T>(key: string, body: () => Promise<T>): Promise<T> {
+    this.configurationSaves.set(key, (this.configurationSaves.get(key) ?? 0) + 1);
+    try { return await body(); }
+    finally {
+      const count = this.configurationSaves.get(key)! - 1;
+      if (count) this.configurationSaves.set(key, count);
+      else { this.configurationSaves.delete(key); this.nativeWatches.get(key)?.recheck(); }
+    }
+  }
+  private retireNativeWatch(key: string): void {
+    const watch = this.nativeWatches.get(key); this.nativeWatches.delete(key);
+    if (watch) {
+      const cleanup = this.retainCleanup(() => watch.dispose());
+      this.nativeRetirements.set(cleanup, key);
+      void cleanup.then(() => { this.nativeRetirements.delete(cleanup); }, () => {});
+    }
+  }
+  private async checkNativeSources(operation: Pick<BuildWork, "record" | "current" | "native">, sources: BuildConfigurationSourceVersion[]): Promise<void> {
+    const check = this.ports.configurationFiles?.check, selected = operation.record.instance;
+    if (!check) throw new Error(this.message("unsupportedSource"));
+    const result = await operation.native(check({ workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID }, sources));
+    operation.current();
+    if (!result.current) { this.invalidate(selected); throw this.revoked(); }
   }
 
   private nativeConfigurationChanged(selected: BuildInstance, savingOperationID: string): void {
@@ -322,7 +275,7 @@ export class WindowsBuildProviderWorkspace {
     // its completed write must invalidate facts read before publication.
     const keys = new Set([...this.models.keys(), ...this.configurations.keys(), ...[...this.controllers.values()].map(pending => pending.instance)]
       .filter(key => { const [plugin, system] = JSON.parse(key); return plugin === selected.pluginID && system === selected.buildSystemID; }));
-    for (const key of keys) { this.models.delete(key); this.modelInputs.delete(key); this.configurations.delete(key); this.results.forget(key); this.fileInputs.forget(key); }
+    for (const key of keys) { this.models.delete(key); this.modelInputs.delete(key); this.configurations.delete(key); this.results.forget(key); this.fileInputs.forget(key); this.retireNativeWatch(key); }
     for (const [id, cached] of this.dependencyResults) if (keys.has(cached.instance)) this.dependencyResults.delete(id);
     for (const [id, pending] of this.controllers) {
       if (id !== savingOperationID && keys.has(pending.instance)) pending.controller.abort(this.revoked());
@@ -336,6 +289,15 @@ export class WindowsBuildProviderWorkspace {
     const selected = operation.record.instance;
     this.configurations.set(owner(selected), { snapshot: fingerprint(snapshot), context: operation.context,
       options: fingerprint(selected.options), current: operation.current });
+    const key = owner(selected); this.retireNativeWatch(key);
+    if (this.ports.watchConfiguration) {
+      const sources = snapshot.sources.map(({ uri, revision }) => ({ uri, revision }));
+      const watch = this.ports.watchConfiguration({ workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID }, sources,
+        () => queueMicrotask(() => {
+          if (this.nativeWatches.get(key) === watch && !this.configurationSaves.has(key)) this.invalidateKey(key);
+        }));
+      this.nativeWatches.set(key, watch);
+    }
     this.factsChanged();
   }
 
@@ -477,6 +439,8 @@ export class WindowsBuildProviderWorkspace {
         if (needsModel) {
           const checked = await decode<{ sync: { fingerprint: string } }>("build.syncFingerprint", { projects: model!.projects.map(project => project.path) });
           if (checked.sync.fingerprint !== this.modelInputs.get(key)?.sync) { this.invalidate(snapshot); throw this.revoked(); }
+          const sources = this.modelInputs.get(key)?.nativeSources;
+          if (sources) await this.checkNativeSources({ record, current, native: task => this.owned(task, controller.signal) }, sources);
         }
         const value = await body({ record, current, perform, decode, context: contextIdentity, tool: context,
           signal: controller.signal, native: task => this.owned(task, controller.signal), retainCleanup: release => this.retainCleanup(release) });
@@ -529,7 +493,8 @@ export class WindowsBuildProviderWorkspace {
       if (plugin === pluginID) this.invalidate({ pluginID: plugin, buildSystemID: system, root, options: {} });
     }
     const targets = [...this.targets.values()].filter(target => target.pluginId === pluginID);
-    const outcomes = await Promise.allSettled(targets.map(target => this.ports.providers.stop(target)));
+    const watches = [...this.nativeRetirements].filter(([, key]) => JSON.parse(key)[0] === pluginID).map(([task]) => task);
+    const outcomes = await Promise.allSettled([...targets.map(target => this.ports.providers.stop(target)), ...watches]);
     const failure = outcomes.find(result => result.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
   }
@@ -544,6 +509,7 @@ export class WindowsBuildProviderWorkspace {
     this.modelInputs.clear();
     this.results.clear();
     this.fileInputs.clear();
+    for (const key of this.nativeWatches.keys()) this.retireNativeWatch(key);
     this.dependencyResults.clear();
     this.configurations.clear();
     this.factsChanged();
@@ -556,5 +522,6 @@ export class WindowsBuildProviderWorkspace {
     const failures = stops.filter((result): result is PromiseRejectedResult => result.status === "rejected");
     if (failures.length || this.cleanupFailures.size) throw Object.assign(new Error(this.message("cleanupFailed")),
       { causes: [...failures.map(result => result.reason), ...this.cleanupFailures.values()] });
+    this.nativeRetirements.clear();
   }
 }

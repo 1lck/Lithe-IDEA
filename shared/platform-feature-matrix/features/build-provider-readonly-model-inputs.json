@@ -20,11 +20,18 @@
   "windows": {
     "evidence": [
       "rust/lithe-core/src/build/model_inputs.rs",
-      "shared/contracts/plugins/v1/plugin-manifest.schema.json"
+      "shared/contracts/plugins/v1/plugin-manifest.schema.json",
+      "windows/tauri/crates/project/src/native_configuration.rs",
+      "windows/tauri/crates/project/src/document_watcher.rs",
+      "windows/tauri/src/features/build/services/build-configuration-watch.ts",
+      "windows/tauri/src/features/build/services/build-configuration-watch.test.ts",
+      "windows/tauri/src/platform/document-watch-inputs.ts",
+      "windows/tauri/src/features/editor/services/document-watch-controller.test.ts"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
   "owner": "Extensions",
-  "verification": "本地运行 Core model_inputs 测试、BuildSystemServiceTests 和 RustBuildSystemOperationsTests：核对精确来源、只读字段投影、选项指纹、不可用/过期状态、路径/大小边界、协议 5 拒绝、协议 6 接收，以及生产者重载/选项 ABA/停用/构建文件修改/工作区替换后忽略取消的旧结果不能发布。在 lithe-plugin-docs 使用当前工作区快照执行 Node/Java 两个真实后端的模型共享端到端场景，核对插件包字节不变。手动验收仍需安装一对正式插件，在原生窗口加载生产者与消费者，再修改选项、禁用生产者并确认旧模型不能启动任务；当前 Java/Maven 插件尚未迁移，Windows 宿主缺失，均不视为通过实机验收。 并行生产者回归：同时暂停 A/B 模型回复，按两种顺序释放，确认二者均非过期且消费者收到两个 ready 模型；生产者自身选项 ABA 仍使旧回复 stale。"
+  "verification": "本地运行 Core model_inputs 测试、BuildSystemServiceTests 和 RustBuildSystemOperationsTests：核对精确来源、只读字段投影、选项指纹、不可用/过期状态、路径/大小边界、协议 5 拒绝、协议 6 接收，以及生产者重载/选项 ABA/停用/构建文件修改/工作区替换后忽略取消的旧结果不能发布。在 lithe-plugin-docs 使用当前工作区快照执行 Node/Java 两个真实后端的模型共享端到端场景，核对插件包字节不变。手动验收仍需安装一对正式插件，在原生窗口加载生产者与消费者，再修改选项、禁用生产者并确认旧模型不能启动任务；当前 Java/Maven 插件尚未迁移，Windows 宿主缺失，均不视为通过实机验收。 并行生产者回归：同时暂停 A/B 模型回复，按两种顺序释放，确认二者均非过期且消费者收到两个 ready 模型；生产者自身选项 ABA 仍使旧回复 stale。",
+  "notes": " Windows 基础设施复用窗口文档 watcher 观察原生配置来源及链接目标；缺失父目录只观察最近现存祖先，注册不创建用户目录。版本检查只返回路径和一致性，不传 XML；模型发布和执行前检查原生版本，外部变化撤销模型/草稿，自己的保存与回读不误取消。插件撤销等待来源读取排空。Run/Java/Agent 与旧数据迁移和实机验收仍未完成，产品能力准入保持关闭。"
 }

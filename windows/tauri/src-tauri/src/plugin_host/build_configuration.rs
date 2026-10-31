@@ -6,7 +6,7 @@ use lithe_project::native_configuration::{
     self, NativeConfigurationError, PreparedNativeConfiguration,
 };
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -64,6 +64,35 @@ fn invalid() -> Failure {
 }
 fn conflict() -> Failure {
     NativeConfigurationError::Conflict.into()
+}
+
+/// Read-only source reconciliation. Return paths and a changed bit, never XML.
+#[tauri::command]
+pub async fn declarative_plugins_build_check_configuration(
+    app: AppHandle,
+    plugin_id: String,
+    build_system_id: String,
+    sources: Value,
+) -> Result<Value, Failure> {
+    crate::blocking::run_blocking_result(move || {
+        let _lease = app
+            .state::<LifecycleState>()
+            .acquire(&plugin_id)
+            .map_err(|_| invalid())?;
+        let package = launch::package_by_id(&app, &plugin_id).ok_or_else(invalid)?;
+        let declared = package.manifest["buildSystems"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|system| {
+                system["id"] == build_system_id && system["configuration"]["source"] == "provider"
+            });
+        if !declared {
+            return Err(invalid());
+        }
+        native_configuration::check_sources(&sources).map_err(Failure::from)
+    })
+    .await
 }
 
 /// Returns only a changed bit. XML is retained natively until the caller checks
