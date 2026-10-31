@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { dirname } from "@tauri-apps/api/path";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
+import { windowsBuildWorkspaces } from "@/platform/build-workspaces";
 import { getBaseName, getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
 import { useFileSystemStore } from "../stores/file-system.store";
@@ -143,6 +144,7 @@ export async function initializeFileWatcherListener() {
   await initializeDocumentWatches();
 
   unlistenFileChanged = await listen<FileChangeEvent>("file-changed", async (event) => {
+    windowsBuildWorkspaces.filesChanged(event.payload.path, event.payload.event_type === "rescan");
     const { path, event_type } = event.payload;
     const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
     const fileSystemState = useFileSystemStore.getStore(workspaceId).getState();

@@ -7,6 +7,7 @@ import { RunOutputText } from "@/features/run/components/run-output-text";
 import { paneHeaderClassName, paneTitleClassName } from "@/features/panes/components/pane-chrome";
 import { useBuildWorkspace } from "../hooks/use-build-workspace";
 import type { WindowsBuildProviderWorkspace } from "../services/build-provider-workspace";
+import { BuildResultsContent, type BuildSourceNavigation } from "./build-results-content";
 
 export default function BuildOutputPane() {
   const { controller, snapshot } = useBuildWorkspace();
@@ -14,7 +15,7 @@ export default function BuildOutputPane() {
 }
 
 /** The output leaf is the only subscriber to high-volume operation progress. */
-export function BuildOutputContent({ domain, operationID }: { domain: WindowsBuildProviderWorkspace; operationID?: string }) {
+export function BuildOutputContent({ domain, operationID, onNavigate }: { domain: WindowsBuildProviderWorkspace; operationID?: string; onNavigate?: BuildSourceNavigation }) {
   const { t } = useTranslation();
   useSyncExternalStore(domain.subscribe, domain.snapshotRevision, domain.snapshotRevision);
   const operation = operationID ? domain.operation(operationID) : undefined;
@@ -30,5 +31,6 @@ export function BuildOutputContent({ domain, operationID }: { domain: WindowsBui
       <RunOutputText source={operation?.output ?? ""} title={operation?.phase ? t(`build.phase.${operation.phase}`) : t("build.window.output")}
         emptyLabel={t("build.window.noOutput")} />
     </ScrollArea>
+    <BuildResultsContent domain={domain} operationID={operationID} onNavigate={onNavigate} />
   </section>;
 }

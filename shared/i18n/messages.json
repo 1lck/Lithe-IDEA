@@ -92586,6 +92586,111 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "build.errors.testsExpired",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.results.title",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.results.summary",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "total": "integer",
+        "passed": "integer",
+        "failed": "integer",
+        "errors": "integer",
+        "skipped": "integer"
+      }
+    },
+    {
+      "id": "build.diagnostic.error",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.diagnostic.warning",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.diagnostic.information",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.diagnostic.hint",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.testStatus.passed",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.testStatus.failed",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.testStatus.error",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.testStatus.skipped",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.tests.title",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.tests.run",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.tests.discover",
+      "description": "Windows canonical Build diagnostics and tests",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

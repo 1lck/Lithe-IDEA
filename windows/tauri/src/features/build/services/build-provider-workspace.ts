@@ -3,6 +3,8 @@ import type { buildCore } from "@/platform/build-core-api";
 import type { windowsBuildProviders } from "@/platform/build-provider-sessions";
 import { awaitBuildPreparation } from "@/platform/build-provider-operation";
 import type { CoreBuildProviderTarget } from "@/platform/lsp-core-adapter";
+import { BuildResultStore, type BuildDiagnostic, type BuildTestResults, type BuildTestSelector } from "./build-results";
+import { BuildFileInputs } from "./build-file-inputs";
 
 export interface BuildProject {
   id: string; name: string; path: string; parentID?: string;
@@ -52,7 +54,7 @@ export interface BuildOperation {
 }
 
 export interface BuildTestSelection {
-  projectID?: string; suite?: string; case?: string;
+  projectID?: string; targetID?: string; suite?: string; case?: string;
   selectorKind?: string; selectors?: string[]; userArguments?: string[];
 }
 
@@ -123,7 +125,7 @@ export class WindowsBuildProviderWorkspace {
   private disposed = false;
   private readonly revisions = new Map<string, number>();
   private readonly models = new Map<string, BuildModel>();
-  private readonly modelInputs = new Map<string, { options: string; context: string; current: () => void }>();
+  private readonly modelInputs = new Map<string, { options: string; context: string; sync: string; current: () => void }>();
   private readonly dependencyResults = new Map<string, { instance: string; snapshot: BuildDependencySnapshot }>();
   private readonly configurations = new Map<string, { snapshot: string; context: string; options: string; current: () => void }>();
   private readonly cleanupFailures = new Map<() => Promise<unknown>, unknown>();
@@ -131,8 +133,11 @@ export class WindowsBuildProviderWorkspace {
   private readonly controllers = new Map<string, { controller: AbortController; instance: string }>();
   private readonly records = new Map<string, BuildOperation>();
   private readonly targets = new Map<string, CoreBuildProviderTarget>();
+  private readonly results = new BuildResultStore();
+  private readonly fileInputs: BuildFileInputs;
+  private factRevision = 0;
 
-  constructor(readonly workspacePath: string, private readonly ports: WorkspacePorts) {}
+  constructor(readonly workspacePath: string, private readonly ports: WorkspacePorts) { this.fileInputs = new BuildFileInputs(workspacePath); }
 
   private message(key: string): string { return this.ports.translate(`build.errors.${key}`); }
   private revoked(): Error & { code: string } { return revoked(this.message("inputsChanged")); }
@@ -143,11 +148,16 @@ export class WindowsBuildProviderWorkspace {
     if (this.factsQueued) return;
     this.factsQueued = true;
     queueMicrotask(() => {
-      this.factsQueued = false;
+      this.factsQueued = false; this.factRevision++;
       for (const listener of this.factListeners) listener();
     });
   }
   snapshotRevision = (): number => this.publicationRevision;
+  snapshotFactRevision = (): number => this.factRevision;
+  result(id: string) { return this.results.result(id); }
+  testDiscovery(instance: BuildInstance) {
+    return this.modelIsCurrent(instance) ? this.results.discovery(owner(instance)) : undefined;
+  }
   operation(id: string): BuildOperation | undefined {
     const record = this.records.get(id); return record && structuredClone(record);
   }
@@ -192,15 +202,27 @@ export class WindowsBuildProviderWorkspace {
     try { receipt.current(); return true; } catch { return false; }
   }
   invalidate(instance: BuildInstance): void {
-    const key = owner(instance);
+    this.invalidateKey(owner(instance));
+  }
+  private invalidateKey(key: string): void {
     this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1);
     this.models.delete(key);
     this.modelInputs.delete(key);
+    this.results.forget(key);
+    this.fileInputs.forget(key);
     for (const [id, cached] of this.dependencyResults) if (cached.instance === key) this.dependencyResults.delete(id);
     this.configurations.delete(key);
     for (const pending of this.controllers.values()) if (pending.instance === key) pending.controller.abort(this.revoked());
     this.factsChanged();
     this.changed();
+  }
+  filesChanged(path: string, rescan = false): boolean {
+    if (this.disposed) return false;
+    const change = this.fileInputs.changed(path, rescan);
+    if (change.workspace) { this.results.forgetDiscoveries(); this.factsChanged(); }
+    for (const id of change.cancelled) this.cancel(id);
+    for (const key of change.owners) this.invalidateKey(key);
+    return change.owners.size > 0;
   }
   cancel(id: string): boolean {
     const pending = this.controllers.get(id);
@@ -210,16 +232,27 @@ export class WindowsBuildProviderWorkspace {
 
   loadModel(instance: BuildInstance) {
     this.invalidate(instance);
-    return this.begin<BuildModel>(instance, false, async operation => {
+    const started = this.begin<BuildModel>(instance, false, async operation => {
+      const before = await operation.decode<{ sync: { fingerprint: string; watch: string[] } }>("build.syncFingerprint", { projects: [] });
       const result = await operation.perform("build.modelPlan", { refresh: true });
       const decoded = await operation.decode<{ model: BuildModel }>("build.decodeModel", { result });
+      const after = await operation.decode<typeof before>("build.syncFingerprint", { projects: [] });
+      if (before.sync.fingerprint !== after.sync.fingerprint) { this.invalidate(operation.record.instance); operation.current(); }
+      const watched = await operation.decode<typeof before>("build.syncFingerprint", { projects: decoded.model.projects.map(project => project.path) });
       operation.current();
       const selected = operation.record.instance;
+      this.fileInputs.remember(owner(selected), watched.sync.watch);
       this.models.set(owner(selected), structuredClone(decoded.model));
-      this.modelInputs.set(owner(selected), { options: fingerprint(selected.options), context: operation.context, current: operation.current });
+      this.modelInputs.set(owner(selected), { options: fingerprint(selected.options), context: operation.context, sync: watched.sync.fingerprint, current: operation.current });
       this.factsChanged();
       return decoded.model;
     }, false);
+    return this.trackSourcePreparation(started, instance, true);
+  }
+  private trackSourcePreparation<T>(operation: { operationID: string; completion: Promise<T> }, instance: BuildInstance, model: boolean) {
+    this.fileInputs.begin(operation.operationID, owner(instance), model);
+    const finish = () => { this.fileInputs.finish(operation.operationID); };
+    void operation.completion.then(finish, finish); return operation;
   }
 
   dependencies(instance: BuildInstance, projectID?: string) {
@@ -289,7 +322,7 @@ export class WindowsBuildProviderWorkspace {
     // its completed write must invalidate facts read before publication.
     const keys = new Set([...this.models.keys(), ...this.configurations.keys(), ...[...this.controllers.values()].map(pending => pending.instance)]
       .filter(key => { const [plugin, system] = JSON.parse(key); return plugin === selected.pluginID && system === selected.buildSystemID; }));
-    for (const key of keys) { this.models.delete(key); this.modelInputs.delete(key); this.configurations.delete(key); }
+    for (const key of keys) { this.models.delete(key); this.modelInputs.delete(key); this.configurations.delete(key); this.results.forget(key); this.fileInputs.forget(key); }
     for (const [id, cached] of this.dependencyResults) if (keys.has(cached.instance)) this.dependencyResults.delete(id);
     for (const [id, pending] of this.controllers) {
       if (id !== savingOperationID && keys.has(pending.instance)) pending.controller.abort(this.revoked());
@@ -326,18 +359,29 @@ export class WindowsBuildProviderWorkspace {
   }
 
   discoverTests(instance: BuildInstance) {
-    return this.begin(instance, false, async operation => {
+    return this.trackSourcePreparation(this.begin(instance, false, async operation => {
       const result = await operation.perform("build.testDiscoveryPlan", { refresh: true });
-      return await operation.decode("build.decodeTestDiscovery", { result });
-    });
+      const decoded = await operation.decode<{ discovery: { tests: BuildTestSelector[] } }>("build.decodeTestDiscovery", { result });
+      operation.current();
+      this.results.rememberDiscovery(owner(operation.record.instance), { ...decoded.discovery, revision: operation.record.id });
+      this.factsChanged(); return decoded;
+    }), instance, false);
+  }
+
+  executeDiscoveredTest(instance: BuildInstance, id: string) {
+    const selected = this.testDiscovery(instance)?.tests.find(test => test.id === id);
+    if (!selected) throw new Error(this.message("testsExpired"));
+    return this.executeTests(instance, { projectID: selected.project?.id, targetID: selected.target?.id, suite: selected.suite, case: selected.case });
   }
 
   executeTests(instance: BuildInstance, selection: BuildTestSelection = {}) {
     const snapshot = structuredClone(selection);
     return this.begin(instance, true, async operation => {
-      const project = this.project(operation.record.instance, snapshot.projectID);
-      const { projectID: _, ...filters } = snapshot;
-      const result = await operation.perform("build.testPlan", { ...filters, project,
+      const target = snapshot.targetID ? this.models.get(owner(operation.record.instance))?.targets.find(target => target.id === snapshot.targetID) : undefined;
+      if (snapshot.targetID && !target) throw new Error(this.message("missingProject"));
+      const project = this.project(operation.record.instance, snapshot.projectID ?? target?.projectID);
+      const { projectID: _, targetID: __, ...filters } = snapshot;
+      const result = await operation.perform("build.testPlan", { ...filters, project, target,
         projects: this.models.get(owner(operation.record.instance))!.projects.map(project => project.path) });
       return await this.execution(operation, result, project, snapshot.suite, true);
     });
@@ -350,12 +394,15 @@ export class WindowsBuildProviderWorkspace {
     operation.record.exitCode = result.exitCode as number;
     operation.record.output = result.output.slice(-MAX_OUTPUT_CHARACTERS);
     if (requiresTests && result.testResults === undefined) throw new Error(this.message("invalidExecutionResult"));
-    const diagnostics = await operation.decode("build.decodeDiagnostics", { output: result.output });
-    let tests;
+    const diagnostics = await operation.decode<{ diagnostics: BuildDiagnostic[] }>("build.decodeDiagnostics", { output: result.output });
+    let tests: { results: BuildTestResults } | undefined;
     if (result.testResults !== undefined) tests = await operation.decode("build.decodeTestResults", {
       project: project?.path, projects: this.models.get(owner(operation.record.instance))?.projects.map(project => project.path) ?? [],
       output: result.output, result: result.testResults, suite,
     });
+    operation.current();
+    this.results.remember(operation.record.id, owner(operation.record.instance), { diagnostics: diagnostics.diagnostics, tests: tests?.results });
+    this.factsChanged();
     return { ...result, ...diagnostics, ...(tests ?? {}) };
   }
 
@@ -417,6 +464,7 @@ export class WindowsBuildProviderWorkspace {
             environment: { ...context.environment, ...(provider.params.environment as Record<string, string> ?? {}) } };
           const value = await this.owned(this.ports.providers.send(target, { ...provider, params, timeoutMilliseconds: checkVersions ? 600_000 : 120_000,
             signal: controller.signal, onProgress: value => {
+              if (record.phase !== "running") return;
               try { current(); } catch { return; }
               if (!value || typeof value !== "object") return;
               const progress = value as { output?: unknown; message?: unknown };
@@ -426,6 +474,10 @@ export class WindowsBuildProviderWorkspace {
             } }), controller.signal);
           current(); return value;
         };
+        if (needsModel) {
+          const checked = await decode<{ sync: { fingerprint: string } }>("build.syncFingerprint", { projects: model!.projects.map(project => project.path) });
+          if (checked.sync.fingerprint !== this.modelInputs.get(key)?.sync) { this.invalidate(snapshot); throw this.revoked(); }
+        }
         const value = await body({ record, current, perform, decode, context: contextIdentity, tool: context,
           signal: controller.signal, native: task => this.owned(task, controller.signal), retainCleanup: release => this.retainCleanup(release) });
         current(); record.phase = record.exitCode !== undefined && record.exitCode !== 0 ? "failed" : "succeeded";
@@ -490,6 +542,8 @@ export class WindowsBuildProviderWorkspace {
     for (const pending of this.controllers.values()) pending.controller.abort(this.revoked());
     this.models.clear();
     this.modelInputs.clear();
+    this.results.clear();
+    this.fileInputs.clear();
     this.dependencyResults.clear();
     this.configurations.clear();
     this.factsChanged();

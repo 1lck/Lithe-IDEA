@@ -10,6 +10,7 @@ import type { BuildInstance, BuildModel } from "../services/build-provider-works
 import type { BuildWorkspaceController } from "../services/build-workspace-controller";
 import { buildTaskChoices, buildTaskRows, type BuildTaskChoice } from "../services/build-task-presentation";
 import { BuildDependenciesTree } from "./build-dependencies-tree";
+import { BuildTestsList } from "./build-tests-list";
 
 // Match the public build.taskPlan userArguments bound; Core validates again.
 const MAX_TASK_ARGUMENTS = 64;
@@ -21,7 +22,7 @@ export function BuildTaskList({ controller, instance, model, manifest, openOutpu
   const [projectID, setProjectID] = useState(model.projects[0]?.id ?? "");
   const [prompt, setPrompt] = useState<BuildTaskChoice>();
   const choices = useMemo(() => buildTaskChoices(manifest, instance, model, projectID || undefined), [manifest, instance, model, projectID]);
-  const system = (manifest?.buildSystems as Array<{ id: string; dependencies?: { source?: string } }> | undefined)?.find(system => system.id === instance.buildSystemID);
+  const system = (manifest?.buildSystems as Array<{ id: string; dependencies?: { source?: string }; test?: { source?: string; discovery?: boolean; scopes: string[] } }> | undefined)?.find(system => system.id === instance.buildSystemID);
   const dependencies = controller.domain.dependencyResult(instance, projectID || undefined);
   const rows = useMemo(() => buildTaskRows(choices, group => t(`build.group.${group}`)), [choices, t]);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => 30,
@@ -54,6 +55,9 @@ export function BuildTaskList({ controller, instance, model, manifest, openOutpu
       </div>}
     </ScrollArea>
     {dependencies ? <BuildDependenciesTree key={dependencies.revision} result={dependencies} /> : null}
+    {system?.test?.source === "provider" && system.test.scopes.includes(projectID ? "project" : "workspace")
+      ? <BuildTestsList controller={controller} instance={instance} projectID={projectID || undefined} discovery={system.test.discovery === true}
+        disabled={model.truncated} openOutput={openOutput} /> : null}
     {prompt ? <BuildTaskArguments key={prompt.id} choice={prompt} onCancel={() => setPrompt(undefined)} onRun={args => run(prompt, args)} /> : null}
   </>;
 }

@@ -26,7 +26,7 @@ function fixture() {
   type Request = Parameters<Ports["providers"]["send"]>[1];
   const coreCalls: Array<{ command: string; request: Record<string, unknown> }> = [];
   const sent: Request[] = [], stopped: string[] = [], fileCalls: string[] = [];
-  let tools = structuredClone(context), revision = 0;
+  let tools = structuredClone(context), revision = 0, syncFingerprint = "unchanged";
   let toolGate: Promise<BuildToolContext> | undefined, coreGate: { command: string; promise: Promise<unknown> } | undefined;
   let providerGate: Promise<unknown> | undefined, stopFailure = false;
   let prepareGate: Promise<boolean> | undefined, commitGate: Promise<void> | undefined, commitFailure = false;
@@ -36,12 +36,15 @@ function fixture() {
   const core = (async (command: string, _manifest: unknown, _system: string, request: Record<string, unknown>) => {
     coreCalls.push({ command, request: structuredClone(request) });
     if (coreGate?.command === command) { entered.decode.resolve(); return await coreGate.promise; }
+    if (command === "build.syncFingerprint") return { sync: { fingerprint: syncFingerprint, watch: ["project.marker", "service/project.marker"] } };
     if (command.endsWith("Plan")) return { plan: { provider: { method: command,
       params: { ...request, environment: { OPTION: "selected", PATH: "C:/option-path" } } } } };
     if (command === "build.decodeModel") return { model: structuredClone(model) };
     if (command === "build.decodeDependencies") return { dependencies: { project: "service", dependencies: [{ name: "library" }], truncated: false } };
-    if (command === "build.decodeDiagnostics") return { diagnostics: [{ message: "compile error", line: 3 }] };
-    if (command === "build.decodeTestResults") return { results: { failed: 1, suites: [{ name: "FailedTest" }] } };
+    if (command === "build.decodeDiagnostics") return { diagnostics: [{ path: "service/Main.java", severity: "error", message: "compile error", line: 3 }] };
+    if (command === "build.decodeTestResults") return { results: { success: false,
+      tests: [{ project: "service", suite: "FailedTest", case: "fails", status: "failed", message: "assertion", invocations: 1 }],
+      summary: { total: 1, passed: 0, failed: 1, errors: 0, skipped: 0 }, coverage: [{ project: "service", suite: "FailedTest" }] } };
     if (command === "build.decodeTestDiscovery") return { discovery: { tests: [{ id: "opaque-selector", suite: "A", case: "method" }] } };
     if (command === "build.decodeConfiguration") return { configuration: structuredClone(nativeConfiguration) };
     throw new Error(`Unexpected Core command ${command}`);
@@ -72,6 +75,7 @@ function fixture() {
     },
   });
   return { workspace, coreCalls, sent, stopped, entered, fileCalls,
+    fingerprint: (value: string) => { syncFingerprint = value; },
     tools: (value: BuildToolContext) => { tools = value; }, holdTools: (value: Promise<BuildToolContext> | undefined) => { toolGate = value; },
     holdProvider: (value: Promise<unknown> | undefined) => { providerGate = value; },
     holdCore: (command: string, promise: Promise<unknown>) => { coreGate = { command, promise }; },
@@ -81,6 +85,71 @@ function fixture() {
 }
 
 describe("Windows Build Provider workspace operations", () => {
+  test("source edits expire discovery while Core watch changes revoke model and report snapshots", async () => {
+    const f = fixture();
+    try {
+      await f.workspace.loadModel(instance).completion;
+      await f.workspace.discoverTests(instance).completion;
+      const task = f.workspace.executeTask(instance, "compile"); await task.completion;
+      expect(f.workspace.filesChanged("C:/work/service/src/Test.java")).toBe(false);
+      expect(f.workspace.testDiscovery(instance)).toBeUndefined(); expect(f.workspace.model(instance)).toBeDefined();
+      expect(f.workspace.result(task.operationID)).toBeDefined();
+      expect(f.workspace.filesChanged("c:\\WORK\\service\\PROJECT.MARKER")).toBe(true);
+      expect(f.workspace.model(instance)).toBeUndefined(); expect(f.workspace.result(task.operationID)).toBeUndefined();
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("late progress after ordinary completion cannot overwrite final output", async () => {
+    const f = fixture();
+    try {
+      await f.workspace.loadModel(instance).completion;
+      const operation = f.workspace.executeTask(instance, "compile"); await operation.completion;
+      f.sent[f.sent.length - 1]?.onProgress?.({ output: "late progress after exit" });
+      expect(f.workspace.operation(operation.operationID)).toMatchObject({ phase: "failed", output: "final output\n" });
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("a source edit cancels first model preparation before any old model can publish", async () => {
+    const f = fixture(), tools = deferred<BuildToolContext>(); f.holdTools(tools.promise);
+    const started = f.workspace.loadModel(instance), completed = started.completion.catch(() => "cancelled");
+    try {
+      await f.entered.tool.promise;
+      expect(f.workspace.filesChanged("C:/work/service/new-source.java")).toBe(true);
+      expect(await completed).toBe("cancelled");
+      tools.resolve(context);
+      expect(f.workspace.model(instance)).toBeUndefined(); expect(f.sent).toHaveLength(0);
+    } finally { tools.resolve(context); await completed; await f.workspace.dispose(); }
+  }, 5000);
+
+  test("a delayed discovery cannot repopulate selectors after source edits", async () => {
+    const f = fixture(), decoded = deferred<Record<string, unknown>>();
+    try {
+      await f.workspace.loadModel(instance).completion;
+      f.holdCore("build.decodeTestDiscovery", decoded.promise);
+      const started = f.workspace.discoverTests(instance), completed = started.completion.catch(() => "cancelled");
+      await f.entered.decode.promise; f.workspace.filesChanged("C:/work/service/Test.java");
+      expect(await completed).toBe("cancelled");
+      decoded.resolve({ discovery: { tests: [{ id: "old", suite: "Old", case: "old" }] } });
+      expect(f.workspace.testDiscovery(instance)).toBeUndefined(); expect(f.workspace.model(instance)).toBeDefined();
+    } finally { decoded.resolve({}); await f.workspace.dispose(); }
+  }, 5000);
+
+  test("changed fingerprints reject model publication and catch missed watch events before execution", async () => {
+    const f = fixture(), modelReply = deferred<unknown>();
+    try {
+      f.holdProvider(modelReply.promise);
+      const loading = f.workspace.loadModel(instance), rejected = loading.completion.catch(error => error.message);
+      await f.entered.provider.promise;
+      f.fingerprint("changed-during-model"); modelReply.resolve({});
+      expect(await rejected).toContain("changed");
+      expect(f.workspace.model(instance)).toBeUndefined();
+      f.holdProvider(undefined); await f.workspace.loadModel(instance).completion;
+      const sent = f.sent.length; f.fingerprint("changed-without-notification");
+      await expect(f.workspace.executeTask(instance, "compile").completion).rejects.toThrow("changed");
+      expect(f.sent).toHaveLength(sent); expect(f.workspace.model(instance)).toBeUndefined();
+    } finally { modelReply.resolve({}); await f.workspace.dispose(); }
+  }, 5000);
+
   test("dependency snapshots are bounded across projects and disappear when model inputs change", async () => {
     const f = fixture();
     const projects = Array.from({ length: 6 }, (_, index) => ({ id: `project-${index}`, name: `Project ${index}`, path: `project-${index}`, properties: {} }));
@@ -297,12 +366,13 @@ describe("Windows Build Provider workspace operations", () => {
       const task = f.workspace.executeTask(instance, "test", "service", ["-Dexample=值"]);
       const result = await task.completion;
       expect(tree.dependencies.dependencies).toEqual([{ name: "library" }]);
-      expect(result.diagnostics).toEqual([{ message: "compile error", line: 3 }]);
-      expect(result.results).toMatchObject({ failed: 1 });
+      expect(result.diagnostics).toEqual([{ path: "service/Main.java", severity: "error", message: "compile error", line: 3 }]);
+      expect(result.results).toMatchObject({ summary: { failed: 1 } });
+      expect(f.workspace.result(task.operationID)).toMatchObject({ diagnostics: [{ message: "compile error" }], tests: { summary: { failed: 1 } } });
       expect(f.workspace.operations().find(record => record.id === task.operationID)).toMatchObject({ phase: "failed", exitCode: 1, output: "final output\n" });
-      expect(f.coreCalls.map(call => call.command)).toEqual(["build.modelPlan", "build.decodeModel", "build.dependencyPlan", "build.decodeDependencies",
-        "build.taskPlan", "build.decodeDiagnostics", "build.decodeTestResults"]);
-      expect(f.coreCalls[0]!.request).toMatchObject({ refresh: true, tool: { environment: context.environment } });
+      expect(f.coreCalls.map(call => call.command)).toEqual(["build.syncFingerprint", "build.modelPlan", "build.decodeModel", "build.syncFingerprint", "build.syncFingerprint",
+        "build.syncFingerprint", "build.dependencyPlan", "build.decodeDependencies", "build.syncFingerprint", "build.taskPlan", "build.decodeDiagnostics", "build.decodeTestResults"]);
+      expect(f.coreCalls.find(call => call.command === "build.modelPlan")!.request).toMatchObject({ refresh: true, tool: { environment: context.environment } });
       expect(f.coreCalls.find(call => call.command === "build.taskPlan")!.request).toMatchObject({ project: model.projects[0], userArguments: ["-Dexample=值"] });
       for (const request of f.sent) expect(request.params).toMatchObject({ tool: context.tool,
         environment: { JAVA_HOME: context.environment.JAVA_HOME, OPTION: "selected", PATH: "C:/option-path" } });
@@ -338,6 +408,41 @@ describe("Windows Build Provider workspace operations", () => {
         project: model.projects[0], projects: ["service"], selectorKind: "java.test.fullName", selectors: ["demo.Test#method()"] });
       expect(await f.workspace.discoverTests(instance).completion).toMatchObject({ discovery: { tests: [{ id: "opaque-selector" }] } });
     } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("discovered selectors retain module identity and expire with their model", async () => {
+    const f = fixture();
+    f.holdCore("build.decodeTestDiscovery", Promise.resolve({ discovery: { tests: [
+      { id: "module-a:test", suite: "SameTest", case: "same", project: model.projects[0] },
+      { id: "module-b:test", suite: "SameTest", case: "same", project: { id: "other", name: "Other", path: "other" } },
+    ] } }));
+    try {
+      await f.workspace.loadModel(instance).completion;
+      await f.workspace.discoverTests(instance).completion;
+      const copy = f.workspace.testDiscovery(instance)!; copy.tests.length = 0;
+      expect(f.workspace.testDiscovery(instance)?.tests).toHaveLength(2);
+      await f.workspace.executeDiscoveredTest(instance, "module-a:test").completion;
+      expect(f.coreCalls.find(call => call.command === "build.testPlan")?.request).toMatchObject({ project: model.projects[0], suite: "SameTest", case: "same" });
+      await expect(f.workspace.executeDiscoveredTest(instance, "module-b:test").completion).rejects.toThrow("project");
+      f.workspace.invalidate(instance);
+      expect(f.workspace.testDiscovery(instance)).toBeUndefined();
+      expect(() => f.workspace.executeDiscoveredTest(instance, "module-a:test")).toThrow("selection expired");
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("cancellation during report decoding cannot retain results or late failures", async () => {
+    const f = fixture(), decoded = deferred<Record<string, unknown>>();
+    try {
+      await f.workspace.loadModel(instance).completion;
+      f.holdCore("build.decodeTestResults", decoded.promise);
+      const operation = f.workspace.executeTests(instance), completed = operation.completion.catch(() => "cancelled");
+      await f.entered.decode.promise;
+      f.workspace.cancel(operation.operationID);
+      expect(await completed).toBe("cancelled");
+      decoded.resolve({ results: { tests: [], summary: { total: 0, passed: 0, failed: 0, errors: 0, skipped: 0 }, success: true } });
+      expect(f.workspace.result(operation.operationID)).toBeUndefined();
+      expect(f.workspace.operationSummary(operation.operationID)?.phase).toBe("cancelled");
+    } finally { decoded.resolve({}); await f.workspace.dispose(); }
   }, 5000);
 
   test("a test operation rejects a missing inline report while retaining its native output", async () => {

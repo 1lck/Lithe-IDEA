@@ -12,6 +12,8 @@ import type { WindowsBuildCatalog } from "@/platform/build-provider-platform";
 import type { buildCore } from "@/platform/build-core-api";
 import { BuildPaneContent } from "./build-pane";
 import { BuildOutputContent } from "./build-output-pane";
+import type { BuildSourceNavigation } from "./build-results-content";
+import type { BuildTestResults } from "../services/build-results";
 import * as dialogControl from "@/ui/dialog";
 import * as inputControl from "@/ui/input";
 
@@ -31,10 +33,16 @@ function fixture() {
   const sent: Request[] = [];
   const entered = deferred<void>();
   let pending: Promise<unknown> | undefined, decodedModel = structuredClone(model), failedDetection = false, detected = structuredClone(catalog);
+  let onProvider: ((request: Request) => void) | undefined;
+  let report: BuildTestResults = { success: false, summary: { total: 1, passed: 0, failed: 1, errors: 0, skipped: 0 },
+    tests: [{ suite: "ExampleTest", case: "fails", project: "app", status: "failed", message: "Expected upstream value", path: "app/ExampleTest.java", line: 9, invocations: 1 }] };
   const core = (async (command: string, _manifest: unknown, _system: string, request: Record<string, unknown>) => {
+    if (command === "build.syncFingerprint") return { sync: { fingerprint: "unchanged", watch: ["project.marker", "app/project.marker"] } };
     if (command.endsWith("Plan")) return { plan: { provider: { method: command, params: request } } };
     if (command === "build.decodeModel") return { model: decodedModel };
-    if (command === "build.decodeDiagnostics") return { diagnostics: [] };
+    if (command === "build.decodeDiagnostics") return { diagnostics: [{ path: "app/Main.java", line: 7, column: 2, severity: "warning", message: "Upstream warning" }] };
+    if (command === "build.decodeTestDiscovery") return { discovery: { tests: [{ id: "opaque:app", suite: "ExampleTest", case: "fails", project: model.projects[0] }] } };
+    if (command === "build.decodeTestResults") return { results: report };
     if (command === "build.decodeDependencies") return { dependencies: { project: "app", truncated: false, dependencies: [
       { name: "Upstream library", version: "1.0", children: [{ name: "Nested library", children: [] }] },
     ] } };
@@ -44,8 +52,8 @@ function fixture() {
     tools: async () => ({ manifest: { id: "dev.example.build" }, pluginDirectory: "C:/plugin", workspaceStateDirectory: "C:/state",
       tool: { executable: "C:/tool" }, environment: {}, executesProjectCode: false }),
     providers: { send: async <T,>(_target: unknown, request: Request) => {
-      sent.push(request); entered.resolve();
-      return (pending ? await pending : { exitCode: 0, output: "upstream output\n" }) as T;
+      sent.push(request); entered.resolve(); onProvider?.(request);
+      return (pending ? await pending : { exitCode: 0, output: "upstream output\n", ...(request.method === "build.testPlan" ? { testResults: { version: 1 } } : {}) }) as T;
     }, stop: async () => {} },
   });
   const controller = new BuildWorkspaceController("C:/work", { domain, guard: () => () => {}, detect: async () => {
@@ -53,6 +61,7 @@ function fixture() {
     return structuredClone(detected);
   } });
   return { domain, controller, sent, entered, hold: (gate?: Promise<unknown>) => { pending = gate; },
+    report: (value: BuildTestResults) => { report = value; }, onProvider: (callback: (request: Request) => void) => { onProvider = callback; },
     model: (value: BuildModel) => { decodedModel = value; }, failDetection: () => { failedDetection = true; },
     manifest: (value: Record<string, unknown>) => { detected.plugins = [{ manifest: value }]; } };
 }
@@ -80,13 +89,13 @@ afterEach(async () => {
     restoreDom();
   }
 });
-function Surface({ controller, language }: { controller: BuildWorkspaceController; language: "en-US" | "zh-CN" }) {
+function Surface({ controller, language, onNavigate }: { controller: BuildWorkspaceController; language: "en-US" | "zh-CN"; onNavigate?: BuildSourceNavigation }) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot);
   return <LocaleProvider language={language}><BuildPaneContent controller={controller} snapshot={snapshot} />
-    <BuildOutputContent domain={controller.domain} operationID={snapshot.operationID} /></LocaleProvider>;
+    <BuildOutputContent domain={controller.domain} operationID={snapshot.operationID} onNavigate={onNavigate} /></LocaleProvider>;
 }
-async function render(controller: BuildWorkspaceController, language: "en-US" | "zh-CN" = "en-US") {
-  await act(async () => { root.render(<Surface controller={controller} language={language} />); });
+async function render(controller: BuildWorkspaceController, language: "en-US" | "zh-CN" = "en-US", onNavigate?: BuildSourceNavigation) {
+  await act(async () => { root.render(<Surface controller={controller} language={language} onNavigate={onNavigate} />); });
 }
 function button(label: string) { return [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === label || button.getAttribute("aria-label") === label)!; }
 
@@ -252,5 +261,70 @@ test("large task models mount only the virtualizer's visible rows", async () => 
     expect(button("Task 10")).toBeDefined();
     expect(button("Task 11")).toBeUndefined();
     expect(container.querySelectorAll("button").length).toBeLessThan(25);
-  } finally { virtual.mockRestore(); await act(async () => { await f.controller.dispose(); }); }
+  } finally { await act(async () => { await f.controller.dispose(); }); virtual.mockRestore(); }
+}, 5000);
+
+test("Provider test discovery runs an exact module selector and presents canonical failures and source links", async () => {
+  const f = fixture(), navigations: unknown[][] = [];
+  f.manifest({ id: "dev.example.build", buildSystems: [{ id: "example", tasks: [],
+    test: { source: "provider", discovery: true, scopes: ["workspace", "project"] } }] });
+  try {
+    await f.controller.refresh(); await render(f.controller, "en-US", (...location) => { navigations.push(location); });
+    await act(async () => button("Load project model").click());
+    await act(async () => button("Discover tests").click());
+    const runTest = [...container.querySelectorAll<HTMLButtonElement>("button")].find(value => value.title === "ExampleTest.fails" || value.textContent === "ExampleTest.failsApp")!;
+    expect(runTest).toBeDefined();
+    await act(async () => runTest.click());
+    expect(f.sent[f.sent.length - 1]).toMatchObject({ method: "build.testPlan", params: { project: model.projects[0], suite: "ExampleTest", case: "fails" } });
+    expect(container.textContent).toContain("1 tests · 0 passed · 1 failed · 0 errors · 0 skipped");
+    expect(container.textContent).toContain("Expected upstream value");
+    await act(async () => button("Upstream warning").click());
+    expect(navigations).toEqual([["app/Main.java", 7, 2]]);
+    const outcome = container.querySelector<HTMLButtonElement>('[data-status="failed"] button')!;
+    await act(async () => outcome.click()); expect(navigations[navigations.length - 1]).toEqual(["app/ExampleTest.java", 9, undefined]);
+    await act(async () => f.domain.invalidate(f.controller.snapshot().entries[0]!));
+    expect(container.textContent).not.toContain("Expected upstream value");
+  } finally { await act(async () => { await f.controller.dispose(); }); }
+}, 5000);
+
+test("large canonical reports mount only visible result rows", async () => {
+  const f = fixture();
+  f.manifest({ id: "dev.example.build", buildSystems: [{ id: "example", tasks: [], test: { source: "provider", scopes: ["project"] } }] });
+  f.report({ success: true, summary: { total: 10_000, passed: 10_000, failed: 0, errors: 0, skipped: 0 },
+    tests: Array.from({ length: 10_000 }, (_, index) => ({ suite: "LargeSuite", case: `case${index}`, status: "passed", invocations: 1 })) });
+  const virtual = spyOn(virtualization, "useVirtualizer").mockImplementation(((options: { count: number }) => ({
+    getTotalSize: () => options.count * 48, measureElement: () => {},
+    getVirtualItems: () => Array.from({ length: Math.min(options.count, 12) }, (_, index) => ({ index, key: index, start: index * 48, size: 48 })),
+  })) as unknown as typeof virtualization.useVirtualizer);
+  try {
+    await f.controller.refresh(); await render(f.controller);
+    await act(async () => button("Load project model").click());
+    await act(async () => button("Run tests").click());
+    expect(container.querySelectorAll('[data-status="passed"]')).toHaveLength(11);
+    expect(container.textContent).toContain("10000 tests"); expect(container.textContent).not.toContain("LargeSuite.case9999");
+  } finally { await act(async () => { await f.controller.dispose(); }); virtual.mockRestore(); }
+}, 5000);
+
+test("streamed output never recopies a completed structured report", async () => {
+  const f = fixture(), entered = deferred<void>(), result = deferred<unknown>();
+  let started: ReturnType<typeof f.domain.executeTask> | undefined;
+  const read = spyOn(f.domain, "result");
+  try {
+    await f.controller.refresh(); await render(f.controller);
+    await act(async () => button("Load project model").click());
+    await act(async () => button("Upstream compile").click());
+    const before = read.mock.calls.length;
+    f.hold(result.promise); f.onProvider(() => entered.resolve());
+    await act(async () => {
+      started = f.domain.executeTask(f.controller.snapshot().entries[0]!, "compile", "app");
+      await entered.promise;
+      for (let index = 0; index < 100; index++) f.sent[f.sent.length - 1]?.onProgress?.({ output: `line ${index}\n` });
+    });
+    expect(read.mock.calls.length).toBe(before);
+    result.resolve({ exitCode: 0, output: "finished" });
+    await act(async () => { await started!.completion; });
+  } finally {
+    result.resolve({ exitCode: 0, output: "released" });
+    await act(async () => { await started?.completion.catch(() => {}); await f.controller.dispose(); }); read.mockRestore();
+  }
 }, 5000);

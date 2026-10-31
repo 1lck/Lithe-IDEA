@@ -9696,7 +9696,21 @@
     "build.window.loadDependencies": "Load dependencies",
     "build.window.dependencies": "Dependencies",
     "build.window.dependenciesTruncated": "The dependency tree is incomplete.",
-    "build.window.noDependencies": "No dependencies."
+    "build.window.noDependencies": "No dependencies.",
+    "build.diagnostic.error": "Error",
+    "build.diagnostic.hint": "Hint",
+    "build.diagnostic.information": "Information",
+    "build.diagnostic.warning": "Warning",
+    "build.errors.testsExpired": "Test selection expired. Discover tests again.",
+    "build.results.summary": "{total} tests · {passed} passed · {failed} failed · {errors} errors · {skipped} skipped",
+    "build.results.title": "Build results",
+    "build.testStatus.error": "Error",
+    "build.testStatus.failed": "Failed",
+    "build.testStatus.passed": "Passed",
+    "build.testStatus.skipped": "Skipped",
+    "build.tests.discover": "Discover tests",
+    "build.tests.run": "Run tests",
+    "build.tests.title": "Tests"
   },
   "overrides": {
     "windows": {

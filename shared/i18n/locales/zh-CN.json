@@ -9696,7 +9696,21 @@
     "build.window.loadDependencies": "加载依赖",
     "build.window.dependencies": "依赖",
     "build.window.dependenciesTruncated": "依赖树不完整。",
-    "build.window.noDependencies": "无依赖。"
+    "build.window.noDependencies": "无依赖。",
+    "build.diagnostic.error": "错误",
+    "build.diagnostic.hint": "提示",
+    "build.diagnostic.information": "信息",
+    "build.diagnostic.warning": "警告",
+    "build.errors.testsExpired": "测试选择已过期，请重新发现测试。",
+    "build.results.summary": "共 {total} 个测试 · 通过 {passed} · 失败 {failed} · 错误 {errors} · 跳过 {skipped}",
+    "build.results.title": "构建结果",
+    "build.testStatus.error": "错误",
+    "build.testStatus.failed": "失败",
+    "build.testStatus.passed": "通过",
+    "build.testStatus.skipped": "跳过",
+    "build.tests.discover": "发现测试",
+    "build.tests.run": "运行测试",
+    "build.tests.title": "测试"
   },
   "overrides": {
     "macos": {

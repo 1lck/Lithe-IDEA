@@ -16,6 +16,7 @@ function catalog(pluginID = "dev.example.build"): WindowsBuildCatalog {
 }
 function fixture() {
   const stopped: string[] = [], revisions = new Map<string, number>();
+  const scheduled = new Set<() => Promise<void>>();
   const guard = () => { const captured = new Map(revisions); return (plugin: string) => {
     if ((captured.get(plugin) ?? 0) !== (revisions.get(plugin) ?? 0)) throw new Error("revoked");
   }; };
@@ -25,9 +26,41 @@ function fixture() {
     tools: async () => { throw new Error("detection must not probe tools"); }, guard, translate: key => key,
   });
   let detect = async () => catalog();
-  const controller = new BuildWorkspaceController("C:/work", { domain, guard, detect: () => detect() });
-  return { controller, domain, stopped, detect: (next: typeof detect) => { detect = next; }, revoke: (id: string) => revisions.set(id, (revisions.get(id) ?? 0) + 1) };
+  const controller = new BuildWorkspaceController("C:/work", { domain, guard, detect: () => detect(),
+    scheduleRefresh: callback => { scheduled.add(callback); return () => { scheduled.delete(callback); }; },
+  });
+  return { controller, domain, stopped, scheduled,
+    refreshScheduled: async () => { const callbacks = [...scheduled]; scheduled.clear(); await Promise.all(callbacks.map(callback => callback())); },
+    detect: (next: typeof detect) => { detect = next; }, revoke: (id: string) => revisions.set(id, (revisions.get(id) ?? 0) + 1) };
 }
+
+test("team-file notifications revoke the catalog immediately, coalesce reads and never launch tools", async () => {
+  const f = fixture();
+  try {
+    await f.controller.refresh();
+    f.controller.filesChanged("C:/work/.lithe/build/options.json");
+    expect(f.controller.snapshot()).toMatchObject({ status: "loading", entries: [], manifests: {} });
+    f.controller.filesChanged("C:/work/.lithe/build/options.json"); expect(f.scheduled.size).toBe(1);
+    await f.refreshScheduled();
+    expect(f.controller.snapshot().entries).toHaveLength(1); expect(f.domain.operations()).toEqual([]);
+    f.controller.filesChanged("C:/other/.lithe/build/options.json"); expect(f.scheduled.size).toBe(0);
+    f.controller.filesChanged("C:/work/.lithe/build/options.json"); expect(f.scheduled.size).toBe(1);
+  } finally { await f.controller.dispose(); }
+  expect(f.scheduled.size).toBe(0);
+}, 5000);
+
+test("a change during detection prevents its older catalog from publishing before the scheduled read", async () => {
+  const f = fixture(), old = deferred<WindowsBuildCatalog>(); f.detect(() => old.promise);
+  const detecting = f.controller.refresh();
+  try {
+    f.controller.filesChanged("C:/work/.lithe/build/options.json");
+    old.resolve(catalog()); await detecting;
+    expect(f.controller.snapshot().entries).toEqual([]);
+    f.detect(async () => catalog("dev.replacement.build")); await f.refreshScheduled();
+    expect(f.controller.snapshot().entries[0]?.pluginID).toBe("dev.replacement.build");
+    expect(f.domain.operations()).toEqual([]);
+  } finally { old.resolve(catalog()); await detecting; await f.controller.dispose(); }
+}, 5000);
 
 test("catalog selection preserves Core's explicit empty options without launching tools", async () => {
   const f = fixture();

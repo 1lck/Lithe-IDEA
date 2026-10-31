@@ -25,10 +25,15 @@
       "windows/tauri/src/features/build/services/build-task-presentation.ts",
       "windows/tauri/src/features/build/services/build-task-presentation.test.ts",
       "windows/tauri/src/features/build/components/build-dependencies-tree.tsx",
-      "windows/tauri/src/features/build/components/build-pane.test.tsx"
+      "windows/tauri/src/features/build/components/build-pane.test.tsx",
+      "windows/tauri/src/features/build/services/build-results.ts",
+      "windows/tauri/src/features/build/services/build-file-inputs.ts",
+      "windows/tauri/src/features/build/services/build-file-inputs.test.ts",
+      "windows/tauri/src/features/build/components/build-results-content.tsx",
+      "windows/tauri/src/features/build/components/build-tests-list.tsx"
     ]
   },
   "owner": "Extensions",
   "verification": "使用 Maven Provider 的多模块模型与自定义源码/测试目录，加载模型后检查搜索结果模块名称、普通/测试/生成测试/测试资源标签角色；父工程与子模块匹配最深路径，app-copy 不得匹配 app。源码模型过期后不沿用旧角色，JDT 的 Java 测试语义仍作未导入文件的回显依据。检查虚拟文档和工作区外路径不误匹配。BuildProjectPresentationTests、EditorTabLayoutTests 自动化；完整 UI 验收仍 pending。Windows 尚未接 Build Provider，不能把其旧 Maven 模型路径计入此能力。",
-  "notes": " Windows 通用 Build 入口增加按工作区/模块的声明任务、模型任务分类与显式参数确认，参数逐项保留边界；依赖仅展示 Core/Provider 节点，最多四份内存快照，输入失效/取消拒绝晚到解码。模型事实与进度分别通知，原生配置保存撤销模型后任务树立即清空；目标/Run/Agent/Java、旧数据与正式 Windows 准入仍待完成，不据前端回归标为实机 verified。"
+  "notes": " Windows 通用 Build 入口增加按工作区/模块的声明任务、模型任务分类与显式参数确认，参数逐项保留边界；依赖仅展示 Core/Provider 节点，最多四份内存快照，输入失效/取消拒绝晚到解码。模型事实与进度分别通知，原生配置保存撤销模型后任务树立即清空；目标/Run/Agent/Java、旧数据与正式 Windows 准入仍待完成，不据前端回归标为实机 verified。 Windows 后续基础设施可展示 Core 规范诊断/测试报告及精确模块用例，结果/清单各只保留四份快照，大报告虚拟化且输出不复制报告。Core watch 与执行前指纹核对撤销过期模型，源码编辑撤销发现清单；团队文件变化合并只读检测。外部原生来源文件观察、Run/Java/Agent 与旧数据迁移仍未完成，Build 能力准入保持关闭。"
 }

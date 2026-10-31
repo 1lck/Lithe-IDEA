@@ -40,4 +40,8 @@ export class BuildWorkspaceOwner {
   async refresh(): Promise<void> {
     await Promise.all([...this.workspaces.values()].filter(entry => !entry.retired).map(entry => entry.controller.refresh()));
   }
+
+  filesChanged(path: string, rescan = false): void {
+    for (const entry of this.workspaces.values()) if (!entry.retired) entry.controller.filesChanged(path, rescan);
+  }
 }

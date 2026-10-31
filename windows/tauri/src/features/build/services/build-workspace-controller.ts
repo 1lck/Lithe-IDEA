@@ -1,6 +1,7 @@
 import type { WindowsBuildCatalog } from "@/platform/build-provider-platform";
 import type { BuildInstance, WindowsBuildProviderWorkspace } from "./build-provider-workspace";
 import { BuildNativeConfigurationController } from "./build-native-configuration-controller";
+import { buildCatalogMayChange } from "./build-file-inputs";
 
 export type BuildEntry = WindowsBuildCatalog["detection"]["instances"][number];
 export interface BuildWorkspaceSnapshot {
@@ -16,6 +17,7 @@ export interface BuildWorkspaceControllerPorts {
   detect: (path: string) => Promise<WindowsBuildCatalog>;
   domain: WindowsBuildProviderWorkspace;
   guard: () => (plugin: string) => void;
+  scheduleRefresh?: (refresh: () => Promise<void>) => () => void;
 }
 
 /** Product catalog/model state. High-volume progress remains subscribed by the
@@ -26,6 +28,7 @@ export class BuildWorkspaceController {
   private readonly pending = new Set<Promise<unknown>>();
   private generation = 0;
   private disposed = false;
+  private cancelScheduledRefresh?: () => void;
   private readonly nativeEditors = new Map<string, BuildNativeConfigurationController>();
   readonly domain: WindowsBuildProviderWorkspace;
   private readonly unsubscribeFacts: () => void;
@@ -49,6 +52,7 @@ export class BuildWorkspaceController {
   }
   refresh(): Promise<void> {
     if (this.disposed) return Promise.resolve();
+    this.cancelScheduledRefresh?.(); this.cancelScheduledRefresh = undefined;
     const generation = ++this.generation, guard = this.ports.guard();
     for (const entry of this.state.entries) this.domain.invalidate(entry);
     this.publish({ status: "loading", error: undefined, entries: [], manifests: {}, modelRevision: this.state.modelRevision + 1 });
@@ -70,6 +74,19 @@ export class BuildWorkspaceController {
     })());
   }
   select(id: string): void { if (this.state.entries.some(entry => entry.id === id)) this.publish({ selectedID: id, error: undefined }); }
+
+  filesChanged(path: string, rescan = false): void {
+    if (this.disposed) return;
+    const affected = this.domain.filesChanged(path, rescan);
+    if (!affected && !buildCatalogMayChange(this.state.manifests, this.workspacePath, path, rescan)) return;
+    // Revoke the old catalog before debounce or any asynchronous native call.
+    // Redetection reads declarations/files only; it never starts a Provider.
+    this.generation++;
+    for (const entry of this.state.entries) this.domain.invalidate(entry);
+    this.publish({ status: "loading", entries: [], manifests: {}, error: undefined, modelRevision: this.state.modelRevision + 1 });
+    this.cancelScheduledRefresh?.();
+    this.cancelScheduledRefresh = this.ports.scheduleRefresh?.(() => { this.cancelScheduledRefresh = undefined; return this.refresh(); });
+  }
 
   nativeConfiguration(entry: BuildInstance): BuildNativeConfigurationController {
     const key = JSON.stringify([entry.pluginID, entry.buildSystemID, entry.root]);
@@ -119,6 +136,7 @@ export class BuildWorkspaceController {
 
   async dispose(): Promise<void> {
     this.disposed = true; this.generation++;
+    this.cancelScheduledRefresh?.(); this.cancelScheduledRefresh = undefined;
     this.unsubscribeFacts();
     for (const editor of this.nativeEditors.values()) editor.dispose();
     this.publish({ status: "idle", entries: [], manifests: {}, selectedID: undefined, modelRevision: this.state.modelRevision + 1 });
