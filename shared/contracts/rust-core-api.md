@@ -992,6 +992,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.relocate` | Move a file's history records after a rename |
 | `history.rename` | Set or clear a user-visible label on a history entry |
 | `history.delete` | Delete one history entry and its snapshot |
+| `history.ignorePreview` | Validate local history ignore rules and report which rule skips a sample path |
+| `history.usage` | Report one project's allocated history size and the storage cap |
+| `history.clear` | Delete every snapshot of one project's history |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
@@ -3131,6 +3134,20 @@ are ignored. `history.entries` returns Unix-second timestamps and relative
 `history.relocate` updates metadata and storage paths, and `history.rename` and
 `history.delete` validate both the relative file path and entry ID before
 changing stored metadata.
+
+`history.record` also accepts optional `ignoreRules: { pathPatterns, pathRegexes }`.
+Patterns use the hidden-path glob syntax; regexes use Rust `regex` syntax,
+case-insensitive, matched unanchored against the `/`-separated relative path.
+A matching file is not recorded, existing entries stay listed, and an invalid
+or empty regex never matches. `history.ignorePreview` accepts the same
+`ignoreRules` and an optional relative `path`, and returns `regexErrors`
+(`{ index, message }` per rejected regex), the built-in
+`baselineExcludedDirectoryNames`, and `matched`: `null` or an object tagged by
+`kind` — `hidden`, `baselineExcluded` (`directory`), `pattern` or `regex`
+(`index` into its list). `history.usage` and `history.clear` accept only
+`storageRoot`; usage rescans the disk and returns `{ usedBytes, limitBytes }` in
+allocated bytes, and clear removes every snapshot directory while keeping the
+storage root, returning `{ "cleared": true }`.
 
 `maven.scan` accepts `{ "root": string, "paths"?: string[] }` and returns
 `null` when neither the root nor the supplied visible workspace-relative paths

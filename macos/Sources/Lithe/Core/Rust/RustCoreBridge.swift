@@ -262,6 +262,47 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let relocated: Bool
     }
 
+    struct HistoryUsagePayload: Decodable, Sendable {
+        let usedBytes: Int64
+        let limitBytes: Int64
+    }
+
+    struct HistoryIgnorePreviewPayload: Decodable, Sendable {
+        struct RegexError: Decodable, Sendable, Equatable {
+            let index: Int
+            let message: String
+        }
+
+        enum Match: Decodable, Sendable, Equatable {
+            case hidden
+            case baselineExcluded(directory: String)
+            case pattern(index: Int)
+            case regex(index: Int)
+
+            private enum CodingKeys: String, CodingKey { case kind, directory, index }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                switch try container.decode(String.self, forKey: .kind) {
+                case "hidden": self = .hidden
+                case "baselineExcluded": self = .baselineExcluded(directory: try container.decode(String.self, forKey: .directory))
+                case "pattern": self = .pattern(index: try container.decode(Int.self, forKey: .index))
+                case "regex": self = .regex(index: try container.decode(Int.self, forKey: .index))
+                case let kind:
+                    throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "Unknown match \(kind)")
+                }
+            }
+        }
+
+        let regexErrors: [RegexError]
+        let baselineExcludedDirectoryNames: [String]
+        let matched: Match?
+    }
+
+    private struct HistoryClearPayload: Decodable, Sendable {
+        let cleared: Bool
+    }
+
     struct MarkdownRenderPayload: Decodable, Sendable {
         let html: String
     }
@@ -1603,6 +1644,21 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let pruneExpired: Bool
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
+        let ignoreRules: HistoryIgnoreRules
+    }
+
+    private struct HistoryIgnoreRules: Encodable {
+        let pathPatterns: [String]
+        let pathRegexes: [String]
+    }
+
+    private struct HistoryIgnorePreviewRequest: Encodable {
+        let path: String?
+        let ignoreRules: HistoryIgnoreRules
+    }
+
+    private struct HistoryStorageRequest: Encodable {
+        let storageRoot: String
     }
 
     private struct HistoryEntriesRequest: Encodable {
@@ -2678,7 +2734,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         content: String?,
         pruneExpired: Bool,
         hiddenDirectoryNames: [String],
-        hiddenFilePatterns: [String]
+        hiddenFilePatterns: [String],
+        ignorePatterns: [String] = [],
+        ignoreRegexes: [String] = []
     ) -> HistoryEntryPayload? {
         execute(
             command: "history.record",
@@ -2690,9 +2748,32 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 content: content,
                 pruneExpired: pruneExpired,
                 hiddenDirectoryNames: hiddenDirectoryNames,
-                hiddenFilePatterns: hiddenFilePatterns
+                hiddenFilePatterns: hiddenFilePatterns,
+                ignoreRules: HistoryIgnoreRules(pathPatterns: ignorePatterns, pathRegexes: ignoreRegexes)
             )
         )
+    }
+
+    func historyIgnorePreview(path: String?, ignorePatterns: [String], ignoreRegexes: [String]) -> HistoryIgnorePreviewPayload? {
+        execute(
+            command: "history.ignorePreview",
+            payload: HistoryIgnorePreviewRequest(
+                path: path,
+                ignoreRules: HistoryIgnoreRules(pathPatterns: ignorePatterns, pathRegexes: ignoreRegexes)
+            )
+        )
+    }
+
+    func historyUsage(storageURL: URL) -> HistoryUsagePayload? {
+        execute(command: "history.usage", payload: HistoryStorageRequest(storageRoot: storageURL.standardizedFileURL.path))
+    }
+
+    func historyClear(storageURL: URL) -> Bool {
+        let response: HistoryClearPayload? = execute(
+            command: "history.clear",
+            payload: HistoryStorageRequest(storageRoot: storageURL.standardizedFileURL.path)
+        )
+        return response?.cleared == true
     }
 
     func historyEntries(

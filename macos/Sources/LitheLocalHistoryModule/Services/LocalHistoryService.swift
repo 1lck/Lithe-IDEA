@@ -26,6 +26,14 @@ actor LocalHistoryService {
         visibilityRules = rules
     }
 
+    func usage() -> LocalHistoryUsage? {
+        operations.usage(at: storageURL)
+    }
+
+    func clear() -> Bool {
+        operations.clear(at: storageURL)
+    }
+
     func seed(files: [URL]) async {
         for fileURL in files where !Task.isCancelled {
             _ = try? recordFile(at: fileURL, reason: .projectBaseline, pruneExpired: false)

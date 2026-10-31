@@ -552,6 +552,10 @@ struct SettingsView: View {
             group("Hidden paths", info: "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.") {
                 hiddenPathsEditor
             }
+
+            group("Local history", info: "Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded.") {
+                LocalHistorySettingsControl(settings: settings)
+            }
         }
     }
 

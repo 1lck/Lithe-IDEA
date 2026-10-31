@@ -49,6 +49,8 @@ final class AppSettings: ObservableObject {
         static let legacyHiddenFilePatterns = "settings.hiddenFilePatterns"
         static let searchExcludedPathPatterns = "settings.searchExcludedPathPatterns"
         static let searchExclusionsEnabled = "settings.searchExclusionsEnabled"
+        static let localHistoryIgnorePatterns = "settings.localHistoryIgnorePatterns"
+        static let localHistoryIgnoreRegexes = "settings.localHistoryIgnoreRegexes"
         static let gitExecutable = "settings.gitExecutable"
         static let gitUseCredentialHelper = "settings.gitUseCredentialHelper"
         static let gitFetchOptions = "settings.gitFetchOptions"
@@ -192,6 +194,19 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(searchExclusionsEnabled, forKey: Key.searchExclusionsEnabled)
             if oldValue != searchExclusionsEnabled { searchExclusionsDidChange.send() }
+        }
+    }
+    /// Kept out of local history only; the project tree still shows these files.
+    @Published var localHistoryIgnorePatterns: [String] {
+        didSet {
+            defaults.set(localHistoryIgnorePatterns, forKey: Key.localHistoryIgnorePatterns)
+            if oldValue != localHistoryIgnorePatterns { localHistoryIgnoreRulesDidChange.send() }
+        }
+    }
+    @Published var localHistoryIgnoreRegexes: [String] {
+        didSet {
+            defaults.set(localHistoryIgnoreRegexes, forKey: Key.localHistoryIgnoreRegexes)
+            if oldValue != localHistoryIgnoreRegexes { localHistoryIgnoreRulesDidChange.send() }
         }
     }
     let gitExecutionPreferences = GitExecutionPreferences()
@@ -457,6 +472,8 @@ final class AppSettings: ObservableObject {
         searchExcludedPathPatterns = defaults.stringArray(forKey: Key.searchExcludedPathPatterns) ?? []
         // Existing saved exclusions stay active when upgrading from the inline editor.
         searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
+        localHistoryIgnorePatterns = defaults.stringArray(forKey: Key.localHistoryIgnorePatterns) ?? []
+        localHistoryIgnoreRegexes = defaults.stringArray(forKey: Key.localHistoryIgnoreRegexes) ?? []
         gitExecutable = defaults.string(forKey: Key.gitExecutable) ?? ""
         gitUseCredentialHelper = defaults.object(forKey: Key.gitUseCredentialHelper) as? Bool ?? true
         var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
@@ -609,6 +626,8 @@ final class AppSettings: ObservableObject {
 
     private let searchExclusionsDidChange = PassthroughSubject<Void, Never>()
     var searchExclusionsChanges: AnyPublisher<Void, Never> { searchExclusionsDidChange.eraseToAnyPublisher() }
+    private let localHistoryIgnoreRulesDidChange = PassthroughSubject<Void, Never>()
+    var localHistoryIgnoreRulesChanges: AnyPublisher<Void, Never> { localHistoryIgnoreRulesDidChange.eraseToAnyPublisher() }
 
     /// Search Everywhere globs never change other search clients or project visibility.
     var searchEverywhereVisibilityRules: FileVisibilityRules {
@@ -664,6 +683,8 @@ final class AppSettings: ObservableObject {
         hiddenPathPatterns = []
         searchExcludedPathPatterns = []
         searchExclusionsEnabled = true
+        localHistoryIgnorePatterns = []
+        localHistoryIgnoreRegexes = []
         gitFetchOptions = GitFetchOptions()
         gitExecutable = ""
         gitUseCredentialHelper = true

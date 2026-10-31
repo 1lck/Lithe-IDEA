@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_FILE_SIZE: usize = 2 * 1024 * 1024;
@@ -78,6 +78,83 @@ pub struct HistoryRecordRequest {
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
     pub hidden_file_patterns: Vec<String>,
+    #[serde(default)]
+    pub ignore_rules: HistoryIgnoreRules,
+}
+
+/// User rules for files whose changes local history should not record.
+///
+/// Unlike hidden paths, these only stop new snapshots: the files stay in the
+/// tree and their existing history stays listed. Globs use the hidden-path
+/// syntax; regexes are case-insensitive and match anywhere in the
+/// workspace-relative path unless anchored. An invalid regex never matches.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryIgnoreRules {
+    #[serde(default)]
+    pub path_patterns: Vec<String>,
+    #[serde(default)]
+    pub path_regexes: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Rules and an optional sample path for the settings preview.
+pub struct HistoryIgnorePreviewRequest {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub ignore_rules: HistoryIgnoreRules,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// One regex rule the regex engine rejected, by its position in the list.
+pub struct HistoryIgnoreRegexError {
+    pub index: usize,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+/// Which rule keeps a sample path out of local history.
+pub enum HistoryIgnoreMatch {
+    /// Hidden from the project tree, so never recorded.
+    Hidden,
+    /// Inside a generated directory: no baseline is taken, edits are recorded.
+    BaselineExcluded {
+        directory: String,
+    },
+    Pattern {
+        index: usize,
+    },
+    Regex {
+        index: usize,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Validation and sample-path result for the local history settings.
+pub struct HistoryIgnorePreviewResponse {
+    pub regex_errors: Vec<HistoryIgnoreRegexError>,
+    pub baseline_excluded_directory_names: Vec<String>,
+    pub matched: Option<HistoryIgnoreMatch>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// One project's history storage, for usage reporting or clearing.
+pub struct HistoryStorageRequest {
+    pub storage_root: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Allocated bytes of one project's history and the cap that eviction keeps.
+pub struct HistoryUsageResponse {
+    pub used_bytes: u64,
+    pub limit_bytes: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,7 +233,9 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
         ));
     }
     let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
-    if rules.is_hidden(&relative_path, false) {
+    if rules.is_hidden(&relative_path, false)
+        || ignored_rule(&request.ignore_rules, &relative_path).is_some()
+    {
         return Ok(None);
     }
     if request.reason == "projectBaseline" && is_excluded_from_baseline(&workspace, &relative_path)
@@ -379,6 +458,147 @@ pub fn delete(request: HistoryDeleteRequest) -> Result<(), CoreError> {
         let _ = fs::remove_dir(directory);
     }
     Ok(())
+}
+
+/// Validates ignore rules and reports which rule, if any, skips `path`.
+pub fn ignore_preview(
+    request: HistoryIgnorePreviewRequest,
+) -> Result<HistoryIgnorePreviewResponse, CoreError> {
+    let regex_errors = request
+        .ignore_rules
+        .path_regexes
+        .iter()
+        .enumerate()
+        .filter(|(_, pattern)| !pattern.trim().is_empty())
+        .filter_map(|(index, pattern)| {
+            build_ignore_regex(pattern.trim())
+                .err()
+                .map(|error| HistoryIgnoreRegexError {
+                    index,
+                    message: error.to_string(),
+                })
+        })
+        .collect();
+    let matched = match request.path.as_deref().map(str::trim) {
+        Some(path) if !path.is_empty() => {
+            let relative = safe_relative_path(path)?;
+            preview_match(&request.ignore_rules, &relative)
+        }
+        _ => None,
+    };
+    Ok(HistoryIgnorePreviewResponse {
+        regex_errors,
+        baseline_excluded_directory_names: BASELINE_EXCLUDED_DIRECTORY_NAMES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
+        matched,
+    })
+}
+
+/// Reports one project's allocated history size, rescanning the disk.
+pub fn usage(request: HistoryStorageRequest) -> Result<HistoryUsageResponse, CoreError> {
+    let storage = storage_root(&request.storage_root)?;
+    invalidate_storage_usage(&storage);
+    Ok(HistoryUsageResponse {
+        used_bytes: storage_usage(&storage),
+        limit_bytes: MAX_STORAGE_BYTES,
+    })
+}
+
+/// Deletes every snapshot of one project. The storage root itself stays.
+pub fn clear(request: HistoryStorageRequest) -> Result<(), CoreError> {
+    let storage = storage_root(&request.storage_root)?;
+    let result = fs::read_dir(&storage)
+        .map_err(CoreError::from)?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false))
+        .try_for_each(|entry| fs::remove_dir_all(entry.path()));
+    invalidate_storage_usage(&storage);
+    result.map_err(CoreError::from)
+}
+
+fn preview_match(rules: &HistoryIgnoreRules, relative_path: &str) -> Option<HistoryIgnoreMatch> {
+    if VisibilityRules::new(Vec::new(), Vec::new()).is_hidden(relative_path, false) {
+        return Some(HistoryIgnoreMatch::Hidden);
+    }
+    if let Some(found) = ignored_rule(rules, relative_path) {
+        return Some(found);
+    }
+    let mut components = relative_path.split('/').collect::<Vec<_>>();
+    components.pop();
+    components.into_iter().find_map(|component| {
+        BASELINE_EXCLUDED_DIRECTORY_NAMES
+            .iter()
+            .find(|name| component.eq_ignore_ascii_case(name))
+            .map(|name| HistoryIgnoreMatch::BaselineExcluded {
+                directory: (*name).to_string(),
+            })
+    })
+}
+
+/// The first user rule that matches, globs before regexes.
+fn ignored_rule(rules: &HistoryIgnoreRules, relative_path: &str) -> Option<HistoryIgnoreMatch> {
+    if !rules.path_patterns.is_empty() {
+        // Built-in hidden paths are already rejected, so a hit here comes from
+        // the user's own pattern.
+        let index = rules.path_patterns.iter().position(|pattern| {
+            !pattern.trim().is_empty()
+                && VisibilityRules::new(Vec::new(), vec![pattern.clone()])
+                    .is_hidden(relative_path, false)
+        });
+        if let Some(index) = index {
+            return Some(HistoryIgnoreMatch::Pattern { index });
+        }
+    }
+    if rules.path_regexes.is_empty() {
+        return None;
+    }
+    compiled_ignore_regexes(&rules.path_regexes)
+        .iter()
+        .position(|regex| {
+            regex
+                .as_ref()
+                .is_some_and(|regex| regex.is_match(relative_path))
+        })
+        .map(|index| HistoryIgnoreMatch::Regex { index })
+}
+
+fn build_ignore_regex(pattern: &str) -> Result<regex::Regex, regex::Error> {
+    regex::RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .size_limit(1 << 20)
+        .build()
+}
+
+/// Compiles the regex list once per distinct list, because baseline seeding
+/// records thousands of files with the same rules.
+fn compiled_ignore_regexes(patterns: &[String]) -> Arc<Vec<Option<regex::Regex>>> {
+    type Compiled = (Vec<String>, Arc<Vec<Option<regex::Regex>>>);
+    static CACHE: OnceLock<Mutex<Option<Compiled>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some((cached, compiled)) = guard.as_ref() {
+            if cached.as_slice() == patterns {
+                return Arc::clone(compiled);
+            }
+        }
+    }
+    let compiled = Arc::new(
+        patterns
+            .iter()
+            .map(|pattern| {
+                let trimmed = pattern.trim();
+                (!trimmed.is_empty())
+                    .then(|| build_ignore_regex(trimmed).ok())
+                    .flatten()
+            })
+            .collect::<Vec<_>>(),
+    );
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((patterns.to_vec(), Arc::clone(&compiled)));
+    }
+    compiled
 }
 
 impl StoredEntry {
@@ -776,6 +996,14 @@ mod tests {
             prune_expired: reason != "projectBaseline",
             hidden_directory_names: Vec::new(),
             hidden_file_patterns: Vec::new(),
+            ignore_rules: HistoryIgnoreRules::default(),
+        }
+    }
+
+    fn ignore_rules(patterns: &[&str], regexes: &[&str]) -> HistoryIgnoreRules {
+        HistoryIgnoreRules {
+            path_patterns: patterns.iter().map(|value| value.to_string()).collect(),
+            path_regexes: regexes.iter().map(|value| value.to_string()).collect(),
         }
     }
 
@@ -963,5 +1191,140 @@ mod tests {
         assert!(saved.is_some());
         invalidate_storage_usage(&canonical);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ignore_rules_skip_matching_files_but_keep_existing_history() {
+        let workspace = temporary_root("history-ignore-workspace");
+        let storage = temporary_root("history-ignore-storage");
+        write_file(&workspace, "src/App.swift", "one\n");
+        write_file(&workspace, "logs/run.log", "one\n");
+        assert!(record(record_request(
+            &workspace,
+            &storage,
+            "src/App.swift",
+            "saved",
+            Some("one\n")
+        ))
+        .unwrap()
+        .is_some());
+
+        let ignored = |path: &str, content: &str| {
+            let mut request = record_request(&workspace, &storage, path, "saved", Some(content));
+            request.ignore_rules = ignore_rules(&["*.log"], &[r"^src/.*\.swift$"]);
+            record(request).unwrap()
+        };
+        assert!(ignored("logs/run.log", "two\n").is_none());
+        assert!(ignored("src/App.swift", "two\n").is_none());
+        assert!(ignored("README.md", "two\n").is_some());
+
+        let listed = entries(HistoryEntriesRequest {
+            workspace_root: workspace.to_string_lossy().into_owned(),
+            storage_root: storage.to_string_lossy().into_owned(),
+            path: Some("src/App.swift".into()),
+            hidden_directory_names: Vec::new(),
+            hidden_file_patterns: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(listed.entries.len(), 1);
+    }
+
+    #[test]
+    fn ignore_regexes_are_case_insensitive_and_invalid_ones_never_match() {
+        let rules = ignore_rules(&[], &["(unclosed", "GENERATED"]);
+        assert_eq!(
+            ignored_rule(&rules, "src/generated/Api.java"),
+            Some(HistoryIgnoreMatch::Regex { index: 1 })
+        );
+        assert_eq!(ignored_rule(&rules, "src/Main.java"), None);
+        assert_eq!(
+            ignored_rule(&ignore_rules(&["", "  "], &[""]), "a.txt"),
+            None
+        );
+    }
+
+    #[test]
+    fn ignore_preview_reports_errors_and_the_rule_that_matches() {
+        let preview = |path: &str| {
+            ignore_preview(HistoryIgnorePreviewRequest {
+                path: Some(path.into()),
+                ignore_rules: ignore_rules(&["docs/*.md"], &["(", r"\.tmp$"]),
+            })
+            .unwrap()
+        };
+        let result = preview("docs/guide.md");
+        assert_eq!(result.regex_errors.len(), 1);
+        assert_eq!(result.regex_errors[0].index, 0);
+        assert!(result
+            .baseline_excluded_directory_names
+            .contains(&"Pods".to_string()));
+        assert_eq!(
+            result.matched,
+            Some(HistoryIgnoreMatch::Pattern { index: 0 })
+        );
+        assert_eq!(
+            preview("a/b.TMP").matched,
+            Some(HistoryIgnoreMatch::Regex { index: 1 })
+        );
+        assert_eq!(
+            preview("ios/Pods/Lib/a.h").matched,
+            Some(HistoryIgnoreMatch::BaselineExcluded {
+                directory: "Pods".into()
+            })
+        );
+        assert_eq!(
+            preview(".git/config").matched,
+            Some(HistoryIgnoreMatch::Hidden)
+        );
+        assert_eq!(preview("src/Main.java").matched, None);
+        assert!(ignore_preview(HistoryIgnorePreviewRequest {
+            path: Some("../outside".into()),
+            ignore_rules: HistoryIgnoreRules::default(),
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn usage_counts_allocated_blocks_and_clear_removes_every_snapshot() {
+        let workspace = temporary_root("history-usage-workspace");
+        let storage = temporary_root("history-usage-storage");
+        write_file(&workspace, "a.txt", "a\n");
+        let request = || HistoryStorageRequest {
+            storage_root: storage.to_string_lossy().into_owned(),
+        };
+        assert_eq!(usage(request()).unwrap().used_bytes, 0);
+        record(record_request(
+            &workspace,
+            &storage,
+            "a.txt",
+            "saved",
+            Some("a\n"),
+        ))
+        .unwrap();
+        record(record_request(
+            &workspace,
+            &storage,
+            "b.txt",
+            "saved",
+            Some("b\n"),
+        ))
+        .unwrap();
+        let measured = usage(request()).unwrap();
+        // Two snapshots and two metadata files, one block each.
+        assert_eq!(measured.used_bytes, 4 * STORAGE_BLOCK_BYTES);
+        assert_eq!(measured.limit_bytes, MAX_STORAGE_BYTES);
+
+        clear(request()).unwrap();
+        assert_eq!(usage(request()).unwrap().used_bytes, 0);
+        assert!(storage.is_dir());
+        assert!(record(record_request(
+            &workspace,
+            &storage,
+            "a.txt",
+            "saved",
+            Some("a\n")
+        ))
+        .unwrap()
+        .is_some());
     }
 }

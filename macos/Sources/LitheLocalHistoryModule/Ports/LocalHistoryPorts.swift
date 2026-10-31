@@ -3,9 +3,47 @@ import Foundation
 public struct LocalHistoryVisibilityRules: Hashable, Sendable {
     public let hiddenDirectoryNames: [String]
     public let hiddenFilePatterns: [String]
-    public init(hiddenDirectoryNames: [String], hiddenFilePatterns: [String]) {
+    /// Files the user keeps out of local history only; the project tree still shows them.
+    public let ignorePatterns: [String]
+    public let ignoreRegexes: [String]
+    public init(hiddenDirectoryNames: [String], hiddenFilePatterns: [String],
+                ignorePatterns: [String] = [], ignoreRegexes: [String] = []) {
         self.hiddenDirectoryNames = hiddenDirectoryNames
         self.hiddenFilePatterns = hiddenFilePatterns
+        self.ignorePatterns = ignorePatterns
+        self.ignoreRegexes = ignoreRegexes
+    }
+}
+
+/// Allocated bytes of one project's local history and the cap eviction keeps.
+public struct LocalHistoryUsage: Equatable, Sendable {
+    public let usedBytes: Int64
+    public let limitBytes: Int64
+    public init(usedBytes: Int64, limitBytes: Int64) {
+        self.usedBytes = usedBytes
+        self.limitBytes = limitBytes
+    }
+}
+
+/// Which rule keeps a sample path out of local history.
+public enum LocalHistoryIgnoreMatch: Equatable, Sendable {
+    /// Hidden from the project tree, so never recorded.
+    case hidden
+    /// Inside a generated folder: no baseline is taken, but edits are still recorded.
+    case baselineExcluded(directory: String)
+    case pattern(index: Int)
+    case regex(index: Int)
+}
+
+/// Settings feedback for ignore rules: rejected regexes by list position and the sample-path result.
+public struct LocalHistoryIgnorePreview: Equatable, Sendable {
+    public let regexErrors: [Int: String]
+    public let baselineExcludedDirectoryNames: [String]
+    public let matched: LocalHistoryIgnoreMatch?
+    public init(regexErrors: [Int: String], baselineExcludedDirectoryNames: [String], matched: LocalHistoryIgnoreMatch?) {
+        self.regexErrors = regexErrors
+        self.baselineExcludedDirectoryNames = baselineExcludedDirectoryNames
+        self.matched = matched
     }
 }
 
@@ -32,6 +70,9 @@ public protocol LocalHistoryOperations: Sendable {
     func entries(at workspaceURL: URL, storageURL: URL, relativePath: String?, visibilityRules: LocalHistoryVisibilityRules) -> [LocalHistoryEntryPayload]?
     func content(at storageURL: URL, contentPath: String) -> String?
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool
+    func usage(at storageURL: URL) -> LocalHistoryUsage?
+    func clear(at storageURL: URL) -> Bool
+    func ignorePreview(path: String?, ignorePatterns: [String], ignoreRegexes: [String]) -> LocalHistoryIgnorePreview?
 }
 
 public protocol LocalHistoryWorkspaceAccess: Sendable {

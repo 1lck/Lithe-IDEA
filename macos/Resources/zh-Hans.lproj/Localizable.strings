@@ -684,6 +684,7 @@
 "Clear Git console" = "清空 Git 控制台";
 "Clear Logs" = "清空日志";
 "Clear Override" = "清除覆盖";
+"Clear Project History…" = "清空项目历史…";
 "Clear branch filter" = "清除分支筛选";
 "Clear build output" = "清除构建输出";
 "Clear collected logs?" = "清空已收集的日志？";
@@ -698,7 +699,9 @@
 "Clear test output" = "清除测试输出";
 "Clear the current project's Java index and rebuild it on next use" = "清除当前项目的 Java 索引，并在下次使用时重建";
 "Clear the override and inherit" = "清除覆盖并恢复继承";
+"Clear this project's local history?" = "清空此项目的本地历史？";
 "Clear user filter" = "清除用户筛选";
+"Clearing…" = "正在清空…";
 "Click the editor gutter to add a breakpoint" = "点击编辑器左侧行号区域添加断点";
 "Click the folded options to expand; right-click for command details." = "点击折叠参数可展开；右键查看命令详情。";
 "Client: %@" = "客户端：%@";
@@ -1414,6 +1417,7 @@
 "Evaluate expression" = "计算表达式";
 "Evaluate expression while paused" = "暂停时计算表达式";
 "Evaluating…" = "正在计算…";
+"Every saved version of this project's files is deleted. Open files are not changed." = "此项目文件的所有已保存版本都会被删除，已打开的文件不受影响。";
 "Example" = "示例";
 "Exception" = "异常";
 "Exception Breakpoints" = "异常断点";
@@ -1691,6 +1695,7 @@
 "Headers" = "请求头";
 "Heap Memory" = "堆内存";
 "Hexadecimal" = "十六进制";
+"Hidden in the project tree, not recorded" = "已在项目树中隐藏，不记录";
 "Hidden paths" = "隐藏路径";
 "Hide %@ tool window" = "隐藏 %@ 工具窗口";
 "Hide API key" = "隐藏密钥";
@@ -1756,6 +1761,8 @@
 "If: %@" = "条件：%@";
 "Ignore whitespace" = "忽略空白";
 "Ignored" = "已忽略";
+"Ignored by regular expression line %lld" = "被正则表达式第 %lld 行忽略";
+"Ignored by wildcard line %lld" = "被通配符第 %lld 行忽略";
 "Ignored entries: %lld" = "已忽略条目：%lld";
 "Image zoom" = "图片缩放";
 "Images can only be pasted into Markdown documents" = "图片只能粘贴到 Markdown 文档中";
@@ -1771,6 +1778,7 @@
 "Import skill" = "导入技能";
 "Import skill directory" = "导入技能目录";
 "Import source" = "导入来源";
+"In %@: no initial copy, edits are recorded" = "位于 %@：不做初始副本，编辑仍会记录";
 "In effect: " = "生效：";
 "Include" = "包含范围";
 "Include a short body when useful" = "有必要时包含简短正文";
@@ -1981,6 +1989,7 @@
 "Lifecycle" = "生命周期";
 "Light" = "浅色";
 "Line" = "行";
+"Line %lld is not a valid regular expression and is skipped." = "第 %lld 行不是有效的正则表达式，已跳过。";
 "Line Breakpoints" = "行断点";
 "Line breakpoint actions" = "行断点操作";
 "Line numbers" = "行号";
@@ -2092,6 +2101,8 @@
 "Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation." = "本机配置跟随 CLI 文件。自定义供应商保存在 Lithe 中，不修改本机文件。切换会重启当前项目的 Agent 连接，可重新打开历史会话继续对话。";
 "Local development package" = "本地开发包";
 "Local edits to these files are lost." = "这些文件的本地修改将会丢失。";
+"Local history" = "本地历史";
+"Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded." = "本地历史会在你保存和编辑时保留文件版本，每个项目最多 100 MB。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n「不做初始副本」中的文件夹里的文件，打开项目时不会复制，编辑仍会记录。";
 "Local history work is still active." = "本地历史任务仍在进行。";
 "Location" = "位置";
 "Lock Worktree" = "锁定工作树";
@@ -2408,6 +2419,7 @@
 "No history recorded yet" = "还没有历史记录";
 "No host yet" = "尚未填写主机";
 "No implementations found" = "没有找到实现";
+"No initial copy" = "不做初始副本";
 "No installed plugin supports %@ yet." = "尚未安装支持 %@ 的插件。";
 "No items" = "暂无项目";
 "No language dependency sources registered" = "未注册语言依赖来源";
@@ -2608,6 +2620,7 @@
 "Open a project to configure its run configurations." = "打开项目后即可编辑运行配置。";
 "Open a project to let connected agents inspect and control it." = "打开项目后，已连接的 Agent 才能检查和控制它。";
 "Open a project to manage its skills." = "请先打开项目，再管理项目技能。";
+"Open a project to see how much space its history uses." = "打开项目后可查看其历史占用的空间。";
 "Open a project to see its language service." = "打开项目后可查看其语言服务。";
 "Open a project to use Git" = "请打开项目以使用 Git";
 "Open a source file before running Current File." = "运行“当前文件”前请先打开一个源文件。";
@@ -2961,6 +2974,7 @@
 "Reconnect this Agent to refresh its model list." = "重新连接此 Agent 即可刷新模型列表。";
 "Reconnecting %d/%d…" = "正在重连 %d/%d…";
 "Reconnecting…" = "正在重连…";
+"Recorded" = "会记录";
 "Recovery reference: %@" = "恢复引用：%@";
 "Reference changes could not be inspected" = "无法读取引用变更";
 "Reference list truncated; total updated: %lld, deleted: %lld" = "引用列表已截断；更新总数：%lld，删除总数：%lld";
@@ -2995,6 +3009,8 @@
 "Registration" = "注册状态";
 "Registry website" = "Registry 网站";
 "Regular Expression" = "正则表达式";
+"Regular expression" = "正则表达式";
+"Regular expression ignore rules" = "正则表达式忽略规则";
 "Reinstall" = "重新安装";
 "Relative" = "相对行号";
 "Release Date" = "发布日期";
@@ -3790,6 +3806,7 @@
 "Test" = "测试";
 "Test Connection" = "测试连接";
 "Test connection" = "测试连接";
+"Test path" = "测试路径";
 "Test process tree · Resident memory" = "测试进程树 · 驻留内存";
 "Test the connection to see the host's system, resources, and address." = "测试连接后，这里会显示主机的系统、资源和地址。";
 "Testing" = "测试";
@@ -4466,6 +4483,7 @@
 "Use this when a repository or Git default needs a one-off adjustment." = "仅在需要临时调整仓库或 Git 默认值时使用。";
 "Use up to 64 lowercase letters, digits and single hyphens for the skill name." = "技能名称最多 64 个字符，请使用小写字母、数字和单个连字符。";
 "Use your local ChatGPT account. No API key or URL is needed." = "使用本机已登录的 ChatGPT 账号，无需 API Key 或 URL。";
+"Used" = "已用";
 "Used %@" = "已使用 %@";
 "Used %lld tool" = "调用了 %lld 个工具";
 "Used %lld tools" = "调用了 %lld 个工具";
@@ -4554,6 +4572,7 @@
 "When quitting Lithe" = "退出 Lithe 时";
 "When should this skill be used?" = "什么情况下应使用这个技能？";
 "When submitting a prompt" = "提交提示词时";
+"When the limit is reached, the oldest versions are removed first." = "达到上限时，最早的版本会先被删除。";
 "When to run" = "何时运行";
 "Where Push goes when you do not choose a target explicitly." = "未明确选择目标时，Push 会推送到哪里。";
 "Where should this apply?" = "应用范围";
@@ -4561,6 +4580,8 @@
 "Where would you like to open the project ‘%@’?" = "你想在哪里打开项目“%@”？";
 "Whitespace comparison" = "空白字符比较";
 "Whole Words" = "全字匹配";
+"Wildcard" = "通配符";
+"Wildcard ignore rules" = "通配符忽略规则";
 "Window" = "窗口";
 "Withdrawn" = "已撤回";
 "Without Remember in Keychain, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you." = "不勾选“记住到钥匙串”时每次连接都会询问。记住的密码只在服务器第一次询问时自动填入；如果被拒绝，Lithe 会改为询问你。";
@@ -5330,13 +5351,16 @@
 "native.clearLogs" = "清空日志";
 "native.clearOverride" = "清除覆盖";
 "native.clearPathFilter" = "清除路径筛选";
+"native.clearProjectHistory" = "清空项目历史…";
 "native.clearRunOutput" = "清除运行输出";
 "native.clearSearch" = "清除搜索";
 "native.clearSelection" = "清除勾选";
 "native.clearTestOutput" = "清除测试输出";
 "native.clearTheCurrentProjectSJavaIndexAndRebuildItOnNextUse" = "清除当前项目的 Java 索引，并在下次使用时重建";
 "native.clearTheOverrideAndInherit" = "清除覆盖并恢复继承";
+"native.clearThisProjectSLocalHistory" = "清空此项目的本地历史？";
 "native.clearUserFilter" = "清除用户筛选";
+"native.clearing" = "正在清空…";
 "native.cliUpdatedTo" = "CLI 已更新至 %1$@";
 "native.clickTheEditorGutterToAddABreakpoint" = "点击编辑器左侧行号区域添加断点";
 "native.clickTheFoldedOptionsToExpandRightClickForCommandDetails" = "点击折叠参数可展开；右键查看命令详情。";
@@ -6073,6 +6097,7 @@
 "native.evaluateExpression" = "计算表达式";
 "native.evaluateExpressionWhilePaused" = "暂停时计算表达式";
 "native.evaluating" = "正在计算…";
+"native.everySavedVersionOfThisProjectSFilesIsDeletedOpenFilesAreNotChanged" = "此项目文件的所有已保存版本都会被删除，已打开的文件不受影响。";
 "native.example" = "示例";
 "native.exception" = "异常";
 "native.exceptionBreakpoints" = "异常断点";
@@ -6337,6 +6362,7 @@
 "native.header" = "请求头";
 "native.headers" = "请求头";
 "native.heapMemory" = "堆内存";
+"native.hiddenInTheProjectTreeNotRecorded" = "已在项目树中隐藏，不记录";
 "native.hiddenPaths" = "隐藏路径";
 "native.hideAPIKey" = "隐藏密钥";
 "native.hideBranches" = "隐藏分支";
@@ -6408,6 +6434,8 @@
 "native.ifResetUse" = "重置后使用";
 "native.ignoreWhitespace" = "忽略空白";
 "native.ignored" = "已忽略";
+"native.ignoredByRegularExpressionLineLld" = "被正则表达式第 %1$lld 行忽略";
+"native.ignoredByWildcardLineLld" = "被通配符第 %1$lld 行忽略";
 "native.ignoredEntriesLld" = "已忽略条目：%1$lld";
 "native.imageZoom" = "图片缩放";
 "native.imagesCanOnlyBePastedIntoMarkdownDocuments" = "图片只能粘贴到 Markdown 文档中";
@@ -6425,6 +6453,7 @@
 "native.importSource" = "导入来源";
 "native.in" = "%1$@，位于 %2$@";
 "native.inEffect" = "生效：";
+"native.inNoInitialCopyEditsAreRecorded" = "位于 %1$@：不做初始副本，编辑仍会记录";
 "native.include" = "包含范围";
 "native.includeAShortBodyWhenUseful" = "有必要时包含简短正文";
 "native.includeInCommit" = "包含在提交中";
@@ -6708,6 +6737,7 @@
 "native.lineBreakpoints" = "行断点";
 "native.lineColumn" = "[行] [:列]:";
 "native.lineLld" = "%1$@，第 %2$lld 行，%3$@";
+"native.lineLldIsNotAValidRegularExpressionAndIsSkipped" = "第 %1$lld 行不是有效的正则表达式，已跳过。";
 "native.linear" = "Linear";
 "native.linesAndColumnsStartAtAndARangeMustNotEndBeforeItStarts" = "行号和列号从 1 开始，范围的终点不能早于起点。";
 "native.linesKeptForScrollingBackInNewTerminalSessions" = "新建终端会话保留的可回滚行数。";
@@ -6865,7 +6895,9 @@
 "native.localEditsToTheseFilesAreLost" = "这些文件的本地修改将会丢失。";
 "native.localHistory" = "本地历史";
 "native.localHistory.variant2" = "本地历史…";
+"native.localHistory.variant3" = "本地历史";
 "native.localHistoryIsAvailableForTextFiles" = "本地历史仅适用于文本文件";
+"native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul3649ff1aa0" = "本地历史会在你保存和编辑时保留文件版本，每个项目最多 100 MB。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n「不做初始副本」中的文件夹里的文件，打开项目时不会复制，编辑仍会记录。";
 "native.localHistoryWorkIsStillActive" = "本地历史任务仍在进行。";
 "native.localJDKHomeOptional" = "本地 JDK 主目录（可选）";
 "native.localPackage" = "本地插件包";
@@ -7174,6 +7206,7 @@
 "native.noHooksYet" = "还没有 Hook。";
 "native.noHostYet" = "尚未填写主机";
 "native.noImplementationsFound" = "没有找到实现";
+"native.noInitialCopy" = "不做初始副本";
 "native.noInstalledPluginSupportsYet" = "尚未安装支持 %1$@ 的插件。";
 "native.noItems" = "暂无项目";
 "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory" = "未找到 JDK。请设置 JAVA_HOME、安装 JDK，或选择 JDK 目录。";
@@ -7368,6 +7401,7 @@
 "native.openAProjectToConfigureMCPAccessForAgents" = "打开项目后，可在这里配置 Agent 的 MCP 访问权限。";
 "native.openAProjectToLetConnectedAgentsInspectAndControlIt" = "打开项目后，已连接的 Agent 才能检查和控制它。";
 "native.openAProjectToManageItsSkills" = "请先打开项目，再管理项目技能。";
+"native.openAProjectToSeeHowMuchSpaceItsHistoryUses" = "打开项目后可查看其历史占用的空间。";
 "native.openAProjectToSeeItsLanguageService" = "打开项目后可查看其语言服务。";
 "native.openAProjectToUseGit" = "请打开项目以使用 Git";
 "native.openASourceFileBeforeRunningCurrentFile" = "运行“当前文件”前请先打开一个源文件。";
@@ -7735,6 +7769,7 @@
 "native.reconnectToApplyLimits" = "重新连接 Agent 后生效。";
 "native.reconnecting" = "正在重连…";
 "native.reconnectingDD" = "正在重连 %1$d/%2$d…";
+"native.recorded" = "会记录";
 "native.recoveryReference" = "恢复引用：%1$@";
 "native.referenceChangesCouldNotBeInspected" = "无法读取引用变更";
 "native.referenceListTruncatedTotalUpdatedLldDeletedLld" = "引用列表已截断；更新总数：%1$lld，删除总数：%2$lld";
@@ -7767,6 +7802,8 @@
 "native.registration" = "注册状态";
 "native.registryWebsite" = "Registry 网站";
 "native.regularExpression" = "正则表达式";
+"native.regularExpression.variant2" = "正则表达式";
+"native.regularExpressionIgnoreRules" = "正则表达式忽略规则";
 "native.releaseDate" = "发布日期";
 "native.releaseNote" = "发布说明";
 "native.releaseNotes" = "发行说明";
@@ -8523,6 +8560,7 @@
 "native.test" = "测试";
 "native.testConnection" = "测试连接";
 "native.testJava" = "测试代码";
+"native.testPath" = "测试路径";
 "native.testProcessTreeResidentMemory" = "测试进程树 · 驻留内存";
 "native.testResources" = "测试资源";
 "native.testRunTimedOutAfterSeconds" = "%1$@ 测试运行在 %2$@ 秒后超时。";
@@ -9150,6 +9188,7 @@
 "native.useYourLocalChatGPTAccountNoAPIKeyOrURLIsNeeded" = "使用本机已登录的 ChatGPT 账号，无需 API Key 或 URL。";
 "native.used" = "%1$@ · 已用 %2$@";
 "native.used.variant2" = "已使用 %1$@";
+"native.used.variant3" = "已用";
 "native.usedBy" = "使用者：%1$@";
 "native.usedForNewTerminalSessions" = "用于新建的终端会话。";
 "native.usedForOrdinaryFetchInEveryProjectOneTimeChoicesCanOverrideTheseDefaults" = "用于所有项目中的普通 Fetch；单次操作可以覆盖这些默认值。";
@@ -9248,6 +9287,7 @@
 "native.whenQuittingLithe" = "退出 Lithe 时";
 "native.whenShouldThisSkillBeUsed" = "什么情况下应使用这个技能？";
 "native.whenSubmittingAPrompt" = "提交提示词时";
+"native.whenTheLimitIsReachedTheOldestVersionsAreRemovedFirst" = "达到上限时，最早的版本会先被删除。";
 "native.whenToRun" = "何时运行";
 "native.wherePushGoesWhenYouDoNotChooseATargetExplicitly" = "未明确选择目标时，Push 会推送到哪里。";
 "native.whereShouldThisApply" = "应用范围";
@@ -9255,6 +9295,8 @@
 "native.whereWouldYouLikeToOpenTheProject" = "你想在哪里打开项目“%1$@”？";
 "native.whitespaceComparison" = "空白字符比较";
 "native.wholeWords" = "全字匹配";
+"native.wildcard" = "通配符";
+"native.wildcardIgnoreRules" = "通配符忽略规则";
 "native.window" = "窗口";
 "native.wip" = "进行中";
 "native.withdrawn" = "已撤回";

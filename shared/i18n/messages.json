@@ -92647,6 +92647,257 @@
         "key": "The plugin host request parameters are invalid.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.localHistory.variant3",
+      "description": "Native UI: Local history",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local history",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.wildcard",
+      "description": "Native UI: Wildcard",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Wildcard",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.regularExpression.variant2",
+      "description": "Native UI: Regular expression",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Regular expression",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.wildcardIgnoreRules",
+      "description": "Native UI: Wildcard ignore rules",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Wildcard ignore rules",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.regularExpressionIgnoreRules",
+      "description": "Native UI: Regular expression ignore rules",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Regular expression ignore rules",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.testPath",
+      "description": "Native UI: Test path",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Test path",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.clearThisProjectSLocalHistory",
+      "description": "Native UI: Clear this project's local history?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear this project's local history?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.everySavedVersionOfThisProjectSFilesIsDeletedOpenFilesAreNotChanged",
+      "description": "Native UI: Every saved version of this project's files is deleted. Open files are not changed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Every saved version of this project's files is deleted. Open files are not changed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.used.variant3",
+      "description": "Native UI: Used",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Used",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.whenTheLimitIsReachedTheOldestVersionsAreRemovedFirst",
+      "description": "Native UI: When the limit is reached, the oldest versions are removed first.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "When the limit is reached, the oldest versions are removed first.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.clearing",
+      "description": "Native UI: Clearing…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clearing…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.clearProjectHistory",
+      "description": "Native UI: Clear Project History…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear Project History…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openAProjectToSeeHowMuchSpaceItsHistoryUses",
+      "description": "Native UI: Open a project to see how much space its history uses.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a project to see how much space its history uses.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noInitialCopy",
+      "description": "Native UI: No initial copy",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No initial copy",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lineLldIsNotAValidRegularExpressionAndIsSkipped",
+      "description": "Native UI: Line %lld is not a valid regular expression and is skipped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Line %lld is not a valid regular expression and is skipped.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.recorded",
+      "description": "Native UI: Recorded",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Recorded",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hiddenInTheProjectTreeNotRecorded",
+      "description": "Native UI: Hidden in the project tree, not recorded",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hidden in the project tree, not recorded",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.inNoInitialCopyEditsAreRecorded",
+      "description": "Native UI: In %@: no initial copy, edits are recorded",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "In %@: no initial copy, edits are recorded",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.ignoredByWildcardLineLld",
+      "description": "Native UI: Ignored by wildcard line %lld",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Ignored by wildcard line %lld",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.ignoredByRegularExpressionLineLld",
+      "description": "Native UI: Ignored by regular expression line %lld",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Ignored by regular expression line %lld",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul3649ff1aa0",
+      "description": "Native UI: Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded.",
+        "arguments": []
+      }
     }
   ]
 }

@@ -99,6 +99,37 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         await localHistoryService?.updateVisibilityRules(rules)
     }
 
+    /// Validates ignore rules for the settings page; needs no open project.
+    public func previewIgnoreRules(path: String?, patterns: [String], regexes: [String]) async -> LocalHistoryIgnorePreview? {
+        let operations = localHistoryOperations
+        return await Task.detached {
+            operations.ignorePreview(path: path, ignorePatterns: patterns, ignoreRegexes: regexes)
+        }.value
+    }
+
+    /// The open project's history size, or nil without a project.
+    public func storageUsage() async -> LocalHistoryUsage? {
+        await localHistoryService?.usage()
+    }
+
+    /// Deletes every snapshot of the open project. A running baseline stops
+    /// first so it cannot refill the storage being cleared.
+    public func clearHistory() async -> Bool {
+        guard let localHistoryService else { return false }
+        seedTask?.cancel()
+        seedTask = nil
+        let cleared = await localHistoryService.clear()
+        if cleared {
+            localHistoryEntries = []
+            selectedLocalHistoryEntry = nil
+            localHistoryDiffRows = []
+            projectLocalHistoryEntries = []
+            selectedProjectLocalHistoryEntry = nil
+            projectLocalHistoryDiffRows = []
+        }
+        return cleared
+    }
+
     public func seed(files: [URL]) {
         seedTask?.cancel()
         guard let localHistoryService else { return }
