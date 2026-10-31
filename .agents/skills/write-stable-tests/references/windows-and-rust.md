@@ -153,6 +153,21 @@ The prefix matches the raw Rust test name, without the Cargo target printed
 before it in the console. Check each report's `maxMs` to confirm the allowance
 actually applies; a successful fast run alone does not prove prefix matching.
 
+`push_target_choice_is_ignored_for_a_branch_that_tracks_its_own_name` gets
+30 seconds in SharedRust and real-JDT. Its two Core previews and real push
+passed assertions but took 18.731 seconds as a complete Windows test process;
+an unchanged-binary retry took 18.317 seconds. The fixture now reuses Git Host's
+process-tree cleanup with a 10-second child deadline, gives every Core request
+a 10-second deadline, and removes three initialization processes by setting the
+initial branch at creation and writing identity/signing only to the fixture's
+local Git config. The same case still measured 18.339 seconds after that change.
+The complete 25-case target then exposed nine more 15-second process timeouts,
+measuring 18.423–20.169 seconds; three were stopped before their assertions completed.
+SharedRust and real-JDT list exactly those ten measured raw-name prefixes at
+30 seconds. The remaining 15 push cases retain 15 seconds; the 20-minute suite
+deadline and all assertions remain unchanged. Preserve the first reports and
+require the longer bounded run to complete every assertion before counting a pass.
+
 `tests::git::git_write_executes_checkout_preflight_clone_and_validation`
 gets 30 seconds in both Windows lanes. Run 39935852248 reported its assertions
 passing in 15.22 seconds, but the complete test process took 18.529 seconds and

@@ -1025,6 +1025,16 @@ jobs:
             --max-ms 15000 `
             --test-budget git_paths_roundtrip_=60000 `
             --test-budget watch_context_distinguishes_linked_worktree_git_and_common_directories=30000 `
+            --test-budget branch_created_from_remote_main_does_not_track_main=30000 `
+            --test-budget confirmed_upstream_push_resolves_a_slashed_branch_name=30000 `
+            --test-budget divergent_upstream_requires_an_explicit_choice=30000 `
+            --test-budget push_preview_and_write_share_destination_and_safe_options=30000 `
+            --test-budget push_rejects_a_preview_after_the_configured_destination_changes=30000 `
+            --test-budget push_target_choice_is_ignored_for_a_branch_that_tracks_its_own_name=30000 `
+            --test-budget reviewed_force_push_to_the_chosen_upstream_leases_that_branch=30000 `
+            --test-budget reviewed_push_rejects_a_different_destination_choice=30000 `
+            --test-budget reviewed_push_uses_default_remote_and_sets_upstream_when_missing=30000 `
+            --test-budget reviewed_upstream_push_is_rejected_when_the_upstream_moves=30000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
             --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
