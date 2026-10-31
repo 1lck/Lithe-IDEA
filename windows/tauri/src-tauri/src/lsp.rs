@@ -65,6 +65,9 @@ pub struct JavaLspLaunch {
 pub struct JavaLspRuntime {
     pub home_path: String,
     pub version: String,
+    /// JDT LS resets its default VM to the bundled JDK unless one runtime is
+    /// marked default, which keeps a Java 25 project on the bundled JDK 21.
+    pub default: bool,
 }
 
 /// Gradle import facts the workspace root exposes to the Rust core.
@@ -221,6 +224,20 @@ fn resolve_java_launch(
         ),
     }
 
+    let mut java_runtimes = run::discover_java_runtimes(project_root);
+    let configured_runtime = project_root
+        .and_then(run::configured_java_home)
+        .as_deref()
+        .and_then(run::probe_java_home);
+    if let Some(runtime) = &configured_runtime {
+        let key = normalize_path(Path::new(&runtime.home_path));
+        java_runtimes.retain(|existing| normalize_path(Path::new(&existing.home_path)) != key);
+        java_runtimes.insert(0, runtime.clone());
+    }
+    let default_runtime = configured_runtime
+        .as_ref()
+        .map(|runtime| normalize_path(Path::new(&runtime.home_path)));
+
     Ok(JavaLspLaunch {
         provider_id: JAVA_PROVIDER_ID.to_string(),
         language_id: JAVA_PROVIDER_ID.to_string(),
@@ -247,11 +264,16 @@ fn resolve_java_launch(
             java_home: Some(normalize_path(&resolution.java_home)),
         },
         workspace_fingerprint,
-        java_runtimes: run::discover_java_runtimes(project_root)
+        java_runtimes: java_runtimes
             .into_iter()
-            .map(|runtime| JavaLspRuntime {
-                home_path: runtime.home_path,
-                version: runtime.version,
+            .map(|runtime| {
+                let is_default = default_runtime.as_deref()
+                    == Some(normalize_path(Path::new(&runtime.home_path)).as_str());
+                JavaLspRuntime {
+                    home_path: runtime.home_path,
+                    version: runtime.version,
+                    default: is_default,
+                }
             })
             .collect(),
         java_gradle: project_root.and_then(detect_gradle_context),

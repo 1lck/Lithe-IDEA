@@ -1390,6 +1390,24 @@ pub(crate) fn discover_java_runtimes(project_root: Option<&Path>) -> Vec<JavaRun
     probe_java_homes(java_home_candidates(project_root))
 }
 
+/// JDK selected for this project's run configurations, when one is saved.
+///
+/// `.lithe/run/local.json` owns the project toolchain, so the language service
+/// must offer this JDK to JDT LS even when it lives outside the standard
+/// discovery roots (for example on another drive).
+pub(crate) fn configured_java_home(project_root: &Path) -> Option<PathBuf> {
+    let document =
+        fs::read_to_string(project_root.join(".lithe").join("run").join("local.json")).ok()?;
+    let document: Value = serde_json::from_str(&document).ok()?;
+    let home = document
+        .get("toolchain")?
+        .get("java")?
+        .get("homePath")?
+        .as_str()?
+        .trim();
+    (!home.is_empty()).then(|| PathBuf::from(home))
+}
+
 fn java_selection_candidates(
     root: Option<&Path>,
     runtimes: &[JavaRuntime],
@@ -2910,6 +2928,24 @@ mod tests {
         assert!(!lithe_core::execution::is_run_scan_excluded_directory(
             "src"
         ));
+    }
+
+    #[test]
+    fn configured_java_home_reads_the_project_toolchain() {
+        let root = temp_project();
+        let run = root.join(".lithe/run");
+        fs::create_dir_all(&run).unwrap();
+        fs::write(
+            run.join("local.json"),
+            br#"{"version":2,"toolchain":{"java":{"homePath":"D:\\Program Files\\Java\\jdk-25"}}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            configured_java_home(&root),
+            Some(PathBuf::from(r"D:\Program Files\Java\jdk-25"))
+        );
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]
