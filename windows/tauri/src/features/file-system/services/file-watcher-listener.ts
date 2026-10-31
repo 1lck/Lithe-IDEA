@@ -1,4 +1,13 @@
-import { initializeDocumentWatches, cleanupDocumentWatches } from "@/features/editor/services/document-watch-controller";
+import { canUseNativeFileSearch } from "@/features/file-search/utils/file-search-paths";
+import { subscribeToGitChanges, isGitChangeRelevant } from "@/features/git/events/git-events";
+import {
+  configureWorkspaceIndexing,
+  indexingEvent,
+} from "@/features/file-explorer/stores/workspace-indexing";
+import {
+  initializeDocumentWatches,
+  cleanupDocumentWatches,
+} from "@/features/editor/services/document-watch-controller";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { dirname } from "@tauri-apps/api/path";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -23,6 +32,7 @@ interface FileChangeEvent {
 }
 
 let unlistenFileChanged: UnlistenFn | null = null;
+let unlistenGitChanged: (() => void) | undefined;
 const MAX_PENDING_REFRESH_DIRECTORIES = 128;
 
 export interface PendingWorkspaceRefresh {
@@ -129,9 +139,7 @@ function scheduleWorkspaceRefresh(
         if (pathStartsWithRoot(path, workspaceRoot)) directories.add(path);
       }
     }
-    const orderedDirectories = [...directories].sort(
-      (left, right) => left.length - right.length,
-    );
+    const orderedDirectories = [...directories].sort((left, right) => left.length - right.length);
     for (const directoryPath of orderedDirectories) {
       await refreshDirectory(directoryPath, { force: true });
     }
@@ -141,6 +149,23 @@ function scheduleWorkspaceRefresh(
 export async function initializeFileWatcherListener() {
   await cleanupFileWatcherListener();
   await initializeDocumentWatches();
+  unlistenGitChanged = subscribeToGitChanges((change) => {
+    if (["save", "auto-save", "external-file-change"].includes(change.source ?? "")) return;
+    const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
+    const state = useFileSystemStore.getStore(workspaceId).getState();
+    const roots = new Set([
+      state.rootFolderPath,
+      ...state.workspaceFolders.map((folder) => folder.path),
+    ]);
+    for (const root of roots) {
+      if (!canUseNativeFileSearch(root) || !isGitChangeRelevant(change, root)) continue;
+      scheduleFileWatcherRefresh(workspaceId, `indexing:${root}`, async () => {
+        if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return;
+        await configureWorkspaceIndexing(root, [], true, workspaceId);
+        window.dispatchEvent(new CustomEvent(indexingEvent, { detail: root }));
+      });
+    }
+  });
 
   unlistenFileChanged = await listen<FileChangeEvent>("file-changed", async (event) => {
     const { path, event_type } = event.payload;
@@ -154,6 +179,17 @@ export async function initializeFileWatcherListener() {
     );
     if (!rootFolderPath || !workspaceRoot) return;
 
+    const relative = getRelativePath(path, workspaceRoot).replace(/\\/g, "/");
+    if (
+      event_type === "rescan" ||
+      relative.split("/").some((part) => part === ".gitignore" || part === ".git")
+    ) {
+      scheduleFileWatcherRefresh(workspaceId, `indexing:${workspaceRoot}`, async () => {
+        if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return;
+        await configureWorkspaceIndexing(workspaceRoot, [], true, workspaceId);
+        window.dispatchEvent(new CustomEvent(indexingEvent, { detail: workspaceRoot }));
+      });
+    }
     if (event_type === "rescan") {
       window.dispatchEvent(
         new CustomEvent("file-external-change", {
@@ -174,12 +210,32 @@ export async function initializeFileWatcherListener() {
       }),
     );
 
+    const parentRelative =
+      getRelativePath(parentDirectory, workspaceRoot).replace(/\\/g, "/") || ".";
+    let excluded: boolean | undefined = false;
+    if (canUseNativeFileSearch(workspaceRoot)) {
+      try {
+        const policy = await configureWorkspaceIndexing(workspaceRoot, [parentRelative], false, workspaceId);
+        excluded = Object.keys(policy.excludedDirectories).some(
+          (directory) =>
+            directory === "." ||
+            parentRelative === directory ||
+            parentRelative.startsWith(directory + "/"),
+        );
+      } catch (error) {
+        // Indexing failures must not suppress tree updates or Maven reload state.
+        // Defer source notifications until the exclusion policy is known.
+        excluded = undefined;
+        console.error("Failed to read workspace indexing policy for file change:", error);
+      }
+    }
     if (mavenPomPath !== null) {
       useMavenStore.getStore(workspaceId).getState().actions.markPomReloadRequired(mavenPomPath);
-    } else {
+    } else if (excluded === false) {
       scheduleJavaWorkspaceChange(workspaceId, workspaceRoot, {
         path,
-        kind: event_type === "deleted" ? "deleted" : event_type === "opened" ? "created" : "changed",
+        kind:
+          event_type === "deleted" ? "deleted" : event_type === "opened" ? "created" : "changed",
         includeSource: true,
       });
     }
@@ -197,6 +253,8 @@ export async function initializeFileWatcherListener() {
 }
 
 export async function cleanupFileWatcherListener() {
+  unlistenGitChanged?.();
+  unlistenGitChanged = undefined;
   await cleanupDocumentWatches();
   cancelFileWatcherRefreshes();
   pendingWorkspaceRefreshes.clear();

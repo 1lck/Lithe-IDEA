@@ -50,7 +50,9 @@ local budget. Because the runner writes to a block-buffered pipe, a finish line
 can arrive late or be lost; the harness therefore never kills the runner on a
 per-test timer. Instead a stall watchdog (`--stall-timeout-seconds`, default
 120) terminates the runner only when it produces no output at all, and reports
-the tests still awaiting a result without asserting a single culprit. Reports
+the tests still awaiting a result without asserting a single culprit. Any
+nonempty stdout or stderr chunk resets that watchdog, including a partial line;
+only complete lines are parsed into test results. Reports
 are written below `.artifacts/test-stability/`. Each run
 produces JSON and raw logs for diagnosis, JUnit XML for CI tooling, and a
 self-contained HTML report for module and performance review.

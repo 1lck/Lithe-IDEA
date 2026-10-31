@@ -3232,6 +3232,41 @@ struct EditorDocumentTests {
         #expect(markStore.savedMarks == expected)
     }
 
+    @Test(arguments: [false, true])
+    @MainActor
+    func excludedItemsRelocateHistoryWithoutIndexCandidates(isDirectory: Bool) async throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("excluded-history-\(UUID().uuidString)").standardizedFileURL
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("archive"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        try Data("retained history".utf8).write(to: workspace.appendingPathComponent("archive/note.txt"))
+        let target = workspace.appendingPathComponent("dest")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let source = workspace.appendingPathComponent(isDirectory ? "archive" : "archive/note.txt")
+        let destination = source.deletingLastPathComponent().appendingPathComponent("renamed")
+        var relocations: [(URL, URL)] = []
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: MacWorkspaceFileOperations(), provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            relocateHistory: { relocations.append(($0, $1)) },
+            directoryMarkStore: RecordingWorkspaceDirectoryMarkStore(initial: ["archive": .excluded])
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        #expect(model.projectFiles.isEmpty)
+        model.requestRenameProjectItem(at: source)
+        await model.performProjectItemEdit(named: "renamed")
+        #expect(relocations.map { $0.0.standardizedFileURL.path } == [source.path])
+        #expect(relocations.map { $0.1.standardizedFileURL.path } == [destination.path])
+        await model.moveProjectItems([destination], to: target)
+        let moved = target.appendingPathComponent("renamed")
+        #expect(relocations.map { $0.0.standardizedFileURL.path } == [source.path, destination.path])
+        #expect(relocations.map { $0.1.standardizedFileURL.path } == [destination.path, moved.path])
+        let movedFile = isDirectory ? moved.appendingPathComponent("note.txt") : moved
+        #expect(try String(contentsOf: movedFile, encoding: .utf8) == "retained history")
+        #expect(model.projectFiles.isEmpty, "history migration must not repopulate index candidates")
+    }
+
     @Test
     @MainActor
     func batchMoveRejectsConflictsBeforeMovingAnyFile() async {
@@ -4163,6 +4198,24 @@ struct EditorDocumentTests {
         )
 
         #expect(configuration.physicalRoots.map(\.path) == [repository.path, commonDirectory.path])
+    }
+
+    @Test
+    func hiddenAndAncestorGitIgnoreRulesKeepTheirSignalInMixedBatches() {
+        let repository = URL(fileURLWithPath: "/tmp/lithe-mixed-ignore-rules")
+        let workspace = repository.appendingPathComponent("app")
+        let git = repository.appendingPathComponent(".git")
+        let configuration = DirectoryWatchConfiguration(workspaceRoot: workspace,
+            gitContext: GitWatchContext(repositoryRoot: repository, gitDirectory: git, gitCommonDirectory: git))
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [".gitignore"])
+        let watcher = MacDirectoryWatcher(configuration: configuration, visibilityRules: rules) { _ in }
+        let visible = workspace.appendingPathComponent("Keep.java").path
+        for ignore in [workspace.appendingPathComponent(".gitignore"), repository.appendingPathComponent(".gitignore")] {
+            let batch = watcher.classify(paths: [ignore.path, visible], eventFlags: [0, 0])
+            #expect(batch.workspacePaths == [visible])
+            #expect(batch.gitStateMayHaveChanged)
+            #expect(batch.gitMetadataMayHaveChanged)
+        }
     }
 
     @Test
@@ -6401,6 +6454,7 @@ private func makeWorkspaceObservationUnitModel(
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
     recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
+    relocateHistory: @escaping @MainActor (URL, URL) async -> Void = { _, _ in },
     directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
     observationDelay: (@Sendable (Duration) async throws -> Void)? = nil,
     documentsProvider: @escaping @MainActor @Sendable () -> [EditorDocument] = { [] },
@@ -6426,7 +6480,7 @@ private func makeWorkspaceObservationUnitModel(
         openFile: { _ in },
         notify: notify,
         recordHistory: recordHistory,
-        relocateHistory: { _, _ in },
+        relocateHistory: relocateHistory,
         relocateOpenDocuments: { _, _ in },
         closeDocuments: closeDocuments,
         processExternalChanges: processExternalChanges,

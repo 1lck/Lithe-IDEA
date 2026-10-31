@@ -1,3 +1,9 @@
+import { canUseNativeFileSearch } from "@/features/file-search/utils/file-search-paths";
+import { configureWorkspaceIndexing } from "@/features/file-explorer/stores/workspace-indexing";
+import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { closestWorkspaceRoot } from "@/features/workspace/types/workspace-root";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import {
   getLspSessionSnapshot,
   getLspWorkspaceSessionSnapshot,
@@ -39,7 +45,7 @@ import { flushLspDocumentChanges } from "./pending-document-changes";
 import type { EditorTextChange } from "../types/editor.types";
 import { replayEditorTextChanges } from "../utils/editor-text-change";
 import { logger } from "../utils/logger";
-import { normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
+import { getRelativePath, joinPath, normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { getLanguageDisplayName } from "../utils/language-id";
 import {
   isBuiltInLspPath,
@@ -88,7 +94,7 @@ export type LspWorkspaceStartOutcome =
 
 export type LspFileAttachmentOutcome =
   | { kind: "attached"; attachmentId: string }
-  | { kind: "cancelled"; reason: "superseded" | "unsupportedHost" };
+  | { kind: "cancelled"; reason: "superseded" | "unsupportedHost" | "excluded" };
 
 type LanguageServerRepairOutcome =
   | { kind: "repaired" }
@@ -718,12 +724,18 @@ export class LspClient {
           if (!payload.sessionId) return;
           presentMavenProfileTask(payload, {
             toast,
-            clearProjects: (sessionId) => useLspStore.getState().actions.clearMavenProfileProjects(sessionId),
+            clearProjects: (sessionId) =>
+              useLspStore.getState().actions.clearMavenProfileProjects(sessionId),
             retry: (sessionId) => invoke("lsp_retry_maven_profiles", { sessionId }),
           });
         }),
       );
-      await listen<import("./stores/lsp.store").MavenProfileProjectResult & { workspacePath?: string; sessionId?: string }>(
+      await listen<
+        import("./stores/lsp.store").MavenProfileProjectResult & {
+          workspacePath?: string;
+          sessionId?: string;
+        }
+      >(
         "lsp://maven-profile-project",
         ownedLifecycleHandler(ownsLspSession, (payload) => {
           if (!payload?.projectUri || !payload.sessionId) return;
@@ -775,43 +787,44 @@ export class LspClient {
       }
       if (existingTask) await existingTask.task;
 
-      const task: Promise<LspWorkspaceStartOutcome> = (async (): Promise<LspWorkspaceStartOutcome> => {
-        logger.debug(
-          "LSPClient",
-          `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`,
-        );
-        useLspStore.getState().actions.updateLspStatus("connecting");
-        await invoke<void>("lsp_start", {
-          workspacePath,
-          serverPath: launch.serverPath,
-          serverArgs: launch.serverArgs,
-          languageId: launch.languageId,
-          providerId: launch.providerId,
-          pluginId: launch.pluginId,
-          tools: launch.tools || null,
-          initializationOptions: launch.initializationOptions || null,
-          workspaceConfiguration: launch.workspaceConfiguration || null,
-          runtimeExecutablePath: launch.runtimeExecutablePath || null,
-          jdtlsLaunchResources: launch.jdtlsLaunchResources || null,
-          cacheDirectory: launch.cacheDirectory || null,
-          environment: launch.environment || null,
-          workspaceFingerprint: launch.workspaceFingerprint || null,
-          mavenContext: launch.mavenContext || null,
-          javaRuntimes: launch.javaRuntimes ?? [],
-          javaGradle: launch.javaGradle ?? null,
-        });
+      const task: Promise<LspWorkspaceStartOutcome> =
+        (async (): Promise<LspWorkspaceStartOutcome> => {
+          logger.debug(
+            "LSPClient",
+            `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`,
+          );
+          useLspStore.getState().actions.updateLspStatus("connecting");
+          await invoke<void>("lsp_start", {
+            workspacePath,
+            serverPath: launch.serverPath,
+            serverArgs: launch.serverArgs,
+            languageId: launch.languageId,
+            providerId: launch.providerId,
+            pluginId: launch.pluginId,
+            tools: launch.tools || null,
+            initializationOptions: launch.initializationOptions || null,
+            workspaceConfiguration: launch.workspaceConfiguration || null,
+            runtimeExecutablePath: launch.runtimeExecutablePath || null,
+            jdtlsLaunchResources: launch.jdtlsLaunchResources || null,
+            cacheDirectory: launch.cacheDirectory || null,
+            environment: launch.environment || null,
+            workspaceFingerprint: launch.workspaceFingerprint || null,
+            mavenContext: launch.mavenContext || null,
+            javaRuntimes: launch.javaRuntimes ?? [],
+            javaGradle: launch.javaGradle ?? null,
+          });
 
-        if (representativeFilePath) {
-          this.workspaceRepresentativeFiles.set(serverKey, representativeFilePath);
-        }
-        this.registerActiveServer(serverKey, launch.languageId, scope);
-        logger.debug("LSPClient", "LSP started successfully for workspace:", workspacePath);
-        return { kind: "ready" };
-      })().finally(() => {
-        if (this.workspaceStartTasks.get(serverKey)?.task === task) {
-          this.workspaceStartTasks.delete(serverKey);
-        }
-      });
+          if (representativeFilePath) {
+            this.workspaceRepresentativeFiles.set(serverKey, representativeFilePath);
+          }
+          this.registerActiveServer(serverKey, launch.languageId, scope);
+          logger.debug("LSPClient", "LSP started successfully for workspace:", workspacePath);
+          return { kind: "ready" };
+        })().finally(() => {
+          if (this.workspaceStartTasks.get(serverKey)?.task === task) {
+            this.workspaceStartTasks.delete(serverKey);
+          }
+        });
       this.workspaceStartTasks.set(serverKey, { scope, task });
       return await task;
     } catch (error) {
@@ -883,6 +896,26 @@ export class LspClient {
     scope: WorkspaceLaunchScope,
     intent: LspFileStartIntent = "attach",
   ): Promise<LspFileAttachmentOutcome> {
+    const policyRoot = () => {
+      if (!workspaceRuntimeRegistry.hasWorkspace(scope.workspaceId)) return undefined;
+      const state = useFileSystemStore.getStore(scope.workspaceId).getState();
+      return closestWorkspaceRoot(filePath,
+        getNativeWorkspaceRootPaths(state.rootFolderPath, state.workspaceFolders));
+    };
+    const root = canUseNativeFileSearch(filePath) ? policyRoot() : undefined;
+    if (root) {
+      const relative = getRelativePath(filePath, root);
+      const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : ".";
+      const indexing = await configureWorkspaceIndexing(root, [parent], false, scope.workspaceId);
+      if (policyRoot() !== root) return { kind: "cancelled", reason: "superseded" };
+      if (
+        Object.keys(indexing.excludedDirectories).some(
+          (directory) =>
+            directory === "." || pathStartsWithRoot(filePath, joinPath(root, directory)),
+        )
+      )
+        return { kind: "cancelled", reason: "excluded" };
+    }
     const attachmentKey = trackedFileKey(filePath);
     const currentAttachmentId = this.fileAttachmentIds.get(attachmentKey);
     const currentSession = getLspSessionSnapshot({ filePath });

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "command": "workspace.configureIndexing",
+  "request": {
+    "root": "/workspace",
+    "manualExcludedDirectories": [
+      "vendor"
+    ],
+    "includedDirectories": [
+      "generated/examples"
+    ],
+    "gitIgnoreEnabled": true,
+    "refresh": false,
+    "paths": [
+      "vendor",
+      "generated"
+    ],
+    "ownerId": "window-one/workspace-one"
+  },
+  "response": {
+    "revision": 1,
+    "excludedDirectories": {
+      "vendor": "manual"
+    },
+    "gitIgnoreFailed": false
+  },
+  "cases": [
+    {
+      "path": "vendor/src",
+      "reason": "manual"
+    },
+    {
+      "path": "generated/examples",
+      "reason": null
+    },
+    {
+      "path": "generated",
+      "reason": null
+    }
+  ],
+  "notes": "generated is a traversal ancestor of an include exception and cannot be pruned as a whole. Hidden-path rules are separate.",
+  "ownershipCases": [
+    {
+      "nestedRegistered": true,
+      "parentScopedMatches": 0
+    },
+    {
+      "nestedRegistered": false,
+      "parentScopedMatches": 1
+    }
+  ],
+  "leaseCases": [
+    {
+      "owners": [
+        "window-one/workspace-one",
+        "window-two/workspace-two"
+      ],
+      "releasedOwner": "window-one/workspace-one",
+      "rootRetired": false
+    },
+    {
+      "owners": [
+        "window-two/workspace-two"
+      ],
+      "releasedOwner": "window-two/workspace-two",
+      "rootRetired": true
+    }
+  ]
+}

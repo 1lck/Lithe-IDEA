@@ -65,6 +65,13 @@ struct AppModelSettingsChangesTests {
         ])
         let probe = SettingsChangesProbe(workspaceOperations: operations, language: language)
         let model = probe.model
+        // AppModel starts this required module asynchronously, even in safe
+        // mode. Await its activation before establishing the notification baseline.
+        _ = try await model.services.moduleRuntime.activateCapability(.workspaceFoundation)
+        // Establish both session and feature identities without consuming the
+        // controlled inventories through an automatic background rebuild.
+        model.workspaceSessionCoordinator.beginWorkspace(at: root)
+        model.workspaceFeature.beginWorkspace(at: root, visibilityRules: .default)
         let usage = model.languageToolingFeature.projectUsage
         let context = SettingsModelContext(model: model)
         let viewState = SettingsViewState(initialCategory: .lsp)
@@ -83,6 +90,7 @@ struct AppModelSettingsChangesTests {
             window.close()
             usage.reset()
             model.workspaceFeature.reset()
+            model.workspaceSessionCoordinator.clearSession()
             probe.cancel()
         }
         host.layoutSubtreeIfNeeded()

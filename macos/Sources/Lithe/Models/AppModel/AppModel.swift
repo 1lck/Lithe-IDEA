@@ -543,6 +543,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 },
                 visibilityRules: { [weak self] in
                     self?.settings.fileVisibilityRules ?? .default
+                },
+                waitForWorkspaceOpenPreparation: { [weak self] in
+                    guard let self else { return }
+                    await self.awaitModuleRuntimeShutdown()
+                    guard let capability = try? await self.services.moduleRuntime.activateCapability(.workspaceFoundation),
+                          let capability = capability as? LitheWorkspaceModule.WorkspaceFoundationCapability else { return }
+                    capability.attach(workspaceProjection: self.workspaceFeature)
                 }
             )
         )
@@ -590,12 +597,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
         }
-        localHistoryIgnoreRulesObservation = settings.localHistoryIgnoreRulesChanges.sink { [weak self] in
-            // An inactive module reads the rules when it opens the workspace.
-            guard let self, let feature = self.projectHistoryFeatureIfActive else { return }
-            let rules = self.settings.localHistoryRules
-            Task { await feature.updateVisibilityRules(rules) }
-        }
+        localHistoryIgnoreRulesObservation = observeLocalHistoryIgnoreRules()
         searchExclusionsObservation = settings.searchExclusionsChanges.sink { [weak self] in
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
@@ -1143,8 +1145,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await workspaceFeature.refreshCurrent()
     }
 
-    func markProjectDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) async {
-        await workspaceFeature.markDirectory(url, as: mark)
+    func markProjectDirectory(_ url: URL, as mark: WorkspaceDirectoryMark, cancelExclusion: Bool = false) async {
+        await workspaceFeature.markDirectory(url, as: mark, cancelExclusion: cancelExclusion)
     }
 
     func requestCreateFile(in directory: URL) {
@@ -1385,6 +1387,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     @discardableResult
     func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
+        guard !workspaceFeature.isIndexExcluded(document.url) else { return false }
         guard let identity = currentWorkspaceIdentity,
               let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
         let workspaceURL = identity.url

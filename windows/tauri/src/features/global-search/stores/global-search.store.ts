@@ -5,7 +5,7 @@ import type {
   SearchFilesResponse,
 } from "@/features/file-search/lib/file-search-api";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
-import type { ContentSearchOptions } from "../types/global-search.types";
+import type { ContentSearchFailure, ContentSearchOptions } from "../types/global-search.types";
 import { mergeSearchResults } from "../utils/content-search-results";
 
 const DEFAULT_SEARCH_OPTIONS: ContentSearchOptions = {
@@ -19,7 +19,7 @@ interface GlobalSearchSessionSnapshot {
   scopePaths: string[];
   replaceVisible: boolean;
   results: FileSearchResult[];
-  error: string | null;
+  error: ContentSearchFailure | null;
   searchWarning: string | null;
   nextFileOffset: number;
   hasMoreResults: boolean;
@@ -49,12 +49,12 @@ interface GlobalSearchSessionState extends GlobalSearchSessionSnapshot {
     clearSearch: () => void;
     beginSearch: () => number;
     completeSearch: (searchKey: string, response: SearchFilesResponse) => void;
-    failSearch: (searchKey: string, error: string) => void;
+    failSearch: (searchKey: string, error: ContentSearchFailure) => void;
     setIndexProgress: (isIndexing: boolean, indexedFiles: number, scannedFiles: number) => void;
-    failIndexing: (searchKey: string, error: string) => void;
+    failIndexing: (searchKey: string, error: ContentSearchFailure) => void;
     beginLoadMore: () => void;
     completeLoadMore: (response: SearchFilesResponse) => void;
-    failLoadMore: (error: string) => void;
+    failLoadMore: (error: ContentSearchFailure) => void;
     isCurrentRequest: (generation: number) => boolean;
   };
 }

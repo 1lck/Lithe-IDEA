@@ -1,6 +1,7 @@
+import { configureWorkspaceIndexing } from "@/features/file-explorer/stores/workspace-indexing";
 import { executeCore } from "@/core/lithe-core-client";
 import { getFilenameFromPath } from "@/features/file-system/controllers/file-utils";
-import { joinPath } from "@/utils/path-helpers";
+import { joinPath, getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 
 export interface SearchMatchRange {
   start: number;
@@ -37,7 +38,9 @@ export interface SearchFilesResponse {
 }
 
 export interface SearchFilesRequest {
+  workspaceId?: string;
   root_paths: string[];
+  scope_paths?: string[];
   query: string;
   case_sensitive?: boolean;
   whole_word?: boolean;
@@ -86,24 +89,40 @@ export async function searchFilesContent(
 ): Promise<SearchFilesResponse> {
   const maxResults = request.max_results ?? 500;
   const responses = await Promise.all(
-    request.root_paths.map(async (root) => {
-      const response = await executeCore<{ matches: CoreSearchMatch[] }>(
-        {
+    request.root_paths
+      .filter(
+        (root) =>
+          !request.scope_paths?.length ||
+          request.scope_paths.some(
+            (scope) => pathStartsWithRoot(scope, root) || pathStartsWithRoot(root, scope),
+          ),
+      )
+      .map(async (root) => {
+        await configureWorkspaceIndexing(root, [], false, request.workspaceId);
+        const response = await executeCore<{ matches: CoreSearchMatch[] }>({
           id: crypto.randomUUID(),
           command: "workspace.search",
           payload: {
             root,
+            workspaceRoots: request.root_paths,
             query: request.query,
             caseSensitive: request.case_sensitive ?? false,
             wholeWords: request.whole_word ?? false,
             regularExpression: request.use_regex ?? false,
             maxResults,
+            maxFileResults: 0,
+            scopePaths: request.scope_paths
+              ?.filter(
+                (scope) => pathStartsWithRoot(scope, root) || pathStartsWithRoot(root, scope),
+              )
+              .map((scope) =>
+                pathStartsWithRoot(root, scope) ? "." : getRelativePath(scope, root),
+              ),
             fileMask: "",
           },
-        },
-      );
-      return { root, matches: coreData(response).matches };
-    }),
+        });
+        return { root, matches: coreData(response).matches };
+      }),
   );
 
   const grouped = new Map<string, FileSearchResult>();
@@ -148,12 +167,12 @@ export async function searchFilesContent(
   };
 }
 
-export async function fffEnsureWorkspaces(rootPaths: readonly string[]): Promise<void> {
-  await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root)));
+export async function fffEnsureWorkspaces(rootPaths: readonly string[], workspaceId?: string): Promise<void> {
+  await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths, workspaceId)));
 }
 
-export async function fffScanStatus(rootPaths: readonly string[]): Promise<FffScanStatus> {
-  const files = await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root)));
+export async function fffScanStatus(rootPaths: readonly string[], workspaceId?: string): Promise<FffScanStatus> {
+  const files = await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths, workspaceId)));
   const count = files.reduce((total, entries) => total + entries.length, 0);
   return {
     is_scanning: false,
@@ -168,8 +187,9 @@ export async function fffSearchFiles(
   query: string,
   rootPaths: readonly string[],
   limit = 100,
+  workspaceId?: string,
 ): Promise<FffSearchHit[]> {
-  const files = await fffListFiles(rootPaths);
+  const files = await fffListFiles(rootPaths, workspaceId);
   const normalizedQuery = query.toLocaleLowerCase();
   return files
     .filter((file) => file.relative_path.toLocaleLowerCase().includes(normalizedQuery))
@@ -177,9 +197,9 @@ export async function fffSearchFiles(
     .map((file, index) => ({ ...file, score: limit - index }));
 }
 
-export async function fffListFiles(rootPaths: readonly string[]): Promise<FffIndexedFile[]> {
+export async function fffListFiles(rootPaths: readonly string[], workspaceId?: string): Promise<FffIndexedFile[]> {
   const workspaces = await Promise.all(
-    rootPaths.map(async (root) => ({ root, files: await listWorkspaceFiles(root) })),
+    rootPaths.map(async (root) => ({ root, files: await listWorkspaceFiles(root, rootPaths, workspaceId) })),
   );
   return workspaces.flatMap(({ root, files }) =>
     files.map((relativePath) => ({
@@ -194,14 +214,23 @@ export async function fffTrackAccess(_path: string): Promise<void> {
   // Access ranking is frontend-owned until the shared contract exposes it.
 }
 
-async function listWorkspaceFiles(root: string): Promise<string[]> {
-  // Only the flat file list is used here. The project tree loads one directory at a
-  // time, so asking Core to also build and serialize every node is wasted work that
-  // grows with the workspace.
-  const response = await executeCore<{ files: string[] }>({
+async function listWorkspaceFiles(
+  root: string,
+  workspaceRoots: readonly string[],
+  workspaceId?: string,
+): Promise<string[]> {
+  await configureWorkspaceIndexing(root, [], false, workspaceId);
+  // Search consumes a flat inventory; directory rows are loaded lazily by the tree.
+  const response = await executeCore<{
+    files: string[];
+    incompleteDirectories?: string[];
+  }>({
     id: crypto.randomUUID(),
     command: "workspace.snapshot",
-    payload: { root, includeTree: false },
+    payload: { root, workspaceRoots, includeTree: false },
   });
-  return coreData(response).files;
+  const data = coreData(response);
+  if (data.incompleteDirectories?.length)
+    throw new Error("Workspace scan is incomplete: " + data.incompleteDirectories.join(", "));
+  return data.files;
 }

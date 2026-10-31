@@ -1,3 +1,5 @@
+import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
+import { useIndexingVersion } from "@/features/file-explorer/stores/workspace-indexing";
 import { useEffect, useMemo, useRef } from "react";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { deferUntilAfterNextPaint } from "@/features/editor/lsp/deferred-lsp-work";
@@ -13,7 +15,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getSourceEditorBufferByPath } from "@/features/editor/utils/buffer-index";
 import { logger } from "@/features/editor/utils/logger";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
 import { getDirName } from "@/utils/path-helpers";
 
@@ -42,6 +44,7 @@ type DocumentChangeOwnerState =
   | { phase: "flushing"; completion: Promise<void> };
 
 interface LspDocumentOwner {
+  indexingKey: string;
   // One record owns every asynchronous resource for one editor attachment.
   state: LspDocumentOwnerState;
   changes: DocumentChangeOwnerState;
@@ -69,8 +72,16 @@ export const useLspIntegration = ({
   contentRevision = 0,
 }: UseLspIntegrationOptions) => {
   const lspClient = useMemo(() => LspClient.getInstance(), []);
-  const workspaceId = useActiveWorkspaceId();
+  const workspaceId = useWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
+  const indexingVersion = useIndexingVersion(getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders));
+  // Root membership changes must withdraw old attachments even when settings are unchanged.
+  const indexingKey = JSON.stringify([
+    workspaceId, indexingVersion, getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
+  ]);
+  const indexingKeyRef = useRef(indexingKey);
+  indexingKeyRef.current = indexingKey;
   const installedExtensions = useExtensionStore.use.installedExtensions();
   const activeFilePath = enabled ? filePath : undefined;
   const isLspSupported = useMemo(
@@ -102,9 +113,12 @@ export const useLspIntegration = ({
 
     const existingOwner = documentOwnersRef.current.get(filePath);
     const owner: LspDocumentOwner =
-      existingOwner && !isTerminalOwnerState(existingOwner.state)
+      existingOwner &&
+      existingOwner.indexingKey === indexingKey &&
+      !isTerminalOwnerState(existingOwner.state)
         ? existingOwner
         : {
+            indexingKey,
             state: { phase: "scheduled" },
             changes: { phase: "idle", completion: Promise.resolve() },
           };
@@ -114,7 +128,7 @@ export const useLspIntegration = ({
       const isStillOpen = Boolean(
         getSourceEditorBufferByPath(useBufferStore.getState().buffers, filePath),
       );
-      if (isStillOpen) return;
+      if (isStillOpen && indexingKeyRef.current === indexingKey) return;
 
       if (owner.state.phase === "stopping" || owner.state.phase === "stopped") return;
       const previousState = owner.state;
@@ -147,12 +161,17 @@ export const useLspIntegration = ({
       void stopTask;
     };
 
-    if (existingOwner && !isTerminalOwnerState(existingOwner.state)) {
+    if (
+      existingOwner &&
+      existingOwner.indexingKey === indexingKey &&
+      !isTerminalOwnerState(existingOwner.state)
+    ) {
       return cleanupDocument;
     }
 
     const initializeLsp = async () => {
       try {
+        if (existingOwner?.state.phase === "stopping") await existingOwner.state.task;
         logger.debug("LspIntegration", `Starting LSP for ${filePath} in ${workspacePath}`);
         const attachment = await lspClient.startForFile(filePath, scope);
         if (attachment.kind !== "attached") {
@@ -196,7 +215,7 @@ export const useLspIntegration = ({
       cancelInitialization();
       cleanupDocument();
     };
-  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, workspaceId]);
+  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, workspaceId, indexingKey]);
 
   useEffect(() => {
     if (!enabled || !filePath || !isLspSupported) return;

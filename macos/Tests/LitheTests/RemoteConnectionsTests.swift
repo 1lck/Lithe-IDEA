@@ -318,6 +318,30 @@ struct RemoteDirectoryEntryDecodingTests {
 
 @Suite("RemoteConnections routing")
 struct RemoteWorkspaceRoutingTests {
+    @Test
+    func localIndexingPolicyAndReleaseReachCoreThroughTheRemoteRouter() throws {
+        let core = RustCoreBridge()
+        try #require(core.isAvailable)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-routed-indexing-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("excluded"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "hidden".write(to: root.appendingPathComponent("excluded/hidden.txt"), atomically: true, encoding: .utf8)
+        try "visible".write(to: root.appendingPathComponent("visible.txt"), atomically: true, encoding: .utf8)
+        let router = RemoteRoutingWorkspaceOperations(local: RustWorkspaceOperations(core: core), registry: RemoteWorkspaceRegistry(), transport: FakeTransport())
+        var settings = WorkspaceIndexingSettings()
+        settings.gitIgnoreEnabled = false
+        let policy = WorkspaceIndexingPolicy(marks: ["excluded": .excluded], settings: settings)
+        let status = try router.configureIndexing(at: root, policy: policy, refresh: true)
+        defer { router.releaseIndexing(at: root, revision: status.revision) }
+        #expect(status.revision > 0)
+        #expect(status.excludedDirectories["excluded"] == "manual")
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
+        let snapshot = try #require(try router.snapshot(at: root, visibilityRules: rules))
+        #expect(snapshot.files.map(\.lastPathComponent) == ["visible.txt"])
+        router.releaseIndexing(at: root, revision: status.revision)
+        #expect(throws: CancellationError.self) { try router.snapshot(at: root, visibilityRules: rules) }
+    }
+
     private let root = URL(fileURLWithPath: "/tmp/lithe-tests/RemoteWorkspaces/c/h/app", isDirectory: true)
 
     private func routing() -> (RemoteRoutingFileOperations, RemoteRoutingWorkspaceOperations, FakeTransport, RemoteWorkspaceRegistry) {
@@ -327,6 +351,20 @@ struct RemoteWorkspaceRoutingTests {
         let files = RemoteRoutingFileOperations(local: MacWorkspaceFileOperations(), registry: registry, transport: transport)
         let tree = RemoteRoutingWorkspaceOperations(local: NoLocalWorkspace(), registry: registry, transport: transport)
         return (files, tree, transport, registry)
+    }
+
+    @Test
+    func remoteIndexingReportsUnsupportedWithoutClaimingManualExclusionsAreActive() throws {
+        let (_, router, _, _) = routing()
+        let policy = WorkspaceIndexingPolicy(marks: ["excluded": .excluded], settings: WorkspaceIndexingSettings())
+        let status = try router.configureIndexing(at: root, policy: policy, refresh: true)
+        #expect(!status.supportsExclusions)
+        #expect(!status.gitIgnoreFailed)
+        #expect(status.excludedDirectories.isEmpty)
+        #expect(status.revision == 0)
+        let localStatus = try JSONDecoder().decode(WorkspaceIndexingStatus.self, from: Data(
+            #"{"revision":1,"excludedDirectories":{},"gitIgnoreFailed":false}"#.utf8))
+        #expect(localStatus.supportsExclusions)
     }
 
     @Test
@@ -471,7 +509,7 @@ struct RemoteWorkspaceRoutingTests {
         let (_, tree, transport, _) = routing()
         transport.directories["/srv/app"] = [entry("b.txt", "file"), entry("src", "directory"), entry(".git", "directory"), entry("A.md", "file")]
         let rules = FileVisibilityRules(hiddenDirectoryNames: [".git"], hiddenFilePatterns: [])
-        let snapshot = try #require(tree.snapshot(at: root, visibilityRules: rules))
+        let snapshot = try #require(try tree.snapshot(at: root, visibilityRules: rules))
         #expect(snapshot.root.children?.map(\.url.lastPathComponent) == ["src", "A.md", "b.txt"])
         #expect(snapshot.root.children?.first?.children == nil)
     }

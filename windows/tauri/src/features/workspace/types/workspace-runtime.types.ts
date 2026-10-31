@@ -15,4 +15,5 @@ export interface WorkspaceRuntime {
   status: WorkspaceRuntimeStatus;
   error?: string;
   stores: Map<string, StoreApi<unknown>>;
+  disposeIndexing?: () => Promise<void>;
 }

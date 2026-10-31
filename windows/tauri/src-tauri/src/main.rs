@@ -168,6 +168,7 @@ fn main() {
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
+                core::close_window_indexing(window.label());
                 agent::close_window_connections(window.label());
                 terminal::close_window_terminals(window.app_handle(), window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
