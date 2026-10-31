@@ -214,9 +214,19 @@ def run(args, driver, reporter, plan):
     def created(name, open_file):
         target = projects / name
         wait(lambda: target.is_dir() and (target / open_file).is_file(), "published " + name, 90)
-        page.locator("#generator-name").wait_for(state="detached", timeout=30_000)
-        # This is the actual editor produced by openFiles, not a native IPC open.
-        page.get_by_role("tab", name=re.compile(re.escape(Path(open_file).name))).first.wait_for(state="visible", timeout=30_000)
+        page.get_by_role("heading", name="Plugin project generators", exact=True).wait_for(state="detached", timeout=30_000)
+        # Review already removes the name field; only the whole wizard closing
+        # proves openCreated completed. Bind both selected tabs to full paths so
+        # the previous project's same-named file cannot satisfy this stage.
+        project_tab = page.get_by_role("tab", selected=True).and_(page.get_by_title(target.as_posix(), exact=True))
+        project_tab.wait_for(state="visible", timeout=30_000)
+        editor_tab = page.get_by_role("tab", selected=True).filter(
+            has=page.get_by_title((target / open_file).as_posix(), exact=True))
+        editor_tab.wait_for(state="visible", timeout=30_000)
+        write(name + "-opened-state", {"projectPath": project_tab.get_attribute("title"),
+              "projectSelected": project_tab.get_attribute("aria-selected"),
+              "openFilePath": (target / open_file).as_posix(),
+              "editorSelected": editor_tab.get_attribute("aria-selected")})
         assert_clean_projects(projects)
         write(name + "-project", snapshot_resources(target))
         page.screenshot(path=str(evidence / (name + "-opened.png")), timeout=5000)
