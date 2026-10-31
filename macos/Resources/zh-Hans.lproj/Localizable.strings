@@ -235,6 +235,7 @@
 "Add another account" = "添加另一个账号";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "请在 Filesystem 包参数后至少添加一个允许访问的文件夹绝对路径。";
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "在包参数后至少添加一个文件夹的绝对路径，每行一个。Filesystem 只可读写你允许的文件夹。需要 Node.js 24 或更高版本。";
+"Add clickable actions beside document text" = "在文档文本旁添加可点击的操作";
 "Add database connection" = "添加数据库连接";
 "Add header" = "添加请求头";
 "Add memory usage monitoring\n\nTrack current and average memory usage in the status bar." = "添加内存占用监控\n\n在状态栏显示当前及平均内存占用。";
@@ -4874,6 +4875,7 @@
 "native.addAnAIProviderInAIProvidersFirst" = "请先在“AI 服务商”中添加服务商。";
 "native.addAtLeastOneAbsoluteAllowedFolderPathAfterTheFilesystemPackageArgument" = "请在 Filesystem 包参数后至少添加一个允许访问的文件夹绝对路径。";
 "native.addAtLeastOneAbsoluteFolderPathAfterThePackageArgumentOnePerLineFilesystemCanReadAndWriteOnlyInTheFoldersYouAllowRequiresNodeJs24OrLater" = "在包参数后至少添加一个文件夹的绝对路径，每行一个。Filesystem 只可读写你允许的文件夹。需要 Node.js 24 或更高版本。";
+"native.addClickableActionsBesideDocumentText" = "在文档文本旁添加可点击的操作";
 "native.addDatabaseConnection" = "添加数据库连接";
 "native.addHeader" = "添加请求头";
 "native.addHook" = "添加 Hook";

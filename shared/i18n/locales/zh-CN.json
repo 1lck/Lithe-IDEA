@@ -9729,7 +9729,8 @@
     "native.gitIgnored": "Git：已忽略",
     "native.gitNotIgnored": "Git：未忽略",
     "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx35941b6a99": "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/`、`/*` 或 `/**` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级。不带结尾斜杠的规则只隐藏文件：`.lithe` 隐藏名为 .lithe 的文件，而不是文件夹。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/**` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n列表开头是内置规则。删掉一行即可重新显示这些文件，再输入回来就会重新隐藏。",
-    "history.clearFailed": "无法清空此项目的本地历史。请检查存储目录权限后重试。"
+    "history.clearFailed": "无法清空此项目的本地历史。请检查存储目录权限后重试。",
+    "native.addClickableActionsBesideDocumentText": "在文档文本旁添加可点击的操作"
   },
   "overrides": {
     "macos": {

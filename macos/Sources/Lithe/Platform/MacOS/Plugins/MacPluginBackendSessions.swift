@@ -66,11 +66,13 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     private let credentials: any PluginCredentialStoring
     private let prepareState: @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void
     private let endBackendProcesses: @MainActor (_ token: String, _ immediately: Bool) -> Void
+    private let canStart: @MainActor (String) -> Bool
     private let stuckSendGrace: Duration
     /// Serves the host requests of every backend.
     let hostDispatcher: PluginHostServiceDispatcher
     /// Reports a backend that an activation event failed to start; the
     /// workspace or command goes on without it.
+    var editorActions: PluginEditorActionHostService?
     var onActivationFailure: (@MainActor (_ pluginID: String, _ error: Error) -> Void)?
     private static let maximumBackgroundStarts = 2
     private static let maximumPendingNotifications = 128
@@ -114,6 +116,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         credentials: any PluginCredentialStoring,
         prepareState: @escaping @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void = { _, _ in },
         stuckSendGrace: Duration = .seconds(2),
+        canStart: @escaping @MainActor (String) -> Bool = { _ in true },
         hostDispatcher: PluginHostServiceDispatcher? = nil,
         endBackendProcesses: @escaping @MainActor (_ token: String, _ immediately: Bool) -> Void = { token, immediately in
             MacPluginBackendProcesses.end(
@@ -131,6 +134,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         self.credentials = credentials
         self.prepareState = prepareState
         self.stuckSendGrace = stuckSendGrace
+        self.canStart = canStart
         self.endBackendProcesses = endBackendProcesses
         if let hostDispatcher {
             self.hostDispatcher = hostDispatcher
@@ -213,7 +217,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         packages.filter { id, package in
             package.backendVersion >= 2
                 && package.activationEvents.contains(event)
-                && !disabledPluginIDs.contains(id)
+                && !disabledPluginIDs.contains(id) && canStart(id)
                 && (owner == nil || owner == ModuleID("\(id).ui"))
         }.keys.sorted()
     }
@@ -395,7 +399,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// exited is replaced, and so is one started with other setting values.
     private func session(for pluginID: String) async throws -> LanguageServerRuntimeSession {
         try Task.checkCancellation()
-        guard let package = packages[pluginID], !disabledPluginIDs.contains(pluginID) else {
+        guard let package = packages[pluginID], !disabledPluginIDs.contains(pluginID), canStart(pluginID) else {
             throw PluginFunctionFailure(
                 code: "plugin.function.unavailable",
                 message: L10n.string("This plugin has no backend that can run now.")
@@ -497,6 +501,9 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         hostDispatcher.endSession(pluginID: pluginID)
         let sessionToken = hostDispatcher.beginSession(pluginID: pluginID, hostServices: hostServices)
         entry.hostServices = Set(hostServices)
+        session.onFunctionsChange = { [weak self] ids in
+            self?.editorActions?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
+        }
         session.onHostRequest = { [weak session] request in
             hostDispatcher.handle(request, pluginID: pluginID, sessionID: sessionToken) { outcome in
                 session?.respond(to: request.id, with: outcome)

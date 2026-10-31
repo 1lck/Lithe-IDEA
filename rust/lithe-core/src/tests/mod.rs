@@ -26,3 +26,5 @@ mod run_configuration;
 mod spring;
 pub(crate) mod support;
 mod vcs;
+
+mod plugin_editor_resources;

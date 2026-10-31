@@ -1,0 +1,27 @@
+{
+  "id": "plugin-editor-grammars",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "独立插件语法高亮与编辑配置：不依赖 LSP/Run，配置可独立于 grammar，语法仅在可终止 worker 执行",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/plugins/grammar.rs",
+      "frontend/editor/src/plugin-languages.ts",
+      "frontend/editor/src/plugin-grammar-tokenizer.ts",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginEditorLanguages.swift",
+      "macos/Tests/LitheTests/PluginEditorLanguagesTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "安装纯语法插件后打开 .http；验证即时出现、停用撤回、配置独立应用、病态语法不阻塞输入和保存；安装目录哈希不变。",
+  "notes": "当前仅 macOS 接线；真机和完整用户流程仍待验证。共享校验通过不代表 Windows 已实现。"
+}

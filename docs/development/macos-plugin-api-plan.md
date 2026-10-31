@@ -47,11 +47,11 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-22 | 部分完成 | 既有函数进度与取消；独立 output channel、通用 log/progress API 未做 |
 | API-23 | 部分完成 | 已有进程声明与运行时解析；通用 toolchains/process 服务未开放 |
 | API-24 | 未做 | 插件专属终端 create/sendText/onExit 未开放 |
-| API-25 | 既有能力 | 语言/LSP 贡献与成熟上游链路；本 PR 不新增语言语义 Provider |
+| API-25 | 部分完成 | 既有语言/LSP 贡献；新增 `languages:2` 声明式语法（`grammar.kind` 先支持 monarch，不依赖 LSP，Mac 免重启）；语言语义 Provider 未做 |
 | API-26 | 未做 | 公共诊断 collection/events API 未开放；既有 LSP 诊断不等于该 API |
-| API-27 | 未做 | 通用主题、片段、装饰贡献未实现；既有 UI 图标不等价于完整主题 API |
+| API-27 | 部分完成 | 独立 `editor/registerActions` 绑定普通函数与文档范围，不依赖 LSP/Build/Run；通用主题、片段、其他装饰未做 |
 | API-28 | 未做 | 公共 custom editor 文档 owner/保存/撤销/恢复未开放 |
-| API-29 | 既有能力 | #1517 BuildProvider 1–6/model inputs；本轮旧 SDK E2E 兼容，不代表新指南齐全 |
+| API-29 | 部分完成 | #1517 BuildProvider 1–6/model inputs；普通编辑器动作不属于本领域项；新指南未齐全 |
 | API-30 | 既有能力 | 已有 debugAdapters 1/2 与 DAP 宿主；本 PR 不重建调试协议 |
 | API-31 | 既有能力 | 已有 vcsProviders:1；不包含内置 Git 公共读取面 |
 | API-32 | 未做 | 通用 ServiceProvider 仍为提案 |
@@ -206,9 +206,9 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | API-22 H/E | `output.createChannel/append/dispose`、`log`、`progress.withCancellation`；已有函数进度与输出生命周期 [S2/S11] | 插件/操作归属、日志脱敏与字节预算；取消/超时后不再更新 UI。只复用已有进度状态机，不把 stdout 协议流与业务日志混用 | M1：命令结果/进度；M3：独立输出 |
 | API-23 H | `toolchains.resolve/list`、受管 `process.run/cancel`；已有 executable/runtime 解析与进程链路 [S1/S11] | 显式执行授权，executable/argv 分离，cwd/环境白名单、输出和超时上限、进程树清理；不提供任意 shell 字符串，也不自动下载运行时 | M4 |
 | API-24 H/E | `terminal.create/show/sendText/onExit`；已有终端模块 [S12] | 创建与写终端都按执行授权处理；只控制自身终端，不能读用户其他会话或注入命令。禁用释放插件拥有资源，不停止用户独立终端 | 后续 |
-| API-25 C/P | 语言/语法/LSP、补全/悬浮/定义/符号/格式化/重命名/Code Action；已有语言服务器贡献 [S1/S13] | 优先接成熟 LSP 的完整能力；自定义 Provider 仅补上游确实缺失项，按文档版本取消旧请求。避免让 SDK 成为第二套语言/工程引擎 | M4：已支持能力文档；后续：新 Provider |
+| API-25 C/P | 语言/语法/LSP、补全/悬浮/定义/符号/格式化/重命名/Code Action；已有语言服务器贡献 [S1/S13] | 优先接成熟 LSP 的完整能力；自定义 Provider 仅补上游确实缺失项，按文档版本取消旧请求。避免让 SDK 成为第二套语言/工程引擎 | M4：已支持能力文档；`languages:2` 声明式语法已实现（见 Agent Note 2026-10-31-plugin-editor-extension-apis）；后续：新 Provider |
 | API-26 H/P/E | `diagnostics.createCollection/set/delete/onDidChange`；已有 Problems/诊断 owner [S13] | 只能写本插件 collection，带文档版本和稳定范围；编辑/卸载后旧诊断可撤回。不能覆盖其他 LSP 结果或伪造宿主诊断身份 | M4 |
-| API-27 C/H/P | 主题/图标/片段、只读装饰、CodeLens/Inlay；已有内部 theme/editor 能力 [S5/S16] | 数据贡献/资源路径校验、预算与卸载；图标/主题用宿主 token，不允许 CSS/原生视图注入。语言信息优先走 LSP，UI 资源不得执行脚本 | 后续 |
+| API-27 C/H/P | 主题/图标/片段、只读装饰、CodeLens/Inlay；已有内部 theme/editor 能力 [S5/S16] | 数据贡献/资源路径校验、预算与卸载；图标/主题用宿主 token，不允许 CSS/原生视图注入。语言信息优先走 LSP，UI 资源不得执行脚本 | 独立编辑器动作 API 已接线（Mac，待运行验收；复用 backend 2/函数协议 3，不升领域版本）；主题/片段/其他装饰后续 |
 | API-28 C/P/H | `customEditors.register`、打开/保存/撤销/恢复；已有特殊文档视图不等于公开扩展点 [S5/S9] | 先说明唯一文档 owner 和 readonly/dirty/backup/undo 语义；可选 Webview 仅做视图。崩溃后可恢复且不丢未保存内容才可发布 | 后续 |
 
 设置分类遵循[macOS 设置层级](../../.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md)，原生配置编辑遵循[真实来源决策](../../.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md)。插件提供的文本/上游诊断不伪装成宿主翻译；宿主新增按钮、权限说明和错误必须走 `shared/i18n/`。
@@ -217,7 +217,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 | ID / 方向 | 候选能力与现状/所有者 | 权限、作用域与验收 | 阶段 |
 | --- | --- | --- | --- |
-| API-29 P/C | Build/Task/Test/Run Preparation、只读工程模型输入；#1517 已合并，Mac 已声明 `buildProviders:1–6`、`buildModelInputs:1`、`debugAdapters:2` [S1/S11] | 本项只补文档、SDK 对齐和真实项目端到端验收，不重复定义协议。原生 Build/Test/Run 展示、准备、取消共用宿主；快照带源/版本，不能成为第二份 classpath/工程真相；远程工作区下的 Provider 启动限制见 API-40 | M4 |
+| API-29 P/C | Build/Task/Test/Run Preparation、只读工程模型输入；#1517 已合并，Mac 已声明 `buildProviders:1–6`、`buildModelInputs:1`、`debugAdapters:2` [S1/S11] | 本项只补文档、SDK 对齐和真实项目端到端验收，不重复定义协议。原生 Build/Test/Run 展示、准备、取消共用宿主；快照带源/版本，不能成为第二份 classpath/工程真相；远程工作区下的 Provider 启动限制见 API-40。编辑器动作是独立扩展点，不计入领域执行。 | M4 |
 | API-30 P/C/E | Debug Adapter 注册、配置和会话事件；已有 DAP 宿主 [S14] | 进程/连接授权、launch 与 attach 所有权、终止和断开区别；复用断点/调试 UI。高级内存/反汇编按独立提案，不阻塞基础 API | M4 |
 | API-31 P/C | VCS 仓库/状态/diff/提交等领域能力；已有 vcsProviders 1 [S14]，只覆盖插件提供的 VCS，内置 Git 见 API-42 | 读取与修改仓库分权；危险操作有明确确认，结果有仓库/操作身份。插件私有函数不能代替宿主可理解的 VCS 协议 | M4 |
 | API-32 P/C/E | Services 的实例/状态/动作/日志；数据库已有自身路径，通用 ServiceProvider 仍为提案 [S17] | 插件拥有的连接/进程与用户外部服务分开；停用只清理前者，不默认停用户数据库/容器。服务接入现有 Services，不再画一套工作台 | 后续 |

@@ -23,6 +23,8 @@ import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco
 import { mouseInputCases } from "./mouse-input.integration";
 import { contextMenuCases } from "./context-menu.integration";
 import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
+import { installPluginGrammar } from "@lithe/editor/plugin-grammar-tokenizer";
+import { attachPluginEditorActions } from "@lithe/editor/plugin-editor-actions";
 import { imeInputCases } from "./ime-input.integration";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
@@ -54,6 +56,74 @@ async function verify() {
     await operation();
     cases.push({ name, durationMs: performance.now() - started });
   }
+  await check("ordinary plugin grammar runs in a worker and preserves Monaco editing", async () => {
+    if (!languages.getLanguages().some(language => language.id === "fixture-http")) languages.register({ id: "fixture-http" });
+    const installation = installPluginGrammar("fixture-http", { tokenizer: { root: [["#.*$", "comment"]] } });
+    const previous = initialEditor.getModel();
+    const model = monacoEditor.createModel("# request\nGET /orders", "fixture-http");
+    let listener: { dispose(): void } | undefined;
+    try {
+      const colored = new Promise<void>(resolve => {
+        listener = model.onDidChangeTokens(() => {
+          const tokens = (model as any).tokenization.getLineTokens(1);
+          if (tokens.getStandardTokenType(0) === 1) resolve();
+        });
+      });
+      initialEditor.setModel(model);
+      await withDeadline(colored, "plugin worker never published comment tokens");
+      initialEditor.executeEdits("plugin-worker-fixture", [{ range: new Range(2, 5, 2, 5), text: " /new" }]);
+      assert(model.getValue().includes("/new"), "plugin tokenization blocked editing");
+    } finally { listener?.dispose(); initialEditor.setModel(previous); model.dispose(); installation.dispose(); }
+  });
+  await check("tool actions share a gutter menu and reject superseded batches", async () => {
+    const previous = initialEditor.getModel();
+    const model = monacoEditor.createModel("GET /orders", "plaintext");
+    const entry = { model, revision: 0, chain: Promise.resolve(), readonly: false, frozen: false, closingHolds: 0 };
+    let active = true, collections = 0;
+    const calls: any[] = [];
+    const service = StandaloneServices.get(IContextMenuService), originalMenu = service.showContextMenu;
+    let menu: any[] = [];
+    service.showContextMenu = delegate => { menu = [...delegate.getActions()]; };
+    const entries = new Map([["tool", entry]]);
+    const binding = attachPluginEditorActions({
+      entries: () => entries, editors: () => [initialEditor], lineNumbersFirst: true,
+      current: () => { const version = model.getVersionId(); return () => active && !model.isDisposed() && model.getVersionId() === version; },
+      request: async payload => {
+        if ((payload as any).type === "pluginEditorAction") { calls.push(payload); return { ok: true }; }
+        return { batch: String(++collections), actions: [
+          { id: "send", line: 1, endLine: 1, title: "Send request", icon: "run" },
+          { id: "preview", line: 1, endLine: 1, title: "Preview request", icon: "run" },
+        ] };
+      },
+    });
+    try {
+      initialEditor.setModel(model);
+      binding.attach(initialEditor);
+      await binding.refresh();
+      assert(model.getAllDecorations().filter(value => value.options.linesDecorationsClassName?.includes("lithe-plugin-editor-action")).length === 1,
+        "same-line actions created competing gutter decorations");
+      const target = document.createElement("span");
+      target.className = "lithe-plugin-editor-action";
+      (initialEditor as any)._onMouseDown.fire({
+        target: { element: target, position: new Position(1, 1) },
+        event: { leftButton: true, posx: 10, posy: 10, preventDefault() {}, stopPropagation() {} },
+      });
+      assert(menu.length === 2 && menu[0].label === "Send request" && menu[1].label === "Preview request",
+        "same-line plugin actions lost their separate menu labels");
+      await menu[0].run();
+      assert(calls.length === 1 && calls[0].action === "send" && calls[0].batch === "1",
+        "explicit click did not preserve the opaque action/batch identity");
+      entry.revision++;
+      binding.schedule("tool", entry);
+      assert(!model.getAllDecorations().some(value => value.options.linesDecorationsClassName?.includes("lithe-plugin-editor-action")),
+        "edited document kept its old action clickable");
+      await menu[0].run();
+      assert(calls.length === 1, "retained menu executed an action after its batch was revoked");
+    } finally {
+      service.showContextMenu = originalMenu;
+      active = false; binding.dispose(); initialEditor.setModel(previous); model.dispose();
+    }
+  });
   for (const test of contextMenuCases) await check(test.name, async () => test.run());
   for (const test of mouseInputCases) await check(test.name, async () => test.run());
   for (const test of imeInputCases) await check(test.name, async () => test.run());
