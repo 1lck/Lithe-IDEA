@@ -3,6 +3,14 @@ import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
 
 export const settingsSearchIndex: SettingSearchRecord[] = [
   {
+    id: "git-indexing-exclusions",
+    tab: "git",
+    section: "Git Program and Credentials",
+    label: "Automatically exclude Git-ignored directories",
+    description: "Exclude ignored directories from current project analysis while keeping them browsable",
+    keywords: ["indexing", "ignore", "exclude", "索引", "忽略", "排除"],
+  },
+  {
     id: "run-configurations",
     tab: "run",
     section: "Run configurations",

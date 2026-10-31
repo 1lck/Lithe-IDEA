@@ -358,6 +358,7 @@
 "Applies immediately" = "立即生效";
 "Applies immediately to source editors in all projects." = "立即应用于所有项目的源码编辑器。";
 "Applies the next time the language server starts." = "下次启动语言服务器时生效。";
+"Applies to the current project. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules." = "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
 "Apply" = "应用";
 "Apply %@ to the current branch." = "将提交 %@ 应用到当前分支。";
 "Apply AI-generated content?" = "要应用 AI 生成的内容吗？";
@@ -426,6 +427,7 @@
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "“自动”会先尝试 SSH Agent 和密钥，再询问密码。服务器需要回答时（例如密码、私钥口令或验证码），Lithe 会弹窗询问。";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "自动模式会优先使用项目 mvnw，其次使用检测到的 Maven，最后使用 mvnd。";
 "Automatically accept all file edits" = "自动批准文件编辑，其他操作仍按权限规则处理。";
+"Automatically exclude Git-ignored directories" = "根据 Git 忽略规则自动排除目录";
 "Automatically generated" = "自动生成";
 "Automatically identified" = "自动识别";
 "Available" = "可用";
@@ -523,6 +525,7 @@
 "Camera and microphone in use" = "摄像头和麦克风使用中";
 "Camera in use" = "摄像头使用中";
 "Cancel" = "取消";
+"Cancel Exclusion" = "取消排除";
 "Cancel Quit" = "取消退出";
 "Cancel running Git operations" = "取消正在运行的 Git 操作";
 "Cancelled" = "已取消";
@@ -973,6 +976,7 @@
 "Copy session ID" = "复制会话 ID";
 "Copy table" = "复制表格";
 "Copy worktree path" = "复制工作树路径";
+"Could not apply project indexing exclusions. Try reopening the project." = "无法应用项目索引排除策略，请重新打开项目后重试。";
 "Could not check for updates" = "无法检查更新";
 "Could not check for updates." = "无法检查更新。";
 "Could not clear this project's local history. Check storage permissions and try again." = "无法清空此项目的本地历史。请检查存储目录权限后重试。";
@@ -1005,6 +1009,7 @@
 "Could not prepare the run configuration: %@" = "无法准备运行配置：%@";
 "Could not read %@." = "无法读取 %@。";
 "Could not read %@: %@" = "无法读取 %@：%@";
+"Could not read project indexing settings. Try reopening the project." = "无法读取项目索引设置，请重新打开项目后重试。";
 "Could not read the command line." = "无法读取命令行。";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "Could not read the selected built-in background." = "无法读取所选的内置背景。";
@@ -1017,6 +1022,7 @@
 "Could not restore this project history entry" = "无法恢复此项目历史记录";
 "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved." = "无法保存 %@：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。";
 "Could not save access to the selected background image." = "无法保存所选背景图片的访问权限。";
+"Could not save project indexing settings. Your previous settings remain unchanged." = "无法保存项目索引设置，原有设置未改变。";
 "Could not save service selection" = "无法保存服务勾选状态";
 "Could not save the connections: %@" = "无法保存连接：%@";
 "Could not start the Java test result listener: %@" = "无法启动 Java 测试结果监听器：%@";
@@ -1205,6 +1211,7 @@
 "Directories" = "目录";
 "Directory" = "目录";
 "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten." = "导入目录会保留脚本、模板等配套文件，不会覆盖已有技能。";
+"Directory indexing exclusions are not supported for remote projects." = "远程项目暂不支持目录索引排除。";
 "Directory or file name" = "目录或文件名";
 "Directory: %@" = "目录：%@";
 "Disable" = "禁用";
@@ -1433,6 +1440,8 @@
 "Exclude from dependency tree" = "从依赖树中排除";
 "Excluded" = "已排除";
 "Excluded Paths" = "已排除路径";
+"Excluded from indexing by Git ignore rules" = "根据 Git 忽略规则排除索引";
+"Excluded from indexing by a parent directory" = "继承父目录的索引排除";
 "Exclusion list" = "排除列表";
 "Executable" = "可执行文件";
 "Execute Maven Goal" = "执行 Maven 目标";
@@ -1630,6 +1639,7 @@
 "Git executable: %@" = "Git 可执行文件：%@";
 "Git execution" = "Git 执行";
 "Git exited with code %d" = "Git 已退出，退出码为 %d";
+"Git ignore exclusions could not be fully resolved. Manual exclusions remain active." = "无法完整解析 Git 忽略规则，手动排除仍然生效。";
 "Git is preparing the sequencer." = "Git 正在准备变基步骤。";
 "Git is ready" = "Git 已就绪";
 "Git not found" = "未找到 Git";
@@ -2022,6 +2032,7 @@
 "Lithe Shelves" = "Lithe 搁置记录";
 "Lithe application default" = "Lithe 应用默认值";
 "Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "插件被停用、更新或 Lithe 重启后会再次询问。";
+"Lithe cannot access the project folder. Check its permissions, then retry." = "Lithe 无法访问项目目录。请检查权限后重试。";
 "Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually." = "Lithe 无法替换当前目录中的应用。请将应用移到有写入权限的应用程序目录，或手动安装正式版。";
 "Lithe can’t give pages access to the camera or microphone in this version." = "此版本的 Lithe 无法让页面使用摄像头或麦克风。";
 "Lithe checks GitHub Releases for published updates." = "Lithe 会检查 GitHub Releases 中发布的更新。";
@@ -2032,6 +2043,7 @@
 "Lithe could not find a runnable Git." = "Lithe 未找到可运行的 Git。";
 "Lithe default" = "Lithe 默认";
 "Lithe does not save passwords. Credentials are stored by the Git credential helper you choose." = "Lithe 不保存密码，凭据由你选择的 Git 凭据助手保存。";
+"Lithe excludes these directories from its own indexes. Third-party language servers may still scan them when their provider does not support exclusions." = "已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
 "Lithe first asks each program to stop, giving it this long to save its work and exit. Programs still running afterwards are force-stopped." = "Lithe 会先请求每个程序停止，并给它这么长的时间保存工作并退出。超时后仍在运行的程序会被强制结束。";
 "Lithe has not yet completed a real conversation with this adapter version." = "Lithe 尚未用这个适配器版本完成过真实对话。";
 "Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration." = "Lithe 安装的是 ACP 适配器包，而不是厂商的 CLI。两者相互独立，并共用 CLI 的配置。";
@@ -2173,6 +2185,7 @@
 "Manage…" = "管理…";
 "Manual" = "手动";
 "Manual stop" = "手动停止";
+"Manually excluded from indexing" = "手动排除索引";
 "Mark Target As" = "将目标标记为";
 "Mark as Resolved" = "标记为已解决";
 "Markdown Support" = "Markdown 支持";
@@ -2848,6 +2861,7 @@
 "Programs started in Lithe that left their terminal or tool to keep running on their own, like daemons or background dev servers. They are listed together when you quit, and you choose which ones to end. Only programs started in this Lithe are listed; containers and services started outside Lithe are never touched." = "在 Lithe 中启动、但已脱离终端或工具独立运行的程序，例如守护进程或后台开发服务器。退出时会把它们列在一起，由你选择结束哪些。只会列出在本次 Lithe 中启动的程序；在 Lithe 之外启动的容器和服务一律不处理。";
 "Project" = "项目";
 "Project Errors" = "项目错误";
+"Project Indexing" = "项目索引";
 "Project JDK" = "项目 JDK";
 "Project Local History" = "项目本地历史";
 "Project Template" = "项目模板";
@@ -2861,6 +2875,7 @@
 "Project identification complete" = "项目识别完成";
 "Project identification did not produce a run configuration." = "项目识别没有生成运行配置。";
 "Project identification failed" = "项目识别失败";
+"Project indexing settings are invalid. The saved data has been preserved." = "项目索引设置格式无效，原始设置已保留。";
 "Project is still loading" = "项目仍在加载中";
 "Project opened" = "项目已打开";
 "Project options" = "项目选项";
@@ -2887,6 +2902,7 @@
 "Provider details" = "服务商详情";
 "Provider name" = "服务商名称";
 "Provider requires an API key" = "服务商需要 API 密钥";
+"Provider-dependent" = "取决于语言服务";
 "Providers" = "供应商管理";
 "Provides" = "提供";
 "Proxy credentials cannot be saved in this build." = "此构建无法保存代理凭据。";
@@ -3638,6 +3654,7 @@
 "Solidity Support" = "Solidity 支持";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Some dependencies are not shown." = "部分依赖未显示。";
+"Some directories could not be scanned. Automatic project analysis was not refreshed." = "部分目录无法扫描，未刷新项目自动分析。";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
 "Some selected files belong to another version control root. Refresh and select them again." = "部分所选文件属于其他版本控制根目录。请刷新后重新选择。";
 "Some special files could not be copied" = "部分特殊文件未能复制";
@@ -4080,6 +4097,7 @@
 "The program chosen in the “%@” setting of %@ is missing or not executable: %@" = "在 %2$@ 的“%1$@”设置中选择的程序不存在或不可执行：%3$@";
 "The project archive from %@ is too large." = "来自 %@ 的项目压缩包过大。";
 "The project directory is unavailable." = "项目目录不可用。";
+"The project folder is unavailable. Restore it, then retry." = "项目目录不可用。请恢复目录后重试。";
 "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "主机上的项目文件夹。“浏览”会连接主机，必要时在主机上安装 Lithe 远端服务，然后让你选择文件夹。";
 "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "主机上的项目文件夹，留空时使用主目录。“浏览”会连接主机，必要时在主机上安装 Lithe 远端服务，然后让你选择文件夹。";
 "The project model is not loaded." = "项目模型尚未加载。";
@@ -4795,6 +4813,24 @@
 "git.unifiedView" = "统一视图";
 "history.clearFailed" = "无法清空此项目的本地历史。请检查存储目录权限后重试。";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
+"indexing.autoGit" = "根据 Git 忽略规则自动排除目录";
+"indexing.cancelExclusion" = "取消排除";
+"indexing.configureFailed" = "无法应用项目索引排除策略，请重新打开项目后重试。";
+"indexing.description" = "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
+"indexing.gitFailed" = "无法完整解析 Git 忽略规则，手动排除仍然生效。";
+"indexing.gitReason" = "根据 Git 忽略规则排除索引";
+"indexing.incomplete" = "部分目录无法扫描，未刷新项目自动分析。";
+"indexing.inheritedReason" = "继承父目录的索引排除";
+"indexing.invalidSettings" = "项目索引设置格式无效，原始设置已保留。";
+"indexing.languageDescription" = "已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
+"indexing.manualReason" = "手动排除索引";
+"indexing.permissionDenied" = "Lithe 无法访问项目目录。请检查权限后重试。";
+"indexing.providerDependent" = "取决于语言服务";
+"indexing.readFailed" = "无法读取项目索引设置，请重新打开项目后重试。";
+"indexing.remoteUnsupported" = "远程项目暂不支持目录索引排除。";
+"indexing.title" = "项目索引";
+"indexing.workspaceUnavailable" = "项目目录不可用。请恢复目录后重试。";
+"indexing.writeFailed" = "无法保存项目索引设置，原有设置未改变。";
 "java.launch.error.buildCancelled" = "Java 项目构建在完成前已被取消。";
 "java.launch.error.buildFailed" = "Java 语言服务未能完成项目构建，请查看 Java 语言服务器日志了解构建错误。";
 "java.launch.error.buildStatus" = "Java 语言服务返回了未知的项目构建状态。";

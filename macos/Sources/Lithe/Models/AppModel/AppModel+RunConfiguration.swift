@@ -183,7 +183,7 @@ extension AppModel {
 
     var currentWorkspaceIdentity: WorkspaceIdentity? {
         guard !isProjectSessionClosed, let url = workspaceURL?.standardizedFileURL else { return nil }
-        return WorkspaceIdentity(url: url, generation: workspaceFeature.workspaceGeneration)
+        return WorkspaceIdentity(url: url, generation: workspaceSessionCoordinator.openingGeneration)
     }
 
     func isCurrentWorkspace(_ identity: WorkspaceIdentity) -> Bool {

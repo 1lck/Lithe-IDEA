@@ -76,7 +76,7 @@ struct ProjectSidebarView: View {
                         .foregroundStyle(LitheTheme.warning)
                     Text("Could not load project")
                         .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                    Text(LocalizedStringKey(error))
+                    Text(error)
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .multilineTextAlignment(.center)
@@ -169,7 +169,10 @@ struct ProjectSidebarView: View {
             gitStatus: ProjectGitStatusSnapshot(
                 repositoryRoot: model.gitRepositoryRoot, projection: model.gitTreeStatusProjection, vcs: vcsStatus
             ),
-            directoryMarks: model.projectDirectoryMarks,
+            directoryMarks: model.workspaceFeature.indexingStatus.supportsExclusions
+                ? model.projectDirectoryMarks : model.projectDirectoryMarks.filter { $0.value != .excluded },
+            indexingReasons: model.workspaceFeature.indexingStatus.excludedDirectories,
+            supportsIndexingExclusions: model.workspaceFeature.indexingStatus.supportsExclusions,
             revealRequest: model.projectTreeRevealRequest,
             stateSnapshot: treeState,
             state: $treeState
@@ -340,6 +343,8 @@ private struct ProjectSidebarTree: View, Equatable {
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
     let directoryMarks: [String: WorkspaceDirectoryMark]
+    let indexingReasons: [String: String]
+    let supportsIndexingExclusions: Bool
     let revealRequest: ProjectTreeRevealRequest?
     let stateSnapshot: ProjectTreeViewState
     @Binding var state: ProjectTreeViewState
@@ -347,7 +352,8 @@ private struct ProjectSidebarTree: View, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.model === rhs.model && lhs.root == rhs.root && lhs.rowHeight == rhs.rowHeight
             && lhs.activeDocumentURL == rhs.activeDocumentURL && lhs.gitStatus == rhs.gitStatus
-            && lhs.directoryMarks == rhs.directoryMarks && lhs.revealRequest == rhs.revealRequest
+            && lhs.directoryMarks == rhs.directoryMarks && lhs.indexingReasons == rhs.indexingReasons
+            && lhs.supportsIndexingExclusions == rhs.supportsIndexingExclusions && lhs.revealRequest == rhs.revealRequest
             && lhs.stateSnapshot == rhs.stateSnapshot
     }
 
@@ -375,6 +381,8 @@ private struct ProjectSidebarTree: View, Equatable {
                 activeDocumentURL: activeDocumentURL,
                 gitStatus: gitStatus,
                 directoryMarks: directoryMarks,
+                indexingReasons: indexingReasons,
+                supportsIndexingExclusions: supportsIndexingExclusions,
                 actions: ProjectTreeActions(model: model),
                 selectionSnapshot: state.selection,
                 selection: $state.selection,
@@ -588,8 +596,8 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func refreshWorkspace() {
         Task { await self.model.refreshWorkspace() }
     }
-    nonisolated func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) {
-        Task { await self.model.markProjectDirectory(url, as: mark) }
+    nonisolated func markDirectory(_ url: URL, action: WorkspaceDirectoryAction) {
+        Task { await self.model.markProjectDirectory(url, action: action) }
     }
     nonisolated func showGitDirectoryDiff(_ url: URL) {
         Task { await self.model.showGitDirectoryDiff(for: url) }
@@ -631,6 +639,8 @@ private struct ProjectFileTreeContent: View, Equatable {
     let activeDocumentURL: URL?
     let gitStatus: ProjectGitStatusSnapshot
     let directoryMarks: [String: WorkspaceDirectoryMark]
+    let indexingReasons: [String: String]
+    let supportsIndexingExclusions: Bool
     let actions: ProjectTreeActions
     let selectionSnapshot: ProjectTreeSelection
     @Binding var selection: ProjectTreeSelection
@@ -648,7 +658,8 @@ private struct ProjectFileTreeContent: View, Equatable {
             && lhs.rowHeight == rhs.rowHeight
             && lhs.activeDocumentURL == rhs.activeDocumentURL
             && lhs.gitStatus == rhs.gitStatus
-            && lhs.directoryMarks == rhs.directoryMarks
+            && lhs.directoryMarks == rhs.directoryMarks && lhs.indexingReasons == rhs.indexingReasons
+            && lhs.supportsIndexingExclusions == rhs.supportsIndexingExclusions
             && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
             && lhs.contextMenuPath == rhs.contextMenuPath
             && lhs.scrollRequest == rhs.scrollRequest
@@ -670,6 +681,8 @@ private struct ProjectFileTreeContent: View, Equatable {
                 gitStatus: gitStatus,
                 projectRootURL: root.url,
                 directoryMarks: directoryMarks,
+                indexingReasons: indexingReasons,
+                supportsIndexingExclusions: supportsIndexingExclusions,
                 actions: actions,
                 selection: $selection,
                 visibleRows: visibleRows,
@@ -689,6 +702,8 @@ private struct FileNodeRow: View {
     let gitStatus: ProjectGitStatusSnapshot
     let projectRootURL: URL
     let directoryMarks: [String: WorkspaceDirectoryMark]
+    let indexingReasons: [String: String]
+    let supportsIndexingExclusions: Bool
     let actions: ProjectTreeActions
     @Binding var selection: ProjectTreeSelection
     let visibleRows: [ProjectTreeSelection.VisibleRow]
@@ -767,6 +782,17 @@ private struct FileNodeRow: View {
         )
     }
 
+    private var exclusionHelp: String {
+        let relative = relativeDirectoryPath(for: node.url)
+        if let reason = indexingReasons[relative] {
+            return reason == "manual" ? L10n.string( "Manually excluded from indexing") : L10n.string( "Excluded from indexing by Git ignore rules")
+        }
+        if indexingReasons.keys.contains(where: { $0 == "." || relative.hasPrefix($0 + "/") }) {
+            return L10n.string( "Excluded from indexing by a parent directory")
+        }
+        return node.url.path
+    }
+
     private var directoryRow: some View {
         Button {
             toggleExpanded()
@@ -792,6 +818,7 @@ private struct FileNodeRow: View {
 
         }
         .buttonStyle(.litheNoPress)
+        .help(exclusionHelp)
         .overlay { rowInteraction }
         .litheContextMenu(
             items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + directoryContextMenuItems },
@@ -982,20 +1009,23 @@ private struct FileNodeRow: View {
     }
 
     private var directoryMarkMenuItems: [LitheContextMenuItem] {
-        WorkspaceDirectoryMark.allCases.map { mark in
+        let marks: [WorkspaceDirectoryMark] = currentDirectoryMark == .excluded
+            ? [.plain] : WorkspaceDirectoryMark.allCases.filter { supportsIndexingExclusions || $0 != .excluded }
+        return marks.map { mark in
             .action(
                 directoryMarkTitle(mark),
                 iconKind: LitheIcons.kind(for: mark),
                 shortcut: currentDirectoryMark == mark ? "✓" : nil
             ) {
-                actions.markDirectory(node.url, as: mark)
+                actions.markDirectory(node.url, action: currentDirectoryMark == .excluded
+                    ? .cancelExclusion : mark == .excluded ? .exclude : .setRole(mark))
             }
         }
     }
 
     private func directoryMarkTitle(_ mark: WorkspaceDirectoryMark) -> String {
         switch mark {
-        case .plain: "Normal Folder"
+        case .plain: currentDirectoryMark == .excluded ? "Cancel Exclusion" : "Normal Folder"
         case .sources: "Sources Root"
         case .resources: "Resources Root"
         case .excluded: "Excluded"
@@ -1005,7 +1035,9 @@ private struct FileNodeRow: View {
     }
 
     private var currentDirectoryMark: WorkspaceDirectoryMark? {
-        directoryMarks[relativeDirectoryPath(for: node.url)]
+        let relative = relativeDirectoryPath(for: node.url)
+        if directoryMarks.contains(where: { $0.value == .excluded && ($0.key == "." || relative == $0.key || relative.hasPrefix($0.key + "/")) }) { return .excluded }
+        return directoryMarks[relative]
     }
 
     private var directoryIconKind: LitheIconKind {

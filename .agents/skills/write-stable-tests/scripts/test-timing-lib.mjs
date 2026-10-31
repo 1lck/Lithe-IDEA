@@ -153,6 +153,7 @@ export function runProcess({
   timeoutMs,
   onStdoutLine = () => {},
   onStderrLine = () => {},
+  onOutputChunk = () => {},
   onSpawn = () => {},
   streamStdout = false,
   streamStderr = false,
@@ -200,11 +201,13 @@ export function runProcess({
     }
 
     child.stdout.on("data", (chunk) => {
+      if (chunk.length > 0) onOutputChunk(chunk, "stdout");
       stdoutChunks.push(chunk);
       stdoutLines.push(chunk);
       if (streamStdout) process.stdout.write(chunk);
     });
     child.stderr.on("data", (chunk) => {
+      if (chunk.length > 0) onOutputChunk(chunk, "stderr");
       stderrChunks.push(chunk);
       stderrLines.push(chunk);
       if (streamStderr) process.stderr.write(chunk);

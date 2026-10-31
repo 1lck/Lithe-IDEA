@@ -1,3 +1,4 @@
+import { getPathIdentity } from "@/utils/path-helpers";
 import { invoke } from "@/platform/tauri-core";
 import { combine } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
@@ -9,7 +10,7 @@ const initialState = {
   pendingSaves: new Map<string, number>(), // path -> timestamp
 };
 
-export type FileWatcherInvoke = (command: string, arguments_: { path: string }) => Promise<unknown>;
+export type FileWatcherInvoke = (command: string, arguments_: { path: string; runtimeId: string; watchId: string }) => Promise<unknown>;
 
 export const createFileWatcherStore = (
   _workspaceId?: string,
@@ -17,6 +18,22 @@ export const createFileWatcherStore = (
 ) =>
   createStore(
     combine(initialState, (set, get) => {
+      const runtimeId = crypto.randomUUID();
+      const registrations = new Map<string, string>();
+      const acquire = async (command: string, path: string) => {
+        const key = `${command}:${getPathIdentity(path)}`;
+        if (registrations.has(key)) return;
+        const watchId = crypto.randomUUID();
+        await invokeCommand(command, { path, runtimeId, watchId });
+        registrations.set(key, watchId);
+      };
+      const release = async (path: string, projectRoot = false) => {
+        const key = `${projectRoot ? "set_project_root" : "start_watching"}:${getPathIdentity(path)}`;
+        const watchId = registrations.get(key);
+        if (!watchId) return;
+        await invokeCommand("stop_watching", { path, runtimeId, watchId });
+        registrations.delete(key);
+      };
       let watchOperationTask = Promise.resolve();
       const enqueueWatchOperation = <T>(operation: () => Promise<T>): Promise<T> => {
         const task = watchOperationTask.then(operation);
@@ -35,7 +52,7 @@ export const createFileWatcherStore = (
         }
 
         try {
-          await invokeCommand("start_watching", { path });
+          await acquire("start_watching", path);
           set((state) => ({
             watchedPaths: new Set(state.watchedPaths).add(path),
           }));
@@ -53,7 +70,7 @@ export const createFileWatcherStore = (
         }
 
         try {
-          await invokeCommand("stop_watching", { path });
+          await release(path);
           set((state) => {
             const newSet = new Set(state.watchedPaths);
             newSet.delete(path);
@@ -72,7 +89,7 @@ export const createFileWatcherStore = (
       const stopProjectRootNow = async (path: string): Promise<boolean> => {
         if (!path) return true;
         try {
-          await invokeCommand("stop_watching", { path });
+          await release(path, true);
           return true;
         } catch (error) {
           console.error("Failed to stop watching project root:", path, error);
@@ -113,7 +130,7 @@ export const createFileWatcherStore = (
               }
 
               try {
-                await invokeCommand("set_project_root", { path });
+                await acquire("set_project_root", path);
                 set({ projectRoot: path });
                 return true;
               } catch (error) {

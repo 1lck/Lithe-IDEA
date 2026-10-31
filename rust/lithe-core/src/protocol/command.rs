@@ -188,6 +188,12 @@ pub enum CoreCommand {
     CommunityDiscourseAuthRevoke,
     /// Builds the visible project tree (`workspace.snapshot`).
     WorkspaceSnapshot,
+    /// Configure workspace indexing independently of tree visibility.
+    WorkspaceConfigureIndexing,
+    /// Refreshes external indexing facts while retaining the owner's lease.
+    WorkspaceRefreshIndexing,
+    /// Releases an indexing generation when its project closes.
+    WorkspaceReleaseIndexing,
     /// Lists the visible children of project directories (`workspace.listDirectories`).
     WorkspaceListDirectories,
     /// Filter ordinary workspace-relative event paths using shared defaults.
@@ -628,6 +634,9 @@ impl CoreCommand {
             "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
             "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
+            "workspace.releaseIndexing" => Some(Self::WorkspaceReleaseIndexing),
+            "workspace.configureIndexing" => Some(Self::WorkspaceConfigureIndexing),
+            "workspace.refreshIndexing" => Some(Self::WorkspaceRefreshIndexing),
             "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),

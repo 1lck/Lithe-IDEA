@@ -95,7 +95,7 @@ fn execute(request: &str) -> CoreResponse {
                 None,
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid JSON request")
                     .with_details(error.to_string()),
-            )
+            );
         }
     };
     let id = parsed.id.clone();
@@ -544,6 +544,56 @@ fn execute(request: &str) -> CoreResponse {
                 .and_then(community::revoke)
             {
                 Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceReleaseIndexing => {
+            match serde_json::from_value::<project::indexing::ReleaseIndexingRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid indexing release")
+                    .with_details(error.to_string())
+            })
+            .and_then(project::indexing::release)
+            {
+                Ok(released) => {
+                    CoreResponse::success(id, serde_json::json!({"released": released}))
+                }
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceConfigureIndexing => {
+            match serde_json::from_value::<project::indexing::ConfigureIndexingRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid indexing policy")
+                    .with_details(error.to_string())
+            })
+            .and_then(project::indexing::configure)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("indexing status should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceRefreshIndexing => {
+            match serde_json::from_value::<project::indexing::RefreshIndexingRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid indexing refresh")
+                    .with_details(error.to_string())
+            })
+            .and_then(project::indexing::refresh_indexing)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("indexing status should encode"),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

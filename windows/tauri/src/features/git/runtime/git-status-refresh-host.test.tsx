@@ -184,7 +184,7 @@ test("metadata watches cover every repository, replace links and release all ide
     ([command]) => command === "watch_git_repository",
   );
   expect(replacementWatches).toHaveLength(4);
-  expect(new Set(replacementWatches.map(([, args]) => args!.watchId)).size).toBe(2);
+  expect(new Set(replacementWatches.map(([, args]) => args!.watchId)).size).toBe(4);
   await act(async () => {
     root!.unmount();
   });
@@ -192,7 +192,8 @@ test("metadata watches cover every repository, replace links and release all ide
   const releasedIds = nativeInvoke.mock.calls
     .filter(([command]) => command === "unwatch_git_repository")
     .map(([, args]) => args!.watchId);
-  for (const id of ids) expect(releasedIds.filter((released) => released === id)).toHaveLength(2);
+  for (const id of ids) expect(releasedIds.filter((released) => released === id)).toHaveLength(1);
+  expect(new Set(releasedIds).size).toBe(4);
   expect(unlisten).toHaveBeenCalledTimes(1);
 }, 1000);
 
@@ -222,3 +223,24 @@ test("a native watch that finishes after unmount is released again", async () =>
     await watchGate;
   }
 }, 1000);
+
+
+test("background runtime keeps its Git watches through activation and releases only on close", async () => {
+  const background = workspaceRuntimeRegistry.ensureWorkspace({id: "git-background", name: "background"}, "ready");
+  useRepositoryStore.getStore(background.descriptor.id).setState({availableRepoPaths: ["D:/background"], activeRepoPath: "D:/background"});
+  const native = mock(async (_command: string, _args?: Record<string, unknown>) => undefined);
+  spies.push(spyOn(tauriCore, "invoke").mockImplementation(native as typeof tauriCore.invoke), spyOn(tauriEvents, "listen").mockResolvedValue(() => {}));
+  await mount(<GitMetadataWatchHost />);
+  const watches = native.mock.calls.filter(([command]) => command === "watch_git_repository");
+  expect(watches).toHaveLength(2);
+  expect(new Set(watches.map(([, args]) => args!.runtimeId)).size).toBe(2);
+  await act(async () => workspaceRuntimeRegistry.activateWorkspace(background.descriptor, "ready"));
+  expect(native.mock.calls.filter(([command]) => command === "unwatch_git_repository")).toHaveLength(0);
+  await act(async () => {
+    workspaceRuntimeRegistry.activateWorkspace({id: "workspace:welcome", name: "welcome"}, "ready");
+    workspaceRuntimeRegistry.removeWorkspace(background.descriptor.id);
+  });
+  const released = native.mock.calls.filter(([command]) => command === "unwatch_git_repository");
+  expect(released).toHaveLength(1);
+  expect(released[0]![1]!.watchId).toBe(watches.find(([, args]) => args!.repoPath === "D:/background")![1]!.watchId);
+});
