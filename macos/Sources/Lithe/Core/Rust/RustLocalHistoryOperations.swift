@@ -34,13 +34,14 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
 
     func clear(at storageURL: URL) -> Bool { core.historyClear(storageURL: storageURL) }
 
-    func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules) -> LocalHistoryIgnorePreview? {
+    func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview? {
         guard let value = core.historyIgnorePreview(
             path: path,
             ignorePatterns: rules.ignorePatterns,
             ignoreRegexes: rules.ignoreRegexes,
             baselineExcludedDirectoryNames: rules.baselineExcludedDirectoryNames,
-            hiddenFilePatterns: rules.hiddenFilePatterns
+            hiddenFilePatterns: rules.hiddenFilePatterns,
+            workspaceURL: workspaceURL
         ) else { return nil }
         let matched: LocalHistoryIgnoreMatch? = switch value.matched {
         case nil: nil
@@ -52,7 +53,8 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
         return LocalHistoryIgnorePreview(
             regexErrors: Dictionary(value.regexErrors.map { ($0.index, $0.message) }, uniquingKeysWith: { first, _ in first }),
             builtInBaselineExcludedDirectoryNames: value.builtInBaselineExcludedDirectoryNames,
-            matched: matched
+            matched: matched,
+            gitIgnored: value.gitIgnored
         )
     }
 

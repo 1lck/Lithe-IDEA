@@ -92814,6 +92814,55 @@
       }
     },
     {
+      "id": "native.typeAPathInsideTheProjectToCheckItAgainstTheRulesAboveAsYouEditThemWhetherLocalH0f31e93916",
+      "description": "Native UI: Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.localHistoryFormat",
+      "description": "Native UI: Local history: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local history: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.gitIgnored",
+      "description": "Native UI: Git: ignored",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Git: ignored",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.gitNotIgnored",
+      "description": "Native UI: Git: not ignored",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Git: not ignored",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.limitPerProject",
       "description": "Native UI: Limit per project",
       "platforms": [
@@ -92832,17 +92881,6 @@
       ],
       "macos": {
         "key": "Local history limit per project",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.typeAProjectRelativePathToSeeWhetherLocalHistoryRecordsIt",
-      "description": "Native UI: Type a project-relative path to see whether local history records it.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Type a project-relative path to see whether local history records it.",
         "arguments": []
       }
     },

@@ -74,5 +74,5 @@ private struct TestOperations: LocalHistoryOperations {
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool { false }
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage? { nil }
     func clear(at storageURL: URL) -> Bool { false }
-    func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules) -> LocalHistoryIgnorePreview? { nil }
+    func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview? { nil }
 }

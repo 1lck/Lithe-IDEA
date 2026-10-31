@@ -12,7 +12,7 @@ struct LocalHistoryIgnoreRulesTests {
         operations.ignorePreview(path: path, rules: LocalHistoryVisibilityRules(
             hiddenDirectoryNames: [], hiddenFilePatterns: hidden,
             ignorePatterns: patterns, ignoreRegexes: regexes, baselineExcludedDirectoryNames: baseline
-        ))
+        ), workspaceURL: nil)
     }
 
     @Test
@@ -22,6 +22,8 @@ struct LocalHistoryIgnoreRulesTests {
         #expect(Array(result.regexErrors.keys) == [1])
         #expect(result.matched == .regex(index: 2))
         #expect(result.builtInBaselineExcludedDirectoryNames.contains("Pods"))
+        // Without an open project Git is not asked.
+        #expect(result.gitIgnored == nil)
 
         #expect(preview("logs/run.log", patterns: ["*.log"])?.matched == .pattern(index: 0))
         #expect(preview("ios/Pods/A/a.h")?.matched == .baselineExcluded(directory: "Pods"))

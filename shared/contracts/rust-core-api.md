@@ -3148,11 +3148,13 @@ A matching file is not recorded, existing entries stay listed, and an invalid
 or empty regex never matches. `baselineExcludedDirectoryNames` adds folder
 names whose files get no initial copy when a project opens, on top of the
 built-in list; `!name` turns a built-in off. `history.ignorePreview` accepts the
-same `ignoreRules`, optional `hiddenFilePatterns` and an optional relative
-`path`, and returns `regexErrors` (`{ index, message }` per rejected regex), the
+same `ignoreRules`, optional `hiddenFilePatterns`, an optional relative
+`path` and an optional `workspaceRoot`, and returns `regexErrors` (`{ index, message }` per rejected regex), the
 built-in `builtInBaselineExcludedDirectoryNames`, and `matched`: `null` or an object tagged by
 `kind` — `hidden`, `baselineExcluded` (`directory`), `pattern` or `regex`
-(`index` into its list). `history.usage` and `history.clear` accept
+(`index` into its list), plus `gitIgnored`: whether `git check-ignore` ignores
+`path` under `workspaceRoot`, or `null` without a path, workspace or repository.
+It is informational; local history does not follow Git ignore rules. `history.usage` and `history.clear` accept
 `storageRoot`, and `history.usage` also the optional `storageLimitBytes` it
 reports back as `limitBytes`; usage rescans the disk and returns `{ usedBytes, limitBytes }` in
 allocated bytes, and clear removes every snapshot directory while keeping the

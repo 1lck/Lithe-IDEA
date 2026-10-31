@@ -9714,7 +9714,10 @@
     "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul124b531bdc": "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n不做初始副本：每行一个文件夹名。其中的文件在打开项目时不会复制，编辑仍会记录。列表开头是内置文件夹，删掉一行即可重新复制其中的文件。",
     "native.limitPerProject": "每个项目上限",
     "native.localHistoryLimitPerProject": "每个项目的本地历史上限",
-    "native.typeAProjectRelativePathToSeeWhetherLocalHistoryRecordsIt": "输入项目内的相对路径，查看本地历史是否会记录它。"
+    "native.typeAPathInsideTheProjectToCheckItAgainstTheRulesAboveAsYouEditThemWhetherLocalH0f31e93916": "输入项目内的路径，随着你编辑上面的规则实时检查：本地历史是否会记录这个文件，以及 Git 是否忽略它。Git 的忽略规则不影响本地历史。",
+    "native.localHistoryFormat": "本地历史：{arg1}",
+    "native.gitIgnored": "Git：已忽略",
+    "native.gitNotIgnored": "Git：未忽略"
   },
   "overrides": {
     "macos": {

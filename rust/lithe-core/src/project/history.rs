@@ -145,6 +145,9 @@ pub struct HistoryIgnorePreviewRequest {
     /// Hidden-path entries, so the preview honours built-ins the user turned off.
     #[serde(default)]
     pub hidden_file_patterns: Vec<String>,
+    /// Project root; when given, the preview also asks Git whether it ignores `path`.
+    #[serde(default)]
+    pub workspace_root: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -181,6 +184,9 @@ pub struct HistoryIgnorePreviewResponse {
     /// The built-in defaults, for settings to show and edit against.
     pub built_in_baseline_excluded_directory_names: Vec<String>,
     pub matched: Option<HistoryIgnoreMatch>,
+    /// Whether Git ignores the path, for comparison only: local history does not
+    /// follow Git ignore rules. `None` without a path, a workspace or a repository.
+    pub git_ignored: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -525,16 +531,25 @@ pub fn ignore_preview(
                 })
         })
         .collect();
-    let matched = match request.path.as_deref().map(str::trim) {
+    let (matched, git_ignored) = match request.path.as_deref().map(str::trim) {
         Some(path) if !path.is_empty() => {
             let relative = safe_relative_path(path)?;
-            preview_match(
+            let matched = preview_match(
                 &request.ignore_rules,
                 &request.hidden_file_patterns,
                 &relative,
-            )
+            );
+            // A missing workspace only loses the Git line, not the rule preview.
+            let git_ignored = match request.workspace_root.as_deref().map(existing_root) {
+                Some(Ok(root)) => {
+                    crate::git::ignored_paths(&root, std::slice::from_ref(&relative))?
+                        .map(|ignored| ignored.contains(&relative))
+                }
+                _ => None,
+            };
+            (matched, git_ignored)
         }
-        _ => None,
+        _ => (None, None),
     };
     Ok(HistoryIgnorePreviewResponse {
         regex_errors,
@@ -543,6 +558,7 @@ pub fn ignore_preview(
             .map(|name| (*name).to_string())
             .collect(),
         matched,
+        git_ignored,
     })
 }
 
@@ -1336,6 +1352,7 @@ mod tests {
                 path: Some(path.into()),
                 ignore_rules: ignore_rules(&["docs/*.md"], &["(", r"\.tmp$"]),
                 hidden_file_patterns: Vec::new(),
+                workspace_root: None,
             })
             .unwrap()
         };
@@ -1368,8 +1385,41 @@ mod tests {
             path: Some("../outside".into()),
             ignore_rules: HistoryIgnoreRules::default(),
             hidden_file_patterns: Vec::new(),
+            workspace_root: None,
         })
         .is_err());
+        assert_eq!(result.git_ignored, None);
+    }
+
+    #[test]
+    fn ignore_preview_reports_whether_git_ignores_the_path() {
+        let workspace = temporary_root("history-preview-git");
+        fs::create_dir_all(&workspace).unwrap();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&workspace)
+                .output()
+                .is_ok_and(|output| output.status.success())
+        };
+        let preview = |path: &str| {
+            ignore_preview(HistoryIgnorePreviewRequest {
+                path: Some(path.into()),
+                ignore_rules: HistoryIgnoreRules::default(),
+                hidden_file_patterns: Vec::new(),
+                workspace_root: Some(workspace.to_string_lossy().into_owned()),
+            })
+            .unwrap()
+            .git_ignored
+        };
+        // Outside a repository Git cannot answer.
+        assert_eq!(preview("run.log"), None);
+        if !git(&["init", "-q"]) {
+            return;
+        }
+        write_file(&workspace, ".gitignore", "*.log\n");
+        assert_eq!(preview("logs/run.log"), Some(true));
+        assert_eq!(preview("src/Main.java"), Some(false));
     }
 
     #[test]

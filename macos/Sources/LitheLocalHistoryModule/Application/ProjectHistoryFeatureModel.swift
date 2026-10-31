@@ -99,11 +99,13 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         await localHistoryService?.updateVisibilityRules(rules)
     }
 
-    /// Validates ignore rules for the settings page; needs no open project.
+    /// Validates ignore rules for the settings page; needs no open project, but
+    /// only an open one can also report whether Git ignores the path.
     public func previewIgnoreRules(path: String?, rules: LocalHistoryVisibilityRules) async -> LocalHistoryIgnorePreview? {
         let operations = localHistoryOperations
+        let workspaceURL = workspaceURLProvider()
         return await Task.detached {
-            operations.ignorePreview(path: path, rules: rules)
+            operations.ignorePreview(path: path, rules: rules, workspaceURL: workspaceURL)
         }.value
     }
 

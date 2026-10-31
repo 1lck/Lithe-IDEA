@@ -9714,7 +9714,10 @@
     "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul124b531bdc": "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again.",
     "native.limitPerProject": "Limit per project",
     "native.localHistoryLimitPerProject": "Local history limit per project",
-    "native.typeAProjectRelativePathToSeeWhetherLocalHistoryRecordsIt": "Type a project-relative path to see whether local history records it."
+    "native.typeAPathInsideTheProjectToCheckItAgainstTheRulesAboveAsYouEditThemWhetherLocalH0f31e93916": "Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history.",
+    "native.localHistoryFormat": "Local history: {arg1}",
+    "native.gitIgnored": "Git: ignored",
+    "native.gitNotIgnored": "Git: not ignored"
   },
   "overrides": {
     "windows": {

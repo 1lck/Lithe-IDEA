@@ -1636,6 +1636,8 @@
 "Git version" = "Git 版本";
 "Git was not found" = "未找到 Git";
 "Git work is still active." = "Git 任务仍在进行。";
+"Git: ignored" = "Git：已忽略";
+"Git: not ignored" = "Git：未忽略";
 "GitHub authorization failed:" = "GitHub 授权失败：";
 "GitHub authorization failed: %@" = "GitHub 授权失败：%@";
 "GitHub authorization was cancelled." = "GitHub 授权已取消。";
@@ -2106,6 +2108,7 @@
 "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again." = "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n不做初始副本：每行一个文件夹名。其中的文件在打开项目时不会复制，编辑仍会记录。列表开头是内置文件夹，删掉一行即可重新复制其中的文件。";
 "Local history limit per project" = "每个项目的本地历史上限";
 "Local history work is still active." = "本地历史任务仍在进行。";
+"Local history: %@" = "本地历史：%@";
 "Location" = "位置";
 "Lock Worktree" = "锁定工作树";
 "Locked" = "已锁定";
@@ -4333,7 +4336,7 @@
 "Type" = "类型";
 "Type / to see commands" = "输入 / 查看命令";
 "Type / to see options" = "输入 / 查看选项";
-"Type a project-relative path to see whether local history records it." = "输入项目内的相对路径，查看本地历史是否会记录它。";
+"Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history." = "输入项目内的路径，随着你编辑上面的规则实时检查：本地历史是否会记录这个文件，以及 Git 是否忽略它。Git 的忽略规则不影响本地历史。";
 "Type changed" = "类型已更改";
 "Type your task or / for commands" = "输入任务，或用 / 选择命令";
 "Type your task, / for commands or @ for files" = "输入任务，用 / 选择命令，用 @ 添加文件";
@@ -6299,9 +6302,11 @@
 "native.gitExitedWithCodeD" = "Git 已退出，退出码为 %1$d";
 "native.gitFetchRemoveStaleBranches" = "Git Fetch：清理失效的远程分支";
 "native.gitFetchRemoveStaleTags" = "Git Fetch：清理失效的远程标签";
+"native.gitIgnored" = "Git：已忽略";
 "native.gitIsPreparingTheSequencer" = "Git 正在准备变基步骤。";
 "native.gitIsReady" = "Git 已就绪";
 "native.gitNotFound" = "未找到 Git";
+"native.gitNotIgnored" = "Git：未忽略";
 "native.gitOperation" = "Git 操作";
 "native.gitOperationFinished" = "Git 操作已完成";
 "native.gitPhase" = "Git 阶段：%1$@";
@@ -6901,6 +6906,7 @@
 "native.localHistory" = "本地历史";
 "native.localHistory.variant2" = "本地历史…";
 "native.localHistory.variant3" = "本地历史";
+"native.localHistoryFormat" = "本地历史：%1$@";
 "native.localHistoryIsAvailableForTextFiles" = "本地历史仅适用于文本文件";
 "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul124b531bdc" = "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n不做初始副本：每行一个文件夹名。其中的文件在打开项目时不会复制，编辑仍会记录。列表开头是内置文件夹，删掉一行即可重新复制其中的文件。";
 "native.localHistoryLimitPerProject" = "每个项目的本地历史上限";
@@ -9043,7 +9049,7 @@
 "native.turningThisOffStopsEveryAgentProcess" = "关闭后会停止所有 Agent 进程。";
 "native.turns" = "轮次";
 "native.type" = "类型";
-"native.typeAProjectRelativePathToSeeWhetherLocalHistoryRecordsIt" = "输入项目内的相对路径，查看本地历史是否会记录它。";
+"native.typeAPathInsideTheProjectToCheckItAgainstTheRulesAboveAsYouEditThemWhetherLocalH0f31e93916" = "输入项目内的路径，随着你编辑上面的规则实时检查：本地历史是否会记录这个文件，以及 Git 是否忽略它。Git 的忽略规则不影响本地历史。";
 "native.typeChanged" = "类型已更改";
 "native.typeToSeeCommands" = "输入 / 查看命令";
 "native.typeToSeeOptions" = "输入 / 查看选项";

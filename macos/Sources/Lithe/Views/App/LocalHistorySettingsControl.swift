@@ -40,7 +40,7 @@ struct LocalHistorySettingsControl: View {
                 Text("Test path")
                     .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.tertiaryText)
-                    .help(Text("Type a project-relative path to see whether local history records it."))
+                LitheInfoTip("Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history.")
                 LitheTextField(verbatim: "src/generated/Api.java", text: $testPath)
                     .frame(maxWidth: 260)
                     .accessibilityLabel(Text("Test path"))
@@ -124,7 +124,8 @@ struct LocalHistorySettingsControl: View {
             step: 50,
             width: 126,
             accessibilityLabel: "Local history limit per project",
-            title: { "\($0) MB" }
+            title: { "\($0) MB" },
+            parse: { Int($0.filter(\.isNumber)) }
         )
         .help(Text("When the limit is reached, the oldest versions are removed first."))
     }
@@ -174,10 +175,19 @@ struct LocalHistorySettingsControl: View {
     private var testResult: some View {
         if !testPath.trimmingCharacters(in: .whitespaces).isEmpty, let preview {
             let recorded = preview.matched == nil || preview.matched.map(Self.isBaselineOnly) == true
-            Label(resultText(preview.matched), systemImage: recorded ? "checkmark.circle" : "nosign")
-                .font(LitheTheme.smallFont)
-                .foregroundStyle(recorded ? LitheTheme.success : LitheTheme.warning)
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: 2) {
+                Label(String(format: L10n.string("Local history: %@"), resultText(preview.matched)),
+                      systemImage: recorded ? "checkmark.circle" : "nosign")
+                    .foregroundStyle(recorded ? LitheTheme.success : LitheTheme.warning)
+                // Informational only: local history does not follow Git ignore rules.
+                if let gitIgnored = preview.gitIgnored {
+                    Label(gitIgnored ? L10n.string("Git: ignored") : L10n.string("Git: not ignored"),
+                          systemImage: "arrow.triangle.branch")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+            }
+            .font(LitheTheme.smallFont)
+            .lineLimit(2)
         }
     }
 

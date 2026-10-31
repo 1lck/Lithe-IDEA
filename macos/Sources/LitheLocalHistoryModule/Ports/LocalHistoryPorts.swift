@@ -49,10 +49,14 @@ public struct LocalHistoryIgnorePreview: Equatable, Sendable {
     /// The built-in No initial copy folders, before the user's changes.
     public let builtInBaselineExcludedDirectoryNames: [String]
     public let matched: LocalHistoryIgnoreMatch?
-    public init(regexErrors: [Int: String], builtInBaselineExcludedDirectoryNames: [String], matched: LocalHistoryIgnoreMatch?) {
+    /// Whether Git ignores the path, shown for comparison; nil outside a repository.
+    public let gitIgnored: Bool?
+    public init(regexErrors: [Int: String], builtInBaselineExcludedDirectoryNames: [String],
+                matched: LocalHistoryIgnoreMatch?, gitIgnored: Bool? = nil) {
         self.regexErrors = regexErrors
         self.builtInBaselineExcludedDirectoryNames = builtInBaselineExcludedDirectoryNames
         self.matched = matched
+        self.gitIgnored = gitIgnored
     }
 }
 
@@ -81,7 +85,7 @@ public protocol LocalHistoryOperations: Sendable {
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage?
     func clear(at storageURL: URL) -> Bool
-    func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules) -> LocalHistoryIgnorePreview?
+    func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview?
 }
 
 public protocol LocalHistoryWorkspaceAccess: Sendable {
