@@ -177,6 +177,22 @@ and clones a real local repository. The cache retry then exhausted the existing
 suite deadline; that secondary timeout does not justify extending the whole
 suite. Keep every checkout/clone assertion and the existing request deadlines.
 
+The two `git::configuration::inherited_tag_tests::` integration cases give only
+their `git.executionInspect` requests a 20-second deadline; initialization keeps
+5 seconds and both complete test processes retain the default 15-second watchdog.
+Inspection performs at least 27 Git calls for the tag spellings fixture and 19
+for the skip-fetch fixture, including Git's own boolean parser and scoped reads.
+A Windows SharedRust run failed at the old 5-second request deadline; focused
+unchanged-binary runs reproduced both failures. A 10-second request still failed
+the tag case while the skip-fetch case completed in 9.719 seconds. The complete
+20-second-request run finished them in 12.852 and 9.957 seconds, preserving every
+boolean, provenance and configured-value assertion. The process watchdog still
+requests termination at 15 seconds, before the nested request deadline; Windows
+Git children belong to the test's non-breakaway kill-on-close Job. Successful
+runs do not verify the watchdog's forced-cleanup branch or prove a 15-second
+cleanup bound. Do not infer a production deadline or increase CI budgets from
+this fixture-only allowance.
+
 ## Windows verification
 
 Run the PowerShell harness in a real Windows environment. A macOS boundary

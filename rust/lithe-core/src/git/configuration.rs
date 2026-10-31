@@ -471,9 +471,16 @@ mod inherited_tag_tests {
             payload["root"] = json!(self.0);
             // Core owns subprocess deadlines; the fixture never waits on an
             // unbounded native child, including repository initialization.
+            // Inspection runs Git's boolean parser and scoped reads in sequence;
+            // its aggregate integration deadline must cover those native calls.
+            let timeout_ms = if command == "git.executionInspect" {
+                20000
+            } else {
+                5000
+            };
             serde_json::from_str(&crate::execute_json(
                 &json!({
-                    "timeoutMilliseconds": 5000,
+                    "timeoutMilliseconds": timeout_ms,
                     "command": command,
                     "payload": payload,
                 })
