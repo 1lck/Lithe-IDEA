@@ -16,7 +16,7 @@ const INTEGRITY_MANIFEST = ".lithe-integrity.json";
 function usage() {
   return [
     "Usage:",
-    "  node scripts/resources/reuse-worktree-resources.mjs --source <worktree> [--target <worktree>] [--resource <id> ...]",
+    "  node scripts/resources/reuse-worktree-resources.mjs --source <worktree> [--target <worktree>] [--resource <id> ...] [--validation-timeout-seconds <1..1200>]",
     "  node scripts/resources/reuse-worktree-resources.mjs --list",
     "",
     "The target defaults to the current worktree. All registered resources are reused unless --resource is provided.",
@@ -24,7 +24,7 @@ function usage() {
 }
 
 function parseArguments(argv) {
-  const options = { source: null, target: process.cwd(), resources: [], list: false, help: false };
+  const options = { source: null, target: process.cwd(), resources: [], list: false, help: false, validationTimeoutMs: PROCESS_TIMEOUT_MS };
   for (let index = 0; index < argv.length; index += 1) {
     const option = argv[index];
     if (option === "--help" || option === "-h") {
@@ -41,6 +41,12 @@ function parseArguments(argv) {
     if (option === "--source") options.source = value;
     else if (option === "--target") options.target = value;
     else if (option === "--resource") options.resources.push(value);
+    else if (option === "--validation-timeout-seconds") {
+      const seconds = Number(value);
+      if (!/^\d+$/.test(value) || !Number.isSafeInteger(seconds) || seconds < 1 || seconds > 1200)
+        throw new Error("--validation-timeout-seconds must be an integer from 1 to 1200");
+      options.validationTimeoutMs = seconds * 1000;
+    }
     else throw new Error(`Unknown option: ${option}`);
   }
   return options;
@@ -85,6 +91,23 @@ async function readRegistry() {
   // document tokens and editor action leases are memory-only, never reusable.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
+  // Windows source lists, raw index caches, digest-bound download files and
+  // per-workspace build options use plugin-marketplace-state's refusal route.
+  // Window/operation-owned model/dependency files stay in mutable plugin state
+  // and use official-plugin-packages' exclusion; decoded output is not a reusable artifact.
+  // Core validation or a matching archive hash never transfers user ownership.
+  // Native acceptance fixtures/profiles use plugin-host-acceptance-state's
+  // refusal route, including build-fixture tools/workspaces and settings/functions
+  // input plans, ZIPs and resource snapshots, plus ui:2 web fallback static ZIPs,
+  // private-target CDP traces and descriptor/callback snapshots; ui:1 text-window
+  // ZIPs, host-page DOM/CSP/request traces and loopback-counter evidence are also run-owned; deterministic test ZIPs do not
+  // establish a build identity or transfer native install approval.
+  // Offline preflight fake tools/manifests and tar.gz/VSIX extraction fixtures in OS temporary storage also remain
+  // plugin-host-acceptance-state; they have no downloadable resource validator.
+  // Installer test scratch, generated native-handle waiters and ownership/identity
+  // receipts use frontend-install-state's refusal route; process identity is not a cache stamp.
+  // Controlled action-group/form-grid/controls-input/workbench/tree browser scratch, ownership state, copied logs and expected-red evidence use
+  // native-browser-regression-state's refusal route; no build stamp or validator applies.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,
   // not reusable build inputs, even without plugin mirror staging.
   // Plugin host secrets and workspace state also take this rejection route,
@@ -186,6 +209,9 @@ async function validatorArguments(resource, cachePath, targetRoot) {
   if (resource.validator === "bun") {
     // This route validates sealed downloads only. Job-owned installation temp
     // data and node_modules stay in the registry's non-reusable exclusions.
+    // Exact lock bytes include source URLs: switching registry with an unchanged
+    // dependency graph still rejects the old seal. GitHub lifecycle binaries have
+    // no validator here; their identity cannot be inferred from npm tarball SRI.
     const packagePath = await requiredFile(targetRoot, "package.json", resource.id);
     const packageManifest = JSON.parse(await fs.readFile(packagePath, "utf8"));
     const match = String(packageManifest.packageManager ?? "").match(/^bun@(.+)$/);
@@ -200,14 +226,14 @@ async function validatorArguments(resource, cachePath, targetRoot) {
   throw new Error(`Unsupported validator: ${resource.validator}`);
 }
 
-async function verifyResource(resource, cachePath, targetRoot) {
+async function verifyResource(resource, cachePath, targetRoot, timeoutMs) {
   const argumentsList = await validatorArguments(resource, cachePath, targetRoot);
   const result = spawnSync(process.execPath, [VERIFIER_PATH, ...argumentsList], {
     cwd: targetRoot,
     encoding: "utf8",
     env: { ...process.env, GITHUB_ACTIONS: "false" },
     maxBuffer: 64 * 1024 * 1024,
-    timeout: PROCESS_TIMEOUT_MS,
+    timeout: timeoutMs,
   });
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
@@ -266,7 +292,7 @@ function throwIfInterrupted(signal) {
   if (signal) throw new Error(`Resource reuse interrupted by ${signal}`);
 }
 
-async function reuseResource(resource, sourceRoot, targetRoot, getSignal = () => null) {
+async function reuseResource(resource, sourceRoot, targetRoot, getSignal = () => null, validationTimeoutMs = PROCESS_TIMEOUT_MS) {
   const source = path.join(sourceRoot, resource.path);
   const destination = path.join(targetRoot, resource.path);
   if (!(await pathExists(source))) {
@@ -281,7 +307,7 @@ async function reuseResource(resource, sourceRoot, targetRoot, getSignal = () =>
   try {
     await fs.cp(source, staging, { recursive: true, force: true, preserveTimestamps: true });
     throwIfInterrupted(getSignal());
-    await verifyResource(resource, staging, targetRoot);
+    await verifyResource(resource, staging, targetRoot, validationTimeoutMs);
     throwIfInterrupted(getSignal());
     const sourceFiles = await countPayloadFiles(staging);
     if (sourceFiles === 0) {
@@ -292,7 +318,7 @@ async function reuseResource(resource, sourceRoot, targetRoot, getSignal = () =>
     let targetFiles = 0;
     if (await pathExists(destination)) {
       await assertRealDirectory(destination, `${resource.id} target`);
-      await verifyResource(resource, destination, targetRoot);
+      await verifyResource(resource, destination, targetRoot, validationTimeoutMs);
       throwIfInterrupted(getSignal());
       targetFiles = await countPayloadFiles(destination);
     }
@@ -304,7 +330,7 @@ async function reuseResource(resource, sourceRoot, targetRoot, getSignal = () =>
     let publishedFiles = 0;
     await publishDirectory(staging, destination, async (published) => {
       throwIfInterrupted(getSignal());
-      await verifyResource(resource, published, targetRoot);
+      await verifyResource(resource, published, targetRoot, validationTimeoutMs);
       publishedFiles = await countPayloadFiles(published);
       if (publishedFiles !== sourceFiles) {
         throw new Error(`${resource.id} published ${publishedFiles} file(s), expected ${sourceFiles}`);
@@ -387,6 +413,17 @@ async function main() {
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
       // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
+      // Includes native-browser-regression-state: browser profiles, optimizer caches,
+      // worker/Job evidence, copied logs and expected-failure reports stay with
+      // their run; never enter a copy stage.
+      // Includes plugin-host-acceptance-state: fixed-source SVN diagnostic runtime,
+      // repo/WC/profiles, offline preflight fake tools/manifests/archive inputs and explicit
+      // evidence output stay run-owned, never reusable.
+      // Generator fixture ZIPs, fixed HTTPS archive references, source plans and
+      // creation/cancellation evidence use this route; a hash transfers no approval.
+      // Isolated-profile generator-projects outputs stay outside the source Git
+      // repository and are removed with that profile, never copied as build inputs.
+
       // SwiftPM scratch-local compiler stamps only invalidate local products;
       // swiftpm-build-state is not a sealed download cache and has no copy stage.
       // Includes application-log-state: logs, confirmation snapshots and export ZIP
@@ -410,6 +447,12 @@ async function main() {
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
       // Includes remote-server-artifacts: packaging rebuilds lithe-remote's
       // server-only binary from this worktree; no validator or copy stage applies.
+      // Includes vcs-root-mappings: directory-bound user choices and watcher leases
+      // have no build stamp, validator, or copy stage; never share them across worktrees.
+      // Includes plugin-settings-state: confirmed user preferences, replacement
+      // temporaries and recovery backups have no validator or copy stage.
+      // Includes plugin-generator-transactions: sibling staging and published user
+      // projects keep their native operation owner; no validator or copy stage applies.
       // Includes remote-connection-state: SSH settings, keychain secrets and placeholder roots are user-owned.
       // Includes remote-workspace-session-state: host Git scratch and connection
       // discovery/index snapshots, copy staging, account Trash and watch subscriptions
@@ -427,6 +470,8 @@ async function main() {
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
       // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
+      // Includes project-generator-transactions: operation-owned staging, ZIPs
+      // and reviews have no build identity, even after Core extraction succeeds.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.identity}; ${excluded.reason}; it cannot be reused across worktrees`);
@@ -457,7 +502,7 @@ async function main() {
   try {
     for (const resource of selected) {
       throwIfInterrupted(interruptedSignal);
-      await reuseResource(resource, source.root, target.root, () => interruptedSignal);
+      await reuseResource(resource, source.root, target.root, () => interruptedSignal, options.validationTimeoutMs);
     }
   } finally {
     process.removeListener("SIGINT", handleSignal);
@@ -466,7 +511,7 @@ async function main() {
   }
 }
 
-export { publishDirectory, validatorArguments };
+export { parseArguments, publishDirectory, validatorArguments };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {

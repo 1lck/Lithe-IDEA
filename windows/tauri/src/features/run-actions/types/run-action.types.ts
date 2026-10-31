@@ -18,6 +18,18 @@ export interface RunActionItem {
   declarativeOwner?: { pluginId: string; languageId: string };
   /** Route this declarative action through the plugin's test template. */
   declarativeTest?: boolean;
+  declarativeTestScope?: import("@/features/plugins/declarative-plugin-launch").DeclarativeTestScope;
+  declarativeContext?: import("@/features/plugins/declarative-plugin-launch").DeclarativeExecutionContext;
+  /** Local revocation guard captured at discovery; never sent over IPC. */
+  declarativeValidate?: () => void;
+  /** Explicit semantic identity from the owning test entry, never inferred
+   * from a localized label or shell command. Build-tool actions keep their
+   * separate owner unless they explicitly describe the same framework and scope. */
+  testTarget?: {
+    languageId: string;
+    frameworkId?: string;
+    scope: import("@/features/plugins/declarative-plugin-launch").DeclarativeTestScope;
+  };
   id: string;
   name: string;
   command?: string;

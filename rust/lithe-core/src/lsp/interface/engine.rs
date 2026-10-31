@@ -957,6 +957,14 @@ pub fn start_server(request: StartServerRequest) -> Result<StartServerResponse, 
     engine().start_server(request)
 }
 
+/// Native host ownership hook; it does not add an application command.
+pub fn start_server_owned(
+    request: StartServerRequest,
+    registered: impl FnOnce(&str),
+) -> Result<StartServerResponse, CoreError> {
+    engine().start_server_owned(request, registered)
+}
+
 /// Performs a bounded graceful shutdown while retaining the session record.
 pub fn stop_server(request: SessionRequest) -> Result<(), CoreError> {
     engine().session(&request.session_id)?.stop()
@@ -1571,6 +1579,14 @@ impl LspEngine {
     }
 
     fn start_server(&self, request: StartServerRequest) -> Result<StartServerResponse, CoreError> {
+        self.start_server_owned(request, |_| {})
+    }
+
+    fn start_server_owned(
+        &self,
+        request: StartServerRequest,
+        registered: impl FnOnce(&str),
+    ) -> Result<StartServerResponse, CoreError> {
         validate_start_request(&request)?;
         if crate::remote::workspace::is_remote() && request.provider_id.eq_ignore_ascii_case("java")
         {
@@ -1696,16 +1712,6 @@ impl LspEngine {
             _ => None,
         };
 
-        let process = self.launcher.launch(LspProcessSpec {
-            executable: adaptation
-                .executable
-                .unwrap_or_else(|| PathBuf::from(&request.executable_path)),
-            arguments: adaptation.arguments,
-            working_directory: workspace_root,
-            environment: request.environment,
-        })?;
-        let process_start_elapsed = startup_started_at.elapsed();
-
         let initialize_timeout = Duration::from_millis(request.initialize_timeout_milliseconds);
         let service_ready_idle_timeout =
             Duration::from_millis(request.service_ready_idle_timeout_milliseconds);
@@ -1743,6 +1749,16 @@ impl LspEngine {
             },
             request.plugin_id.is_some(),
         )?;
+        let process = self.launcher.launch(LspProcessSpec {
+            executable: adaptation
+                .executable
+                .unwrap_or_else(|| PathBuf::from(&request.executable_path)),
+            arguments: adaptation.arguments,
+            working_directory: workspace_root,
+            environment: request.environment,
+        })?;
+        let process_start_elapsed = startup_started_at.elapsed();
+
         let request_id = (initialize.state.next_request_id - 1).to_string();
         let now = Instant::now();
         let process_id = process.handle.process_id();
@@ -1880,6 +1896,9 @@ impl LspEngine {
 
         self.lock_sessions()?
             .insert(session_id.clone(), session.clone());
+        // Native owners learn the identity before initialize writes can fail.
+        // They keep their package barrier until destroy verifies disposal.
+        registered(&session_id);
         session.spawn_readers(process.output, process.errors);
         session.spawn_monitor();
         session.spawn_outbound_maintenance();
@@ -1922,6 +1941,7 @@ impl LspEngine {
                 "A running language-server session cannot be destroyed.",
             ));
         }
+        session.process.dispose(Duration::from_secs(2))?;
         self.lock_sessions()?.remove(session_id);
         Ok(())
     }
@@ -7027,6 +7047,46 @@ mod tests {
             java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
             shutdown_timeout_milliseconds: 10_000,
         }
+    }
+
+    #[test]
+    fn native_owner_keeps_failed_initialize_identity_until_verified_disposal() {
+        let server = ScriptedServer::new();
+        server.break_input();
+        server.block_cleanup(true);
+        let engine = LspEngine::with_launcher(server.launcher());
+        let registered = Mutex::new(None);
+        let result = engine.start_server_owned(start_request(&server), |id| {
+            // Registration precedes the very first write, including its failure.
+            assert!(server.messages().is_empty());
+            *registered.lock().unwrap() = Some(id.to_string());
+        });
+        assert!(result.is_err());
+        let id = registered
+            .into_inner()
+            .unwrap()
+            .expect("native owner received the session");
+        assert!(engine.session(&id).is_ok());
+        assert!(engine.destroy(&id).is_err());
+        assert!(
+            engine.session(&id).is_ok(),
+            "failed disposal must retain the process owner"
+        );
+        server.block_cleanup(false);
+        engine
+            .destroy(&id)
+            .expect("verified cleanup allows destruction");
+        assert!(engine.session(&id).is_err());
+    }
+
+    #[test]
+    fn invalid_initial_configuration_is_rejected_before_launch() {
+        let server = ScriptedServer::new();
+        let engine = LspEngine::with_launcher(server.launcher());
+        let mut request = start_request(&server);
+        request.workspace_configuration = Some(json!(["not an object"]));
+        assert!(engine.start_server(request).is_err());
+        assert!(server.launched_spec().is_none());
     }
 
     /// An engine with a scripted server behind it, plus the started session.

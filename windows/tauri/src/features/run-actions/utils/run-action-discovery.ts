@@ -172,7 +172,10 @@ export function parseCargoRunActions(content: string, workspacePath: string): Ru
     );
   }
   actions.push(
-    createAction("cargo", "Cargo.toml", t("runActions.test"), "cargo test", workspacePath),
+    {
+      ...createAction("cargo", "Cargo.toml", t("runActions.test"), "cargo test", workspacePath),
+      testTarget: { languageId: "rust", frameworkId: "cargo", scope: { kind: "workspace" } },
+    },
     createAction("cargo", "Cargo.toml", t("runActions.check"), "cargo check", workspacePath),
     createAction("cargo", "Cargo.toml", t("runActions.build"), "cargo build", workspacePath),
   );
@@ -208,7 +211,10 @@ function parseGoRunActions(workspacePath: string): RunActionItem[] {
   const t = getCurrentTranslator();
   return [
     createAction("go", "go.mod", t("runActions.run"), "go run .", workspacePath),
-    createAction("go", "go.mod", t("runActions.test"), "go test ./...", workspacePath),
+    {
+      ...createAction("go", "go.mod", t("runActions.test"), "go test ./...", workspacePath),
+      testTarget: { languageId: "go", frameworkId: "go", scope: { kind: "workspace" } },
+    },
     createAction("go", "go.mod", t("runActions.build"), "go build ./...", workspacePath),
   ];
 }
@@ -234,9 +240,10 @@ export function parsePyprojectRunActions(content: string, workspacePath: string)
   }
 
   if (/(?:pytest|\[tool\.pytest)/i.test(content)) {
-    actions.push(
-      createAction("python", "pyproject.toml", t("runActions.test"), "pytest", workspacePath),
-    );
+    actions.push({
+      ...createAction("python", "pyproject.toml", t("runActions.test"), "pytest", workspacePath),
+      testTarget: { languageId: "python", frameworkId: "pytest", scope: { kind: "workspace" } },
+    });
   }
 
   return actions;

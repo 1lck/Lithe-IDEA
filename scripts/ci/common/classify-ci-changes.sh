@@ -322,6 +322,19 @@ classify_path() {
             # shared Core behavior or the isolated plugin test lane.
             macos_release=true
             ;;
+        scripts/plugins/native-workbench-browser.mjs|scripts/plugins/test-windows-native-plugin-ui-browser.mjs)
+            windows=true
+            ;;
+        scripts/plugins/host-acceptance/*|scripts/plugins/test-windows-declarative-plugin-host.ps1|scripts/plugins/test-windows-plugin-vcs-core.mjs|scripts/plugins/test-plugin-vcs-move-diagnostic.mjs)
+            windows=true
+            windows_rust=true
+            ;;
+        scripts/plugins/check-plugin-fixture-coverage.mjs|scripts/plugins/check-plugin-fixture-coverage.test.mjs|scripts/plugins/plugin-fixture-coverage.json)
+            plugins=true
+            rust_core=true
+            windows=true
+            windows_rust=true
+            ;;
         scripts/plugins/verify-official-plugins.sh|scripts/plugins/build-official-plugins.sh)
             plugins=true
             ;;
@@ -338,7 +351,7 @@ classify_path() {
         scripts/release/sparkle/*sparkle*|scripts/macos/package/*sparkle*|scripts/release/macos/import-macos-signing.sh|scripts/macos/build/build-macos.sh|scripts/macos/verify/verify-macos-app-build-safety.sh|scripts/macos/verify/verify-runtime-bundle-immutability.sh|scripts/macos/verify/verify-macos-package.sh|scripts/macos/build/macos13sdkcompatibility.h|scripts/macos/build/ld-macos13-compat.sh|scripts/macos/package/package-app.sh|scripts/macos/build/preview.sh|scripts/macos/package/stamp-macos-app-build-info.sh|scripts/macos/package/create-dmg.sh|scripts/release/macos/create-macos-update-manifest.rb|scripts/release/macos/test-macos-update-manifest.rb|scripts/macos/prepare/prepare-jdtls.sh|scripts/macos/prepare/prepare-jdk.sh)
             macos_release=true
             ;;
-        scripts/resources/verify-download-cache.mjs|scripts/resources/test-verify-download-cache.mjs|scripts/resources/reuse-worktree-resources.mjs|scripts/resources/test-reuse-worktree-resources.mjs|scripts/resources/worktree-resources.json)
+        scripts/resources/verify-download-cache.mjs|scripts/resources/test-verify-download-cache.mjs|scripts/resources/hash-file-set.mjs|scripts/resources/hash-file-set.test.mjs|scripts/resources/reuse-worktree-resources.mjs|scripts/resources/test-reuse-worktree-resources.mjs|scripts/resources/worktree-resources.json)
             swift=true
             plugins=true
             rust_core=true
@@ -356,7 +369,7 @@ classify_path() {
             rust_core=true
             macos_release=true
             ;;
-        scripts/windows/build/build-windows.ps1|scripts/windows/verify/verify-windows-boundaries.ps1|scripts/windows/verify/verify-windows-boundaries.sh|scripts/windows/prepare/prepare-jdtls.ps1|scripts/windows/prepare/prepare-jdk.ps1|scripts/windows/package/package-windows.ps1|scripts/windows/build/install-windows-frontend-dependencies.ps1|scripts/windows/build/invoke-windows-bun-install.ps1|scripts/windows/build/windows-frontend-install.test.ts|scripts/windows/build/invoke-windows-tauri-build.ps1|scripts/release/windows/create-windows-updater-manifest.ps1|scripts/release/windows/test-windows-updater-manifest.ps1)
+        scripts/windows/build/windows-build-preflight.ps1|scripts/windows/build/windows-tree-sitter-proxy.cjs|scripts/windows/build/windows-tree-sitter-proxy.test.cjs|scripts/windows/build/build-windows.ps1|scripts/windows/verify/verify-windows-boundaries.ps1|scripts/windows/verify/verify-windows-boundaries.sh|scripts/windows/prepare/prepare-jdtls.ps1|scripts/windows/prepare/prepare-jdk.ps1|scripts/windows/package/package-windows.ps1|scripts/windows/build/install-windows-frontend-dependencies.ps1|scripts/windows/build/invoke-windows-bun-install.ps1|scripts/windows/build/windows-frontend-install.test.ts|scripts/windows/build/invoke-windows-tauri-build.ps1|scripts/release/windows/create-windows-updater-manifest.ps1|scripts/release/windows/test-windows-updater-manifest.ps1)
             windows=true
             ;;
         scripts/windows/perf/*)

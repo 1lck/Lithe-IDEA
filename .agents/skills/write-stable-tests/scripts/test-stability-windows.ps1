@@ -110,6 +110,27 @@ function Invoke-TimedRustTests {
             # Two repositories, three confirmation previews and two pushes invoke
             # 287 Git processes; this integration case measured 49.9s on Windows.
             $arguments += @("--test-budget", "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000")
+            # These measured multi-preview/push cases took 18.3–20.2s on Windows.
+            # Fixture children and Core requests retain their own 10s deadline.
+            foreach ($pushCase in @(
+                "branch_created_from_remote_main_does_not_track_main",
+                "confirmed_upstream_push_resolves_a_slashed_branch_name",
+                "divergent_upstream_requires_an_explicit_choice",
+                "push_preview_and_write_share_destination_and_safe_options",
+                "push_rejects_a_preview_after_the_configured_destination_changes",
+                "push_target_choice_is_ignored_for_a_branch_that_tracks_its_own_name",
+                "reviewed_force_push_to_the_chosen_upstream_leases_that_branch",
+                "reviewed_push_rejects_a_different_destination_choice",
+                "reviewed_push_uses_default_remote_and_sets_upstream_when_missing",
+                "reviewed_upstream_push_is_rejected_when_the_upstream_moves"
+            )) {
+                $arguments += @("--test-budget", "${pushCase}=30000")
+            }
+        }
+        if (-not $Package -and $Manifest -eq "windows/tauri/src-tauri/Cargo.toml") {
+            # This real-Git integration case took 14.4s locally, while its
+            # repository initialization exceeded the former 5s Core deadline.
+            $arguments += @("--test-budget", "platform::tests::lightweight_tag_overrides_default_signing_without_running_signer_or_editor=30000")
         }
         return $arguments
     }

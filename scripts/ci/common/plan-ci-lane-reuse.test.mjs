@@ -68,6 +68,37 @@ function classify(fixture, base, head) {
   return parseClassification(execFileSync('bash', [join(fixture.root, 'scripts/ci/common/classify-ci-changes.sh'), base, head], { cwd: fixture.root, encoding: 'utf8', env, timeout: 10000 }));
 }
 
+test('plugin script locations keep their explicit product and infrastructure routes', async (t) => {
+  const cases = [
+    ['scripts/plugins/native-workbench-browser.mjs', false, false, true, false],
+    ['scripts/plugins/test-windows-native-plugin-ui-browser.mjs', false, false, true, false],
+    ['scripts/plugins/host-acceptance/build_fixture.py', false, false, true, true],
+    ['scripts/plugins/test-windows-declarative-plugin-host.ps1', false, false, true, true],
+    ['scripts/plugins/test-windows-plugin-vcs-core.mjs', false, false, true, true],
+    ['scripts/plugins/test-plugin-vcs-move-diagnostic.mjs', false, false, true, true],
+    ['scripts/windows/build/windows-build-preflight.ps1', false, false, true, false],
+    ['scripts/windows/build/windows-tree-sitter-proxy.cjs', false, false, true, false],
+    ['scripts/plugins/check-plugin-fixture-coverage.mjs', true, true, true, true],
+    ['scripts/plugins/plugin-fixture-coverage.json', true, true, true, true],
+  ];
+  for (const [path, plugins, rustCore, windows, windowsRust] of cases) {
+    await t.test(path, (t) => {
+      const f = fixtureRepository(t);
+      f.write(path, 'controlled script input');
+      const head = f.commit('add classified plugin script');
+      const result = classify(f, f.base, head);
+      assert.deepEqual({
+        swift: result.swift, plugins: result.plugins, rustCore: result.rust_core,
+        windows: result.windows, windowsRust: result.windows_rust,
+        macosRelease: result.macos_release, rustRemote: result.rust_remote,
+      }, {
+        swift: false, plugins, rustCore, windows, windowsRust,
+        macosRelease: false, rustRemote: false,
+      });
+    });
+  }
+});
+
 async function plan(fixture, { head, base = fixture.base, github, event = 'pull_request' }) {
   return planLaneReuse({
     env: {
@@ -81,6 +112,22 @@ async function plan(fixture, { head, base = fixture.base, github, event = 'pull_
     log: { warn() {} },
   });
 }
+
+test('resource hash implementation and regressions select every cache consumer', async (t) => {
+  for (const path of ['scripts/resources/hash-file-set.mjs', 'scripts/resources/hash-file-set.test.mjs']) {
+    await t.test(path, (t) => {
+      const f = fixtureRepository(t);
+      f.write(path, 'controlled resource validation input');
+      const head = f.commit('add resource validation script');
+      const result = classify(f, f.base, head);
+      for (const lane of ['swift', 'plugins', 'rust_core', 'macos_release', 'windows', 'windows_rust']) {
+        assert.equal(result[lane], true, `${path}: ${lane}`);
+      }
+      assert.equal(result.rust_remote, false);
+      assert.equal(result.java_jdt, false);
+    });
+  }
+});
 
 test('a small follow-up commit reuses every lane that already passed', async (t) => {
   const f = fixtureRepository(t);
@@ -182,9 +229,14 @@ test('a run created after this one is neither cancelled nor reused', async (t) =
 
 test('a change to a file with a Chinese name is not mistaken for no change', async (t) => {
   const f = fixtureRepository(t);
-  f.write('macos/Sources/Lithe/示例 "quoted".swift', 'struct Example {}');
+  // Win32 cannot create a literal quote in a filename. Keep Unicode and
+  // whitespace there, while POSIX still exercises Git's quote escaping too.
+  const source = process.platform === 'win32'
+    ? 'macos/Sources/Lithe/示例 quoted.swift'
+    : 'macos/Sources/Lithe/示例 "quoted".swift';
+  f.write(source, 'struct Example {}');
   const first = f.commit('add chinese file');
-  f.write('macos/Sources/Lithe/示例 "quoted".swift', 'struct Example { let changed = true }');
+  f.write(source, 'struct Example { let changed = true }');
   const second = f.commit('change chinese file');
   const github = fakeGitHub({ runs: [run(10, first, 'completed', '2026-10-17T01:00:00Z')], jobs: { 10: [job(101, 'Swift tests', 'completed', 'success')] }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }] });
   const result = await plan(f, { head: second, github });
@@ -376,6 +428,9 @@ test('CI infrastructure reaches only the workflows that read it', () => {
     'rust/lithe-core/Cargo.toml': shared,
     'scripts/ci/common/classify-ci-changes.sh': shared,
     'scripts/ci/common/plan-ci-lane-reuse.mjs': shared,
+    'scripts/resources/verify-download-cache.mjs': shared,
+    'scripts/resources/hash-file-set.mjs': shared,
+    'scripts/resources/hash-file-set.test.mjs': shared,
     'package.json': shared,
     '.agents/skills/write-stable-tests/scripts/verify-test-stability.sh': shared,
     // macOS build infrastructure also drives the plugin workflow.
@@ -391,6 +446,15 @@ test('CI infrastructure reaches only the workflows that read it', () => {
     'windows/tauri/rust-toolchain.toml': ['windows'],
     'windows/tauri/package.json': ['windows'],
     'scripts/windows/build/install-windows-frontend-dependencies.ps1': ['windows'],
+    'scripts/plugins/native-workbench-browser.mjs': ['windows'],
+    'scripts/plugins/test-windows-native-plugin-ui-browser.mjs': ['windows'],
+    'scripts/plugins/test-windows-declarative-plugin-host.ps1': ['windows'],
+    'scripts/plugins/test-windows-plugin-vcs-core.mjs': ['windows'],
+    'scripts/plugins/test-plugin-vcs-move-diagnostic.mjs': ['windows'],
+    'scripts/plugins/host-acceptance/build_preflight_test.py': ['windows'],
+    'scripts/plugins/check-plugin-fixture-coverage.mjs': shared,
+    'scripts/plugins/check-plugin-fixture-coverage.test.mjs': shared,
+    'scripts/plugins/plugin-fixture-coverage.json': shared,
     // Routed by directory, so Windows scripts without "windows" in the name are covered too.
     'scripts/windows/prepare/prepare-jdk.ps1': ['windows'],
     'scripts/windows/verify/verify-windows-boundaries.sh': ['windows'],

@@ -4,8 +4,9 @@
 // unified debug engine must pass before any old session path is removed.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("../..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../..", import.meta.url));
 const manifestPath = "shared/fixtures/debug/v1-baseline.json";
 const manifest = JSON.parse(readFileSync(join(root, manifestPath), "utf8"));
 const failures = [];

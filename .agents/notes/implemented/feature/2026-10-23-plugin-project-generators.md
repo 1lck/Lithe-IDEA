@@ -35,6 +35,10 @@
 
 每个生成器只声明：展示（`displayName`、`section`、`icon`、`order`）、字段（`fields`）、需要的语言或构建系统（`requirements`）、步骤（`steps`）、创建后打开的文件（`openFiles`）。字段类型沿用插件设置的命名（`text`、`enum`、`boolean`、`multiSelect`），另加 `runtime`（宿主发现的 JDK）。字段只能读在它之前声明的字段，所以默认值一次求完，显示条件不会成环。跨字段的版本约束也按这个顺序声明：`text`、`enum` 字段的 `maximumVersion` 是读取前面字段的模板，Spring Boot 的目标 Java 写 `${field.jdk.major}`，Core 在表单和计划阶段都拒绝高于所选 JDK 的组合（`versionTooHigh`），宿主不用为生成器写分支。
 
+没有插件字段的生成器仍使用宿主的名称、位置和 Git 表单。Core 序列化目录时会省略空的
+`fields`，Windows 类型与渲染必须把缺失字段视为空列表；不能直接调用 `.map()`，否则选择
+纯归档等无字段条目会导致整个工作台渲染失败。组件回归同时覆盖缺失字段和显式空数组。
+
 步骤三种，按顺序在临时目录里执行：
 
 - `files`：复制包内模板目录。
@@ -120,9 +124,39 @@
 - 收益：设置窗口、克隆窗口和向导共用侧栏行、字段控件和文件夹选择器，样式不会各自漂移。
 - 代价：Spring Boot 的版本和依赖列表写在插件里，会随时间过时，要靠插件发版更新；动态列表要等 Provider 能力。
 - 代价：Java Support 的 `requires` 多了 `projectGenerators: 1`，不支持生成器的宿主装不了这一版；停用 Java Support 时模板一起停用。
-- 暂不支持：JavaFX、Quarkus、Micronaut、Jakarta EE 等其他 Java 生成器；Windows 宿主（不声明 `projectGenerators`，需要它的插件在 Windows 市场中隐藏）。
+- 暂不支持：JavaFX、Quarkus、Micronaut、Jakarta EE 等其他 Java 生成器；Windows 完整 Java Support 分发与生成后语言服务/构建运行链；Windows 现已单独接入 `projectGenerators:1`，其他完整 `requires` 仍必须满足。
 
 ## 验证
+
+### Windows 受控创建链的证据边界
+
+Windows 的专用验收入口复用真实磁盘安装审查、`AppSession`、通用新建项目向导和
+原生生成事务，不通过写安装记录或伪造 IPC 回包绕过准入。受控社区包只声明
+`projectGenerators:1` 与 `project.generate`，包含文件模板、命令产物收集及 HTTPS
+归档；它不是官方发布或签名完整包。固定 HTTPS 上游归档另带仓库、提交、许可、
+ZIP 摘要与完整文件核对，只用作本次联网集成输入，不执行下载内容。
+
+整个产品驱动放进已有的 Windows Job（系统持有的进程组）：可信启动器先归属再
+释放工作进程，600 秒期限覆盖产品与所有子进程。驱动将前 480 秒用于工作流，
+预留退出、资源核对和配置清理；失败也复用原有保留句柄清理，未知存活状态保留
+隔离目录。取消与关闭共用 10 秒观察，必须早于命令的 120 秒正常期限和 180 秒
+子进程保险；过旧的命令不能作为取消成功证据。关闭还须证明真实向导已卸载。
+标记文件里的 PID（进程编号）只用于观察，只有当前宿主后代的保留身份才授权清理。
+
+正确做法是用同一源码清单和隔离程序完成安装、创建、打开、失败清理与资源字节
+比较，再分别记录已完成的受控子流程。不要把 helper 测试通过、预检成功、
+子进程自然失败或无关静态目录不变写成产品通过。快照必须覆盖实际启动的运行
+镜像，原完整 ZIP 和仍安装的插件包也要保持不变。
+
+夹具、固定归档参考、项目输出和报告都属于本次验收，使用既有
+`plugin-host-acceptance-state` 排除路由，不能跨工作树复用，不写发行资源。
+生成项目放在隔离应用本地配置的 `generator-projects/`，采集文件与打开状态证据后随
+原有配置清理路径回收。不要把需要初始化 Git 的项目放进源码工作树的 `.artifacts/`：
+Core 会把它识别为已有仓库的一部分并拒绝嵌套初始化，验收不能绕过该保护。
+R29 的当前候选源码仅开放 `projectGenerators:1`，使独立生成器包经过正常审批后进入
+既有创建链；受控 x64 产品验收仍须完成才保留该准入。真实固定生成器包、所选 JDK、欢迎页实机、
+工作区切换、生成后的语言服务与构建运行、签名 Windows 包和 ARM64 尚待验证。
+因此受控创建链有独立的成功标记，完整 M8/M10 继续保持 `partial/pending`。
 
 ```bash
 cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators

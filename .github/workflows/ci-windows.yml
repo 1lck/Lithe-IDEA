@@ -47,6 +47,7 @@ jobs:
         run: |
           node scripts/resources/test-verify-download-cache.mjs
           node scripts/resources/test-reuse-worktree-resources.mjs
+          node --test --test-timeout=15000 scripts/windows/build/windows-tree-sitter-proxy.test.cjs
           node --test --test-timeout=15000 scripts/agent/test-codex-config-relay.mjs
 
       - name: Resolve comparison base
@@ -325,9 +326,181 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-plugin-lsp-launch.json -- src/features/editor/lsp/resolve-editor-lsp-launch.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test plugin sources details build models and editor admission
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          # Each file owns its native/DOM mocks. Leading ./ selects an exact
+          # file, so the .ts source service does not also run its .tsx view.
+          $suites = @(
+            "src/features/plugins/declarative-marketplace-sources.test.ts",
+            "src/features/plugins/declarative-marketplace-sources.test.tsx",
+            "src/features/plugins/declarative-marketplace.test.ts",
+            "src/features/plugins/marketplace/marketplace-types.test.ts",
+            "src/features/plugins/marketplace/marketplace-session.test.ts",
+            "src/features/plugins/marketplace/marketplace-section.test.tsx",
+            "src/features/plugins/marketplace/marketplace-host-service.test.ts",
+            "src/features/plugins/details/plugin-details.service.test.ts",
+            "src/features/plugins/details/plugin-details-view.test.tsx",
+            "src/features/plugins/declarative-plugin-list-model.test.ts",
+            "src/features/plugins/declarative-plugins-section.test.tsx",
+            "src/features/build-systems/build-systems-service.test.ts",
+            "src/features/build-systems/build-systems-store.test.ts",
+            "src/features/build-systems/build-run-native.test.ts",
+            "src/features/build-systems/build-run-session.test.ts",
+            "src/features/build-systems/build-dependencies-native.test.ts",
+            "src/features/build-systems/build-dependencies-session.test.ts",
+            "src/features/build-systems/components/build-dependencies.test.tsx",
+            "src/features/build-systems/build-language-import.test.ts",
+            "src/features/maven/services/java-maven-configuration.test.ts",
+            "src/features/editor/lsp/resolve-editor-lsp-launch.test.ts",
+            "src/features/plugins/plugin-web-build.test.ts",
+            "src/features/build-systems/components/build-run-controls.test.tsx",
+            "src/features/build-systems/components/build-model-controls.test.tsx",
+            "src/features/build-systems/components/build-system-pane.test.tsx",
+            "src/features/build-systems/output/build-output-store.test.ts",
+            "src/features/build-systems/output/build-output-path.test.ts",
+            "src/features/build-systems/output/components/build-output-pane.test.tsx",
+            "src/features/build-systems/output/components/build-output-log.test.tsx",
+            "src/features/build-systems/output/components/build-output-problems.test.tsx",
+            "src/features/build-systems/output/components/build-output-tests.test.tsx",
+            "src/features/editor/lsp/built-in-language-support.test.ts",
+            "src/features/editor/lsp/declarative-language-support.test.ts",
+            "src/features/editor/hooks/use-lsp-integration-declarative.test.tsx",
+            "src/features/editor/hooks/use-lsp-attachment-lifecycle.test.tsx",
+            "src/features/editor/hooks/use-lsp-queued-owner.test.tsx",
+            "src/features/editor/lsp/lsp-client-attachment-lifecycle.test.ts",
+            "src/features/editor/stores/buffer-lsp-close.test.ts"
+          )
+          $index = 0
+          foreach ($suite in $suites) {
+            $index += 1
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-plugin-integration-$index.json" -- "./$suite"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Test plugin docking and VCS write boundaries in isolation
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          $suites = @(
+            "src/ui/search.test.tsx",
+            "src/ui/info-tip.test.tsx",
+            "src/ui/icons.test.tsx",
+            "src/features/plugins/native-ui/native-docking.test.tsx",
+            "src/features/plugins/native-ui/native-main-layout.test.tsx",
+            "src/features/plugins/native-ui/native-panel.test.tsx",
+            "src/features/plugins/native-ui/native-functions.test.ts",
+            "src/features/layout/components/plugin-activity-rail.test.ts",
+            "src/features/layout/components/bottom-pane/bottom-pane-terminal-lifecycle.test.tsx",
+            "src/features/layout/actions/workbench-tool-window-actions.test.ts",
+            "src/features/layout/actions/right-tool-window-actions.test.ts",
+            "src/features/layout/utils/sidebar-pane-utils.test.ts",
+            "src/features/vcs/vcs-resolve-cleanup.test.ts",
+            "src/features/vcs/vcs-file-operations.test.ts",
+            "src/features/vcs/vcs-action-controller.test.ts",
+            "src/features/vcs/vcs-actions-panel.test.tsx"
+          )
+          $index = 0
+          foreach ($suite in $suites) {
+            $index += 1
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-plugin-docking-vcs-$index.json" -- --preload ./src/test-utils/vite-assets.ts "./$suite"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Set up Python for plugin acceptance driver checks
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Test plugin acceptance process ownership, marketplace and LSP fixtures
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.60.0 psutil==7.2.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/host-acceptance/acceptance_driver_test.py --report .artifacts/test-stability/plugin-host-driver.json --dom-browser msedge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/host-acceptance/marketplace_acceptance_test.py --report .artifacts/test-stability/plugin-marketplace-driver.json --dom-browser msedge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/host-acceptance/lsp_lifecycle_acceptance_test.py --report .artifacts/test-stability/plugin-lsp-lifecycle-driver.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/host-acceptance/settings_functions_acceptance_test.py --report .artifacts/test-stability/plugin-settings-functions-driver.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/host-acceptance/web_bridge_fallback_acceptance_test.py --report .artifacts/test-stability/plugin-web-fallback-helpers.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/host-acceptance/text_window_acceptance_test.py --report .artifacts/test-stability/plugin-text-window-helpers.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/host-acceptance/generator_acceptance_test.py --report .artifacts/test-stability/plugin-generator-helpers.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/host-acceptance/vcs_move_diagnostic_test.py --report .artifacts/test-stability/plugin-vcs-move-driver.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/plugins/test-plugin-vcs-move-diagnostic.mjs --report .artifacts/test-stability/plugin-vcs-move-node.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test offline Windows build preparation
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          @'
+          import json
+          import sys
+          import time
+          from pathlib import Path
+          sys.path.insert(0, str(Path('scripts/plugins/host-acceptance').resolve()))
+          from acceptance_driver import run_bounded_process
+          report = Path('.artifacts/test-stability/plugin-build-preflight.json')
+          report.parent.mkdir(parents=True, exist_ok=True)
+          report.write_text(json.dumps({'runner': 'acceptance', 'maxMs': 190000, 'tests': [{'name': 'offline preparation pending completion', 'status': 'incomplete', 'durationMs': 0}]}), encoding='utf-8')
+          started = time.perf_counter()
+          try:
+              result = run_bounded_process([sys.executable, '-B', 'scripts/plugins/host-acceptance/build_preflight_test.py', '--report', str(report)], 190)
+              print(result.stdout, end='')
+              print(result.stderr, end='', file=sys.stderr)
+              code = result.returncode
+              if code != 0:
+                  evidence = json.loads(report.read_text(encoding='utf-8'))
+                  evidence['tests'].append({'name': 'offline preparation process result', 'status': 'failed', 'durationMs': (time.perf_counter()-started)*1000, 'message': f'process exited {code}'})
+                  report.write_text(json.dumps(evidence, indent=2), encoding='utf-8')
+          except Exception as error:
+              evidence = json.loads(report.read_text(encoding='utf-8'))
+              evidence['tests'].append({'name': 'offline preparation process owner', 'status': 'failed', 'durationMs': (time.perf_counter()-started)*1000, 'message': str(error)})
+              report.write_text(json.dumps(evidence, indent=2), encoding='utf-8')
+              print(error, file=sys.stderr)
+              code = 1
+          raise SystemExit(code)
+          '@ | python -B -
+          $preflightExit = $LASTEXITCODE
+          node --input-type=module -e "import {writeTestReportArtifacts} from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs'; writeTestReportArtifacts('.artifacts/test-stability/plugin-build-preflight.json');"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($preflightExit -ne 0) { exit $preflightExit }
+
+      - name: Test native plugin controls, workbench, tree menus and lifecycle in Edge
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $playwrightModule = python -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).parent / 'driver/package/index.mjs')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-panel-browser.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode native-tree --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-tree-browser.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode form-grid --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-form-grid-browser.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode controls-input --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-controls-input-browser.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode workbench --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-workbench-browser.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($failure in @('worker-exit', 'worker-hang')) {
+            node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode lifecycle --inject-failure $failure --timeout-ms 25000 --report ".artifacts/test-stability/native-browser-$failure.json"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Test Agent panel and capability gate
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/features/editor/stores/buffer-agent-conversation.test.ts src/utils/markdown-links.test.ts src/config/backend-capabilities.test.ts src/i18n src/features/file-system/utils/file-system-drop-controller.test.ts src/ui/icons.test.tsx
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/features/editor/stores/buffer-agent-conversation.test.ts src/utils/markdown-links.test.ts src/config/backend-capabilities.test.ts src/i18n src/features/file-system/utils/file-system-drop-controller.test.ts
 
       - name: Test Agent connection service ownership in isolation
         shell: pwsh
@@ -660,6 +833,11 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-spring-index-readiness.json -- src/features/spring/hooks/use-spring-index.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Generate combined Windows frontend test report
+        if: always()
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
+
       - name: Upload Windows frontend test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -761,6 +939,12 @@ jobs:
         timeout-minutes: 20
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust -SuiteTimeoutSeconds 1080
 
+      - name: Test plugin VCS through real Core stdio
+        if: needs.changes.outputs.windows_rust == 'true'
+        shell: pwsh
+        timeout-minutes: 20
+        run: node scripts/plugins/test-windows-plugin-vcs-core.mjs
+
       - name: Generate combined Windows Rust test report
         if: always()
         shell: pwsh
@@ -841,6 +1025,16 @@ jobs:
             --max-ms 15000 `
             --test-budget git_paths_roundtrip_=60000 `
             --test-budget watch_context_distinguishes_linked_worktree_git_and_common_directories=30000 `
+            --test-budget branch_created_from_remote_main_does_not_track_main=30000 `
+            --test-budget confirmed_upstream_push_resolves_a_slashed_branch_name=30000 `
+            --test-budget divergent_upstream_requires_an_explicit_choice=30000 `
+            --test-budget push_preview_and_write_share_destination_and_safe_options=30000 `
+            --test-budget push_rejects_a_preview_after_the_configured_destination_changes=30000 `
+            --test-budget push_target_choice_is_ignored_for_a_branch_that_tracks_its_own_name=30000 `
+            --test-budget reviewed_force_push_to_the_chosen_upstream_leases_that_branch=30000 `
+            --test-budget reviewed_push_rejects_a_different_destination_choice=30000 `
+            --test-budget reviewed_push_uses_default_remote_and_sets_upstream_when_missing=30000 `
+            --test-budget reviewed_upstream_push_is_rejected_when_the_upstream_moves=30000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
             --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `

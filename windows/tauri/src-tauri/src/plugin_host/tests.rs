@@ -16,13 +16,14 @@ const FIXTURES_DIR: &str = concat!(
 );
 
 /// Valid manifests that this host's capability declaration accepts.
-const ACCEPTED_FIXTURES: [&str; 6] = [
+const ACCEPTED_FIXTURES: [&str; 7] = [
     "language-system-command.plugin.json",
     "hello-lithe.plugin.json",
     "language-host-integration.plugin.json",
     "node-runtime.plugin.json",
     "language-packaged-server.plugin.json",
     "web-panel.plugin.json",
+    "project-generator.plugin.json",
 ];
 
 /// Valid manifests whose capabilities exceed the host declaration; Core
@@ -163,14 +164,27 @@ fn scan_accepts_valid_packages_and_quarantines_broken_ones() {
     let root = unique_temp_root("scan");
     let package_root = root.join("acme.php");
     std::fs::create_dir_all(&package_root).expect("package dir");
-    let manifest = read_fixture("language-packaged-server.plugin.json");
+    // A community install requires a non-official ID and an unsigned trust
+    // declaration; the fixture's official-namespace manifest is reshaped the
+    // way a real disk package looks.
+    let mut manifest = read_fixture("language-packaged-server.plugin.json");
+    manifest["id"] = serde_json::json!("io.example.acme-php");
+    manifest["vendor"]["signatureRequirement"] = serde_json::json!("none");
     std::fs::write(
         package_root.join("plugin.json"),
         serde_json::to_string_pretty(&manifest).expect("manifest text"),
     )
     .expect("manifest file");
 
-    let accepted = scan_package_at(&package_root, None);
+    let accepted = scan_package_at(
+        &package_root,
+        None,
+        Some(crate::plugin_host::signature::InstallOrigin::Community),
+        Some(
+            crate::plugin_host::signature::content_digest(&package_root)
+                .expect("digest of the package"),
+        ),
+    );
     assert_eq!(accepted.entry.status, "accepted");
     assert_eq!(accepted.entry.plugin_id, manifest["id"]);
     assert_eq!(accepted.entry.languages.len(), 1);
@@ -180,7 +194,7 @@ fn scan_accepts_valid_packages_and_quarantines_broken_ones() {
     );
 
     std::fs::write(package_root.join("plugin.json"), "{ not json").expect("broken manifest");
-    let broken = scan_package_at(&package_root, None);
+    let broken = scan_package_at(&package_root, None, None, None);
     assert_eq!(broken.entry.status, "rejected");
     assert_eq!(
         broken.entry.rejection.as_ref().expect("rejection").code,
@@ -213,18 +227,45 @@ fn store_problems_quarantine_packages_with_valid_manifests() {
     // A record naming a missing version is a store problem too.
     std::fs::write(
         plugin_directory.join("installation.json"),
-        json!({"schemaVersion": 1, "pluginId": "acme.php", "version": "9.9.9"}).to_string(),
+        json!({"schemaVersion": 2, "pluginId": "acme.php", "version": "9.9.9", "origin": "community"}).to_string(),
+    )
+    .expect("record file");
+    let discovered = store::discover_installed_in(&root).expect("discovery works");
+    assert!(discovered[0].record_problem.is_some());
+
+    // A schema 1 record predates content provenance: it is quarantined even
+    // though it names the installed version, because the enabled flag and
+    // the manifest cannot prove which bytes the user approved.
+    std::fs::write(
+        plugin_directory.join("installation.json"),
+        json!({"schemaVersion": 1, "pluginId": "acme.php", "version": "1.0.0"}).to_string(),
+    )
+    .expect("record file");
+    let discovered = store::discover_installed_in(&root).expect("discovery works");
+    assert!(discovered[0].record_problem.is_some());
+    assert!(discovered[0]
+        .record_problem
+        .as_deref()
+        .unwrap_or_default()
+        .contains("provenance"));
+
+    // A schema 2 community record without a content digest is the same trap.
+    std::fs::write(
+        plugin_directory.join("installation.json"),
+        json!({"schemaVersion": 2, "pluginId": "acme.php", "version": "1.0.0", "origin": "community"}).to_string(),
     )
     .expect("record file");
     let discovered = store::discover_installed_in(&root).expect("discovery works");
     assert!(discovered[0].record_problem.is_some());
 
     // Correct record: discovered at the recorded version, enabled by default.
-    std::fs::write(
-        plugin_directory.join("installation.json"),
-        json!({"schemaVersion": 1, "pluginId": "acme.php", "version": "1.0.0"}).to_string(),
-    )
-    .expect("record file");
+    write_record_v2(
+        &plugin_directory,
+        "acme.php",
+        "1.0.0",
+        &version_directory,
+        true,
+    );
     let discovered = store::discover_installed_in(&root).expect("discovery works");
     assert!(discovered[0].record_problem.is_none());
     assert_eq!(discovered[0].root, version_directory);
@@ -261,24 +302,30 @@ fn catalog_build_combines_bundled_and_installed_sources() {
     let bundled_root = temporary.join("OfficialPlugins");
     let installed_version = install_root.join("acme.php").join("1.0.0");
     std::fs::create_dir_all(&installed_version).expect("installed dir");
+    let mut installed_manifest = read_fixture("language-packaged-server.plugin.json");
+    installed_manifest["id"] = serde_json::json!("io.example.acme-php");
+    installed_manifest["vendor"]["signatureRequirement"] = serde_json::json!("none");
     std::fs::write(
         installed_version.join("plugin.json"),
-        serde_json::to_string(&read_fixture("language-packaged-server.plugin.json"))
-            .expect("manifest"),
+        serde_json::to_string_pretty(&installed_manifest).expect("manifest"),
     )
     .expect("manifest file");
-    std::fs::write(
-        install_root.join("acme.php").join("installation.json"),
-        json!({"schemaVersion": 1, "pluginId": "acme.php", "version": "1.0.0", "enabled": false})
-            .to_string(),
-    )
-    .expect("record file");
+    write_record_v2(
+        &install_root.join("acme.php"),
+        "acme.php",
+        "1.0.0",
+        &installed_version,
+        false,
+    );
+    // A bundled package is trusted through its location: its manifest may
+    // keep the sameTeamAsHost policy the bundled PHP contract package uses.
+    let mut bundled_manifest = read_fixture("language-system-command.plugin.json");
+    bundled_manifest["vendor"]["signatureRequirement"] = serde_json::json!("sameTeamAsHost");
     let bundled_directory = bundled_root.join("acme.go").join("2.0.0");
     std::fs::create_dir_all(&bundled_directory).expect("bundled dir");
     std::fs::write(
         bundled_directory.join("plugin.json"),
-        serde_json::to_string(&read_fixture("language-system-command.plugin.json"))
-            .expect("manifest"),
+        serde_json::to_string_pretty(&bundled_manifest).expect("manifest"),
     )
     .expect("manifest file");
 
@@ -316,22 +363,344 @@ fn unique_temp_root(label: &str) -> PathBuf {
     root
 }
 
-/// Scans one package directory through the production scan path.
+/// Scans one package directory through the production scan path. `origin`
+/// and `content_digest` carry the trust evidence an installation record
+/// would provide; `None` mirrors a record without provenance.
 fn scan_package_at(
     root: &std::path::Path,
     record_problem: Option<String>,
+    origin: Option<crate::plugin_host::signature::InstallOrigin>,
+    content_digest: Option<String>,
 ) -> super::ScannedPackage {
-    super::scan::scan_package_for_tests(DiscoveredPackage {
-        root: root.to_path_buf(),
-        source: "installed",
-        enabled: true,
-        record_problem,
-    })
+    super::scan::scan_package_for_tests(
+        DiscoveredPackage {
+            root: root.to_path_buf(),
+            source: "installed",
+            enabled: true,
+            origin,
+            content_digest,
+            record_problem,
+        },
+        None,
+    )
+}
+
+/// Writes a schema 2 community record naming `version`, with the content
+/// digest of `version_directory` as the approved-bytes evidence.
+fn write_record_v2(
+    plugin_directory: &std::path::Path,
+    plugin_id: &str,
+    version: &str,
+    version_directory: &std::path::Path,
+    enabled: bool,
+) {
+    let record = json!({
+        "schemaVersion": 2,
+        "pluginId": plugin_id,
+        "version": version,
+        "enabled": enabled,
+        "origin": "community",
+        "disk": {
+            "fileName": "plugin.zip",
+            "archiveSHA256": null,
+            "contentDigest": crate::plugin_host::signature::content_digest(version_directory)
+                .expect("digest of the package directory"),
+            "approvedPrograms": [],
+        }
+    });
+    std::fs::write(
+        plugin_directory.join("installation.json"),
+        record.to_string(),
+    )
+    .expect("record file");
 }
 
 /// Fixture reader shared with the install test module.
 pub(crate) fn read_fixture_for_tests(name: &str) -> serde_json::Value {
     read_fixture(name)
+}
+
+/// Writes a community-installable package (non-official ID, unsigned trust
+/// declaration) and its schema 2 record into an install root.
+fn install_community_package(install_root: &std::path::Path, version: &str) -> std::path::PathBuf {
+    let plugin_directory = install_root.join("io.example.acme-php");
+    let version_directory = plugin_directory.join(version);
+    std::fs::create_dir_all(&version_directory).expect("version dir");
+    let mut manifest = read_fixture("language-packaged-server.plugin.json");
+    manifest["id"] = serde_json::json!("io.example.acme-php");
+    manifest["vendor"]["signatureRequirement"] = serde_json::json!("none");
+    manifest["version"] = serde_json::json!(version);
+    std::fs::write(
+        version_directory.join("plugin.json"),
+        serde_json::to_string_pretty(&manifest).expect("manifest text"),
+    )
+    .expect("manifest file");
+    std::fs::write(version_directory.join("server.js"), b"entry").expect("package file");
+    write_record_v2(
+        &plugin_directory,
+        "io.example.acme-php",
+        version,
+        &version_directory,
+        true,
+    );
+    version_directory
+}
+
+/// The real bundled PHP contract package passes the M1 trust gate exactly
+/// the way the app's resource-directory scan will treat it: bundled origin,
+/// pinned `sameTeamAsHost` policy, no install record.
+#[test]
+fn real_bundled_contract_package_passes_the_trust_gate() {
+    let source = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../Plugins/win/Official/PhpSupportContract"
+    );
+    let root = unique_temp_root("trust-bundled");
+    let bundled_root = root
+        .join("OfficialPlugins")
+        .join("dev.lithe.plugin.php-support");
+    std::fs::create_dir_all(&bundled_root).expect("bundled root");
+    copy_directory_snapshot_for_tests(std::path::Path::new(source), &bundled_root);
+
+    let catalog = build_catalog_from(&root.join("OfficialPlugins"), &root.join("none"))
+        .expect("catalog builds");
+    let package = catalog
+        .iter()
+        .find(|package| package.entry.source == "bundled")
+        .expect("bundled entry");
+    let entry = &package.entry;
+    assert_eq!(entry.status, "accepted", "{:?}", entry.rejection);
+    assert_eq!(entry.plugin_id, "dev.lithe.plugin.php-support");
+    assert!(entry.enabled);
+    // The trust evidence recorded for launch re-verification is bundled.
+    assert!(matches!(
+        package.trust.as_ref().map(|trust| trust.origin),
+        Some(crate::plugin_host::signature::InstallOrigin::Bundled)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Copies a package tree without following reparse points, mirroring the
+/// snapshot copy the installer performs.
+fn copy_directory_snapshot_for_tests(source: &std::path::Path, target: &std::path::Path) {
+    std::fs::create_dir_all(target).expect("target dir");
+    for entry in std::fs::read_dir(source).expect("source readable") {
+        let entry = entry.expect("entry");
+        let entry_target = target.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_directory_snapshot_for_tests(&entry.path(), &entry_target);
+        } else {
+            std::fs::copy(entry.path(), &entry_target).expect("file copy");
+        }
+    }
+}
+
+/// P1 regression: an installed record can never claim bundled origin. The
+/// bundled identity comes only from the trusted resource discoverer; a
+/// schema 2 record that claims it (for the active or the previous version)
+/// is forged and the package is quarantined instead of scanned.
+#[test]
+fn installed_records_cannot_claim_bundled_origin() {
+    let root = unique_temp_root("trust-bundled-claim");
+    let install_root = root.join("plugins");
+    let plugin_directory = install_root.join("dev.lithe.plugin.php-support");
+    let version_directory = plugin_directory.join("1.0.0");
+    std::fs::create_dir_all(&version_directory).expect("version dir");
+    let mut manifest = read_fixture("language-packaged-server.plugin.json");
+    manifest["id"] = serde_json::json!("dev.lithe.plugin.php-support");
+    manifest["vendor"]["signatureRequirement"] = serde_json::json!("sameTeamAsHost");
+    manifest["version"] = serde_json::json!("1.0.0");
+    std::fs::write(
+        version_directory.join("plugin.json"),
+        serde_json::to_string_pretty(&manifest).expect("manifest text"),
+    )
+    .expect("manifest file");
+    std::fs::write(version_directory.join("server.js"), b"entry").expect("package file");
+
+    // The forged record claims bundled origin with no digest at all.
+    std::fs::write(
+        plugin_directory.join("installation.json"),
+        json!({
+            "schemaVersion": 2,
+            "pluginId": "dev.lithe.plugin.php-support",
+            "version": "1.0.0",
+            "enabled": true,
+            "origin": "bundled"
+        })
+        .to_string(),
+    )
+    .expect("record file");
+    let discovered = store::discover_installed_in(&install_root).expect("discovery works");
+    assert!(
+        discovered[0].record_problem.is_some(),
+        "a bundled-origin claim must be a record problem"
+    );
+    let catalog = build_catalog_from(&root.join("none"), &install_root).expect("catalog builds");
+    let entry = &catalog
+        .iter()
+        .find(|package| package.entry.source == "installed")
+        .expect("installed entry")
+        .entry;
+    assert_eq!(entry.status, "rejected", "the forged package must not load");
+
+    // The same holds when only the previous version claims bundled origin.
+    let digest = crate::plugin_host::signature::content_digest(&version_directory)
+        .expect("digest of the package");
+    std::fs::write(
+        plugin_directory.join("installation.json"),
+        json!({
+            "schemaVersion": 2,
+            "pluginId": "dev.lithe.plugin.php-support",
+            "version": "1.0.0",
+            "enabled": true,
+            "origin": "community",
+            "disk": {
+                "fileName": "plugin.zip",
+                "archiveSHA256": null,
+                "contentDigest": digest,
+                "approvedPrograms": []
+            },
+            "previousVersion": "0.9.0",
+            "previousOrigin": "bundled"
+        })
+        .to_string(),
+    )
+    .expect("record file");
+    let discovered = store::discover_installed_in(&install_root).expect("discovery works");
+    assert!(
+        discovered[0].record_problem.is_some(),
+        "a bundled previous-origin claim must be a record problem too"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The bytes of an installed community package are rechecked against the
+/// recorded content digest on every scan, so a package tampered while the
+/// app was not running is quarantined at the next startup instead of loaded.
+#[test]
+fn scan_quarantines_a_tampered_installed_package() {
+    let root = unique_temp_root("trust-tamper");
+    let install_root = root.join("plugins");
+    install_community_package(&install_root, "1.0.0");
+
+    let catalog = build_catalog_from(&root.join("none"), &install_root).expect("catalog builds");
+    let entry = &catalog
+        .iter()
+        .find(|package| package.entry.source == "installed")
+        .expect("installed entry")
+        .entry;
+    assert_eq!(entry.status, "accepted");
+
+    // Tamper while the app is not running: the next scan must refuse.
+    std::fs::write(
+        install_root
+            .join("io.example.acme-php")
+            .join("1.0.0")
+            .join("server.js"),
+        b"tampered",
+    )
+    .expect("tamper");
+    let catalog = build_catalog_from(&root.join("none"), &install_root).expect("catalog builds");
+    let entry = &catalog
+        .iter()
+        .find(|package| package.entry.source == "installed")
+        .expect("installed entry")
+        .entry;
+    assert_eq!(entry.status, "rejected");
+    let rejection = entry.rejection.as_ref().expect("rejection");
+    assert_eq!(rejection.code, "plugin.trust.contentChanged");
+
+    // An added file is the same rejection: the approved file set is exact.
+    std::fs::write(
+        install_root
+            .join("io.example.acme-php")
+            .join("1.0.0")
+            .join("server.js"),
+        b"entry",
+    )
+    .expect("restore");
+    std::fs::write(
+        install_root
+            .join("io.example.acme-php")
+            .join("1.0.0")
+            .join("extra.js"),
+        b"added",
+    )
+    .expect("add file");
+    let catalog = build_catalog_from(&root.join("none"), &install_root).expect("catalog builds");
+    let entry = &catalog
+        .iter()
+        .find(|package| package.entry.source == "installed")
+        .expect("installed entry")
+        .entry;
+    assert_eq!(
+        entry.rejection.as_ref().expect("rejection").code,
+        "plugin.trust.contentChanged"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The host's official-ID trust policy overrides the package declaration: a
+/// pinned official ID cannot install as an unsigned community package even
+/// when its manifest claims a signature requirement the host could honor.
+#[test]
+fn official_ids_reject_unsigned_community_installs() {
+    let root = unique_temp_root("trust-official");
+    let package_root = root.join("pkg");
+    std::fs::create_dir_all(&package_root).expect("package dir");
+    let mut manifest = read_fixture("language-packaged-server.plugin.json");
+    // The pinned PHP support ID; its bundled contract package legitimately
+    // uses sameTeamAsHost, which a disk install can never prove.
+    manifest["id"] = serde_json::json!("dev.lithe.plugin.php-support");
+    manifest["vendor"]["signatureRequirement"] = serde_json::json!("sameTeamAsHost");
+    std::fs::write(
+        package_root.join("plugin.json"),
+        serde_json::to_string_pretty(&manifest).expect("manifest text"),
+    )
+    .expect("manifest file");
+    std::fs::write(package_root.join("server.js"), b"entry").expect("package file");
+
+    let scanned = scan_package_at(
+        &package_root,
+        None,
+        Some(crate::plugin_host::signature::InstallOrigin::Community),
+        None,
+    );
+    assert_eq!(scanned.entry.status, "rejected");
+    let rejection = scanned.entry.rejection.as_ref().expect("rejection");
+    // The pinned sameTeamAsHost policy can never be honored from disk: the
+    // package is refused with the seal error even though it declares a
+    // requirement the host pins.
+    assert_eq!(
+        rejection.code, "plugin.trust.hostSealRequired",
+        "{rejection:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A signature document present in a community package must verify: a forged
+/// or damaged document is never silently ignored.
+#[test]
+fn a_present_signature_document_must_verify_even_for_community_packages() {
+    let root = unique_temp_root("trust-signature");
+    let install_root = root.join("plugins");
+    let version_directory = install_community_package(&install_root, "1.0.0");
+    std::fs::write(
+        version_directory.join("lithe-plugin-signature.json"),
+        r#"{"schemaVersion":1,"algorithm":"ed25519","keyID":"lithe-test-v1","pluginID":"io.example.acme-php","pluginVersion":"1.0.0","files":{},"signature":"AAAA"}"#,
+    )
+    .expect("signature file");
+    let catalog = build_catalog_from(&root.join("none"), &install_root).expect("catalog builds");
+    let entry = &catalog
+        .iter()
+        .find(|package| package.entry.source == "installed")
+        .expect("installed entry")
+        .entry;
+    assert_eq!(
+        entry.rejection.as_ref().expect("rejection").code,
+        "plugin.trust.signatureInvalid"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// M3 setting-store tests exercise the two persistence layers directly: the
@@ -528,6 +897,8 @@ fn concurrent_catalog_refreshes_publish_in_discovery_order() {
                     assert!(second.scan_lock.try_lock().is_err());
                     Ok(vec![scan_package_at(
                         &PathBuf::from("catalog-new.plugin"),
+                        None,
+                        None,
                         None,
                     )])
                 })

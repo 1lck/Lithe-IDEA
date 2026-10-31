@@ -362,6 +362,39 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 
 ### 独立工作树的本地编译
 
+Windows 插件正式验收的默认、LSP、设置和文本模式均使用完整源码库存及 EXE/配置/目标身份；`-SkipBuild` 必须匹配构建时的全部输入，旧 marker 缺失库存时应重新构建，不能补写为可复用证据。
+
+资源复用每次子校验默认最多 300 秒；文件很多的冷缓存可显式传入
+`--validation-timeout-seconds 1200`（整数 1～1200 秒）。这只调整本次校验的有界时限，
+临时副本、既有目标及原子发布后仍执行相同完整身份、文件清单和哈希校验；源工作树始终只读。
+超过时限仍失败并清理自己的 staging，不降低验证强度或复用可变安装状态。
+Bun 封存和校验最多并行打开 8 个哈希流，保留原文件顺序和逐文件 SHA-256 比较；
+失败先等待已开始的读取结束，再把错误交给 staging 清理，避免删除仍在读取的目录。
+
+根工作区使用 Bun 1.3.14；`bunfig.toml` 与 `bun.lock` 的显式 tarball URL 均使用
+`https://registry.npmjs.org`。不要假定 `--registry` 会替换 lock 中的显式地址。
+仅迁移来源也会改变 lock 原字节，旧 Bun 缓存 seal 必须重新校验；版本、完整依赖图和
+SRI 保持不变。仍通过既有 `bun` 路由校验复制下载缓存，不复制 `node_modules` 或
+`.artifacts/bun-tmp`。两个 tree-sitter-cli 的 GitHub lifecycle 二进制不属于 npm
+tarball SRI 的认证范围，尤其官方 digest 为 null 时不得登记为跨工作树二进制缓存。
+Bun 1.3.14 的官方修复覆盖 TLS 握手停滞及 isolated linker 下载/摘要错误后挂起；
+这里只升级安装工具，产品依赖精确版本不变。Windows 路径过长时可在本次调用独占的
+空闲 SUBST 盘符运行同一工作树，结束后移除自己创建的映射，不修改系统 long-path
+设置、不使用其他任务的盘符。工具候选的 npm metadata/tgz/EXE 和独立安装探针仅放
+ignored 诊断目录，不进入工作树下载缓存或资源复用清单。
+
+Windows 安装 worker 为 tree-sitter-cli 的原始 `install.js` 加载专用代理适配器；
+有 HTTPS 代理时要求 Node 22.21+ 或 24.5+，由 Node 的原生 `https.Agent({proxyEnv})`
+负责 CONNECT/TLS。适配器只在该生命周期进程中移除上游手动代理分支读取的两个变量，
+其它包与父进程环境不变，不禁用 TLS、SRI 或 lifecycle。无代理时沿用上游直连。
+代理变量按 Node 的 `https_proxy || HTTPS_PROXY` 选择；不支持的协议、非法 URL 或
+凭据编码会在变更前脱敏失败，修正配置后重试，不会静默改为直连。
+该适配器不下载、解压或缓存文件；输出仍归本次 Job-owned 安装状态，安装结束由既有
+流程封存允许复用的 Bun 下载缓存。运行时不写发行资源，不影响签名或增量更新基线。
+安装生命周期回归的 `<os-temp>/lithe Windows install */` 保存假工具、原生句柄等待器和
+进程身份凭据；每个 case 在对应子进程仍等待握手时保留其句柄，退出后关闭句柄、服务及
+连接才清理目录。这些临时生成物走 `frontend-install-state` 拒绝路由，所有阶段禁止复用。
+
 SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记为
 `swiftpm-build-state`，所有工作树复用阶段均拒绝复制。编译器标记只用于本工作树
 缓存失效，不是可转移的源码、平台、架构、SDK 和工具链完整性证明；只复用经过校验的
@@ -644,6 +677,21 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   官方插件归档由 `.github/workflows/release-official-plugins.yml` 按插件独立 tag 发布，
   不进入 app 构建或工作树缓存。
 
+- Windows 项目生成器归档事务：用户选择可写父目录后，原生事务独占创建同级
+  `.<project-name>.lithe-creating-<operation-id>/`，仅在其内通过 `create_new` 写入
+  `.lithe-project-archive-<nonce>.zip`。每次受限 HTTPS 下载把重定向响应体计入同一个
+  128 MiB 预算、使用最长 120 秒的下载期限和同一取消 token；同步调用既有 Core
+  `project.extractArchive` 时保留原 operation ID 与操作剩余期限。Core 在写入前校验路径、
+  链接及显式/隐式目录预算，展开内容最多 512 MiB、20,000 个路径节点、64 层，累计路径
+  UTF-8 字节最多 16 MiB。ZIP 描述符关闭后即删除；全部写入者结束、校验通过后才原子
+  不覆盖发布。失败或取消清理失败时保留 staging 与插件租约重试，无法确认写入者结束时
+  不能删除目录或声称清理完成。`excludedResources.project-generator-transactions` 在任何
+  工作树访问或复制前直接拒绝；HTTPS 内容没有固定摘要、版本、平台、架构或工具链
+  identity stamp，不能复用、共享、软链接或打包。运行
+  `node --test --test-timeout=60000 scripts/resources/test-reuse-worktree-resources.mjs` 验证排除路由。
+  全程只写用户选择的目录，不改动安装资源、代码签名或 Sparkle delta 基线。
+  capability 仍关闭，完整 Windows 原生及实机验证仍待完成。
+
 - 本地社区插件磁盘安装：`MacServiceContainer` 把 `fileStorage.temporaryDirectory()`
   注入 `MacPluginDiskPackageImporter`，每次选择 ZIP 或解包目录后，先在该平台可写根下创建
   私有的 `lithe-plugin-disk-<UUID>/`（权限 `0700`）。ZIP 的 `archive.zip` 和复制/解压后的
@@ -809,6 +857,16 @@ Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app
 任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
 排除路由直接拒绝，由 `scripts/resources/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
 
+Windows 的 Lithe 根映射保存在平台 adapter 返回的
+`<windows-app-local-data>/vcs-roots/<native-workspace-identity-sha256>.json`，
+只在用户明确保存时创建；每个来源最多 1 MiB、64 条选择。它保留未知 JSON 字段和权限，
+以原始字节版本拒绝外部冲突，复用设置 adapter 的同目录 `.tmp` 与 `.backup` 替换/恢复流程。
+工作区及选中根的原生目录身份防止相同路径的新目录继承旧选择；活动监听另按窗口、工作区登记、
+incarnation 与扫描代次隔离，关闭或插件撤销即释放。映射是 Lithe 自有偏好，不写 SVN/Git 配置。
+它们没有可复用的版本、平台、架构或工具链 stamp，`excludedResources.vcs-root-mappings`
+在任何复制阶段都由脚本排除路由拒绝；临时文件、恢复备份和内存监听 lease 同样禁止共享。
+平台可写应用数据与只读安装资源分离，因此不影响代码签名或 Sparkle delta 基线。
+
 插件宿主的 `<app-support>/Lithe/PluginHost/root-id.key` 是安装级密钥，
 `<app-support>/Lithe/PluginState/<plugin-id>/backend/workspaces/<workspace-digest>/`
 是按插件、工作区归属的可变状态。二者都没有版本/平台/架构/工具链复用身份，
@@ -816,6 +874,148 @@ Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app
 由资源复用测试验证。运行期仅写平台 Application Support，不改签名包或 Sparkle 源基线。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
+Windows 的插件源配置、按源与平台缓存的原始索引、摘要绑定的临时下载和按工作区保存的构建选项，
+同属 `plugin-marketplace-state` 排除路由：由运行时平台 adapter 注入用户可写根，
+取消或失败清理临时文件，持久配置由当前用户实例管理；没有可复用的版本/架构/工具链 identity，
+不得在任何 worktree 复制阶段共享，也不写入发行资源或改变签名及增量更新基线。
+Windows 命令模型的 `<windows-app-local-data>/plugin-state/<plugin-id>/build-<pid>-<operation-sequence>.model.json`
+及依赖输出的同目录 `build-<pid>-<operation-sequence>.dependencies.json`
+按 `official-plugin-packages` 排除路由处理：由当前窗口、工作区代次和操作独占，确认后以
+`create_new` 创建，进程树清理完成后删除；清理失败时与原 owner 一起保留，崩溃遗留由插件状态/卸载流程回收。
+二者均无版本/平台/工具链复用身份，不跨工作树复制，不改变发行资源、签名或增量更新基线。
+显式 SVN move 诊断入口 `python -B scripts/plugins/host-acceptance/vcs_move_diagnostic.py --inputs <fixed-inputs.json> --output <new-evidence-directory>` 只接受固定 Provider、历史 SDK、已校验 VisualSVN ZIP/解压树和诊断 gate。它在 OS 临时目录创建 suite-owned runtime，以及每 case 独立的 repo/WC 和 profile；这些状态及显式 ignored 输出均走 `plugin-host-acceptance-state` 排除路由，不跨 worktree 复制。源码字节身份只证明本次诊断输入，不是可复用构建 stamp。Job 零成员证明成立后移除临时状态，保留诊断证据；清理未获证明时保留隔离目录并停止恢复读取，不承诺已清理。不写发行资源、不影响签名或 Sparkle delta。该入口不下载、不构建、不运行产品，不代表 move 准入。
+
+ui:2 Web 回退夹具由 `web_bridge_fallback_fixture.py --output .artifacts/plugin-host-acceptance/web-bridge-fallback-fixture` 在目标工作树重新生成。静态 unsigned ZIP、工作区、source plan、私有页 CDP paused-request 决定、transport descriptor/回调 Map 观察及资源快照均属于 `plugin-host-acceptance-state`，没有可迁移的安装审批或可复用构建 identity；所有复用阶段拒绝，不新增下载校验路由。显式 `web_bridge_fallback_acceptance.py --help` 的执行入口消费同基线的隔离 x64 Release identity，使用 AppSession 保留句柄和本地 deadline，在失败路径释放 Fetch/CDP、退出产品并移除隔离 profile。CDP 仅令一次精确 IPC POST 失败；不改写 JS transport，不写发行镜像和已安装包，签名及增量更新基线不变。受控 ui:2 子集通过仍保留完整 M10、其他能力和平台 pending。
+
+ui:1 字面文本验收由 `text_window_acceptance.py` 为本次已绑定端口的计数服务生成完整 unsigned API3 `requires.ui=1` 包。`text-window-fixture*` 的 ZIP、工作区、source plan，私有宿主文本页的 DOM/CSP、预加载请求、桥 descriptor/回调 Map 及计数器正向控制和零字面 URL 请求证据，均属于 `plugin-host-acceptance-state`；没有版本/平台/架构/工具链可复用 stamp，所有复制阶段拒绝，不新增下载校验器。计数服务、浏览器观察、产品与 profile 仅由本次调用所有，失败路径也有界收尾；证据随本地审查或 CI retention 回收。运行时不写发行镜像或插件安装包，不影响签名与增量更新；受控 x64 文本子集不代表签名完整包或完整 M10。
+
+执行入口为 `pwsh -NoProfile -File scripts/plugins/test-windows-declarative-plugin-host.ps1 -TextWindow`，与 marketplace/LSP/settings 模式互斥。入口保存构建前后的完整源码库存，确认相同后写入隔离宿主 identity；`-SkipBuild -TextWindow` 只能消费已有且源码、配置、EXE 哈希均匹配的 identity，旧 marker 缺失库存时必须重建，不能事后补填。源码扫描共用 300 秒截止时间，运行驱动由外层 900 秒 deadline 约束。浏览器网络观察不能计数原生 postMessage IPC，报告明确保留该限制，不能把回调排空解释为精确零 IPC。R19 仅完成工具及离线失败边界，lane 构建超时且未产出验收 EXE，真实产品步骤仍 pending。
+
+正式 Windows 构建与插件宿主验收入口接受 `-NativeBunPath <native-bun.exe>`；
+该参数只选择已有的原生可执行文件，不安装 Bun。入口先检查其版本与目标工作树的
+`packageManager` 固定版本一致，再把所在目录加入继承的 PATH，确保 Node 资源校验器及
+安装子进程找到原生 Bun；PowerShell/npm shim 本身不能作为 Node 的执行目标。
+`-InstallTimeoutSeconds` 默认为 300，范围为 1～1200 秒，逐层传到既有安装 worker；
+这是每次安装尝试的时限，缓存失败后的既有无缓存重试各自使用该值，不能当作整个构建时限。
+
+Tauri 构建包装器保留原始 `Cargo.toml` 字节。动作结束后，只有内容恰好等于原始字节的
+CRLF→LF 转换才允许恢复；比较和恢复使用同一个独占文件句柄，未改动的字节和写入时间不变。
+其它语义改动、删除或被并发进程锁定的文件保持现状并使构建失败，不能重新创建或覆盖它们；
+若构建动作和恢复检查同时失败，两条诊断均保留。该边界不允许以 TOML 等价或文本摘要
+代替构建前后源码的精确字节身份。
+
+离线准备回归 `build_preflight_test.py` 使用 `<os-temp>/lithe-build-preflight-*/` 的一次性
+副本、伪 Bun/IPC 子进程、可变 manifest 和记录 stub；不调用 Cargo、Tauri 或产品。
+JDTLS 解压回归还在同一临时树生成小型 tar.gz/VSIX、前置 PATH 的假 tar 和提取产物，
+全部保持一次性 owner，拒绝跨 worktree 复用。Windows JDTLS 准备直接从平台
+`[Environment]::SystemDirectory` 选择原生 tar，不依赖 MSYS/GNU tar 的 PATH 顺序；
+缺少原生工具时在缓存或输出变更前失败，解压非零立即保留原生错误并停止后续复制。
+测试套件使用 180 秒预算，CI 与正式验收入口另有 190 秒的既有保留句柄进程 owner；
+单项等待仍各自有界，超时按原进程身份回收。报告为
+`.artifacts/test-stability/plugin-build-preflight.{json,html,junit.xml}`，
+临时树和伪工具按 `plugin-host-acceptance-state` 排除路由拒绝所有 worktree 复制，
+没有可复用的版本、平台、架构或工具链 stamp，退出时清理本次资源。
+这些离线检查只能证明准备流程和失败边界，真实 `ui:1` 产品步骤仍须另外验收。
+
+原生插件验收的 `.artifacts/plugin-host-acceptance/`（含市场 ZIP/索引、构建夹具的包、工具、工作区及 plan、`settings-functions-fixture*` 的包/工作区/身份 plan、设置与函数验收资源快照、隔离运行镜像和报告）及
+`app.lithe.windows.host-acceptance` 用户配置走 `plugin-host-acceptance-state` 排除路由：
+每次在目标工作树重新生成，无可复用 identity，不跨 worktree 复制；驱动回收监听器、进程和隔离用户数据，
+报告留在本次验证目录。HTTPS 使用已有可信证书，不复制私钥或改系统信任，也不改发行资源及签名基线。
+设置/函数入口先运行 `python -B scripts/plugins/host-acceptance/settings_functions_fixture.py --output .artifacts/plugin-host-acceptance/settings-functions-fixture`，
+再用 `settings_functions_acceptance.py --fixture-root <该目录> --report <报告路径>` 做离线预检（pending 返回 2，输入错误返回 1，不启动产品）。
+真实执行由已有 `test-windows-declarative-plugin-host.ps1 -SkipBuild -SettingsFunctions -SettingsFunctionsFixtureRoot <该目录>` 消费隔离宿主 identity；
+plan、当前 checkout 和隔离宿主的提交标识必须一致；切换提交后重新生成输入，不得清理该输入目录后冒用旧 plan。
+`-SkipBuild` 同时检查目标架构、已冻结配置和可执行文件哈希，并保留该配置；配置或提交变化时重新构建隔离宿主。驱动先恢复原生 invoke 并有界等待已观测调用结束，再退出本次产品进程，最后比较资源快照；退出失败或调用未结束不能报告资源工作流通过。
+驱动在插件详情验证普通设置，再经已注册的语言设置页保存 reload；受控设置子集通过不会把缺少兼容签名包、关闭中的 Provider 能力、arm64 或人工视觉验收算作通过。
+
+项目生成器的 `generator_fixture.py` 在本工作树生成完整 unsigned 社区包、模板、空工作区
+及绑定当前源码清单的 plan。真实项目输出由驱动在隔离应用本地配置的 `generator-projects/`
+创建，避开源码仓库；Core 会拒绝在已有 Git 仓库内再次初始化仓库，不能为验收绕过该保护。
+输出在采集项目文件与打开状态证据后，随原有 profile 清理路径回收。
+Windows 打包应用可能将逻辑配置路径映射到物理缓存目录；打开断言使用已创建目录的真实路径，仍逐项核对完整项目、文件路径及选中状态。
+显式 HTTPS 集成输入还须提供原 ZIP 和 receipt
+（仓库、固定提交、许可、URL、SHA-256、字节/条目数与预期打开文件），例如：
+
+```powershell
+python -B scripts/plugins/host-acceptance/generator_fixture.py --output .artifacts/plugin-host-acceptance/generator-fixture-current --archive-url <fixed-HTTPS-ZIP> --archive-open-file <relative-path> --archive-reference <downloaded-ZIP> --archive-receipt <receipt.json>
+python -B scripts/plugins/host-acceptance/generator_acceptance.py --fixture-root .artifacts/plugin-host-acceptance/generator-fixture-current --report .artifacts/test-stability/plugin-generator-preflight.json --preflight
+```
+
+预检不启动产品，未执行返回 2；真实创建子集由
+`test-windows-declarative-plugin-host.ps1 -SkipBuild -ProjectGenerators -ProjectGeneratorsFixtureRoot <fixture>`
+消费已冻结的隔离 x64 Release identity，当前源码清单、配置、提交和 EXE 字节必须一致。
+驱动使用既有 assign-before-release Windows Job，600 秒总期限包含产品及子进程；工作流
+留出清理余量，原进程退出和真实向导卸载须早于命令的自然期限，未知 marker PID 不授权清理。
+实际 HTTPS 解压的每个上游文件与固定参考 ZIP 比较；下载内容不执行。失败保留首次记录，
+退出后比较实际运行镜像、已安装包和原完整 fixture ZIP；受控子集不代表完整 M8/M10。
+
+`generator-fixture*` ZIP/plan/模板、隔离本地 profile 的 `generator-projects/` 项目、`generator-archive-input` 固定归档/receipt、
+进程与清理证据均归既有 `plugin-host-acceptance-state`；没有可复用的版本、平台、架构或
+工具链身份，所有复制阶段拒绝。重新在目标工作树生成，不能从来源工作树拷贝安装审批、
+用户配置或项目。它们只写本次 artifact、隔离用户配置与用户工作区，不影响代码签名或
+Sparkle 增量更新基线。报告依本地审查或 CI retention 保留，临时应用和配置按 owner 清理。
+
+原生动作组、表单栅格和树菜单的受控浏览器回归使用目标工作树的前端依赖和 Python Playwright 1.60.0
+（与原生验收驱动共用 `psutil==7.2.2`），不由 runner 安装或下载工具。Windows CI 在已有
+Python 依赖步骤后独立运行以下命令；本地已有 Edge 时可复用相同入口：
+
+```powershell
+$playwrightModule = python -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).parent / 'driver/package/index.mjs')"
+if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the configured Playwright driver' }
+node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-panel-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Action-group browser regression failed' }
+node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode native-tree --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-tree-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Native-tree browser regression failed' }
+node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode form-grid --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-form-grid-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Form-grid browser regression failed' }
+node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode controls-input --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-controls-input-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Controls-input browser regression failed' }
+node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode workbench --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-workbench-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Workbench browser regression failed' }
+foreach ($failure in @('worker-exit', 'worker-hang')) {
+  node scripts/plugins/test-windows-native-plugin-ui-browser.mjs --mode lifecycle --inject-failure $failure --timeout-ms 25000 --report ".artifacts/test-stability/native-browser-$failure.json"
+  if ($LASTEXITCODE -ne 0) { throw "Lifecycle regression failed: $failure" }
+}
+```
+
+动作组、栅格和树模式加载生产样式及真实 React 组件，使用官方 Tauri mocks；动作组检查六阶段
+几何、状态、焦点、禁用提示与单次完整值提交，树模式由 Playwright 的浏览器键盘输入
+检查菜单触发、导航、关闭、焦点和一次性动作。栅格模式固定浏览器 viewport，只调整夹具容器，
+检查 12 列/span 在 639px、640px 和宽容器的几何、同一 DOM、草稿、焦点、禁用说明、公共
+readOnly 原语及完整 values 单次提交；不把 typed port 的可选 selectedID 当作下游 JSON null。
+控件输入模式在同一完整夹具上验证 select、checkbox、search/clear、editor、segmented、stepper
+的实际浏览器交互、按原 onCommit 语义自动提交或仅保留草稿、禁用组拒绝输入和最终完整 values。
+所有模式均通过公共控件的可访问角色定位实际编辑节点，不把隐藏校验 input 当成用户输入。
+工作台模式复用真实 MainLayout、活动入口、公共控件及三个既有槽，连贯检查打开、输入、树动作、
+替换、移动、隐藏重开、工作区切换、迟到准备取消和关闭清理。原生 I/O、审批、终端内容及外部包/
+窗口身份仍为受控边界；单页重建不能作为两个产品窗口验收。工作台报告与日志也属于不可复用资源。
+五个组件模式各有 120 秒整体时限；
+生命周期模式不加载 Vite 或浏览器，用提前退出和挂起的受控 worker 验证独立 owner 的清理，
+25 秒整体时限中保留 20 秒收尾。Windows CI 的组合步骤另有 12 分钟外层上限。
+各模式成功或失败都生成独立 JSON、HTML 和 JUnit，不代表产品 WebView2、物理键盘、IME
+或 `ui:3` 准入。
+生命周期的预期红报告留在报告父目录的 `expected-failures/` 子目录，普通报告只记录
+实际验证失败分类、子进程启动、Job 零成员证明和临时目录清理的正向断言；
+不能把预期红报告混入顶层通过总数，也不能把一次注入失败解释为产品验收通过。
+每次调用独占 `.artifacts/native-browser-*/` 下的 `profile/`、Vite `cache/`、
+`worker-evidence.json`、`job-result.json` 和 `worker.log`；退出后把 worker 日志复制到
+报告同名的 `.worker.log`，便于 scratch 删除后诊断。进程先受 Windows Job Object
+约束再执行，整体时限包含清理预留。只有进程树终止得到证明后才能删除 scratch，
+无证明则失败并保留隔离目录。报告由本地审查或 CI retention 回收。
+这些路径及显式报告没有版本、平台、架构或工具链构建 stamp，
+`excludedResources.native-browser-regression-state` 通过复用脚本的排除路由在任何复制阶段拒绝，
+在目标工作树重新生成，不能共享浏览器 profile、优化缓存或进程所有权。
+所有写入都在本次工作树的忽略目录，不写安装包、发行资源或签名和 Sparkle delta 基线。
+
+Windows 项目生成器的 `<workspace-parent>/.<project-name>.lithe-creating-<token>/` 暂存及最终用户项目
+走 `plugin-generator-transactions` 排除路由：由当前窗口和原生操作独占，先在用户选择的目标旁生成，
+验证后原子不覆盖发布；取消或失败清理同一 staging，清理失败保留操作与 NativeLease 供重试。
+没有版本/平台/架构/工具链复用身份，任何复制阶段均拒绝；不写插件包或发行资源，不影响签名与更新基线。
+Windows 插件设置的 `<windows-app-local-data>/plugin-settings/<plugin-id>.json`、工作区
+`.lithe/plugin-settings.json` 及同源 `<settings-source>.json.<pid>-<sequence>.tmp/.backup`
+走 `plugin-settings-state` 排除路由。真实偏好由当前用户持有，保存事务持有临时文件和恢复备份；
+打开只读，确认保存时比较原始字节、保留无关值与权限、原子替换并重读。失败清除自己的临时文件，
+恢复不能确认时保留唯一备份并提示恢复。没有构建 identity，不能跨工作树共享；不写发行目录、签名或更新基线。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity
 stamp 后才能加入注册表，不能仅凭目录存在就跨 worktree 复制。
 

@@ -76,6 +76,35 @@ jobs:
           writeTestReportArtifacts(`${stem}.json`);
           NODE
 
+      # Declarative-plugin fixture coverage: the directory enumeration and
+      # the explicit classification list must match, so a fixture added
+      # without registration fails every pull request on this Linux lane.
+      - name: Check plugin fixture coverage manifest
+        timeout-minutes: 2
+        run: node scripts/plugins/check-plugin-fixture-coverage.mjs
+
+      - name: Run plugin fixture coverage tests
+        timeout-minutes: 2
+        run: |
+          node --test --test-timeout=15000 \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/plugin-fixture-coverage.junit.xml \
+            scripts/plugins/check-plugin-fixture-coverage.test.mjs
+
+      - name: Generate plugin fixture coverage timing report
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
+          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
+          const stem = '.artifacts/test-stability/plugin-fixture-coverage';
+          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
+          if (tests.length === 0) throw new Error('Missing plugin fixture coverage test results');
+          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
+          writeTestReportArtifacts(`${stem}.json`);
+          NODE
+
       - name: Upload Sparkle download timing report
         if: always()
         uses: actions/upload-artifact@v4

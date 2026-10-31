@@ -149,6 +149,16 @@ const sessionStarts = new Map<string, Promise<Session>>();
 const startOwners = new Map<string, string>();
 const providerGenerations = new Map<string, number>();
 const sessionStops = new Map<string, Promise<void>>();
+interface BuildProviderStartScope {
+  waiters: number;
+  introduced: boolean;
+  editor: boolean;
+  retained: boolean;
+  cancelled: boolean;
+  cleanup: Promise<void> | null;
+  session: Session | null;
+}
+const buildProviderStarts = new Map<string, BuildProviderStartScope>();
 const stoppingSessionIds = new Set<string>();
 const pendingFileSessions = new Map<string, PendingFileAttachment>();
 const SESSION_STORAGE_KEY = "lithe:lsp-core-sessions:v1";
@@ -305,7 +315,8 @@ function restorePersistedSessions(): void {
     }
     for (const session of sessions.values()) {
       if (session.files.size === 0) {
-        if (session.languageId === "java") clearProjectPreparation(session.workspacePath, session.id);
+        if (session.languageId === "java")
+          clearProjectPreparation(session.workspacePath, session.id);
         removeSessionMappings(session);
       }
     }
@@ -436,7 +447,7 @@ function parseStructuredRuntimeDetail(detail: string | undefined): JsonRecord | 
 }
 
 function isInitializationTimeout(reason: unknown): boolean {
-  const code = (reason as Error & { code?: string } | null)?.code;
+  const code = (reason as (Error & { code?: string }) | null)?.code;
   return code === "timed_out" || code === "initializeTimeout" || code === "serviceReadyTimeout";
 }
 
@@ -464,11 +475,16 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
 
   await dispatchRuntimeEvent(event, session.workspacePath);
   if (event.type === "stateChanged" && event.state) {
-    const phase = event.state === "processStarting"
-      ? "starting"
-      : event.state === "initializing"
-        ? event.providerId === "java" ? "projectImporting" : "starting"
-        : event.state === "ready" ? "serviceReady" : event.state;
+    const phase =
+      event.state === "processStarting"
+        ? "starting"
+        : event.state === "initializing"
+          ? event.providerId === "java"
+            ? "projectImporting"
+            : "starting"
+          : event.state === "ready"
+            ? "serviceReady"
+            : event.state;
     await emit("lsp://language-lifecycle", {
       providerId: event.providerId,
       sessionId: event.sessionId,
@@ -835,6 +851,7 @@ async function createSession(args: JsonRecord, key: string, generation: number):
   const languageId = String(args.languageId ?? "plaintext");
   const providerId = String(args.providerId ?? languageId);
   const assertCurrent = () => {
+    if (buildProviderStarts.get(key)?.cancelled) throw new Error("plugin.build.cancelled");
     if (args.pluginId) assertPluginActive(args.pluginId);
     if ((providerGenerations.get(providerId) ?? 0) !== generation) {
       throw new Error("Language server start was cancelled by its provider.");
@@ -896,6 +913,8 @@ async function createSession(args: JsonRecord, key: string, generation: number):
     completed: new Map(),
     documentVersions: new Map(),
   };
+  const buildOwner = buildProviderStarts.get(key);
+  if (buildOwner?.introduced) buildOwner.session = session;
   try {
     assertCurrent();
   } catch (reason) {
@@ -928,9 +947,7 @@ async function createSession(args: JsonRecord, key: string, generation: number):
   return session;
 }
 
-async function waitForProjectedReadiness(
-  session: Session,
-): Promise<"ready" | "terminal"> {
+async function waitForProjectedReadiness(session: Session): Promise<"ready" | "terminal"> {
   const operation = new LspOperationLog("sessionReadinessWait", crypto.randomUUID(), {
     sessionId: session.id,
     workspacePath: session.workspacePath,
@@ -974,6 +991,14 @@ async function start(args: JsonRecord): Promise<void> {
   const workspacePath = String(args.workspacePath ?? "");
   const languageId = String(args.languageId ?? "plaintext");
   const key = sessionKey(workspacePath, languageId);
+  if (!args.buildProviderStart) {
+    const scope = buildProviderStarts.get(key);
+    if (scope) {
+      scope.editor = true;
+      scope.cancelled = false;
+      scope.cleanup = null;
+    }
+  }
   const filePath = args.filePath ? String(args.filePath) : null;
   const pendingFileKey = filePath ? fileKey(filePath) : null;
   const attachmentId = filePath ? String(args.attachmentId ?? crypto.randomUUID()) : null;
@@ -1003,16 +1028,18 @@ async function start(args: JsonRecord): Promise<void> {
         const providerId = String(args.providerId ?? languageId);
         const generation = providerGenerations.get(providerId) ?? 0;
         startOwners.set(key, providerId);
-        startPromise = resolveSession(args, key, generation).then(async (resolved) => {
-          if ((providerGenerations.get(providerId) ?? 0) !== generation) {
-            await stopSession(resolved);
-            throw new Error("Language server start was cancelled by its provider.");
-          }
-          return resolved;
-        }).finally(() => {
-          sessionStarts.delete(key);
-          startOwners.delete(key);
-        });
+        startPromise = resolveSession(args, key, generation)
+          .then(async (resolved) => {
+            if ((providerGenerations.get(providerId) ?? 0) !== generation) {
+              await stopSession(resolved);
+              throw new Error("Language server start was cancelled by its provider.");
+            }
+            return resolved;
+          })
+          .finally(() => {
+            sessionStarts.delete(key);
+            startOwners.delete(key);
+          });
         sessionStarts.set(key, startPromise);
       }
       session = await startPromise;
@@ -1295,22 +1322,6 @@ async function requestJavaMainMethods(
   };
 }
 
-/** Workspace-relative comparison key for an absolute path, or null outside it. */
-function workspaceRelativeKey(workspacePath: string, filePath: string): string | null {
-  const root = normalizedPathKey(workspacePath).replace(/\/+$/, "");
-  const file = normalizedPathKey(filePath);
-  return file.startsWith(`${root}/`) ? file.slice(root.length + 1) : null;
-}
-
-/** Comparison key for a workspace-relative path, folded like its workspace. */
-function relativePathKey(workspacePath: string, relativePath: string): string {
-  const normalized = relativePath.replace(/\\/g, "/");
-  // Same rule as `normalizedPathKey`: drive and UNC workspaces fold case.
-  return /^(?:[A-Za-z]:\/|\/\/)/.test(workspacePath.replace(/\\/g, "/"))
-    ? normalized.toLowerCase()
-    : normalized;
-}
-
 export const LSP_OPERATION_BY_COMMAND = {
   lsp_get_completions: "completion",
   lsp_resolve_completion: "resolveCompletion",
@@ -1499,7 +1510,10 @@ async function closeDocument(session: Session, filePath: string): Promise<void> 
 }
 
 export function ownsLspSession(sessionId: string): boolean {
-  return stoppingSessionIds.has(sessionId) || [...sessions.values()].some((session) => session.id === sessionId);
+  return (
+    stoppingSessionIds.has(sessionId) ||
+    [...sessions.values()].some((session) => session.id === sessionId)
+  );
 }
 
 export function getLspSessionSnapshot(args: {
@@ -1531,7 +1545,8 @@ export async function pushDeclarativeWorkspaceConfiguration(args: {
   pluginId: string;
 }): Promise<boolean> {
   const session = sessions.get(sessionKey(args.workspacePath, args.languageId));
-  if (!session || session.pluginId !== args.pluginId || !isSessionReady(session.lifecycle)) return false;
+  if (!session || session.pluginId !== args.pluginId || !isSessionReady(session.lifecycle))
+    return false;
   assertPluginActive(args.pluginId);
   await core(
     "lsp.updateWorkspaceConfiguration",
@@ -1553,6 +1568,110 @@ function snapshotForSession(session: Session): LspSessionSnapshot {
         ? featureSnapshot(session.featureState.features)
         : featureSnapshot(),
   };
+}
+
+/** A build-only initialization joins the editor's start promise. Cancelling
+ * the last such waiter stops only a server introduced by those waiters; an
+ * editor attachment or a pre-existing session keeps its own process. */
+export async function ensureBuildProviderLanguageSession(
+  args: JsonRecord,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) throw new Error("plugin.build.cancelled");
+  const key = sessionKey(String(args.workspacePath), String(args.languageId));
+  let scope = buildProviderStarts.get(key);
+  if (scope && ownsBuildProviderCleanup(key, scope)) {
+    throw buildProviderCleanupError(key, scope);
+  }
+  if (!scope) {
+    const existing = sessions.get(key);
+    scope = {
+      waiters: 0,
+      introduced: (!existing || isSessionTerminal(existing.lifecycle)) && !sessionStarts.has(key),
+      editor: false,
+      retained: false,
+      cancelled: false,
+      cleanup: null,
+      session: null,
+    };
+    buildProviderStarts.set(key, scope);
+  }
+  const owner = scope;
+  owner.waiters++;
+  owner.cancelled = false;
+  let released = false;
+  const abort = () => {
+    if (released) return;
+    released = true;
+    owner.waiters--;
+    if (owner.waiters === 0 && owner.introduced && !owner.editor && !owner.retained) {
+      owner.cancelled = true;
+      const session = sessions.get(key);
+      if (session && session === owner.session) {
+        owner.cleanup = stopSession(session);
+        void owner.cleanup.catch(() => {});
+      }
+    }
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  let failed = false;
+  let failure: unknown;
+  try {
+    await start({ ...args, buildProviderStart: true });
+    if (signal?.aborted) throw new Error("plugin.build.cancelled");
+    owner.retained = true;
+  } catch (reason) {
+    failed = true;
+    failure = reason;
+  } finally {
+    signal?.removeEventListener("abort", abort);
+    if (!released) {
+      released = true;
+      owner.waiters--;
+    }
+  }
+  try {
+    if (owner.cleanup) await owner.cleanup;
+  } catch (reason) {
+    failed = true;
+    failure = reason;
+  }
+  // stopSession restores the exact session on failure. Keep that owner
+  // reachable after the start promise settles so Stop can really retry.
+  if (ownsBuildProviderCleanup(key, owner)) {
+    throw buildProviderCleanupError(key, owner);
+  }
+  if (owner.waiters === 0 && buildProviderStarts.get(key) === owner)
+    buildProviderStarts.delete(key);
+  if (failed) throw failure;
+}
+
+function buildProviderCleanupError(key: string, owner: BuildProviderStartScope) {
+  return new BuildProviderLanguageCleanupError(async () => {
+    if (ownsBuildProviderCleanup(key, owner)) await stopSession(owner.session!);
+    if (owner.waiters === 0 && buildProviderStarts.get(key) === owner)
+      buildProviderStarts.delete(key);
+  });
+}
+
+function ownsBuildProviderCleanup(key: string, owner: BuildProviderStartScope): boolean {
+  return (
+    buildProviderStarts.get(key) === owner &&
+    owner.waiters === 0 &&
+    owner.introduced &&
+    !owner.editor &&
+    !owner.retained &&
+    owner.session !== null &&
+    sessions.get(key) === owner.session &&
+    owner.session.lifecycle.phase === "stopping"
+  );
+}
+
+/** The retry closes only the failed initializer's original process owner. */
+export class BuildProviderLanguageCleanupError extends Error {
+  constructor(readonly retryCleanup: () => Promise<void>) {
+    super("plugin.build.cleanupFailed");
+  }
 }
 
 export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Promise<T> {

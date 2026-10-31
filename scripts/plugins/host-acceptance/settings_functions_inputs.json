@@ -1,0 +1,30 @@
+{
+  "repository": "Lithe-IDEA/lithe-plugin-docs",
+  "sourceCommit": "aa9c4433cf3af268c506b1279391488f47703f3e",
+  "sdkCommit": "aa9c4433cf3af268c506b1279391488f47703f3e",
+  "sdkVersion": "0.1.0",
+  "sample": "sdk/node/examples/sample-build",
+  "pluginId": "org.example.sample-build",
+  "pluginVersion": "0.1.0",
+  "license": "Apache-2.0",
+  "nodeMinimum": "20.3",
+  "requires": { "buildProviders": 1, "buildSystems": 1, "serverProcess": 1 },
+  "signatureRequirement": "publisherPackage",
+  "sha256": {
+    "sdk/node/examples/sample-build/plugin.json": "b15ad11758aa326fe9ed0e281dd7e80d02f6f2f1d83d41159e179aacc32f3c73",
+    "sdk/node/examples/sample-build/backend/main.mjs": "805950e1e99a82cd30fbc2389c8a969435ba800ad44a7cbbaf5f4b5f2630fc80",
+    "sdk/node/package.json": "59748a9d3c2684c91090015db1a26de0dffc32c0bb8ebb93b929a59d9af1d617",
+    "LICENSE": "93ff573f89d32394501fcc82767e73b1824add861f088bbd3eec9e0afae20d21"
+  },
+  "audit": {
+    "method": "gh api contents at the exact commit, raw response bytes hashed with SHA-256",
+    "functions": ["workspace.build", "snapshot.read", "snapshot.clear"],
+    "blockers": [
+      "The complete package requires buildProviders:1 and buildSystems:1, currently closed in Windows.",
+      "Source is available; no verified publisher-signed complete Windows acceptance archive or archive digest is supplied.",
+      "The source sample imports the SDK from its repository-relative path; upstream packaging must vendor the SDK with a valid import before signing.",
+      "The sample declares no settingActions or web UI. No unmodified package currently covers both product entry points.",
+      "No existing dedicated native acceptance seam can deterministically force a process cleanup failure. Retry and late-callback checks remain pending."
+    ]
+  }
+}

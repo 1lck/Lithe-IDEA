@@ -74,7 +74,7 @@ function languageFor(filePath) {
   ) {
     return "swift";
   }
-  if (/\.(?:test|spec)\.tsx?$/.test(normalized)) return "typescript";
+  if (/\.(?:test|spec|browser-test)\.tsx?$/.test(normalized)) return "typescript";
   if (normalized.endsWith(".rs")) return "rust";
   return null;
 }

@@ -1,10 +1,12 @@
+//! Exercises push destinations and tracking choices through real repositories.
+
 use lithe_core::execute_json;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -35,11 +37,27 @@ impl Drop for GitFixture {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Output {
-    Command::new("git")
-        .args(arguments)
-        .current_dir(directory)
-        .output()
-        .expect("git should be available")
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let result = lithe_git_host::run(
+        Command::new("git").args(arguments).current_dir(directory),
+        None,
+        || Instant::now() >= deadline,
+        || {},
+        |_, _| {},
+    );
+    assert!(
+        result.failure.is_none(),
+        "git {} did not complete: {:?}; stderr: {}",
+        arguments.join(" "),
+        result.failure,
+        String::from_utf8_lossy(&result.stderr)
+    );
+    // Negative scenarios inspect nonzero exits; only require_git requires success.
+    Output {
+        status: result.status.expect("Git should have an exit status"),
+        stdout: result.stdout,
+        stderr: result.stderr,
+    }
 }
 
 fn require_git(directory: &Path, arguments: &[&str]) {
@@ -58,6 +76,7 @@ fn core(command: &str, root: &Path, payload: Value) -> Value {
     let request = json!({
         "id": format!("test-{command}"),
         "command": command,
+        "timeoutMilliseconds": 10000,
         "payload": payload
     });
     serde_json::from_str(&execute_json(
@@ -72,14 +91,16 @@ fn initialize_repository(fixture: &GitFixture) -> (PathBuf, PathBuf) {
     fs::create_dir_all(&remote).expect("remote should be creatable");
     fs::create_dir_all(&repository).expect("repository should be creatable");
     require_git(&remote, &["init", "--bare", "-q"]);
-    require_git(&repository, &["init", "-q"]);
-    require_git(&repository, &["config", "user.email", "tests@lithe.local"]);
-    require_git(&repository, &["config", "user.name", "Lithe Tests"]);
+    require_git(&repository, &["init", "-q", "-b", "main"]);
+    // Keep identity and signing fixture-local without three extra setup processes.
+    let config = repository.join(".git/config");
+    let mut contents = fs::read_to_string(&config).expect("Git configuration should exist");
+    contents.push_str("\n[user]\n\temail = tests@lithe.local\n\tname = Lithe Tests\n[commit]\n\tgpgsign = false\n");
+    fs::write(config, contents).expect("fixture identity should be writable");
     fs::write(repository.join("tracked.txt"), "initial\n")
         .expect("tracked fixture should be writable");
     require_git(&repository, &["add", "tracked.txt"]);
     require_git(&repository, &["commit", "-q", "-m", "initial"]);
-    require_git(&repository, &["branch", "-M", "main"]);
     let remote_path = remote.to_string_lossy().into_owned();
     require_git(&repository, &["remote", "add", "origin", &remote_path]);
     require_git(&repository, &["push", "-q", "-u", "origin", "main"]);

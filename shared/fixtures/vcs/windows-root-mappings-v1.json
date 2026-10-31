@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "owner": "Lithe Windows host; not SVN or Git configuration",
+  "mapping": { "id": "mixed", "vcs": "svn" },
+  "paths": ["mixed/a", "mixed/nested/b"],
+  "owners": ["mixed", "mixed/nested"],
+  "preservedUnknown": { "future": { "keep": true } },
+  "rules": {
+    "openWrites": false,
+    "saveRequiresCurrentByteRevision": true,
+    "directoryReplacementInheritsChoice": false,
+    "truncatedDetectionGrantsCommonOwner": false,
+    "metadataEventStartsProvider": false,
+    "maxMappings": 64,
+    "maxSourceBytes": 1048576,
+    "maxWatchRoots": 64,
+    "maxWatchPaths": 256,
+    "maxDebouncedNativeEvents": 512,
+    "maxPendingPassiveRefreshes": 1
+  }
+}
