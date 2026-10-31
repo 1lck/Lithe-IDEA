@@ -188,7 +188,11 @@ def run(args, driver, reporter, plan):
         return page.locator("[data-settings-content='declarative-plugins']").get_by_role("region", name=DISPLAY_NAME, exact=True)
     def wizard(generator, name, *, disabled=False):
         driver.close_settings(page)
-        page.get_by_role("menuitem", name="File", exact=True).click(timeout=10_000)
+        file_menu = page.get_by_role("menuitem", name="File", exact=True)
+        if not file_menu.is_visible():
+            page.get_by_role("button", name="Menu", exact=True).click(timeout=10_000)
+        if file_menu.get_attribute("aria-expanded", timeout=10_000) != "true":
+            file_menu.click(timeout=10_000)
         page.get_by_role("menuitem", name="New", exact=True).hover(timeout=10_000)
         page.get_by_role("menuitem", name="New Project…", exact=True).click(timeout=10_000)
         page.get_by_text("Plugin project generators", exact=True).click(timeout=10_000)
