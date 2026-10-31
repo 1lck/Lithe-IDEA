@@ -4,21 +4,18 @@ public struct LocalHistoryVisibilityRules: Hashable, Sendable {
     public let hiddenDirectoryNames: [String]
     public let hiddenFilePatterns: [String]
     /// Files the user keeps out of local history only; the project tree still shows them.
+    /// A `!` glob turns off a built-in folder rule the user removed.
     public let ignorePatterns: [String]
     public let ignoreRegexes: [String]
-    /// Folders added to the built-in No initial copy list, and `!name` entries
-    /// for built-in ones the user removed.
-    public let baselineExcludedDirectoryNames: [String]
     /// Storage cap for the project; nil keeps Rust Core's 100 MB default.
     public let storageLimitBytes: Int64?
     public init(hiddenDirectoryNames: [String], hiddenFilePatterns: [String],
                 ignorePatterns: [String] = [], ignoreRegexes: [String] = [],
-                baselineExcludedDirectoryNames: [String] = [], storageLimitBytes: Int64? = nil) {
+                storageLimitBytes: Int64? = nil) {
         self.hiddenDirectoryNames = hiddenDirectoryNames
         self.hiddenFilePatterns = hiddenFilePatterns
         self.ignorePatterns = ignorePatterns
         self.ignoreRegexes = ignoreRegexes
-        self.baselineExcludedDirectoryNames = baselineExcludedDirectoryNames
         self.storageLimitBytes = storageLimitBytes
     }
 }
@@ -37,24 +34,23 @@ public struct LocalHistoryUsage: Equatable, Sendable {
 public enum LocalHistoryIgnoreMatch: Equatable, Sendable {
     /// Hidden from the project tree, so never recorded.
     case hidden
-    /// Inside a generated folder: no baseline is taken, but edits are still recorded.
-    case baselineExcluded(directory: String)
-    case pattern(index: Int)
+    /// The wildcard rule as written, built-in or the user's own.
+    case pattern(String)
     case regex(index: Int)
 }
 
 /// Settings feedback for ignore rules: rejected regexes by list position and the sample-path result.
 public struct LocalHistoryIgnorePreview: Equatable, Sendable {
     public let regexErrors: [Int: String]
-    /// The built-in No initial copy folders, before the user's changes.
-    public let builtInBaselineExcludedDirectoryNames: [String]
+    /// The built-in wildcard rules, before the user's changes.
+    public let builtInIgnorePatterns: [String]
     public let matched: LocalHistoryIgnoreMatch?
     /// Whether Git ignores the path, shown for comparison; nil outside a repository.
     public let gitIgnored: Bool?
-    public init(regexErrors: [Int: String], builtInBaselineExcludedDirectoryNames: [String],
+    public init(regexErrors: [Int: String], builtInIgnorePatterns: [String],
                 matched: LocalHistoryIgnoreMatch?, gitIgnored: Bool? = nil) {
         self.regexErrors = regexErrors
-        self.builtInBaselineExcludedDirectoryNames = builtInBaselineExcludedDirectoryNames
+        self.builtInIgnorePatterns = builtInIgnorePatterns
         self.matched = matched
         self.gitIgnored = gitIgnored
     }

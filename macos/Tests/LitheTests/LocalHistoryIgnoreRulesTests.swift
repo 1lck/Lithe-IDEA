@@ -8,10 +8,10 @@ struct LocalHistoryIgnoreRulesTests {
     private let operations = RustLocalHistoryOperations(core: RustCoreBridge())
 
     private func preview(_ path: String, patterns: [String] = [], regexes: [String] = [],
-                         hidden: [String] = [], baseline: [String] = []) -> LocalHistoryIgnorePreview? {
+                         hidden: [String] = []) -> LocalHistoryIgnorePreview? {
         operations.ignorePreview(path: path, rules: LocalHistoryVisibilityRules(
             hiddenDirectoryNames: [], hiddenFilePatterns: hidden,
-            ignorePatterns: patterns, ignoreRegexes: regexes, baselineExcludedDirectoryNames: baseline
+            ignorePatterns: patterns, ignoreRegexes: regexes
         ), workspaceURL: nil)
     }
 
@@ -21,23 +21,23 @@ struct LocalHistoryIgnoreRulesTests {
                                           regexes: ["", "(unclosed", "generated/"]))
         #expect(Array(result.regexErrors.keys) == [1])
         #expect(result.matched == .regex(index: 2))
-        #expect(result.builtInBaselineExcludedDirectoryNames.contains("Pods"))
+        #expect(result.builtInIgnorePatterns.contains("**/Pods/"))
         // Without an open project Git is not asked.
         #expect(result.gitIgnored == nil)
 
-        #expect(preview("logs/run.log", patterns: ["*.log"])?.matched == .pattern(index: 0))
-        #expect(preview("ios/Pods/A/a.h")?.matched == .baselineExcluded(directory: "Pods"))
+        #expect(preview("logs/run.log", patterns: ["*.log"])?.matched == .pattern("*.log"))
+        #expect(preview("ios/Pods/A/a.h")?.matched == .pattern("**/Pods/"))
         #expect(preview(".git/config")?.matched == .hidden)
         #expect(preview("src/Main.java")?.matched == nil)
     }
 
     @Test
-    func builtInsCanBeTurnedOffAndFoldersAdded() {
-        #expect(preview("ios/Pods/A/a.h", baseline: ["!Pods"])?.matched == nil)
-        #expect(preview("gen/A.java", baseline: ["gen"])?.matched == .baselineExcluded(directory: "gen"))
-        // Showing a hidden built-in records it, but its folder still gets no initial copy.
-        #expect(preview(".git/config", hidden: ["!**/.git/"])?.matched == .baselineExcluded(directory: ".git"))
-        #expect(preview(".git/config", hidden: ["!**/.git/"], baseline: ["!.git"])?.matched == nil)
+    func builtInFolderRulesCanBeDeleted() {
+        #expect(preview("ios/Pods/A/a.h", patterns: ["!**/Pods/"])?.matched == nil)
+        #expect(preview("gen/A.java", patterns: ["**/gen/"])?.matched == .pattern("**/gen/"))
+        // Showing a hidden built-in folder still leaves it out of local history.
+        #expect(preview(".git/config", hidden: ["!**/.git/"])?.matched == .pattern("**/.git/"))
+        #expect(preview(".git/config", patterns: ["!**/.git/"], hidden: ["!**/.git/"])?.matched == nil)
     }
 
     @Test

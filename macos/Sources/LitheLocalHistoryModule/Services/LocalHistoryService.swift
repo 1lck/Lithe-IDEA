@@ -40,6 +40,19 @@ actor LocalHistoryService {
         }
     }
 
+    /// Retention scans the whole history store, so request it only until the
+    /// first snapshot is written. Skipped/unchanged files do not run pruning.
+    func recordFiles(_ files: [URL], reason: LocalHistoryReason) async {
+        var needsPruning = true
+        for fileURL in files {
+            guard !Task.isCancelled else { return }
+            if (try? recordFile(at: fileURL, reason: reason, pruneExpired: needsPruning)) != nil {
+                needsPruning = false
+            }
+            await Task.yield()
+        }
+    }
+
     @discardableResult
     func recordFile(
         at fileURL: URL,

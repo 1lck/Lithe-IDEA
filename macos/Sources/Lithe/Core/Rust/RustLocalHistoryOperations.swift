@@ -12,7 +12,6 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns,
             ignorePatterns: visibilityRules.ignorePatterns,
             ignoreRegexes: visibilityRules.ignoreRegexes,
-            baselineExcludedDirectoryNames: visibilityRules.baselineExcludedDirectoryNames,
             storageLimitBytes: visibilityRules.storageLimitBytes
         ).map(Self.makePayload)
     }
@@ -39,20 +38,18 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
             path: path,
             ignorePatterns: rules.ignorePatterns,
             ignoreRegexes: rules.ignoreRegexes,
-            baselineExcludedDirectoryNames: rules.baselineExcludedDirectoryNames,
             hiddenFilePatterns: rules.hiddenFilePatterns,
             workspaceURL: workspaceURL
         ) else { return nil }
         let matched: LocalHistoryIgnoreMatch? = switch value.matched {
         case nil: nil
         case .hidden: .hidden
-        case .baselineExcluded(let directory): .baselineExcluded(directory: directory)
-        case .pattern(let index): .pattern(index: index)
+        case .pattern(let pattern): .pattern(pattern)
         case .regex(let index): .regex(index: index)
         }
         return LocalHistoryIgnorePreview(
             regexErrors: Dictionary(value.regexErrors.map { ($0.index, $0.message) }, uniquingKeysWith: { first, _ in first }),
-            builtInBaselineExcludedDirectoryNames: value.builtInBaselineExcludedDirectoryNames,
+            builtInIgnorePatterns: value.builtInIgnorePatterns,
             matched: matched,
             gitIgnored: value.gitIgnored
         )

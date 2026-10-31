@@ -3,11 +3,10 @@ import LitheLocalHistoryModule
 import LitheModuleAPI
 import SwiftUI
 
-/// Local history storage, ignore rules and No initial copy folders. Rules are
-/// edited as drafts and only saved by Apply; the test path is checked against
-/// the drafts as they change.
+/// Local history storage and ignore rules. Rules are edited as drafts and only
+/// saved by Apply; the test path is checked against the drafts as they change.
 struct LocalHistorySettingsControl: View {
-    private enum RuleKind: Hashable { case wildcard, regex, baseline }
+    private enum RuleKind: Hashable { case wildcard, regex }
 
     @EnvironmentObject private var settingsContext: SettingsModelContext
     private var model: AppModel { settingsContext.model }
@@ -15,9 +14,8 @@ struct LocalHistorySettingsControl: View {
     @State private var kind = RuleKind.wildcard
     @State private var patternsDraft = ""
     @State private var regexesDraft = ""
-    @State private var baselineDraft = ""
-    /// Rust Core owns the built-in folder list; it arrives with the first preview.
-    @State private var baselineBuiltIns: [String]?
+    /// Rust Core owns the built-in wildcard rules; they arrive with the first preview.
+    @State private var builtInPatterns: [String]?
     @State private var testPath = ""
     @State private var preview: LocalHistoryIgnorePreview?
     @State private var usage: LocalHistoryUsage?
@@ -27,11 +25,10 @@ struct LocalHistorySettingsControl: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             storageRow
-            LitheSettingsSegmentedControl(selection: $kind, options: [.wildcard, .regex, .baseline], width: 360) {
+            LitheSettingsSegmentedControl(selection: $kind, options: [.wildcard, .regex], width: 240) {
                 switch $0 {
                 case .wildcard: "Wildcard"
                 case .regex: "Regular expression"
-                case .baseline: "No initial copy"
                 }
             }
             editor
@@ -56,7 +53,6 @@ struct LocalHistorySettingsControl: View {
         .onAppear(perform: syncDrafts)
         .onChange(of: settings.localHistoryIgnorePatterns) { _ in syncDrafts() }
         .onChange(of: settings.localHistoryIgnoreRegexes) { _ in syncDrafts() }
-        .onChange(of: settings.localHistoryBaselineExcludedDirectoryNames) { _ in syncDrafts() }
         .task { usage = await model.localHistoryUsage() }
         .task(id: previewKey) {
             // Debounce typing; a newer draft cancels this task.
@@ -68,11 +64,9 @@ struct LocalHistorySettingsControl: View {
             )
             guard !Task.isCancelled else { return }
             preview = result
-            if baselineBuiltIns == nil, let builtIns = result?.builtInBaselineExcludedDirectoryNames {
-                baselineBuiltIns = builtIns
-                baselineDraft = BuiltInRuleList.displayed(
-                    stored: settings.localHistoryBaselineExcludedDirectoryNames, builtIns: builtIns
-                ).joined(separator: "\n")
+            if builtInPatterns == nil, let builtIns = result?.builtInIgnorePatterns {
+                builtInPatterns = builtIns
+                syncDrafts()
             }
         }
         .alert("Clear this project's local history?", isPresented: $isConfirmingClear) {
@@ -145,14 +139,11 @@ struct LocalHistorySettingsControl: View {
     private var editor: some View {
         switch kind {
         case .wildcard:
-            LitheTextEditor(text: $patternsDraft, height: 72)
+            LitheTextEditor(text: $patternsDraft, height: 120)
                 .accessibilityLabel(Text("Wildcard ignore rules"))
         case .regex:
-            LitheTextEditor(text: $regexesDraft, height: 72)
+            LitheTextEditor(text: $regexesDraft, height: 120)
                 .accessibilityLabel(Text("Regular expression ignore rules"))
-        case .baseline:
-            LitheTextEditor(text: $baselineDraft, height: 120)
-                .accessibilityLabel(Text("No initial copy folders"))
         }
     }
 
@@ -174,7 +165,7 @@ struct LocalHistorySettingsControl: View {
     @ViewBuilder
     private var testResult: some View {
         if !testPath.trimmingCharacters(in: .whitespaces).isEmpty, let preview {
-            let recorded = preview.matched == nil || preview.matched.map(Self.isBaselineOnly) == true
+            let recorded = preview.matched == nil
             VStack(alignment: .leading, spacing: 2) {
                 Label(String(format: L10n.string("Local history: %@"), resultText(preview.matched)),
                       systemImage: recorded ? "checkmark.circle" : "nosign")
@@ -197,58 +188,49 @@ struct LocalHistorySettingsControl: View {
             L10n.string("Recorded")
         case .hidden:
             L10n.string("Hidden in the project tree, not recorded")
-        case .baselineExcluded(let directory):
-            String(format: L10n.string("In %@: no initial copy, edits are recorded"), directory)
-        case .pattern(let index):
-            String(format: L10n.string("Ignored by wildcard line %lld"), index + 1)
+        case .pattern(let pattern):
+            String(format: L10n.string("Ignored by wildcard rule %@"), pattern)
         case .regex(let index):
             String(format: L10n.string("Ignored by regular expression line %lld"), index + 1)
         }
     }
 
-    private static func isBaselineOnly(_ match: LocalHistoryIgnoreMatch) -> Bool {
-        if case .baselineExcluded = match { return true }
-        return false
-    }
-
-    private var previewKey: String { [testPath, patternsDraft, regexesDraft, baselineDraft].joined(separator: "\u{0}") }
+    private var previewKey: String { [testPath, patternsDraft, regexesDraft].joined(separator: "\u{0}") }
 
     /// The drafts as rules, with the saved hidden paths so a shown built-in previews as visible.
     private var draftRules: LocalHistoryVisibilityRules {
         LocalHistoryVisibilityRules(
             hiddenDirectoryNames: [],
             hiddenFilePatterns: settings.fileVisibilityRules.hiddenFilePatterns,
-            ignorePatterns: lines(patternsDraft),
-            ignoreRegexes: lines(regexesDraft),
-            baselineExcludedDirectoryNames: storedBaseline
+            ignorePatterns: storedPatterns,
+            ignoreRegexes: lines(regexesDraft)
         )
     }
 
-    /// Saved form of the folder draft; the saved value until the built-ins are known.
-    private var storedBaseline: [String] {
-        guard let baselineBuiltIns else { return settings.localHistoryBaselineExcludedDirectoryNames }
-        return BuiltInRuleList.stored(lines: lines(baselineDraft), builtIns: baselineBuiltIns)
+    /// Saved form of the wildcard draft: the user's lines plus `!rule` for each
+    /// deleted built-in. The saved value until the built-ins are known.
+    private var storedPatterns: [String] {
+        guard let builtInPatterns else { return settings.localHistoryIgnorePatterns }
+        return BuiltInRuleList.stored(lines: entries(patternsDraft), builtIns: builtInPatterns)
     }
 
     private var hasChanges: Bool {
-        entries(patternsDraft) != settings.localHistoryIgnorePatterns
+        storedPatterns != settings.localHistoryIgnorePatterns
             || entries(regexesDraft) != settings.localHistoryIgnoreRegexes
-            || storedBaseline != settings.localHistoryBaselineExcludedDirectoryNames
     }
 
     private func syncDrafts() {
-        patternsDraft = settings.localHistoryIgnorePatterns.joined(separator: "\n")
-        regexesDraft = settings.localHistoryIgnoreRegexes.joined(separator: "\n")
-        if let baselineBuiltIns {
-            baselineDraft = BuiltInRuleList.displayed(
-                stored: settings.localHistoryBaselineExcludedDirectoryNames, builtIns: baselineBuiltIns
+        // Until the built-ins arrive the editor stays empty rather than showing a partial list.
+        if let builtInPatterns {
+            patternsDraft = BuiltInRuleList.displayed(
+                stored: settings.localHistoryIgnorePatterns, builtIns: builtInPatterns
             ).joined(separator: "\n")
         }
+        regexesDraft = settings.localHistoryIgnoreRegexes.joined(separator: "\n")
     }
 
     private func apply() {
-        settings.localHistoryBaselineExcludedDirectoryNames = storedBaseline
-        settings.localHistoryIgnorePatterns = entries(patternsDraft)
+        settings.localHistoryIgnorePatterns = storedPatterns
         settings.localHistoryIgnoreRegexes = entries(regexesDraft)
         // Echo what was stored, without the blank lines.
         syncDrafts()

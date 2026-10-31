@@ -177,9 +177,7 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         } else {
             files = projectFilesProvider().filter { urlContains(url, child: $0) }
         }
-        for fileURL in files {
-            _ = try? await localHistoryService.recordFile(at: fileURL, reason: reason)
-        }
+        await localHistoryService.recordFiles(files, reason: reason)
     }
 
     public func relocateHistory(from sourceURL: URL, to destinationURL: URL) async {
@@ -190,9 +188,7 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         guard let localHistoryService else { return }
         let changedFiles = paths.filter { workspaceAccess.fileExists(at: $0) }
         startBackgroundTask {
-            for fileURL in changedFiles {
-                _ = try? await localHistoryService.recordFile(at: fileURL, reason: .externalChange)
-            }
+            await localHistoryService.recordFiles(changedFiles, reason: .externalChange)
         }
     }
 

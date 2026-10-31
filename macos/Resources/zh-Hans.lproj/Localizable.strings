@@ -14,6 +14,7 @@
 "%@ already exists. Choose another name or location." = "%@ 已存在，请更换名称或位置。";
 "%@ answered with status %lld. %@" = "%1$@ 返回状态 %2$lld。%3$@";
 "%@ build files changed" = "%@ 构建文件已更改";
+"%@ could not be reached. Check your internet, proxy, or VPN connection and try again." = "无法连接 %@。请检查网络、代理或 VPN 后重试。";
 "%@ debug adapter is unavailable." = "%@ 调试适配器不可用。";
 "%@ did not finish within %lld seconds." = "%1$@ 未在 %2$lld 秒内完成。";
 "%@ did not report a version; %@ or newer is required." = "%1$@ 没有报告版本，需要 %2$@ 或更高版本。";
@@ -44,7 +45,9 @@
 "%@ options" = "%@ 选项";
 "%@ provider (inside the plugin)" = "%@ Provider（插件内置）";
 "%@ provider (installed on this Mac)" = "%@ Provider（使用本机已安装的程序）";
+"%@ returned HTTP %@." = "%@ 返回了 HTTP %@。";
 "%@ returned an invalid language-server provider." = "%@ 返回了无效的语言服务器 Provider。";
+"%@ returned an unexpected response." = "%@ 返回了无法识别的响应。";
 "%@ sent messages too quickly, so some were not shown." = "%@ 发送消息过快，部分消息未显示。";
 "%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved." = "%@ 与其他路径指向同一份文件内容。“保存为独立文件”只更新当前路径，并解除它与其他路径的硬链接关系。“更新所有硬链接”直接修改共享文件，包括项目外指向它的路径；此操作不是原子保存，中断可能导致内容不完整。“取消”将保留未保存的编辑。";
 "%@ started a task that is still running" = "%@ 启动的任务仍在运行";
@@ -165,6 +168,7 @@
 "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':" = "变基无法在存在任何未提交更改时开始，包括下列与“%@”无关的更改：";
 "A removed Hook cannot be saved." = "无法保存已移除的 Hook。";
 "A running local JVM and its JDK jstat tool are required." = "需要运行中的本地 JVM 及其 JDK jstat 工具。";
+"A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "无法与 %@ 建立安全连接。请检查 TLS 检查、代理、VPN 或系统证书设置。";
 "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "无法与 GitHub 建立安全连接。请检查 TLS 检查、代理、VPN 或系统证书设置。";
 "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly." = "无法与 MCP Registry 建立安全连接。请检查代理，或使用直连重试。";
 "A skill has an unknown scope and cannot be classified." = "有技能的作用范围未知，暂时无法分类。";
@@ -1258,6 +1262,7 @@
 "Download and Install" = "下载并安装";
 "Downloaded %@ · %@/s" = "已下载 %@ · %@/秒";
 "Downloaded (%lld of %lld enabled)" = "已下载（%lld 个，%lld 个已启用）";
+"Downloaded data was kept. Try again to resume from where it stopped." = "已下载的部分已保留，重试时会从中断处继续下载。";
 "Downloading %@…" = "正在下载 %@…";
 "Downloading full stable release…" = "正在下载正式版完整安装包…";
 "Downloading packages…" = "正在下载软件包…";
@@ -1378,6 +1383,7 @@
 "Enter a complete server URL." = "请输入完整的服务器 URL。";
 "Enter a debugger command (Tab to complete)" = "输入调试器命令（Tab 补全）";
 "Enter a description and instructions." = "请填写技能说明和正文。";
+"Enter a full web address, such as https://mirror.example.com/lithe/." = "请输入完整网址，例如 https://mirror.example.com/lithe/。";
 "Enter a host." = "请填写主机。";
 "Enter a model ID supported by your provider." = "请填写该服务商支持的模型 ID。";
 "Enter a nonempty Git identity without control characters or angle brackets" = "请输入非空姓名或邮箱，不要包含控制字符或尖括号。";
@@ -1576,6 +1582,7 @@
 "Format" = "格式";
 "Format JSON" = "格式化 JSON";
 "Forward" = "前进";
+"Found Lithe %@ at this source." = "已在此更新源找到 Lithe %@。";
 "Found automatically" = "已自动找到";
 "Frames are not available" = "当前无可用栈帧";
 "Frames rendered per second" = "每秒渲染帧数";
@@ -1764,7 +1771,7 @@
 "Ignore whitespace" = "忽略空白";
 "Ignored" = "已忽略";
 "Ignored by regular expression line %lld" = "被正则表达式第 %lld 行忽略";
-"Ignored by wildcard line %lld" = "被通配符第 %lld 行忽略";
+"Ignored by wildcard rule %@" = "被通配符规则 %@ 忽略";
 "Ignored entries: %lld" = "已忽略条目：%lld";
 "Image zoom" = "图片缩放";
 "Images can only be pasted into Markdown documents" = "图片只能粘贴到 Markdown 文档中";
@@ -1780,7 +1787,6 @@
 "Import skill" = "导入技能";
 "Import skill directory" = "导入技能目录";
 "Import source" = "导入来源";
-"In %@: no initial copy, edits are recorded" = "位于 %@：不做初始副本，编辑仍会记录";
 "In effect: " = "生效：";
 "Include" = "包含范围";
 "Include a short body when useful" = "有必要时包含简短正文";
@@ -2105,7 +2111,7 @@
 "Local development package" = "本地开发包";
 "Local edits to these files are lost." = "这些文件的本地修改将会丢失。";
 "Local history" = "本地历史";
-"Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again." = "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n不做初始副本：每行一个文件夹名。其中的文件在打开项目时不会复制，编辑仍会记录。列表开头是内置文件夹，删掉一行即可重新复制其中的文件。";
+"Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`. The list starts with built-in dependency, cache and build output folders such as `**/node_modules/`; delete a line to record that folder again.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`." = "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。列表开头是内置的依赖、缓存和构建输出文件夹，例如 `**/node_modules/`；删掉一行即可重新记录该文件夹。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。";
 "Local history limit per project" = "每个项目的本地历史上限";
 "Local history work is still active." = "本地历史任务仍在进行。";
 "Local history: %@" = "本地历史：%@";
@@ -2424,8 +2430,6 @@
 "No history recorded yet" = "还没有历史记录";
 "No host yet" = "尚未填写主机";
 "No implementations found" = "没有找到实现";
-"No initial copy" = "不做初始副本";
-"No initial copy folders" = "不做初始副本的文件夹";
 "No installed plugin supports %@ yet." = "尚未安装支持 %@ 的插件。";
 "No items" = "暂无项目";
 "No language dependency sources registered" = "未注册语言依赖来源";
@@ -2504,6 +2508,7 @@
 "No textual difference" = "没有文本差异";
 "No tools running" = "暂无工具运行";
 "No update check has been performed yet." = "尚未执行更新检查。";
+"No update feed was found at this address. The source must provide %@ next to the update archives." = "这个地址没有找到更新清单。更新源需要在更新包旁边提供 %@。";
 "No update package is available for this Mac architecture. Open the Release page to check available downloads." = "没有适用于此 Mac 架构的更新包。请打开 Release 页面查看可用下载。";
 "No update package is available for this Mac. Download the release manually." = "没有适用于此 Mac 的更新包，请手动下载版本。";
 "No updates found in the local Homebrew index." = "当前 Homebrew 索引未发现更新。";
@@ -2563,7 +2568,8 @@
 "One entry per line. Directory names hide matching folders; file entries support * and ?." = "每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。";
 "One file: %@" = "单个文件：%@";
 "One path per line. Relative paths are resolved from the workspace." = "每行一个路径；相对路径以当前工作区为基准。";
-"One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them." = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n列表开头是内置规则。删掉一行即可重新显示这些文件，再输入回来就会重新隐藏。";
+"One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply." = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n下方的内置规则始终生效。";
+"One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them." = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/`、`/*` 或 `/**` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级。不带结尾斜杠的规则只隐藏文件：`.lithe` 隐藏名为 .lithe 的文件，而不是文件夹。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/**` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n列表开头是内置规则。删掉一行即可重新显示这些文件，再输入回来就会重新隐藏。";
 "One pattern per line, for example org.mockito.* or com.example.generated.*" = "每行一个模式，例如 org.mockito.* 或 com.example.generated.*";
 "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。";
 "One sentence focused on the main change" = "聚焦主要更改的一句话";
@@ -3653,6 +3659,7 @@
 "Squash → 1" = "合并为 1 笔";
 "Stable (Recommended)" = "正式版（推荐）";
 "Stable release %@ is ready." = "正式版 %@ 已准备就绪。";
+"Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source." = "稳定版更新从这个地址下载。镜像需要把同一份已签名的 appcast 和更新包放在同一目录下，安装前 Lithe 仍会校验签名。AutoBuild 始终使用官方源。";
 "Stack frame display options" = "调用栈显示选项";
 "Stage All and Commit use the current ChangeList." = "全部暂存和提交仅使用当前更改列表。";
 "Stage File" = "暂存文件";
@@ -3939,6 +3946,7 @@
 "The configured build tool is not executable: %@" = "配置的构建工具无法执行：%@";
 "The connection check failed." = "连接检查失败。";
 "The connection failed." = "连接失败。";
+"The connection to %@ timed out. Check your proxy or VPN connection and try again." = "连接 %@ 超时。请检查代理或 VPN 后重试。";
 "The connection to the remote host was lost. Reconnect to continue." = "与远程主机的连接已断开，请重新连接后继续。";
 "The conversation is still being prepared. Try again in a moment." = "对话仍在准备中，请稍后再试。";
 "The credential store failed: %@" = "凭据存储失败：%@";
@@ -4128,6 +4136,7 @@
 "The skill file could not be opened." = "无法打开技能文件。";
 "The skill file could not be read." = "无法读取技能文件。";
 "The skill is no longer available in this scope. Refresh and retry." = "此技能已不在当前范围内，请刷新后重试。";
+"The source lists Lithe %@ but does not provide %@." = "更新源列出了 Lithe %@，但没有提供 %@。";
 "The stable installer stopped. Your current app has been preserved. Try again or download the stable release manually." = "正式版安装程序已停止，当前应用已保留。请重试或手动下载安装正式版。";
 "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "正式版缺少有效的发布者签名，未执行安装。请等待新版本，或从可信来源手动安装。";
 "The staged changes have no textual diff to summarize." = "已暂存的更改没有可用于总结的文本 Diff。";
@@ -4427,6 +4436,8 @@
 "Update parent repository references" = "更新父仓库引用";
 "Update required" = "需要更新";
 "Update running service" = "更新运行中的服务";
+"Update source" = "更新源";
+"Update sources must use https://. http:// is only allowed for this Mac (localhost)." = "更新源必须使用 https://；http:// 只允许用于本机（localhost）。";
 "Update status" = "更新状态";
 "Update this CLI using its original installer, then check again." = "请使用原安装器更新此 CLI，然后重新检测。";
 "Update to" = "可更新至";
@@ -4824,6 +4835,7 @@
 "native.aRebaseCannotStartWithAnyUncommittedChangesIncludingTheseUnrelatedTo" = "变基无法在存在任何未提交更改时开始，包括下列与“%1$@”无关的更改：";
 "native.aRemovedHookCannotBeSaved" = "无法保存已移除的 Hook。";
 "native.aRunningLocalJVMAndItsJDKJstatToolAreRequired" = "需要运行中的本地 JVM 及其 JDK jstat 工具。";
+"native.aSecureConnectionToCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSystemCertificateSettings" = "无法与 %1$@ 建立安全连接。请检查 TLS 检查、代理、VPN 或系统证书设置。";
 "native.aSecureConnectionToGitHubCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSyst9ed7704d75" = "无法与 GitHub 建立安全连接。请检查 TLS 检查、代理、VPN 或系统证书设置。";
 "native.aSecureConnectionToTheMcpRegistryCouldNotBeEstablishedCheckTheProxyOrRetryDirectly" = "无法与 MCP Registry 建立安全连接。请检查代理，或使用直连重试。";
 "native.aSkillHasAnUnknownScopeAndCannotBeClassified" = "有技能的作用范围未知，暂时无法分类。";
@@ -5631,6 +5643,7 @@
 "native.copyThreadName" = "复制线程名";
 "native.copyValue" = "复制值";
 "native.copyWorktreePath" = "复制工作树路径";
+"native.couldNotBeReachedCheckYourInternetProxyOrVPNConnectionAndTryAgain" = "无法连接 %1$@。请检查网络、代理或 VPN 后重试。";
 "native.couldNotCheckForUpdates" = "无法检查更新";
 "native.couldNotCheckForUpdates.variant2" = "无法检查更新。";
 "native.couldNotCompareTheLocalAdapterWithTheVerifiedVersion" = "无法比较本地适配器与已核验版本。";
@@ -5920,6 +5933,7 @@
 "native.downloadPHPSupportFromTheOfficialPluginRelease" = "从官方插件版本下载 PHP 支持。";
 "native.downloadPHPSupportFromTheOfficialSignedPluginPackage" = "从官方签名的插件包下载 PHP 支持。";
 "native.downloadStableRelease" = "下载正式版";
+"native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped" = "已下载的部分已保留，重试时会从中断处继续下载。";
 "native.downloadedLldOfLldEnabled" = "已下载（%1$lld 个，%2$lld 个已启用）";
 "native.downloadedS" = "已下载 %1$@ · %2$@/秒";
 "native.downloading" = "正在下载 %1$@…";
@@ -6068,6 +6082,7 @@
 "native.enterACompleteServerURL" = "请输入完整的服务器 URL。";
 "native.enterADebuggerCommandTabToComplete" = "输入调试器命令（Tab 补全）";
 "native.enterADescriptionAndInstructions" = "请填写技能说明和正文。";
+"native.enterAFullWebAddressSuchAsHttpsMirrorExampleComLithe" = "请输入完整网址，例如 https://mirror.example.com/lithe/。";
 "native.enterAHost" = "请填写主机。";
 "native.enterAJvmDebugPortBetween1And" = "请输入 1 到 65535 之间的 JVM 调试端口。";
 "native.enterAModelIDSupportedByYourProvider" = "请填写该服务商支持的模型 ID。";
@@ -6257,6 +6272,7 @@
 "native.forward" = "前进";
 "native.found" = "个结果";
 "native.foundAutomatically" = "已自动找到";
+"native.foundLitheAtThisSource" = "已在此更新源找到 Lithe %1$@。";
 "native.framesAreNotAvailable" = "当前无可用栈帧";
 "native.framesRenderedPerSecond" = "每秒渲染帧数";
 "native.freeOf" = "可用 %1$@，共 %2$@";
@@ -6444,7 +6460,7 @@
 "native.ignoreWhitespace" = "忽略空白";
 "native.ignored" = "已忽略";
 "native.ignoredByRegularExpressionLineLld" = "被正则表达式第 %1$lld 行忽略";
-"native.ignoredByWildcardLineLld" = "被通配符第 %1$lld 行忽略";
+"native.ignoredByWildcardRule" = "被通配符规则 %1$@ 忽略";
 "native.ignoredEntriesLld" = "已忽略条目：%1$lld";
 "native.imageZoom" = "图片缩放";
 "native.imagesCanOnlyBePastedIntoMarkdownDocuments" = "图片只能粘贴到 Markdown 文档中";
@@ -6462,7 +6478,6 @@
 "native.importSource" = "导入来源";
 "native.in" = "%1$@，位于 %2$@";
 "native.inEffect" = "生效：";
-"native.inNoInitialCopyEditsAreRecorded" = "位于 %1$@：不做初始副本，编辑仍会记录";
 "native.include" = "包含范围";
 "native.includeAShortBodyWhenUseful" = "有必要时包含简短正文";
 "native.includeInCommit" = "包含在提交中";
@@ -6908,7 +6923,7 @@
 "native.localHistory.variant3" = "本地历史";
 "native.localHistoryFormat" = "本地历史：%1$@";
 "native.localHistoryIsAvailableForTextFiles" = "本地历史仅适用于文本文件";
-"native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul124b531bdc" = "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n不做初始副本：每行一个文件夹名。其中的文件在打开项目时不会复制，编辑仍会记录。列表开头是内置文件夹，删掉一行即可重新复制其中的文件。";
+"native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul16320b202b" = "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。列表开头是内置的依赖、缓存和构建输出文件夹，例如 `**/node_modules/`；删掉一行即可重新记录该文件夹。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。";
 "native.localHistoryLimitPerProject" = "每个项目的本地历史上限";
 "native.localHistoryWorkIsStillActive" = "本地历史任务仍在进行。";
 "native.localJDKHomeOptional" = "本地 JDK 主目录（可选）";
@@ -7218,8 +7233,6 @@
 "native.noHooksYet" = "还没有 Hook。";
 "native.noHostYet" = "尚未填写主机";
 "native.noImplementationsFound" = "没有找到实现";
-"native.noInitialCopy" = "不做初始副本";
-"native.noInitialCopyFolders" = "不做初始副本的文件夹";
 "native.noInstalledPluginSupportsYet" = "尚未安装支持 %1$@ 的插件。";
 "native.noItems" = "暂无项目";
 "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory" = "未找到 JDK。请设置 JAVA_HOME、安装 JDK，或选择 JDK 目录。";
@@ -7316,6 +7329,7 @@
 "native.noTextualDifference" = "没有文本差异";
 "native.noToolsRunning" = "暂无工具运行";
 "native.noUpdateCheckHasBeenPerformedYet" = "尚未执行更新检查。";
+"native.noUpdateFeedWasFoundAtThisAddressTheSourceMustProvideNextToTheUpdateArchives" = "这个地址没有找到更新清单。更新源需要在更新包旁边提供 %1$@。";
 "native.noUpdatePackageIsAvailableForThisMacArchitectureOpenTheReleasePageToCheckAvailableDownloads" = "没有适用于此 Mac 架构的更新包。请打开 Release 页面查看可用下载。";
 "native.noUpdatePackageIsAvailableForThisMacDownloadTheReleaseManually" = "没有适用于此 Mac 的更新包，请手动下载版本。";
 "native.noUpdatesFoundInTheLocalHomebrewIndex" = "当前 Homebrew 索引未发现更新。";
@@ -7375,7 +7389,8 @@
 "native.oneFile" = "单个文件：%1$@";
 "native.oneNAMEValueEntryPerLine" = "每行填写一个 NAME=value";
 "native.onePathPerLineRelativePathsAreResolvedFromTheWorkspace" = "每行一个路径；相对路径以当前工作区为基准。";
-"native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx3ebe586fc1" = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n列表开头是内置规则。删掉一行即可重新显示这些文件，再输入回来就会重新隐藏。";
+"native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx35941b6a99" = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/`、`/*` 或 `/**` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级。不带结尾斜杠的规则只隐藏文件：`.lithe` 隐藏名为 .lithe 的文件，而不是文件夹。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/**` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n列表开头是内置规则。删掉一行即可重新显示这些文件，再输入回来就会重新隐藏。";
+"native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx4f7ef7b38a" = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n下方的内置规则始终生效。";
 "native.onePatternPerLineForExampleOrgMockito" = "每行一个模式，例如 org.mockito.* 或 com.example.generated.*";
 "native.onePatternPerLineLogCacheOnlyAffectsThisSearchEverywhereWindow" = "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。";
 "native.oneSentenceFocusedOnTheMainChange" = "聚焦主要更改的一句话";
@@ -8011,6 +8026,8 @@
 "native.returnToStable.variant2" = "回到正式版？";
 "native.returnToTheWelcomeScreen" = "返回 Welcome 页面";
 "native.returnedAnInvalidLanguageServerProvider" = "%1$@ 返回了无效的语言服务器 Provider。";
+"native.returnedAnUnexpectedResponse" = "%1$@ 返回了无法识别的响应。";
+"native.returnedHTTP" = "%1$@ 返回了 HTTP %2$@。";
 "native.revealActiveFileInProjectTree" = "在项目树中定位当前文件";
 "native.revealInFinder" = "在 Finder 中显示";
 "native.revert" = "反向提交";
@@ -8422,6 +8439,7 @@
 "native.squashLldCommitsInto1LaterCommitsInTheAffectedHistoryWillBeReplayed" = "将 %1$lld 笔提交合并为 1 笔，并重放其后的受影响提交。";
 "native.stableRecommended" = "正式版（推荐）";
 "native.stableReleaseIsReady" = "正式版 %1$@ 已准备就绪。";
+"native.stableUpdatesDownloadFromThisAddressAMirrorMustServeTheSameSignedAppcastAndUpdateArchivesSideBySideAndLitheStillV" = "稳定版更新从这个地址下载。镜像需要把同一份已签名的 appcast 和更新包放在同一目录下，安装前 Lithe 仍会校验签名。AutoBuild 始终使用官方源。";
 "native.stackFrameDisplayOptions" = "调用栈显示选项";
 "native.stageAllAndCommitUseTheCurrentChangeList" = "全部暂存和提交仅使用当前更改列表。";
 "native.stageAllChanges" = "暂存所有更改";
@@ -8649,6 +8667,7 @@
 "native.theConfiguredBuildToolIsNotExecutable" = "配置的构建工具无法执行：%1$@";
 "native.theConnectionFailed" = "连接失败。";
 "native.theConnectionToTheRemoteHostWasLostReconnectToContinue" = "与远程主机的连接已断开，请重新连接后继续。";
+"native.theConnectionToTimedOutCheckYourProxyOrVPNConnectionAndTryAgain" = "连接 %1$@ 超时。请检查代理或 VPN 后重试。";
 "native.theConversationIsStillBeingPreparedTryAgainInAMoment" = "对话仍在准备中，请稍后再试。";
 "native.theCredentialStoreFailed" = "凭据存储失败：%1$@";
 "native.theCredentialStoreVersionIsUnsupportedExistingCredentialsWerePreserved" = "凭据存储版本暂不支持，已保留原有凭据。";
@@ -8850,6 +8869,7 @@
 "native.theSkillFileCouldNotBeOpened" = "无法打开技能文件。";
 "native.theSkillFileCouldNotBeRead" = "无法读取技能文件。";
 "native.theSkillIsNoLongerAvailableInThisScopeRefreshAndRetry" = "此技能已不在当前范围内，请刷新后重试。";
+"native.theSourceListsLitheButDoesNotProvide" = "更新源列出了 Lithe %1$@，但没有提供 %2$@。";
 "native.theSpringInitializrServerThatGeneratesTheProjectChangeItToUseAMirrorOrYourCompanySOwnServe" = "生成项目的 Spring Initializr 服务器。可改为镜像或公司内部服务器。";
 "native.theStableInstallerStoppedYourCurrentAppHasBeenPreservedTryAgainOrDownloadTheStd70ce1979b" = "正式版安装程序已停止，当前应用已保留。请重试或手动下载安装正式版。";
 "native.theStableProfileCouldNotBeCopiedSafelyItsOriginalDataHasBeenPreserved" = "无法安全复制正式版配置，原有数据已保留。";
@@ -9136,6 +9156,8 @@
 "native.updateProject.variant2" = "更新项目…";
 "native.updateRequired" = "需要更新";
 "native.updateRunningService" = "更新运行中的服务";
+"native.updateSource" = "更新源";
+"native.updateSourcesMustUseHttpsHttpIsOnlyAllowedForThisMacLocalhost" = "更新源必须使用 https://；http:// 只允许用于本机（localhost）。";
 "native.updateStatus" = "更新状态";
 "native.updateThisCLIUsingItsOriginalInstallerThenCheckAgain" = "请使用原安装器更新此 CLI，然后重新检测。";
 "native.updateTo" = "可更新至";

@@ -1425,8 +1425,9 @@ struct LitheCoreLogicTests {
                 isDirectory: false
             )
         )
+        // Run configurations are edited through the run configuration editor.
         #expect(
-            !rules.isHidden(
+            rules.isHidden(
                 root.appendingPathComponent(".lithe/run/configurations.json"),
                 relativeTo: root,
                 isDirectory: false
@@ -1468,10 +1469,13 @@ struct LitheCoreLogicTests {
         #expect(rules.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
         #expect(rules.isWatchedDespiteHiding(workspace.appendingPathComponent(".lithe"), relativeTo: workspace))
         #expect(!rules.isWatchedDespiteHiding(workspace.appendingPathComponent("src/App.java"), relativeTo: workspace))
-        #expect(!FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe"), relativeTo: workspace))
+        #expect(FileVisibilityRules.default.isHidden(workspace.appendingPathComponent(".lithe"), relativeTo: workspace, isDirectory: true))
+        // Turning the built-in off shows the folder again.
+        let shown = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: ["!.lithe/**"])
+        #expect(!shown.isHidden(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace, isDirectory: false))
 
-        // By default `.lithe` follows the ordinary visibility logic (shown in the
-        // tree) and is watched; every way of hiding it only changes the display.
+        // By default `.lithe` is hidden from the tree yet watched; every way of
+        // hiding it only changes the display.
         let variants: [FileVisibilityRules] = [
             .default,
             FileVisibilityRules(hiddenDirectoryNames: [".lithe"], hiddenFilePatterns: []),
@@ -1491,7 +1495,7 @@ struct LitheCoreLogicTests {
             )
             #expect(variantBatch.workspacePaths == rootConfiguration.sorted(), "\(variant)")
         }
-        #expect(!FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
+        #expect(FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
     }
 
     @Test
@@ -1529,13 +1533,14 @@ struct LitheCoreLogicTests {
         // Matching ignores case.
         #expect(hidden("Modules/A/DIST", ["**/dist/"], isDirectory: true))
         // A plain name or a glob without a folder suffix stays a file pattern.
-        #expect(hidden(".lithe", [".lithe"], isDirectory: false))
-        #expect(!hidden(".lithe", [".lithe"], isDirectory: true))
-        #expect(!hidden(".lithe/dependencies/index.json", [".lithe"], isDirectory: false))
+        // `!.lithe/**` takes the built-in configuration folder rule off.
+        #expect(hidden(".lithe", [".lithe", "!.lithe/**"], isDirectory: false))
+        #expect(!hidden(".lithe", [".lithe", "!.lithe/**"], isDirectory: true))
+        #expect(!hidden(".lithe/dependencies/index.json", [".lithe", "!.lithe/**"], isDirectory: false))
         #expect(hidden("src/Name.log", ["*.log"], isDirectory: false))
         #expect(!hidden("src/Name.log", ["*.log"], isDirectory: true))
-        // The default rules leave `.lithe` visible.
-        #expect(!FileVisibilityRules.default.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: true))
+        // The default rules hide `.lithe` like IDEA's `.idea`.
+        #expect(FileVisibilityRules.default.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: true))
     }
 
     @Test
@@ -4587,6 +4592,56 @@ struct EditorDocumentTests {
             WorkspaceFileChange(fileURL: created, kind: .created),
             WorkspaceFileChange(fileURL: removed, kind: .deleted),
         ])
+        projectedChanges.removeAll()
+        let refreshesAfterMutation = gitRefreshCount
+        watcher.emit([created.path, removed.path])
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            gitRefreshCount > refreshesAfterMutation
+        }, "The second batch did not finish")
+        // The committed inventory must classify the new file as changed and
+        // must no longer report the already removed file as deleted.
+        #expect(projectedChanges == [WorkspaceFileChange(fileURL: created, kind: .changed)])
+        #expect(operations.snapshotCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func largeExternalEditBatchUsesInventoryMembershipWithoutRescanning() async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-large-external-batch")
+        let directory = workspace.appendingPathComponent("src/nested")
+        let files = (0..<4_000).map { directory.appendingPathComponent("File\($0).java") }
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true], files: files, isLazy: true
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var gitRefreshCount = 0
+        var changes: [WorkspaceFileChange] = []
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: ExistingWorkspaceFileOperations(
+                paths: files.map(\.path), directories: [directory.path]
+            ),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: { gitRefreshCount += 1 },
+            notifyWorkspaceFileChanges: { changes.append(contentsOf: $0) },
+            observationDelay: { _ in }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        let watcher = try #require(watcherFactory.source)
+        let initialRefreshes = gitRefreshCount
+        // Include a below-unloaded directory and an alias of an existing file.
+        // The timing harness bounds this fixed-size regression for quadratic lookup.
+        watcher.emit(files.map(\.path) + [directory.path, directory.path + "/./File0.java"])
+        #expect(await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            gitRefreshCount > initialRefreshes
+        }, "The large edit batch did not finish")
+        #expect(operations.snapshotCount == 1)
+        #expect(model.projectFiles == files)
+        #expect(changes.filter { $0.kind == .changed }.count == files.count)
+        #expect(changes.filter { $0.fileURL == files[0] }.count == 1)
     }
 
     @Test

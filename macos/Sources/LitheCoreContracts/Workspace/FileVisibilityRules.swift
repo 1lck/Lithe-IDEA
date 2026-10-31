@@ -14,8 +14,12 @@ package struct FileVisibilityRules: Hashable, Sendable {
     package static let builtInHiddenFilePatterns = [
         ".DS_Store",
         "*.pyc",
+        hiddenConfigurationPattern,
         ".lithe/run/local.json",
     ]
+    /// The project configuration folder is hidden like IDEA's `.idea`; its
+    /// files are edited through Settings and the run configuration editor.
+    package static let hiddenConfigurationPattern = ".lithe/**"
 
     /// The built-in rules written as Hidden paths patterns, for display. Folder
     /// names become `**/name/`, the pattern that hides them at any depth.
@@ -131,8 +135,13 @@ package struct FileVisibilityRules: Hashable, Sendable {
         let relativePath = relativePath(for: url, root: rootURL)
         guard relativePath.split(separator: "/").first.map(String.init) == Self.watchedConfigurationDirectory
         else { return false }
-        return !Self.default.isHiddenPath(url, relativeTo: rootURL)
+        return !Self.configurationNoise.isHiddenPath(url, relativeTo: rootURL)
     }
+
+    /// The built-in rules without the one hiding the whole configuration folder.
+    private static let configurationNoise = FileVisibilityRules(
+        hiddenDirectoryNames: [], hiddenFilePatterns: ["!" + hiddenConfigurationPattern]
+    )
 
     package func isHiddenDirectoryName(_ name: String) -> Bool {
         hiddenDirectoryNames.contains { $0.caseInsensitiveCompare(name) == .orderedSame }

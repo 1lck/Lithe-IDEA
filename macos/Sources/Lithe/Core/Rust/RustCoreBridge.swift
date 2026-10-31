@@ -275,18 +275,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
         enum Match: Decodable, Sendable, Equatable {
             case hidden
-            case baselineExcluded(directory: String)
-            case pattern(index: Int)
+            case pattern(String)
             case regex(index: Int)
 
-            private enum CodingKeys: String, CodingKey { case kind, directory, index }
+            private enum CodingKeys: String, CodingKey { case kind, pattern, index }
 
             init(from decoder: Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 switch try container.decode(String.self, forKey: .kind) {
                 case "hidden": self = .hidden
-                case "baselineExcluded": self = .baselineExcluded(directory: try container.decode(String.self, forKey: .directory))
-                case "pattern": self = .pattern(index: try container.decode(Int.self, forKey: .index))
+                case "pattern": self = .pattern(try container.decode(String.self, forKey: .pattern))
                 case "regex": self = .regex(index: try container.decode(Int.self, forKey: .index))
                 case let kind:
                     throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "Unknown match \(kind)")
@@ -295,7 +293,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
 
         let regexErrors: [RegexError]
-        let builtInBaselineExcludedDirectoryNames: [String]
+        let builtInIgnorePatterns: [String]
         let matched: Match?
         let gitIgnored: Bool?
     }
@@ -1652,7 +1650,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct HistoryIgnoreRules: Encodable {
         let pathPatterns: [String]
         let pathRegexes: [String]
-        let baselineExcludedDirectoryNames: [String]
     }
 
     private struct HistoryIgnorePreviewRequest: Encodable {
@@ -2743,7 +2740,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         hiddenFilePatterns: [String],
         ignorePatterns: [String] = [],
         ignoreRegexes: [String] = [],
-        baselineExcludedDirectoryNames: [String] = [],
         storageLimitBytes: Int64? = nil
     ) -> HistoryEntryPayload? {
         execute(
@@ -2759,8 +2755,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 hiddenFilePatterns: hiddenFilePatterns,
                 ignoreRules: HistoryIgnoreRules(
                     pathPatterns: ignorePatterns,
-                    pathRegexes: ignoreRegexes,
-                    baselineExcludedDirectoryNames: baselineExcludedDirectoryNames
+                    pathRegexes: ignoreRegexes
                 ),
                 storageLimitBytes: storageLimitBytes
             )
@@ -2771,7 +2766,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         path: String?,
         ignorePatterns: [String],
         ignoreRegexes: [String],
-        baselineExcludedDirectoryNames: [String],
         hiddenFilePatterns: [String],
         workspaceURL: URL? = nil
     ) -> HistoryIgnorePreviewPayload? {
@@ -2781,8 +2775,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 path: path,
                 ignoreRules: HistoryIgnoreRules(
                     pathPatterns: ignorePatterns,
-                    pathRegexes: ignoreRegexes,
-                    baselineExcludedDirectoryNames: baselineExcludedDirectoryNames
+                    pathRegexes: ignoreRegexes
                 ),
                 hiddenFilePatterns: hiddenFilePatterns,
                 workspaceRoot: workspaceURL?.standardizedFileURL.path

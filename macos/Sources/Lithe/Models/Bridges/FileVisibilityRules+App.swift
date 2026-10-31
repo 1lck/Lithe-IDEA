@@ -36,7 +36,6 @@ extension AppSettings {
             hiddenFilePatterns: visibility.hiddenFilePatterns,
             ignorePatterns: localHistoryIgnorePatterns,
             ignoreRegexes: localHistoryIgnoreRegexes,
-            baselineExcludedDirectoryNames: localHistoryBaselineExcludedDirectoryNames,
             storageLimitBytes: Int64(localHistoryStorageLimitMegabytes) * 1024 * 1024
         )
     }

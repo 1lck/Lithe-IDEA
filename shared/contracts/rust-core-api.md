@@ -2023,7 +2023,9 @@ matcher itself, so `**/dist/` covers a root-level `dist` as well as nested ones
 (no client has to add the root form). An entry ending in
 `/*` or `/**` is the same folder rule as one ending in `/`, so `.lithe/*` hides the
 folder and everything below it rather than leaving an empty folder; ordinary file globs
-and plain names (such as `.lithe`) retain their file-only semantics. The macOS file
+and plain names (such as `.lithe`) retain their file-only semantics. macOS hides the
+workspace-root `.lithe` folder by default with the built-in entry `.lithe/**`, like IDEA's
+`.idea`; deleting that line (stored as `!.lithe/**`) shows it again. The macOS file
 watcher is the one place that does not follow the hiding rules for the workspace-root `.lithe`
 folder: hiding it removes it from the tree and listings, but its file events are still
 delivered (except built-in noise such as `.lithe/run/local.json`) because editing its JSON
@@ -3139,20 +3141,21 @@ A `hiddenFilePatterns` entry starting with `!` turns a rule off instead of
 adding one: `!**/name/` or `!name` removes that hidden folder (built-in or not),
 and `!pattern` removes an equal file pattern. `!` entries never match a path.
 
-`history.record` also accepts optional `ignoreRules: { pathPatterns, pathRegexes,
-baselineExcludedDirectoryNames }` and an optional `storageLimitBytes` (default
+`history.record` also accepts optional `ignoreRules: { pathPatterns, pathRegexes }`
+and an optional `storageLimitBytes` (default
 100 MiB, clamped to 10 MiB–100 GiB); baselines stop at half of that cap.
 Patterns use the hidden-path glob syntax; regexes use Rust `regex` syntax,
 case-insensitive, matched unanchored against the `/`-separated relative path.
 A matching file is not recorded, existing entries stay listed, and an invalid
-or empty regex never matches. `baselineExcludedDirectoryNames` adds folder
-names whose files get no initial copy when a project opens, on top of the
-built-in list; `!name` turns a built-in off. `history.ignorePreview` accepts the
+or empty regex never matches. Built-in dependency, cache and build output
+folders (such as `node_modules`, `.venv`, `target`) also apply as `**/name/`
+patterns, for baselines and edits alike; a `!**/name/` or `!name` pattern turns
+one off, and saving drops baselines the current rules reject. `history.ignorePreview` accepts the
 same `ignoreRules`, optional `hiddenFilePatterns`, an optional relative
 `path` and an optional `workspaceRoot`, and returns `regexErrors` (`{ index, message }` per rejected regex), the
-built-in `builtInBaselineExcludedDirectoryNames`, and `matched`: `null` or an object tagged by
-`kind` — `hidden`, `baselineExcluded` (`directory`), `pattern` or `regex`
-(`index` into its list), plus `gitIgnored`: whether `git check-ignore` ignores
+built-in patterns as `builtInIgnorePatterns`, and `matched`: `null` or an object tagged by
+`kind` — `hidden`, `pattern` (the matching `pattern`, built-in or the user's) or
+`regex` (`index` into its list), plus `gitIgnored`: whether `git check-ignore` ignores
 `path` under `workspaceRoot`, or `null` without a path, workspace or repository.
 It is informational; local history does not follow Git ignore rules. `history.usage` and `history.clear` accept
 `storageRoot`, and `history.usage` also the optional `storageLimitBytes` it
@@ -3255,7 +3258,11 @@ by this operation. Lower priority wins; equal-priority candidates use descending
 numeric Java versions (including legacy `1.8`), then ascending ID.
 
 When `project-jdk.minimumVersion` exists, selection first filters using the same
-Java version comparison as run-configuration diagnostics. The response is
+Java version comparison as run-configuration diagnostics. Among the compatible
+candidates, the one whose Java feature version equals the declared one wins, else
+the oldest newer feature version; source priority only breaks ties within a feature
+version. A Java 8 project therefore runs on an installed JDK 8 even when `JAVA_HOME`
+points at JDK 21, matching IDEA and OpenIDEA. The response is
 `{ id, warning }`: the compatible candidate, or the supplied usable fallback
 with an actionable warning if none qualifies. Missing requirements retain the
 platform's unconstrained choice; a malformed or unsupported `requirements`

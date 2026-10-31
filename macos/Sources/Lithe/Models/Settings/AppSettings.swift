@@ -51,7 +51,6 @@ final class AppSettings: ObservableObject {
         static let searchExclusionsEnabled = "settings.searchExclusionsEnabled"
         static let localHistoryIgnorePatterns = "settings.localHistoryIgnorePatterns"
         static let localHistoryIgnoreRegexes = "settings.localHistoryIgnoreRegexes"
-        static let localHistoryBaselineExcludedDirectoryNames = "settings.localHistoryBaselineExcludedDirectoryNames"
         static let localHistoryStorageLimitMegabytes = "settings.localHistoryStorageLimitMegabytes"
         static let gitExecutable = "settings.gitExecutable"
         static let gitUseCredentialHelper = "settings.gitUseCredentialHelper"
@@ -199,6 +198,8 @@ final class AppSettings: ObservableObject {
         }
     }
     /// Kept out of local history only; the project tree still shows these files.
+    /// Holds the user's own globs plus `!**/name/` for removed built-in folder
+    /// rules, so built-ins added later still apply.
     @Published var localHistoryIgnorePatterns: [String] {
         didSet {
             defaults.set(localHistoryIgnorePatterns, forKey: Key.localHistoryIgnorePatterns)
@@ -209,14 +210,6 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(localHistoryIgnoreRegexes, forKey: Key.localHistoryIgnoreRegexes)
             if oldValue != localHistoryIgnoreRegexes { localHistoryIgnoreRulesDidChange.send() }
-        }
-    }
-    /// User changes to the No initial copy folders: added names, and `!name`
-    /// for removed built-ins, so later built-ins still apply.
-    @Published var localHistoryBaselineExcludedDirectoryNames: [String] {
-        didSet {
-            defaults.set(localHistoryBaselineExcludedDirectoryNames, forKey: Key.localHistoryBaselineExcludedDirectoryNames)
-            if oldValue != localHistoryBaselineExcludedDirectoryNames { localHistoryIgnoreRulesDidChange.send() }
         }
     }
     static let defaultLocalHistoryStorageLimitMegabytes = 100
@@ -493,7 +486,6 @@ final class AppSettings: ObservableObject {
         searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
         localHistoryIgnorePatterns = defaults.stringArray(forKey: Key.localHistoryIgnorePatterns) ?? []
         localHistoryIgnoreRegexes = defaults.stringArray(forKey: Key.localHistoryIgnoreRegexes) ?? []
-        localHistoryBaselineExcludedDirectoryNames = defaults.stringArray(forKey: Key.localHistoryBaselineExcludedDirectoryNames) ?? []
         localHistoryStorageLimitMegabytes = (defaults.object(forKey: Key.localHistoryStorageLimitMegabytes) as? Int)
             .map { min(max($0, Self.localHistoryStorageLimitRange.lowerBound), Self.localHistoryStorageLimitRange.upperBound) }
             ?? Self.defaultLocalHistoryStorageLimitMegabytes
@@ -708,7 +700,6 @@ final class AppSettings: ObservableObject {
         searchExclusionsEnabled = true
         localHistoryIgnorePatterns = []
         localHistoryIgnoreRegexes = []
-        localHistoryBaselineExcludedDirectoryNames = []
         localHistoryStorageLimitMegabytes = Self.defaultLocalHistoryStorageLimitMegabytes
         gitFetchOptions = GitFetchOptions()
         gitExecutable = ""
