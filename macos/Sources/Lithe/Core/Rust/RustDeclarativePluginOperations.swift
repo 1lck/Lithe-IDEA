@@ -6,7 +6,8 @@ import LitheModuleAPI
 /// validation and template expansion for both products; this adapter only
 /// translates payloads and outcomes.
 struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, DeclarativeExecutionPlanning,
-    DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking {
+    DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking,
+    DeclarativeEditorContributionDecoding {
     let core: RustCoreBridge
 
     func validateNativeNodes(ui: PluginNativeUI, data: ToolingJSONValue) throws -> [PluginNativeUI.Node] {
@@ -296,6 +297,30 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             )
         }
         return result
+    }
+
+    func decodeGrammar(manifest: Data, languageID: String, grammar: String) throws -> ToolingJSONValue {
+        struct Payload: Encodable { let manifest: ToolingJSONValue; let languageID: String; let grammar: String }
+        struct Result: Decodable { let language: ToolingJSONValue }
+        let outcome: Outcome<Result> = try execute(
+            "plugins.declarative.decodeGrammar",
+            payload: Payload(manifest: try Self.json(manifest), languageID: languageID, grammar: grammar)
+        )
+        return outcome.value.language
+    }
+
+    func decodeRunMarkers(
+        manifest: Data, languageID: String, lineCount: Int, result: ToolingJSONValue
+    ) throws -> [PluginRunMarker] {
+        struct Payload: Encodable {
+            let manifest: ToolingJSONValue; let languageID: String; let lineCount: Int; let result: ToolingJSONValue
+        }
+        struct Result: Decodable { let markers: [PluginRunMarker] }
+        let outcome: Outcome<Result> = try execute(
+            "plugins.declarative.decodeRunMarkers",
+            payload: Payload(manifest: try Self.json(manifest), languageID: languageID, lineCount: lineCount, result: result)
+        )
+        return outcome.value.markers
     }
 
     func resolveSettings(

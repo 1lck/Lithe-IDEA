@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.httpclient",
+  "displayName": "HTTP Client",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "backend": 2,
+    "languages": 2,
+    "runMarkers": 1,
+    "serverProcess": 1,
+    "ui": 4
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "backend.launch",
+    "documents.read",
+    "ui.contribute"
+  ],
+  "activationEvents": [
+    "onCommand:dev.lithe.fixture.httpclient.send",
+    "onLanguage:http"
+  ],
+  "languages": [
+    {
+      "id": "http",
+      "displayName": "HTTP Request",
+      "fileExtensions": [
+        "http"
+      ],
+      "grammar": {
+        "kind": "monarch",
+        "path": "grammars/http.monarch.json"
+      }
+    }
+  ],
+  "backend": {
+    "launch": {
+      "kind": "packaged",
+      "path": "bin/backend"
+    },
+    "arguments": [
+      "--state",
+      "${stateDir}"
+    ]
+  },
+  "runMarkers": [
+    {
+      "languageID": "http",
+      "function": "requests.markers",
+      "command": "dev.lithe.fixture.httpclient.send"
+    }
+  ],
+  "ui": {
+    "toolWindows": [],
+    "commands": [
+      {
+        "id": "dev.lithe.fixture.httpclient.send",
+        "title": "Send Request",
+        "placements": [
+          "commandPalette"
+        ]
+      }
+    ]
+  }
+}

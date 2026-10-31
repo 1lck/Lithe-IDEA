@@ -62,6 +62,9 @@ const PERMISSION_WORKSPACE_METADATA: &str = "workspace.metadata";
 const PERMISSION_DEBUG_LAUNCH: &str = "debug.launch";
 /// Attaching the plugin's adapter to a running process. `debugAdapters` 1.
 const PERMISSION_DEBUG_ATTACH: &str = "debug.attach";
+/// Reading open documents, here the text a Run marker provider receives.
+/// A protocol 3 host permission that `runMarkers` 1 also requires.
+const PERMISSION_DOCUMENTS_READ: &str = "documents.read";
 const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_BACKEND,
     PERMISSION_BUILD,
@@ -207,6 +210,10 @@ pub struct DeclarativePluginManifest {
     /// `super::backend`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     backend: Option<super::backend::BackendDeclaration>,
+    /// Editor Run markers the plugin's backend lists. `runMarkers` 1; see
+    /// `super::run_markers`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    run_markers: Vec<super::run_markers::RunMarkerProviderDeclaration>,
 }
 
 /// UI supplied by plugins. The host owns every window shell: docking, title,
@@ -421,6 +428,13 @@ struct LanguageDeclaration {
     project_file_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<DependencyDeclaration>,
+    /// Syntax highlighting from a package file. `languages` 2; see
+    /// `super::grammar`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grammar: Option<super::grammar::GrammarDeclaration>,
+    /// Comment and bracket behavior of the editor. `languages` 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    configuration: Option<super::grammar::LanguageConfiguration>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -857,9 +871,14 @@ impl DeclarativePluginManifest {
             return Err(invalid("languages", "The plugin declares no languages."));
         }
 
+        let languages_version = self
+            .requires
+            .get(capabilities::LANGUAGES)
+            .copied()
+            .unwrap_or(1);
         let mut language_ids = BTreeSet::new();
         for (index, language) in self.languages.iter_mut().enumerate() {
-            language.normalize(index)?;
+            language.normalize(index, languages_version)?;
             if !language_ids.insert(language.id.clone()) {
                 return Err(invalid(
                     format!("languages[{index}].id"),
@@ -868,6 +887,17 @@ impl DeclarativePluginManifest {
             }
         }
         self.languages.sort_by(|left, right| left.id.cmp(&right.id));
+        if languages_version >= super::grammar::GRAMMAR_LANGUAGES_VERSION
+            && !self
+                .languages
+                .iter()
+                .any(LanguageDeclaration::uses_version_2)
+        {
+            return Err(invalid(
+                "requires.languages",
+                "The declared languages version must be used: languages 2 adds grammar and configuration.",
+            ));
+        }
 
         let declared_settings = self.validate_settings()?;
 
@@ -983,6 +1013,8 @@ impl DeclarativePluginManifest {
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
             && self.backend.is_none()
+            // A grammar alone is a complete highlighting plugin.
+            && !self.languages.iter().any(|language| language.grammar.is_some())
         {
             return Err(invalid(
                 "languages",
@@ -1035,6 +1067,7 @@ impl DeclarativePluginManifest {
                     .any(|event| event == super::backend::ON_WORKSPACE_OPEN),
             })?;
         }
+        self.validate_run_markers()?;
         self.validate_permissions()?;
         self.validate_activation_events()?;
         Ok(self)
@@ -1113,6 +1146,7 @@ impl DeclarativePluginManifest {
                 !self.debug_adapters.is_empty(),
             ),
             (capabilities::BACKEND, self.backend.is_some()),
+            (capabilities::RUN_MARKERS, !self.run_markers.is_empty()),
         ];
         sections
             .into_iter()
@@ -1371,6 +1405,10 @@ impl DeclarativePluginManifest {
         if !self.project_generators.is_empty() {
             required.insert(PERMISSION_PROJECT_GENERATE);
         }
+        // The provider receives the text of the documents it marks.
+        if !self.run_markers.is_empty() {
+            required.insert(PERMISSION_DOCUMENTS_READ);
+        }
         if self.backend.is_some() {
             required.insert(PERMISSION_BACKEND);
         } else if self.permissions.iter().any(|p| p == PERMISSION_CREDENTIALS) {
@@ -1422,6 +1460,41 @@ impl DeclarativePluginManifest {
         Ok(())
     }
 
+    /// Checks the Run marker providers: one per declared language, served by
+    /// a backend 2 that receives the plugin's own command.
+    fn validate_run_markers(&mut self) -> Validation<()> {
+        if self.run_markers.is_empty() {
+            return Ok(());
+        }
+        if self.backend.is_none() || self.backend_version() < 2 {
+            return Err(invalid(
+                "runMarkers",
+                "Run marker providers are functions of a plugin backend 2.",
+            ));
+        }
+        let languages: BTreeSet<&str> = self.language_ids().collect();
+        let commands: BTreeSet<&str> = self
+            .ui
+            .iter()
+            .flat_map(|ui| &ui.commands)
+            .map(|command| command.id.as_str())
+            .collect();
+        let mut provided = BTreeSet::new();
+        for (index, provider) in self.run_markers.iter().enumerate() {
+            let field = format!("runMarkers[{index}]");
+            provider.validate(&field, &languages, &commands)?;
+            if !provided.insert(provider.language_id.as_str()) {
+                return Err(invalid(
+                    format!("{field}.languageID"),
+                    "A language declares more than one Run marker provider.",
+                ));
+            }
+        }
+        self.run_markers
+            .sort_by(|left, right| left.language_id.cmp(&right.language_id));
+        Ok(())
+    }
+
     fn validate_activation_events(&mut self) -> Validation<()> {
         let mut expected = BTreeSet::new();
         for server in &self.language_servers {
@@ -1443,6 +1516,11 @@ impl DeclarativePluginManifest {
         }
         for adapter in &self.debug_adapters {
             expected.insert(crate::debug::adapters::activation_event(adapter));
+        }
+        // The backend starts when a document of the language first asks for
+        // its markers.
+        for provider in &self.run_markers {
+            expected.insert(format!("onLanguage:{}", provider.language_id));
         }
         if let Some(ui) = &self.ui {
             for window in &ui.tool_windows {
@@ -1750,8 +1828,29 @@ impl DeclarativePluginManifest {
 }
 
 impl LanguageDeclaration {
-    fn normalize(&mut self, index: usize) -> Validation<()> {
+    /// Whether the language uses a field `languages` 2 adds.
+    fn uses_version_2(&self) -> bool {
+        self.grammar.is_some() || self.configuration.is_some()
+    }
+
+    fn normalize(&mut self, index: usize, capability_version: u32) -> Validation<()> {
         let field = format!("languages[{index}]");
+        if self.uses_version_2() && capability_version < super::grammar::GRAMMAR_LANGUAGES_VERSION {
+            return Err(invalid(
+                if self.grammar.is_some() {
+                    format!("{field}.grammar")
+                } else {
+                    format!("{field}.configuration")
+                },
+                "grammar and configuration require version 2 of the languages capability.",
+            ));
+        }
+        if let Some(grammar) = &self.grammar {
+            grammar.validate(&format!("{field}.grammar"))?;
+        }
+        if let Some(configuration) = &self.configuration {
+            configuration.validate(&format!("{field}.configuration"))?;
+        }
         let id = self.id.trim().to_lowercase();
         if id.is_empty()
             || id != self.id
@@ -4119,6 +4218,98 @@ pub fn workspace_configuration_command(payload: Value) -> Result<Value, CoreErro
             Ok(("configuration", configuration))
         }),
     ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GrammarPayload {
+    manifest: Value,
+    #[serde(rename = "languageID")]
+    language_id: String,
+    /// Text of the grammar file the host read from the package.
+    grammar: String,
+}
+
+/// `plugins.declarative.decodeGrammar`: validates the grammar file of one
+/// language and returns what the editor registers for it.
+pub fn decode_grammar_command(payload: Value) -> Result<Value, CoreError> {
+    let payload: GrammarPayload = decode_payload(payload, "plugins.declarative.decodeGrammar")?;
+    Ok(outcome(validate_manifest_value(payload.manifest).and_then(
+        |manifest| {
+            let language = manifest
+                .languages
+                .iter()
+                .find(|language| language.id == payload.language_id)
+                .filter(|language| language.grammar.is_some())
+                .ok_or_else(|| {
+                    PluginRejection::new(
+                        "plugin.grammar.unavailable",
+                        format!(
+                            "The plugin declares no grammar for {}.",
+                            payload.language_id
+                        ),
+                    )
+                })?;
+            let grammar = language.grammar.as_ref().expect("filtered above");
+            let tokenizer = match grammar.kind {
+                super::grammar::GrammarKind::Monarch => {
+                    super::grammar::decode_monarch(&payload.grammar)?
+                }
+            };
+            Ok((
+                "language",
+                json!({
+                    "id": language.id,
+                    "fileExtensions": language.file_extensions,
+                    "fileNames": language.file_names,
+                    "grammar": { "kind": grammar.kind, "monarch": tokenizer },
+                    "configuration": language.configuration,
+                }),
+            ))
+        },
+    )))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RunMarkersPayload {
+    manifest: Value,
+    #[serde(rename = "languageID")]
+    language_id: String,
+    /// Lines of the document version the provider answered for.
+    line_count: u64,
+    /// The provider function's raw result.
+    result: Value,
+}
+
+/// `plugins.declarative.decodeRunMarkers`: validates a provider's markers
+/// for one document version and attaches the command that runs them.
+pub fn decode_run_markers_command(payload: Value) -> Result<Value, CoreError> {
+    let payload: RunMarkersPayload =
+        decode_payload(payload, "plugins.declarative.decodeRunMarkers")?;
+    Ok(outcome(validate_manifest_value(payload.manifest).and_then(
+        |manifest| {
+            let provider = manifest
+                .run_markers
+                .iter()
+                .find(|provider| provider.language_id == payload.language_id)
+                .ok_or_else(|| {
+                    PluginRejection::new(
+                        "plugin.runMarkers.unavailable",
+                        format!(
+                            "The plugin provides no Run markers for {}.",
+                            payload.language_id
+                        ),
+                    )
+                })?;
+            super::run_markers::decode_markers(
+                &payload.result,
+                payload.line_count,
+                &provider.command,
+            )
+            .map(|markers| ("markers", markers))
+        },
+    )))
 }
 
 /// `plugins.declarative.checkRuntimeVersion`: decides whether a launch

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.httpgrammar",
+  "displayName": "HTTP Request Syntax",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "languages": 2
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [],
+  "activationEvents": [],
+  "languages": [
+    {
+      "id": "http",
+      "displayName": "HTTP Request",
+      "fileExtensions": [
+        "http",
+        "rest"
+      ],
+      "grammar": {
+        "kind": "monarch",
+        "path": "grammars/http.monarch.json"
+      },
+      "configuration": {
+        "lineComment": "#",
+        "brackets": [
+          ["{", "}"],
+          ["[", "]"]
+        ],
+        "autoClosingPairs": [
+          ["{", "}"],
+          ["[", "]"],
+          ["\"", "\""]
+        ]
+      }
+    }
+  ]
+}

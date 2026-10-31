@@ -13,7 +13,12 @@ protocol PluginBackendActivating: AnyObject {
     /// The user ran one of the owner plugin's commands: its `backend` 2
     /// starts when it declares `onCommand:<id>`, and the running backend
     /// receives `lithe/host/commands/didRun` with the window's context.
-    func runCommand(_ commandID: String, owner: ModuleID, context: PluginWorkspaceContextReference?)
+    /// A command run from a Run marker also carries `runMarker` and starts
+    /// the backend on `onLanguage:<languageID>`.
+    func runCommand(
+        _ commandID: String, owner: ModuleID, context: PluginWorkspaceContextReference?,
+        runMarker: PluginRunMarkerInvocation?
+    )
 }
 
 /// How a host service failed, as a function protocol 3 backend sees it.

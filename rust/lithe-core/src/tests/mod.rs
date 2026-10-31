@@ -18,6 +18,7 @@ mod github;
 mod languages;
 mod marketplace_plugins;
 mod mybatis;
+mod plugin_grammars_run_markers;
 mod plugins;
 mod project;
 mod project_generators;

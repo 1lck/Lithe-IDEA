@@ -260,7 +260,10 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         })
     }
 
-    func runCommand(_ commandID: String, owner: ModuleID, context: PluginWorkspaceContextReference?) {
+    func runCommand(
+        _ commandID: String, owner: ModuleID, context: PluginWorkspaceContextReference?,
+        runMarker: PluginRunMarkerInvocation? = nil
+    ) {
         let pluginID = String(owner.rawValue.dropLast(".ui".count))
         guard owner.rawValue.hasSuffix(".ui"), let package = packages[pluginID], package.backendVersion >= 2,
               !disabledPluginIDs.contains(pluginID) else { return }
@@ -270,11 +273,14 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
                 "contextID": .string(context.contextID), "generation": .integer(context.generation),
             ])
         }
+        if let runMarker { params["runMarker"] = runMarker.json }
         if commandStarts[pluginID] == nil, running[pluginID]?.ready == true, running[pluginID]?.session?.isRunning == true {
             notify(pluginID: pluginID, method: "lithe/host/commands/didRun", params: .object(params))
             return
         }
-        guard running[pluginID] != nil || package.activationEvents.contains("onCommand:\(commandID)") else { return }
+        // A Run marker's provider is activated by its language.
+        guard running[pluginID] != nil || package.activationEvents.contains("onCommand:\(commandID)")
+            || runMarker.map({ package.activationEvents.contains("onLanguage:\($0.languageID)") }) == true else { return }
         guard pendingCommands[pluginID, default: []].count < Self.maximumPendingNotifications else {
             reportNotificationLimit(pluginID)
             return

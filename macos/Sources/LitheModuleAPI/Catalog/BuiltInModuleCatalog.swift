@@ -372,6 +372,24 @@ public enum LanguageExtensionModuleManifests {
         )
     }
 
+    /// One module for all language grammars of a plugin (`languages` 2). It
+    /// owns no process: while it is enabled the editor highlights the
+    /// plugin's languages with their grammars.
+    public static func grammars(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .grammarsExtension(pluginID),
+            displayName: "\(displayName) Syntax Highlighting",
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
+        )
+    }
+
     /// One module for all project generators of a plugin. The New Project
     /// window runs without a workspace, so the module is application-scoped
     /// and owns no process: Core plans and the host creates the project.

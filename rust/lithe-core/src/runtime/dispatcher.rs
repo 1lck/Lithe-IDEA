@@ -265,6 +265,16 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::workspace_configuration_command,
         ),
+        CoreCommand::PluginsDeclarativeDecodeGrammar => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::decode_grammar_command,
+        ),
+        CoreCommand::PluginsDeclarativeDecodeRunMarkers => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::decode_run_markers_command,
+        ),
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }

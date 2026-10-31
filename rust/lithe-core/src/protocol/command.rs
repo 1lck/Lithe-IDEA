@@ -104,6 +104,10 @@ pub enum CoreCommand {
     PluginsDeclarativeResolveSettings,
     /// Expands a language server's `workspaceConfiguration` (`plugins.declarative.workspaceConfiguration`).
     PluginsDeclarativeWorkspaceConfiguration,
+    /// Validates a language's grammar file (`plugins.declarative.decodeGrammar`).
+    PluginsDeclarativeDecodeGrammar,
+    /// Validates the Run markers a plugin listed (`plugins.declarative.decodeRunMarkers`).
+    PluginsDeclarativeDecodeRunMarkers,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
@@ -575,6 +579,10 @@ impl CoreCommand {
             "plugins.declarative.resolveSettings" => Some(Self::PluginsDeclarativeResolveSettings),
             "plugins.declarative.workspaceConfiguration" => {
                 Some(Self::PluginsDeclarativeWorkspaceConfiguration)
+            }
+            "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
+            "plugins.declarative.decodeRunMarkers" => {
+                Some(Self::PluginsDeclarativeDecodeRunMarkers)
             }
             "build.detect" => Some(Self::BuildDetect),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),

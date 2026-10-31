@@ -1049,6 +1049,81 @@
       "base": "backend-workspace.plugin.json",
       "edits": [{ "op": "set", "path": "/backend/arguments", "value": ["--cache", "${workspaceStateDir}"] }],
       "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a grammar needs languages 2",
+      "base": "language-grammar.plugin.json",
+      "edits": [{ "op": "set", "path": "/requires/languages", "value": 1 }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "languages 2 is used by a grammar or configuration",
+      "base": "language-grammar.plugin.json",
+      "edits": [
+        { "op": "remove", "path": "/languages/0/grammar" },
+        { "op": "remove", "path": "/languages/0/configuration" }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a grammar names a known engine",
+      "base": "language-grammar.plugin.json",
+      "edits": [{ "op": "set", "path": "/languages/0/grammar/kind", "value": "textmate" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a grammar file stays in the package",
+      "base": "language-grammar.plugin.json",
+      "edits": [{ "op": "set", "path": "/languages/0/grammar/path", "value": "../http.monarch.json" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a comment delimiter is one short line",
+      "base": "language-grammar.plugin.json",
+      "edits": [{ "op": "set", "path": "/languages/0/configuration/lineComment", "value": "#\n" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "Run markers need a backend 2",
+      "base": "run-markers.plugin.json",
+      "edits": [{ "op": "set", "path": "/requires/backend", "value": 1 }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "Run markers are declared with runMarkers 1",
+      "base": "run-markers.plugin.json",
+      "edits": [{ "op": "remove", "path": "/requires/runMarkers" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "Run markers are for a declared language",
+      "base": "run-markers.plugin.json",
+      "edits": [{ "op": "set", "path": "/runMarkers/0/languageID", "value": "rest" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "Run markers run one of the plugin's commands",
+      "base": "run-markers.plugin.json",
+      "edits": [{ "op": "set", "path": "/runMarkers/0/command", "value": "dev.lithe.fixture.httpclient.other" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "a Run marker provider is a function ID",
+      "base": "run-markers.plugin.json",
+      "edits": [{ "op": "set", "path": "/runMarkers/0/function", "value": "lithe/markers" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "Run markers read documents",
+      "base": "run-markers.plugin.json",
+      "edits": [{ "op": "set", "path": "/permissions", "value": ["backend.launch", "ui.contribute"] }],
+      "expectedCode": "plugin.permission.undeclared"
+    },
+    {
+      "name": "Run markers activate with their language",
+      "base": "run-markers.plugin.json",
+      "edits": [{ "op": "set", "path": "/activationEvents", "value": ["onCommand:dev.lithe.fixture.httpclient.send"] }],
+      "expectedCode": "plugin.activation.invalid"
     }
   ]
 }

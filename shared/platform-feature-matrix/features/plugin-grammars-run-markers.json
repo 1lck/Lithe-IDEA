@@ -1,0 +1,34 @@
+{
+  "id": "plugin-grammars-run-markers",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "插件语法高亮与运行标记：languages 2 让插件只用配置文件（grammar.kind monarch）给自己的语言加高亮、括号和注释规则，不依赖 LSP，安装、更新、停用、卸载都免重启；runMarkers 1 让 backend 2 插件的函数回答文档里哪些行可运行，编辑器在行号旁画运行按钮，点击后插件命令经 commands/didRun 收到 runMarker（id、languageID、工作区相对 path、line、version）",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/plugins/grammar.rs",
+      "rust/lithe-core/src/plugins/run_markers.rs",
+      "rust/lithe-core/src/tests/plugin_grammars_run_markers.rs",
+      "shared/contracts/plugins/v1/README.md",
+      "shared/contracts/plugins/v1/fixtures/language-grammar.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/run-markers.plugin.json",
+      "frontend/editor/src/plugin-languages.ts",
+      "frontend/editor/src/plugin-languages.test.ts",
+      "frontend/editor/src/run-markers.ts",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginEditorLanguages.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+      "macos/Tests/LitheTests/PluginEditorLanguagesTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "共享 Core：cargo test --manifest-path rust/Cargo.toml -p lithe-core plugin_grammars_run_markers，核对语法超过 256 KiB、未知 kind、坏正则和越界路径被拒，运行标记重复行、越界行和超过 1000 项被拒。编辑器：在 frontend/editor 运行 bun test。macOS 宿主：scripts/macos/test/test-macos.sh --filter \"PluginEditorLanguagesTests|PluginLiveActivationTests|MacPluginBackendSessionsTests\"。macOS 原生验收：debug 应用打开含 .http 文件的工作区，安装 language-grammar 示例插件后不重启即看到高亮，停用后高亮消失；安装 run-markers 示例插件并重启后，.http 文件每个请求行出现运行按钮，点击后后端收到带 runMarker 的 commands/didRun。",
+  "notes": "本条覆盖 #1548 计划的 API-25（声明式语法）、API-27（运行标记装饰）和 API-29（从标记运行），起因是 #570 HTTP 客户端插件。语法高亮免重启；运行标记依赖后端，后端只在启动时登记，所以带运行标记的插件仍需重启。Monaco 无法撤销已注册的语言，卸载后对应文件以纯文本显示。尚未做原生验收，验证状态为待验证。Windows/Tauri 尚无插件后端与插件语法宿主。"
+}

@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-安装、更新、回退、卸载、启用、停用一个插件时，只有“它的每一项贡献在宿主里都有运行期实现”的插件才免重启生效。判断由宿主后端决定，写在 `PluginDescriptor.canActivateWithoutRestart`，不是 `plugin.json` 里的字段，所以插件契约没有变化，也不需要同步 lithe-plugin-docs。这条规则目前只落地了第一阶段：只有“纯调试适配器插件”（只贡献 `debugAdapters`，以及它声明的语言和设置，没有后端、没有其他模块）满足条件。
+安装、更新、回退、卸载、启用、停用一个插件时，只有“它的每一项贡献在宿主里都有运行期实现”的插件才免重启生效。判断由宿主后端决定，写在 `PluginDescriptor.canActivateWithoutRestart`，不是 `plugin.json` 里的字段，所以插件契约没有变化，也不需要同步 lithe-plugin-docs。这条规则目前落地了两类：第一阶段的“纯调试适配器插件”（只贡献 `debugAdapters`，以及它声明的语言和设置，没有后端、没有其他模块），和第二阶段的“纯语法高亮插件”（只贡献带 `grammar` 的语言，见 [插件语法高亮与运行标记](2026-10-31-plugin-grammars-and-run-markers.md)）。两者也可以出现在同一个插件里。
 
 满足条件的插件不进模块图，而是登记在一个**内存实时注册表**（`MacLivePluginRegistry`）里。注册表用后台线程扫描已安装目录，主线程只读取扫描结果快照。其他插件的路径完全不变：仍然写成 `.updateStaged`，等重启才生效。
 
@@ -23,7 +23,7 @@
 
 ### 1. 由后端能力决定，不是清单字段
 
-`canActivateWithoutRestart` 现在的定义是：有调试适配器、没有 `backend` 声明、模块列表恰好是 `[debugAdaptersExtension(<插件 id>)]`，且该模块没有其他贡献。
+`canActivateWithoutRestart` 现在的定义是：没有 `backend` 声明、模块列表非空，且每个模块都是 `debugAdaptersExtension(<插件 id>)` 或 `grammarsExtension(<插件 id>)`，并且没有其他贡献。语法模块只承载启用状态，它的运行期登记、撤回和查找由 `MacPluginEditorLanguages` 完成（编辑器每次变化都收到完整的语言列表，撤回就是从列表里拿掉）。
 
 - 正确做法：新增一种贡献（例如语言服务器）的热激活时，先实现它的运行期登记和撤回，再在这个谓词里放行。
 - 错误做法：在 `plugin.json` 里加 `restartRequired: false` 让插件作者声明。作者不了解宿主哪些贡献有运行期实现；声明错了，用户看到的是“装上了但没生效”。
@@ -97,12 +97,13 @@
 5. 传给 Core 的 `registrationGeneration` 是准备调试适配器时注册表的 `generation`，Core 只比较是否相等，不解释数值。
 6. `stopSessions(ofPlugin:)` 只停该插件拥有的会话。会话记录的所有者是创建时选中的插件；同一个语言下另一个插件的会话继续运行。
 7. debug-only 声明里的文件扩展名会并入语言；扩展名集合变化会让该语言的服务器按原有规则重启。
-8. 目前仍然需要重启的贡献：语言服务器、运行/测试、构建系统、VCS、项目生成器、界面贡献、`backend`、网页窗口。后续阶段按“先有运行期登记和撤回，再放进谓词”的顺序逐类加入，每类单独验证。
+8. 目前仍然需要重启的贡献：语言服务器、运行/测试、运行标记（`runMarkers`，因为它依赖 `backend`）、构建系统、VCS、项目生成器、界面贡献、`backend`、网页窗口。后续阶段按“先有运行期登记和撤回，再放进谓词”的顺序逐类加入，每类单独验证。
 
 ## 验证
 
 - `macos/Tests/LitheTests/PluginLiveActivationTests.swift`：谓词的正反例（含契约 fixture）、debug-only 语言与插件 id 排序无关、注册表的收录/代数/启用/撤回/按 id 取第一个、后台扫描不在主线程、扫描失败保留旧登记、另一窗口的通知触发重扫、管理器的安装/更新/回退/启用/卸载流程。等待事件使用带本地期限的 `ChangeLatch`，不用真实 sleep。
 - `LanguageProviderCatalogSourceTests`（debug-only 声明不抢语言、顺序无关、不触发扩展提示、每次 load 读取实时声明）、`DebugModuleTests`（`providersSource` 每次调用都查）、`LanguageIntelligenceModuleTests`（出现调试器不会停正在运行的语言服务器）。
+- `macos/Tests/LitheTests/PluginEditorLanguagesTests.swift`：纯语法插件满足谓词、带运行标记的插件不满足；实时语法随插件出现和消失。
 - `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 适用范围

@@ -35,9 +35,10 @@
         "executableResolution": { "enum": [1], "description": "Shared executable candidate ordering and strict selection." },
     "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
-        "languages": { "enum": [1] },
+        "languages": { "description": "Version 2 adds languages[].grammar and languages[].configuration and is required exactly when one of them is used.", "enum": [1, 2] },
         "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
+        "runMarkers": { "description": "Required exactly when runMarkers is non-empty: editor Run markers listed by a backend function and run through a plugin command.", "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
         "settings": { "enum": [1] },
         "ui": { "description": "Version 2 adds web content; version 3 adds native controls; version 4 adds backend-only commands.", "enum": [1, 2, 3, 4] },
@@ -101,6 +102,11 @@
     "backend": {
       "description": "pluginAPIVersion 3, requires.backend 1 or 2: the plugin's own LSP base-protocol process. The host keeps one process per plugin on the machine that runs Lithe, independent of any workspace, and ends it when the plugin is disabled, updated, or uninstalled. Version 1 starts on the first plugin-function call from one of the plugin's web pages and requires a web tool window. Version 2 also starts on onWorkspaceOpen or one of the plugin's commands and requires one of the three. Requires backend.launch; credentials.store lets it use the host's private credential store; workspace.metadata (version 2) lets it list workspace contexts.",
       "$ref": "#/$defs/backend"
+    },
+    "runMarkers": {
+      "description": "pluginAPIVersion 3, requires.runMarkers 1: one editor Run marker provider per declared language. Requires backend 2, documents.read, and one onLanguage:<languageID> activation event per provider.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/runMarkerProvider" }
     },
     "vcsProviders": {
       "description": "pluginAPIVersion 3: version control systems the plugin provides, each through its own LSP base-protocol process. Requires languageServer.launch, process.vcs, and one onVcsRoot:<id> activation event per provider.",
@@ -1056,7 +1062,45 @@
             "projectDependencyPaths": { "$ref": "#/$defs/fileNameList" },
             "projectBinaryPaths": { "$ref": "#/$defs/fileNameList" }
           }
+        },
+        "grammar": {
+          "description": "languages 2: syntax highlighting from a package file, applied by the editor without any process.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "description": "Highlighting engine of the file. Version 2 defines monarch: the JSON form of a Monaco Monarch definition.", "enum": ["monarch"] },
+            "path": { "description": "Package-relative grammar file inside the package.", "type": "string", "minLength": 1 }
+          }
+        },
+        "configuration": {
+          "description": "languages 2: comment and bracket behavior of the editor.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lineComment": { "$ref": "#/$defs/editorDelimiter" },
+            "blockComment": { "$ref": "#/$defs/editorDelimiterPair" },
+            "brackets": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/editorDelimiterPair" } },
+            "autoClosingPairs": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/editorDelimiterPair" } }
+          }
         }
+      }
+    },
+    "editorDelimiter": { "type": "string", "minLength": 1, "maxLength": 16 },
+    "editorDelimiterPair": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/editorDelimiter" }
+    },
+    "runMarkerProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["languageID", "function", "command"],
+      "properties": {
+        "languageID": { "description": "A language the plugin declares.", "type": "string" },
+        "function": { "description": "Backend function that lists the markers of one document version.", "type": "string", "minLength": 1 },
+        "command": { "description": "One of the plugin's ui.commands; running a marker sends its commands/didRun with runMarker.", "type": "string", "minLength": 1 }
       }
     },
     "languageServer": {

@@ -69,6 +69,7 @@ symbolic links. A host treats an installed package as read-only.
 | `settings` | User-adjustable plugin options (level 2 and later). |
 | `ui` | Host-rendered tool windows and commands (level 2 and later). |
 | `buildSystems` | Project-level build tools (level 3). |
+| `runMarkers` | Editor Run markers listed by the plugin backend (level 3, [`runMarkers` 1](#run-markers-runmarkers-1)). |
 
 Unknown fields are refused (`plugin.manifest.invalid`) so an older host
 rejects a package instead of ignoring part of it. At levels 1 and 2 a new
@@ -84,6 +85,55 @@ present. A leading dot is optional only in `fileExtensions` (`.php` equals
 `php`). In complete file names, project markers, and management file names it
 is part of the name, so `.toolrc` and `.env.example` stay hidden-file names. Optional `dependencies` lists `managementFileNames`,
 `projectDependencyPaths`, and `projectBinaryPaths` relative to the project.
+
+#### Grammars and editor configuration (`languages` 2)
+
+`languages` 2 adds two optional fields to a language. Both are data: the host
+reads them from the package and the editor applies them without starting any
+process, so a language with a grammar needs no language server, backend, or
+activation event, and a plugin may consist of grammars alone.
+
+```json
+{
+  "id": "http",
+  "displayName": "HTTP Request",
+  "fileExtensions": ["http", "rest"],
+  "grammar": { "kind": "monarch", "path": "grammars/http.monarch.json" },
+  "configuration": {
+    "lineComment": "#",
+    "blockComment": ["/*", "*/"],
+    "brackets": [["{", "}"], ["[", "]"]],
+    "autoClosingPairs": [["{", "}"], ["\"", "\""]]
+  }
+}
+```
+
+- `grammar.kind` names the highlighting engine. Version 2 defines only
+  `monarch`; another engine is added as a new kind in a later version, so a
+  plugin can move between engines without changing anything else.
+- `grammar.path` is a package-relative file that stays inside the package.
+  Hosts read it read-only from the installed package, pass its text to
+  `plugins.declarative.decodeGrammar`, and hand the returned object to the
+  editor unchanged. A grammar Core refuses is `plugin.grammar.invalid` with the
+  failing field (such as `grammar.tokenizer.root[3][1].log`); the language then
+  opens as plain text and the rest of the plugin keeps working.
+- A Monarch grammar is the JSON form of a
+  [Monaco Monarch](https://microsoft.github.io/monaco-editor/monarch.html)
+  definition: rule regexes are strings, and attribute values are strings or
+  string lists. Core accepts at most 256 KiB, 256 states, 4096 rules, regexes
+  of 2048 bytes, attribute lists of 4096 entries, 64 `cases` guards, 32
+  brackets, and actions nested 8 deep. It refuses `log` actions, `next`,
+  `switchTo`, and `include` targets that are not states of the grammar
+  (`@a.b` resolves to the longest declared prefix, as in Monarch), `cases`
+  guards naming an undeclared attribute, and `nextEmbedded` values other
+  than `@pop` or a language ID. The fixture
+  [`fixtures/grammars/http.monarch.json`](fixtures/grammars/http.monarch.json)
+  is a complete example.
+- `configuration` sets `lineComment`, `blockComment` (open and close),
+  `brackets`, and `autoClosingPairs`. Each delimiter is 1 to 16 bytes without
+  control characters; each list has at most 32 pairs.
+- Declaring `languages: 2` without using either field is
+  `plugin.manifest.invalid`; using them under `languages: 1` is too.
 
 ### Language servers
 
@@ -399,7 +449,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 
 | Capability | Covers | Versions |
 | --- | --- | --- |
-| `languages` | `languages[]` | `1` |
+| `languages` | `languages[]` | `1`, `2` (adds [`grammar` and `configuration`](#grammars-and-editor-configuration-languages-2)) |
 | `packageTrust` | `vendor.bundledSignatureRequirement`: origin-scoped trust for a host-sealed bundled copy of a publisher-signed plugin | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
 | `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
@@ -413,6 +463,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process | `1`, `2` (adds [start without a page and workspace contexts](#backend-2-workspace-contexts)) |
+| `runMarkers` | [`runMarkers[]`](#run-markers-runmarkers-1): editor Run markers listed by a backend function | `1` |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
@@ -2011,7 +2062,7 @@ then never sees them.
 | --- | --- | --- |
 | `lithe/host/workspace/didChangeContexts` | `{ revision }` | `workspace.metadata` |
 | `lithe/host/subscriptions/notify` | `{ subscriptionID, sequence, event }` | every plugin-owned session |
-| `lithe/host/commands/didRun` | `{ commandID, context? }` | every plugin-owned session |
+| `lithe/host/commands/didRun` | `{ commandID, context?, runMarker? }` | every plugin-owned session |
 
 - `didChangeContexts` follows every change `revision` of `listContexts`
   counts; the backend calls `listContexts` for the contexts. A backend that
@@ -2024,7 +2075,9 @@ then never sees them.
   (`{ contextID, generation }`) is the window's context when it has one. A
   running backend receives it in order with the other notifications; a
   stopped one is started for it only when it declares
-  `onCommand:<commandID>`, and receives it once ready.
+  `onCommand:<commandID>`, and receives it once ready. `runMarker` is present
+  when the user ran the command from an editor Run marker; see
+  [Run markers](#run-markers-runmarkers-1).
 - `revision` and `sequence` are positive integers, `event` is an object,
   and serialized params are at most `limits.notificationBytes`. Core refuses
   any other method, a service the session is not granted, malformed params,
@@ -2168,6 +2221,60 @@ plugins. `didRun` remains an event, not an acknowledgement that the command's
 business action succeeded; a future result-bearing execute API must use the
 existing request lifecycle rather than infer success from notification delivery.
 
+### Run markers (`runMarkers` 1)
+
+A plugin backend can put Run buttons in the editor gutter of its own
+languages, next to the built-in Java ones, without a language server and
+without new backend methods. The provider is an ordinary
+[plugin function](#plugin-functions) and the click is an ordinary command, so
+the plugin decides what is runnable in any language or custom format: the
+requests of an `.http` file, the tests of a script, the entry points of a
+program.
+
+```json
+"requires": { "backend": 2, "languages": 2, "runMarkers": 1, "serverProcess": 1, "ui": 4 },
+"permissions": ["backend.launch", "documents.read", "ui.contribute"],
+"activationEvents": ["onCommand:dev.example.http.send", "onLanguage:http"],
+"runMarkers": [
+  { "languageID": "http", "function": "requests.markers", "command": "dev.example.http.send" }
+]
+```
+
+- One provider per declared language. `function` is a function ID the
+  backend registers; `command` is one of the plugin's `ui.commands`. Run
+  markers need `backend: 2`, the `documents.read` permission (the provider
+  receives document text), and `onLanguage:<languageID>` so the backend
+  starts when such a document opens. See `fixtures/run-markers.plugin.json`.
+- When a document of the language opens or changes, the host calls the
+  function with `params: { languageID, path, version, text }`: `path` is
+  workspace-relative with `/`, `version` is the editor buffer version, and
+  `text` the full buffer. Documents larger than 4 MiB of UTF-8, and documents
+  outside the workspace, get no markers. The host waits for edits to settle
+  before asking, cancels a request for an older version, and draws only the
+  answer for the current version.
+- The function returns `{ markers: [{ id, line, endLine?, kind, title }] }`.
+  Lines are one-based; `endLine` (default `line`) is the last line the marker
+  covers, and the editor context menu runs the innermost marker around the
+  caret. `kind` is `run`, `test`, or `testSuite` (drawn with the run-all
+  icon). `title` (1 to 200 characters, one line) names the target in the
+  menu, such as `POST /orders`. `id` (1 to 256 bytes) is the plugin's own
+  name for the marker and comes back when it runs. Unknown marker fields are
+  ignored.
+- The host passes the answer to `plugins.declarative.decodeRunMarkers`.
+  Core refuses the whole answer with `plugin.runMarkers.invalidOutput` when
+  it is larger than 1 MiB, lists more than 1000 markers, or has a malformed
+  marker, a duplicate `id`, or two markers on one line, so the gutter never
+  shows a partial list. The host then shows no plugin markers for that
+  version; a failing or missing function is treated the same way.
+- Running a marker sends `lithe/host/commands/didRun` with `commandID` set to
+  the provider's command and `runMarker: { id, languageID, path, line,
+  version }`. The backend checks `version` against the document (for
+  example with `documents/getSnapshot`) before acting, because the user may
+  have edited it since. What the command does, and how it reports, is the
+  plugin's own: an output window, a web panel, a message.
+- Run markers have no Debug action; a plugin that debugs uses
+  [debug adapters](#api-level-4-debug-adapters).
+
 ### Compatibility
 
 - Packages of every API level are unchanged: functions add no manifest field.
@@ -2260,6 +2367,10 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.build.invalidSelection` | Core | A build request selects a scope, target, filter, or argument the declaration does not allow, or misses a required path |
 | `plugin.build.invalidOutput` | Core | Build-tool output or a report does not fit its decoder |
 | `plugin.launch.invalidRequest` | Core | A launch plan request has an unusable directory or an unknown architecture |
+| `plugin.grammar.invalid` | Core | A language's grammar file is not a Monarch grammar Core accepts; `field` names the failing part |
+| `plugin.grammar.unavailable` | Core | The plugin declares no grammar for the language |
+| `plugin.runMarkers.invalidOutput` | Core | A Run marker provider's answer does not fit [Run markers](#run-markers-runmarkers-1) |
+| `plugin.runMarkers.unavailable` | Core | The plugin declares no Run marker provider for the language |
 | `plugin.vcs.reserved` | Core | A VCS provider claims the ID of the built-in Git support |
 | `plugin.vcs.invalidOutput` | Core | A VCS provider's reply does not fit the [VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md) |
 | `plugin.index.invalid` | Core | Malformed index root or entry, or an invalid URL, checksum, platform, version, or date |

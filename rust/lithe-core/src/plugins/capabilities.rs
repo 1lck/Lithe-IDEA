@@ -22,7 +22,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// First plugin API level whose manifests declare capability versions.
 pub(crate) const CAPABILITIES_API_VERSION: u32 = 3;
 
-/// `languages[]`: file types and project markers.
+/// `languages[]`: file types and project markers. Version 2 adds a
+/// declarative `grammar` and an editing `configuration`; see `super::grammar`.
 pub(crate) const LANGUAGES: &str = "languages";
 /// `languageServers[]` apart from their launch fields. Version 2 adds
 /// `workspaceConfiguration`.
@@ -66,6 +67,10 @@ pub(crate) const DEBUG_ADAPTERS: &str = "debugAdapters";
 /// First plugin API level that may require `debugAdapters` or `serverProcess` 2.
 pub(crate) const DEBUG_ADAPTERS_API_VERSION: u32 = 4;
 
+/// `runMarkers[]`: editor Run markers a plugin backend lists and runs; see
+/// `super::run_markers`.
+pub(crate) const RUN_MARKERS: &str = "runMarkers";
+
 /// Shared executable candidate order and strict explicit selection.
 pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 
@@ -80,9 +85,10 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (EXECUTION_PROVIDERS, &[1]),
     (EXECUTABLE_RESOLUTION, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
-    (LANGUAGES, &[1]),
+    (LANGUAGES, &[1, 2]),
     (PACKAGE_TRUST, &[1]),
     (PROJECT_GENERATORS, &[1]),
+    (RUN_MARKERS, &[1]),
     (SERVER_PROCESS, &[1, 2]),
     (SETTINGS, &[1, 2]),
     (UI, &[1, 2, 3, 4]),

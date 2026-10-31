@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheAIAssistanceModule
 import LitheAgentConversationModule
@@ -1132,6 +1133,26 @@ final class MacServiceContainer {
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
+        // Grammars apply without a restart; Run marker providers follow the
+        // launch-registered plugin's UI module.
+        let editorLanguageModuleChanges = PassthroughSubject<Void, Never>()
+        moduleRuntime.observeEvents { event in
+            guard event.name == ModuleEvent.stateChangedName else { return }
+            editorLanguageModuleChanges.send()
+        }
+        services.pluginEditorLanguages = MacPluginEditorLanguages(
+            launchRegistered: pluginStartup.registeredPlugins,
+            isModuleUsable: { id in
+                guard let snapshot = try? moduleRuntime.snapshot(for: id) else { return false }
+                return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
+            },
+            livePackages: { liveSnapshotBox.snapshot.activePackages },
+            decoder: declarativePluginOperations,
+            triggers: [livePlugins.changes, editorLanguageModuleChanges.eraseToAnyPublisher()],
+            log: { message, fields in
+                NSLog("Lithe %@ %@", message, fields.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
+            }
+        )
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
         services.proxyPasswordStore = proxyPasswordStore
         services.proxyConnectionChecker = proxyConnectionChecker
@@ -1351,6 +1372,7 @@ final class MacServiceContainer {
                     || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .vcsProvidersExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .debugAdaptersExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .grammarsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {

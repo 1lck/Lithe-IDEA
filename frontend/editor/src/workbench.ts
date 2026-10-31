@@ -26,7 +26,8 @@ import { CancellationError, isCancellationError } from "monaco-editor/esm/vs/bas
 import { isMacintosh } from "monaco-editor/esm/vs/base/common/platform.js";
 import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
 import { Action, Separator, type IAction } from "monaco-editor/esm/vs/base/common/actions.js";
-import { normalizeRunMarkers, runMarkerForLine, runMarkerIcon, type RunMarker, type RunMarkerIcon } from "./run-markers";
+import { normalizeRunMarkers, pluginRunMarkers, runMarkerForLine, runMarkerIcon, type RunMarker, type RunMarkerIcon } from "./run-markers";
+import { setPluginLanguages, type PluginLanguage } from "./plugin-languages";
 
 const escapeHTML = (value: string) => value.replace(/[&<>"']/g, character =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
@@ -213,10 +214,16 @@ export function mountWorkbench(host: WorkbenchHost) {
     Object.assign(state, { markers, version, revision });
     for (const view of allEditors()) navigationContexts.get(view)?.();
   }
-  // Java Run markers: the host answers which `main` methods and tests exist and
-  // their last outcomes; the editor only draws them and routes actions back.
+  // Run markers: for Java the host answers which `main` methods and tests exist
+  // and their last outcomes; for a plugin language with `runMarkers` 1 the
+  // plugin's provider answers through the host. The editor only draws them and
+  // routes actions back.
   type RunMarkerState = { generation: number; version: number; revision: number; markers: RunMarker[];
     canDebug: boolean; decorations: string[]; timer?: ReturnType<typeof setTimeout> };
+  let pluginRunMarkerLanguages = new Set<string>();
+  let previousPluginLanguageIDs = new Set<string>();
+  const runMarkerSource = (entry: Entry): "java" | "plugin" | undefined =>
+    entry.model.getLanguageId() === "java" ? "java" : pluginRunMarkerLanguages.has(entry.languageID) ? "plugin" : undefined;
   const runMarkerStates = new WeakMap<Entry, RunMarkerState>();
   const runMarkerContexts = new WeakMap<monaco.editor.IStandaloneCodeEditor, () => void>();
   async function refreshRunMarkers(id: string, entry: Entry) {
@@ -233,11 +240,14 @@ export function mountWorkbench(host: WorkbenchHost) {
     const valid = () => current() && entries.get(id) === entry && !entry.model.isDisposed() &&
       entry.model.getVersionId() === version && state!.generation === generation;
     if (!valid()) return;
-    const revision = entry.revision, language = entry.model.getLanguageId();
-    const reply = language === "java" && !entry.readonly
-      ? await languageRequest({ type: "javaRunMarkers", id, revision }) : { markers: [] };
-    if (!valid() || entry.revision !== revision || entry.model.getLanguageId() !== language || reply.cancelled) return;
-    const markers = normalizeRunMarkers(reply.markers, entry.model.getLineCount());
+    const revision = entry.revision, language = entry.model.getLanguageId(), source = runMarkerSource(entry);
+    const reply = !source || entry.readonly ? { markers: [] }
+      : await languageRequest(source === "java" ? { type: "javaRunMarkers", id, revision }
+        : { type: "pluginRunMarkers", id, revision, languageID: entry.languageID });
+    if (!valid() || entry.revision !== revision || entry.model.getLanguageId() !== language ||
+        runMarkerSource(entry) !== source || reply.cancelled) return;
+    const markers = source === "plugin" ? pluginRunMarkers(reply.markers, entry.model.getLineCount())
+      : normalizeRunMarkers(reply.markers, entry.model.getLineCount());
     state.decorations = entry.model.deltaDecorations(state.decorations, markers.map(marker => ({
       range: new monaco.Range(marker.line, 1, marker.line, 1), options: {
         glyphMarginClassName: `lithe-java-run lithe-java-run-${runMarkerIcon(marker)}`,
@@ -248,11 +258,11 @@ export function mountWorkbench(host: WorkbenchHost) {
         glyphMargin: { position: monaco.editor.GlyphMarginLane.Right },
         glyphMarginHoverMessage: { value: `Run '${marker.label}'`, isTrusted: false },
       } })));
-    Object.assign(state, { markers, version, revision, canDebug: reply.canDebug === true });
+    Object.assign(state, { markers, version, revision, canDebug: source === "java" && reply.canDebug === true });
     for (const view of allEditors()) runMarkerContexts.get(view)?.();
   }
   function scheduleRunMarkers(id: string, entry: Entry) {
-    if (entry.model.getLanguageId() !== "java" && !runMarkerStates.has(entry)) return;
+    if (!runMarkerSource(entry) && !runMarkerStates.has(entry)) return;
     const state = runMarkerStates.get(entry);
     if (!state) { void refreshRunMarkers(id, entry).catch(console.error); return; }
     clearTimeout(state.timer);
@@ -803,7 +813,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
       if (!pair || line === undefined) return;
       const [id, entry] = pair, state = runMarkerStates.get(entry);
-      if (!state || entry.model.isDisposed() || entry.model.getLanguageId() !== "java" ||
+      if (!state || entry.model.isDisposed() || !runMarkerSource(entry) ||
           state.version !== entry.model.getVersionId() || state.revision !== entry.revision ||
           entry.readonly || entry.frozen || entry.closingHolds || failed) return;
       return { id, state };
@@ -812,7 +822,9 @@ export function mountWorkbench(host: WorkbenchHost) {
       const entry = entries.get(id);
       if (!entry || entry.readonly || runMarkerStates.get(entry) !== state || entry.revision !== state.revision)
         return Promise.resolve({ cancelled: true });
-      return languageRequest({ type: "javaRunMarkerAction", id, revision: state.revision, marker: marker.id, action });
+      return runMarkerSource(entry) === "plugin"
+        ? languageRequest({ type: "pluginRunMarkerAction", id, revision: state.revision, marker: marker.id, line: marker.line })
+        : languageRequest({ type: "javaRunMarkerAction", id, revision: state.revision, marker: marker.id, action });
     };
     // Monaco action labels are fixed, so the caret's target is re-registered
     // whenever it changes, giving IDEA's "Run 'OrderTest.creates'" wording.
@@ -1031,6 +1043,36 @@ export function mountWorkbench(host: WorkbenchHost) {
         editor.setScrollTop(Math.min(1, Math.max(0, payload.ratio!)) * extent, monaco.editor.ScrollType.Immediate);
         lastMarkdownRatio = Math.min(1, Math.max(0, payload.ratio!));
       } finally { applyingMarkdownScroll = false; }
+    },
+    /**
+     * Replaces the plugin languages with a grammar and the plugin languages
+     * whose Run markers the host provides (`pluginRunMarkers`).
+     */
+    async setPluginLanguages(payload: { languages?: PluginLanguage[]; runMarkerLanguages?: string[] }) {
+      await activation;
+      const languages = Array.isArray(payload?.languages) ? payload.languages : [];
+      const result = setPluginLanguages(monaco.languages, languages);
+      pluginRunMarkerLanguages = new Set(Array.isArray(payload?.runMarkerLanguages) ? payload.runMarkerLanguages : []);
+      // A plugin installed while its files are open: they take its language
+      // now, and leave it when the plugin goes.
+      const pluginIDs = new Set([...previousPluginLanguageIDs, ...languages.map(language => toMonacoLanguageId(language?.id))]);
+      previousPluginLanguageIDs = new Set(languages.map(language => toMonacoLanguageId(language?.id)));
+      for (const [id, entry] of entries) {
+        if (entry.filename === undefined || entry.model.isDisposed()) continue;
+        const languageID = languageForFilename(entry.filename), language = toMonacoLanguageId(languageID);
+        if (language === entry.model.getLanguageId() || !(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+        await ensureMonacoLanguageTokenizer(language);
+        if (entries.get(id) !== entry || entry.model.isDisposed()) continue;
+        entry.contextGeneration++;
+        entry.languageID = languageID;
+        monaco.editor.setModelLanguage(entry.model, language);
+        for (const view of allEditors()) {
+          if (view.getModel() === entry.model) syncDefinitionNavigation(view);
+        }
+      }
+      await Promise.all([...entries].filter(([, entry]) => allEditors().some(view => view.getModel() === entry.model))
+        .map(([id, entry]) => refreshRunMarkers(id, entry)));
+      return result;
     },
     async refreshJavaRunMarkers() {
       await activation;

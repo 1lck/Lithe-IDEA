@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeRunMarkers, runMarkerForLine, runMarkerIcon, type RunMarker } from "./run-markers";
+import { normalizeRunMarkers, pluginRunMarkers, runMarkerForLine, runMarkerIcon, type RunMarker } from "./run-markers";
 
 function marker(overrides: Partial<RunMarker>): RunMarker {
   return { id: "m", line: 1, endLine: 1, kind: "main", label: "App.main()", status: "none", ...overrides };
@@ -40,5 +40,32 @@ describe("editor Run markers", () => {
     expect(runMarkerForLine(markers, 15)?.id).toBe("class");
     expect(runMarkerForLine(markers, 1)?.id).toBe("main");
     expect(runMarkerForLine([], 1)).toBeUndefined();
+  });
+
+  test("map plugin markers into the editor's kinds with their title as the target", () => {
+    const markers = pluginRunMarkers([
+      { id: "list", line: 1, endLine: 3, kind: "run", title: "GET /orders", command: "http.send" },
+      { id: "suite", line: 5, endLine: 9, kind: "testSuite", title: "Orders", command: "http.send" },
+      { id: "case", line: 6, endLine: 6, kind: "test", title: "creates", command: "http.send" },
+      { id: "debug", line: 8, kind: "debug", title: "dropped" },
+    ], 10);
+    expect(markers).toEqual([
+      { id: "list", line: 1, endLine: 3, kind: "run", label: "GET /orders", status: "none" },
+      { id: "suite", line: 5, endLine: 9, kind: "testClass", label: "Orders", status: "none" },
+      { id: "case", line: 6, endLine: 6, kind: "testMethod", label: "creates", status: "none" },
+    ]);
+    expect(runMarkerIcon(markers[0])).toBe("run");
+    expect(runMarkerIcon(markers[1])).toBe("run-all");
+    expect(pluginRunMarkers(null, 10)).toEqual([]);
+  });
+
+  test("a caret inside a plugin request runs that request", () => {
+    const markers = pluginRunMarkers([
+      { id: "first", line: 1, endLine: 4, kind: "run", title: "GET /a" },
+      { id: "second", line: 6, endLine: 9, kind: "run", title: "POST /b" },
+    ], 10);
+    expect(runMarkerForLine(markers, 3)?.id).toBe("first");
+    expect(runMarkerForLine(markers, 9)?.id).toBe("second");
+    expect(runMarkerForLine(markers, 5)).toBeUndefined();
   });
 });

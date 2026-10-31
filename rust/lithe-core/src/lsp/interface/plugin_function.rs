@@ -826,8 +826,9 @@ pub(crate) enum NotificationParams {
     /// backend holds, a positive sequence that grows per subscription, and
     /// the service's event object.
     SubscriptionEvent,
-    /// `{ commandID, context? }`: one of the plugin's own commands and the
-    /// workspace context of the window it ran in.
+    /// `{ commandID, context?, runMarker? }`: one of the plugin's own
+    /// commands, the workspace context of the window it ran in, and the
+    /// editor Run marker it ran for (`runMarkers` 1).
     Command,
 }
 
@@ -933,12 +934,15 @@ pub(crate) fn host_notification(
                 && object.get("event").is_some_and(Value::is_object)
         }
         NotificationParams::Command => {
-            only(&["commandID", "context"])
+            only(&["commandID", "context", "runMarker"])
                 && object
                     .get("commandID")
                     .and_then(Value::as_str)
                     .is_some_and(is_command_id)
                 && object.get("context").map_or(true, is_context_reference)
+                && object
+                    .get("runMarker")
+                    .map_or(true, crate::plugins::run_markers::is_did_run_marker)
         }
     };
     if !well_formed {

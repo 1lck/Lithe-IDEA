@@ -1138,6 +1138,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
+| `plugins.declarative.decodeGrammar` | Validate the grammar file of one plugin language (`languages` 2) and return what the editor registers |
+| `plugins.declarative.decodeRunMarkers` | Validate a plugin's Run marker answer for one document version (`runMarkers` 1) |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
 | `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
 | `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
@@ -3798,6 +3800,23 @@ Hosts never merge layers themselves.
 for the plan's `launch.versionArguments`, and returns
 `{ "status": "ok", "check": { "satisfied": bool, "version"?: string } }`.
 `version` is absent when the output contains none. It takes no manifest.
+
+`plugins.declarative.decodeGrammar` accepts `{ manifest, languageID, grammar }`,
+where `grammar` is the text the host read from the language's `grammar.path`
+inside the installed package, and returns `language: { id, fileExtensions,
+fileNames, grammar: { kind, monarch }, configuration }`. `monarch` is the
+grammar object unchanged, for Monaco `setMonarchTokensProvider`. A grammar Core
+refuses is `plugin.grammar.invalid` with the failing `field`; a language
+without a grammar is `plugin.grammar.unavailable`. Core reads no files.
+
+`plugins.declarative.decodeRunMarkers` accepts `{ manifest, languageID,
+lineCount, result }`, where `result` is the raw value the language's Run
+marker function returned for a document of `lineCount` lines, and returns
+`markers`: `[{ id, line, endLine, kind, title, command }]` sorted by line,
+with `endLine` clamped to the document and `command` the provider's command.
+A malformed answer is `plugin.runMarkers.invalidOutput`; a language without a
+provider is `plugin.runMarkers.unavailable`. The rules are in the Run markers
+section of [plugin contract v1](plugins/v1/README.md#run-markers-runmarkers-1).
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
 archives and pass the parsed JSON. `validateIndex` accepts

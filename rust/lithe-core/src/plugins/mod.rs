@@ -4,8 +4,10 @@ pub(crate) mod backend;
 pub mod capabilities;
 pub mod declarative;
 pub(crate) mod executables;
+pub(crate) mod grammar;
 pub mod marketplace;
 pub(crate) mod native_ui;
+pub(crate) mod run_markers;
 pub(crate) mod settings;
 
 use serde::Deserialize;

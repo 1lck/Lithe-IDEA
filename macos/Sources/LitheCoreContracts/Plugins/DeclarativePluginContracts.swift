@@ -319,10 +319,29 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
 public struct DeclarativePluginLanguage: Equatable, Hashable, Sendable {
     public let id: String
     public let displayName: String
+    /// Package-relative grammar file (`languages` 2). The host reads it from
+    /// the installed package and has Rust Core validate it.
+    public let grammarPath: String?
 
-    public init(id: String, displayName: String) {
+    public init(id: String, displayName: String, grammarPath: String? = nil) {
         self.id = id
         self.displayName = displayName
+        self.grammarPath = grammarPath
+    }
+}
+
+/// A plugin's Run marker provider for one language (`runMarkers` 1). The
+/// backend function answers where a document is runnable; running a marker
+/// runs the command with `runMarker` in `lithe/host/commands/didRun`.
+public struct DeclarativeRunMarkerProvider: Equatable, Hashable, Sendable {
+    public let languageID: String
+    public let functionID: String
+    public let commandID: String
+
+    public init(languageID: String, functionID: String, commandID: String) {
+        self.languageID = languageID
+        self.functionID = functionID
+        self.commandID = commandID
     }
 }
 
@@ -648,6 +667,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let settingActions: [DeclarativePluginSettingAction]
     /// Languages the plugin declares, with their display names.
     public let languages: [DeclarativePluginLanguage]
+    /// Run marker providers of the plugin's backend (`runMarkers` 1).
+    public let runMarkerProviders: [DeclarativeRunMarkerProvider]
     public let permissions: [String]
     public let activationEvents: [String]
     public let ui: DeclarativeUIContributions?
@@ -714,7 +735,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         declaresBackend = decoded.backend != nil
         settings = try decoded.settings.map { try $0.declaration() }
         settingActions = decoded.settingActions.map { $0.declaration() }
-        languages = decoded.languages.map { DeclarativePluginLanguage(id: $0.id, displayName: $0.displayName) }
+        languages = decoded.languages.map {
+            DeclarativePluginLanguage(id: $0.id, displayName: $0.displayName, grammarPath: $0.grammar?.path)
+        }
+        runMarkerProviders = decoded.runMarkers.map {
+            DeclarativeRunMarkerProvider(languageID: $0.languageID, functionID: $0.function, commandID: $0.command)
+        }
         permissions = decoded.permissions
         activationEvents = decoded.activationEvents
         self.normalizedManifest = normalizedManifest
@@ -780,6 +806,16 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             // debugging, never while the module is enabled.
             modules.append(PluginModuleDeclaration(
                 manifest: LanguageExtensionModuleManifests.debugAdapters(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                )
+            ))
+        }
+        if languages.contains(where: { $0.grammarPath != nil }) {
+            // Enablement only: the editor applies the grammars while it is on.
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.grammars(
                     pluginID: decoded.id,
                     displayName: decoded.displayName,
                     enabledByDefault: enabledByDefault
@@ -858,16 +894,18 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     }
 
     /// Whether the plugin can take effect in a running session. That holds when
-    /// debug adapters are its only contribution: the host reads them on demand
-    /// when a debug session starts, so the module graph, the language-server and
-    /// run/test modules, backend processes and UI composition built at launch do
-    /// not change. Anything else waits for the next launch.
+    /// debug adapters and language grammars are its only contributions: the
+    /// host reads adapters on demand when a debug session starts and hands
+    /// grammars to open editors when the registry changes, so the module graph,
+    /// the language-server and run/test modules, backend processes and UI
+    /// composition built at launch do not change. Anything else waits for the
+    /// next launch.
     public var canActivateWithoutRestart: Bool {
         let modules = pluginManifest.modules
-        return !debugAdapters.isEmpty
+        let live: Set<ModuleID> = [.debugAdaptersExtension(id.rawValue), .grammarsExtension(id.rawValue)]
+        return !modules.isEmpty
             && !declaresBackend
-            && modules.map(\.manifest.id) == [.debugAdaptersExtension(id.rawValue)]
-            && modules.allSatisfy { $0.contributions.isEmpty }
+            && modules.allSatisfy { live.contains($0.manifest.id) && $0.contributions.isEmpty }
     }
 
     private static func launch(_ launch: NormalizedManifest.Launch) -> DeclarativeLanguageServer.Launch {
@@ -918,6 +956,11 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let fileNames: [String]
             let projectFileNames: [String]
             let dependencies: Dependencies?
+            let grammar: Grammar?
+
+            struct Grammar: Decodable {
+                let path: String
+            }
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -927,10 +970,11 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 fileNames = try values.decodeIfPresent([String].self, forKey: .fileNames) ?? []
                 projectFileNames = try values.decodeIfPresent([String].self, forKey: .projectFileNames) ?? []
                 dependencies = try values.decodeIfPresent(Dependencies.self, forKey: .dependencies)
+                grammar = try values.decodeIfPresent(Grammar.self, forKey: .grammar)
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, fileExtensions, fileNames, projectFileNames, dependencies
+                case id, displayName, fileExtensions, fileNames, projectFileNames, dependencies, grammar
             }
         }
         struct Launch: Decodable {
@@ -1346,6 +1390,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let settings: [Setting]
         let settingActions: [SettingAction]
         let projectGenerators: [ProjectGenerator]
+        let runMarkers: [RunMarkerProvider]
         /// Launch fields stay with Rust Core; the host only needs to know
         /// a backend exists.
         let backend: ToolingJSONValue?
@@ -1356,6 +1401,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let id: String
             let displayName: String
             let icon: PluginUIIcon?
+        }
+
+        struct RunMarkerProvider: Decodable {
+            let languageID: String
+            let function: String
+            let command: String
         }
 
         init(from decoder: Decoder) throws {
@@ -1377,13 +1428,14 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
             projectGenerators = try values.decodeIfPresent([ProjectGenerator].self, forKey: .projectGenerators) ?? []
+            runMarkers = try values.decodeIfPresent([RunMarkerProvider].self, forKey: .runMarkers) ?? []
             backend = try values.decodeIfPresent(ToolingJSONValue.self, forKey: .backend)
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
             case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
-            case projectGenerators, backend, debugAdapters
+            case projectGenerators, backend, debugAdapters, runMarkers
         }
     }
 }
@@ -1508,6 +1560,38 @@ public struct ResolvedPluginSetting: Equatable, Sendable {
 
 /// Rust Core's view of plugin settings: the values a launch would use and the
 /// workspace configuration an `immediate` change sends to a running server.
+/// One Run marker of a plugin provider's answer, as Rust Core accepted it.
+/// Lines are one-based; `command` is the provider's command.
+public struct PluginRunMarker: Equatable, Sendable, Decodable {
+    public let id: String
+    public let line: Int
+    public let endLine: Int
+    public let kind: String
+    public let title: String
+    public let command: String
+
+    public init(id: String, line: Int, endLine: Int, kind: String, title: String, command: String) {
+        self.id = id
+        self.line = line
+        self.endLine = endLine
+        self.kind = kind
+        self.title = title
+        self.command = command
+    }
+}
+
+/// Rust Core's checks of what a plugin adds to the editor: grammars
+/// (`languages` 2) and Run marker answers (`runMarkers` 1). Core reads no
+/// files; the host passes the grammar text it read from the package.
+public protocol DeclarativeEditorContributionDecoding: Sendable {
+    /// The language as the editor registers it: `{ id, fileExtensions,
+    /// fileNames, grammar: { kind, monarch }, configuration }`.
+    func decodeGrammar(manifest: Data, languageID: String, grammar: String) throws -> ToolingJSONValue
+    func decodeRunMarkers(
+        manifest: Data, languageID: String, lineCount: Int, result: ToolingJSONValue
+    ) throws -> [PluginRunMarker]
+}
+
 public protocol DeclarativePluginSettingsResolving: Sendable {
     func resolveSettings(
         manifest: Data,

@@ -23,7 +23,7 @@ extension AppModel {
         // the plugin declares `onCommand:<id>`; the window opens without
         // waiting.
         if contribution.kind == .command, let commandID = contribution.actionID {
-            services.pluginBackendActivation?.runCommand(commandID, owner: owner, context: pluginWebWorkspaceContext)
+            services.pluginBackendActivation?.runCommand(commandID, owner: owner, context: pluginWebWorkspaceContext, runMarker: nil)
         }
         guard let target else { return }
         let window = WorkbenchFeatureModel.ToolWindow(rawValue: target)

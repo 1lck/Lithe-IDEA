@@ -319,6 +319,12 @@ public extension ModuleID {
         ModuleID("\(pluginID).debug-adapters")
     }
 
+    /// The language grammars one declarative plugin declares, enabled
+    /// together. Nothing runs while it is enabled; it only gates highlighting.
+    static func grammarsExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).grammars")
+    }
+
     /// The New Project entries one declarative plugin declares, enabled
     /// together. Nothing runs while it is enabled; it only gates the entries.
     static func projectGeneratorsExtension(_ pluginID: String) -> ModuleID {

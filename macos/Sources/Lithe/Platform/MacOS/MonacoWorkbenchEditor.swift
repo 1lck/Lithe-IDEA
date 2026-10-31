@@ -6,6 +6,7 @@ import LitheCoreContracts
 import LitheDebugModule
 import LitheExecutionModule
 import LitheGitModule
+import LitheModuleAPI
 
 /// Local editor assets included by ordinary preview and release packaging.
 enum MonacoWorkbenchResources {
@@ -316,6 +317,10 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private var javaRunMarkerLists: [String: (context: MonacoDocumentContext, revision: Int, url: URL, markers: [JavaRunMarker])] = [:]
     private var javaRunMarkerRequests: [String: UUID] = [:]
     private var javaRunMarkerRefreshSubscription: AnyCancellable?
+    private var pluginRunMarkerLists: [String: (context: MonacoDocumentContext, revision: Int, url: URL, provider: PluginRunMarkerProvider, path: String, markers: [PluginRunMarker])] = [:]
+    private var pluginRunMarkerRequests: [String: UUID] = [:]
+    private var pluginLanguagesSubscription: AnyCancellable?
+    private var lastPluginLanguages: PluginEditorLanguageSet?
     private var testOutcomeSubscription: AnyCancellable?
     private var testServiceIdentity: ObjectIdentifier?
     private var codeActionCommands: [String: (context: MonacoDocumentContext, key: String, root: URL?, command: LanguageServerCommand)] = [:]
@@ -722,6 +727,36 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             .sink { [weak self] _ in self?.call("window.lithe.refreshJavaRunMarkers()") }
     }
 
+    /// Plugin grammars apply without a restart: the editor follows every
+    /// change of the plugins' languages and Run marker providers.
+    private func observePluginLanguages(model: AppModel) {
+        guard let languages = model.services.pluginEditorLanguages else { return }
+        if pluginLanguagesSubscription == nil {
+            pluginLanguagesSubscription = languages.changes
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak languages] in
+                    guard let self, let languages, self.ready, !self.failed else { return }
+                    self.sendPluginLanguages(languages.current())
+                }
+        }
+        sendPluginLanguages(languages.current())
+    }
+
+    private func sendPluginLanguages(_ set: PluginEditorLanguageSet) {
+        guard set != lastPluginLanguages else { return }
+        lastPluginLanguages = set
+        // Markers of a provider that went away must not run.
+        pluginRunMarkerLists = pluginRunMarkerLists.filter { set.runMarkerProviders[$0.value.provider.languageID] == $0.value.provider }
+        call("window.lithe.setPluginLanguages(payload)", arguments: ["payload": set.editorPayload]) { result in
+            if case .success(let value) = result, let failed = (value as? [String: Any])?["failed"] as? [[String: Any]] {
+                for failure in failed {
+                    NSLog("Lithe plugin grammar failed in the editor: %@ %@",
+                          failure["id"] as? String ?? "-", failure["message"] as? String ?? "-")
+                }
+            }
+        }
+    }
+
     private func observeCodeVision(model: AppModel) {
         if codeVisionSubscription == nil {
             codeVisionSubscription = model.javaFeature.$javaCodeVisionHints
@@ -836,6 +871,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, javaKeywordNavigationFilter: Bool = true, appearance: EditorAppearanceSettings = EditorAppearanceSettings(), markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
+        // Before the document: its file may be of a plugin language.
+        observePluginLanguages(model: model)
         let id = document.id.uuidString
         let groupDocuments: [EditorDocument]
         if let scopedDocumentID {
@@ -859,6 +896,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             javaNavigationRequests[oldID] = nil
             javaRunMarkerLists[oldID] = nil
             javaRunMarkerRequests[oldID] = nil
+            pluginRunMarkerLists[oldID] = nil
+            pluginRunMarkerRequests[oldID] = nil
             lastGitStates[oldID] = nil
             gitLoads.removeValue(forKey: oldID)?.cancel()
             blameLoads.removeValue(forKey: oldID)?.cancel()
@@ -1064,9 +1103,23 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             documents: documents, workspaceURL: model.workspaceURL)
     }
 
+    /// Largest document a plugin Run marker provider receives.
+    static let maximumRunMarkerDocumentBytes = 4 * 1024 * 1024
+
+    /// `url` relative to the workspace, `/`-separated; nil outside it.
+    static func workspaceRelativePath(of url: URL, in workspaceURL: URL?) -> String? {
+        guard let workspaceURL else { return nil }
+        let root = workspaceURL.standardizedFileURL.path
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(prefix), path.count > prefix.count else { return nil }
+        return String(path.dropFirst(prefix.count))
+    }
+
     func allowsMessage(_ type: String) -> Bool {
         !isReadOnlyPreview || !["format", "codeActions", "resolveCodeAction", "executeCodeAction",
-                               "rename", "resolveCompletion", "javaRunMarkerAction", "setBlameVisibility"].contains(type)
+                               "rename", "resolveCompletion", "javaRunMarkerAction", "pluginRunMarkerAction",
+                               "setBlameVisibility"].contains(type)
     }
 
     func receive(_ message: WKScriptMessage, reply: @escaping (Any?, String?) -> Void) {
@@ -1217,6 +1270,67 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
             model.editorDidFocus(document)
             model.performJavaRunMarker(marker, action: action, in: document.url)
+            reply(["ok": true], nil)
+        case "pluginRunMarkers":
+            // A plugin provider answers for documents in the workspace up to 4 MiB.
+            guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
+                  let languageID = body["languageID"] as? String,
+                  let provider = lastPluginLanguages?.runMarkerProviders[languageID],
+                  let backends = model.pluginWebBackends,
+                  let path = Self.workspaceRelativePath(of: document.url, in: model.workspaceURL) else {
+                reply(["markers": []], nil); return
+            }
+            let text = document.text
+            guard text.utf8.count <= Self.maximumRunMarkerDocumentBytes else { reply(["markers": []], nil); return }
+            let url = document.url, version = revision
+            let lineCount = text.utf8.reduce(1) { $1 == 0x0A ? $0 + 1 : $0 }
+            let requestID = UUID()
+            pluginRunMarkerRequests[id] = requestID
+            let params: ToolingJSONValue = .object([
+                "languageID": .string(languageID), "path": .string(path),
+                "version": .integer(version), "text": .string(text),
+            ])
+            let workspaceContext = model.pluginWebWorkspaceContext
+            let languages = model.services.pluginEditorLanguages
+            Task { @MainActor [weak self, weak document] in
+                guard let self, let document, self.isCurrent(context) else { reply(["cancelled": true], nil); return }
+                var markers: [PluginRunMarker] = []
+                do {
+                    let result = try await backends.invokePluginFunction(
+                        provider.functionID, params: params, ofPlugin: provider.pluginID,
+                        context: workspaceContext, timeout: .seconds(10), progress: { _ in }
+                    )
+                    markers = try languages?.decodeRunMarkers(provider, lineCount: lineCount, result: result) ?? []
+                } catch {
+                    NSLog("Lithe plugin run markers failed [%@]: %@", provider.pluginID, error.localizedDescription)
+                }
+                guard self.isCurrent(context), self.revisions[id] == revision, document.url == url,
+                      self.pluginRunMarkerRequests[id] == requestID,
+                      self.lastPluginLanguages?.runMarkerProviders[languageID] == provider else {
+                    reply(["cancelled": true], nil); return
+                }
+                self.pluginRunMarkerLists[id] = (context, revision, url, provider, path, markers)
+                reply(["markers": markers.map { marker in
+                    ["id": marker.id, "line": marker.line, "endLine": marker.endLine,
+                     "kind": marker.kind, "title": marker.title] as [String: Any]
+                }], nil)
+            }
+        case "pluginRunMarkerAction":
+            guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
+                  let list = pluginRunMarkerLists[id], isCurrent(list.context), list.revision == revision, list.url == document.url,
+                  lastPluginLanguages?.runMarkerProviders[list.provider.languageID] == list.provider,
+                  let markerID = body["marker"] as? String,
+                  let marker = list.markers.first(where: { $0.id == markerID }) else {
+                reply(["cancelled": true], nil); return
+            }
+            model.editorDidFocus(document)
+            model.services.pluginBackendActivation?.runCommand(
+                marker.command, owner: ModuleID("\(list.provider.pluginID).ui"), context: model.pluginWebWorkspaceContext,
+                runMarker: PluginRunMarkerInvocation(
+                    id: marker.id, languageID: list.provider.languageID, path: list.path,
+                    line: marker.line, version: list.revision
+                )
+            )
             reply(["ok": true], nil)
         case "javaNavigationAction":
             guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
