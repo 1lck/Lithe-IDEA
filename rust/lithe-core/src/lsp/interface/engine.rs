@@ -1719,7 +1719,7 @@ impl LspEngine {
         }
         // Initial provider settings must include native Git decisions even when
         // no session or inventory warm-up has run. Never scan under registry locks.
-        let indexing_root = canonical_workspace_root(&request.root_uri).map(PathBuf::from);
+        let indexing_root = canonical_workspace_path(&request.root_uri);
         let indexing_context = if let Some(root) = &indexing_root {
             crate::project::indexing::prepare_provider_exclusions(root)?
         } else {
@@ -5781,9 +5781,15 @@ fn java_entrypoint_scope_uri(root_uri: &str) -> String {
 ///
 /// Resolving links touches the file system, so it happens here in the engine
 /// rather than in the pure normalizer that receives the result.
-fn canonical_workspace_root(root_uri: &str) -> Option<String> {
+fn canonical_workspace_path(root_uri: &str) -> Option<PathBuf> {
     let path = url::Url::parse(root_uri).ok()?.to_file_path().ok()?;
-    let canonical = crate::remote::workspace_io::canonicalize(path).ok()?;
+    // Core policy identity uses the native canonical path, including Windows'
+    // verbatim prefix. A protocol/display path is not a policy registry key.
+    crate::remote::workspace_io::canonicalize(path).ok()
+}
+
+fn canonical_workspace_root(root_uri: &str) -> Option<String> {
+    let canonical = canonical_workspace_path(root_uri)?;
     let canonical = canonical.to_string_lossy().replace('\\', "/");
     // Windows canonical paths carry a verbatim `\\?\` prefix that JDT never reports.
     Some(

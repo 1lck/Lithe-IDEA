@@ -4,7 +4,7 @@
   "group": "工作区生命周期",
   "capability": "目录索引排除与 Git 自动排除",
   "owner": "Workspace",
-  "verification": "本地索引策略与目录浏览分离；远程根禁用并保留偏好。2026-10-31 整合preview 0c13ca25后，源码9068703a通过完整Rust门禁及Core1474项逐项计时（1442单元、32集成），索引/LSP聚焦34项、Swift6.4定向98项、macOS/Bun项目树74、文件系统17、LSP68、Java watcher15、工作区生命周期31、快速打开10及Git设置3项通过，TypeScript通过。最终macOS App验证损坏配置中文错误与原值保留、修正后重试、不可读取根中英文错误及恢复权限后显式Retry、取消排除搜索与重启持久化、同窗口项目切换、linked worktree外部stage/commit和父仓库观察子模块HEAD。新JDT缓存仅生成visible项目并返回PrintStream.print候选，不当作后台零扫描保证。1419个包文件与9个符号链接未变，测试实例/JDT/辅助进程已关闭，开发偏好恢复，保留用户另一Dev实例。普通目录与即时双向语言切换另有此前构建原生证据。完全缺失最近项目被欢迎页禁用，恢复流程使用真实权限失败验收。固定Xcode26.6 CI待最终SHA。Windows原生界面仍pending，Bun结果不能替代Windows UI；Java构建系统模块仍可能扫描，Go/Rust仅合并原生配置。",
+  "verification": "本地索引策略与目录浏览分离；远程根禁用并保留偏好。2026-10-31 整合preview 0c13ca25后，源码9068703a通过完整Rust门禁及Core1474项逐项计时（1442单元、32集成），索引/LSP聚焦34项、Swift6.4定向98项、macOS/Bun项目树74、文件系统17、LSP68、Java watcher15、工作区生命周期31、快速打开10及Git设置3项通过，TypeScript通过。最终macOS App验证损坏配置中文错误与原值保留、修正后重试、不可读取根中英文错误及恢复权限后显式Retry、取消排除搜索与重启持久化、同窗口项目切换、linked worktree外部stage/commit和父仓库观察子模块HEAD。新JDT缓存仅生成visible项目并返回PrintStream.print候选，不当作后台零扫描保证。1419个包文件与9个符号链接未变，测试实例/JDT/辅助进程已关闭，开发偏好恢复，保留用户另一Dev实例。普通目录与即时双向语言切换另有此前构建原生证据。完全缺失最近项目被欢迎页禁用，恢复流程使用真实权限失败验收。固定Xcode26.6 CI待最终SHA。Windows原生界面仍pending，Bun结果不能替代Windows UI；Java构建系统模块仍可能扫描，Go/Rust仅合并原生配置。 首轮最终SHA 7c5173b5的Windows前端2922项通过；SharedRust与真实JDT同停于冷启动Git排除断言，已确认并修复Windows原生规范路径与协议显示路径混用导致的策略查表缺失，修复后本机完整Core1474项再次计时通过、聚焦34项通过，独立只读复审无发现，待后续SHA原生CI确认。",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "verified",
