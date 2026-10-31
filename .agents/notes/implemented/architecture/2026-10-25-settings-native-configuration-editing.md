@@ -54,7 +54,7 @@ Profiles/settings/仓库和其生产消费者仍须在阶段 D 的完整纵向�
 
 构建插件以公共 `buildProviders: 7` 注册原生配置读取，仍复用已有工作区 Provider 会话。
 宿主从清单推导通用构建设置页，不为 Maven 增加专用页面。自动读取遇到项目 Wrapper 或无法确定工具来源时先停止，只有用户明确点击“使用项目工具读取”后才运行；自动发现失败不能悄悄交给 Provider 运行 Wrapper 或触发冷下载。来源、可编辑原值、合并生效值、
-XML 节点绑定都来自插件；宿主只负责草稿、明确保存目标、生命周期、平台写入及回读。
+字段 ID 和非敏感投影来自插件，格式解释和编辑留在提供者；宿主只负责草稿、明确保存目标、生命周期、平台保护写入及回读。
 这条链路已接入 macOS，但不表示 #1495 阶段 D 的全部旧 Maven 消费者已经删除。
 
 Windows 已补公共来源读取、原生文件两阶段事务和插件设置页：草稿由工作区持有，
@@ -73,11 +73,24 @@ Maven 插件观察所选 Maven 的官方 `EventSpy`（构建事件观察接口�
 上游依据是 [Maven 3.9.16 的配置处理入口](https://github.com/apache/maven/blob/maven-3.9.16/maven-embedder/src/main/java/org/apache/maven/cli/configuration/SettingsXmlConfigurationProcessor.java)。
 捕获来源、读取结束或源路径/哈希不一致时明确失败；不在 Lithe 维护另一套优先级和 Profiles 合并。
 
-完整原生 XML 不经过 Provider RPC、网页、模型共享或可观察界面状态。macOS 文件 adapter
-将原始字节交给 Core 内部的纯编辑操作，由已有 `quick-xml` 处理获准的直接节点，拒绝
-DTD、含糊绑定和超限文档。Core 不读写文件，也不认识 Maven 字段的业务语义。平台 adapter
-保护 app bundle 与全部插件安装目录，用条件原子替换保留原权限、扩展属性、注释和秘密节点。
-多个来源选择同一文件时，只能作为完全一致的只读别名展示，不能借用户作用域改写安装来源。
+完整原生文档不经过 Provider RPC、网页、模型共享或可观察界面状态。协议 7 的字段
+只携带不敏感的原值、生效值和提供者自己认识的字段 ID，不再声明 XML 根或元素路径；
+Core 不再包含 XML 编辑器。Maven 插件使用 JDK 的安全 DOM 读写器处理自己的 XML，
+拒绝 DTD、限制深度并重新解析生成的文档后才输出。直接用 Maven 的整份 Settings
+序列化器会丢失注释及未建模内容，所以不用于受保护编辑；有效值仍由 Maven 读取，
+不在 DOM 层重建合并或优先级。
+Node/Java SDK 的示例使用 JSON 读写器处理配置；新增工具格式不需要给宿主加枚举。
+
+宿主在已有工作区 `outputs` 下创建私有暂存文件，保留原文件字节和来源身份，然后把
+字段编辑和输出路径交给提供者。提供者核实来源后只写暂存文件，返回来源 ID、SHA-256
+和是否更改的回执；原始和替换文档均不返回。宿主确认仍是当前操作、校验暂存哈希后，
+使用已有条件原子替换保留权限和扩展属性；提供者负责保留格式支持的注释、无关内容和
+秘密。app bundle 和插件安装目录仍只读，多个来源的可写别名不得绕过这条边界。
+
+暂存沿用已有隔离状态生命周期，不跨工作树复用。成功、失败、取消或窗口/插件撤销都
+释放暂存。提供者必须无 CREATE 打开已有文件，因此取消后的迟到请求不能重建秘密
+文件；已经打开的句柄可以结束写入，但不能发布原生来源。Windows 的文件清理由阻塞
+工作线程处理，不在 WebView 线程或关闭窗口的锁内读写磁盘。
 
 草稿以原值为基线，继承值直接填入控件但不产生覆盖；用户显式启用覆盖后才进入编辑集。
 保存前重新确认工作区、包、设置与单调递增的选项修订号，选项 A→B→A 也会撤销旧保存。
@@ -125,7 +138,7 @@ XML 不进入 WebView。外部用户/安装来源和符号链接目标加入现�
 - 补充敏感字段不泄露、外部修改冲突、文件缺失或无权限、写入失败保留草稿，以及恢复默认后立即失焦、切页或关闭不写回旧值。测试使用临时目录或隔离存储，不读取或修改开发者真实配置。
 - 按目标平台执行原生交互测试和真实工作流；单元测试通过不能替代整页验收。记录未完成的设置页迁移，不把政策当运行时证据。
 - 运行 `./scripts/agent-notes/verify-agent-notes.sh`；有产品实现改动时执行对应测试、`./scripts/architecture/verify-service-boundaries.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和功能矩阵检查。
-- `BuildNativeConfigurationTests` 覆盖继承/取消、XML 内容与权限/扩展属性保留、外部写入、缺失文件、只读根和符号链接目标变化；`BuildSystemServiceTests` 覆盖选项 ABA、旧工作区回复及回读失败。`MacNativeBuildProviderIntegrationTests` 的显式 stage D 场景使用真实 Maven、SDK、Core、Provider 会话和平台文件 adapter；其通过情况仍以实际计时报告为准。
+- `BuildNativeConfigurationTests` 覆盖继承/取消、通用 JSON 暂存哈希与权限/扩展属性保留、外部写入、缺失文件、只读根和符号链接目标变化；`BuildSystemServiceTests` 覆盖选项 ABA、旧工作区回复、取消后迟到编辑回执、暂存清理及回读失败。`MacNativeBuildProviderIntegrationTests` 的显式 stage D 场景使用真实 Maven、SDK、Core、Provider 会话和平台文件 adapter；其通过情况仍以实际计时报告为准。
 
 ## 适用范围
 

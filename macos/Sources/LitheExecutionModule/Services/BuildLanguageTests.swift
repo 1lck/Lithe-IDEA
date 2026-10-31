@@ -97,25 +97,28 @@ package extension BuildSystemService {
         return LanguageTestBackendResult(exitCode: exitCode, reports: reports, references: references)
     }
 
-    /// Runs a public preparation task selected from the current model's source role.
-    /// The language workflow names tasks, while the build backend owns their commands.
+    /// Selects a declared preparation by purpose and the owning model source role.
+    /// Task identity and execution semantics remain with the build provider.
     @discardableResult
-    func prepareLanguageRun(fileURL: URL, workspace: URL, mainTask: String, testTask: String,
+    func prepareLanguageRun(fileURL: URL, workspace: URL, purpose: String,
                             optionOverrides: [String: ToolingJSONValue] = [:],
                             tool: @MainActor (String) throws -> BuildProviderHints?,
                             isCurrent: @escaping @MainActor () -> Bool) async throws -> BuildLanguageImport? {
         let previous = operation?.id
-        try await prepareLanguageTestModels(taskIDs: [mainTask, testTask], workspace: workspace)
+        try await prepareLanguageTestModels(preparationPurpose: purpose, workspace: workspace)
         let revision = inputRevision
         let path = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
         let candidates = entries.filter { entry in
             let directory = workspace.appendingPathComponent(entry.instance.root).resolvingSymlinksInPath().standardizedFileURL.path
             return entry.modelState == .loaded && !entry.isReloadRequired
-                && entry.declaration.tasks.contains { $0.id == mainTask }
+                && entry.declaration.tasks.contains { $0.preparation?.purpose == purpose }
                 && (path == directory || path.hasPrefix(directory + "/"))
         }.sorted { $0.instance.root.count > $1.instance.root.count }
         guard isCurrent(), !Task.isCancelled, operation?.id == previous else { throw CancellationError() }
         guard let entry = candidates.first else {
+            throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
+        }
+        guard let initialTask = entry.declaration.tasks.first(where: { $0.preparation?.purpose == purpose }) else {
             throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
         }
         let hints = try tool(entry.instance.root)
@@ -124,24 +127,35 @@ package extension BuildSystemService {
         defer { observation.cancel(); continuation.finish() }
         var preparedImport: BuildLanguageImport?
         guard inputRevision == revision, isCurrent(), operation?.id == previous,
-              let id = runTask(entry.id, request: BuildTaskRequest(task: mainTask,
+              let id = runTask(entry.id, request: BuildTaskRequest(task: initialTask.id,
                 optionOverrides: optionOverrides, tool: hints), title: entry.instance.displayName,
                 onLanguageImport: { preparedImport = $0 }, selectFromModel: { model in
-                    guard !model.truncated, let owner = model.projects.filter({ project in
+                    guard !model.truncated else {
+                        throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
+                    }
+                    let owners = model.projects.filter { project in
                         let directory = workspace.appendingPathComponent(project.path).resolvingSymlinksInPath().standardizedFileURL.path
                         return path == directory || path.hasPrefix(directory + "/")
-                    }).sorted(by: { $0.path.count > $1.path.count }).first else {
+                    }
+                    let depth = owners.map { $0.path.count }.max()
+                    let deepest = owners.filter { $0.path.count == depth }
+                    guard deepest.count == 1, let owner = deepest.first else {
                         throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
                     }
-                    let role = model.contentRoots.filter { root in
+                    let roots = model.contentRoots.filter { root in
                         let directory = workspace.appendingPathComponent(root.path).resolvingSymlinksInPath().standardizedFileURL.path
                         return root.projectID == owner.id && (path == directory || path.hasPrefix(directory + "/"))
-                    }.sorted { $0.path.count > $1.path.count }.first?.kind
-                    let taskID = role == "testSource" || role == "generatedTestSource" ? testTask : mainTask
-                    guard entry.declaration.tasks.contains(where: { $0.id == taskID && $0.scopes.contains(.project) }) else {
+                    }
+                    let rootDepth = roots.map { $0.path.count }.max()
+                    let roles = Set(roots.filter { $0.path.count == rootDepth }.map(\.kind))
+                    let matching = entry.declaration.tasks.filter { task in
+                        task.preparation?.purpose == purpose && task.scopes.contains(.project)
+                            && task.preparation?.sourceRoles.contains(where: roles.contains) == true
+                    }
+                    guard !roles.contains("excluded"), matching.count == 1, let task = matching.first else {
                         throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
                     }
-                    return BuildTaskRequest(task: taskID, project: BuildSelection(project: owner), optionOverrides: optionOverrides, tool: hints)
+                    return BuildTaskRequest(task: task.id, project: BuildSelection(project: owner), optionOverrides: optionOverrides, tool: hints)
                 })
         else { throw CancellationError() }
         defer { cancelRun(id) }

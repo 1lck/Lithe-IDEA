@@ -9570,7 +9570,7 @@
     "native.nativeConfigurationReadBackFailed": "Native configuration was saved, but its current effective values could not be verified. Reload before editing again.",
     "native.nativeConfigurationDiskConflict": "Native configuration changed on disk. Reload before saving; your draft has been kept.",
     "native.nativeConfigurationSourceReadOnly": "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.",
-    "native.nativeConfigurationFileRequired": "The native configuration must be a writable UTF-8 XML file smaller than 2 MB.",
+    "native.nativeConfigurationFileRequired": "The native configuration must be a writable file smaller than 2 MB.",
     "native.nativeConfigurationTitle": "Native configuration",
     "native.nativeConfigurationOpenProject": "Open a project to read its native configuration.",
     "native.nativeConfigurationNoInstance": "This project has no matching build-system instance.",

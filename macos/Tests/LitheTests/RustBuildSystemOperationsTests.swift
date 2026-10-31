@@ -11,6 +11,17 @@ struct RustBuildSystemOperationsTests {
     private let operations = RustBuildSystemOperations(core: RustCoreBridge())
 
     @Test
+    func descriptorPreservesGenericPreparationWithoutPrescribingTaskIDs() throws {
+        let source = try Self.source("build-provider-preparation")
+        let tasks = try #require(source.buildSystems.first?.tasks)
+        #expect(tasks.map(\.id) == ["prepare-assets", "prepare-specs"])
+        #expect(tasks.map(\.preparation) == [
+            .init(purpose: "run", sourceRoles: ["generatedSource", "source"]),
+            .init(purpose: "run", sourceRoles: ["generatedTestSource", "testSource"])
+        ])
+    }
+
+    @Test
     func providerReportsTravelInlineAndKeepRepeatedCasesInTheirProject() throws {
         let source = try Self.source("build-provider-reports")
         let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: "gradle")

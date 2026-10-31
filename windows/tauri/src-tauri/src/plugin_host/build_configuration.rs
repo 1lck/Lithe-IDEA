@@ -1,20 +1,24 @@
-//! Native settings publication. Private XML stays in a bounded, window-owned
-//! prepare/commit transaction and never crosses WebView or Provider RPC.
+//! Native settings publication. Private documents stay in bounded staging;
+//! only source facts, an output path and an edit receipt cross RPC boundaries.
 
 use super::{launch, lifecycle::LifecycleState, scan::core_execute, settings, store};
 use lithe_project::native_configuration::{
     self, NativeConfigurationError, PreparedNativeConfiguration,
 };
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager, Window};
 
+static NEXT_OUTPUT: AtomicU64 = AtomicU64::new(0);
 const MAX_PREPARED_WRITES: usize = 8;
 const PREPARATION_LIFETIME: Duration = Duration::from_secs(60);
 
@@ -153,7 +157,7 @@ pub async fn declarative_plugins_build_prepare_configuration(
     operation_id: String,
     snapshot: Value,
     edits: Value,
-) -> Result<bool, Failure> {
+) -> Result<Option<String>, Failure> {
     if operation_id.is_empty()
         || operation_id.len() > 128
         || operation_id.chars().any(char::is_control)
@@ -182,10 +186,20 @@ pub async fn declarative_plugins_build_prepare_configuration(
             &snapshot,
             &edits,
             &immutable_roots(&app)?,
+            store::plugin_state_directory(&app, &plugin_id)
+                .map_err(|_| invalid())?
+                .join(store::workspace_state_key(&workspace_path))
+                .join("outputs")
+                .join(format!(
+                    "native-configuration-{}-{}.json",
+                    std::process::id(),
+                    NEXT_OUTPUT.fetch_add(1, Ordering::Relaxed)
+                )),
         )?;
         let Some(write) = write else {
-            return Ok(false);
+            return Ok(None);
         };
+        let output_file = write.output_file().to_string_lossy().into_owned();
         let state = app.state::<NativeConfigurationWrites>();
         let mut writes = state.0.lock().map_err(|_| invalid())?;
         if *writes.window_generations.get(&window_label).unwrap_or(&0) != window_generation {
@@ -209,7 +223,7 @@ pub async fn declarative_plugins_build_prepare_configuration(
                 created: Instant::now(),
             },
         );
-        Ok(true)
+        Ok(Some(output_file))
     })
     .await
 }
@@ -221,7 +235,8 @@ pub async fn declarative_plugins_build_commit_configuration(
     app: AppHandle,
     window: Window,
     operation_id: String,
-) -> Result<(), Failure> {
+    receipt: Value,
+) -> Result<bool, Failure> {
     let window_label = window.label().to_owned();
     crate::blocking::run_blocking_result(move || {
         let prepared = app
@@ -250,41 +265,67 @@ pub async fn declarative_plugins_build_commit_configuration(
         }
         prepared
             .write
-            .commit(&immutable_roots(&app)?)
+            .commit(&immutable_roots(&app)?, &receipt)
             .map_err(Into::into)
     })
     .await
 }
 
 #[tauri::command]
-pub fn declarative_plugins_build_cancel_configuration(
+pub async fn declarative_plugins_build_cancel_configuration(
     app: AppHandle,
     window: Window,
     operation_id: String,
 ) -> Result<(), Failure> {
-    app.state::<NativeConfigurationWrites>()
-        .0
-        .lock()
-        .map_err(|_| invalid())?
-        .writes
-        .remove(&(window.label().to_owned(), operation_id));
-    Ok(())
+    let label = window.label().to_owned();
+    crate::blocking::run_blocking_result(move || {
+        app.state::<NativeConfigurationWrites>()
+            .0
+            .lock()
+            .map_err(|_| invalid())?
+            .writes
+            .remove(&(label, operation_id));
+        Ok(())
+    })
+    .await
 }
 
 pub fn close_window(app: &AppHandle, label: &str) {
-    if let Ok(mut writes) = app.state::<NativeConfigurationWrites>().0.lock() {
-        *writes
+    let retired = if let Ok(mut pending) = app.state::<NativeConfigurationWrites>().0.lock() {
+        *pending
             .window_generations
             .entry(label.to_owned())
             .or_default() += 1;
-        writes.writes.retain(|(window, _), _| window != label);
-    }
+        let keys: Vec<_> = pending
+            .writes
+            .keys()
+            .filter(|(window, _)| window == label)
+            .cloned()
+            .collect();
+        keys.into_iter()
+            .filter_map(|key| pending.writes.remove(&key))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    tauri::async_runtime::spawn_blocking(move || drop(retired));
 }
 
 pub fn forget_plugin(app: &AppHandle, plugin: &str) {
-    if let Ok(mut pending) = app.state::<NativeConfigurationWrites>().0.lock() {
-        pending.writes.retain(|_, write| write.plugin_id != plugin);
-    }
+    let retired = if let Ok(mut pending) = app.state::<NativeConfigurationWrites>().0.lock() {
+        let keys: Vec<_> = pending
+            .writes
+            .iter()
+            .filter(|(_, write)| write.plugin_id == plugin)
+            .map(|(key, _)| key.clone())
+            .collect();
+        keys.into_iter()
+            .filter_map(|key| pending.writes.remove(&key))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    tauri::async_runtime::spawn_blocking(move || drop(retired));
 }
 
 fn current_inputs(

@@ -98,7 +98,7 @@ struct MacNativeBuildProviderIntegrationTests {
                 #expect(build.configurationRunSource(inputs: savedInputs, instanceRoot: "nested") == source)
             } else {
                 let prepared = try await build.prepareLanguageRun(fileURL: workspace.appendingPathComponent("nested/checks/Main.java"),
-                    workspace: workspace, mainTask: "java-prepare-run-main", testTask: "java-prepare-run-test",
+                    workspace: workspace, purpose: "run",
                     optionOverrides: ["profiles": .array([.string("run-only")])],
                     tool: { _ in BuildProviderHints(toolExecutable: maven,
                         toolEnvironment: runtime.environment.filter { $0.key == "JAVA_HOME" || $0.key == "PATH" }) }, isCurrent: { true })

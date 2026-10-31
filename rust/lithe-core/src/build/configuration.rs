@@ -49,7 +49,6 @@ pub(crate) struct NativeSource {
     /// `missing`, or `sha256:` followed by the exact source bytes' digest.
     pub(crate) revision: String,
     pub(crate) writable: bool,
-    pub(crate) root_element: XmlRoot,
     pub(crate) fields: Vec<NativeField>,
 }
 
@@ -60,14 +59,6 @@ pub(crate) enum SourceScope {
     Installation,
     User,
     Workspace,
-}
-
-/// The native document's actual root, also used when an absent source is created.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct XmlRoot {
-    pub(crate) name: String,
-    pub(crate) namespace: String,
 }
 
 /// A non-secret value and its upstream effective value are distinct. `null`
@@ -81,11 +72,6 @@ pub(crate) struct NativeField {
     pub(crate) effective_value: Value,
     /// Technical origin identifier supplied by the engine, such as `commandLine`.
     pub(crate) effective_source: String,
-    /// Direct element path below `rootElement`; no XPath or executable expression.
-    pub(crate) path: Vec<String>,
-    /// Direct repeated child name for a string-list field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) item_element: Option<String>,
 }
 
 /// Native UI controls; no secret/password control is part of this projection.
@@ -162,7 +148,7 @@ fn invalid(message: &str) -> crate::plugins::declarative::PluginRejection {
     crate::plugins::declarative::PluginRejection::new("plugin.build.invalidConfiguration", message)
 }
 
-/// Shared by snapshot decoding and the deterministic document edit command.
+/// Shared by snapshot decoding and format-independent edit planning.
 pub(crate) fn validate(snapshot: &ConfigurationSnapshot) -> Validation<()> {
     if snapshot.format != "litheBuildConfiguration"
         || snapshot.version != 1
@@ -179,7 +165,6 @@ pub(crate) fn validate(snapshot: &ConfigurationSnapshot) -> Validation<()> {
             previous.writable
                 || source.writable
                 || previous.revision != source.revision
-                || previous.root_element != source.root_element
                 || previous.fields != source.fields
         });
         uris.insert(source.uri.as_str(), source);
@@ -197,9 +182,6 @@ pub(crate) fn validate(snapshot: &ConfigurationSnapshot) -> Validation<()> {
             || uri.path().is_empty()
             || !revision(&source.revision)
             || source.scope == SourceScope::Installation && source.writable
-            || !xml_name(&source.root_element.name)
-            || source.root_element.namespace.len() > MAX_TEXT
-            || source.root_element.namespace.contains(char::is_control)
             || source.fields.len() > MAX_FIELDS
         {
             return Err(invalid(
@@ -207,33 +189,16 @@ pub(crate) fn validate(snapshot: &ConfigurationSnapshot) -> Validation<()> {
             ));
         }
         let mut ids = BTreeSet::new();
-        let mut paths: Vec<&Vec<String>> = Vec::new();
         for field in &source.fields {
             if !identifier(&field.id)
                 || !ids.insert(&field.id)
                 || !value_matches(field.kind, &field.value)
                 || !value_matches(field.kind, &field.effective_value)
                 || !identifier(&field.effective_source)
-                || field.path.is_empty()
-                || field.path.len() > 4
-                || field
-                    .path
-                    .iter()
-                    .any(|part| !xml_name(part) || sensitive(part))
-                || field
-                    .item_element
-                    .as_ref()
-                    .is_some_and(|name| !xml_name(name) || sensitive(name))
-                || (field.kind == NativeFieldKind::StringList) != field.item_element.is_some()
-                || paths
-                    .iter()
-                    .any(|path| path.starts_with(&field.path) || field.path.starts_with(path))
+                || sensitive(&field.id)
             {
-                return Err(invalid(
-                    "Invalid, sensitive, duplicate, or overlapping native field.",
-                ));
+                return Err(invalid("Invalid, sensitive, or duplicate native field."));
             }
-            paths.push(&field.path);
         }
     }
     Ok(())
@@ -286,7 +251,7 @@ fn revision(value: &str) -> bool {
         })
 }
 
-pub(super) fn xml_name(value: &str) -> bool {
+fn field_name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value.bytes().enumerate().all(|(index, byte)| {
@@ -332,5 +297,123 @@ fn value_matches(kind: NativeFieldKind, value: &Value) -> bool {
 }
 
 fn identifier(value: &str) -> bool {
-    value.len() <= 64 && xml_name(value)
+    value.len() <= 64 && field_name(value)
+}
+
+/// A provider prepares replacement bytes in an already-existing host-owned file.
+/// Neither the original document nor its replacement crosses the JSON boundary.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EditPlanRequest {
+    #[serde(flatten)]
+    pub(crate) plan: OutputPlanRequest,
+    pub(crate) snapshot: ConfigurationSnapshot,
+    pub(crate) edits: NativeEdits,
+}
+
+/// The host allocates the output inside its isolated workspace state directory.
+/// Providers open it without creation, so late cancelled work cannot recreate it.
+pub(crate) fn edit_plan(
+    declaration: &BuildSystemDeclaration,
+    request: &EditPlanRequest,
+) -> Validation<Value> {
+    if declaration.configuration.is_none() || request.plan.project.is_some() {
+        return Err(plans::unavailable(
+            declaration,
+            "native configuration editing",
+        ));
+    }
+    changed_fields(&request.snapshot, &request.edits)?;
+    let output = plans::output_file(
+        request.plan.output_file.as_deref(),
+        super::manifest::OutputChannel::OutputFile,
+    )?
+    .ok_or_else(|| invalid("A host-owned configuration output file is required."))?;
+    let state = request
+        .plan
+        .base
+        .workspace_state_directory
+        .as_deref()
+        .ok_or_else(|| invalid("Configuration editing requires isolated workspace state."))?;
+    let output_path = std::path::Path::new(&output);
+    let state_path = std::path::Path::new(state);
+    if !state_path.is_absolute()
+        || output_path == state_path
+        || !output_path.starts_with(state_path)
+        || output_path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        || request.snapshot.sources.iter().any(|source| {
+            url::Url::parse(&source.uri)
+                .ok()
+                .and_then(|uri| uri.to_file_path().ok())
+                .is_some_and(|path| path == output_path)
+        })
+    {
+        return Err(invalid(
+            "Configuration output must be a private host-owned staging file.",
+        ));
+    }
+    let context = plans::PlanContext::new(declaration, &request.plan.base)?;
+    let provider = declaration
+        .provider
+        .as_ref()
+        .ok_or_else(|| plans::unavailable(declaration, "a provider"))?;
+    let mut params = plans::provider_hints(&request.plan)?;
+    params.insert("snapshot".into(), json!(request.snapshot));
+    params.insert("edits".into(), json!({"sourceID":request.edits.source_id,"revision":request.edits.revision,"values":request.edits.values}));
+    params.insert("outputFile".into(), json!(output));
+    Ok(context.provider_plan(
+        provider,
+        "lithe/build/editConfiguration",
+        "litheConfigurationEdit",
+        params,
+    ))
+}
+
+/// Bounded receipt only; private native document bytes stay in staging storage.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct EditReceipt {
+    format: String,
+    version: u32,
+    #[serde(rename = "sourceID")]
+    source_id: String,
+    revision: String,
+    changed: bool,
+}
+
+/// Receipt validation uses the same confirmed draft as planning.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DecodeEditRequest {
+    snapshot: ConfigurationSnapshot,
+    edits: NativeEdits,
+    result: Value,
+}
+
+/// Rejects unexpected result fields, source substitution and invalid revisions.
+pub(crate) fn decode_edit(
+    declaration: &BuildSystemDeclaration,
+    request: &DecodeEditRequest,
+) -> Validation<Value> {
+    if declaration.configuration.is_none() {
+        return Err(plans::unavailable(
+            declaration,
+            "native configuration editing",
+        ));
+    }
+    let (source, changed) = changed_fields(&request.snapshot, &request.edits)?;
+    let receipt: EditReceipt = serde_json::from_value(request.result.clone())
+        .map_err(|_| invalid("Invalid configuration edit receipt."))?;
+    if receipt.format != "litheConfigurationEdit"
+        || receipt.version != 1
+        || receipt.source_id != source.id
+        || !revision(&receipt.revision)
+        || receipt.changed && (receipt.revision == "missing" || changed.is_empty())
+        || !receipt.changed && receipt.revision != source.revision
+    {
+        return Err(invalid("Invalid configuration edit receipt."));
+    }
+    Ok(json!({"sourceID":receipt.source_id,"revision":receipt.revision,"changed":receipt.changed}))
 }

@@ -37,6 +37,8 @@ pub(crate) fn model_inputs_negotiated(capabilities: &Value) -> bool {
 
 /// Version 7 returns non-sensitive native settings and source/write metadata.
 pub(crate) const CONFIGURATION_METHOD: &str = "lithe/build/configuration";
+/// Provider-owned native editing; only a receipt crosses the wire.
+pub(crate) const EDIT_CONFIGURATION_METHOD: &str = "lithe/build/editConfiguration";
 /// Admission feature keeps native source metadata away from older protocols.
 pub(crate) const CONFIGURATION_FEATURE: &str = "litheBuildConfiguration";
 /// Only version 7 can accept source-backed configuration reads.
@@ -138,6 +140,7 @@ pub(crate) fn is_build_method(method: &str) -> bool {
         || method == PREPARE_RUN_METHOD
         || method == PREPARE_DEBUG_METHOD
         || method == CONFIGURATION_METHOD
+        || method == EDIT_CONFIGURATION_METHOD
 }
 
 /// Whether the method shares bounded output, progress, and final result handling.

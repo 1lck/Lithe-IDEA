@@ -3986,7 +3986,7 @@
 "The name of the artifact the build produces." = "构建产物的名称。";
 "The native Hook configuration must be valid JSON. Existing contents were kept." = "原生 Hook 配置必须是有效 JSON，已有内容已保留。";
 "The native Hook event must contain an array. Existing contents were kept." = "原生 Hook 事件必须是数组，已有内容已保留。";
-"The native configuration must be a writable UTF-8 XML file smaller than 2 MB." = "原生配置必须是小于 2 MB 的可写 UTF-8 XML 文件。";
+"The native configuration must be a writable file smaller than 2 MB." = "原生配置必须是小于 2 MB 的可写文件。";
 "The native hooks field must be a JSON object. Existing contents were kept." = "原生 hooks 字段必须是 JSON 对象，已有内容已保留。";
 "The native panel state exceeds 64 KiB." = "原生面板状态超过 64 KiB。";
 "The official Lithe plugin repository cannot be removed. Disable it instead." = "官方 Lithe 插件仓库无法移除，请改为停用。";
@@ -7061,7 +7061,7 @@
 "native.nativeConfigurationBusy" = "原生配置正在处理中。请等待当前操作完成。";
 "native.nativeConfigurationDiskConflict" = "磁盘上的原生配置已更改。请重新加载后再保存；已保留你的草稿。";
 "native.nativeConfigurationExplicitRead" = "读取配置需要显式运行此项目工具。";
-"native.nativeConfigurationFileRequired" = "原生配置必须是小于 2 MB 的可写 UTF-8 XML 文件。";
+"native.nativeConfigurationFileRequired" = "原生配置必须是小于 2 MB 的可写文件。";
 "native.nativeConfigurationNoInstance" = "此项目没有匹配的构建系统实例。";
 "native.nativeConfigurationNotRead" = "尚未读取原生配置。";
 "native.nativeConfigurationOpenProject" = "打开项目以读取其原生配置。";

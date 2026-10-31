@@ -1220,6 +1220,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let requiresUserArguments: Bool
                 let description: String?
                 let category: [String]
+                let preparation: DeclarativeBuildSystem.TaskPreparation?
 
                 init(from decoder: Decoder) throws {
                     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1233,11 +1234,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                         ?? false
                     description = try values.decodeIfPresent(String.self, forKey: .description)
                     category = try values.decodeIfPresent([String].self, forKey: .category) ?? []
+                    preparation = try values.decodeIfPresent(DeclarativeBuildSystem.TaskPreparation.self, forKey: .preparation)
                 }
 
                 private enum CodingKeys: String, CodingKey {
                     case id, displayName, group, scopes, fromModel, targetTags, requiresUserArguments, description
-                    case category
+                    case category, preparation
                 }
             }
             /// Only where the window offers the option; Core resolves the rest.
@@ -1320,7 +1322,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                             id: $0.id, displayName: $0.displayName, group: $0.group, scopes: $0.scopes,
                             fromModel: $0.fromModel, targetTags: $0.targetTags,
                             requiresUserArguments: $0.requiresUserArguments, description: $0.description,
-                            category: $0.category
+                            category: $0.category, preparation: $0.preparation
                         )
                     },
                     testScopes: test?.scopes ?? [],

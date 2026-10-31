@@ -458,7 +458,7 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 - `hostCapabilities` has no effect on levels 1 and 2.
 
 The macOS host sends its capability table with validation, marketplace filtering
-and install review. It advertises `buildSystems: [1, 2, 3]` and
+and install review. It advertises `buildSystems: [1, 2, 3, 4]` and
 `buildProviders: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
@@ -1226,16 +1226,16 @@ with the existing cancellation, timeout, workspace and package ownership.
 `{"format":"litheBuildConfiguration","version":1,"sources":[...]}`. There are at most
 8 sources, each with a unique provider-owned `id`, `scope` (`installation`, `user`,
 `workspace`), file `uri`, exact byte `revision` (`missing` or `sha256:` plus 64 lower-case
-hex digits), `writable`, `rootElement: {name, namespace}`, and up to 64 `fields`.
+hex digits), `writable`, and up to 64 `fields`.
 Installation sources are always read-only. Two scopes may alias one URI only when
-both are read-only and have identical revision, XML root and fields. File URIs
+both are read-only and have identical revision and fields. File URIs
 cannot carry credentials, queries or fragments.
 
 Each field contains `id`, `kind` (`text`, `file`, `directory`, `boolean`, `stringList`),
 `value` (raw native value, or null for absent), `effectiveValue`, `effectiveSource`
-(an upstream technical origin ID), and `path` (one to four direct XML element names
-below the root). A string list additionally has `itemElement`, the direct repeated
-child name. Bindings cannot duplicate/overlap or address credential/secret fields;
+(an upstream technical origin ID). IDs are opaque bindings interpreted by the
+provider; there is no document-format, XPath, XML root or element binding in the
+host contract. Fields cannot duplicate or expose credential/secret fields;
 values and identifiers are bounded and kind-checked. Full native documents, secret
 values, credential-bearing URLs and private keys must never enter this response,
 logs or normal controls. Source discovery, interpolation, precedence and effective
@@ -1250,14 +1250,29 @@ tool action authorizes that tooling; explicit Save also owns its required read-b
 `{sourceID, revision, values:{<fieldID>:<new raw value or null>}}`; null removes only
 that native override. Unchanged inherited values must not create overrides.
 
-`build.editConfigurationDocument` is a **host/Core-only pure operation**, requiring
-`{snapshot, edits, document}` (document null for a missing source) and returning
-`edit: {document, revision, changed}`. Original bytes may contain unrelated secrets;
-never forward them to a Provider, UI, logger or model-sharing snapshot. Core checks
-the source revision before XML parsing, enforces UTF-8/2 MiB/64-depth bounds, rejects
-DTDs and ambiguous bindings, and edits only approved nodes in the declared namespace.
-Unrelated bytes, comments, attributes and secret nodes remain unchanged. A no-op
-creates no missing document. This operation performs no filesystem access.
+`build.configurationEditPlan` takes the same instance/tool/options context,
+`snapshot`, confirmed `edits`, and a fresh, empty, **already existing** `outputFile`
+inside the host's isolated workspace state. It validates the bounded field IDs,
+types and revision, then plans `lithe/build/editConfiguration` (protocol 7).
+The provider owns its native format and uses an upstream/mature reader/writer;
+Maven XML, JSON and TOML do not add host format cases. The provider verifies the
+source revision and writes replacement bytes only to that private staging file.
+Open without CREATE or following a symlink, validate that it is the empty staging
+file before writing, and never truncate another file. A cancelled operation cannot
+recreate removed staging.
+Preserve unrelated content, format-supported comments and secrets privately.
+
+The reply is only `{format:"litheConfigurationEdit", version:1, sourceID,
+revision, changed}`. `build.decodeConfigurationEdit` binds this receipt to the
+same snapshot/draft and rejects extra fields. Full documents and private bytes
+must never appear in RPC, UI, logs or model inputs. The native adapter validates
+the staged bytes against the receipt SHA-256 before publication. A no-op creates
+no source or native override. Providers never write the final source through
+this workflow; publication remains the host's guarded atomic transaction.
+The output uses the existing private outputs lifecycle, is never reusable across
+worktrees, and is deleted on success, failure, cancellation, workspace/window
+close and plugin revocation. A late backend may finish its already-open file
+handle, but cannot resurrect a removed file. Installation resources stay read-only.
 
 The platform adapter denies app/plugin installation roots, validates the selected
 file and canonical target, preserves metadata and performs guarded atomic publication
@@ -2648,16 +2663,26 @@ when version 8 inline reports are supported. The operation identity, source/mode
 and configuration validity, cancellation, progress, and inline report rules still
 apply. The shared example is `fixtures/build-provider-selectors.plugin.json`.
 
-### Java build preparation task convention
+### Declarative project preparation (buildSystems 4)
 
-A Java language workflow may request declared provider project tasks
-`java-prepare-run-main` and `java-prepare-run-test` through the existing
-`lithe/build/execute` method. They prepare respectively the project's main
-resources, or both main and test resources, before JDT resolves runtime paths.
-The current model's source roles choose the task and deepest owning project;
-filenames and POM contents are not host inputs. A missing task/provider fails
-explicitly. Task IDs are the public convention, not private function calls or
-command templates, and no new backend method is introduced.
+A project task may declare `preparation: { "purpose": "run", "sourceRoles":
+["source", "generatedSource"] }` with `requires.buildSystems: 4`. Purpose is
+an opaque workflow identifier; `run` identifies preparation before resolving a
+language launch. Roles are the canonical model content-root kinds. A provider
+can declare a different task for `testSource`/`generatedTestSource`, with any
+private task IDs. Hosts never prescribe task names or infer a role from a file
+extension, build descriptor, class name or missing model entry.
+
+Bindings are unique by purpose/role within each build system. Preparation
+requires a project-scoped task, task execution, no argument prompt, and no
+`fromModel`. Empty, overlapping, duplicate or unknown roles are rejected.
+Hosts select the deepest owning project and its deepest content root from the
+current model, then require exactly one declared matching task. Missing or
+ambiguous declarations fail; they do not fall back to a conventional task ID.
+The selected ID travels through the existing execute plan and backend method.
+An older host rejects the capability before invocation. No new RPC version is
+needed, so buildProviders 8–10 are unchanged. Shared fixture:
+`fixtures/build-provider-preparation.plugin.json`.
 
 The build backend owns filtering, custom resource directories, profiles and
 reactor semantics. Hosts await successful completion, retain one operation

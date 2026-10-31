@@ -1164,7 +1164,7 @@ struct LanguageIntelligenceModuleTests {
                     JavaTestItem(
                         id: "service@example.UserServiceTest#logsOut",
                         label: "logsOut()",
-                        fullName: "example.UserServiceTest#logsOut",
+                        fullName: "example.UserServiceTest#logsOut()",
                         projectName: "service",
                         kind: 0,
                         level: 6,
@@ -1206,7 +1206,12 @@ struct LanguageIntelligenceModuleTests {
             "example.AccountTest",
             "example.UserServiceTest",
             "example.UserServiceTest#logsIn",
-            "example.UserServiceTest#logsOut",
+            "example.UserServiceTest#logsOut()",
+        ])
+        #expect(items.map(\.reportIdentity) == [
+            .init(suite: "example.AccountTest"), .init(suite: "example.UserServiceTest"),
+            .init(suite: "example.UserServiceTest", name: "logsIn"),
+            .init(suite: "example.UserServiceTest", name: "logsOut")
         ])
     }
 

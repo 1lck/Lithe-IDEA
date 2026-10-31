@@ -126,8 +126,10 @@ pub enum CoreCommand {
     BuildConfigurationPlan,
     /// Validates non-sensitive native facts (`build.decodeConfiguration`).
     BuildDecodeConfiguration,
-    /// Edits approved XML fields without file I/O (`build.editConfigurationDocument`).
-    BuildEditConfigurationDocument,
+    /// Plans provider-owned native configuration editing (`build.configurationEditPlan`).
+    BuildConfigurationEditPlan,
+    /// Validates a public edit receipt (`build.decodeConfigurationEdit`).
+    BuildDecodeConfigurationEdit,
     /// Resolves optional public build inputs (`build.resolveModelInputs`).
     BuildResolveModelInputs,
     /// Plans native debug preparation (`build.prepareDebugPlan`).
@@ -595,7 +597,8 @@ impl CoreCommand {
             "build.decodeDebugPreparation" => Some(Self::BuildDecodeDebugPreparation),
             "build.resolveModelInputs" => Some(Self::BuildResolveModelInputs),
             "build.configurationPlan" => Some(Self::BuildConfigurationPlan),
-            "build.editConfigurationDocument" => Some(Self::BuildEditConfigurationDocument),
+            "build.configurationEditPlan" => Some(Self::BuildConfigurationEditPlan),
+            "build.decodeConfigurationEdit" => Some(Self::BuildDecodeConfigurationEdit),
             "build.decodeConfiguration" => Some(Self::BuildDecodeConfiguration),
             "build.prepareRunPlan" => Some(Self::BuildPrepareRunPlan),
             "build.decodeRunPreparation" => Some(Self::BuildDecodeRunPreparation),

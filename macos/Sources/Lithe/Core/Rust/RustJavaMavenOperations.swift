@@ -6,7 +6,7 @@ protocol JavaMavenOperations: RunServerPortParsing, Sendable {
     func javaRunMarkers(
         mainMethods: [JavaMainMethod],
         testItems: [JavaTestItem],
-        testCases: [MavenTestCaseOutcome]
+        testCases: [BuildTestResults.TestCase]
     ) -> [JavaRunMarker]?
     func javaWorkspacePolicy(
         at rootURL: URL,
@@ -46,7 +46,7 @@ extension JavaMavenOperations {
     func javaRunMarkers(
         mainMethods _: [JavaMainMethod],
         testItems _: [JavaTestItem],
-        testCases _: [MavenTestCaseOutcome]
+        testCases _: [BuildTestResults.TestCase]
     ) -> [JavaRunMarker]? { nil }
 
     func javaWorkspacePolicy(
@@ -152,7 +152,7 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
     func javaRunMarkers(
         mainMethods: [JavaMainMethod],
         testItems: [JavaTestItem],
-        testCases: [MavenTestCaseOutcome]
+        testCases: [BuildTestResults.TestCase]
     ) -> [JavaRunMarker]? {
         if mainMethods.isEmpty && testItems.isEmpty { return [] }
         return try? core.javaRunMarkers(

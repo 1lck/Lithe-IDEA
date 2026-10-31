@@ -132,9 +132,8 @@ package final class BuildNativeConfigurationCoordinator: ObservableObject {
                 var published: BuildNativeConfigurationPreparedWrite?
                 if let (snapshot, edits) = saving {
                     guard let files = self.files else { throw NativeConfigurationOperationError.unavailable }
-                    let prepared = try await Task.detached(priority: .userInitiated) {
-                        try files.prepare(target: current.target, snapshot: snapshot, edits: edits)
-                    }.value
+                    let prepared = try await self.prepareEdit(entryID, owner: id, context: current,
+                        files: files, snapshot: snapshot, edits: edits)
                     try self.check(entryID, owner: id, expected: current)
                     guard let prepared else { return snapshot }
                     // No actor suspension between the ownership check and CAS.
@@ -171,6 +170,34 @@ package final class BuildNativeConfigurationCoordinator: ObservableObject {
         return task
     }
 
+    private func prepareEdit(_ entryID: String, owner: UUID, context: BuildNativeConfigurationContext,
+                             files: any BuildNativeConfigurationStoring, snapshot: BuildNativeConfiguration,
+                             edits: BuildNativeConfigurationEdits) async throws -> BuildNativeConfigurationPreparedWrite? {
+        guard let state = context.plan.workspaceStateDirectory, let providers else { throw NativeConfigurationOperationError.unavailable }
+        let staging = try await Task.detached(priority: .userInitiated) {
+            try files.prepare(target: context.target, snapshot: snapshot, edits: edits, stateDirectory: state)
+        }.value
+        guard let staging else { return nil }
+        let outcome: Result<BuildNativeConfigurationPreparedWrite?, Error>
+        do {
+            try check(entryID, owner: owner, expected: context)
+            let hints = try await providerHints(context, allowProjectTool: true)
+            try check(entryID, owner: owner, expected: context)
+            let request = try planner.configurationEditPlan(context.target, context: context.plan,
+                hints: hints, snapshot: snapshot, edits: edits, outputFile: staging.outputFile)
+            let result = try await providers.send(request, to: context.provider, timeout: .seconds(60))
+            try check(entryID, owner: owner, expected: context)
+            let receipt = try planner.decodeConfigurationEdit(context.target, snapshot: snapshot, edits: edits, result: result)
+            let write = try await Task.detached(priority: .userInitiated) { try files.complete(staging, receipt: receipt) }.value
+            try check(entryID, owner: owner, expected: context)
+            outcome = .success(write)
+        } catch { outcome = .failure(error) }
+        // Even a cancelled/late prepare owns its staging until this cleanup ends.
+        // Backend writers use no-CREATE, so they cannot resurrect a removed file.
+        try await Task.detached(priority: .userInitiated) { try files.discard(staging) }.value
+        return try outcome.get()
+    }
+
     private func check(_ entryID: String, owner: UUID, expected: BuildNativeConfigurationContext, readBack: Bool = false) throws {
         try Task.checkCancellation()
         guard jobs[entryID]?.id == owner, let current = try context(entryID),
@@ -181,6 +208,17 @@ package final class BuildNativeConfigurationCoordinator: ObservableObject {
 
     private func probe(_ context: BuildNativeConfigurationContext, allowProjectTool: Bool) async throws -> BuildNativeConfiguration {
         guard let providers else { throw NativeConfigurationOperationError.unavailable }
+        let planner = planner
+        let hints = try await providerHints(context, allowProjectTool: allowProjectTool)
+        let request = try planner.configurationPlan(context.target, context: context.plan,
+            hints: hints)
+        let result = try await providers.send(request, to: context.provider, timeout: .seconds(60))
+        try Task.checkCancellation()
+        return try await Task.detached(priority: .userInitiated) {
+            try planner.decodeConfiguration(context.target, result: result)
+        }.value
+    }
+    private func providerHints(_ context: BuildNativeConfigurationContext, allowProjectTool: Bool) async throws -> BuildProviderHints {
         let planner = planner
         let invocation = try planner.invocationPlan(context.target, root: context.plan.root, settings: context.settings)
         let tool: ResolvedBuildTool?
@@ -204,14 +242,9 @@ package final class BuildNativeConfigurationCoordinator: ObservableObject {
             tool = nil
         }
         try Task.checkCancellation()
-        let request = try planner.configurationPlan(context.target, context: context.plan,
-            hints: BuildProviderHints(reason: .refresh, toolExecutable: tool?.executableURL, toolEnvironment: tool?.providerEnvironment ?? [:]))
-        let result = try await providers.send(request, to: context.provider, timeout: .seconds(60))
-        try Task.checkCancellation()
-        return try await Task.detached(priority: .userInitiated) {
-            try planner.decodeConfiguration(context.target, result: result)
-        }.value
+        return BuildProviderHints(reason: .refresh, toolExecutable: tool?.executableURL, toolEnvironment: tool?.providerEnvironment ?? [:])
     }
+
 }
 
 private enum NativeConfigurationOperationError: LocalizedError, Equatable {

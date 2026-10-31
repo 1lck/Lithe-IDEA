@@ -5,6 +5,9 @@ import LitheCoreContracts
 
 /// One-time data transfer at the Maven consumer cutover. These private formats
 /// describe saved versions only; the adapter does not interpret Maven settings.
+/// Temporary: retain for the first two stable versions with this migration, then
+/// remove before the third. Tracker: D-MIGRATION-REMOVAL in
+/// docs/development/issue-1495-plugin-migration-remaining-plan.md.
 @MainActor
 struct MacLegacyMavenConfigurationMigration {
     let storage: any FileStorage

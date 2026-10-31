@@ -28,7 +28,7 @@ function fixture(reference: BuildProviderRunReference = defaultReference) {
       if (command === "build.syncFingerprint") return { sync: { fingerprint: "same", watch: ["project.marker"] } };
       if (command === "build.resolveOptions") return { options: { dropped: [], options: Object.keys(request.options as object).map(id => ({ id, source: "user" })) } };
       if (command === "build.decodeConfiguration") return { configuration: { format: "litheBuildConfiguration", version: 1, sources: [{ id: "user", scope: "user",
-        uri: "file:///C:/fixture/settings.xml", revision: "sha256:" + "a".repeat(64), writable: false, rootElement: { name: "settings", namespace: "" }, fields: [] }] } };
+        uri: "file:///C:/fixture/settings.xml", revision: "sha256:" + "a".repeat(64), writable: false, fields: [] }] } };
       if (command === "build.decodeModel") return { model: { projects: [{ id: "app", name: "App", path: "app", properties: {} }],
         targets: [{ id: "application", projectID: "app", name: "Application", path: "app", tags: ["application"], properties: {} }], tasks: [], contentRoots: [], optionValues: {} } };
       if (command === "build.decodeRunPreparation") return { launch: { executable: { kind: "toolchain", value: "project-maven" }, arguments: ["upstream-goal", "", "two words"], workingDirectory: "app", environment: { CHOSEN: "provider" } } };

@@ -55,7 +55,8 @@ struct BuildSystemServiceTests {
         providers.replyGate = release
         providers.executionResult = BuildProviderExecutionResult(exitCode: mode == "failed" ? 2 : 0, output: "resources")
         let tasks = ["prepare.main", "prepare.test"].map { DeclarativeBuildSystem.Task(id: $0, displayName: $0,
-            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil) }
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil,
+            preparation: .init(purpose: "run", sourceRoles: $0 == "prepare.main" ? ["source", "generatedSource"] : ["testSource", "generatedTestSource"])) }
         let harness = Harness(planner: planner, sources: [fixtureSource(tasks: tasks)], providers: providers)
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
@@ -66,7 +67,7 @@ struct BuildSystemServiceTests {
             // A deeper root published by another project must not turn this
             // project's test source into a main-source preparation.
             do { prepared = try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent("app/spec/deeper/UnrelatedName.java"),
-                workspace: Self.workspace, mainTask: "prepare.main", testTask: "prepare.test",
+                workspace: Self.workspace, purpose: "run",
                 optionOverrides: ["features": .array([.string("run-only")])],
                 tool: { _ in BuildProviderHints(toolExecutable: URL(fileURLWithPath: "/selected/tool"), toolEnvironment: ["JAVA_HOME": "/selected/jdk"]) },
                 isCurrent: { true }) }
@@ -107,7 +108,8 @@ struct BuildSystemServiceTests {
         planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
         let providers = FakeBuildProviders()
         let tasks = ["prepare.main", "prepare.test"].map { DeclarativeBuildSystem.Task(id: $0, displayName: $0,
-            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil) }
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil,
+            preparation: .init(purpose: "run", sourceRoles: $0 == "prepare.main" ? ["source", "generatedSource"] : ["testSource", "generatedTestSource"])) }
         let harness = Harness(planner: planner, sources: [fixtureSource(tasks: tasks)], providers: providers)
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
@@ -117,7 +119,7 @@ struct BuildSystemServiceTests {
             defer { finished.open() }
             do { result = .success(try await harness.service.prepareLanguageRun(
                 fileURL: Self.workspace.appendingPathComponent("app/spec/Main.java"), workspace: Self.workspace,
-                mainTask: "prepare.main", testTask: "prepare.test", optionOverrides: ["features": .array([.string("run-only")])],
+                purpose: "run", optionOverrides: ["features": .array([.string("run-only")])],
                 tool: { _ in BuildProviderHints(toolExecutable: URL(fileURLWithPath: "/selected/maven")) }, isCurrent: { true })) }
             catch { result = .failure(error) }
         }
@@ -151,7 +153,8 @@ struct BuildSystemServiceTests {
         planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
         let providers = FakeBuildProviders()
         let tasks = ["prepare.main", "prepare.test"].map { DeclarativeBuildSystem.Task(id: $0, displayName: $0,
-            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil) }
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil,
+            preparation: .init(purpose: "run", sourceRoles: $0 == "prepare.main" ? ["source", "generatedSource"] : ["testSource", "generatedTestSource"])) }
         let harness = Harness(planner: planner, sources: [fixtureSource(testSelectorKinds: ["org.example.semantic"], tasks: tasks)], providers: providers)
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: workspace)
@@ -159,9 +162,39 @@ struct BuildSystemServiceTests {
         let entry = try #require(harness.service.languageTestEntries(selectorKind: "org.example.semantic", fileURL: source, workspace: workspace).first)
         #expect(harness.service.languageTestProject(in: entry, fileURL: source, workspace: workspace)?.name == "App")
         try await harness.service.prepareLanguageRun(fileURL: source, workspace: workspace,
-            mainTask: "prepare.main", testTask: "prepare.test", tool: { _ in nil }, isCurrent: { true })
+            purpose: "run", tool: { _ in nil }, isCurrent: { true })
         #expect(planner.taskRequests.last?.task == "prepare.test")
         #expect(planner.taskRequests.last?.project?.path == "app")
+    }
+
+    @Test(arguments: ["purpose", "role", "ambiguous", "unknownRoot", "ambiguousRole", "ambiguousProject"])
+    func languagePreparationRequiresOneExplicitPurposeAndSourceRoleBinding(missing: String) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"; planner.importEnabled = true
+        let duplicateProject = missing == "ambiguousProject" ? #",{"id":"other","path":"app","name":"Other"}"# : ""
+        let duplicateRoot = missing == "ambiguousRole" ? #",{"projectID":"p","path":"app/spec","kind":"source"}"# : ""
+        let model = """
+        {"projects":[{"id":"p","path":"app","name":"App"}\(duplicateProject)],
+         "contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"}\(duplicateRoot)]}
+        """
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model: model)])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        let count = ["ambiguous", "ambiguousRole"].contains(missing) ? 2 : 1
+        let tasks = (0..<count).map { index in DeclarativeBuildSystem.Task(id: "arbitrary-\(index)", displayName: "Prepare",
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false,
+            description: nil, preparation: .init(purpose: missing == "purpose" ? "package" : "run",
+                sourceRoles: missing == "role" || (missing == "ambiguousRole" && index == 1) ? ["source"] : ["testSource"])) }
+        let harness = Harness(planner: planner, sources: [fixtureSource(tasks: tasks)], providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let path = missing == "unknownRoot" ? "app/unmodeled/Test.java" : "app/spec/Test.java"
+        await #expect(throws: (any Error).self) {
+            try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent(path),
+                workspace: Self.workspace, purpose: "run", tool: { _ in nil }, isCurrent: { true })
+        }
+        #expect(providers.sent.isEmpty, "Missing or ambiguous declarations must fail before execution")
     }
 
     @Test(arguments: [false, true])
@@ -2915,6 +2948,26 @@ extension BuildSystemServiceTests {
     }
 
     @Test
+    func cancelledProviderEditReplyCannotPublishAndItsStagingIsReleased() async throws {
+        let harness = try NativeConfigurationHarness()
+        let release = BuildTestGate(), started = BuildTestGate()
+        defer { release.open(); harness.coordinator.stop() }
+        let snapshot = try await harness.coordinator.read("entry")
+        let plugin = harness.ownership.context.source.pluginID
+        harness.providers.replyGate = release
+        harness.providers.requestStartedByPluginID[plugin] = started
+        let saving = Task { try await harness.coordinator.save("entry", snapshot: snapshot, edits: nativeEdits(snapshot)) }
+        defer { saving.cancel() }
+        try #require(await started.waitUntilOpen())
+        #expect(harness.providers.sent.last?.request.method == "lithe/build/editConfiguration")
+        harness.coordinator.stop()
+        release.open()
+        if case .success = await saving.result { Issue.record("A cancelled provider edit was published") }
+        #expect(harness.files.commits == 0)
+        #expect(harness.files.discards == 1)
+    }
+
+    @Test
     func optionABADuringNativePreparationRejectsTheWriteAndRetainsTheOldSnapshot() async throws {
         let harness = try NativeConfigurationHarness()
         let gate = GatedBuildDecode()
@@ -3007,7 +3060,7 @@ private final class NativeConfigurationOwnership {
         BuildNativeConfigurationContext(entryID: "entry", source: fixtureSource(nativeConfiguration: true),
             buildSystemID: "fixture", workspace: URL(fileURLWithPath: "/workspace"), generation: generation,
             configurationRevision: configurationRevision, optionsRevision: optionsRevision, settings: [:],
-            plan: BuildPlanContext(root: ".", options: [:]))
+            plan: BuildPlanContext(root: ".", options: [:], workspaceStateDirectory: URL(fileURLWithPath: "/fixture/state")))
     }
 }
 
@@ -3021,6 +3074,7 @@ private final class NativeConfigurationHarness {
     init() throws {
         let ownership = ownership
         providers.reply = try nativeConfigurationReply()
+        providers.repliesByMethod["lithe/build/editConfiguration"] = .object(["sourceID": .string("user"), "revision": .string("sha256:" + String(repeating: "b", count: 64)), "changed": .bool(true)])
         coordinator = BuildNativeConfigurationCoordinator(planner: FakeBuildPlanner(), tools: tools,
             providers: providers, files: files, context: { _ in ownership.context },
             didSave: { _ in ownership.configurationRevision += 1 })
@@ -3030,17 +3084,24 @@ private final class NativeConfigurationHarness {
 private final class NativeConfigurationFiles: BuildNativeConfigurationStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var committed = 0
+    private var discarded = 0
+    var discards: Int { lock.withLock { discarded } }
     var prepareGate: GatedBuildDecode?
     var commits: Int { lock.withLock { committed } }
     func prepare(target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
-                 edits: BuildNativeConfigurationEdits) throws -> BuildNativeConfigurationPreparedWrite? {
+                 edits: BuildNativeConfigurationEdits, stateDirectory: URL) throws -> BuildNativeConfigurationStaging? {
         if let gate = prepareGate {
             gate.entered.open()
             guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
         }
-        return BuildNativeConfigurationPreparedWrite(url: URL(fileURLWithPath: "/workspace/settings.xml"),
-            expected: Data(), replacement: Data("native bytes".utf8), revision: "sha256:" + String(repeating: "b", count: 64))
+        return BuildNativeConfigurationStaging(sourceID: edits.sourceID, sourceURL: URL(fileURLWithPath: "/workspace/settings.xml"),
+            url: URL(fileURLWithPath: "/workspace/settings.xml"), expected: Data(), outputFile: stateDirectory.appendingPathComponent("output"))
     }
+    func complete(_ staging: BuildNativeConfigurationStaging, receipt: BuildNativeConfigurationEditReceipt) throws -> BuildNativeConfigurationPreparedWrite? {
+        BuildNativeConfigurationPreparedWrite(url: staging.url, expected: staging.expected,
+            replacement: Data("native bytes".utf8), revision: receipt.revision)
+    }
+    func discard(_ staging: BuildNativeConfigurationStaging) throws { lock.withLock { discarded += 1 } }
     func commit(_ write: BuildNativeConfigurationPreparedWrite) throws { lock.withLock { committed += 1 } }
 }
 
@@ -3048,9 +3109,9 @@ private func nativeConfigurationReply(revision: String = "a", value: String = "/
     try decode(ToolingJSONValue.self, """
     {"format":"litheBuildConfiguration","version":1,"sources":[{"id":"user","scope":"user",
     "uri":"file:///workspace/settings.xml","revision":"sha256:\(String(repeating: revision, count: 64))",
-    "writable":true,"rootElement":{"name":"settings","namespace":""},"fields":[
+    "writable":true,"fields":[
     {"id":"localRepository","kind":"directory","value":"\(value)","effectiveValue":"\(effective)",
-    "effectiveSource":"upstream","path":["localRepository"]}]}]}
+    "effectiveSource":"upstream"}]}]}
     """)
 }
 
@@ -3464,6 +3525,16 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
 
     func decodeConfiguration(_ target: BuildSystemTarget, result: ToolingJSONValue) throws -> BuildNativeConfiguration {
         try JSONDecoder().decode(BuildNativeConfiguration.self, from: JSONEncoder().encode(result))
+    }
+
+    func configurationEditPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints,
+                               snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits, outputFile: URL) throws -> BuildProviderRequest {
+        BuildProviderRequest(method: "lithe/build/editConfiguration", params: .object([:]),
+            optionFingerprint: "native", executesProjectCode: false, mayUseNetwork: false)
+    }
+    func decodeConfigurationEdit(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
+                                 edits: BuildNativeConfigurationEdits, result: ToolingJSONValue) throws -> BuildNativeConfigurationEditReceipt {
+        try JSONDecoder().decode(BuildNativeConfigurationEditReceipt.self, from: JSONEncoder().encode(result))
     }
 
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck {
@@ -3939,6 +4010,7 @@ private final class FakeBuildProviders: BuildProviderRequesting {
     }
 
     var reply: ToolingJSONValue = .object(["projects": .array([])])
+    var repliesByMethod: [String: ToolingJSONValue] = [:]
     var failure: (any Error)?
     var replyGate: BuildTestGate?
     var replyGatesByPluginID: [String: BuildTestGate] = [:]
@@ -3961,6 +4033,7 @@ private final class FakeBuildProviders: BuildProviderRequesting {
         defer { requestFinished.open() }
         if let gate = replyGatesByPluginID[target.pluginID] ?? replyGate,
            !(await gate.waitUntilOpen(ignoringCancellation: ignoresCancellation)) { throw CancellationError() }
+        if let override = repliesByMethod[request.method] { return override }
         if let failure { throw failure }
         return reply
     }

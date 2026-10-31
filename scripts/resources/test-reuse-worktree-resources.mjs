@@ -313,6 +313,7 @@ try {
     assert.ok(resource.locations.some(location => location.includes(".<filename>.lithe-<uuid>")));
     assert.ok(resource.locations.includes("<native-configuration-parent>/.lithe-document-<pid>-<sequence>.tmp"));
     assert.ok(resource.locations.includes("<windows-native-host-memory>/native-configuration/<window>/<operation-id>"));
+    assert.ok(resource.locations.includes("<workspaceStateDir>/outputs/<operation-id>.json (private native configuration replacement)"));
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes(resource.id));

@@ -37,7 +37,7 @@ export function createWindowsBuildProviderWorkspace(workspacePath: string): Wind
     configurationCheck: check,
     configurationFiles: {
       prepare: (target, root, operationId, snapshot, edits) => invoke("declarative_plugins_build_prepare_configuration", { ...target, root, operationId, snapshot, edits }),
-      commit: operationId => invoke("declarative_plugins_build_commit_configuration", { operationId }),
+      commit: (operationId, receipt) => invoke("declarative_plugins_build_commit_configuration", { operationId, receipt }),
       cancel: operationId => invoke("declarative_plugins_build_cancel_configuration", { operationId }),
     },
     watchConfiguration: (target, sources, changed) => watchBuildConfiguration(() => check(target, sources), changed, documentWatchInputs),

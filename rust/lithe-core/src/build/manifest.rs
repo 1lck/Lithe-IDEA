@@ -608,6 +608,9 @@ pub(crate) enum Scope {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TaskDeclaration {
     pub(crate) id: String,
+    /// Optional automatic preparation selected by purpose and model source role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) preparation: Option<TaskPreparation>,
     pub(crate) display_name: String,
     pub(crate) group: TaskGroup,
     #[serde(default = "task_execution")]
@@ -632,6 +635,16 @@ pub(crate) struct TaskDeclaration {
     #[serde(default, skip_serializing_if = "TaskSource::is_command")]
     pub(crate) source: TaskSource,
     pub(crate) arguments: Vec<BuildArgument>,
+}
+
+/// Tool-independent association between a project task and a language workflow.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct TaskPreparation {
+    /// Opaque workflow purpose, such as `run`; never a task ID or tool name.
+    pub(crate) purpose: String,
+    /// Canonical content-root roles for which this task prepares its project.
+    pub(crate) source_roles: Vec<String>,
 }
 
 /// Whether Core expands a command or a workspace provider executes the task.
@@ -1079,6 +1092,11 @@ fn program(build_system: &BuildSystemDeclaration) -> Value {
             if task.source == TaskSource::Provider {
                 review["source"] = json!("provider");
             }
+            // Automatic preparation changes when a task can execute, not merely
+            // its display. Keep that behavior in the existing install review.
+            if let Some(preparation) = &task.preparation {
+                review["preparation"] = json!(preparation);
+            }
             review
         })
         .collect();
@@ -1286,7 +1304,8 @@ impl BuildSystemDeclaration {
             context.build_providers_version,
         )?;
         self.validate_invocation(field, &option_ids, context)?;
-        let model_templates = self.validate_tasks(field, &option_ids)?;
+        let model_templates =
+            self.validate_tasks(field, &option_ids, context.build_systems_version)?;
         self.validate_model(field, &option_ids)?;
         self.validate_run(field, &option_ids, &model_templates)?;
         self.validate_test(field, &option_ids)?;
@@ -1747,14 +1766,42 @@ impl BuildSystemDeclaration {
         &mut self,
         field: &str,
         options: &BTreeSet<String>,
+        capability_version: u32,
     ) -> Validation<BTreeSet<String>> {
         if self.tasks.len() > MAX_TASKS {
             return Err(invalid(format!("{field}.tasks"), "Too many tasks."));
         }
         let mut ids = BTreeSet::new();
         let mut templates = BTreeSet::new();
+        let mut preparations = BTreeSet::new();
         for (index, task) in self.tasks.iter_mut().enumerate() {
             let field = format!("{field}.tasks[{index}]");
+            if let Some(preparation) = &mut task.preparation {
+                if capability_version < 4
+                    || !is_entry_identifier(&preparation.purpose)
+                    || preparation.source_roles.is_empty()
+                    || preparation.source_roles.len() > 6
+                    || task.from_model
+                    || task.execution != BuildExecution::Task
+                    || task.requires_user_arguments
+                    || !task.scopes.contains(&Scope::Project)
+                    || preparation.source_roles.iter().any(|role| {
+                        !matches!(
+                            role.as_str(),
+                            "source"
+                                | "generatedSource"
+                                | "resource"
+                                | "testSource"
+                                | "generatedTestSource"
+                                | "testResource"
+                        ) || !preparations.insert((preparation.purpose.clone(), role.clone()))
+                    })
+                {
+                    return Err(invalid(format!("{field}.preparation"),
+                        "Preparation requires buildSystems 4, a project task without prompts, and unique purpose/source-role bindings."));
+                }
+                preparation.source_roles.sort();
+            }
             if !is_entry_identifier(&task.id) || !ids.insert(task.id.clone()) {
                 return Err(invalid(
                     format!("{field}.id"),

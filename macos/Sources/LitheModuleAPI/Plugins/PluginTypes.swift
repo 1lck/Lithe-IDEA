@@ -511,7 +511,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "packageTrust": [1],
         "backend": [1],
         "buildProviders": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "buildModelInputs": [1],
-        "buildSystems": [1, 2, 3], "debugAdapters": [1, 2], "executableResolution": [1, 2],
+        "buildSystems": [1, 2, 3, 4], "debugAdapters": [1, 2], "executableResolution": [1, 2],
         "executionProviders": [1],
         "languageServers": [1, 2],
         "languages": [1],

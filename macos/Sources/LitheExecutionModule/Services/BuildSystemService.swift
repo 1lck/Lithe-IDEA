@@ -802,7 +802,7 @@ package final class BuildSystemService: ObservableObject {
     /// may answer from its own snapshot.
     /// Explicit execution readiness joins the service-owned model work. The
     /// model remains shared if this caller stops; its native deadline still applies.
-    package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, taskIDs: Set<String> = [], allModels: Bool = false, workspace: URL) async throws {
+    package func prepareLanguageTestModels(selectorKind: String? = nil, reference: BuildTestReference? = nil, taskIDs: Set<String> = [], preparationPurpose: String? = nil, allModels: Bool = false, workspace: URL) async throws {
         guard workspace.standardizedFileURL == workspaceURL else { throw CancellationError() }
         let workspaceGeneration = generation
         let configurationRevision = providerConfigurationRevision
@@ -810,6 +810,7 @@ package final class BuildSystemService: ObservableObject {
         let ids = entries.filter { entry in
             if allModels { return entry.instance.modelSource != nil && languageImportsByEntryID[entry.id] != nil }
             if let reference { return entry.instance.pluginID == reference.pluginID && entry.instance.buildSystemID == reference.buildSystemID && entry.instance.root == reference.root }
+            if let preparationPurpose { return entry.declaration.tasks.contains { $0.preparation?.purpose == preparationPurpose } }
             return selectorKind.map(entry.declaration.testSelectorKinds.contains) ?? entry.declaration.tasks.contains { taskIDs.contains($0.id) }
         }.map(\.id)
         if ids.isEmpty { return }

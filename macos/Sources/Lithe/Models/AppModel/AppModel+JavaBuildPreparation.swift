@@ -50,7 +50,7 @@ extension AppModel {
         try run.validateProviderGeneration(for: configuration)
     }
 
-    /// Java owns this public task convention; Maven owns the resource semantics.
+    /// The provider declares resource preparation; JDT retains launch semantics.
     @discardableResult
     func prepareJavaBuildResources(configuration: RunConfiguration, fileURL: URL, identity: WorkspaceIdentity) async throws -> JavaLanguageImportConfiguration {
         guard configuration.usesJavaProjectPreparation else { return JavaLanguageImportConfiguration() }
@@ -62,7 +62,7 @@ extension AppModel {
         var overrides: [String: ToolingJSONValue] = [:]
         if !options.activeProfiles.isEmpty { overrides["profiles"] = .array(options.activeProfiles.sorted().map(ToolingJSONValue.string)) }
         let prepared = try await builds.prepareLanguageRun(fileURL: fileURL, workspace: identity.url,
-            mainTask: "java-prepare-run-main", testTask: "java-prepare-run-test", optionOverrides: overrides,
+            purpose: "run", optionOverrides: overrides,
             tool: { root in try run.buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: root) },
             isCurrent: { [weak self] in self?.isCurrentWorkspace(identity) == true })
         guard case .maven(let context)? = prepared else {

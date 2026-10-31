@@ -84,9 +84,8 @@ export interface BuildNativeConfiguration {
   version: 1;
   sources: Array<{
     id: string; scope: "installation" | "user" | "workspace"; uri: string; revision: string; writable: boolean;
-    rootElement: { name: string; namespace: string };
     fields: Array<{ id: string; kind: "text" | "file" | "directory" | "boolean" | "stringList";
-      value: unknown; effectiveValue: unknown; effectiveSource: string; path: string[]; itemElement?: string }>;
+      value: unknown; effectiveValue: unknown; effectiveSource: string }>;
   }>;
 }
 
@@ -110,8 +109,8 @@ export interface WorkspacePorts {
   translate: (key: string) => string;
   configurationCheck?: (target: CoreBuildProviderTarget, sources: BuildConfigurationSourceVersion[]) => Promise<BuildConfigurationCheck>;
   configurationFiles?: {
-    prepare: (target: CoreBuildProviderTarget, root: string, operationID: string, snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits) => Promise<boolean>;
-    commit: (operationID: string) => Promise<void>;
+    prepare: (target: CoreBuildProviderTarget, root: string, operationID: string, snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits) => Promise<string | null>;
+    commit: (operationID: string, receipt: unknown) => Promise<boolean>;
     cancel: (operationID: string) => Promise<void>;
   };
   watchConfiguration?: (target: CoreBuildProviderTarget, sources: BuildConfigurationSourceVersion[], changed: () => void) => BuildConfigurationWatch;

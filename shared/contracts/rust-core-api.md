@@ -1038,7 +1038,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
 | `java.workspacePolicy` | Decide Java workspace activation and classify changed paths |
-| `java.runMarkers` | Project JDT main/test discovery and Maven test outcomes into editor Run markers |
+| `java.runMarkers` | Project JDT main/test discovery and canonical build test outcomes into editor Run markers |
 | `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
 | `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
@@ -1149,7 +1149,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
 | `build.configurationPlan` | Plan a read of the provider's non-sensitive native configuration (v7) |
 | `build.decodeConfiguration` | Validate native source identities, raw/effective values and XML bindings |
-| `build.editConfigurationDocument` | Pure host-only revision-guarded XML edits; native secret bytes never cross the provider wire |
+| `build.configurationEditPlan` | Plans format-independent provider editing into private host staging |
+| `build.decodeConfigurationEdit` | Validates the receipt without native document bytes |
 | `build.modelPlan` | Expand the command that prints a command-sourced build model, or the request a build provider answers |
 | `build.taskPlan` | Expand one declared or model task for a workspace, project, or target |
 | `build.testPlan` | Plan a test run for a scope, suite, or case and say where its reports will be |
@@ -2755,7 +2756,9 @@ workspaces or older structural states.
 `java.runMarkers` accepts `{ mainMethods, testItems, testCases }`: the
 `methods` of one file's `javaMainMethods` answer, the `items` of its
 `javaTestItems` answer (empty when the platform cannot run tests for the file),
-and recorded `maven.testResults` `testCases`. It returns `{ markers }` ordered by
+and canonical build-provider report cases (`suite`, `case`, `status`). The older
+`className`/`method` field names remain accepted for Windows compatibility.
+It returns `{ markers }` ordered by
 zero-based `line`, then `kind` (`main`, `testClass`, `testMethod`). `endLine`
 is the last line of the declaration as reported upstream: the end of the body for
 test classes and methods, and the name line for `main`. Each marker
@@ -3908,7 +3911,8 @@ and the directories are absolute host paths used only as substitution text.
 | `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, scope?, value, source, choices, allowCustom }], dropped, fingerprint }` |
 | `build.configurationPlan` | plan fields and optional host-selected `tool` | `plan.provider` for `lithe/build/configuration` (v7); no mutation, project or output-file parameters |
 | `build.decodeConfiguration` | `{ result }` | `configuration`: bounded `litheBuildConfiguration` v1 native sources/fields; see the plugin contract |
-| `build.editConfigurationDocument` | `{ snapshot, edits: { sourceID, revision, values }, document: string or null }` | `edit: { document, revision, changed }`; host-only native bytes, exact SHA-256 conflict check, generic XML edits with no filesystem access |
+| `build.configurationEditPlan` | `{ root, options?, workspaceStateDirectory, outputFile, snapshot, edits: { sourceID, revision, values }, tool? }` | Provider request `lithe/build/editConfiguration`; existing private staging only, no document bytes |
+| `build.decodeConfigurationEdit` | `{ snapshot, edits, result }` | `edit: { sourceID, revision, changed }`; validates bounded receipt and exact draft/source identity; native adapter verifies staged hash and publishes atomically |
 | `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
 | `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | command `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint`; a provider task instead returns `provider: {method: "lithe/build/execute", params}` with effective options, selected task/entities, user arguments and effect metadata |
 | `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |

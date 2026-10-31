@@ -9570,7 +9570,7 @@
     "native.nativeConfigurationReadBackFailed": "原生配置已保存，但无法核实当前生效值。请重新加载后再编辑。",
     "native.nativeConfigurationDiskConflict": "磁盘上的原生配置已更改。请重新加载后再保存；已保留你的草稿。",
     "native.nativeConfigurationSourceReadOnly": "此原生配置来源为只读。不能编辑已安装的应用和插件包。",
-    "native.nativeConfigurationFileRequired": "原生配置必须是小于 2 MB 的可写 UTF-8 XML 文件。",
+    "native.nativeConfigurationFileRequired": "原生配置必须是小于 2 MB 的可写文件。",
     "native.nativeConfigurationTitle": "原生配置",
     "native.nativeConfigurationOpenProject": "打开项目以读取其原生配置。",
     "native.nativeConfigurationNoInstance": "此项目没有匹配的构建系统实例。",

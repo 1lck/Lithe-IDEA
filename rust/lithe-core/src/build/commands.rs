@@ -377,19 +377,26 @@ pub(crate) fn build_decode_configuration_command(payload: Value) -> Result<Value
     )
 }
 
-/// `build.editConfigurationDocument`: edits approved XML fields in host memory.
-pub(crate) fn build_edit_configuration_document_command(
-    payload: Value,
-) -> Result<Value, CoreError> {
+/// `build.configurationEditPlan`: format-independent provider-owned editing.
+pub(crate) fn build_configuration_edit_plan_command(payload: Value) -> Result<Value, CoreError> {
     with_build_system(
         payload,
-        "build.editConfigurationDocument",
+        "build.configurationEditPlan",
+        "plan",
+        |declaration, request: &super::configuration::EditPlanRequest| {
+            super::configuration::edit_plan(declaration, request)
+        },
+    )
+}
+
+/// `build.decodeConfigurationEdit`: validates a receipt without document bytes.
+pub(crate) fn build_decode_configuration_edit_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeConfigurationEdit",
         "edit",
-        |declaration, request: &super::configuration_xml::EditConfigurationDocumentRequest| {
-            if declaration.configuration.is_none() {
-                return Err(plans::unavailable(declaration, "native configuration"));
-            }
-            super::configuration_xml::edit(request)
+        |declaration, request: &super::configuration::DecodeEditRequest| {
+            super::configuration::decode_edit(declaration, request)
         },
     )
 }

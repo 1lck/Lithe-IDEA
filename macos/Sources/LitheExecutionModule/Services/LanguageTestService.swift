@@ -17,11 +17,11 @@ package final class LanguageTestService: ObservableObject {
     @Published package private(set) var itemsByProviderID: [String: [LanguageTestItem]] = [:]
     @Published package private(set) var state: LanguageTestRunState = .idle
     @Published package private(set) var activePlan: LanguageTestPlan?
-    @Published package private(set) var results: MavenTestResults?
-    /// Latest outcome of every Maven test method run in this workspace. A run
-    /// replaces the outcomes of the classes it produced and keeps the rest,
-    /// so editor Run markers survive unrelated runs.
-    @Published package private(set) var testOutcomes: [MavenTestCaseOutcome] = []
+    @Published package private(set) var results: BuildTestResults?
+    /// Backend coverage replaces only completed scopes; unrelated editor markers survive.
+    @Published package private(set) var testOutcomesByProviderID: [String: [BuildTestResults.TestCase]] = [:]
+    package private(set) var resultReferences: [BuildTestCaseKey: BuildTestReference] = [:]
+    private var resultsWorkspaceURL: URL?
     @Published package private(set) var output = ""
     @Published package private(set) var errorMessage: String?
     @Published package private(set) var runID: UUID?
@@ -56,6 +56,10 @@ package final class LanguageTestService: ObservableObject {
         self.executableResolver = executableResolver
         self.processFactory = processFactory
         self.extensionRequiredLanguageIDs = extensionRequiredLanguageIDs
+    }
+
+    package func testOutcomes(for providerID: String) -> [BuildTestResults.TestCase] {
+        testOutcomesByProviderID[providerID] ?? []
     }
 
     package var isRunning: Bool { state == .running }
@@ -144,6 +148,8 @@ package final class LanguageTestService: ObservableObject {
         runID = nil
         output = ""
         results = nil
+        resultReferences = [:]
+        resultsWorkspaceURL = nil
         errorMessage = nil
         let root = workspaceURL.standardizedFileURL
         do {
@@ -265,7 +271,7 @@ package final class LanguageTestService: ObservableObject {
         runID = id
         activeOperationID = id.uuidString
         activeWorkspaceURL = workspaceURL.standardizedFileURL
-        output = ""; results = nil; errorMessage = nil
+        output = ""; results = nil; resultReferences = [:]; resultsWorkspaceURL = nil; errorMessage = nil
         activePlan = LanguageTestPlan(providerID: providerID, label: label, frameworkID: "build.provider",
             launchPlan: SharedLaunchPlan(executable: .command("build-provider"), arguments: [], workingDirectory: "."))
         lastRun = LastRun(providerID: providerID, scope: scope, workspaceURL: workspaceURL, projectFiles: [], options: RunOptions())
@@ -287,21 +293,24 @@ package final class LanguageTestService: ObservableObject {
                 })
                 try Task.checkCancellation()
                 guard activeOperationID == id.uuidString else { return }
-                let projected = Self.projectReports(result.reports, references: result.references, workspace: workspaceURL)
-                results = projected
+                let report = BuildTestResults.combining(result.reports)
+                results = report
+                resultReferences = result.references
+                resultsWorkspaceURL = workspaceURL.standardizedFileURL
                 // Only the backend can say that a whole suite/project completed.
                 // Legacy reports without coverage replace their exact returned cases.
                 let keys = Set(result.reports.flatMap(\.tests).map(BuildTestCaseKey.init))
                 let coverage = result.reports.flatMap { $0.coverage ?? [] }
-                testOutcomes.removeAll { outcome in
-                    keys.contains(BuildTestCaseKey(project: outcome.project, suite: outcome.className, testCase: outcome.method))
+                var outcomes = testOutcomesByProviderID[providerID] ?? []
+                outcomes.removeAll { outcome in
+                    keys.contains(BuildTestCaseKey(outcome))
                     || coverage.contains { scope in
                         scope.project == outcome.project
-                        && (scope.suite == nil || scope.suite == outcome.className)
-                        && (scope.testCase == nil || scope.testCase == outcome.method)
+                        && (scope.suite == nil || scope.suite == outcome.suite)
+                        && (scope.testCase == nil || scope.testCase == outcome.name)
                     }
                 }
-                testOutcomes += projected.testCases
+                testOutcomesByProviderID[providerID] = outcomes + report.tests
                 state = result.exitCode == 0 ? .passed : .failed(exitCode: result.exitCode)
             } catch is CancellationError {
                 if activeOperationID == id.uuidString { state = .cancelled }
@@ -314,18 +323,11 @@ package final class LanguageTestService: ObservableObject {
         }
     }
 
-    private static func projectReports(_ reports: [BuildTestResults], references: [BuildTestCaseKey: BuildTestReference], workspace: URL) -> MavenTestResults {
-        let tests = reports.flatMap(\.tests)
-        let failures = tests.filter { $0.status == .failed }.count
-        let errors = tests.filter { $0.status == .error }.count
-        return MavenTestResults(testsRun: tests.count, failures: failures, errors: errors,
-            skipped: tests.filter { $0.status == .skipped }.count,
-            passed: tests.filter { $0.status == .passed }.count, success: failures + errors == 0,
-            failureDetails: tests.filter { $0.status == .failed || $0.status == .error }.map {
-                MavenTestFailureDetail(id: $0.id, name: $0.suite + "#" + $0.name, kind: $0.status.rawValue,
-                    message: $0.message ?? "", fileURL: $0.path.map { workspace.appendingPathComponent($0) }, line: $0.line, column: nil)
-            }, testCases: tests.map { MavenTestCaseOutcome(className: $0.suite, method: $0.name, status: $0.status.rawValue,
-                message: $0.message, invocations: $0.invocations, durationMillis: $0.durationMillis, project: $0.project, buildReference: references[BuildTestCaseKey($0)]) })
+    package func sourceURL(for test: BuildTestResults.TestCase) -> URL? {
+        guard let root = resultsWorkspaceURL, let path = test.path,
+              !path.hasPrefix("/"), !path.contains("\\"),
+              !path.split(separator: "/").contains("..") else { return nil }
+        return root.appendingPathComponent(path).standardizedFileURL
     }
 
     package func stop() { stop(markCancelled: true) }
@@ -333,7 +335,7 @@ package final class LanguageTestService: ObservableObject {
     package func reset() {
         closeRun()
         itemsByProviderID = [:]
-        testOutcomes = []
+        testOutcomesByProviderID = [:]
     }
 
     /// Dispose the retained run without discarding discovery or editor test markers.
@@ -345,6 +347,8 @@ package final class LanguageTestService: ObservableObject {
         lastBackendRun = nil
         runID = nil
         results = nil
+        resultReferences = [:]
+        resultsWorkspaceURL = nil
         output = ""
         errorMessage = nil
         state = .idle
@@ -353,6 +357,8 @@ package final class LanguageTestService: ObservableObject {
     package func clearOutput() {
         output = ""
         results = nil
+        resultReferences = [:]
+        resultsWorkspaceURL = nil
     }
 
     @discardableResult

@@ -16,7 +16,7 @@ const { BuildNativeConfigurationEditor } = await import("./build-native-configur
 
 const instance = { pluginID: "dev.example.build", buildSystemID: "example", root: ".", options: {} };
 const source: BuildNativeConfiguration["sources"][number] = { id: "user", scope: "user", uri: "file:///C:/fixture/settings.xml", revision: "read-1", writable: true,
-  rootElement: { name: "settings", namespace: "" }, fields: [{ id: "repository", kind: "directory", value: null, effectiveValue: "C:/inherited", effectiveSource: "default", path: ["repository"] }] };
+  fields: [{ id: "repository", kind: "directory", value: null, effectiveValue: "C:/inherited", effectiveSource: "default" }] };
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(complete => { resolve = complete; });
@@ -30,16 +30,16 @@ function fixture() {
   let prepareGate: Promise<boolean> | undefined;
   let edits: { sourceID: string; values: Record<string, unknown> } | undefined;
   const core = (async (command: string) => {
-    if (command === "build.configurationPlan") return { plan: { provider: { method: command, params: {} } } };
+    if (command === "build.configurationPlan" || command === "build.configurationEditPlan") return { plan: { provider: { method: command, params: {} } } };
     if (command === "build.decodeConfiguration") return { configuration: structuredClone(configuration) };
     throw new Error(`Unexpected command ${command}`);
   }) as typeof buildCore;
   const domain = new WindowsBuildProviderWorkspace("C:/fixture", { core, guard: () => () => {}, translate: createTranslator("en-US"),
     tools: async () => ({ manifest: { id: instance.pluginID }, pluginDirectory: "C:/plugin", workspaceStateDirectory: "C:/state",
       tool: { executable: "C:/maven/tool" }, environment: {}, executesProjectCode: projectTool }),
-    providers: { send: async <T,>() => { calls.push("read"); if (failingReads) throw new Error("readback failed"); return {} as T; }, stop: async () => {} },
+    providers: { send: async <T,>(_target: unknown, request: { method: string }) => { if (request.method === "build.configurationEditPlan") return {} as T; calls.push("read"); if (failingReads) throw new Error("readback failed"); return {} as T; }, stop: async () => {} },
     configurationFiles: {
-      prepare: async (_target, _root, _id, _snapshot, change) => { calls.push("prepare"); edits = change; prepared.resolve(); return await prepareGate ?? true; },
+      prepare: async (_target, _root, _id, _snapshot, change) => { calls.push("prepare"); edits = change; prepared.resolve(); return (await prepareGate ?? true) ? "C:/state/outputs/edit.json" : null; },
       commit: async () => {
         calls.push("commit");
         if (conflict) throw Object.assign(new Error("disk changed"), { code: "build.configuration.conflict" });
@@ -49,6 +49,7 @@ function fixture() {
         for (const field of target.fields) if (Object.prototype.hasOwnProperty.call(edits!.values, field.id)) {
           field.value = edits!.values[field.id]; field.effectiveValue = field.value === null ? "C:/inherited" : "C:/actual-upstream";
         }
+        return true;
       },
       cancel: async () => { calls.push("cancel"); },
     },
@@ -133,8 +134,8 @@ test("readback failure after a native commit retains the draft and blocks anothe
 
 test("false booleans, empty lists and removal of an override remain distinct native edits", async () => {
   const f = fixture();
-  f.fields([{ id: "flag", kind: "boolean", value: true, effectiveValue: true, effectiveSource: "user", path: ["flag"] },
-    { id: "items", kind: "stringList", value: ["saved"], effectiveValue: ["saved"], effectiveSource: "user", path: ["items"], itemElement: "item" }]);
+  f.fields([{ id: "flag", kind: "boolean", value: true, effectiveValue: true, effectiveSource: "user" },
+    { id: "items", kind: "stringList", value: ["saved"], effectiveValue: ["saved"], effectiveSource: "user" }]);
   try {
     await f.controller.read();
     f.controller.set("user", "flag", { value: false }); f.controller.set("user", "items", { value: [] });
@@ -148,7 +149,7 @@ test("false booleans, empty lists and removal of an override remain distinct nat
 test("explicit overrides of absent effective values store typed empty values without inventing inherited defaults", async () => {
   const f = fixture();
   f.fields((["boolean", "stringList", "text"] as const).map(kind => ({ id: kind, kind, value: null, effectiveValue: null,
-    effectiveSource: "unset", path: [kind], ...(kind === "stringList" ? { itemElement: "item" } : {}) })));
+    effectiveSource: "unset" })));
   try {
     await f.controller.read();
     expect(f.controller.edits("user")).toEqual({});

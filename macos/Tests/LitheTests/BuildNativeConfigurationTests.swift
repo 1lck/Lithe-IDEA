@@ -11,6 +11,36 @@ import SwiftUI
 @Suite("Native build configuration files and drafts")
 struct BuildNativeConfigurationTests {
     @Test
+    func genericJsonReplacementRemainsPrivateUntilHashValidationAndAtomicCommit() throws {
+        let fixture = try NativeConfigurationFixture()
+        defer { fixture.cleanup() }
+        let original = Data(#"{"localRepository":null,"password":"fixture-private-value","other":{"keep":true}}"#.utf8)
+        try original.write(to: fixture.file)
+        let snapshot = try fixture.snapshot()
+        let store = fixture.store()
+        let staged = try #require(try store.prepare(target: fixture.target, snapshot: snapshot,
+            edits: fixture.edits(snapshot), stateDirectory: fixture.root.appendingPathComponent("state")))
+        defer { try? store.discard(staged) }
+        let permissions = try FileManager.default.attributesOfItem(atPath: staged.outputFile.path)
+        #expect((permissions[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        let replacement = Data(#"{"localRepository":"/new/repository","password":"fixture-private-value","other":{"keep":true}}"#.utf8)
+        try replacement.write(to: staged.outputFile)
+        func receipt(_ revision: String) throws -> BuildNativeConfigurationEditReceipt {
+            try JSONDecoder().decode(BuildNativeConfigurationEditReceipt.self, from: JSONSerialization.data(withJSONObject: [
+                "sourceID": "user", "revision": revision, "changed": true]))
+        }
+        #expect(throws: (any Error).self) { try store.complete(staged, receipt: receipt("sha256:" + String(repeating: "b", count: 64))) }
+        #expect(try Data(contentsOf: fixture.file) == original)
+        let revision = "sha256:" + SHA256.hash(data: replacement).map { String(format: "%02x", $0) }.joined()
+        let write = try #require(try store.complete(staged, receipt: receipt(revision)))
+        try store.discard(staged)
+        #expect(!FileManager.default.fileExists(atPath: staged.outputFile.path))
+        #expect(try Data(contentsOf: fixture.file) == original)
+        try store.commit(write)
+        #expect(try Data(contentsOf: fixture.file) == replacement)
+    }
+
+    @Test
     func inheritedValuesPopulateWithoutCreatingOverridesAndCancelRestoresBaseline() throws {
         let fixture = try NativeConfigurationFixture()
         defer { fixture.cleanup() }
@@ -41,7 +71,7 @@ struct BuildNativeConfigurationTests {
         }
         try #require(set == 0)
         let snapshot = try fixture.snapshot()
-        let write = try #require(try fixture.store().prepare(target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot)))
+        let write = try #require(try fixture.prepare(target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot)))
         #expect(try fixture.text() == fixture.original)
         try fixture.store().commit(write)
         let text = try fixture.text()
@@ -64,11 +94,11 @@ struct BuildNativeConfigurationTests {
         let snapshot = try fixture.snapshot()
         try Data("external".utf8).write(to: fixture.file)
         #expect(throws: (any Error).self) {
-            try fixture.store().prepare(target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot))
+            try fixture.prepare(target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot))
         }
         #expect(try fixture.text() == "external")
         try Data(fixture.original.utf8).write(to: fixture.file)
-        let write = try #require(try fixture.store().prepare(target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot)))
+        let write = try #require(try fixture.prepare(target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot)))
         var storage = MacFileStorage()
         let file = fixture.file
         storage.afterPreparingTemporaryForTesting = { try? Data("external in exchange".utf8).write(to: file) }
@@ -83,10 +113,10 @@ struct BuildNativeConfigurationTests {
         defer { fixture.cleanup() }
         try FileManager.default.removeItem(at: fixture.file)
         let snapshot = try fixture.snapshot()
-        #expect(try fixture.store().prepare(target: fixture.target, snapshot: snapshot,
+        #expect(try fixture.prepare(target: fixture.target, snapshot: snapshot,
             edits: BuildNativeConfigurationEdits(sourceID: "user", revision: "missing", values: [:])) == nil)
         #expect(!FileManager.default.fileExists(atPath: fixture.file.path))
-        let write = try #require(try fixture.store().prepare(target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot)))
+        let write = try #require(try fixture.prepare(target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot)))
         try fixture.store().commit(write)
         #expect(try fixture.text().contains("<localRepository>/new/repository</localRepository>"))
         let attributes = try FileManager.default.attributesOfItem(atPath: fixture.file.path)
@@ -99,12 +129,12 @@ struct BuildNativeConfigurationTests {
         defer { fixture.cleanup() }
         let snapshot = try fixture.snapshot()
         #expect(throws: (any Error).self) {
-            try fixture.store(immutableRoots: [fixture.root]).prepare(target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot))
+            try fixture.prepare(immutableRoots: [fixture.root],target: fixture.target, snapshot: snapshot, edits: fixture.edits(snapshot))
         }
         let link = fixture.root.appendingPathComponent("selected.xml")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: fixture.file)
         let linked = try fixture.snapshot(sourceURL: link)
-        let write = try #require(try fixture.store().prepare(target: fixture.target, snapshot: linked, edits: fixture.edits(linked)))
+        let write = try #require(try fixture.prepare(target: fixture.target, snapshot: linked, edits: fixture.edits(linked)))
         try FileManager.default.removeItem(at: link)
         let other = fixture.root.appendingPathComponent("other.xml")
         try Data(fixture.original.utf8).write(to: other)
@@ -217,14 +247,28 @@ private struct NativeConfigurationFixture {
     func store(storage: MacFileStorage = MacFileStorage(), immutableRoots: [URL] = []) -> MacBuildNativeConfigurationStore {
         MacBuildNativeConfigurationStore(storage: storage, planner: planner, immutableRoots: immutableRoots)
     }
+    /// Platform tests supply private replacement bytes as a provider would;
+    /// Maven syntax editing is tested in the backend's integration suite.
+    func prepare(immutableRoots: [URL] = [], target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
+                 edits: BuildNativeConfigurationEdits) throws -> BuildNativeConfigurationPreparedWrite? {
+        let store = store(immutableRoots: immutableRoots)
+        let state = root.appendingPathComponent("state")
+        guard let staging = try store.prepare(target: target, snapshot: snapshot, edits: edits, stateDirectory: state) else { return nil }
+        defer { try? store.discard(staging); try? FileManager.default.removeItem(at: state) }
+        let data = Data((staging.expected.flatMap { String(data: $0, encoding: .utf8) } ?? "<settings></settings>")
+            .replacingOccurrences(of: "</settings>", with: "<localRepository>/new/repository</localRepository></settings>").utf8)
+        try data.write(to: staging.outputFile)
+        let receipt = try JSONDecoder().decode(BuildNativeConfigurationEditReceipt.self, from: JSONSerialization.data(withJSONObject: [
+            "sourceID": "user", "revision": "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), "changed": true]))
+        return try store.complete(staging, receipt: receipt)
+    }
     func snapshot(sourceURL: URL? = nil) throws -> BuildNativeConfiguration {
         let data = try? Data(contentsOf: file)
         let revision = data.map { "sha256:" + SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() } ?? "missing"
         let value: [String: Any] = ["format": "litheBuildConfiguration", "version": 1, "sources": [[
             "id": "user", "scope": "user", "uri": (sourceURL ?? file).absoluteString, "revision": revision, "writable": true,
-            "rootElement": ["name": "settings", "namespace": "http://maven.apache.org/SETTINGS/1.0.0"],
             "fields": [["id": "localRepository", "kind": "directory", "value": NSNull(),
-                "effectiveValue": "/inherited/repository", "effectiveSource": "default", "path": ["localRepository"]]]
+                "effectiveValue": "/inherited/repository", "effectiveSource": "default"]]
         ]]]
         let wire = try JSONDecoder().decode(ToolingJSONValue.self, from: JSONSerialization.data(withJSONObject: value))
         return try planner.decodeConfiguration(target, result: wire)

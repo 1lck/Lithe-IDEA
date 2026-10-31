@@ -1909,7 +1909,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct JavaRunMarkersRequest: Encodable {
         let mainMethods: [JavaMainMethod]
         let testItems: [JavaTestItem]
-        let testCases: [MavenTestCaseOutcome]
+        let testCases: [BuildTestResults.TestCase]
     }
 
     private struct RunConfigurationInspectRequest: Encodable {
@@ -2482,7 +2482,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func javaRunMarkers(
         mainMethods: [JavaMainMethod],
         testItems: [JavaTestItem],
-        testCases: [MavenTestCaseOutcome]
+        testCases: [BuildTestResults.TestCase]
     ) -> Result<JavaRunMarkersPayload, CoreCallError> {
         executeResult(
             command: "java.runMarkers",

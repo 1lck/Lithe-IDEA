@@ -103,12 +103,11 @@ package final class BuildSystemsFeatureModel: ObservableObject {
         _ = try await service.prepareLanguageImport(workspaceURL: workspace)
     }
     @discardableResult
-    package func prepareLanguageRun(fileURL: URL, workspace: URL, mainTask: String, testTask: String,
+    package func prepareLanguageRun(fileURL: URL, workspace: URL, purpose: String,
                                     optionOverrides: [String: ToolingJSONValue] = [:],
                                     tool: @MainActor (String) throws -> BuildProviderHints?,
                                     isCurrent: @escaping @MainActor () -> Bool) async throws -> BuildLanguageImport? {
-        try await service.prepareLanguageRun(fileURL: fileURL, workspace: workspace, mainTask: mainTask,
-            testTask: testTask, optionOverrides: optionOverrides, tool: tool, isCurrent: isCurrent)
+        try await service.prepareLanguageRun(fileURL: fileURL, workspace: workspace, purpose: purpose, optionOverrides: optionOverrides, tool: tool, isCurrent: isCurrent)
     }
     package func languageTestEntries(selectorKind: String, fileURL: URL?, workspace: URL) -> [BuildSystemEntry] {
         service.languageTestEntries(selectorKind: selectorKind, fileURL: fileURL, workspace: workspace)

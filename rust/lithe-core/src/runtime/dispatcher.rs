@@ -307,10 +307,15 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::build::build_resolve_model_inputs_command,
         ),
-        CoreCommand::BuildEditConfigurationDocument => plugin_response(
+        CoreCommand::BuildConfigurationEditPlan => plugin_response(
             id,
             parsed.payload,
-            crate::build::build_edit_configuration_document_command,
+            crate::build::build_configuration_edit_plan_command,
+        ),
+        CoreCommand::BuildDecodeConfigurationEdit => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_configuration_edit_command,
         ),
         CoreCommand::BuildConfigurationPlan => plugin_response(
             id,

@@ -88,7 +88,7 @@ async function readRegistry() {
   // Private instance defaults and runtime-preference migration receipts follow that same refusal route.
   // Per-operation Maven report snapshots have no reusable identity and must remain isolated.
   // Native configuration probes (including their isolated repository manager), source-identity cache v2 and secret-bearing
-  // conditional replacement copies use the same explicit rejection route.
+  // conditional replacements and private provider-written outputs/<operation-id>.json use the same explicit rejection route.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,

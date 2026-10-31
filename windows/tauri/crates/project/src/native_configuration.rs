@@ -1,6 +1,6 @@
 //! Private native configuration transactions. Only the owning provider/Core
-//! knows fields; the existing document adapter owns guarded atomic publication.
-//! Raw XML and credentials never become a serializable frontend value.
+//! knows format semantics; the existing document adapter owns atomic publication.
+//! Source and replacement bytes never become a serializable frontend value.
 
 use crate::document_file::{self, SaveOutcome};
 use serde_json::{Value, json};
@@ -26,7 +26,11 @@ pub struct PreparedNativeConfiguration {
     source: PathBuf,
     target: PathBuf,
     expected: Option<String>,
-    replacement: String,
+    output_file: PathBuf,
+    manifest: Value,
+    system: String,
+    snapshot: Value,
+    edits: Value,
 }
 
 /// Checks non-sensitive source versions without returning private XML. Alias
@@ -76,6 +80,7 @@ pub fn prepare(
     snapshot: &Value,
     edits: &Value,
     immutable_roots: &[PathBuf],
+    output_file: PathBuf,
 ) -> Result<Option<PreparedNativeConfiguration>, NativeConfigurationError> {
     use NativeConfigurationError::*;
     let sources = snapshot["sources"].as_array().ok_or(Invalid)?;
@@ -105,48 +110,90 @@ pub fn prepare(
     if selected["revision"] != revision || edits["revision"] != revision {
         return Err(Conflict);
     }
-    let request = json!({"command":"build.editConfigurationDocument", "payload": {
-        "manifest":manifest,"buildSystemID":system,"request":{"snapshot":snapshot,"edits":edits,"document":expected}
-    }});
-    let result: Value = serde_json::from_str(&lithe_core::execute_json(&request.to_string()))
-        .map_err(|_| Invalid)?;
-    if result["ok"] != true || result["data"]["status"] != "ok" {
+    let decoded: Value = serde_json::from_str(&lithe_core::execute_json(&json!({
+        "command":"build.decodeConfiguration","payload":{"manifest":manifest,"buildSystemID":system,"request":{"result":snapshot}}
+    }).to_string())).map_err(|_| Invalid)?;
+    if decoded["ok"] != true || decoded["data"]["status"] != "ok" {
         return Err(Invalid);
     }
-    let edited = &result["data"]["edit"];
-    if edited["changed"] == false {
+    let values = edits["values"].as_object().ok_or(Invalid)?;
+    let fields = selected["fields"].as_array().ok_or(Invalid)?;
+    if values.iter().all(|(id, value)| {
+        fields
+            .iter()
+            .any(|field| field["id"] == *id && field["value"] == *value)
+    }) {
         return Ok(None);
     }
-    let mut replacement = edited["document"]
-        .as_str()
-        .filter(|text| text.len() as u64 <= MAX_BYTES)
-        .ok_or(Invalid)?
-        .to_owned();
-    // Core edits XML text. Preserve the native UTF-8 byte-order marker as an
-    // encoding choice even when the XML writer omits it from edited text.
-    if expected
-        .as_ref()
-        .is_some_and(|text| text.starts_with('\u{feff}'))
-        && !replacement.starts_with('\u{feff}')
+    let output = validated_target(&output_file, immutable_roots)?;
+    if !same_path(&output, &output_file) || same_path(&output, &target) {
+        return Err(ReadOnly);
+    }
+    fs::create_dir_all(output.parent().ok_or(Invalid)?).map_err(|_| Unreadable)?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
     {
-        replacement.insert(0, '\u{feff}');
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
     }
-    if replacement.len() as u64 > MAX_BYTES {
-        return Err(Invalid);
-    }
+    options.open(&output).map_err(|_| Unreadable)?;
     Ok(Some(PreparedNativeConfiguration {
         source,
         target,
         expected,
-        replacement,
+        output_file: output,
+        manifest: manifest.clone(),
+        system: system.to_owned(),
+        snapshot: snapshot.clone(),
+        edits: edits.clone(),
     }))
 }
 
+impl Drop for PreparedNativeConfiguration {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_file(&self.output_file) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!(
+                    "Native configuration staging cleanup failed: {}",
+                    error.kind()
+                );
+            }
+        }
+    }
+}
+
 impl PreparedNativeConfiguration {
+    /// Only this private destination is exposed to the owning backend.
+    pub fn output_file(&self) -> &Path {
+        &self.output_file
+    }
     /// Recheck link targets and protected roots immediately before the existing
     /// document module compares disk bytes, preserves metadata and publishes.
-    pub fn commit(self, immutable_roots: &[PathBuf]) -> Result<(), NativeConfigurationError> {
+    pub fn commit(
+        self,
+        immutable_roots: &[PathBuf],
+        receipt: &Value,
+    ) -> Result<bool, NativeConfigurationError> {
         use NativeConfigurationError::*;
+        let decoded: Value = serde_json::from_str(&lithe_core::execute_json(&json!({
+            "command":"build.decodeConfigurationEdit", "payload":{"manifest":self.manifest,"buildSystemID":self.system,
+                "request":{"snapshot":self.snapshot,"edits":self.edits,"result":receipt}}
+        }).to_string())).map_err(|_| Invalid)?;
+        if decoded["ok"] != true || decoded["data"]["status"] != "ok" {
+            return Err(Invalid);
+        }
+        let edit = &decoded["data"]["edit"];
+        if edit["changed"] == false {
+            return Ok(false);
+        }
+        if !same_path(&resolve_target(&self.output_file)?, &self.output_file) {
+            return Err(ReadOnly);
+        }
+        let replacement = read(&self.output_file)?.ok_or(Unreadable)?;
+        if edit["revision"] != format!("sha256:{:x}", Sha256::digest(replacement.as_bytes())) {
+            return Err(Conflict);
+        }
         let target = validated_target(&self.source, immutable_roots)?;
         if !same_path(&target, &self.target) {
             return Err(Conflict);
@@ -161,14 +208,14 @@ impl PreparedNativeConfiguration {
         ) {
             return Err(Conflict);
         }
-        match document_file::save_document(&target, &self.replacement, self.expected.as_deref())
+        match document_file::save_document(&target, &replacement, self.expected.as_deref())
             .map_err(|_| Unreadable)?
         {
             SaveOutcome::Saved { .. } => {
-                if read(&target)?.as_deref() != Some(&self.replacement) {
+                if read(&target)?.as_deref() != Some(&replacement) {
                     return Err(Conflict);
                 }
-                Ok(())
+                Ok(true)
             }
             // Conflict contains current disk text for editor callers. Do not
             // serialize it or forward it to a frontend/native settings form.

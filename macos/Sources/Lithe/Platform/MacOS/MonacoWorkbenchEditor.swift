@@ -711,7 +711,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         let identity = service.map(ObjectIdentifier.init)
         guard identity != testServiceIdentity else { return }
         testServiceIdentity = identity
-        testOutcomeSubscription = service?.$testOutcomes
+        testOutcomeSubscription = service?.$testOutcomesByProviderID
+            .map { $0["java"] ?? [] }
             .removeDuplicates()
             .dropFirst()
             .receive(on: DispatchQueue.main)

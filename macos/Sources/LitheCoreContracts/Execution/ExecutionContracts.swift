@@ -325,6 +325,13 @@ package enum LanguageTestItemKind: String, Equatable, Sendable {
 }
 
 package struct LanguageTestItem: Identifiable, Equatable, Sendable {
+    /// A language provider's explicit association with canonical report names.
+    /// This is presentation metadata; execution still forwards testIdentifier.
+    package struct ReportIdentity: Hashable, Sendable {
+        package let suite: String
+        package let name: String?
+        package init(suite: String, name: String? = nil) { self.suite = suite; self.name = name }
+    }
     package let id: String
     package let providerID: String
     package let label: String
@@ -336,6 +343,7 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
     package let depth: Int
     package var projectPath: String?
     package var buildReference: BuildTestReference?
+    package let reportIdentity: ReportIdentity?
 
     package init(
         id: String,
@@ -344,7 +352,8 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
         kind: LanguageTestItemKind,
         fileURL: URL?,
         testIdentifier: String? = nil,
-        depth: Int = 0, projectPath: String? = nil, buildReference: BuildTestReference? = nil
+        depth: Int = 0, projectPath: String? = nil, buildReference: BuildTestReference? = nil,
+        reportIdentity: ReportIdentity? = nil
     ) {
         self.id = id
         self.providerID = providerID
@@ -354,6 +363,7 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
         self.testIdentifier = testIdentifier
         self.depth = max(0, depth)
         self.projectPath = projectPath; self.buildReference = buildReference
+        self.reportIdentity = reportIdentity
     }
 }
 

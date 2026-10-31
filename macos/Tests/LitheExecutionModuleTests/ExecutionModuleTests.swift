@@ -281,15 +281,73 @@ struct ExecutionModuleTests {
             return LanguageTestBackendResult(exitCode: 1, reports: [report])
         }
         try await awaitTestValue(service.$state) { $0 == .failed(exitCode: 1) }
-        #expect(service.results?.testsRun == 2)
-        #expect(service.testOutcomes.map(\.project) == ["a", "b"])
+        #expect(service.results?.summary.total == 2)
+        #expect(service.testOutcomes(for: "java").map(\.project) == ["a", "b"])
         #expect(service.canRerun)
         #expect(service.rerun())
         try await awaitTestValue(service.$state) { $0 == .failed(exitCode: 1) }
         #expect(requests == 2)
         #expect(service.output == "request 2")
-        #expect(service.testOutcomes.count == 2)
+        #expect(service.testOutcomes(for: "java").count == 2)
         #expect(processes == 0)
+    }
+
+    @Test
+    func backendReportsPreserveInvocationSummariesSourceLocationsAndOpaqueRerunReferences() async throws {
+        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        defer { service.reset() }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let report = try JSONDecoder().decode(BuildTestResults.self, from: Data(contentsOf:
+            root.appendingPathComponent("shared/fixtures/build-provider/test-results-v1.json")))
+        let second = BuildTestResults(tests: [.init(project: "other", suite: "other", name: "repeated", status: .passed, invocations: 3)],
+            summary: .init(total: 1, passed: 1, failed: 0, errors: 0, skipped: 0), success: true)
+        let test = report.tests[1]
+        let reference = BuildTestReference(pluginID: "org.example.build", buildSystemID: "example", root: ".",
+            projectID: "project-token", suite: "opaque-suite", testCase: "opaque-case")
+        service.runUsingBackend(providerID: "example", scope: .workspace, workspaceURL: URL(fileURLWithPath: "/workspace"), label: "Tests") { _, _ in
+            LanguageTestBackendResult(exitCode: 1, reports: [report, second], references: [BuildTestCaseKey(test): reference])
+        }
+        try await awaitTestValue(service.$state) { $0 == .failed(exitCode: 1) }
+        let result = try #require(service.results)
+        #expect(result.tests == report.tests + second.tests)
+        #expect(result.summary == .init(total: 5, passed: 3, failed: 0, errors: 1, skipped: 1))
+        #expect(result.tests.first?.invocations == 2)
+        #expect(result.tests.last?.invocations == 3)
+        #expect(!result.success)
+        #expect(service.resultReferences[BuildTestCaseKey(test)] == reference)
+        #expect(service.sourceURL(for: test)?.path == "/workspace/tests/checkout.spec")
+        let wire = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(test)) as? [String: Any])
+        #expect(wire["suite"] as? String == "checkout / HTTP")
+        #expect(wire["case"] as? String == "accepts(payload)[2]")
+        #expect(wire["className"] == nil)
+        #expect(wire["method"] == nil)
+        #expect(try JSONDecoder().decode(BuildTestResults.TestCase.self, from: JSONEncoder().encode(test)) == test)
+        service.clearOutput()
+        #expect(service.resultReferences.isEmpty)
+        #expect(service.sourceURL(for: test) == nil)
+        #expect(service.testOutcomes(for: "example") == report.tests + second.tests)
+    }
+
+    @Test
+    func genericReportHistoryNeverCrossesLanguageProviderBoundaries() async throws {
+        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        defer { service.reset() }
+        func run(_ provider: String, status: BuildTestResults.TestCase.Status) async throws {
+            let report = BuildTestResults(tests: [.init(suite: "Same", name: "checks", status: status)],
+                summary: .init(total: 1, passed: status == .passed ? 1 : 0, failed: status == .failed ? 1 : 0, errors: 0, skipped: 0), success: status == .passed)
+            service.runUsingBackend(providerID: provider, scope: .workspace, workspaceURL: URL(fileURLWithPath: "/workspace"), label: "Tests") { _, _ in
+                LanguageTestBackendResult(exitCode: 0, reports: [report])
+            }
+            try await awaitTestValue(service.$state) { $0 == .passed }
+        }
+        try await run("java", status: .failed)
+        try await run("example", status: .passed)
+        #expect(service.testOutcomes(for: "java").first?.status == .failed)
+        #expect(service.testOutcomes(for: "example").first?.status == .passed)
+        service.closeRun()
+        #expect(service.testOutcomes(for: "java").count == 1)
+        #expect(service.testOutcomes(for: "example").count == 1)
     }
 
     @Test
@@ -310,11 +368,11 @@ struct ExecutionModuleTests {
         }
         try await run([test("a", "old"), test("a", "kept"), test("b", "old")])
         try await run([test("a", "kept")], coverage: [["project": "a", "suite": "Same", "case": "kept"]])
-        #expect(service.testOutcomes.count == 3)
+        #expect(service.testOutcomes(for: "java").count == 3)
         try await run([test("a", "new")], coverage: [["project": "a", "suite": "Same"]])
-        #expect(service.testOutcomes.map { ($0.project ?? "") + ":" + $0.method }.sorted() == ["a:new", "b:old"])
+        #expect(service.testOutcomes(for: "java").map { ($0.project ?? "") + ":" + $0.name }.sorted() == ["a:new", "b:old"])
         try await run([], coverage: [["project": "a", "suite": "Same"]])
-        #expect(service.testOutcomes.map(\.project) == ["b"])
+        #expect(service.testOutcomes(for: "java").map(\.project) == ["b"])
     }
 
     @Test
@@ -1421,12 +1479,12 @@ struct ExecutionModuleTests {
         }
         run(.testCase(identifier: "demo.FirstTest#check", fileURL: first))
         try await awaitTestValue(service.$state, matching: { $0 == .passed })
-        let outcomes = service.testOutcomes
-        #expect(service.results?.testsRun == 1)
-        #expect(outcomes.first?.className == "demo.FirstTest")
+        let outcomes = service.testOutcomes(for: "java")
+        #expect(service.results?.summary.total == 1)
+        #expect(outcomes.first?.suite == "demo.FirstTest")
         if clearOnly { service.clearOutput() } else { service.closeRun() }
         #expect(service.results == nil)
-        #expect(service.testOutcomes == outcomes, "Editor marker history must outlive the visible result")
+        #expect(service.testOutcomes(for: "java") == outcomes, "Editor marker history must outlive the visible result")
         #expect(service.itemsByProviderID == discovered)
         run(.file(second))
         #expect(service.hasRun(providerID: "java", scope: .file(second)))

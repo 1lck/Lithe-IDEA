@@ -104,12 +104,31 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         return outcome.value.configuration
     }
 
-    func editConfigurationDocument(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
-                                   edits: BuildNativeConfigurationEdits, document: String?) throws -> BuildNativeConfigurationDocumentEdit {
-        struct Request: Encodable { let snapshot: BuildNativeConfiguration; let edits: BuildNativeConfigurationEdits; let document: String? }
-        struct Reply: Decodable { let edit: BuildNativeConfigurationDocumentEdit }
-        let outcome: Outcome<Reply> = try execute("build.editConfigurationDocument", target: target,
-            request: Request(snapshot: snapshot, edits: edits, document: document))
+    func configurationEditPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints,
+                               snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits, outputFile: URL) throws -> BuildProviderRequest {
+        struct Request: Encodable {
+            let root: String; let options: [String: ToolingJSONValue]; let pluginDirectory: String?
+            let workspaceStateDirectory: String?; let modelInputs: ToolingJSONValue?
+            let snapshot: BuildNativeConfiguration; let edits: BuildNativeConfigurationEdits; let outputFile: String
+            let tool: OutputRequest.Tool?
+        }
+        let outcome: Outcome<PlanResult> = try execute("build.configurationEditPlan", target: target,
+            request: Request(root: context.root, options: context.options, pluginDirectory: context.pluginDirectory?.path,
+                workspaceStateDirectory: context.workspaceStateDirectory?.path, modelInputs: context.modelInputs,
+                snapshot: snapshot, edits: edits, outputFile: outputFile.path,
+                tool: hints.toolExecutable.map { OutputRequest.Tool(executable: $0.path, environment: hints.toolEnvironment) }))
+        guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
+            throw PluginFunctionFailure(code: "plugin.build.unavailable", message: L10n.string("Native configuration is unavailable."))
+        }
+        return request
+    }
+
+    func decodeConfigurationEdit(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
+                                 edits: BuildNativeConfigurationEdits, result: ToolingJSONValue) throws -> BuildNativeConfigurationEditReceipt {
+        struct Request: Encodable { let snapshot: BuildNativeConfiguration; let edits: BuildNativeConfigurationEdits; let result: ToolingJSONValue }
+        struct Reply: Decodable { let edit: BuildNativeConfigurationEditReceipt }
+        let outcome: Outcome<Reply> = try execute("build.decodeConfigurationEdit", target: target,
+            request: Request(snapshot: snapshot, edits: edits, result: result))
         return outcome.value.edit
     }
 

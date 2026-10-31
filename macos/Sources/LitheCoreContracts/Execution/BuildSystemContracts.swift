@@ -35,6 +35,13 @@ public enum BuildExecution: String, Codable, Hashable, Sendable {
 /// What a plugin's build system offers, read from the normalized manifest.
 /// Command templates stay opaque: Rust Core expands them.
 public struct DeclarativeBuildSystem: Equatable, Sendable {
+    public struct TaskPreparation: Equatable, Sendable, Decodable {
+        public let purpose: String
+        public let sourceRoles: [String]
+        public init(purpose: String, sourceRoles: [String]) {
+            self.purpose = purpose; self.sourceRoles = sourceRoles
+        }
+    }
     public struct Task: Equatable, Identifiable, Sendable {
         public let id: String
         public let displayName: String
@@ -49,16 +56,18 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
         /// empty files it by `group`. On a `fromModel` template it is the
         /// default of the model tasks.
         public let category: [String]
+        public let preparation: TaskPreparation?
 
         public init(
             id: String, displayName: String, group: BuildTaskGroup, scopes: [BuildScope],
             fromModel: Bool, targetTags: [String], requiresUserArguments: Bool, description: String?,
-            category: [String] = []
+            category: [String] = [], preparation: TaskPreparation? = nil
         ) {
             self.id = id; self.displayName = displayName; self.group = group; self.scopes = scopes
             self.fromModel = fromModel; self.targetTags = targetTags
             self.requiresUserArguments = requiresUserArguments; self.description = description
             self.category = category
+            self.preparation = preparation
         }
     }
 
@@ -995,8 +1004,8 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
         private enum CodingKeys: String, CodingKey { case project, suite; case testCase = "case" }
     }
     package let coverage: [Coverage]?
-    package struct TestCase: Equatable, Identifiable, Sendable, Decodable {
-        package enum Status: String, Equatable, Sendable {
+    package struct TestCase: Equatable, Identifiable, Sendable, Codable {
+        package enum Status: String, Equatable, Sendable, Codable {
             case passed, failed, error, skipped
         }
 
@@ -1010,7 +1019,17 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
         package let path: String?
         package let line: Int?
         package let invocations: Int
-        package var id: String { (project.map { $0 + ":" } ?? "") + suite + "#" + name }
+        package var id: String {
+            [project, suite, name].map { $0.map { "\($0.utf8.count):" + $0 } ?? "-" }.joined()
+        }
+
+        package init(project: String? = nil, suite: String, name: String, status: Status,
+                     message: String? = nil, durationMillis: Int? = nil, path: String? = nil,
+                     line: Int? = nil, invocations: Int = 1) {
+            self.project = project; self.suite = suite; self.name = name; self.status = status
+            self.message = message; self.durationMillis = durationMillis; self.path = path
+            self.line = line; self.invocations = invocations
+        }
 
         package init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1025,6 +1044,19 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
             invocations = try values.decodeIfPresent(Int.self, forKey: .invocations) ?? 1
         }
 
+        package func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encodeIfPresent(project, forKey: .project)
+            try values.encode(suite, forKey: .suite)
+            try values.encode(name, forKey: .case)
+            try values.encode(status, forKey: .status)
+            try values.encodeIfPresent(message, forKey: .message)
+            try values.encodeIfPresent(durationMillis, forKey: .durationMillis)
+            try values.encodeIfPresent(path, forKey: .path)
+            try values.encodeIfPresent(line, forKey: .line)
+            try values.encode(invocations, forKey: .invocations)
+        }
+
         private enum CodingKeys: String, CodingKey {
             case project, suite, `case`, status, message, durationMillis, path, line, invocations
         }
@@ -1036,11 +1068,32 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
         package let failed: Int
         package let errors: Int
         package let skipped: Int
+
+        package init(total: Int, passed: Int, failed: Int, errors: Int, skipped: Int) {
+            self.total = total; self.passed = passed; self.failed = failed
+            self.errors = errors; self.skipped = skipped
+        }
     }
 
     package let tests: [TestCase]
     package let summary: Summary
     package let success: Bool
+
+    package init(tests: [TestCase], summary: Summary, success: Bool, coverage: [Coverage]? = nil) {
+        self.tests = tests; self.summary = summary; self.success = success; self.coverage = coverage
+    }
+
+    /// Preserve normalized summaries when multiple build instances complete.
+    package static func combining(_ reports: [Self]) -> Self {
+        Self(tests: reports.flatMap(\.tests), summary: Summary(
+            total: reports.reduce(0) { $0 + $1.summary.total },
+            passed: reports.reduce(0) { $0 + $1.summary.passed },
+            failed: reports.reduce(0) { $0 + $1.summary.failed },
+            errors: reports.reduce(0) { $0 + $1.summary.errors },
+            skipped: reports.reduce(0) { $0 + $1.summary.skipped }),
+            success: reports.allSatisfy(\.success),
+            coverage: reports.contains { $0.coverage != nil } ? reports.flatMap { $0.coverage ?? [] } : nil)
+    }
 }
 
 package struct BuildTestResultsRequest: Equatable, Sendable {
@@ -1139,7 +1192,8 @@ package enum BuildLanguageImport: Equatable, Sendable, Decodable {
 package protocol BuildSystemPlanning: Sendable {
     func configurationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints) throws -> BuildProviderRequest
     func decodeConfiguration(_ target: BuildSystemTarget, result: ToolingJSONValue) throws -> BuildNativeConfiguration
-    func editConfigurationDocument(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits, document: String?) throws -> BuildNativeConfigurationDocumentEdit
+    func configurationEditPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints, snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits, outputFile: URL) throws -> BuildProviderRequest
+    func decodeConfigurationEdit(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits, result: ToolingJSONValue) throws -> BuildNativeConfigurationEditReceipt
     func resolveModelInputs(_ target: BuildSystemTarget, revision: UInt64, sources: [BuildModelInputSource]) throws -> ToolingJSONValue
     func detect(
         workspaceURL: URL,

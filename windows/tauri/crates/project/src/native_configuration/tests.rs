@@ -26,9 +26,9 @@ impl Fixture {
             .unwrap_or("missing".into());
         json!({"format":"litheBuildConfiguration","version":1,"sources":[{
             "id":"user","scope":"user","uri":url::Url::from_file_path(&self.path).unwrap().as_str(),
-            "revision":revision,"writable":true,"rootElement":{"name":"settings","namespace":""},
+            "revision":revision,"writable":true,
             "fields":[{"id":"localRepository","kind":"directory","value":null,"effectiveValue":"inherited",
-                "effectiveSource":"default","path":["localRepository"]}]
+                "effectiveSource":"default"}]
         }]})
     }
     fn prepare(
@@ -37,19 +37,103 @@ impl Fixture {
         value: Value,
         protected: &[PathBuf],
     ) -> Result<Option<PreparedNativeConfiguration>, NativeConfigurationError> {
-        prepare(
+        let prepared = prepare(
             &self.manifest,
             "gradle",
             snapshot,
             &json!({"sourceID":"user","revision":snapshot["sources"][0]["revision"],"values":{"localRepository":value}}),
             protected,
-        )
+            self.root.join(format!(
+                "staged-{}.json",
+                SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            )),
+        )?;
+        if let Some(ref prepared) = prepared {
+            let existing = fs::read_to_string(&self.path).unwrap_or("<settings/>".into());
+            let inserted = format!(
+                "<localRepository>{}</localRepository>",
+                value.as_str().unwrap_or("").replace('&', "&amp;")
+            );
+            let replacement = if existing.contains("</settings>") {
+                existing.replace("</settings>", &(inserted.clone() + "</settings>"))
+            } else {
+                existing.replace(
+                    "<settings/>",
+                    &("<settings>".to_owned() + &inserted + "</settings>"),
+                )
+            };
+            fs::write(prepared.output_file(), replacement).unwrap();
+        }
+        Ok(prepared)
+    }
+    fn commit(
+        &self,
+        prepared: PreparedNativeConfiguration,
+        protected: &[PathBuf],
+    ) -> Result<bool, NativeConfigurationError> {
+        let bytes = fs::read(prepared.output_file()).unwrap();
+        let receipt = json!({"format":"litheConfigurationEdit","version":1,"sourceID":"user",
+            "revision":format!("sha256:{:x}", Sha256::digest(&bytes)),"changed":true});
+        prepared.commit(protected, &receipt)
     }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn arbitrary_native_json_is_private_until_a_valid_staging_receipt_is_committed() {
+    let f = Fixture::new();
+    let original =
+        r#"{"localRepository":null,"password":"fixture-private-value","other":{"keep":true}}"#;
+    fs::write(&f.path, original).unwrap();
+    let snapshot = f.snapshot();
+    let edits = json!({"sourceID":"user","revision":snapshot["sources"][0]["revision"],"values":{"localRepository":"new"}});
+    let output = f.root.join("native-stage.json");
+    let staged = prepare(
+        &f.manifest,
+        "gradle",
+        &snapshot,
+        &edits,
+        &[],
+        output.clone(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(fs::read(&output).unwrap(), b"");
+    let replacement = original.replace("null", "\"new\"");
+    fs::write(&output, &replacement).unwrap();
+    let wrong = json!({"format":"litheConfigurationEdit","version":1,"sourceID":"user","revision":format!("sha256:{}", "b".repeat(64)),"changed":true});
+    assert_eq!(
+        staged.commit(&[], &wrong),
+        Err(NativeConfigurationError::Conflict)
+    );
+    assert!(!output.exists());
+    assert_eq!(fs::read_to_string(&f.path).unwrap(), original);
+    let staged = prepare(
+        &f.manifest,
+        "gradle",
+        &snapshot,
+        &edits,
+        &[],
+        output.clone(),
+    )
+    .unwrap()
+    .unwrap();
+    fs::write(&output, &replacement).unwrap();
+    let receipt = json!({"format":"litheConfigurationEdit","version":1,"sourceID":"user","revision":format!("sha256:{:x}", Sha256::digest(replacement.as_bytes())),"changed":true});
+    assert_eq!(staged.commit(&[], &receipt), Ok(true));
+    assert!(!output.exists());
+    assert_eq!(fs::read_to_string(&f.path).unwrap(), replacement);
+    let staged = prepare(&f.manifest, "gradle", &f.snapshot(), &json!({"sourceID":"user","revision":f.snapshot()["sources"][0]["revision"],"values":{"localRepository":"again"}}), &[], output.clone()).unwrap().unwrap();
+    drop(staged);
+    assert!(
+        !output.exists(),
+        "Cancellation/revocation drops private staging without publication"
+    );
+    assert_eq!(fs::read_to_string(&f.path).unwrap(), replacement);
 }
 
 #[test]
@@ -137,7 +221,7 @@ fn edits_preserve_comments_secrets_and_permissions_through_existing_atomic_publi
         .unwrap()
         .unwrap();
     assert_eq!(fs::read(&f.path).unwrap(), original, "prepare is read-only");
-    prepared.commit(&[]).unwrap();
+    f.commit(prepared, &[]).unwrap();
     let saved = fs::read_to_string(&f.path).unwrap();
     assert!(
         saved.contains("<!--preserved-->")
@@ -173,7 +257,7 @@ fn utf8_bom_and_unicode_edits_keep_the_exact_read_revision() {
         .prepare(&f.snapshot(), json!("仓库 & spaced value"), &[])
         .unwrap()
         .unwrap();
-    prepared.commit(&[]).unwrap();
+    f.commit(prepared, &[]).unwrap();
     let result = fs::read_to_string(&f.path).unwrap();
     assert!(result.starts_with('\u{feff}'));
     assert!(result.contains("<!--保留-->") && result.contains("仓库 &amp; spaced value"));
@@ -191,7 +275,7 @@ fn a_file_made_read_only_after_prepare_cannot_be_committed() {
         .unwrap();
     fs::set_permissions(&f.path, fs::Permissions::from_mode(0o400)).unwrap();
     assert_eq!(
-        prepared.commit(&[]),
+        f.commit(prepared, &[]),
         Err(NativeConfigurationError::Unreadable)
     );
     assert_eq!(fs::read_to_string(&f.path).unwrap(), "<settings/>");
@@ -218,7 +302,7 @@ fn a_changed_missing_source_is_created_only_during_commit() {
         .unwrap()
         .unwrap();
     assert!(!f.path.parent().unwrap().exists());
-    prepared.commit(&[]).unwrap();
+    f.commit(prepared, &[]).unwrap();
     assert!(
         fs::read_to_string(&f.path)
             .unwrap()
@@ -237,7 +321,7 @@ fn external_edit_between_prepare_and_commit_is_preserved_without_returning_nativ
     let external = "<settings><servers><server><password>external-private-value</password></server></servers></settings>";
     fs::write(&f.path, external).unwrap();
     assert_eq!(
-        prepared.commit(&[]),
+        f.commit(prepared, &[]),
         Err(NativeConfigurationError::Conflict)
     );
     assert_eq!(fs::read_to_string(&f.path).unwrap(), external);
@@ -252,7 +336,7 @@ fn a_concurrent_creator_is_never_overwritten() {
         .unwrap();
     fs::write(&f.path, "<settings><!--concurrent creator--></settings>").unwrap();
     assert_eq!(
-        prepared.commit(&[]),
+        f.commit(prepared, &[]),
         Err(NativeConfigurationError::Conflict)
     );
     assert!(
@@ -275,7 +359,7 @@ fn installed_and_plugin_roots_are_read_only_even_when_a_source_claims_to_be_writ
         .unwrap()
         .unwrap();
     assert_eq!(
-        prepared.commit(&[f.root.clone()]),
+        f.commit(prepared, &[f.root.clone()]),
         Err(NativeConfigurationError::ReadOnly)
     );
     let mut snapshot = f.snapshot();
@@ -308,11 +392,14 @@ fn malformed_oversized_or_changed_native_sources_fail_without_rewriting() {
     ));
     let dtd = "<!DOCTYPE settings [<!ENTITY x SYSTEM 'file:///private'>]><settings/>";
     fs::write(&f.path, dtd).unwrap();
-    assert!(matches!(
-        f.prepare(&f.snapshot(), json!("repository"), &[]),
-        Err(NativeConfigurationError::Invalid)
-    ));
+    // Native publication does not interpret any format. XML safety belongs to
+    // the Maven backend and is covered by its configuration-edit integration.
+    let staged = f
+        .prepare(&f.snapshot(), json!("repository"), &[])
+        .unwrap()
+        .unwrap();
     assert_eq!(fs::read_to_string(&f.path).unwrap(), dtd);
+    drop(staged);
 }
 
 #[cfg(unix)]
@@ -333,7 +420,7 @@ fn redirected_links_and_distinct_aliases_cannot_change_the_approved_source() {
     fs::remove_file(&f.path).unwrap();
     symlink(&other, &f.path).unwrap();
     assert_eq!(
-        prepared.commit(&[]),
+        f.commit(prepared, &[]),
         Err(NativeConfigurationError::Conflict)
     );
     assert_eq!(fs::read_to_string(&other).unwrap(), "<settings/>");

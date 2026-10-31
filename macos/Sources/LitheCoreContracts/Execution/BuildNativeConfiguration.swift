@@ -4,10 +4,6 @@ import LitheModuleAPI
 /// Non-sensitive native facts from the selected engine. Full native documents
 /// stay in the platform file adapter and never enter the provider wire or UI.
 package struct BuildNativeConfiguration: Codable, Equatable, Sendable {
-    package struct Root: Codable, Equatable, Sendable {
-        package let name: String
-        package let namespace: String
-    }
     package struct Field: Codable, Equatable, Sendable, Identifiable {
         package enum Kind: String, Codable, Sendable { case text, file, directory, boolean, stringList }
         package let id: String
@@ -15,8 +11,6 @@ package struct BuildNativeConfiguration: Codable, Equatable, Sendable {
         package let value: ToolingJSONValue
         package let effectiveValue: ToolingJSONValue
         package let effectiveSource: String
-        package let path: [String]
-        package let itemElement: String?
     }
     package struct Source: Codable, Equatable, Sendable, Identifiable {
         package enum Scope: String, Codable, Sendable { case installation, user, workspace }
@@ -25,7 +19,6 @@ package struct BuildNativeConfiguration: Codable, Equatable, Sendable {
         package let uri: String
         package let revision: String
         package let writable: Bool
-        package let rootElement: Root
         package let fields: [Field]
     }
     package let format: String
@@ -42,12 +35,24 @@ package struct BuildNativeConfigurationEdits: Codable, Equatable, Sendable {
     }
 }
 
-/// Host/Core-only replacement. It can contain unrelated secret fields and must
-/// never be sent to a provider, rendered, or included in logs.
-package struct BuildNativeConfigurationDocumentEdit: Decodable, Sendable {
-    package let document: String?
+/// Public receipt; native source/replacement bytes never enter the wire.
+package struct BuildNativeConfigurationEditReceipt: Decodable, Sendable {
+    package let sourceID: String
     package let revision: String
     package let changed: Bool
+}
+
+/// Private staging ownership retained through late replies and cancellation.
+package struct BuildNativeConfigurationStaging: Sendable {
+    package let sourceID: String
+    package let sourceURL: URL
+    package let url: URL
+    package let expected: Data?
+    package let outputFile: URL
+    package init(sourceID: String, sourceURL: URL, url: URL, expected: Data?, outputFile: URL) {
+        self.sourceID = sourceID; self.sourceURL = sourceURL; self.url = url
+        self.expected = expected; self.outputFile = outputFile
+    }
 }
 
 /// A prepared write contains native bytes, exclusively for the storage adapter.
@@ -67,7 +72,9 @@ package struct BuildNativeConfigurationPreparedWrite: Sendable {
 
 package protocol BuildNativeConfigurationStoring: Sendable {
     func prepare(target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
-                 edits: BuildNativeConfigurationEdits) throws -> BuildNativeConfigurationPreparedWrite?
+                 edits: BuildNativeConfigurationEdits, stateDirectory: URL) throws -> BuildNativeConfigurationStaging?
+    func complete(_ staging: BuildNativeConfigurationStaging, receipt: BuildNativeConfigurationEditReceipt) throws -> BuildNativeConfigurationPreparedWrite?
+    func discard(_ staging: BuildNativeConfigurationStaging) throws
     func commit(_ write: BuildNativeConfigurationPreparedWrite) throws
 }
 
@@ -79,8 +86,12 @@ package extension BuildSystemPlanning {
     func decodeConfiguration(_ target: BuildSystemTarget, result: ToolingJSONValue) throws -> BuildNativeConfiguration {
         throw PluginFunctionFailure(code: "plugin.build.unavailable", message: L10n.string("Native configuration is unavailable."))
     }
-    func editConfigurationDocument(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
-                                   edits: BuildNativeConfigurationEdits, document: String?) throws -> BuildNativeConfigurationDocumentEdit {
+    func configurationEditPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints,
+                               snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits, outputFile: URL) throws -> BuildProviderRequest {
+        throw PluginFunctionFailure(code: "plugin.build.unavailable", message: L10n.string("Native configuration is unavailable."))
+    }
+    func decodeConfigurationEdit(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
+                                 edits: BuildNativeConfigurationEdits, result: ToolingJSONValue) throws -> BuildNativeConfigurationEditReceipt {
         throw PluginFunctionFailure(code: "plugin.build.unavailable", message: L10n.string("Native configuration is unavailable."))
     }
 }

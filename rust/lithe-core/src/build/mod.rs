@@ -17,7 +17,6 @@
 
 mod commands;
 mod configuration;
-mod configuration_xml;
 mod debug_preparation;
 mod decode;
 mod detect;

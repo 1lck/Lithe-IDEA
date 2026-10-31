@@ -40,7 +40,7 @@ extension AppModel {
             try sessions.javaTestItems(fileURL: fileURL) { completion($0.map(\.items)) }
         } ?? []
         let project = buildSystemsFeatureIfActive?.projectPath(containing: document.url)
-        let outcomes = (languageTestServiceIfActive?.testOutcomes ?? []).filter {
+        let outcomes = (languageTestServiceIfActive?.testOutcomes(for: "java") ?? []).filter {
             $0.project == nil || $0.project == project
         }
         return services.javaMavenOperations.javaRunMarkers(

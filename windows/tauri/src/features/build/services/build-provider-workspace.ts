@@ -275,10 +275,14 @@ export class WindowsBuildProviderWorkspace {
         const target = { workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID };
         const preparing = files.prepare(target, selected.root, operation.record.id, savedSnapshot, savedEdits);
         try {
-          const changed = await operation.native(preparing);
+          const outputFile = await operation.native(preparing);
           operation.current();
-          if (!changed) return savedSnapshot;
-          const committing = files.commit(operation.record.id).then(() => this.nativeConfigurationChanged(selected, operation.record.id));
+          if (!outputFile) return savedSnapshot;
+          const receipt = await operation.perform("build.configurationEditPlan", { snapshot: savedSnapshot, edits: savedEdits, outputFile });
+          operation.current();
+          const committing = files.commit(operation.record.id, receipt).then(changed => {
+            if (changed) this.nativeConfigurationChanged(selected, operation.record.id);
+          });
           await operation.native(committing);
           operation.current();
           const result = await operation.perform("build.configurationPlan", { refresh: true });

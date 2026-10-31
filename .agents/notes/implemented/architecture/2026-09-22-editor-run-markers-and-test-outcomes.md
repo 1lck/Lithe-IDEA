@@ -49,6 +49,18 @@ macOS 的 Maven 测试已切换到 Build Provider：JDT 仍提供类和方法标
 隔离同名类，重跑仅替换本次返回的规范方法结果，不解释一个不透明测试标识来清空
 其他方法的失败。
 
+macOS 服务、结果树和 Java 行标记边界直接消费通用报告 `BuildTestResults`，不再转换成
+`MavenTestResults`。多份报告保留并相加规范结果的 `summary`，不在 Swift 重新解释统计口径；
+`invocations` 独立保留，重复调用的聚合仍由后端和 Core 完成。套件和用例名称完整保留，括号及参数后缀不由
+宿主解析；耗时只读报告的 `durationMillis`，不再读取 Surefire 控制台摘要。
+现有 JDT 适配器提供独立的报告名称关联，执行标识仍原样转发；通用 UI 仅按完整字段
+匹配，工程、套件和用例分开作键，名称中的 `#`、冒号或括号不会合并不同结果。
+精确重跑引用单独按报告用例关联；清空当前结果时清空引用和来源根，历史行标记保留。
+历史按语言提供者隔离，Node 等提供者的同名用例不能覆盖 Java 的编辑器状态。
+结果树合并精确的语义关联与全部报告节点；只有部分源码匹配时，也不能丢弃其余
+报告用例。来源不明确或关联重复的节点保留为报告节点，不据名称猜测 Debug 源码。
+Java 行标记操作接受通用 `suite`／`case`，为现有 Windows 调用保留旧字段别名。
+
 整类重跑按后端明确返回的覆盖范围清除旧方法；单方法重跑保留兄弟方法和其他工程。
 没有覆盖范围时只替换报告中的精确用例，不能从选择器猜测执行范围。
 
@@ -72,7 +84,7 @@ Windows 启动指定测试类前继续重新向 JDT 查询文件并验证类归�
 macOS 顶栏保存完整的 `LanguageTestScope`（工作区、文件、类/方法）与 provider ID；测试面板切换范围后覆盖旧目标，顶栏 Run/Debug 按同一 scope 分派，不能把工作区或文件重建成上一次单方法目标。名称由 scope 生成，文件或单方法调试准备完成后采用 JDT 解析出的启动名称并保留原 scope，避免顶栏 Pause/Resume 的名称关联丢失；用户已切换目标时迟到结果不能覆盖新选择。顶栏 Run 在有测试目标时优先走测试分派，即使底层普通配置还在运行也不能重启它，运行图标和背景也按当前目标呈现。选择普通运行配置时清除测试目标。是否支持该范围的调试仍由既有测试调试准备流程判断。顶栏 Debug 在已有运行或暂停会话时仍先比较当前测试目标；目标改变就重新准备所选测试，只有同一目标才重启旧会话。
 
 
-Tests 结果树只展示当前运行的 `results`，且仅投影到 `activePlan.providerID` 对应分组；状态和耗时也不能跨提供者使用。关闭或清空当前结果后恢复完整发现列表，供编辑器标记使用的 `testOutcomes` 历史缓存继续保留，但不得用它恢复结果树。Tests 结果树的渲染、选中查询和默认选中共用节点集合，报告合成出的类/方法必须能按完整标识重跑；已有 JDT 节点继续保留源码关联。报告本身不能证明源码归属，缺少关联时禁用 Debug，不能从类名猜路径后启动另一个测试。
+Tests 结果树只展示当前运行的 `results`，且仅投影到 `activePlan.providerID` 对应分组；状态和耗时也不能跨提供者使用。关闭或清空当前结果后恢复完整发现列表，供编辑器标记使用的 `testOutcomesByProviderID` 历史缓存继续保留，但不得用它恢复结果树。Tests 结果树的渲染、选中查询和默认选中共用节点集合，报告合成出的类/方法必须能按完整标识重跑；已有 JDT 节点继续保留源码关联。报告本身不能证明源码归属，缺少关联时禁用 Debug，不能从类名猜路径后启动另一个测试。
 
 | | Windows（React/Monaco） | macOS（WKWebView 中的共享 Monaco） |
 | --- | --- | --- |
@@ -121,7 +133,7 @@ intellij-community 的 `runConfigurations/testState` 图标（Apache 2.0）。
 
 - `./scripts/rust-core/verify-rust-core.sh`：`java_main_methods`、`java_run_markers`、
   `maven_test_reports` 单元测试，`shared/fixtures/java/run-markers-v1.json` 兼容性
-  fixture，以及可选的真实 JDT 冒烟测试（设置 `LITHE_JDTLS_SMOKE_ROOT` 时断言 Java 25
+  fixture（同时覆盖旧字段与通用报告字段），以及可选的真实 JDT 冒烟测试（设置 `LITHE_JDTLS_SMOKE_ROOT` 时断言 Java 25
   实例 `main` 有标记、`private main` 没有）。
 - `./scripts/architecture/verify-shared-contracts.sh`
 - `./scripts/windows/verify/verify-windows-boundaries.sh`
@@ -137,3 +149,4 @@ intellij-community 的 `runConfigurations/testState` 图标（Apache 2.0）。
 - `frontend/editor/src/run-markers.ts`
 - `macos/Sources/Lithe/Models/AppModel/AppModel+JavaRunMarkers.swift`
 - `macos/Sources/LitheExecutionModule/Services/LanguageTestService.swift`
+- `shared/fixtures/build-provider/test-results-v1.json`

@@ -2411,12 +2411,15 @@ impl RuntimeSession {
                     .with_details("plugin.build.unavailable"));
                 }
             }
-            if request.method == super::build_provider::CONFIGURATION_METHOD
-                && !state
-                    .client
-                    .server_capabilities
-                    .iter()
-                    .any(|feature| feature == super::build_provider::CONFIGURATION_FEATURE)
+            if matches!(
+                request.method.as_str(),
+                super::build_provider::CONFIGURATION_METHOD
+                    | super::build_provider::EDIT_CONFIGURATION_METHOD
+            ) && !state
+                .client
+                .server_capabilities
+                .iter()
+                .any(|feature| feature == super::build_provider::CONFIGURATION_FEATURE)
             {
                 return Err(CoreError::new(
                     ErrorCode::NotSupported,

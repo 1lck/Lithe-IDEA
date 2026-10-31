@@ -1017,13 +1017,24 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 kind: .testCase,
                 fileURL: fileURL,
                 testIdentifier: item.fullName,
-                depth: depth
+                depth: depth,
+                reportIdentity: javaTestReportIdentity(item)
             )] + projectJavaTestItems(
                 item.children,
                 fileURL: fileURL,
                 depth: depth + 1
             )
         }
+    }
+
+    /// Keep JDT's display-name convention in its existing language adapter;
+    /// the generic Tests view never parses report names or execution selectors.
+    private static func javaTestReportIdentity(_ item: JavaTestItem) -> LanguageTestItem.ReportIdentity? {
+        if item.level == 5 { return .init(suite: item.fullName) }
+        guard item.level == 6, let separator = item.fullName.firstIndex(of: "#") else { return nil }
+        let name = item.fullName[item.fullName.index(after: separator)...]
+        return .init(suite: String(item.fullName[..<separator]),
+                     name: name.split(separator: "(", maxSplits: 1).first.map(String.init) ?? String(name))
     }
 
     private static func sortedJavaTestItems(

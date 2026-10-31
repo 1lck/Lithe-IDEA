@@ -2180,6 +2180,73 @@ fn provider_execution_tasks_are_typed_and_version_gated() {
     );
 }
 
+#[test]
+fn preparation_tasks_are_declared_versioned_and_unambiguous() {
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-preparation.plugin.json"
+    ))
+    .unwrap();
+    let validated = validate(manifest.clone());
+    assert_eq!(validated["status"], "ok", "{validated}");
+    assert_eq!(
+        validated["plugin"]["buildSystems"][0]["tasks"][0]["preparation"],
+        json!({"purpose":"run","sourceRoles":["generatedSource","source"]})
+    );
+    let review = install_review_command(json!({"manifest":manifest})).unwrap();
+    let mut changed = manifest.clone();
+    changed["buildSystems"][0]["tasks"][0]["preparation"]["purpose"] = json!("package");
+    let updated = install_review_command(
+        json!({"manifest":changed,"approvedPrograms":review["review"]["programs"]}),
+    )
+    .unwrap();
+    assert_eq!(
+        updated["review"]["newPrograms"].as_array().unwrap().len(),
+        1,
+        "Automatic invocation bindings are behavioral, not display-only metadata"
+    );
+    let mut unversioned = manifest.clone();
+    unversioned["requires"]["buildSystems"] = json!(3);
+    assert_eq!(validate(unversioned)["status"], "rejected");
+    let old_host = validate_command(json!({"manifest":manifest,
+        "hostCapabilities":{"buildSystems":[1,2,3],"buildProviders":[1,2],"serverProcess":[1],"settings":[1]}})).unwrap();
+    assert_eq!(old_host["status"], "rejected");
+    assert_eq!(old_host["error"]["field"], "requires.buildSystems");
+
+    for binding in [
+        json!({"purpose":"run","sourceRoles":[]}),
+        json!({"purpose":"run","sourceRoles":["testSource"]}),
+        json!({"purpose":"run","sourceRoles":["source","source"]}),
+        json!({"purpose":"run","sourceRoles":["excluded"]}),
+        json!({"purpose":"run","sourceRoles":["java"]}),
+        json!({"purpose":"","sourceRoles":["source"]}),
+    ] {
+        let mut invalid = manifest.clone();
+        invalid["buildSystems"][0]["tasks"][0]["preparation"] = binding;
+        assert_eq!(validate(invalid)["status"], "rejected");
+    }
+    for (field, value) in [
+        ("scopes", json!(["workspace"])),
+        ("requiresUserArguments", json!(true)),
+        ("execution", json!("service")),
+        ("fromModel", json!(true)),
+    ] {
+        let mut invalid = manifest.clone();
+        invalid["buildSystems"][0]["tasks"][0][field] = value;
+        assert_eq!(validate(invalid)["status"], "rejected");
+    }
+    // Task IDs remain provider-owned, and no new protocol method is involved.
+    let plan = call(
+        "taskPlan",
+        manifest,
+        "gradle",
+        json!({
+        "root":".", "task":"prepare-specs", "project":{"name":"app","path":"app"}}),
+    );
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"]["provider"]["params"]["task"], "prepare-specs");
+    assert_eq!(plan["plan"]["provider"]["method"], "lithe/build/execute");
+}
+
 /// Test selection remains typed and report paths reuse the existing decoder;
 /// no test selector is interpolated into a host command.
 #[test]

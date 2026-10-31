@@ -11,8 +11,7 @@ const context: BuildToolContext = { manifest: { id: instance.pluginID }, pluginD
   workspaceStateDirectory: "C:/state", tool: { executable: "C:/maven/mvn.cmd" },
   environment: { JAVA_HOME: "C:/selected-jdk", PATH: "C:/selected-jdk/bin" }, executesProjectCode: false };
 const configuration: BuildNativeConfiguration = { format: "litheBuildConfiguration", version: 1, sources: [{ id: "user", scope: "user",
-  uri: "file:///C:/fixture/settings.xml", revision: "sha256:" + "a".repeat(64), writable: true, rootElement: { name: "settings", namespace: "" },
-  fields: [{ id: "localRepository", kind: "directory", value: null, effectiveValue: "inherited repository", effectiveSource: "default", path: ["localRepository"] }] }] };
+  uri: "file:///C:/fixture/settings.xml", revision: "sha256:" + "a".repeat(64), writable: true, fields: [{ id: "localRepository", kind: "directory", value: null, effectiveValue: "inherited repository", effectiveSource: "default" }] }] };
 const edits = { sourceID: "user", revision: configuration.sources[0]!.revision, values: { localRepository: "saved repository" } };
 
 function deferred<T>() {
@@ -72,13 +71,14 @@ function fixture() {
     },
     configurationCheck: async () => ({ current: nativeCurrent, paths: ["C:/fixture/settings.xml"] }),
     configurationFiles: {
-      prepare: async () => { fileCalls.push("prepare"); entered.prepare.resolve(); return await prepareGate ?? true; },
+      prepare: async () => { fileCalls.push("prepare"); entered.prepare.resolve(); return (await prepareGate ?? true) ? "C:/state/outputs/edit.json" : null; },
       commit: async () => {
         fileCalls.push("commit");
         entered.commit.resolve(); if (commitGate) await commitGate;
         if (commitFailure) throw Object.assign(new Error("build.configuration.conflict"), { code: "build.configuration.conflict" });
         nativeConfiguration.sources[0]!.fields[0]!.value = "upstream readback";
         nativeConfiguration.sources[0]!.revision = "sha256:" + "b".repeat(64);
+        return true;
       },
       cancel: async () => { fileCalls.push("cancel"); if (cancelFailures-- > 0) throw new Error("native release failed"); },
     },

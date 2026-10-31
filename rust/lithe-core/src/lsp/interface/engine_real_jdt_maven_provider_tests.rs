@@ -284,20 +284,29 @@ fn real_provider_resources_survive_jdt_build_and_reach_the_project_jvm() {
         "nested/app/test inputs/test.properties",
         "selected=${selected.value}:test-changed",
     );
-    for (class, task, expected) in [
-        (
-            "demo.Main",
-            "java-prepare-run-main",
-            "provider:changed:library",
-        ),
+    for (class, role, expected) in [
+        ("demo.Main", "source", "provider:changed:library"),
         (
             "demo.TestMain",
-            "java-prepare-run-test",
+            "testSource",
             "provider:test-changed:library",
         ),
     ] {
+        let tasks = manifest["buildSystems"][0]["tasks"]
+            .as_array()
+            .expect("tasks");
+        let declared: Vec<_> = tasks
+            .iter()
+            .filter(|task| {
+                task["preparation"]["purpose"] == "run"
+                    && task["preparation"]["sourceRoles"]
+                        .as_array()
+                        .is_some_and(|roles| roles.iter().any(|value| value == role))
+            })
+            .collect();
+        assert_eq!(declared.len(), 1, "one declared preparation for {role}");
         let mut request = base.clone();
-        request["task"] = json!(task);
+        request["task"] = declared[0]["id"].clone();
         request["project"] = project.clone();
         let plan = build_command(&manifest, "build.taskPlan", request);
         let result = provider_request(&engine, &provider, &plan["plan"]);

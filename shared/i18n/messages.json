@@ -91406,13 +91406,13 @@
     },
     {
       "id": "native.nativeConfigurationFileRequired",
-      "description": "Native build configuration: The native configuration must be a writable UTF-8 XML file smaller than 2 MB.",
+      "description": "Native build configuration: The native configuration must be a writable file smaller than 2 MB.",
       "platforms": [
         "macos",
         "windows"
       ],
       "macos": {
-        "key": "The native configuration must be a writable UTF-8 XML file smaller than 2 MB.",
+        "key": "The native configuration must be a writable file smaller than 2 MB.",
         "arguments": []
       }
     },

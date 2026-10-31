@@ -3986,7 +3986,7 @@
 "The name of the artifact the build produces." = "The name of the artifact the build produces.";
 "The native Hook configuration must be valid JSON. Existing contents were kept." = "The native Hook configuration must be valid JSON. Existing contents were kept.";
 "The native Hook event must contain an array. Existing contents were kept." = "The native Hook event must contain an array. Existing contents were kept.";
-"The native configuration must be a writable UTF-8 XML file smaller than 2 MB." = "The native configuration must be a writable UTF-8 XML file smaller than 2 MB.";
+"The native configuration must be a writable file smaller than 2 MB." = "The native configuration must be a writable file smaller than 2 MB.";
 "The native hooks field must be a JSON object. Existing contents were kept." = "The native hooks field must be a JSON object. Existing contents were kept.";
 "The native panel state exceeds 64 KiB." = "The native panel state exceeds 64 KiB.";
 "The official Lithe plugin repository cannot be removed. Disable it instead." = "The official Lithe plugin repository cannot be removed. Disable it instead.";
@@ -7061,7 +7061,7 @@
 "native.nativeConfigurationBusy" = "Native configuration is busy. Wait for the current operation to finish.";
 "native.nativeConfigurationDiskConflict" = "Native configuration changed on disk. Reload before saving; your draft has been kept.";
 "native.nativeConfigurationExplicitRead" = "Reading configuration with this project tool requires an explicit action.";
-"native.nativeConfigurationFileRequired" = "The native configuration must be a writable UTF-8 XML file smaller than 2 MB.";
+"native.nativeConfigurationFileRequired" = "The native configuration must be a writable file smaller than 2 MB.";
 "native.nativeConfigurationNoInstance" = "This project has no matching build-system instance.";
 "native.nativeConfigurationNotRead" = "No native configuration has been read.";
 "native.nativeConfigurationOpenProject" = "Open a project to read its native configuration.";
