@@ -609,6 +609,11 @@ jobs:
         # Isolated step: this suite installs a process-wide Tauri boundary mock.
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-search-snapshot.json -- src/features/file-search/lib/file-search-api.test.ts
 
+      - name: Test content search indexing errors and session lifecycle
+        shell: pwsh
+        # Isolate this suite's filesystem, settings and search-provider mocks.
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-content-search-indexing.json -- src/features/global-search/hooks/use-content-search.integration.test.tsx src/features/global-search/stores/global-search.store.test.ts
+
       - name: Test wheel scroll animation and container wheel ownership
         shell: pwsh
         timeout-minutes: 3

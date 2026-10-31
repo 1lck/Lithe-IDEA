@@ -1,5 +1,8 @@
 import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
-import { useIndexingVersion } from "@/features/file-explorer/stores/workspace-indexing";
+import {
+  IndexingSettingsError,
+  useIndexingVersion,
+} from "@/features/file-explorer/stores/workspace-indexing";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDebounce } from "use-debounce";
 import type { FileEntry } from "@/features/file-system/types/app.types";
@@ -18,6 +21,7 @@ import { mergeSearchResults } from "../utils/content-search-results";
 import { createPathFilterPredicate } from "../utils/path-filters";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useGlobalSearchStore } from "../stores/global-search.store";
+import type { ContentSearchFailure } from "../types/global-search.types";
 
 export type { ContentSearchOptions } from "../types/global-search.types";
 
@@ -43,10 +47,11 @@ function getSearchAvailability(rootPath: string | null | undefined): ContentSear
   return "unsupported";
 }
 
-function getErrorMessage(error: unknown): string {
+function getSearchFailure(error: unknown): ContentSearchFailure {
+  if (error instanceof IndexingSettingsError) return { kind: "indexing", code: error.code };
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
-  return "Unknown search error";
+  return { kind: "unknown" };
 }
 
 function hasPathFilters(includeQuery: string, excludeQuery: string): boolean {
@@ -326,7 +331,7 @@ export const useContentSearch = () => {
       } catch (searchError) {
         if (!searchActions.isCurrentRequest(currentRequestId)) return;
         console.error("Search error:", searchError);
-        searchActions.failSearch(searchKey, `Search failed: ${getErrorMessage(searchError)}`);
+        searchActions.failSearch(searchKey, getSearchFailure(searchError));
       } finally {
         if (searchActions.isCurrentRequest(currentRequestId)) {
           setIsSearching(false);
@@ -375,7 +380,7 @@ export const useContentSearch = () => {
     } catch (searchError) {
       if (!searchActions.isCurrentRequest(currentRequestId)) return;
       console.error("Search error:", searchError);
-      searchActions.failLoadMore(`Search failed: ${getErrorMessage(searchError)}`);
+      searchActions.failLoadMore(getSearchFailure(searchError));
     } finally {
       if (searchActions.isCurrentRequest(currentRequestId)) {
         setIsLoadingMore(false);
@@ -426,7 +431,7 @@ export const useContentSearch = () => {
         if (failureCount >= 3) {
           searchActions.failIndexing(
             searchKey,
-            `Search indexing failed: ${getErrorMessage(statusError)}`,
+            getSearchFailure(statusError),
           );
           return;
         }

@@ -510,8 +510,20 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction?.kind == .startConfigurations(ids.sorted()))
         #expect(runConfigurations.launchPlanCallCount == 0)
 
-        operations.publish(workspace.snapshot)
+        // The batch can defer before the opening scan has returned. A refresh
+        // while that scan is loading is intentionally ignored, so first await
+        // the observable provisional result rather than dropping the test's
+        // only request for the newly published inventory.
+        try #require(await awaitChange(on: model.workspaceFeature, timeout: .seconds(30)) {
+            model.workspaceLoadErrorMessage != nil
+                && !model.workspaceFeature.isLoadingWorkspace
+                && !model.workspaceFeature.isRefreshingWorkspace
+        })
+        let snapshot = workspace.snapshot
+        operations.publish(snapshot)
         await model.workspaceFeature.refreshCurrent()
+        try #require(model.workspaceSnapshotID == snapshot.id,
+                     "the published inventory must be applied before resuming the batch")
         #expect(await runConfigurations.launchPlanRequested(2))
         #expect(model.pendingRunAction == nil)
         #expect(runConfigurations.launchPlanCallCount == 2)
