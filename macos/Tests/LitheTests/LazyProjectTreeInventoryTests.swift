@@ -15,6 +15,7 @@ struct LazyProjectTreeInventoryTests {
         defer { fixture.close() }
         await fixture.load()
         let configured = fixture.disk.configurationCount
+        let configurationFinished = fixture.disk.expectConfiguration()
         let finished = fixture.expectRefresh(for: keep)
         let gitFinished = fixture.expectGitRefresh()
         let source = try #require(fixture.watcher.source)
@@ -27,6 +28,7 @@ struct LazyProjectTreeInventoryTests {
         // A stable inventory must not swallow the ordinary file's content update.
         #expect(fixture.changes.contains(WorkspaceFileChange(fileURL: keep, kind: .changed)))
         #expect(await gitFinished.waitUntilOpen())
+        #expect(await configurationFinished.waitUntilOpen())
         #expect(fixture.disk.configurationCount > configured)
     }
 
@@ -655,7 +657,13 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
     private var configurationTimeout = false
     private var configurationRevision: UInt64 = 0
     private var configurations = 0
+    private var nextConfigurationFinished: TestGate?
     var configurationCount: Int { lock.withLock { configurations } }
+    func expectConfiguration() -> TestGate {
+        let gate = TestGate()
+        lock.withLock { nextConfigurationFinished = gate }
+        return gate
+    }
     func setConfigurationRevision(_ revision: UInt64) { lock.withLock { configurationRevision = revision } }
     let releaseObserved = TestGate()
     private var nextFailure: WorkspaceIndexingFailure?
@@ -688,7 +696,12 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
     func blockNextListing() { lock.withLock { shouldBlock = true } }
 
     func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {
-        lock.withLock { configurations += 1 }
+        let completion = lock.withLock {
+            configurations += 1
+            let gate = nextConfigurationFinished
+            nextConfigurationFinished = nil
+            return gate
+        }
         if let error = lock.withLock({ let error = nextFailure; nextFailure = nil; return error }) { throw error }
         let (blocks, fails) = lock.withLock {
             let blocks = blockConfiguration
@@ -702,7 +715,7 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
             lock.withLock { configurationTimeout = !released }
             if !released || fails { throw CocoaError(.fileReadUnknown) }
         }
-        return lock.withLock {
+        let status = lock.withLock {
             self.policy = policy
             var status = WorkspaceIndexingStatus()
             status.supportsExclusions = supportsExclusions
@@ -711,6 +724,8 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
             if policy.gitIgnoreEnabled { status.excludedDirectories["ignored"] = "git" }
             return status
         }
+        completion?.open()
+        return status
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {

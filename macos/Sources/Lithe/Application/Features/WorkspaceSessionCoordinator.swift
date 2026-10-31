@@ -35,6 +35,8 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     @Published private(set) var recentProjects: [RecentProject]
     @Published private(set) var isActive = true
     private(set) var pendingCloseRequest: CloseRequest?
+    /// One session opening, independent of the resource projection's rebuilds.
+    private(set) var openingGeneration = 0
 
     private let recentProjectsStore: RecentProjectsStore
     private let recentProjectBranchReader: any RecentProjectBranchReading
@@ -130,6 +132,7 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     /// Stops coordinator-owned asynchronous work and releases the native URL
     /// lease. Feature shutdown remains owned by the application's module graph.
     func stopSessionResources() {
+        openingGeneration &+= 1
         workspaceRebuildID = UUID()
         workspaceRebuildTask?.cancel()
         workspaceRebuildTask = nil
@@ -138,6 +141,7 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     }
 
     func beginWorkspace(at url: URL) {
+        openingGeneration &+= 1
         workspaceRebuildID = UUID()
         stopAccessingWorkspace()
         workspaceURL = url.standardizedFileURL
@@ -148,6 +152,7 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     }
 
     func beginStandaloneFile(at url: URL) {
+        openingGeneration &+= 1
         workspaceRebuildID = UUID()
         stopAccessingWorkspace()
         workspaceURL = nil
@@ -155,6 +160,7 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     }
 
     func clearSession() {
+        openingGeneration &+= 1
         workspaceRebuildID = UUID()
         workspaceRebuildTask?.cancel()
         workspaceRebuildTask = nil

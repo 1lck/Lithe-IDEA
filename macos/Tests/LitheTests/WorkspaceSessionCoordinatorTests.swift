@@ -30,13 +30,16 @@ struct WorkspaceSessionCoordinatorTests {
             feature.prepareForModuleRelease()
         }))
         coordinator.openWorkspace(at: newRoot)
+        let openingGeneration = coordinator.openingGeneration
         #expect(await preparationStarted.waitUntilOpen())
+        #expect(coordinator.openingGeneration == openingGeneration)
         #expect(feature.workspaceGeneration == oldGeneration)
         #expect(feature.appliedSnapshot == nil)
         finishTeardown.open()
         #expect(await loaded.waitUntilOpen())
         #expect(feature.rootNode?.url == newRoot)
         #expect(feature.loadErrorMessage == nil)
+        #expect(coordinator.openingGeneration == openingGeneration)
     }
 
     @Test
@@ -72,14 +75,18 @@ struct WorkspaceSessionCoordinatorTests {
         coordinator.configureLifecycle(with: handlers)
         let root = URL(fileURLWithPath: "/in-memory/coordinator-reopen")
         coordinator.openWorkspace(at: root)
+        let firstOpeningGeneration = coordinator.openingGeneration
         #expect(await preparationStarted.waitUntilOpen())
         coordinator.openWorkspace(at: root)
+        let secondOpeningGeneration = coordinator.openingGeneration
+        #expect(secondOpeningGeneration != firstOpeningGeneration)
         finishPreparation.open()
         #expect(await loaded.waitUntilOpen())
         #expect(preparationCount == 2)
         #expect(restorations == 1)
         #expect(feature.workspaceGeneration == 1)
         #expect(feature.rootNode?.url == root)
+        #expect(coordinator.openingGeneration == secondOpeningGeneration)
     }
 
     private func openingHandlers(wait: @escaping @MainActor () async -> Void) -> WorkspaceSessionCoordinator.LifecycleHandlers {
