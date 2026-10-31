@@ -24,4 +24,6 @@ pub(crate) use maven_dependency_tree::{
 };
 pub(crate) use maven_test_reports::MavenTestReportsRequest;
 
-pub use files::is_workspace_event_relevant;
+pub use files::{
+    filter_workspace_changes, is_workspace_event_relevant, WorkspaceChangeFilterRequest,
+};

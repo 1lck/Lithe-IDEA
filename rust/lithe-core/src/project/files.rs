@@ -45,10 +45,67 @@ pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
 /// Callers first relativize to the most specific explicitly watched root; native
 /// event-loss flags always bypass this filter and request recovery.
 pub fn is_workspace_event_relevant(relative: &str) -> bool {
+    is_workspace_event_relevant_with(relative, &[])
+}
+
+/// Like [`is_workspace_event_relevant`], but a built-in folder the user turned
+/// off with a `!` hidden-path entry is visible, so its events are kept.
+fn is_workspace_event_relevant_with(relative: &str, hidden_file_patterns: &[String]) -> bool {
+    let disabled = disabled_built_ins(hidden_file_patterns);
     !relative.split(['/', '\\']).any(|component| {
-        BUILT_IN_HIDDEN_DIRECTORIES
-            .iter()
-            .any(|name| component.eq_ignore_ascii_case(name))
+        BUILT_IN_HIDDEN_DIRECTORIES.iter().any(|name| {
+            component.eq_ignore_ascii_case(name) && !is_disabled_directory(name, &disabled)
+        })
+    })
+}
+
+/// Changed paths for `workspace.filterChanges`: a bare path list, or the
+/// paths with the hidden-path entries whose `!` lines turn built-in folders off.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum WorkspaceChangeFilterRequest {
+    Paths(Vec<String>),
+    #[serde(rename_all = "camelCase")]
+    WithRules {
+        paths: Vec<String>,
+        #[serde(default)]
+        hidden_file_patterns: Vec<String>,
+    },
+}
+
+/// Keeps the changed paths outside the effective built-in hidden folders.
+pub fn filter_workspace_changes(request: WorkspaceChangeFilterRequest) -> Vec<String> {
+    let (paths, patterns) = match request {
+        WorkspaceChangeFilterRequest::Paths(paths) => (paths, Vec::new()),
+        WorkspaceChangeFilterRequest::WithRules {
+            paths,
+            hidden_file_patterns,
+        } => (paths, hidden_file_patterns),
+    };
+    paths
+        .into_iter()
+        .filter(|path| is_workspace_event_relevant_with(path, &patterns))
+        .collect()
+}
+
+/// The entries after a leading `!`. Such an entry turns a built-in rule off
+/// instead of hiding anything; it is never matched as a pattern itself.
+fn disabled_built_ins(hidden_file_patterns: &[String]) -> Vec<String> {
+    hidden_file_patterns
+        .iter()
+        .filter_map(|pattern| pattern.trim().strip_prefix('!'))
+        .map(|pattern| pattern.trim().to_string())
+        .collect()
+}
+
+/// A built-in folder is turned off by its displayed form `**/name/` or its bare name.
+fn is_disabled_directory(name: &str, disabled: &[String]) -> bool {
+    disabled.iter().any(|entry| {
+        entry.eq_ignore_ascii_case(name)
+            || entry
+                .strip_prefix("**/")
+                .and_then(|rest| rest.strip_suffix('/'))
+                .is_some_and(|rest| rest.eq_ignore_ascii_case(name))
     })
 }
 
@@ -920,17 +977,30 @@ pub(crate) struct VisibilityRules {
 }
 
 impl VisibilityRules {
+    /// Adds the built-in rules except those turned off by a `!` entry.
+    ///
+    /// Callers may already send built-in names; a turned-off entry is dropped
+    /// from their lists too, so the caller's copy cannot re-hide it.
     pub(crate) fn new(hidden_directories: Vec<String>, hidden_files: Vec<String>) -> Self {
+        let disabled = disabled_built_ins(&hidden_files);
         let mut directories = BUILT_IN_HIDDEN_DIRECTORIES
             .iter()
             .map(|value| (*value).to_string())
             .collect::<Vec<_>>();
         directories.extend(hidden_directories);
+        directories.retain(|name| !is_disabled_directory(name, &disabled));
         let mut files = BUILT_IN_HIDDEN_FILE_PATTERNS
             .iter()
             .map(|value| (*value).to_string())
             .collect::<Vec<_>>();
         files.extend(hidden_files);
+        files.retain(|pattern| {
+            let pattern = pattern.trim();
+            !pattern.starts_with('!')
+                && !disabled
+                    .iter()
+                    .any(|entry| entry.eq_ignore_ascii_case(pattern))
+        });
         Self {
             hidden_directories: normalize(directories),
             hidden_file_patterns: normalize(files),

@@ -26,3 +26,17 @@ extension FileVisibilityRules {
         )
     }
 }
+
+extension AppSettings {
+    /// Project visibility plus the rules that only keep files out of local history.
+    var localHistoryRules: LocalHistoryVisibilityRules {
+        let visibility = fileVisibilityRules
+        return LocalHistoryVisibilityRules(
+            hiddenDirectoryNames: visibility.hiddenDirectoryNames,
+            hiddenFilePatterns: visibility.hiddenFilePatterns,
+            ignorePatterns: localHistoryIgnorePatterns,
+            ignoreRegexes: localHistoryIgnoreRegexes,
+            storageLimitBytes: Int64(localHistoryStorageLimitMegabytes) * 1024 * 1024
+        )
+    }
+}

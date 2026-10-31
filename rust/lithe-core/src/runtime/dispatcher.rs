@@ -29,8 +29,9 @@ use crate::project::{
     WorkspaceSnapshotRequest,
 };
 use crate::project::{
-    HistoryContentRequest, HistoryDeleteRequest, HistoryEntriesRequest, HistoryRecordRequest,
-    HistoryRelocateRequest, HistoryRenameRequest,
+    HistoryContentRequest, HistoryDeleteRequest, HistoryEntriesRequest,
+    HistoryIgnorePreviewRequest, HistoryRecordRequest, HistoryRelocateRequest,
+    HistoryRenameRequest, HistoryStorageRequest,
 };
 use crate::project::{
     MarkdownRenderRequest, MavenDependenciesRequest, MavenDependencyPlanRequest,
@@ -565,13 +566,12 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
         CoreCommand::WorkspaceFilterChanges => {
-            match serde_json::from_value::<Vec<String>>(parsed.payload) {
-                Ok(paths) => CoreResponse::success(
+            match serde_json::from_value::<crate::project::WorkspaceChangeFilterRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
                     id,
-                    serde_json::json!(paths
-                        .into_iter()
-                        .filter(|path| crate::project::is_workspace_event_relevant(path))
-                        .collect::<Vec<_>>()),
+                    serde_json::json!(crate::project::filter_workspace_changes(request)),
                 ),
                 Err(error) => CoreResponse::failure(
                     id,
@@ -855,6 +855,51 @@ fn execute(request: &str) -> CoreResponse {
                 .and_then(crate::project::delete)
             {
                 Ok(()) => CoreResponse::success(id, serde_json::json!({"deleted": true})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::HistoryIgnorePreview => {
+            match serde_json::from_value::<HistoryIgnorePreviewRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid history ignore preview request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::project::ignore_preview)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("history ignore preview should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::HistoryUsage => {
+            match serde_json::from_value::<HistoryStorageRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid history usage request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::project::usage)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("history usage should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::HistoryClear => {
+            match serde_json::from_value::<HistoryStorageRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid history clear request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::project::clear)
+            {
+                Ok(()) => CoreResponse::success(id, serde_json::json!({"cleared": true})),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

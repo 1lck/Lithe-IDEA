@@ -549,31 +549,23 @@ struct SettingsView: View {
                 }
             }
 
-            group("Hidden paths", info: "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.") {
+            group("Hidden paths", info: "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.") {
                 hiddenPathsEditor
+            }
+
+            group("Local history", info: "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`. The list starts with built-in dependency, cache and build output folders such as `**/node_modules/`; delete a line to record that folder again.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.") {
+                LocalHistorySettingsControl(settings: settings)
             }
         }
     }
 
-    /// One pattern list with the built-in patterns echoed beneath it, so the
-    /// effective rules are visible without being editable.
+    /// One pattern list that starts with the built-in patterns. Deleting a
+    /// built-in line turns that rule off; typing it again turns it back on.
     private var hiddenPathsEditor: some View {
-        let builtIn = FileVisibilityRules.builtInPatterns
-        let shown = builtIn.prefix(3)
-        return VStack(alignment: .leading, spacing: 6) {
-            LitheTextEditor(text: $viewState.hiddenPathPatternsDraft, height: 72)
+        VStack(alignment: .leading, spacing: 6) {
+            LitheTextEditor(text: $viewState.hiddenPathPatternsDraft, height: 120)
                 .accessibilityLabel(Text("Hidden paths"))
             HStack(spacing: 6) {
-                HStack(spacing: 6) {
-                    Text("Built-in")
-                        .font(LitheTheme.uiFont(size: 11))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                    ForEach(shown, id: \.self) { LitheSettingsPill(verbatim: $0, kind: .value) }
-                    if builtIn.count > shown.count {
-                        LitheSettingsPill(verbatim: "+\(builtIn.count - shown.count)")
-                    }
-                }
-                .help(Text(verbatim: builtIn.joined(separator: "   ")))
                 Spacer(minLength: 8)
                 Button("Apply") { applyVisibilityDrafts() }
                     .buttonStyle(LitheActionButtonStyle())
@@ -1755,11 +1747,17 @@ struct SettingsView: View {
     }
 
     private func syncVisibilityDrafts() {
-        viewState.hiddenPathPatternsDraft = settings.hiddenPathPatterns.joined(separator: "\n")
+        viewState.hiddenPathPatternsDraft = BuiltInRuleList.displayed(
+            stored: settings.hiddenPathPatterns,
+            builtIns: FileVisibilityRules.builtInPatterns
+        ).joined(separator: "\n")
     }
 
     private func applyVisibilityDrafts() {
-        settings.hiddenPathPatterns = entries(from: viewState.hiddenPathPatternsDraft)
+        settings.hiddenPathPatterns = BuiltInRuleList.stored(
+            lines: entries(from: viewState.hiddenPathPatternsDraft),
+            builtIns: FileVisibilityRules.builtInPatterns
+        )
     }
 
     private func entries(from text: String) -> [String] {
