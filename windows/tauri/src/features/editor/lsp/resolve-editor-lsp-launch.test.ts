@@ -25,6 +25,36 @@ const mavenLaunchContextForWorkspace = mock(async () => ({
   javaHomePath: "C:/Java/jdk-21",
 }));
 
+test("keeps the Java owner and direct JDT resources while forwarding plugin lifecycle identity", async () => {
+  const resources = {
+    launcherJarPath: "C:/fixture/plugins/java/language-server/plugins/launcher.jar",
+    configurationDirectory: "C:/fixture/plugins/java/language-server/configuration/x86_64",
+    lombokAgentPath: "C:/fixture/plugins/java/language-server/lombok/lombok.jar",
+    javaDebugBundlePath: "C:/fixture/plugins/java/language-server/java-debug/debug.jar",
+    javaExtensionBundlePaths: ["C:/fixture/plugins/java/language-server/java-test/extensions/test.jar"],
+  };
+  const launch = await resolveEditorLspLaunch(
+    "C:/fixture/workspace/src/Main.java",
+    { workspaceId: "java-fixture", root: "C:/fixture/workspace" },
+    {
+      resolveJavaLspLaunch: async () => ({
+        providerId: "java", pluginId: "dev.lithe.plugin.java-support", languageId: "java",
+        executablePath: "C:/fixture/plugins/java/runtime/x86_64/bin/java.exe", arguments: ["-Xmx2048m"],
+        runtimeExecutablePath: "C:/fixture/plugins/java/runtime/x86_64/bin/java.exe",
+        jdtlsLaunchResources: resources, cacheDirectory: "C:/fixture/plugin-state/java/jdtls", environment: {},
+      }),
+      mavenLaunchContextForWorkspace: async () => null,
+      ensureWorkspaceGitBootstrap: async () => "skipped",
+      resolveDeclarativePluginLaunch: async () => { throw new Error("Java must use the existing JDT owner"); },
+    },
+  );
+  expect(launch?.providerId).toBe("java");
+  expect(launch?.pluginId).toBe("dev.lithe.plugin.java-support");
+  expect(launch?.jdtlsLaunchResources).toEqual(resources);
+  expect(launch?.runtimeExecutablePath).toBe("C:/fixture/plugins/java/runtime/x86_64/bin/java.exe");
+  expect(launch?.cacheDirectory).toBe("C:/fixture/plugin-state/java/jdtls");
+});
+
 test("resolves workspace A Maven context while workspace B is active", async () => {
   workspaceRuntimeRegistry.activateWorkspace({ id: "workspace-b", name: "B" }, "ready");
   const launch = await resolveEditorLspLaunch(

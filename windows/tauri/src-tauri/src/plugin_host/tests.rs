@@ -28,12 +28,13 @@ const ACCEPTED_FIXTURES: [&str; 7] = [
 
 /// Valid manifests whose capabilities exceed the host declaration; Core
 /// rejects them through the capability gate, not through manifest semantics.
-const CAPABILITY_GATED_FIXTURES: [&str; 5] = [
+const CAPABILITY_GATED_FIXTURES: [&str; 6] = [
     "build-static-file.plugin.json",
     "build-command-stdout.plugin.json",
     "build-command-output-file.plugin.json",
     "build-provider.plugin.json",
     "build-host-integration.plugin.json",
+    "publisher-bundled.plugin.json",
 ];
 
 fn fixture_path(name: &str) -> PathBuf {
@@ -348,6 +349,59 @@ fn catalog_build_combines_bundled_and_installed_sources() {
     assert!(bundled.entry.enabled);
 
     let _ = std::fs::remove_dir_all(&temporary);
+}
+
+#[test]
+fn rejected_installed_manifest_cannot_shadow_another_store_id() {
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let temporary = Cleanup(unique_temp_root("catalog-spoofed-id"));
+    let install_root = temporary.0.join("plugins");
+    let bundled_root = temporary.0.join("OfficialPlugins");
+    let owner_id = "io.example.installed-owner";
+    let mut manifest = read_fixture("language-system-command.plugin.json");
+    let bundled_id = manifest["id"].as_str().expect("fixture ID").to_string();
+    let bundled_directory = bundled_root.join(&bundled_id);
+    std::fs::create_dir_all(&bundled_directory).expect("bundled directory");
+    manifest["vendor"]["signatureRequirement"] = json!("sameTeamAsHost");
+    std::fs::write(bundled_directory.join("plugin.json"), manifest.to_string())
+        .expect("bundled manifest");
+
+    let owner_directory = install_root.join(owner_id);
+    let version_directory = owner_directory.join("1.0.0");
+    std::fs::create_dir_all(&version_directory).expect("installed directory");
+    manifest["id"] = json!(owner_id);
+    manifest["vendor"]["signatureRequirement"] = json!("none");
+    std::fs::write(version_directory.join("plugin.json"), manifest.to_string())
+        .expect("approved manifest");
+    write_record_v2(
+        &owner_directory,
+        owner_id,
+        "1.0.0",
+        &version_directory,
+        true,
+    );
+    // A later invalid manifest claims an unrelated bundled identity. Its
+    // untrusted contents cannot change which installed directory owns the ID.
+    manifest["id"] = json!(bundled_id);
+    manifest["schemaVersion"] = json!(99);
+    std::fs::write(version_directory.join("plugin.json"), manifest.to_string())
+        .expect("tampered manifest");
+
+    let catalog = build_catalog_from(&bundled_root, &install_root).expect("catalog");
+    assert_eq!(catalog.len(), 2, "unrelated bundled source remains visible");
+    assert!(catalog
+        .iter()
+        .any(|package| package.entry.source == "bundled"
+            && package.entry.plugin_id == bundled_id
+            && package.entry.status == "accepted"));
+    assert!(catalog
+        .iter()
+        .any(|package| package.entry.source == "installed" && package.entry.status == "rejected"));
 }
 
 fn unique_temp_root(label: &str) -> PathBuf {

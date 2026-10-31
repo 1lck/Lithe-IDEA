@@ -88,6 +88,7 @@ export async function resolveEditorLspLaunch(
         bindJavaBuildLanguageImport(scope, filePath, prepared.value.mavenContext !== null);
       return {
         providerId: launch.providerId || JAVA_PROVIDER_ID,
+        pluginId: launch.pluginId ?? undefined,
         languageId: launch.languageId || JAVA_LANGUAGE_ID,
         serverPath: launch.executablePath,
         serverArgs: launch.arguments ?? [],

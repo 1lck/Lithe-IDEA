@@ -644,7 +644,7 @@ fn verified_packaged_path(root: &Path, relative: &str) -> Result<PathBuf, String
 
 /// Required resources may be files or directories. Canonical containment and
 /// reparse checks apply before the process starts, including runtime entry files.
-fn verified_package_resource(root: &Path, relative: &str) -> Result<PathBuf, String> {
+pub(crate) fn verified_package_resource(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let relative_path = Path::new(relative);
     if relative_path.is_absolute()
         || relative_path.components().any(|part| {

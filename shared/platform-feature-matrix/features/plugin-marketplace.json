@@ -75,12 +75,21 @@
       "scripts/plugins/host-acceptance/marketplace_acceptance.py",
       "scripts/plugins/host-acceptance/marketplace_fixture.py",
       "scripts/plugins/host-acceptance/marketplace_acceptance_test.py",
-      "scripts/plugins/test-windows-declarative-plugin-host.ps1"
+      "scripts/plugins/test-windows-declarative-plugin-host.ps1",
+      "Plugins/win/Official/JavaSupport/plugin.json",
+      "Plugins/win/Official/JavaSupport/language-server.json",
+      "scripts/plugins/assemble-windows-java-support.py",
+      "scripts/plugins/test-assemble-windows-java-support.py",
+      "windows/tauri/src-tauri/src/plugin_host/signature_trust_tests.rs",
+      "windows/tauri/src-tauri/src/lsp_plugin_tests.rs",
+      "windows/tauri/src-tauri/src/lsp.rs",
+      "windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "owner": "Extensions",
-  "notes": "Windows 已接通原生市场目录、索引刷新、下载准备、人工确认与取消，以及设置页市场浏览、搜索、按来源显示和安装后刷新。Core 决定平台/API 可用性与归档；原生安装记录决定更新来源，磁盘、内置、未知来源和跨源同 ID 条目不能被接管。所有市场安装与更新均显示真实来源、完整权限和程序声明并要求明确确认；官方徽标只来自固定官方源与签名校验的原生结论。窗口关闭、源变更和页面卸载回收操作，迟到准备与确认不能污染新会话。Windows 产品端到端验收尚待新构建运行，保持 partial/pending。 已准备隔离原生市场验收入口、真实 HTTPS fixture 与完整程序声明/来源固定/取消/重启/更新驱动，并接入启动器可选参数；驱动单元与 DOM 测试不等于真实安装通过。受控交易仍需已有可信 HTTPS 证书及可达主机，官方发布者签名验收需正式 Windows 包；不修改 TLS/签名信任或系统信任库。",
-  "verification": "Windows：逐文件运行 declarative-marketplace、marketplace-types/session/section/host-service 和源管理测试，覆盖来源固定更新、权限扩张、取消先于登记、坏摘要、签名、staging/记录回滚、切源与并行审批竞态；Rust WindowsRust 计时套件覆盖真实 Core 与 M1 事务。运行 typecheck、i18n、资源复用拒绝路由和矩阵门禁。原生复验需在隔离用户目录完成添加源→刷新→搜索→完整审批→拒绝/取消→安装→重启→同源更新→停用/删除，并确认临时文件、所有子进程和发行资源哈希。macOS 按其既有市场/磁盘安装、来源、摘要、审批与资源只读测试执行；没有目标平台实机证据不得提升 verified。"
+  "notes": "Windows 已接通原生市场目录、索引刷新、下载准备、人工确认与取消，以及设置页市场浏览、搜索、按来源显示和安装后刷新。Core 决定平台/API 可用性与归档；原生安装记录决定更新来源，磁盘、内置、未知来源和跨源同 ID 条目不能被接管。所有市场安装与更新均显示真实来源、完整权限和程序声明并要求明确确认；官方徽标只来自固定官方源与签名校验的原生结论。窗口关闭、源变更和页面卸载回收操作，迟到准备与确认不能污染新会话。Windows 产品端到端验收尚待新构建运行，保持 partial/pending。 已准备隔离原生市场验收入口、真实 HTTPS fixture 与完整程序声明/来源固定/取消/重启/更新驱动，并接入启动器可选参数；驱动单元与 DOM 测试不等于真实安装通过。受控交易仍需已有可信 HTTPS 证书及可达主机，官方发布者签名验收需正式 Windows 包；不修改 TLS/签名信任或系统信任库。 Windows Java 已有独立离线候选组装和 publisherPackage 官方 pin，保留完整 requires；生产 packageTrust 关闭。仅测试候选能力验证真实来源签名、安装替换/回滚及同 ID 已安装来源覆盖内置（停用、隔离或坏清单也不回落）；Windows 无资源封装校验，目录包含和 EXE 签名不能授权未签名 Java。候选 JDT 继续使用既有 Java/Core owner，传递 pluginId，状态写入平台 plugin-state；未接入正式发布渠道，完整可信包、真实 JDT 生命周期和 ARM64 仍 pending。",
+  "verification": "Windows：逐文件运行 declarative-marketplace、marketplace-types/session/section/host-service 和源管理测试，覆盖来源固定更新、权限扩张、取消先于登记、坏摘要、签名、staging/记录回滚、切源与并行审批竞态；Rust WindowsRust 计时套件覆盖真实 Core 与 M1 事务。运行 typecheck、i18n、资源复用拒绝路由和矩阵门禁。原生复验需在隔离用户目录完成添加源→刷新→搜索→完整审批→拒绝/取消→安装→重启→同源更新→停用/删除，并确认临时文件、所有子进程和发行资源哈希。macOS 按其既有市场/磁盘安装、来源、摘要、审批与资源只读测试执行；没有目标平台实机证据不得提升 verified。 Windows Java：运行离线组装 8 项测试、资源复用拒绝路由与 signature_trust_tests/install_tests/lsp_plugin_tests 逐项计时回归；真实正式包安装、启用、JDT 设置、升级/回滚、禁用/卸载、子进程清理和发行文件哈希必须另行验收。合成 ARM64 仅验证资源选择，不能提升验证状态。",
+  "lastReviewed": "2026-10-31"
 }

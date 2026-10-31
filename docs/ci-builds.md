@@ -362,6 +362,38 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 
 ### 独立工作树的本地编译
 
+Windows Java 的离线候选组装由 `scripts/plugins/assemble-windows-java-support.py` 和
+`Plugins/win/Official/JavaSupport/` 独立拥有，不调用 macOS 组装脚本。先通过
+`node scripts/resources/reuse-worktree-resources.mjs --source <已有工作树> --resource jdtls --resource jdk`
+复制并校验固定下载输入，再运行：
+
+```powershell
+python scripts/plugins/assemble-windows-java-support.py --architecture x86_64 --output .artifacts/windows-java-support/local-x64 --timeout-seconds 300
+python scripts/plugins/test-assemble-windows-java-support.py
+```
+
+输入版本、HTTPS 来源与 SHA-256 由 `third_party/jdtls/manifest.json` 和
+`third_party/jdk/manifest.json` 固定；Windows x64/ARM64 分别要求对应 JDK、PE 架构与
+JDT configuration。脚本离线读取校验后的缓存，拒绝覆盖，清理本次 `.assemble-*` 后原子发布。
+`.artifacts/windows-java-support/`、暂存和 `windows-java-inputs.json` 均走
+`official-plugin-packages` 拒绝路由，所有复制阶段禁止复用；回执证明输入和文件哈希，
+不提供发布者签名或宿主资源封装。正式 Windows 签名完整包和 JDT 生命周期验收完成前，
+生产 `packageTrust` 保持关闭，不能把合成 ARM64 测试当作目标机器验收。
+
+生成器运行时契约验收在隔离 profile 的
+`<windows-local-app-data>/app.lithe.windows.host-acceptance/generator-runtime/` 创建独立 JDK
+副本；只在此副本内暂存 `bin/java.exe.acceptance-retained`，并在 finally 恢复。该副本与
+`generator-projects/` 都属于本次运行，随 profile 清理，走 `plugin-host-acceptance-state`
+拒绝路由；不能修改用户 JDK、运行镜像、已安装资源或可复用缓存。
+
+Java 工作流验收的 `.artifacts/plugin-host-acceptance/java-workflow-inputs-*/` 保存原始正式包
+引用、协调回执、JDK 身份与本次计划；`evidence/java-workflow/` 保存 JDT 和运行 IPC owner
+证据。驱动只消费显式 `--plan`，不会生成可信来源；隔离 profile 内的
+`java-workflow-start/` 是空的起始工作区目录，项目仍由 `generator-projects/<project.name>/`
+持有，JDT 状态继续由既有平台 adapter 分配。这些资料、工作区、项目和状态都走
+`plugin-host-acceptance-state` 拒绝路由，所有复制阶段禁止复用。协调回执不能提供发布者
+信任，验收前仍须取得正式可信包；当前只有驱动准备，不能把缺失可信输入写成工作流通过。
+
 Windows 插件正式验收的默认、LSP、设置和文本模式均使用完整源码库存及 EXE/配置/目标身份；`-SkipBuild` 必须匹配构建时的全部输入，旧 marker 缺失库存时应重新构建，不能补写为可复用证据。
 
 资源复用每次子校验默认最多 300 秒；文件很多的冷缓存可显式传入

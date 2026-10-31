@@ -760,10 +760,16 @@
       "coreEvidence": [
         "rust/lithe-core/src/tests/declarative_plugins.rs:24 contract fixture"
       ],
-      "windowsEvidence": [],
-      "windowsStatus": "unwired",
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/signature_trust_tests.rs:93 publisher_bundled_fixture_keeps_complete_requires_and_production_gate",
+        "windows/tauri/src-tauri/src/plugin_host/signature_trust_tests.rs:118 publisher_bundled_valid_signature_works_for_each_real_origin",
+        "windows/tauri/src-tauri/src/plugin_host/signature_trust_tests.rs:131 publisher_bundled_unsigned_copy_never_acquires_trust_from_a_directory",
+        "windows/tauri/src-tauri/src/plugin_host/install_tests.rs publisher_bundled_fixture_installs_replaces_and_rechecks_rollback",
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs CAPABILITY_GATED_FIXTURES"
+      ],
+      "windowsStatus": "validated-only",
       "gapStage": "followup",
-      "gapDetail": "Core 与 macOS 已覆盖打包发布者信任；Windows 现有签名安装测试没有直接消费此专用 fixture，不能据此声称 bundled publisher 的生产闭环已通过。"
+      "gapDetail": "Windows 测试直接消费完整 fixture，经仅 cfg(test) 的候选 packageTrust 与公开测试密钥覆盖 publisher/bundled 来源拒绝、真实安装替换/扫描/回滚、停用/隔离/坏清单不回落内置；生产 packageTrust 仍关闭。Windows 未实现可信资源封装，未签名 bundled Java 一律拒绝。正式签名完整包和真实 JDT 全生命周期尚待验收，不能把进程内测试当作生产闭环。"
     },
     {
       "path": "runtime-versions.json",

@@ -11,6 +11,7 @@ export interface JdtlsLaunchResources {
 
 export interface JavaLspLaunch {
   providerId: string;
+  pluginId?: string | null;
   languageId: string;
   executablePath: string;
   arguments: string[];

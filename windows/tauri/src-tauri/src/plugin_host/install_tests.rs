@@ -760,6 +760,167 @@ mod install_tests {
         });
     }
 
+    /// The dedicated shared fixture retains packageTrust in every phase.
+    /// Candidate admission and the RFC test key exist only in cfg(test).
+    #[test]
+    fn publisher_bundled_fixture_installs_replaces_and_rechecks_rollback() {
+        crate::plugin_host::with_package_trust_for_tests(|| {
+            let signing = signature::rfc8032_signing_key_for_tests();
+            signature::with_trusted_keys_for_tests(test_trusted_keys(&signing), || {
+                let root = unique_temp_root("publisher-bundled-transaction");
+                let plugin_id = "dev.lithe.plugin.java-support";
+                let install_root = root.join("plugins");
+                let temporary_root = root.join("temporary");
+                let bundled_root = root.join("OfficialPlugins");
+                let mut old_digest = String::new();
+                for (index, version) in ["1.0.0", "1.1.0"].into_iter().enumerate() {
+                    let source = root.join(format!("source-{version}"));
+                    std::fs::create_dir_all(&source).expect("source directory");
+                    let mut manifest = read_fixture_for_tests("publisher-bundled.plugin.json");
+                    manifest["id"] = json!(plugin_id);
+                    manifest["version"] = json!(version);
+                    std::fs::write(source.join("plugin.json"), manifest.to_string())
+                        .expect("manifest");
+                    std::fs::write(source.join("server.jar"), version).expect("server bytes");
+                    write_test_signature(&source, "lithe-test-v1", plugin_id, version, &signing);
+                    if index == 0 {
+                        copy_directory_snapshot(&source, &bundled_root.join("JavaSupport"))
+                            .expect("signed bundled fixture");
+                    }
+                    let prepared = crate::plugin_host::install::prepare_disk_install_snapshot(
+                        &temporary_root,
+                        &format!("lithe-plugin-disk-publisher-{index}"),
+                        source.to_str().expect("source path"),
+                    )
+                    .expect("prepare publisher package");
+                    let confirmed = crate::plugin_host::install::confirm_disk_install_snapshot(
+                        &install_root,
+                        &temporary_root,
+                        &prepared.session_id,
+                        &prepared.manifest_digest,
+                    )
+                    .expect("confirm exact reviewed package");
+                    assert_eq!(confirmed.record.origin, Some(InstallOrigin::Community));
+                    if index == 0 {
+                        old_digest = signature::content_digest(&source).expect("old digest");
+                    } else {
+                        assert_eq!(confirmed.record.previous_version.as_deref(), Some("1.0.0"));
+                        assert_eq!(
+                            confirmed.record.previous_origin,
+                            Some(InstallOrigin::Community)
+                        );
+                    }
+                    publish_installed_version(
+                        &install_root,
+                        plugin_id,
+                        version,
+                        &temporary_root.join(&prepared.session_id),
+                        confirmed.record,
+                    )
+                    .expect("publish complete version");
+                    let catalog =
+                        crate::plugin_host::scan::build_catalog_from(&bundled_root, &install_root)
+                            .expect("catalog");
+                    assert_eq!(
+                        catalog.len(),
+                        1,
+                        "installed version supersedes the bundled ID"
+                    );
+                    assert_eq!(catalog[0].entry.status, "accepted");
+                    assert_eq!(catalog[0].entry.source, "installed");
+                    assert_eq!(catalog[0].entry.version, version);
+                }
+                let record_path = install_root.join(plugin_id).join("installation.json");
+                let mut record: InstallationRecord =
+                    serde_json::from_slice(&std::fs::read(&record_path).expect("active record"))
+                        .expect("record JSON");
+                record.enabled = false;
+                crate::plugin_host::install::write_installation_record(&install_root, &record)
+                    .expect("disable installed version");
+                let disabled =
+                    crate::plugin_host::scan::build_catalog_from(&bundled_root, &install_root)
+                        .expect("disabled catalog");
+                assert_eq!(disabled.len(), 1);
+                assert_eq!(disabled[0].entry.source, "installed");
+                assert!(
+                    !disabled[0].entry.enabled,
+                    "disable must not activate bundled fallback"
+                );
+                record.enabled = true;
+                crate::plugin_host::install::write_installation_record(&install_root, &record)
+                    .expect("restore enabled choice");
+                let previous = install_root.join(plugin_id).join("1.0.0");
+                crate::plugin_host::install::verify_rollback_candidate(
+                    &previous,
+                    plugin_id,
+                    "1.0.0",
+                    InstallOrigin::Community,
+                    Some(&old_digest),
+                )
+                .expect("previous publisher bytes reverify");
+                assert!(
+                    crate::plugin_host::install::verify_rollback_candidate(
+                        &previous,
+                        plugin_id,
+                        "1.0.0",
+                        InstallOrigin::Bundled,
+                        Some(&old_digest),
+                    )
+                    .is_err(),
+                    "installed rollback never gains a bundled origin"
+                );
+                std::fs::write(previous.join("server.jar"), b"rollback tamper")
+                    .expect("tamper previous");
+                assert!(
+                    crate::plugin_host::install::verify_rollback_candidate(
+                        &previous,
+                        plugin_id,
+                        "1.0.0",
+                        InstallOrigin::Community,
+                        Some(&old_digest),
+                    )
+                    .is_err(),
+                    "rollback verifies the old tree, not the current signature"
+                );
+                let active = install_root.join(plugin_id).join("1.1.0");
+                std::fs::write(active.join("server.jar"), b"active tamper").expect("tamper active");
+                let catalog =
+                    crate::plugin_host::scan::build_catalog_from(&bundled_root, &install_root)
+                        .expect("tampered catalog");
+                assert_eq!(
+                    catalog.len(),
+                    1,
+                    "quarantine must not enable the bundled fallback"
+                );
+                assert_eq!(catalog[0].entry.status, "rejected");
+                assert_eq!(
+                    catalog[0].entry.rejection.as_ref().expect("rejection").code,
+                    "plugin.trust.signatureInvalid"
+                );
+                std::fs::write(active.join("plugin.json"), b"{ broken manifest")
+                    .expect("damage manifest");
+                let broken =
+                    crate::plugin_host::scan::build_catalog_from(&bundled_root, &install_root)
+                        .expect("catalog with broken installed manifest");
+                assert_eq!(
+                    broken.len(),
+                    1,
+                    "store identity suppresses bundled despite broken manifest"
+                );
+                assert_eq!(broken[0].entry.status, "rejected");
+                std::fs::remove_dir_all(install_root.join(plugin_id))
+                    .expect("remove installed source");
+                let remaining =
+                    crate::plugin_host::scan::build_catalog_from(&bundled_root, &install_root)
+                        .expect("catalog after installed source removal");
+                assert_eq!(remaining.len(), 1);
+                assert_eq!(remaining[0].entry.source, "bundled");
+                assert_eq!(remaining[0].entry.status, "accepted");
+                assert_eq!(remaining[0].entry.version, "1.0.0");
+            });
+        });
+    }
+
     #[test]
     fn signed_disk_package_with_an_unknown_key_is_refused() {
         let signing = signature::rfc8032_signing_key_for_tests();

@@ -20,7 +20,11 @@ Java 已经是声明式插件，但 `sameTeamAsHost` 原来只接受应用签名
 
 macOS 官方目录固定主签名和内置策略。包管理器先校验清单与官方目录一致，再根据解析后的实际路径和安装来源验证：只有来源为 `bundled` 且文件确实位于宿主 app 内的副本可以依靠宿主签名。外部目录伪造来源无效；安装记录、回滚版本和磁盘导入同样不能借用该例外。任何来源只要带了签名文档，就必须验证它，不能因副本在 app 内而忽略坏签名。
 
-旧宿主没有 `packageTrust`，会在市场过滤和清单校验时拒绝这一版。Windows 本轮不声明该能力，后续实现相同来源边界之后才允许安装，不将 Core 能校验等同于宿主能执行。
+旧宿主没有 `packageTrust`，会在市场过滤和清单校验时拒绝这一版。Windows 生产宿主仍不声明该能力；仅测试作用域提供候选能力以验证来源边界，不能将 Core 或安装单测通过等同于正式包可执行。
+
+Windows 官方 Java 同样固定 `publisherPackage` 主策略和 `sameTeamAsHost` 内置策略，但尚无资源封装验证器。EXE 或安装器的 Authenticode（Windows 文件签名）不会封住相邻目录，因此未签名 Java 即使确实位于 bundled 根内，也返回 `plugin.trust.hostSealRequired`。有签名的 bundled 副本仍检查真实根包含与完整发布者签名；安装记录、回滚记录不能自称 bundled，任何来源的坏签名均拒绝。
+
+Windows 扫描由已安装来源占有同一 ID：安装版本被停用、隔离或清单损坏时仍抑制内置副本，避免状态变化偷偷启动另一份 Java。只有显式移除该安装来源，发现层才可能再次看到内置副本；这项发现语义不代替完整产品卸载与停用选择验收。
 
 正确做法：下载新版后校验完整文件树的发布者签名，再把完整版本放到平台应用数据目录；重启读取同一 ID 时只选择一个生效来源。
 
@@ -31,6 +35,10 @@ macOS 官方目录固定主签名和内置策略。包管理器先校验清单�
 应用打包继续使用 `--bundled-only`。只有显式走这条路径且清单声明内置策略时，构建脚本才省略发布者签名，最终由应用签名封住资源。普通单插件 release 构建要求发布者私钥；debug 的 `--development-unsigned` 只用于本地开发，正式宿主拒绝它。
 
 JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源先组装，原生签名等会改字节的步骤完成后才生成发布者签名，最终归档解压后再验证。运行时启动继续复用现有 `jdt` 集成；安装检查新增对运行时启动的计划校验，拒绝缺失目标架构的 JDK、包内入口和相关固定资源，不运行 JDK、不创建验证状态目录。
+
+Windows 的 `Plugins/win/Official/JavaSupport/` 和 `assemble-windows-java-support.py` 独立组装候选，不调用 macOS 脚本。脚本只读取已锁定并校验哈希的 JDT/JDK 下载输入，检查 Windows configuration、完整 JDK 和所有 EXE/DLL 的 PE 架构；不联网、不执行 JVM、不签名。新目录原子发布，失败清理本次暂存；候选和 `windows-java-inputs.json` 均不可跨工作树复用，回执只证明输入和文件字节，不提供发布者或封装信任。
+
+候选 JDT 启动保留现有 Java provider 和 Core 的完整 JDT 参数、Debug/Test 资源，额外传递真实 `pluginId` 供既有生命周期管理使用。候选能力开放后只接受唯一启用且已接受的 JDT 包，不能回退到旧宿主资源；能力关闭时旧资源路径仍是过渡实现，不算候选包验收。缓存写入平台 `plugin-state/<plugin-id>/jdtls`，不改插件资源。Windows 基础模板只含 plain、Maven、Gradle，不宣称 macOS archetype 或 Spring 能力已对齐。
 
 ### 安装切换保留用户选择
 
@@ -98,6 +106,8 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 - `node --test scripts/plugins/test-official-plugin-distribution.mjs`：完整与部分上架、来源/能力不匹配和后续版本门槛。
 - `node --test scripts/plugins/official-plugin-releases.test.mjs`：双架构索引、部分归档拒绝、历史标签元数据以及上游输入变更约束。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：生成资源拒绝复用、发行目录只读边界。
+- `python scripts/plugins/test-assemble-windows-java-support.py`：合成 Windows x64/ARM64 输入、完整能力要求、固定来源/身份、缓存篡改、PE 架构、恶意归档、输出边界与清理；不执行 JVM，也不证明 ARM64 实机可运行。
+- Windows `signature_trust_tests`、`publisher_bundled_fixture_installs_replaces_and_rechecks_rollback` 和 `lsp_plugin_tests`：使用完整共享 fixture 或 Windows 清单、测试密钥与仅测试能力，验证来源策略、实际安装事务及 Core JDT 计划；正式签名完整包与真实 JDT 生命周期仍待验收。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 和 macOS 计时入口：相关测试必须有单项时长与 HTML/JUnit 结果。
 - `.github/workflows/release-official-plugins.yml` 用 actionlint 校验；本地组装两种架构资源，验证 JDK 原生签名和发布归档的完整性。
 
@@ -106,6 +116,11 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 ## 适用范围
 
 - `Plugins/mac/Official/JavaSupport/`
+- `Plugins/win/Official/JavaSupport/`
+- `scripts/plugins/assemble-windows-java-support.py`
+- `scripts/plugins/test-assemble-windows-java-support.py`
+- `windows/tauri/src-tauri/src/plugin_host/`
+- `windows/tauri/src-tauri/src/lsp.rs`
 - `Plugins/marketplace/official-plugins.json`
 - `shared/contracts/plugins/v1/`
 - `rust/lithe-core/src/plugins/`

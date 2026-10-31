@@ -24,9 +24,30 @@ pub fn build_catalog_from(
 ) -> Result<Vec<ScannedPackage>, String> {
     let mut discovered = store::discover_bundled_in(bundled_root)?;
     discovered.extend(store::discover_installed_in(install_root)?);
-    Ok(discovered
+    // A broken/removed manifest must not lose the store-owned ID and expose
+    // its bundled predecessor. The first segment is the install transaction's
+    // plugin directory, independent of bytes inside the active version.
+    let installed_ids: std::collections::BTreeSet<String> = discovered
+        .iter()
+        .filter(|package| package.source == "installed")
+        .filter_map(|package| package.root.strip_prefix(install_root).ok())
+        .filter_map(|relative| relative.components().next())
+        .filter_map(|component| component.as_os_str().to_str().map(str::to_string))
+        .collect();
+    let packages: Vec<_> = discovered
         .into_iter()
         .map(|package| scan_package(package, Some(bundled_root)))
+        .collect();
+    // One ID has one effective source. An installed version (including an
+    // explicitly disabled or quarantined version) supersedes its bundled
+    // copy; silently falling back would undo a user's choice or conceal a
+    // failed integrity check. Removing the installed version restores normal
+    // bundled discovery at the existing rescan boundary.
+    Ok(packages
+        .into_iter()
+        .filter(|package| {
+            package.entry.source != "bundled" || !installed_ids.contains(&package.entry.plugin_id)
+        })
         .collect())
 }
 

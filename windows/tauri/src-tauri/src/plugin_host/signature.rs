@@ -163,9 +163,38 @@ pub enum SignatureRequirement {
 pub fn official_signature_requirement(plugin_id: &str) -> Option<SignatureRequirement> {
     match plugin_id {
         "dev.lithe.plugin.php-support" => Some(SignatureRequirement::SameTeamAsHost),
-        "dev.lithe.plugin.java-support" => Some(SignatureRequirement::SameTeamAsHost),
+        "dev.lithe.plugin.java-support" => Some(SignatureRequirement::PublisherPackage),
         "dev.lithe.plugin.go-support" => Some(SignatureRequirement::PublisherPackage),
         _ => None,
+    }
+}
+
+/// The official catalog pins the bundled policy separately from the policy
+/// for disk/marketplace copies. Windows does not yet have a verifier proving
+/// that external resource bytes are sealed by the host distribution signature.
+/// In particular, a signed EXE or installer does not seal a neighboring folder.
+pub fn official_bundled_signature_requirement(plugin_id: &str) -> Option<SignatureRequirement> {
+    match plugin_id {
+        "dev.lithe.plugin.java-support" => Some(SignatureRequirement::SameTeamAsHost),
+        _ => None,
+    }
+}
+
+fn declared_bundled_signature_requirement(
+    manifest: &serde_json::Value,
+) -> Result<Option<SignatureRequirement>, TrustError> {
+    match manifest["vendor"].get("bundledSignatureRequirement") {
+        None => Ok(None),
+        Some(value)
+            if value.as_str() == Some("sameTeamAsHost")
+                && manifest["pluginAPIVersion"].as_u64() == Some(3)
+                && manifest["requires"]["packageTrust"].as_u64() == Some(1)
+                && declared_signature_requirement(manifest)?
+                    == SignatureRequirement::PublisherPackage =>
+        {
+            Ok(Some(SignatureRequirement::SameTeamAsHost))
+        }
+        _ => Err(TrustError::InvalidPolicy),
     }
 }
 
@@ -346,6 +375,11 @@ pub fn verify_for_install(
 ) -> Result<(), TrustError> {
     let declared = declared_signature_requirement(manifest)?;
     let pinned = official_signature_requirement(plugin_id).unwrap_or(declared);
+    let bundled = declared_bundled_signature_requirement(manifest)?;
+    let pinned_bundled = official_bundled_signature_requirement(plugin_id);
+    if pinned_bundled.is_some() && (bundled != pinned_bundled || declared != pinned) {
+        return Err(TrustError::InvalidPolicy);
+    }
     // The pinned host policy decides which channel the package may use; the
     // package cannot pick a weaker one by declaring it.
     match pinned {
@@ -362,9 +396,20 @@ pub fn verify_for_install(
             // delivered the package: a marketplace download, or a signed disk
             // import recorded as community provenance.
             if !has_signature_file(package_root) {
+                if origin == InstallOrigin::Bundled && pinned_bundled.is_some() {
+                    // Directory containment is necessary but cannot authenticate
+                    // resource bytes on Windows. Keep this fallback closed until
+                    // a distribution seal verifier can prove the complete tree.
+                    verify_bundled_seal(package_root, origin, bundled_root)?;
+                    return Err(TrustError::HostSealRequired);
+                }
                 return Err(TrustError::SignatureMissing);
             }
-            verify_signature_if_present(package_root, plugin_id, plugin_version, trusted_keys)
+            verify_signature_if_present(package_root, plugin_id, plugin_version, trusted_keys)?;
+            if origin == InstallOrigin::Bundled {
+                verify_bundled_seal(package_root, origin, bundled_root)?;
+            }
+            Ok(())
         }
         SignatureRequirement::SameTeamAsHost => {
             // Trusted only inside the host's own installation, proven by real
@@ -375,6 +420,10 @@ pub fn verify_for_install(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "signature_trust_tests.rs"]
+mod trust_tests;
 
 /// Proves a `sameTeamAsHost` package really lives inside the host's own
 /// installation: the origin must be bundled and the package root must sit

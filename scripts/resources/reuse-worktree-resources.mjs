@@ -95,6 +95,9 @@ async function readRegistry() {
   // per-workspace build options use plugin-marketplace-state's refusal route.
   // Window/operation-owned model/dependency files stay in mutable plugin state
   // and use official-plugin-packages' exclusion; decoded output is not a reusable artifact.
+  // Windows Java candidates, .assemble-* scratch and windows-java-inputs.json
+  // use that same refusal route: an input receipt is neither a signature nor a seal.
+  // Only independently verified jdtls/jdk download inputs may be copied.
   // Core validation or a matching archive hash never transfers user ownership.
   // Native acceptance fixtures/profiles use plugin-host-acceptance-state's
   // refusal route, including build-fixture tools/workspaces and settings/functions
@@ -102,6 +105,11 @@ async function readRegistry() {
   // private-target CDP traces and descriptor/callback snapshots; ui:1 text-window
   // ZIPs, host-page DOM/CSP/request traces and loopback-counter evidence are also run-owned; deterministic test ZIPs do not
   // establish a build identity or transfer native install approval.
+  // Generator runtime-contract evidence owns an independent JDK under its isolated
+  // profile's generator-runtime; retained executable probes never become cache inputs.
+  // Java workflow plans retain raw formal-package references, coordination receipts,
+  // JDK identities and JDT/run IPC owner evidence for one isolated invocation only;
+  // none proves a reusable cache identity or supplies publisher trust.
   // Offline preflight fake tools/manifests and tar.gz/VSIX extraction fixtures in OS temporary storage also remain
   // plugin-host-acceptance-state; they have no downloadable resource validator.
   // Installer test scratch, generated native-handle waiters and ownership/identity

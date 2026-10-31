@@ -389,6 +389,29 @@ try {
       assert.match(diagnostics(refused), new RegExp(`${id}.*cannot be reused`));
     }
   });
+  await test("Windows Java candidate packages and receipts never become reusable inputs", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const packages = registry.excludedResources.find(item => item.id === "official-plugin-packages");
+    assert.ok(packages.locations.includes(".artifacts/windows-java-support/"));
+    assert.ok(packages.locations.includes(".artifacts/windows-java-support/.assemble-*/"));
+    assert.ok(packages.locations.includes(".artifacts/windows-java-support/<candidate>/windows-java-inputs.json"));
+    assert.match(packages.reason, /assemble-windows-java-support\.py/);
+    assert.match(packages.reason, /receipt is evidence only/);
+    for (const fixture of [
+      ".artifacts/windows-java-support/candidate/runtime/x86_64/bin/java.exe",
+      ".artifacts/windows-java-support/candidate/windows-java-inputs.json",
+      ".artifacts/windows-java-support/.assemble-fixture/package/plugin.json",
+    ]) {
+      const source = path.join(sourceRoot, fixture);
+      await fs.mkdir(path.dirname(source), { recursive: true });
+      await fs.writeFile(source, "unsigned run-owned candidate bytes");
+      const refused = reuse(["--resource", packages.id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), /official-plugin-packages.*cannot be reused/);
+      assert.equal(await fs.readFile(source, "utf8"), "unsigned run-owned candidate bytes");
+      await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+    }
+  });
   await test("command model and dependency output use the isolated plugin-state route", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "official-plugin-packages");
@@ -488,9 +511,18 @@ try {
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes(".artifacts/plugin-host-acceptance/"));
     assert.ok(resource.locations.includes("<windows-local-app-data>/app.lithe.windows.host-acceptance/generator-projects/"));
+    assert.ok(resource.locations.includes("<windows-local-app-data>/app.lithe.windows.host-acceptance/generator-runtime/"));
+    assert.ok(resource.locations.includes("<windows-local-app-data>/app.lithe.windows.host-acceptance/java-workflow-start/"));
+    assert.match(resource.reason, /independent JDK copy/);
+    assert.match(resource.reason, /restore it in finally/);
     const profileProject = path.join(testRoot, "isolated-profile/generator-projects/Created/README.md");
+    const retainedRuntime = path.join(testRoot, "isolated-profile/generator-runtime/bin/java.exe.acceptance-retained");
+    const javaWorkflowStart = path.join(testRoot, "isolated-profile/java-workflow-start");
     await fs.mkdir(path.dirname(profileProject), { recursive: true });
     await fs.writeFile(profileProject, "run-owned generated project");
+    await fs.mkdir(path.dirname(retainedRuntime), { recursive: true });
+    await fs.writeFile(retainedRuntime, "run-owned independent runtime");
+    await fs.mkdir(javaWorkflowStart, { recursive: true });
     const fixture = ".artifacts/plugin-host-acceptance/marketplace-fixture/packages/a1.zip";
     const source = path.join(sourceRoot, fixture);
     await fs.mkdir(path.dirname(source), { recursive: true });
@@ -500,6 +532,8 @@ try {
     assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
     assert.equal(await fs.readFile(source, "utf8"), "deterministic fixture bytes");
     assert.equal(await fs.readFile(profileProject, "utf8"), "run-owned generated project");
+    assert.equal(await fs.readFile(retainedRuntime, "utf8"), "run-owned independent runtime");
+    assert.deepEqual(await fs.readdir(javaWorkflowStart), [], "run-owned starting workspace stays empty");
     await assert.rejects(fs.access(path.join(targetRoot, fixture)));
     await assert.rejects(fs.access(path.join(targetRoot, "isolated-profile")));
   });
@@ -515,6 +549,11 @@ try {
     await assert.rejects(fs.access(path.join(targetRoot, fixture)));
   });
   await test("settings/functions and web fallback plans cannot transfer install approval", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");
+    assert.ok(resource.locations.includes(".artifacts/plugin-host-acceptance/java-workflow-inputs-*/"));
+    assert.match(resource.identity, /raw formal-package references/);
+    assert.match(resource.reason, /coordination receipts never grant publisher trust/);
     for (const fixture of [
       ".artifacts/plugin-host-acceptance/text-window-fixture-first/plan.json",
       ".artifacts/plugin-host-acceptance/text-window-fixture-first/literal-text.zip",
@@ -532,6 +571,8 @@ try {
       ".artifacts/plugin-host-acceptance/generator-archive-input/reference.zip",
       ".artifacts/plugin-host-acceptance/generator-archive-input/receipt.json",
       ".artifacts/plugin-host-acceptance/evidence/generators/cleanup.json",
+      ".artifacts/plugin-host-acceptance/java-workflow-inputs-first/plan.json",
+      ".artifacts/plugin-host-acceptance/evidence/java-workflow/ipc.json",
     ]) {
       const source = path.join(sourceRoot, fixture);
       await fs.mkdir(path.dirname(source), { recursive: true });

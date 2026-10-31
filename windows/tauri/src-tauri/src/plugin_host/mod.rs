@@ -61,6 +61,10 @@ use tauri::{AppHandle, Manager};
 /// `projectGenerators` 1 admits the existing consent-bound creation workflow.
 /// `executionProviders`, `buildProviders` and `buildSystems` remain unhosted.
 pub fn host_capabilities() -> Value {
+    #[cfg(test)]
+    if let Some(capabilities) = TEST_HOST_CAPABILITIES.with(|value| value.borrow().clone()) {
+        return capabilities;
+    }
     json!({
         "languages": [1],
         "languageServers": [1, 2],
@@ -69,6 +73,29 @@ pub fn host_capabilities() -> Value {
         "ui": [1, 2],
         "projectGenerators": [1],
     })
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_HOST_CAPABILITIES: std::cell::RefCell<Option<Value>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Exercises a complete candidate install with its declared requirements.
+/// This seam is absent from production; packageTrust remains unadvertised
+/// until the signed-package and JDT lifecycle acceptance is complete.
+#[cfg(test)]
+pub(crate) fn with_package_trust_for_tests<R>(run: impl FnOnce() -> R) -> R {
+    struct Restore(Option<Value>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_HOST_CAPABILITIES.with(|value| *value.borrow_mut() = self.0.take());
+        }
+    }
+    let mut capabilities = host_capabilities();
+    capabilities["packageTrust"] = json!([1]);
+    let _restore =
+        Restore(TEST_HOST_CAPABILITIES.with(|value| value.borrow_mut().replace(capabilities)));
+    run()
 }
 
 /// Host CPU architecture in the vocabulary Core launch templates expect

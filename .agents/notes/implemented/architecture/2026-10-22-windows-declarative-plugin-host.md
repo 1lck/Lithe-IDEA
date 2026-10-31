@@ -31,9 +31,17 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 - 安装根为 `app_local_data_dir()/plugins/<pluginID>/<version>/`，`installation.json` 记录版本与启用状态；记录缺失或损坏的包隔离展示，绝不静默加载。
 - bundled 包从 `resource_dir()/OfficialPlugins` 只读加载，多版本目录取最高版本；运行时不写安装目录与资源目录，遵守发行基线只读边界。
 - 每个插件的语言服务器状态目录在 `app_local_data_dir()/plugin-state/<pluginID>/<workspace 哈希>`，由宿主注入启动计划请求。
-- 信任模型 v1（Windows 插件对齐路线图 M1，见 `docs/development/windows-plugin-parity-plan.md`）：发布者 Ed25519 验签已接入 `plugin_host/signature.rs`，与 macOS `PluginPackageSignature` 字节兼容（canonical payload、UTF-8 base64url token、按原始路径排序、每文件 SHA-256 与 contentDigest），采用成熟的 `ed25519-dalek`，固定官方公钥 `lithe-official-plugins-v2`；生产私钥不进入仓库。官方 ID 的信任策略由宿主固定（`php/java-support=sameTeamAsHost`、`go-support=publisherPackage`），覆盖包自声明；`sameTeamAsHost` 只信任宿主安装资源内的 bundled 包，磁盘/市场包不能凭目录名获得该身份。签名文档存在即必须验证，坏签名不会被忽略。磁盘导入与市场下载（M2+）仍走 `plugins.marketplace.installReview` 全量审批（权限 + 完整程序清单），审批界面明示"未认证发布者"。
+- 信任模型 v1（Windows 插件对齐路线图 M1，见 `docs/development/windows-plugin-parity-plan.md`）：发布者 Ed25519 验签已接入 `plugin_host/signature.rs`，与 macOS `PluginPackageSignature` 字节兼容（canonical payload、UTF-8 base64url token、按原始路径排序、每文件 SHA-256 与 contentDigest），采用成熟的 `ed25519-dalek`，固定官方公钥 `lithe-official-plugins-v2`；生产私钥不进入仓库。官方 ID 的信任策略由宿主固定（`php-support=sameTeamAsHost`、`java-support/go-support=publisherPackage`；Java 另固定内置策略），覆盖包自声明；`sameTeamAsHost` 只信任宿主安装资源内的 bundled 包，磁盘/市场包不能凭目录名获得该身份。签名文档存在即必须验证，坏签名不会被忽略。磁盘导入与市场下载（M2+）仍走 `plugins.marketplace.installReview` 全量审批（权限 + 完整程序清单），审批界面明示"未认证发布者"。
 - 安装记录 schema 2 是安装事务的一部分：`origin`、marketplace/disk provenance（全包内容摘要与批准程序的 canonical JSON）、上一版本的 provenance 都随版本发布一起写入；安装确认、staging 发布前、启动扫描、运行/测试计划入口与回滚都会重新校验完整文件集合和摘要（community 与 marketplace origin 都复检已批准摘要，签名只证明发布者、不豁免字节比对）。版本激活与记录提交是同一事务：记录先写入 temp、激活成功后才提交，提交失败恢复旧字节并保留旧记录，恢复失败如实报错。schema 1 旧记录没有 provenance，扫描直接隔离（`plugin.trust.provenanceMissing`）并要求重新安装，绝不凭 `enabled` 或清单摘要补造发布者身份和已批准字节。bundled 身份只能由可信资源发现器产生：installed 记录声明 `origin`/`previousOrigin=bundled` 一律隔离，`sameTeamAsHost` 在扫描、启动与回滚路径都校验真实资源根包含，记录声明与回滚候选同样拒绝。审批绑定 prepare 时的整包字节：prepare 冻结整包摘要、清单摘要与审查程序，confirm 与 staging 对同一审核身份校验，prepare 之后替换/新增/删除文件都被拒绝。磁盘渠道接受已验签的 `publisherPackage` 包（origin 保持真实 disk/community），声明 `sameTeamAsHost` 的磁盘包即使签名有效也拒绝。
 - 磁盘导入的私有快照、staging 重验、内容摘要复查与回滚语义照抄 macOS 侧规则（见声明式语言插件 Note 的磁盘安装节），Windows 不另造审查语义。
+
+### Windows Java 候选与来源覆盖
+
+Java 的内置策略仍要求 `sameTeamAsHost`，但 Windows 尚无资源封装验证器。EXE 或安装器的 Authenticode（文件签名）不会保护相邻资源目录，未签名 Java 即使在真实 bundled 根内也返回 `plugin.trust.hostSealRequired`；有效发布者签名仍需完整文件树和来源包含检查，坏签名不能被内置身份豁免。生产能力表不增加 `packageTrust`，只在 `cfg(test)` 作用域提供候选能力与公开测试密钥，正式签名完整包和真实 JDT 生命周期是开放前提。
+
+扫描先记录安装目录拥有的 ID，再读取清单。同一 ID 的安装来源抑制内置副本，即使其被停用、隔离或清单损坏也不能回落；显式移除安装来源后，发现层才重新看见内置副本。这避免禁用下载版却启动另一份 Java，不宣称已完成完整产品卸载选择迁移。
+
+候选 Java 包由 Windows 自有清单和离线脚本组装，保留全部能力要求、完整 JDK 及固定 JDT/Debug/Test/Lombok 资源。原生解析继续调用 Core JDT 计划，前端保持 `providerId=java` 并传递真实 `pluginId`；候选能力开放时没有可接受的唯一 JDT 包就失败，不回退旧资源。当前能力关闭，旧宿主资源路径仍是过渡实现，不算候选验收。JDT 状态位于平台 `plugin-state/<plugin-id>/jdtls`，资源包只读。详情见 [Java 分发笔记](2026-10-25-java-plugin-distribution-foundation.md)。
 
 ### 启动接线（M1 落地形状）
 
@@ -223,6 +231,9 @@ R24 的真实 Node 24.15 子进程已验证两个 tree-sitter-cli 版本的 CONN
 默认与 LSP 验收在安装、重启、进程退出和版本交易边界，对完整安装目录执行有界快照，并与该阶段原始 ZIP 的文件字节及目录清单比较。不能只验证安装记录里的归档摘要：它不能证明运行时没有往版本目录新增状态或改写服务器。失败先保存实际清单和差异再抛错；替换后按新包比较，旧阶段证据保留，不能重采基线掩盖写入。
 
 ## 验证
+
+- Windows Java 候选：`signature_trust_tests` 直接消费完整 `publisher-bundled.plugin.json`，覆盖签名来源、未签名目录拒绝和目录策略降级；`publisher_bundled_fixture_installs_replaces_and_rechecks_rollback` 走真实安装替换、回滚、隔离与扫描，断言停用、篡改、坏清单不回落内置。`lsp_plugin_tests` 读取 Windows 清单并复用 Core JDT 计划，`resolve-editor-lsp-launch.test.ts` 保留 Java owner 与插件身份。测试候选能力与测试密钥不会开放生产 gate；这些回归仍需逐项计时，且不能替代正式可信包及真实 JDT 产品验收。
+- `python scripts/plugins/test-assemble-windows-java-support.py` 验证离线候选的固定输入、完整要求、PE 架构、归档安全和清理；ARM64 合成数据不等于目标机运行。候选输出、回执和生成器运行时契约的独立 JDK 副本经资源复用拒绝路由验证，均不影响发行目录签名与更新基线。
 
 - 当前 Windows x64 集成基线 `04f411889d4264343fb2e548619543f5136a25d5` 已完成正式 Release、ui:1 字面文本九阶段、默认与 LSP 生命周期 19 项，以及受控设置九阶段。LSP 链覆盖真实编辑器服务器及子进程、初始化中断、关闭重开、双产品窗口、禁用重启、替换升级回滚卸载；八个检查点的安装目录均与对应 ZIP 字节一致。设置驱动按设计非零退出，因为真实 functions 与完整 M10 前提仍未满足；受控 LSP 也不证明真实 JDT/Provider 包已验收。
 - 同一冻结基线的 ui:2 原入口因源码清单少算五个 `third_party` 文件而在启动前失败。归档的独立适配入口仅改用既有的完整清单计算器，重新计算 5011 项并与原 marker 精确比较后，原生回退链九阶段通过；产品、IPC、回包和 marker 均未替换。发行镜像、安装包与归档字节未变，owned 进程及隔离 profile 已清理。后续清单修复的 web helper 13 项及 text 兼容 12 项通过，不扩大上述运行时提交范围。ui:3、functions、vcsProviders、buildProviders、buildSystems、签名完整包和 arm64 继续 pending，整体保持 partial/pending。
