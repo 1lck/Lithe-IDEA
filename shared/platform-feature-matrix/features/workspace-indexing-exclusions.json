@@ -4,10 +4,10 @@
   "group": "工作区生命周期",
   "capability": "目录索引排除与 Git 自动排除",
   "owner": "Workspace",
-  "verification": "本地索引策略与目录浏览分离，Git 开关位于设置 › 版本控制 › Git；远程根明确禁用，不扩展远程索引能力。2026-10-30/31 的 Core 1379 项单元与 32 项集成测试、1411 项逐项计时、Swift 67 项定向计时，以及 macOS/Bun 设置、租约和目录角色 37 项回归与相关 tree/LSP/quick 分组通过，TypeScript 检查通过。覆盖共享根 owner 租约、迟到安装/释放、缓存 pane 身份、跨窗口 storage、普通目录与取消排除、冷启动排除、首次失败/重试及刷新保树。真实 macOS App 已验证普通目录不创建包含例外、Git 排除与取消排除搜索、同窗口项目切换、外部 stage/commit 自动更新、真实 JDT 冷启动仅导入 visible 且返回 print 补全，以及中英文错误的即时双向切换和损坏配置保留；1404 个包文件哈希及符号链接未变。本机为 Swift 6.4，最终固定 Xcode 26.6 CI 尚待最终 SHA；正在整合最新 preview 并补充剩余 Native 验收。Windows 原生界面未验收，前端本机 Bun 结果不能替代 Windows UI。Java 已导入资源与构建系统显式模块仍可能扫描，Go/Rust 仅合并原生配置，不保证零后台目录访问。",
+  "verification": "本地索引策略与目录浏览分离；远程根禁用并保留偏好。2026-10-31 整合preview 0c13ca25后，源码9068703a通过完整Rust门禁及Core1474项逐项计时（1442单元、32集成），索引/LSP聚焦34项、Swift6.4定向98项、macOS/Bun项目树74、文件系统17、LSP68、Java watcher15、工作区生命周期31、快速打开10及Git设置3项通过，TypeScript通过。最终macOS App验证损坏配置中文错误与原值保留、修正后重试、不可读取根中英文错误及恢复权限后显式Retry、取消排除搜索与重启持久化、同窗口项目切换、linked worktree外部stage/commit和父仓库观察子模块HEAD。新JDT缓存仅生成visible项目并返回PrintStream.print候选，不当作后台零扫描保证。1419个包文件与9个符号链接未变，测试实例/JDT/辅助进程已关闭，开发偏好恢复，保留用户另一Dev实例。普通目录与即时双向语言切换另有此前构建原生证据。完全缺失最近项目被欢迎页禁用，恢复流程使用真实权限失败验收。固定Xcode26.6 CI待最终SHA。Windows原生界面仍pending，Bun结果不能替代Windows UI；Java构建系统模块仍可能扫描，Go/Rust仅合并原生配置。",
   "macos": {
     "implementationStatus": "partial",
-    "verificationStatus": "pending",
+    "verificationStatus": "verified",
     "evidence": [
       "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
       "macos/Sources/Lithe/Views/App/WorkspaceIndexingSettingsView.swift",
@@ -44,7 +44,9 @@
       "windows/tauri/src/features/file-explorer/stores/workspace-indexing.test.ts",
       "windows/tauri/src/features/editor/hooks/use-lsp-integration-indexing.test.tsx",
       "windows/tauri/src-tauri/src/core.rs",
-      "windows/tauri/src/features/workspace/services/workspace-lifecycle.ts"
+      "windows/tauri/src/features/workspace/services/workspace-lifecycle.ts",
+      "windows/tauri/src/features/file-system/services/file-watcher-listener.ts",
+      "windows/tauri/src/features/file-system/services/file-watcher-listener.test.ts"
     ]
   }
 }
