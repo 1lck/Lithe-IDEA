@@ -844,6 +844,16 @@ def select_native_file(app_pid: int, file_path: Path) -> None:
         raise RuntimeError("native picker requires a live retained application owner")
     dialog = wait_until(lambda: find_file_dialog(app_pid), 10, "the native package picker")
     children = child_windows(dialog)
+    dialog_tree = {dialog, *children}
+    confirmations = [
+        child for child in children
+        if window_class(child) == "Button" and user32.GetDlgCtrlID(child) == 1
+        and user32.IsWindowVisible(child) and user32.IsWindowEnabled(child)
+        and user32.GetParent(child) in dialog_tree
+    ]
+    if len(confirmations) != 1:
+        raise RuntimeError("native picker requires one visible enabled standard confirmation button")
+    confirm = confirmations[0]
     edits = [
         child
         for child in children
@@ -857,15 +867,12 @@ def select_native_file(app_pid: int, file_path: Path) -> None:
     ]
     if not filename_edits:
         # Windows folder pickers expose the standard edt1 directly, without
-        # the file picker's cmb13 parent. Require its exact ID, a parent in
-        # this owned dialog's tree and a usable standard confirmation button.
-        confirm = any(window_class(child) == "Button" and user32.GetDlgCtrlID(child) == 1
-                      and user32.IsWindowVisible(child) and user32.IsWindowEnabled(child)
-                      for child in children)
+        # the file picker's cmb13 parent. Require its exact ID and a parent
+        # in this owned dialog's tree.
         filename_edits = [edit for edit in edits
-                          if confirm and user32.GetDlgCtrlID(edit) == 1152
+                          if user32.GetDlgCtrlID(edit) == 1152
                           and user32.GetDlgCtrlID(user32.GetParent(edit)) == 0
-                          and user32.GetParent(edit) in [dialog, *children]]
+                          and user32.GetParent(edit) in dialog_tree]
     if not filename_edits:
         controls = [{"class": window_class(edit), "id": user32.GetDlgCtrlID(edit),
                      "parentId": user32.GetDlgCtrlID(user32.GetParent(edit))} for edit in edits]
@@ -889,8 +896,23 @@ def select_native_file(app_pid: int, file_path: Path) -> None:
         raise RuntimeError(
             f"native filename input failed within 5 seconds (Win32 {error_code}); controls={controls}"
         )
-    if not user32.PostMessageW(dialog, 0x0111, 1, 0):  # WM_COMMAND / IDOK
-        raise RuntimeError("the native package picker rejected its Open command")
+    if not message_result.value:
+        raise RuntimeError("native filename input was rejected by the edit control")
+    if not owned_process_running(app_pid):
+        raise RuntimeError("native picker lost its retained application owner")
+    if not user32.IsWindowVisible(confirm) or not user32.IsWindowEnabled(confirm):
+        raise RuntimeError("native picker lost its usable standard confirmation button")
+    # Let the actual button notify its parent. A root WM_COMMAND with no
+    # control HWND is not the button's BN_CLICKED notification. BM_CLICK has
+    # no defined result, so only its bounded transport return is checked.
+    BM_CLICK = 0x00F5
+    kernel32.SetLastError(0)
+    if not user32.SendMessageTimeoutW(
+        confirm, BM_CLICK, 0, None, 0x0002, 5000, ctypes.byref(message_result)
+    ):
+        raise RuntimeError(
+            f"native picker confirmation failed within 5 seconds (Win32 {kernel32.GetLastError()})"
+        )
     wait_until(lambda: not user32.IsWindow(dialog), 10, "the native package picker to close")
 
 

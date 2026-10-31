@@ -62,7 +62,12 @@ def native_picker_fixture(*, folder: bool):
     classes = {dialog: "#32770", edit: "Edit", combo: "ComboBox", confirm: "Button"}
     ids = {dialog: 0, edit: 1152, combo: 1148, confirm: 1}
     children = [edit, confirm] if folder else [combo, edit, confirm]
-    parent = dialog if folder else combo
+    def dispatch_message(_hwnd, message, _wparam, _lparam, _flags, _timeout, result):
+        # WM_SETTEXT accepts the text. BM_CLICK has no defined result, and
+        # the real product diagnostic returned zero while closing its picker.
+        ctypes.cast(result, ctypes.POINTER(ctypes.c_size_t))[0] = 1 if message == 0x000C else 0
+        return 1
+
     with contextlib.ExitStack() as patches:
         patches.enter_context(patch.dict(driver.owned_processes, {app_pid: owner}, clear=True))
         patches.enter_context(patch.object(driver, "window_class", side_effect=classes.__getitem__))
@@ -70,12 +75,14 @@ def native_picker_fixture(*, folder: bool):
         patches.enter_context(patch.object(driver, "child_windows", return_value=children))
         patches.enter_context(patch.object(driver.user32, "EnumWindows", side_effect=lambda callback, _: callback(dialog, 0)))
         patches.enter_context(patch.object(driver.user32, "GetWindow", return_value=0))
-        patches.enter_context(patch.object(driver.user32, "GetParent", return_value=parent))
+        patches.enter_context(patch.object(driver.user32, "GetParent", side_effect=lambda hwnd: combo if hwnd == edit and not folder else dialog))
         patches.enter_context(patch.object(driver.user32, "GetDlgCtrlID", side_effect=lambda hwnd: ids.get(hwnd, 0)))
         patches.enter_context(patch.object(driver.user32, "IsWindowVisible", return_value=True))
         patches.enter_context(patch.object(driver.user32, "IsWindowEnabled", return_value=True))
         patches.enter_context(patch.object(driver.user32, "IsWindow", return_value=False))
-        send = patches.enter_context(patch.object(driver.user32, "SendMessageTimeoutW", return_value=1))
+        patches.enter_context(patch.object(driver.user32, "GetForegroundWindow", return_value=dialog))
+        patches.enter_context(patch.object(driver.user32, "SetForegroundWindow", return_value=True))
+        send = patches.enter_context(patch.object(driver.user32, "SendMessageTimeoutW", side_effect=dispatch_message))
         post = patches.enter_context(patch.object(driver.user32, "PostMessageW", return_value=True))
         wait = patches.enter_context(patch.object(driver, "wait_until", wraps=driver.wait_until))
         yield app_pid, owner, dialog, edit, send, post, wait
@@ -85,9 +92,12 @@ def native_picker_standard_controls(*, folder: bool) -> None:
     with native_picker_fixture(folder=folder) as (app_pid, _, dialog, edit, send, post, wait):
         selected = Path("C:/fixture/workspace" if folder else "C:/fixture/plugin.zip")
         driver.select_native_file(app_pid, selected)
-        assert send.call_count == 1
-        assert send.call_args.args[:6] == (edit, 0x000C, 0, str(selected), 0x0002, 5000)
-        post.assert_called_once_with(dialog, 0x0111, 1, 0)
+        assert [call.args[:6] for call in send.call_args_list] == [
+            (edit, 0x000C, 0, str(selected), 0x0002, 5000),
+            (204, 0x00F5, 0, None, 0x0002, 5000),
+        ], send.call_args_list
+        post.assert_not_called()
+        driver.user32.SetForegroundWindow.assert_not_called()
         assert [call.args[1] for call in wait.call_args_list] == [10, 10]
 
 
@@ -97,9 +107,7 @@ def native_picker_rejects_controls(reason: str) -> None:
             if reason == "arbitrary Edit":
                 patches.enter_context(patch.object(driver.user32, "GetDlgCtrlID", side_effect=lambda hwnd: 1 if hwnd == 204 else 0))
             elif reason == "foreign parent":
-                patches.enter_context(patch.object(driver.user32, "GetParent", return_value=999))
-            elif reason == "missing confirmation":
-                patches.enter_context(patch.object(driver, "child_windows", return_value=[edit]))
+                patches.enter_context(patch.object(driver.user32, "GetParent", side_effect=lambda hwnd: 999 if hwnd == edit else dialog))
             elif reason == "ambiguous Edit":
                 original_class, original_id = driver.window_class, driver.user32.GetDlgCtrlID
                 patches.enter_context(patch.object(driver, "child_windows", return_value=[edit, 205, 204]))
@@ -113,6 +121,34 @@ def native_picker_rejects_controls(reason: str) -> None:
                 assert "filename" in str(error), str(error)
             else:
                 raise AssertionError(f"native picker accepted {reason}")
+        send.assert_not_called()
+        post.assert_not_called()
+
+
+def native_picker_rejects_confirmation(reason: str, *, folder: bool) -> None:
+    with native_picker_fixture(folder=folder) as (app_pid, _, dialog, edit, send, post, _):
+        with contextlib.ExitStack() as patches:
+            if reason == "missing":
+                patches.enter_context(patch.object(driver, "child_windows", return_value=[edit] if folder else [203, edit]))
+            elif reason == "ambiguous":
+                original_class, original_id = driver.window_class, driver.user32.GetDlgCtrlID
+                children = [edit, 204, 205] if folder else [203, edit, 204, 205]
+                patches.enter_context(patch.object(driver, "child_windows", return_value=children))
+                patches.enter_context(patch.object(driver, "window_class", side_effect=lambda hwnd: "Button" if hwnd == 205 else original_class(hwnd)))
+                patches.enter_context(patch.object(driver.user32, "GetDlgCtrlID", side_effect=lambda hwnd: 1 if hwnd == 205 else original_id(hwnd)))
+            elif reason in ("hidden", "disabled"):
+                method = "IsWindowVisible" if reason == "hidden" else "IsWindowEnabled"
+                patches.enter_context(patch.object(driver.user32, method, side_effect=lambda hwnd: hwnd != 204))
+            elif reason == "foreign parent":
+                patches.enter_context(patch.object(driver.user32, "GetParent", side_effect=lambda hwnd: 999 if hwnd == 204 else dialog if folder else 203))
+            else:
+                raise AssertionError(reason)
+            try:
+                driver.select_native_file(app_pid, Path("C:/fixture/workspace"))
+            except RuntimeError as error:
+                assert "confirmation button" in str(error), str(error)
+            else:
+                raise AssertionError(f"native picker accepted a {reason} confirmation button")
         send.assert_not_called()
         post.assert_not_called()
 
@@ -142,6 +178,17 @@ def native_picker_requires_retained_owner() -> None:
             raise AssertionError("native picker wrote after its retained owner exited")
         send.assert_not_called()
         post.assert_not_called()
+    with native_picker_fixture(folder=True) as (app_pid, owner, _, _, send, post, _):
+        owner.running.side_effect = [True, True, False]
+        try:
+            driver.select_native_file(app_pid, Path("C:/fixture/workspace"))
+        except RuntimeError as error:
+            assert "lost its retained application owner" in str(error), str(error)
+        else:
+            raise AssertionError("native picker confirmed after its retained owner exited")
+        assert send.call_count == 1
+        assert send.call_args.args[1] == 0x000C
+        post.assert_not_called()
 
 
 def native_picker_rejects_foreign_dialog() -> None:
@@ -154,17 +201,64 @@ def native_picker_rejects_foreign_dialog() -> None:
         post.assert_not_called()
 
 
-def native_picker_input_failure_does_not_confirm() -> None:
+def native_picker_input_failure_does_not_confirm(*, rejected: bool) -> None:
     with native_picker_fixture(folder=True) as (app_pid, _, _, _, send, post, _):
-        send.return_value = 0
+        if rejected:
+            def reject_input(_hwnd, _message, _wparam, _lparam, _flags, _timeout, result):
+                ctypes.cast(result, ctypes.POINTER(ctypes.c_size_t))[0] = 0
+                return 1
+            send.side_effect = reject_input
+        else:
+            send.side_effect = None
+            send.return_value = 0
         with patch.object(driver.kernel32, "GetLastError", return_value=1460):
             try:
                 driver.select_native_file(app_pid, Path("C:/fixture/workspace"))
             except RuntimeError as error:
-                assert "within 5 seconds (Win32 1460)" in str(error), str(error)
+                expected = "rejected by the edit control" if rejected else "within 5 seconds (Win32 1460)"
+                assert expected in str(error), str(error)
             else:
                 raise AssertionError("failed native picker input was accepted")
-        assert send.call_args.args[5] == 5000
+        assert send.call_count == 1 and send.call_args.args[5] == 5000
+        post.assert_not_called()
+
+
+def native_picker_confirmation_timeout() -> None:
+    with native_picker_fixture(folder=True) as (app_pid, _, _, _, send, post, wait):
+        dispatch = send.side_effect
+        send.side_effect = lambda *args: 0 if args[1] == 0x00F5 else dispatch(*args)
+        with patch.object(driver.kernel32, "GetLastError", return_value=1460):
+            try:
+                driver.select_native_file(app_pid, Path("C:/fixture/workspace"))
+            except RuntimeError as error:
+                assert "confirmation failed within 5 seconds (Win32 1460)" in str(error), str(error)
+            else:
+                raise AssertionError("native picker accepted a timed out button click")
+        assert send.call_count == 2 and send.call_args.args[:6] == (204, 0x00F5, 0, None, 0x0002, 5000)
+        assert wait.call_count == 1  # Do not wait for closure after a failed click.
+        post.assert_not_called()
+
+
+def native_picker_closes_with_external_foreground() -> None:
+    with native_picker_fixture(folder=True) as (app_pid, _, dialog, _, send, post, _):
+        picker_open = True
+        dispatch = send.side_effect
+
+        def click_closes_picker(*args):
+            nonlocal picker_open
+            if args[0:2] == (204, 0x00F5):
+                picker_open = False
+            return dispatch(*args)
+
+        send.side_effect = click_closes_picker
+        with patch.object(driver.user32, "GetForegroundWindow", return_value=999):
+            with patch.object(driver.user32, "SetForegroundWindow", return_value=False) as activate:
+                with patch.object(driver.user32, "IsWindow", side_effect=lambda hwnd: hwnd == dialog and picker_open) as is_window:
+                    driver.select_native_file(app_pid, Path("C:/fixture/workspace"))
+                    is_window.assert_called_once_with(dialog)
+                activate.assert_not_called()
+        assert not picker_open
+        assert send.call_count == 2 and send.call_args.args[:6] == (204, 0x00F5, 0, None, 0x0002, 5000)
         post.assert_not_called()
 
 
@@ -856,11 +950,18 @@ def main() -> int:
     try:
         run_case("native folder picker uses its standard direct Edit 1152", lambda: native_picker_standard_controls(folder=True), tests)
         run_case("native file picker retains its filename combo 1148", lambda: native_picker_standard_controls(folder=False), tests)
-        for reason in ("arbitrary Edit", "foreign parent", "missing confirmation", "ambiguous Edit"):
+        for reason in ("arbitrary Edit", "foreign parent", "ambiguous Edit"):
             run_case("native folder picker rejects " + reason, lambda reason=reason: native_picker_rejects_controls(reason), tests)
+        for reason in ("missing", "ambiguous", "hidden", "disabled", "foreign parent"):
+            for folder in (True, False):
+                kind = "folder" if folder else "file"
+                run_case(f"native {kind} picker rejects {reason} confirmation button", lambda reason=reason, folder=folder: native_picker_rejects_confirmation(reason, folder=folder), tests)
         run_case("native picker rejects missing, exited and lost retained owners", native_picker_requires_retained_owner, tests)
         run_case("native picker rejects foreign owners and nonstandard dialogs", native_picker_rejects_foreign_dialog, tests)
-        run_case("native picker input timeout never posts confirmation", native_picker_input_failure_does_not_confirm, tests)
+        run_case("native picker input timeout never clicks confirmation", lambda: native_picker_input_failure_does_not_confirm(rejected=False), tests)
+        run_case("native picker rejected input never clicks confirmation", lambda: native_picker_input_failure_does_not_confirm(rejected=True), tests)
+        run_case("native picker confirmation timeout fails before closure wait", native_picker_confirmation_timeout, tests)
+        run_case("native picker clicks its actual button and closes with an external foreground window", native_picker_closes_with_external_foreground, tests)
         run_case("session inspection failure cleans retained owners and preserves failure evidence", session_inspection_failure_keeps_cleanup_and_evidence_owned, tests)
         run_case("bounded process captures a successful child", completes, tests)
         run_case("process output decodes UTF-8 and replaces malformed bytes", output_is_utf8_and_loss_tolerant, tests)
