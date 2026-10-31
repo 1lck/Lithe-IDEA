@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import ctypes
 import json
 import subprocess
@@ -50,6 +51,121 @@ def run_case(name, action, tests, max_ms=10_000):
         # Retain the failure and nonzero suite exit while still checking the
         # remaining cleanup/identity/DOM regressions on an unhealthy machine.
         print(f"FAIL {name}: {details}", file=sys.stderr)
+
+
+@contextlib.contextmanager
+def native_picker_fixture(*, folder: bool):
+    """Reproduce the native folder picker shape without opening a window."""
+    app_pid, dialog, edit, combo, confirm = 101, 201, 202, 203, 204
+    owner = MagicMock(pid=app_pid)
+    owner.running.return_value = True
+    classes = {dialog: "#32770", edit: "Edit", combo: "ComboBox", confirm: "Button"}
+    ids = {dialog: 0, edit: 1152, combo: 1148, confirm: 1}
+    children = [edit, confirm] if folder else [combo, edit, confirm]
+    parent = dialog if folder else combo
+    with contextlib.ExitStack() as patches:
+        patches.enter_context(patch.dict(driver.owned_processes, {app_pid: owner}, clear=True))
+        patches.enter_context(patch.object(driver, "window_class", side_effect=classes.__getitem__))
+        patches.enter_context(patch.object(driver, "window_pid", return_value=app_pid))
+        patches.enter_context(patch.object(driver, "child_windows", return_value=children))
+        patches.enter_context(patch.object(driver.user32, "EnumWindows", side_effect=lambda callback, _: callback(dialog, 0)))
+        patches.enter_context(patch.object(driver.user32, "GetWindow", return_value=0))
+        patches.enter_context(patch.object(driver.user32, "GetParent", return_value=parent))
+        patches.enter_context(patch.object(driver.user32, "GetDlgCtrlID", side_effect=lambda hwnd: ids.get(hwnd, 0)))
+        patches.enter_context(patch.object(driver.user32, "IsWindowVisible", return_value=True))
+        patches.enter_context(patch.object(driver.user32, "IsWindowEnabled", return_value=True))
+        patches.enter_context(patch.object(driver.user32, "IsWindow", return_value=False))
+        send = patches.enter_context(patch.object(driver.user32, "SendMessageTimeoutW", return_value=1))
+        post = patches.enter_context(patch.object(driver.user32, "PostMessageW", return_value=True))
+        wait = patches.enter_context(patch.object(driver, "wait_until", wraps=driver.wait_until))
+        yield app_pid, owner, dialog, edit, send, post, wait
+
+
+def native_picker_standard_controls(*, folder: bool) -> None:
+    with native_picker_fixture(folder=folder) as (app_pid, _, dialog, edit, send, post, wait):
+        selected = Path("C:/fixture/workspace" if folder else "C:/fixture/plugin.zip")
+        driver.select_native_file(app_pid, selected)
+        assert send.call_count == 1
+        assert send.call_args.args[:6] == (edit, 0x000C, 0, str(selected), 0x0002, 5000)
+        post.assert_called_once_with(dialog, 0x0111, 1, 0)
+        assert [call.args[1] for call in wait.call_args_list] == [10, 10]
+
+
+def native_picker_rejects_controls(reason: str) -> None:
+    with native_picker_fixture(folder=True) as (app_pid, _, dialog, edit, send, post, _):
+        with contextlib.ExitStack() as patches:
+            if reason == "arbitrary Edit":
+                patches.enter_context(patch.object(driver.user32, "GetDlgCtrlID", side_effect=lambda hwnd: 1 if hwnd == 204 else 0))
+            elif reason == "foreign parent":
+                patches.enter_context(patch.object(driver.user32, "GetParent", return_value=999))
+            elif reason == "missing confirmation":
+                patches.enter_context(patch.object(driver, "child_windows", return_value=[edit]))
+            elif reason == "ambiguous Edit":
+                original_class, original_id = driver.window_class, driver.user32.GetDlgCtrlID
+                patches.enter_context(patch.object(driver, "child_windows", return_value=[edit, 205, 204]))
+                patches.enter_context(patch.object(driver, "window_class", side_effect=lambda hwnd: "Edit" if hwnd == 205 else original_class(hwnd)))
+                patches.enter_context(patch.object(driver.user32, "GetDlgCtrlID", side_effect=lambda hwnd: 1152 if hwnd == 205 else original_id(hwnd)))
+            else:
+                raise AssertionError(reason)
+            try:
+                driver.select_native_file(app_pid, Path("C:/fixture/workspace"))
+            except RuntimeError as error:
+                assert "filename" in str(error), str(error)
+            else:
+                raise AssertionError(f"native picker accepted {reason}")
+        send.assert_not_called()
+        post.assert_not_called()
+
+
+def native_picker_requires_retained_owner() -> None:
+    for running in (False, None):
+        with native_picker_fixture(folder=True) as (app_pid, owner, _, _, send, post, wait):
+            owner.running.return_value = running
+            if running is None:
+                driver.owned_processes.clear()
+            try:
+                driver.select_native_file(app_pid, Path("C:/fixture/workspace"))
+            except RuntimeError as error:
+                assert "live retained application owner" in str(error), str(error)
+            else:
+                raise AssertionError("native picker accepted a missing or exited owner")
+            wait.assert_not_called()
+            send.assert_not_called()
+            post.assert_not_called()
+    with native_picker_fixture(folder=True) as (app_pid, owner, _, _, send, post, _):
+        owner.running.side_effect = [True, False]
+        try:
+            driver.select_native_file(app_pid, Path("C:/fixture/workspace"))
+        except RuntimeError as error:
+            assert "lost its retained application owner" in str(error), str(error)
+        else:
+            raise AssertionError("native picker wrote after its retained owner exited")
+        send.assert_not_called()
+        post.assert_not_called()
+
+
+def native_picker_rejects_foreign_dialog() -> None:
+    with native_picker_fixture(folder=True) as (app_pid, _, _, _, send, post, _):
+        with patch.object(driver, "window_pid", return_value=999):
+            assert driver.find_file_dialog(app_pid) is None
+        with patch.object(driver, "window_class", return_value="UnrelatedDialog"):
+            assert driver.find_file_dialog(app_pid) is None
+        send.assert_not_called()
+        post.assert_not_called()
+
+
+def native_picker_input_failure_does_not_confirm() -> None:
+    with native_picker_fixture(folder=True) as (app_pid, _, _, _, send, post, _):
+        send.return_value = 0
+        with patch.object(driver.kernel32, "GetLastError", return_value=1460):
+            try:
+                driver.select_native_file(app_pid, Path("C:/fixture/workspace"))
+            except RuntimeError as error:
+                assert "within 5 seconds (Win32 1460)" in str(error), str(error)
+            else:
+                raise AssertionError("failed native picker input was accepted")
+        assert send.call_args.args[5] == 5000
+        post.assert_not_called()
 
 
 def grouped_plugin_dom(browser_channel: str) -> None:
@@ -738,6 +854,13 @@ def main() -> int:
             assert recorded[0]["error"] == "RuntimeError: identity inspection failed"
 
     try:
+        run_case("native folder picker uses its standard direct Edit 1152", lambda: native_picker_standard_controls(folder=True), tests)
+        run_case("native file picker retains its filename combo 1148", lambda: native_picker_standard_controls(folder=False), tests)
+        for reason in ("arbitrary Edit", "foreign parent", "missing confirmation", "ambiguous Edit"):
+            run_case("native folder picker rejects " + reason, lambda reason=reason: native_picker_rejects_controls(reason), tests)
+        run_case("native picker rejects missing, exited and lost retained owners", native_picker_requires_retained_owner, tests)
+        run_case("native picker rejects foreign owners and nonstandard dialogs", native_picker_rejects_foreign_dialog, tests)
+        run_case("native picker input timeout never posts confirmation", native_picker_input_failure_does_not_confirm, tests)
         run_case("session inspection failure cleans retained owners and preserves failure evidence", session_inspection_failure_keeps_cleanup_and_evidence_owned, tests)
         run_case("bounded process captures a successful child", completes, tests)
         run_case("process output decodes UTF-8 and replaces malformed bytes", output_is_utf8_and_loss_tolerant, tests)

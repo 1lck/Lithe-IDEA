@@ -840,10 +840,13 @@ def child_windows(hwnd: int) -> list[int]:
 
 
 def select_native_file(app_pid: int, file_path: Path) -> None:
+    if not owned_process_running(app_pid):
+        raise RuntimeError("native picker requires a live retained application owner")
     dialog = wait_until(lambda: find_file_dialog(app_pid), 10, "the native package picker")
+    children = child_windows(dialog)
     edits = [
         child
-        for child in child_windows(dialog)
+        for child in children
         if window_class(child) == "Edit" and user32.IsWindowVisible(child) and user32.IsWindowEnabled(child)
     ]
     if not edits:
@@ -853,10 +856,25 @@ def select_native_file(app_pid: int, file_path: Path) -> None:
         edit for edit in edits if user32.GetDlgCtrlID(user32.GetParent(edit)) == 1148
     ]
     if not filename_edits:
+        # Windows folder pickers expose the standard edt1 directly, without
+        # the file picker's cmb13 parent. Require its exact ID, a parent in
+        # this owned dialog's tree and a usable standard confirmation button.
+        confirm = any(window_class(child) == "Button" and user32.GetDlgCtrlID(child) == 1
+                      and user32.IsWindowVisible(child) and user32.IsWindowEnabled(child)
+                      for child in children)
+        filename_edits = [edit for edit in edits
+                          if confirm and user32.GetDlgCtrlID(edit) == 1152
+                          and user32.GetDlgCtrlID(user32.GetParent(edit)) == 0
+                          and user32.GetParent(edit) in [dialog, *children]]
+    if not filename_edits:
         controls = [{"class": window_class(edit), "id": user32.GetDlgCtrlID(edit),
                      "parentId": user32.GetDlgCtrlID(user32.GetParent(edit))} for edit in edits]
         raise RuntimeError(f"the native filename combo was not found: {controls}")
+    if len(filename_edits) != 1:
+        raise RuntimeError("native picker has ambiguous standard filename fields")
     edit = filename_edits[0]
+    if not owned_process_running(app_pid):
+        raise RuntimeError("native picker lost its retained application owner")
     WM_SETTEXT = 0x000C
     message_result = ctypes.c_size_t()
     kernel32.SetLastError(0)
