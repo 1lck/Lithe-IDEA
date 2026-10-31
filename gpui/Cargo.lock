@@ -4576,6 +4576,7 @@ dependencies = [
  "gpui-webview",
  "lb-wry",
  "lithe-agent-host",
+ "lithe-core",
  "lithe-core-client",
  "lithe-git-host",
  "lithe-platform",

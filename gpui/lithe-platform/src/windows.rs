@@ -47,6 +47,21 @@ impl PlatformServices for WindowsPlatform {
             .is_ok()
     }
 
+    fn reveal_path(&self, path: &Path) -> bool {
+        let text = path.to_string_lossy();
+        let clean_path = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{rest}")
+        } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+            rest.to_string()
+        } else {
+            text.into_owned()
+        };
+        Command::new("explorer")
+            .arg(format!("/select,{clean_path}"))
+            .spawn()
+            .is_ok()
+    }
+
     fn recent_projects(&self) -> Vec<PathBuf> {
         recent_projects::load()
     }

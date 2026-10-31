@@ -39,6 +39,10 @@ pub enum LitheIcon {
     Folder,
     FolderOpen,
     Java,
+    NodeJs,
+    Rust,
+    Python,
+    Go,
     Markdown,
     Plus,
     More,
@@ -93,12 +97,36 @@ pub fn icon(icon: LitheIcon) -> gpui_kit::component::Icon {
         LitheIcon::Trash => Icon::new(gpui_kit::assets::IconName::Trash),
         LitheIcon::Sliders => Icon::new(gpui_kit::assets::IconName::SlidersHorizontal),
         LitheIcon::CollapseAll => Icon::new(gpui_kit::assets::IconName::ChevronsDownUp),
+        LitheIcon::Java => Icon::default().data(JAVA_CUP_ICON_SVG),
+        LitheIcon::Spring => Icon::default().data(SPRING_LEAF_ICON_SVG),
+        LitheIcon::NodeJs => Icon::default().data(NODEJS_ICON_SVG),
+        LitheIcon::Rust => Icon::default().data(RUST_ICON_SVG),
+        LitheIcon::Python => Icon::default().data(PYTHON_ICON_SVG),
+        LitheIcon::Go => Icon::default().data(GO_ICON_SVG),
         _ => Icon::new(name_for(icon)),
     }
 }
 
 /// 自动换行折行图标（对齐 Lucide / Tauri `WrapText`）。
 const WRAP_TEXT_ICON_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" x2="21" y1="6" y2="6"/><line x1="3" x2="15" y1="12" y2="12"/><polyline points="15 8 19 12 15 16"/><path d="M19 12h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H3"/></svg>"#;
+
+/// Java 咖啡杯图标（对齐 Tauri `JavaCupIcon`）。
+const JAVA_CUP_ICON_SVG: &[u8] = br#"<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"><path d="M3.5 5.5h7.25c.97 0 1.75.78 1.75 1.75S11.72 9 10.75 9H10.5"/><path d="M3.75 5.5h6.5v4.25a2.75 2.75 0 0 1-2.75 2.75h-1A2.75 2.75 0 0 1 3.75 9.75V5.5Z"/><path d="M4.25 13.25h5.5"/></svg>"#;
+
+/// Spring Boot 绿叶图标（对齐 Tauri Lucide `Leaf`）。
+const SPRING_LEAF_ICON_SVG: &[u8] = br#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>"#;
+
+/// Node.js 绿色立体包图标（对齐 Tauri `node.svg`）。
+const NODEJS_ICON_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path d="m8 1.5 5.5 3.1v6.2L8 14l-5.5-3.2V4.6L8 1.5Z" stroke="#5FAE64" stroke-width="1.3" stroke-linejoin="round"/><path d="M2.5 4.6 8 7.8l5.5-3.2M8 7.8V14" stroke="#5FAE64" stroke-width="1.1" stroke-linecap="round"/></svg>"#;
+
+/// Rust 橙色齿轮/文字图标（对齐 Tauri `lang-rust-color.svg`）。
+const RUST_ICON_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.2" stroke="#ffa359" stroke-width="1.5"/><path d="M6 5.5h2.5c.8 0 1.5.5 1.5 1.25s-.7 1.25-1.5 1.25H6v2.5M6 8h2.3l1.7 2.5" stroke="#ffa359" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
+
+/// Python 双色图标（对齐 Tauri `lang-python-color.svg`）。
+const PYTHON_ICON_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path fill="#69b1ff" d="M7.8 8h1.8c1.1 0 1.8-.7 1.8-1.7V5q0-.2.2-.2h.7c.7 0 1.3.3 1.6.9.4.7.4 1.4.4 2.1-.2 1-.7 1.5-1.5 1.6H8.2c-.1 0-.2 0-.2.1v.4h2.7c.3 0 .3.3.3.3v1c0 .5-.2.9-.7 1-.4.2-.8.3-1.2.4-1.2.2-2.4 0-3-.2-.3-.3-.5-.6-.5-1.1v-2.7c0-1.1.6-1.7 1.7-1.7.5 0 1.1 0 1.5.1"/><path fill="#ffd452" d="M8.2 8H6.4c-1.1 0-1.8.7-1.8 1.7V11q0 .2-.2.2h-.7c-.7 0-1.3-.3-1.6-.9-.4-.7-.4-1.4-.4-2.1.2-1 .7-1.5 1.5-1.6h4.6c.1 0 .2 0 .2-.1v-.4H5.7c-.3 0-.3-.3-.3-.3V4.9c0-.5.2-.9.7-1 .4-.2.8-.3 1.2-.4 1.2-.2 2.4 0 3 .2.3.3.5.6.5 1.1v2.7c0 1.1-.6 1.7-1.7 1.7-.5 0-1.1 0-1.5-.1"/></svg>"#;
+
+/// Go 蓝青色图标（对齐 Tauri `lang-go-color.svg`）。
+const GO_ICON_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"><path fill="#68cdf2" fill-rule="evenodd" d="M4.41 4.57A3.2 3.2 0 0 1 6.87 5q.74.49 1.08 1.29.08.12-.1.16l-1.55.4c-.14.03-.15.04-.27-.1a1 1 0 0 0-.44-.34 1.6 1.6 0 0 0-1.68.14q-.95.61-.94 1.73c0 .73.52 1.33 1.25 1.43q.95.1 1.58-.6l.25-.34h-1.8c-.19 0-.24-.12-.17-.27.12-.28.34-.76.47-1a.3.3 0 0 1 .24-.14h2.98a4 4 0 0 1 .64-1.19 4 4 0 0 1 2.6-1.52 3.5 3.5 0 0 1 2.64.46q1.13.73 1.31 2.04a3.5 3.5 0 0 1-1.06 3.09q-.93.92-2.23 1.17l-.74.08a3.5 3.5 0 0 1-2.27-.8 3 3 0 0 1-.93-1.42 4 4 0 0 1-.39.61 4 4 0 0 1-2.64 1.56 3.3 3.3 0 0 1-2.5-.6 3 3 0 0 1-1.18-2.03 3.5 3.5 0 0 1 .8-2.67 4 4 0 0 1 2.6-1.58M13.1 7.5a1.53 1.53 0 0 0-1.9-1.21q-1.3.3-1.62 1.59a1.5 1.5 0 0 0 .85 1.72q.77.33 1.52-.05a2 2 0 0 0 1.18-1.74q0-.17-.03-.3" clip-rule="evenodd"/></svg>"#;
 
 /// Tauri Windows 全局菜单图标（四条横杠，windowsMenu@20x20.svg）。
 const WINDOWS_MENU_ICON_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none"><rect x="2" y="2.5" width="16" height="1.5" rx="0.75" fill="currentColor"/><rect x="2" y="7" width="16" height="1.5" rx="0.75" fill="currentColor"/><rect x="2" y="11.5" width="16" height="1.5" rx="0.75" fill="currentColor"/><rect x="2" y="16" width="16" height="1.5" rx="0.75" fill="currentColor"/></svg>"#;
@@ -166,18 +194,13 @@ fn name_for(icon: LitheIcon) -> IconName {
         LitheIcon::File => IconName::File,
         LitheIcon::Folder => IconName::Folder,
         LitheIcon::FolderOpen => IconName::FolderOpen,
-        // Java：默认资源包没有咖啡杯/代码文件，用文本文件占位，
-        // 后续换 IDEA 的 java 文件 SVG。
-        LitheIcon::Java => IconName::FileText,
         LitheIcon::Markdown => IconName::BookOpen,
         LitheIcon::Plus => IconName::Plus,
         LitheIcon::More => IconName::Ellipsis,
-        // Maven 工具窗树节点与动作；package / rotate-ccw / trash 只在
-        // 全量图标目录里，与其余跨包图标一样在 `icon()` 里取全量 `IconName`。
         LitheIcon::Stop => IconName::Square,
         LitheIcon::Warning => IconName::TriangleAlert,
         LitheIcon::Minus => IconName::Minus,
-        // 由 `icon()` 直接走全量目录；默认图标包没有对应项。
+        // 由 `icon()` 直接走 SVG 或全量目录。
         LitheIcon::Menu
         | LitheIcon::GitBranch
         | LitheIcon::WrapText
@@ -185,6 +208,12 @@ fn name_for(icon: LitheIcon) -> IconName {
         | LitheIcon::Restore
         | LitheIcon::Trash
         | LitheIcon::Sliders
-        | LitheIcon::CollapseAll => unreachable!("handled in icon()"),
+        | LitheIcon::CollapseAll
+        | LitheIcon::Java
+        | LitheIcon::Spring
+        | LitheIcon::NodeJs
+        | LitheIcon::Rust
+        | LitheIcon::Python
+        | LitheIcon::Go => unreachable!("handled in icon()"),
     }
 }

@@ -1,9 +1,9 @@
 //! 工作台壳的布局刻度。
 //!
-//! 用 `h_resizable` 表达顶部一行（左工具窗 / 编辑区 / 右工具窗），
-//! `v_resizable` 表达顶部一行与底部 dock 的上下分栏；分栏尺寸集中在这里，
-//! 业务视图不感知锚点结构。工作台持有两个 `ResizableState`，在切换工作区
-//! 或改变 dock 可见性时清空，让持久化尺寸重新作为初始尺寸生效。
+//! 用 `h_resizable` 表达顶部一行（左工具窗 / 编辑区 / 右工具窗）；底部 dock
+//! 与顶部行之间是一条独立的拖动间隙，尺寸集中在这里，业务视图不感知锚点结构。
+//! 工作台持有一个 `ResizableState`，在切换工作区或隐藏侧边 dock 时清空，
+//! 让持久化宽度重新作为初始尺寸生效。
 
 use gpui_kit::{Pixels, px};
 
@@ -14,11 +14,12 @@ use gpui_kit::{Pixels, px};
 /// 工作区持久化的宽度重新作为初始尺寸生效。
 pub(crate) const HORIZONTAL_GROUP_ID: &str = "lithe-dock-horizontal";
 
-/// 上下分栏（顶部一行 / 底部 dock）的组 id。
+/// 底部工具窗与顶部一行之间的拖动间隙。
 ///
-/// 契约固定为 `lithe-dock-vertical`，前后两次渲染必须使用同一个 id，否则
-/// 拖拽高度会在每帧重置。底部 dock 只在下标 1 追加，不会移动顶部一行。
-pub(crate) const VERTICAL_GROUP_ID: &str = "lithe-dock-vertical";
+/// 对齐 Windows/Tauri 的 `--lithe-bottom-pane-gap`（6px）：这 6px 既是视觉
+/// 间隙，也是唯一的拖动命中范围。`gpui-base` 分栏组自带的命中带是 9px 且
+/// 跨过分栏边界，无法满足这个对齐要求，所以底部 dock 不用 `v_resizable`。
+pub(crate) const BOTTOM_PANE_GAP: Pixels = px(6.);
 
 /// 左侧工具窗默认宽度，对齐 macOS 原型的默认侧栏。
 pub(crate) const LEFT_PANEL_INITIAL_WIDTH: Pixels = px(300.);

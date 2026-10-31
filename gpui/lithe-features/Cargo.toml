@@ -13,6 +13,7 @@ gpui-webview = { workspace = true }
 wry = { workspace = true }
 lithe-ui = { path = "../lithe-ui" }
 lithe-agent-host = { path = "../../rust/lithe-agent-host" }
+lithe-core = { workspace = true }
 lithe-core-client = { path = "../lithe-core-client" }
 lithe-git-host = { path = "../../rust/lithe-git-host" }
 lithe-platform = { path = "../lithe-platform" }

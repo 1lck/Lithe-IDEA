@@ -1466,10 +1466,6 @@ impl GitPanel {
         let busy = self.pending_action.is_some() || self.committing;
         let stage_all_pending =
             matches!(self.pending_action.as_ref(), Some(PendingAction::StageAll));
-        let unstage_all_pending = matches!(
-            self.pending_action.as_ref(),
-            Some(PendingAction::UnstageAll)
-        );
         let can_stage_all = !busy && self.can_stage_all();
         let can_unstage_all = !busy && self.can_unstage_all();
         // 没有选中项时，单文件动作（丢弃 / 预览）保持禁用。
@@ -1488,8 +1484,8 @@ impl GitPanel {
                 Button::new("lithe-git:refresh")
                     .ghost()
                     .with_size(px(CHANGES_TOOLBAR_BUTTON_SIZE))
-                    .rounded(px(4.0))
-                    .icon(icon(LitheIcon::Refresh))
+                    .rounded(px(LitheMetrics::CONTROL_RADIUS))
+                    .icon(icon(LitheIcon::Refresh).with_size(px(16.0)))
                     .tooltip(tr("Refresh"))
                     .disabled(
                         self.loading_status
@@ -1503,10 +1499,11 @@ impl GitPanel {
                 Button::new("lithe-git:discard-selected")
                     .ghost()
                     .with_size(px(CHANGES_TOOLBAR_BUTTON_SIZE))
-                    .rounded(px(4.0))
-                    .icon(gpui_kit::component::Icon::new(
-                        gpui_kit::assets::IconName::RotateCcw,
-                    ))
+                    .rounded(px(LitheMetrics::CONTROL_RADIUS))
+                    .icon(
+                        gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Undo2)
+                            .with_size(px(16.0)),
+                    )
                     .tooltip(tr("Discard selected changes"))
                     .disabled(!has_selection || busy)
                     .on_click(cx.listener(|this, _, _window, cx| this.discard_selected_change(cx))),
@@ -1515,46 +1512,38 @@ impl GitPanel {
                 Button::new("lithe-git:stage-all")
                     .ghost()
                     .with_size(px(CHANGES_TOOLBAR_BUTTON_SIZE))
-                    .rounded(px(4.0))
-                    .icon(gpui_kit::component::Icon::new(
-                        gpui_kit::assets::IconName::ArrowDownToLine,
-                    ))
+                    .rounded(px(LitheMetrics::CONTROL_RADIUS))
+                    .icon(
+                        gpui_kit::component::Icon::new(
+                            gpui_kit::assets::IconName::ArrowDownToLine,
+                        )
+                        .with_size(px(16.0)),
+                    )
                     .tooltip(tr("Stage all changes"))
                     .loading(stage_all_pending)
                     .disabled(!can_stage_all)
                     .on_click(cx.listener(|this, _, _window, cx| this.stage_all_changes(cx))),
             )
             .child(
-                Button::new("lithe-git:unstage-all")
-                    .ghost()
-                    .with_size(px(CHANGES_TOOLBAR_BUTTON_SIZE))
-                    .rounded(px(4.0))
-                    .icon(gpui_kit::component::Icon::new(
-                        gpui_kit::assets::IconName::Undo2,
-                    ))
-                    .tooltip(tr("Unstage all changes"))
-                    .loading(unstage_all_pending)
-                    .disabled(!can_unstage_all)
-                    .on_click(cx.listener(|this, _, _window, cx| this.unstage_all_changes(cx))),
-            )
-            .child(
                 Button::new("lithe-git:diff-options")
                     .ghost()
                     .with_size(px(CHANGES_TOOLBAR_BUTTON_SIZE))
-                    .rounded(px(4.0))
-                    .icon(gpui_kit::component::Icon::new(
-                        gpui_kit::assets::IconName::Eye,
-                    ))
+                    .rounded(px(LitheMetrics::CONTROL_RADIUS))
+                    .icon(
+                        gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Eye)
+                            .with_size(px(16.0)),
+                    )
                     .tooltip(tr("Diff options")),
             )
             .child(
                 Button::new("lithe-git:more-options")
                     .ghost()
                     .with_size(px(CHANGES_TOOLBAR_BUTTON_SIZE))
-                    .rounded(px(4.0))
-                    .icon(gpui_kit::component::Icon::new(
-                        gpui_kit::assets::IconName::Ellipsis,
-                    ))
+                    .rounded(px(LitheMetrics::CONTROL_RADIUS))
+                    .icon(
+                        gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Ellipsis)
+                            .with_size(px(16.0)),
+                    )
                     .tooltip(tr("More options"))
                     .dropdown_menu_with_anchor(Anchor::TopLeft, {
                         let folder_view = self.folder_view;

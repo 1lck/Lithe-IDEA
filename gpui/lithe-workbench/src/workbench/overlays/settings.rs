@@ -205,6 +205,19 @@ impl Workbench {
         cx.notify();
     }
 
+    /// 打开设置覆盖层并直接落在「Run Configurations」页。Run 面板的编辑入口用它。
+    pub(crate) fn open_run_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.settings_visible {
+            self.toggle_settings(window, cx);
+        }
+        if let Some(view) = self.settings_view.clone() {
+            view.update(cx, |view, view_cx| {
+                view.open_run_configurations_page(view_cx)
+            });
+        }
+        cx.notify();
+    }
+
     /// 打开设置覆盖层并直接落在「Git」页。Git Log 标题栏的设置入口用它。
     pub(crate) fn open_git_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.settings_visible {

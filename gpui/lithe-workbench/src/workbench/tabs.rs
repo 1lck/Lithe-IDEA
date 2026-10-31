@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use gpui_kit::{AppContext as _, Context, SharedString, Window};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::{
+    AppContext as _, Context, DismissEvent, Focusable as _, Pixels, Point, SharedString, Window,
+};
 use lithe_core_client::FileReadResult;
 use lithe_ui::i18n::tr;
 use lithe_ui::icons::LitheIcon;
@@ -394,12 +397,23 @@ impl Workbench {
     }
 
     pub(super) fn close_other_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let active = self.active_tab.clone().map(|id| id.to_string());
+        let active = self.active_tab.clone();
+        if let Some(active) = active {
+            self.close_other_tabs_of(active.as_ref(), window, cx);
+        }
+    }
+
+    pub(super) fn close_other_tabs_of(
+        &mut self,
+        anchor_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let ids: Vec<String> = self
             .tabs
             .iter()
             .map(|tab| tab.id.to_string())
-            .filter(|id| Some(id) != active.as_ref())
+            .filter(|id| id.as_str() != anchor_id)
             .collect();
         for id in ids {
             self.close_tab(&id, window, cx);
@@ -407,11 +421,19 @@ impl Workbench {
     }
 
     pub(super) fn close_tabs_to_right(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(index) = self
-            .active_tab
-            .as_ref()
-            .and_then(|active| self.tabs.iter().position(|tab| tab.id == *active))
-        {
+        let active = self.active_tab.clone();
+        if let Some(active) = active {
+            self.close_tabs_to_right_of(active.as_ref(), window, cx);
+        }
+    }
+
+    pub(super) fn close_tabs_to_right_of(
+        &mut self,
+        anchor_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(index) = self.tabs.iter().position(|tab| tab.id.as_ref() == anchor_id) {
             let ids: Vec<String> = self.tabs[index + 1..]
                 .iter()
                 .map(|tab| tab.id.to_string())
@@ -420,6 +442,52 @@ impl Workbench {
                 self.close_tab(&id, window, cx);
             }
         }
+    }
+
+    pub(super) fn close_tabs_to_left_of(
+        &mut self,
+        anchor_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(index) = self.tabs.iter().position(|tab| tab.id.as_ref() == anchor_id) {
+            let ids: Vec<String> = self.tabs[..index]
+                .iter()
+                .map(|tab| tab.id.to_string())
+                .collect();
+            for id in ids {
+                self.close_tab(&id, window, cx);
+            }
+        }
+    }
+
+    pub(super) fn close_saved_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let ids: Vec<String> = self
+            .tabs
+            .iter()
+            .filter(|tab| !tab.modified)
+            .map(|tab| tab.id.to_string())
+            .collect();
+        for id in ids {
+            self.close_tab(&id, window, cx);
+        }
+    }
+
+    pub(super) fn reload_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(index) = self.tabs.iter().position(|tab| tab.id.as_ref() == id) else {
+            return;
+        };
+        let tab = &self.tabs[index];
+        if tab.id.starts_with("untitled:") {
+            return;
+        }
+        let Some(root) = self.project_root.clone() else {
+            return;
+        };
+        let absolute = tab.absolute_path.clone();
+        let relative = tab.display_path.to_string();
+        let tab_id = tab.id.clone();
+        self.load_file(root, absolute, relative, tab_id, window, cx);
     }
 
     pub(super) fn close_all_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -514,6 +582,193 @@ impl Workbench {
         self.sync_preview_with_active_tab(cx);
         cx.notify();
     }
+
+    pub(super) fn open_tab_context_menu(
+        &mut self,
+        tab_id: SharedString,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self.tabs.iter().position(|tab| tab.id == tab_id) else {
+            return;
+        };
+
+        let target_tab = self.tabs[index].clone();
+        let target_id = target_tab.id.clone();
+        let is_virtual = target_tab.id.starts_with("untitled:");
+        let has_other_tabs = self.tabs.len() > 1;
+        let has_tabs_to_right = index + 1 < self.tabs.len();
+        let has_tabs_to_left = index > 0;
+        let has_saved_tabs = self.tabs.iter().any(|tab| !tab.modified);
+        let has_split = self.editor_secondary.is_some();
+        let owner = cx.weak_entity();
+
+        let popup = PopupMenu::build(window, cx, move |mut menu, _window, _cx| {
+            let id = target_id.clone();
+            let close_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Close")).on_click(move |_, window, cx| {
+                    let _ = close_owner.update(cx, |this, cx| {
+                        this.close_tab(id.as_ref(), window, cx);
+                    });
+                }),
+            );
+
+            let id = target_id.clone();
+            let close_others_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Close Other Tabs"))
+                    .disabled(!has_other_tabs)
+                    .on_click(move |_, window, cx| {
+                        let _ = close_others_owner.update(cx, |this, cx| {
+                            this.close_other_tabs_of(id.as_ref(), window, cx);
+                        });
+                    }),
+            );
+
+            let id = target_id.clone();
+            let close_right_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Close Tabs to the Right"))
+                    .disabled(!has_tabs_to_right)
+                    .on_click(move |_, window, cx| {
+                        let _ = close_right_owner.update(cx, |this, cx| {
+                            this.close_tabs_to_right_of(id.as_ref(), window, cx);
+                        });
+                    }),
+            );
+
+            let id = target_id.clone();
+            let close_left_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Close Tabs to the Left"))
+                    .disabled(!has_tabs_to_left)
+                    .on_click(move |_, window, cx| {
+                        let _ = close_left_owner.update(cx, |this, cx| {
+                            this.close_tabs_to_left_of(id.as_ref(), window, cx);
+                        });
+                    }),
+            );
+
+            let close_saved_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Close Saved Tabs"))
+                    .disabled(!has_saved_tabs)
+                    .on_click(move |_, window, cx| {
+                        let _ = close_saved_owner.update(cx, |this, cx| {
+                            this.close_saved_tabs(window, cx);
+                        });
+                    }),
+            );
+
+            let close_all_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Close All Tabs")).on_click(move |_, window, cx| {
+                    let _ = close_all_owner.update(cx, |this, cx| {
+                        this.close_all_tabs(window, cx);
+                    });
+                }),
+            );
+
+            menu = menu.separator();
+
+            let id = target_id.clone();
+            let split_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Split Right"))
+                    .disabled(has_split)
+                    .on_click(move |_, window, cx| {
+                        let _ = split_owner.update(cx, |this, cx| {
+                            this.select_tab(id.as_ref(), window, cx);
+                            this.split_editor_right(window, cx);
+                        });
+                    }),
+            );
+
+            menu = menu.separator();
+
+            let abs_path = strip_verbatim_prefix(&target_tab.absolute_path);
+            let copy_path_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Copy Path"))
+                    .disabled(is_virtual)
+                    .on_click(move |_, _window, cx| {
+                        let _ = copy_path_owner.update(cx, |this, cx| {
+                            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+                                abs_path.display().to_string(),
+                            ));
+                            this.status_message = Some(tr("Copied").into());
+                            cx.notify();
+                        });
+                    }),
+            );
+
+            let disp_path = target_tab.display_path.clone();
+            let copy_rel_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Copy Relative Path"))
+                    .disabled(is_virtual)
+                    .on_click(move |_, _window, cx| {
+                        let _ = copy_rel_owner.update(cx, |this, cx| {
+                            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+                                disp_path.to_string(),
+                            ));
+                            this.status_message = Some(tr("Copied").into());
+                            cx.notify();
+                        });
+                    }),
+            );
+
+            let reveal_path = target_tab.absolute_path.clone();
+            let reveal_owner = owner.clone();
+            let reveal_label = if cfg!(target_os = "macos") {
+                tr("Show in Finder")
+            } else {
+                tr("Reveal in File Explorer")
+            };
+            menu = menu.item(
+                PopupMenuItem::new(reveal_label)
+                    .disabled(is_virtual)
+                    .on_click(move |_, _window, cx| {
+                        let _ = reveal_owner.update(cx, |this, _cx| {
+                            this.platform.reveal_path(&reveal_path);
+                        });
+                    }),
+            );
+
+            menu = menu.separator();
+
+            let id = target_id.clone();
+            let reload_owner = owner.clone();
+            menu = menu.item(
+                PopupMenuItem::new(tr("Reload Tab"))
+                    .disabled(is_virtual)
+                    .on_click(move |_, window, cx| {
+                        let _ = reload_owner.update(cx, |this, cx| {
+                            this.reload_tab(id.as_ref(), window, cx);
+                        });
+                    }),
+            );
+
+            menu
+        });
+
+        let focus_handle = popup.read(cx).focus_handle(cx);
+        if !focus_handle.contains_focused(window, cx) {
+            focus_handle.focus(window, cx);
+        }
+
+        let subscription =
+            cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, _window, cx| {
+                this.tab_context_menu = None;
+                this._tab_context_menu_subscription = None;
+                cx.notify();
+            });
+        self.tab_context_menu = Some((popup, position));
+        self._tab_context_menu_subscription = Some(subscription);
+        cx.notify();
+    }
 }
 
 pub(super) fn file_identity(path: &Path) -> String {
@@ -558,6 +813,18 @@ pub(super) fn is_markdown_path(path: &Path) -> bool {
     )
 }
 
+/// 移除 Windows canonicalize 产生的 `\\?\` 或 `\\?\UNC\` 前缀，保证暴露给 UI 和系统剪贴板的路径是纯净的原生格式。
+pub(super) fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        path.to_path_buf()
+    }
+}
+
 fn resolve_project_file(root: &Path, requested: &Path) -> Result<(PathBuf, String), SharedString> {
     let absolute = if requested.is_absolute() {
         requested.to_path_buf()
@@ -570,12 +837,12 @@ fn resolve_project_file(root: &Path, requested: &Path) -> Result<(PathBuf, Strin
 
     if let Ok(relative) = canonical_target.strip_prefix(&canonical_root) {
         let text = relative.to_string_lossy().replace('\\', "/");
-        return Ok((canonical_target, text));
+        return Ok((strip_verbatim_prefix(&canonical_target), text));
     }
 
     if let Ok(relative) = absolute.strip_prefix(root) {
         let text = relative.to_string_lossy().replace('\\', "/");
-        return Ok((absolute, text));
+        return Ok((strip_verbatim_prefix(&absolute), text));
     }
 
     Err(tr("File is outside the project").into())

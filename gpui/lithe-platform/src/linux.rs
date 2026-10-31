@@ -41,6 +41,15 @@ impl PlatformServices for LinuxPlatform {
         Command::new("xdg-open").arg(url).spawn().is_ok()
     }
 
+    fn reveal_path(&self, path: &Path) -> bool {
+        let target = if path.is_file() {
+            path.parent().unwrap_or(path)
+        } else {
+            path
+        };
+        Command::new("xdg-open").arg(target).spawn().is_ok()
+    }
+
     fn recent_projects(&self) -> Vec<PathBuf> {
         recent_projects::load()
     }

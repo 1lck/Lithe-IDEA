@@ -64,6 +64,9 @@ pub trait PlatformServices: Send + Sync + 'static {
     /// 启动后是否被系统正确处理不由本层判断。
     fn open_url(&self, url: &str) -> bool;
 
+    /// 在系统文件管理器中定位并选中指定路径；无法启动时为 `false`。
+    fn reveal_path(&self, path: &Path) -> bool;
+
     /// 最近打开过的项目，最近使用的排在最前面。
     fn recent_projects(&self) -> Vec<PathBuf>;
 
@@ -130,6 +133,10 @@ impl PlatformServices for UnsupportedPlatform {
     }
 
     fn open_url(&self, _url: &str) -> bool {
+        false
+    }
+
+    fn reveal_path(&self, _path: &Path) -> bool {
         false
     }
 

@@ -58,6 +58,7 @@ impl Workbench {
             let close = cx.processor(|this, id: SharedString, window, cx| {
                 this.close_tab(id.as_ref(), window, cx)
             });
+            let context_menu_owner = cx.weak_entity();
 
             area = area.child(
                 EditorTabs::new("lithe-editor-tabs")
@@ -65,6 +66,11 @@ impl Workbench {
                     .active(self.active_tab.clone().unwrap_or_default())
                     .on_select(select)
                     .on_close(close)
+                    .on_context_menu(move |id, position, window, cx| {
+                        let _ = context_menu_owner.update(cx, |this, cx| {
+                            this.open_tab_context_menu(id, position, window, cx);
+                        });
+                    })
                     .render(window, cx),
             );
         }

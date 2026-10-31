@@ -234,6 +234,11 @@ impl Workbench {
     }
 
     pub(super) fn close_menus(&mut self, cx: &mut Context<Self>) {
+        if self.tab_context_menu.is_some() {
+            self.tab_context_menu = None;
+            self._tab_context_menu_subscription = None;
+            cx.notify();
+        }
         if self.project_menu_visible || self.branch_menu_visible {
             self.project_menu_visible = false;
             self.branch_menu_visible = false;
@@ -267,23 +272,19 @@ impl Workbench {
                 }
                 match result {
                     Ok(value) => {
-                        if let Some(branch) = value
-                            .get("data")
-                            .and_then(|data| data.get("branch"))
-                            .and_then(Value::as_str)
-                        {
+                        // CoreClient 已解包响应的 `data`，分支和变更都在顶层；
+                        // 之前误读 `data.branch`，顶部一直停留在 `main`。
+                        if let Some(branch) = value.get("branch").and_then(Value::as_str) {
                             this.branch = SharedString::from(branch.to_string());
                         }
                         let changes = value
-                            .get("data")
-                            .and_then(|data| data.get("changes"))
+                            .get("changes")
                             .and_then(Value::as_array)
                             .map(|array| array.len())
                             .unwrap_or(0);
                         this.git_change_count = changes;
                     }
                     Err(_) => {
-                        this.branch = SharedString::from(tr("main"));
                         this.git_change_count = 0;
                     }
                 }
@@ -526,33 +527,13 @@ impl Workbench {
             }
             "file.closeOtherTabs" | "file.closeOthers" => self.close_other_tabs(window, cx),
             "file.closeTabsToLeft" => {
-                if let Some(index) = self
-                    .active_tab
-                    .as_ref()
-                    .and_then(|active| self.tabs.iter().position(|tab| tab.id == *active))
-                {
-                    let ids: Vec<String> = self.tabs[..index]
-                        .iter()
-                        .map(|tab| tab.id.to_string())
-                        .collect();
-                    for id in ids {
-                        self.close_tab(&id, window, cx);
-                    }
+                if let Some(active) = self.active_tab.clone() {
+                    self.close_tabs_to_left_of(active.as_ref(), window, cx);
                 }
             }
             "file.closeTabsToRight" => self.close_tabs_to_right(window, cx),
             "file.closeAllTabs" | "file.closeAll" => self.close_all_tabs(window, cx),
-            "file.closeSaved" => {
-                let ids: Vec<String> = self
-                    .tabs
-                    .iter()
-                    .filter(|t| !t.modified)
-                    .map(|t| t.id.to_string())
-                    .collect();
-                for id in ids {
-                    self.close_tab(&id, window, cx);
-                }
-            }
+            "file.closeSaved" => self.close_saved_tabs(window, cx),
             "file.reopenClosedTab" | "file.reopenClosed" => self.reopen_last_closed_tab(window, cx),
             "file.localHistory" => self.open_local_history(window, cx),
             "file.settings" | "tools.settings" => self.toggle_settings(window, cx),

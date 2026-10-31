@@ -45,6 +45,10 @@ impl PlatformServices for MacPlatform {
         Command::new("open").arg(url).spawn().is_ok()
     }
 
+    fn reveal_path(&self, path: &Path) -> bool {
+        Command::new("open").arg("-R").arg(path).spawn().is_ok()
+    }
+
     fn recent_projects(&self) -> Vec<PathBuf> {
         recent_projects::load()
     }

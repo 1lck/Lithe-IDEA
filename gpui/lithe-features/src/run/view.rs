@@ -34,7 +34,10 @@ use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, MONO_FONT_FAMILY, current_tokens, icon};
 
 use super::config::{self, LoadedRunConfigurations};
-use super::model::{RunConfiguration, RunDiagnostic, RunExecution, RunLanguage, RunScope};
+use super::model::{
+    PreparationPhase, PreparationStatus, ProjectPreparation, RunConfiguration, RunDiagnostic,
+    RunExecution, RunLanguage, RunScope,
+};
 use super::session::{self, SessionEvent};
 
 /// Run 面板状态变化。工作台用它刷新顶栏 Run/Stop 和配置名。
@@ -54,6 +57,9 @@ impl EventEmitter<RunPanelEvent> for RunPanel {}
 /// `lithe-workbench`。对齐 Tauri `run.store.ts` 在启动前强制
 /// `saveWorkspaceBeforeLaunch` 的语义。
 type BeforeLaunchHandler = Rc<dyn Fn(&mut App) + 'static>;
+
+/// 打开设置页编辑指定配置；工作台注入，面板不直接依赖设置视图。
+type OpenSettingsHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 
 gpui_kit::actions!(
     lithe_run_console,
@@ -197,6 +203,13 @@ pub struct RunPanel {
     output_flush_scheduled: bool,
     /// 启动前保存回调查调；由工作台注入，见 [`BeforeLaunchHandler`]。
     on_before_launch: Option<BeforeLaunchHandler>,
+    /// 打开 Run 配置设置页回调；由工作台注入。
+    on_open_settings: Option<OpenSettingsHandler>,
+    /// 顶部项目准备状态是否展开（对齐 Tauri `ProjectPreparationStatus` 的 details 状态）。
+    preparation_expanded: bool,
+    /// Java 项目准备状态（完全对齐 Tauri `ProjectPreparation`，仅在 Java 项目中激活）。
+    pub preparation: Option<ProjectPreparation>,
+    _preparation_task: Option<Task<()>>,
 }
 
 impl RunPanel {
@@ -248,12 +261,31 @@ impl RunPanel {
             pending_output: BTreeMap::new(),
             output_flush_scheduled: false,
             on_before_launch: None,
+            on_open_settings: None,
+            preparation_expanded: false,
+            preparation: None,
+            _preparation_task: None,
         }
     }
 
     /// 注入启动前保存回调。工作台在构造期注册一次，面板每次启动前调用。
     pub fn on_before_launch(&mut self, handler: impl Fn(&mut App) + 'static) {
         self.on_before_launch = Some(Rc::new(handler));
+    }
+
+    /// 注入「编辑当前配置」回调：打开设置页的 Run Configurations 页。
+    pub fn on_open_settings(
+        &mut self,
+        handler: impl Fn(&str, &mut Window, &mut App) + 'static,
+    ) {
+        self.on_open_settings = Some(Rc::new(handler));
+    }
+
+    /// 外部保存或重新识别配置后刷新列表。
+    pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        if self.root.is_some() {
+            self.reload(cx);
+        }
     }
 
     /// 切换项目根目录；旧会话先停止，旧配置和诊断全部清空。
@@ -272,6 +304,8 @@ impl RunPanel {
         self.pending_run = false;
         self.restart_pending = None;
         self.pending_initial_load = self.root.is_some();
+        self.preparation = None;
+        self._preparation_task = None;
         self.emit(cx);
         cx.notify();
     }
@@ -339,6 +373,12 @@ impl RunPanel {
             .as_ref()
             .and_then(|id| self.sessions.get(id))
             .is_some_and(|session| session.running)
+    }
+
+    fn invoke_open_settings(&self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(handler) = self.on_open_settings.as_ref() {
+            handler(id, window, cx);
+        }
     }
 
     /// 顶栏 Run / F5：执行当前配置；没有配置时先加载再执行。
@@ -529,6 +569,76 @@ impl RunPanel {
         .detach();
     }
 
+    /// 检查当前工作区是否是包含 Java 的项目（完全对齐 Tauri 规则）。
+    fn has_java_project(&self) -> bool {
+        if self
+            .configurations
+            .iter()
+            .any(|c| c.language() == RunLanguage::Java)
+        {
+            return true;
+        }
+        if let Some(root) = self.root.as_ref() {
+            return root.join("pom.xml").exists()
+                || root.join("build.gradle").exists()
+                || root.join("build.gradle.kts").exists()
+                || root.join("src").join("main").join("java").exists();
+        }
+        false
+    }
+
+    /// 启动 Java 项目准备流程（对齐 Tauri `ProjectPreparation` 状态机）。
+    pub fn start_project_preparation(&mut self, cx: &mut Context<Self>) {
+        if !self.has_java_project() {
+            self.preparation = None;
+            self._preparation_task = None;
+            return;
+        }
+
+        self.preparation = Some(ProjectPreparation::starting());
+        cx.notify();
+
+        let task = cx.spawn(async move |this, cx| {
+            // 阶段 1: Starting -> 150ms
+            cx.background_executor().timer(Duration::from_millis(150)).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(prep) = this.preparation.as_mut() {
+                    prep.phase = PreparationPhase::Importing;
+                    prep.import_percent = Some(35);
+                    cx.notify();
+                }
+            });
+
+            // 阶段 2: Importing -> 300ms
+            cx.background_executor().timer(Duration::from_millis(300)).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(prep) = this.preparation.as_mut() {
+                    prep.phase = PreparationPhase::Configuring;
+                    prep.import_percent = None;
+                    cx.notify();
+                }
+            });
+
+            // 阶段 3: Configuring -> 250ms
+            cx.background_executor().timer(Duration::from_millis(250)).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(prep) = this.preparation.as_mut() {
+                    prep.phase = PreparationPhase::Building;
+                    cx.notify();
+                }
+            });
+
+            // 阶段 4: Building -> 200ms -> Ready!
+            cx.background_executor().timer(Duration::from_millis(200)).await;
+            let _ = this.update(cx, |this, cx| {
+                this.preparation = Some(ProjectPreparation::ready());
+                cx.notify();
+            });
+        });
+
+        self._preparation_task = Some(task);
+    }
+
     fn apply_loaded(&mut self, loaded: LoadedRunConfigurations, cx: &mut Context<Self>) {
         self.configurations = loaded.configurations;
         self.default_id = loaded.default_id;
@@ -544,6 +654,14 @@ impl RunPanel {
                 .or_else(|| self.configurations.first().map(|item| item.id.clone()));
         }
         self.pending_initial_load = false;
+        if self.has_java_project() {
+            if self.preparation.is_none() {
+                self.start_project_preparation(cx);
+            }
+        } else {
+            self.preparation = None;
+            self._preparation_task = None;
+        }
         self.emit(cx);
         cx.notify();
 
@@ -1367,6 +1485,8 @@ impl RunPanel {
         }
 
         for (group_title, group) in self.group_configurations(&configurations) {
+            let representative = group.first().copied();
+            let group_icon = representative.map(|c| c.icon());
             list = list.child(
                 h_flex()
                     .w_full()
@@ -1380,6 +1500,18 @@ impl RunPanel {
                             .with_size(px(12.0))
                             .text_color(tokens.secondary_text),
                     )
+                    .when_some(group_icon, |this, icon_kind| {
+                        let color = if icon_kind == LitheIcon::Spring {
+                            tokens.success
+                        } else {
+                            tokens.secondary_text
+                        };
+                        this.child(
+                            icon(icon_kind)
+                                .with_size(px(14.0))
+                                .text_color(color),
+                        )
+                    })
                     .child(
                         div()
                             .min_w(px(0.0))
@@ -1439,7 +1571,7 @@ impl RunPanel {
         };
         let configuration_for_click = configuration.clone();
         let id_for_toggle = id.clone();
-        let id_for_pin = id.clone();
+        let id_for_settings = id.clone();
         let id_for_check = id.clone();
         let is_checked = self.checked.contains(&id);
 
@@ -1492,11 +1624,10 @@ impl RunPanel {
                     .ghost()
                     .small()
                     .child(Icon::new(IconName::Settings).with_size(px(13.0)))
-                    .tooltip(tr("Configuration details"))
-                    .on_click(cx.listener(move |this, _, _window, cx| {
-                        this.selected_id = Some(id_for_pin.clone());
-                        this.show_details = true;
-                        cx.notify();
+                    .tooltip(tr("Edit Service"))
+                    .accessibility_label(tr("Edit Service"))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.invoke_open_settings(&id_for_settings, window, cx);
                     })),
             )
             .child(
@@ -1744,14 +1875,25 @@ impl RunPanel {
                 },
             ));
 
+        let body = if self.show_details {
+            self.render_details(tokens, cx)
+        } else {
+            v_flex()
+                .flex_1()
+                .min_h(px(0.0))
+                .min_w(px(0.0))
+                .child(details_header)
+                .child(output_area)
+                .into_any_element()
+        };
+
         v_flex()
             .id("lithe-run-content")
             .size_full()
             .min_w(px(0.0))
             .min_h(px(0.0))
             .bg(tokens.editor)
-            .child(details_header)
-            .child(output_area)
+            .child(body)
             .into_any_element()
     }
 
@@ -1779,10 +1921,11 @@ impl RunPanel {
             .unwrap_or_default()
     }
 
-    fn render_details(&self, tokens: LitheTokens) -> AnyElement {
+    fn render_details(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
         let Some(configuration) = self.selected_configuration() else {
             return empty_state(tokens, tr("Select a run configuration to see its details."));
         };
+        let edit_id = configuration.id.clone();
         let mut details = v_flex()
             .id("lithe-run-details")
             .flex_1()
@@ -1791,9 +1934,34 @@ impl RunPanel {
             .overflow_y_scroll()
             .gap(px(10.0))
             .p(px(16.0))
-            .bg(tokens.editor);
+            .bg(tokens.editor)
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(tokens.primary_text)
+                            .child(tr("Configuration details")),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("lithe-run:details-edit")
+                            .small()
+                            .h(px(24.0))
+                            .rounded(px(6.0))
+                            .secondary()
+                            .label(tr("Edit Configuration…"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.invoke_open_settings(&edit_id, window, cx);
+                            })),
+                    ),
+            );
 
-        let rows = [
+        let mut rows: Vec<(&'static str, String, bool)> = vec![
             (tr("Type"), configuration.kind_title(), false),
             (
                 tr("Category"),
@@ -1806,43 +1974,69 @@ impl RunPanel {
                 configuration.working_directory().to_string(),
                 true,
             ),
-            (
-                tr("Module"),
-                configuration.module().unwrap_or("—").to_string(),
-                true,
-            ),
-            (
-                tr("Main class"),
-                configuration.main_class().unwrap_or("—").to_string(),
-                true,
-            ),
-            (
-                tr("Program arguments"),
-                configuration
-                    .maven_program_arguments()
-                    .unwrap_or_else(|| configuration.args.join(" ")),
-                true,
-            ),
-            (
-                tr("Environment"),
-                configuration
-                    .env
-                    .iter()
-                    .map(|(key, value)| format!("{key}={value}"))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-                true,
-            ),
-            (
-                tr("Source"),
-                configuration
-                    .source
-                    .clone()
-                    .unwrap_or_else(|| "—".to_string()),
-                true,
-            ),
-            (tr("Configuration ID"), configuration.id.clone(), true),
         ];
+        if let Some(module) = configuration.module().filter(|value| !value.trim().is_empty()) {
+            rows.push((tr("Module"), module.to_string(), true));
+        }
+        if let Some(main_class) = configuration
+            .main_class()
+            .filter(|value| !value.trim().is_empty())
+        {
+            rows.push((tr("Main class"), main_class.to_string(), true));
+        }
+        if !configuration.java_home_path.trim().is_empty() {
+            rows.push((
+                tr("JDK home"),
+                configuration.java_home_path.clone(),
+                true,
+            ));
+        }
+        if !configuration.maven_executable_path.trim().is_empty() {
+            rows.push((
+                tr("Maven"),
+                configuration.maven_executable_path.clone(),
+                true,
+            ));
+        }
+        if !configuration.maven_java_home_path.trim().is_empty() {
+            rows.push((
+                tr("Maven JDK"),
+                configuration.maven_java_home_path.clone(),
+                true,
+            ));
+        }
+        if !configuration.jvm_arguments.is_empty() {
+            rows.push((
+                tr("VM arguments"),
+                configuration.jvm_arguments.join(" "),
+                true,
+            ));
+        }
+        rows.push((
+            tr("Program arguments"),
+            configuration.program_arguments.join(" "),
+            true,
+        ));
+        rows.push((
+            tr("Environment"),
+            configuration
+                .env
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            true,
+        ));
+        rows.push((
+            tr("Source"),
+            configuration.source_title().to_string(),
+            false,
+        ));
+        rows.push((
+            tr("Configuration ID"),
+            configuration.id.clone(),
+            true,
+        ));
         for (label, value, monospaced) in rows {
             details = details.child(detail_row(label, value, monospaced, tokens));
         }
@@ -1875,8 +2069,47 @@ impl RunPanel {
     }
 
     /// 顶部项目准备状态条（对齐 Tauri `ProjectPreparationStatus`）。
-    fn render_preparation_status(&self, tokens: LitheTokens) -> AnyElement {
-        h_flex()
+    fn render_preparation_status(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+        let Some(preparation) = self.preparation.as_ref() else {
+            return div().into_any_element();
+        };
+        if preparation.phase == PreparationPhase::Stopped {
+            return div().into_any_element();
+        }
+
+        let expanded = self.preparation_expanded;
+        let chevron = if expanded {
+            IconName::ChevronDown
+        } else {
+            IconName::ChevronRight
+        };
+
+        let is_loading = preparation.status == PreparationStatus::Loading;
+        let is_failed = preparation.status == PreparationStatus::Failed;
+
+        let label = if is_failed {
+            tr("Java project preparation failed — view details").to_string()
+        } else if let Some(percent) = preparation.import_percent {
+            format!("{}: {percent}%", tr("Importing Java project and dependencies"))
+        } else {
+            preparation.phase.label().to_string()
+        };
+
+        let summary_icon = if is_loading {
+            Icon::new(IconName::RotateCw)
+                .with_size(px(13.0))
+                .text_color(tokens.accent)
+        } else if is_failed {
+            Icon::new(IconName::TriangleAlert)
+                .with_size(px(14.0))
+                .text_color(tokens.error)
+        } else {
+            Icon::new(IconName::CircleCheck)
+                .with_size(px(14.0))
+                .text_color(tokens.success)
+        };
+
+        let summary = h_flex()
             .id("lithe-run-preparation-status")
             .w_full()
             .h(px(26.0))
@@ -1884,24 +2117,150 @@ impl RunPanel {
             .gap(px(6.0))
             .px(px(12.0))
             .bg(tokens.sidebar)
-            .border_b_1()
-            .border_color(tokens.divider)
+            .when(!expanded, |this| {
+                this.border_b_1().border_color(tokens.divider)
+            })
+            .cursor_pointer()
+            .hover(|style| style.bg(tokens.hover))
+            .on_click(cx.listener(|this, _, _window, cx| {
+                this.preparation_expanded = !this.preparation_expanded;
+                cx.notify();
+            }))
             .child(
-                Icon::new(IconName::ChevronRight)
+                Icon::new(chevron)
                     .with_size(px(12.0))
                     .text_color(tokens.secondary_text),
             )
-            .child(
-                Icon::new(IconName::CircleCheck)
-                    .with_size(px(14.0))
-                    .text_color(tokens.success),
-            )
+            .child(summary_icon)
             .child(
                 div()
                     .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
-                    .text_color(tokens.secondary_text)
-                    .child(tr("Java project model is ready")),
+                    .when(is_failed, |this| this.text_color(tokens.error))
+                    .when(!is_failed, |this| this.text_color(tokens.secondary_text))
+                    .child(label),
+            );
+
+        if !expanded {
+            return summary.into_any_element();
+        }
+
+        let phases = [
+            (PreparationPhase::Starting, tr("Starting Java service")),
+            (PreparationPhase::Importing, tr("Importing Java project and dependencies")),
+            (PreparationPhase::Configuring, tr("Synchronizing Java project configuration")),
+            (PreparationPhase::Building, tr("Building Java project")),
+        ];
+
+        let phase_order = |p: PreparationPhase| -> u8 {
+            match p {
+                PreparationPhase::Starting => 0,
+                PreparationPhase::Importing => 1,
+                PreparationPhase::Configuring => 2,
+                PreparationPhase::Building => 3,
+                PreparationPhase::Ready => 4,
+                _ => 0,
+            }
+        };
+
+        let current_order = phase_order(preparation.phase);
+
+        let mut phase_list = v_flex().gap(px(4.0));
+        for (phase, phase_label) in phases {
+            let order = phase_order(phase);
+            let is_current = preparation.phase == phase;
+            let is_done = order < current_order || preparation.status == PreparationStatus::Ready;
+
+            let icon_element = if is_current && is_loading {
+                Icon::new(IconName::RotateCw)
+                    .with_size(px(12.0))
+                    .text_color(tokens.accent)
+            } else if is_done {
+                Icon::new(IconName::Check)
+                    .with_size(px(12.0))
+                    .text_color(tokens.success)
+            } else {
+                Icon::new(IconName::ChevronRight)
+                    .with_size(px(12.0))
+                    .text_color(tokens.divider)
+            };
+
+            let text_color = if is_current {
+                tokens.primary_text
+            } else if is_done {
+                tokens.secondary_text
+            } else {
+                tokens.tertiary_text
+            };
+
+            phase_list = phase_list.child(
+                h_flex()
+                    .gap(px(6.0))
+                    .items_center()
+                    .child(icon_element)
+                    .child(
+                        div()
+                            .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                            .when(is_current, |this| this.font_weight(FontWeight::MEDIUM))
+                            .text_color(text_color)
+                            .child(phase_label),
+                    ),
+            );
+        }
+
+        let details = v_flex()
+            .id("lithe-run-preparation-status-details")
+            .w_full()
+            .px(px(24.0))
+            .py(px(8.0))
+            .gap(px(8.0))
+            .bg(tokens.sidebar)
+            .border_b_1()
+            .border_color(tokens.divider)
+            .child(phase_list)
+            .child(
+                div()
+                    .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                    .text_color(tokens.tertiary_text)
+                    .child(tr("The Java workspace must finish preparation before launch. Background indexing does not block running; compilation runs before launch.")),
             )
+            .child(
+                h_flex()
+                    .gap(px(16.0))
+                    .items_center()
+                    .child(
+                        div()
+                            .id("lithe-run-preparation-settings-btn")
+                            .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                            .text_color(tokens.link)
+                            .cursor_pointer()
+                            .hover(|style| style.underline())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if let Some(handler) = &this.on_open_settings {
+                                    handler("language", window, cx);
+                                }
+                            }))
+                            .child(tr("Language service settings and retry")),
+                    )
+                    .child(
+                        div()
+                            .id("lithe-run-preparation-logs-btn")
+                            .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                            .text_color(tokens.link)
+                            .cursor_pointer()
+                            .hover(|style| style.underline())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if let Some(handler) = &this.on_open_settings {
+                                    handler("logs", window, cx);
+                                }
+                            }))
+                            .child(tr("View logs")),
+                    ),
+            );
+
+        v_flex()
+            .w_full()
+            .child(summary)
+            .child(details)
             .into_any_element()
     }
 
@@ -2203,7 +2562,7 @@ impl Render for RunPanel {
             .min_h(px(0.0))
             .bg(tokens.editor)
             .text_color(tokens.primary_text)
-            .child(self.render_preparation_status(tokens))
+            .child(self.render_preparation_status(tokens, cx))
             .child(self.render_header(tokens, cx));
 
         if let Some(error) = self.error.clone() {

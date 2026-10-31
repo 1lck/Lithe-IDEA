@@ -18,6 +18,7 @@ use lithe_git_host::ProcessTree;
 use serde_json::{Value, json};
 
 use super::model::RunConfiguration;
+use super::toolchain;
 
 /// 运行会话向视图发送的事件。
 pub enum SessionEvent {
@@ -61,36 +62,38 @@ fn launch(
     // back keeps `-pl`/`-f` relative to the reactor root instead of the module
     // directory, which matters for multi-module Spring Boot projects.
     if configuration.toolchains.contains_key("maven") {
-        if let Some(maven) = configuration.extensions.get("maven") {
-            let reactor_path = maven
-                .get("reactorPath")
-                .and_then(Value::as_str)
-                .unwrap_or(".");
-            let profiles = maven
-                .get("profiles")
-                .and_then(Value::as_array)
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            request["mavenContext"] = json!({
-                "version": 1,
-                "reactorPath": reactor_path,
-                "profiles": profiles,
-                "settingsPath": null,
-                "localRepositoryPath": null,
-                "skipTests": maven
-                    .get("skipTests")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                "mavenExecutablePath": null,
-                "javaHomePath": null
-            });
-        }
+        let maven = configuration.extensions.get("maven");
+        let reactor_path = maven
+            .and_then(|maven| maven.get("reactorPath"))
+            .and_then(Value::as_str)
+            .unwrap_or(".");
+        let profiles = maven
+            .and_then(|maven| maven.get("profiles"))
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        // 与 Tauri 一样带上 Maven 工具窗保存的 settings / 本地仓库 / 可执行文件，
+        // 否则多模块项目或自定义 Maven 在启动时会退回默认查找。
+        let maven_settings = crate::maven::configuration::load_local(&root, reactor_path);
+        request["mavenContext"] = json!({
+            "version": 1,
+            "reactorPath": reactor_path,
+            "profiles": profiles,
+            "settingsPath": maven_settings.settings_path,
+            "localRepositoryPath": maven_settings.local_repository_path,
+            "skipTests": maven
+                .and_then(|maven| maven.get("skipTests"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            "mavenExecutablePath": maven_settings.maven_executable_path,
+            "javaHomePath": maven_settings.java_home_path
+        });
     }
     let plan = client
         .execute_raw("runConfig.createLaunchPlan", request)
@@ -103,10 +106,18 @@ fn launch(
 
     let launch = LaunchPlan::from_json(&plan)?;
     let working_directory = resolve_working_directory(&root, &launch.working_directory);
-    let executable = resolve_executable(&root, &working_directory, &launch.executable)?;
+    let toolchains = ProjectToolchains::resolve(
+        &root,
+        &working_directory,
+        &configuration.java_home_path,
+        &configuration.maven_executable_path,
+    );
+    let executable = resolve_executable(&root, &working_directory, &launch.executable, &toolchains)?;
     let mut environment = launch.env.clone();
     for (key, reference) in &launch.environment {
-        if let Some(value) = resolve_environment_reference(&root, &working_directory, reference) {
+        if let Some(value) =
+            resolve_environment_reference(&root, &working_directory, reference, &toolchains)
+        {
             environment.insert(key.clone(), value);
         }
     }
@@ -114,7 +125,8 @@ fn launch(
     // pre-launch 步骤是 Java 独立源文件的编译等准备工作；它们必须按顺序
     // 完成，失败时主进程不能启动。
     for step in &launch.pre_launch_steps {
-        let step_executable = resolve_executable(&root, &working_directory, &step.executable)?;
+        let step_executable =
+            resolve_executable(&root, &working_directory, &step.executable, &toolchains)?;
         let step_directory = step
             .working_directory
             .as_deref()
@@ -402,33 +414,71 @@ fn resolve_working_directory(root: &Path, value: &str) -> PathBuf {
     }
 }
 
+/// 一次启动实际使用的项目工具链。
+///
+/// 这里必须和设置页一样走项目 requirements 的自动选择，而不是直接读
+/// `JAVA_HOME`：用户的 `JAVA_HOME` 可能仍是 JDK 8，而 Spring Boot 3 等项目
+/// 需要 17+；Tauri 也是先解析再启动。
+struct ProjectToolchains {
+    java_home: Option<PathBuf>,
+    maven_executable: Option<PathBuf>,
+}
+
+impl ProjectToolchains {
+    fn resolve(
+        root: &Path,
+        working_directory: &Path,
+        java_home_path: &str,
+        maven_executable_path: &str,
+    ) -> Self {
+        Self {
+            java_home: toolchain::resolve_launch_java_home(root, java_home_path),
+            maven_executable: toolchain::resolve_launch_maven_executable(
+                root,
+                working_directory,
+                maven_executable_path,
+            ),
+        }
+    }
+}
+
 fn resolve_environment_reference(
     root: &Path,
     working_directory: &Path,
     reference: &EnvironmentRef,
+    toolchains: &ProjectToolchains,
 ) -> Option<String> {
     match reference {
         EnvironmentRef::Literal(value) => Some(value.clone()),
-        EnvironmentRef::ToolchainHome(toolchain) => {
-            if toolchain == "project-jdk" {
-                // Only publish a verified JDK home. A `java.exe` shim on PATH
-                // (for example Oracle's javapath) is not a JDK root; setting
-                // JAVA_HOME to its guessed parent makes Maven fail later.
-                if let Some(home) = std::env::var_os("JAVA_HOME") {
-                    let home = PathBuf::from(home);
-                    if home.join("bin").join(jdk_tool_name("javac")).is_file() {
-                        return Some(home.to_string_lossy().into_owned());
-                    }
+        EnvironmentRef::ToolchainHome(toolchain_name) => {
+            if toolchain_name == "project-jdk" {
+                // Tauri 发布的是 `resolve_java_home` 选出的 JDK home；这里同样
+                // 不再回退到原始 JAVA_HOME，否则旧 JDK 会覆盖刚选出的新版本。
+                if let Some(home) = &toolchains.java_home {
+                    return Some(home.to_string_lossy().into_owned());
                 }
-                let executable =
-                    resolve_toolchain(root, working_directory, "project-jdk", None).ok()?;
+                let executable = resolve_toolchain_with(
+                    root,
+                    working_directory,
+                    "project-jdk",
+                    None,
+                    toolchains,
+                )
+                .ok()?;
                 let home = executable.parent().and_then(Path::parent)?;
                 if home.join("bin").join(jdk_tool_name("javac")).is_file() {
                     return Some(home.to_string_lossy().into_owned());
                 }
                 return None;
             }
-            let executable = resolve_toolchain(root, working_directory, toolchain, None).ok()?;
+            let executable = resolve_toolchain_with(
+                root,
+                working_directory,
+                toolchain_name,
+                None,
+                toolchains,
+            )
+            .ok()?;
             executable
                 .parent()
                 .and_then(Path::parent)
@@ -449,12 +499,17 @@ fn resolve_executable(
     root: &Path,
     working_directory: &Path,
     executable: &ExecutableRef,
+    toolchains: &ProjectToolchains,
 ) -> Result<PathBuf, String> {
     match executable {
         ExecutableRef::Command(command) => resolve_command(root, command),
-        ExecutableRef::Toolchain { name, tool } => {
-            resolve_toolchain(root, working_directory, name, tool.as_deref())
-        }
+        ExecutableRef::Toolchain { name, tool } => resolve_toolchain_with(
+            root,
+            working_directory,
+            name,
+            tool.as_deref(),
+            toolchains,
+        ),
     }
 }
 
@@ -464,6 +519,62 @@ fn resolve_executable(
 /// `PATH` 上的 `mvn`）同时被 Run 面板和 Maven 工具窗使用，因此放在这里共用，
 /// 避免两个入口解析出不同的 Maven。
 pub(crate) fn resolve_toolchain(
+    root: &Path,
+    working_directory: &Path,
+    toolchain: &str,
+    tool: Option<&str>,
+) -> Result<PathBuf, String> {
+    let resolved = match toolchain {
+        "project-jdk" => ProjectToolchains {
+            java_home: toolchain::resolve_launch_java_home(root, ""),
+            maven_executable: None,
+        },
+        "project-maven" => ProjectToolchains {
+            java_home: None,
+            maven_executable: toolchain::resolve_launch_maven_executable(
+                root,
+                working_directory,
+                "",
+            ),
+        },
+        _ => return resolve_toolchain_fallback(root, working_directory, toolchain, tool),
+    };
+    resolve_toolchain_with(root, working_directory, toolchain, tool, &resolved)
+}
+
+/// 先使用已经解析好的项目 JDK / Maven，再退回环境变量和 PATH。
+fn resolve_toolchain_with(
+    root: &Path,
+    working_directory: &Path,
+    toolchain: &str,
+    tool: Option<&str>,
+    resolved: &ProjectToolchains,
+) -> Result<PathBuf, String> {
+    match toolchain {
+        "project-jdk" => {
+            let tool = tool.unwrap_or("java");
+            let executable_name = jdk_tool_name(if tool.is_empty() { "java" } else { tool });
+            if let Some(home) = &resolved.java_home {
+                let candidate = home.join("bin").join(&executable_name);
+                if candidate.is_file() {
+                    return Ok(candidate);
+                }
+            }
+            resolve_toolchain_fallback(root, working_directory, toolchain, Some(tool))
+        }
+        "project-maven" => {
+            if let Some(executable) = &resolved.maven_executable {
+                if executable.is_file() {
+                    return Ok(executable.clone());
+                }
+            }
+            resolve_toolchain_fallback(root, working_directory, toolchain, tool)
+        }
+        _ => resolve_toolchain_fallback(root, working_directory, toolchain, tool),
+    }
+}
+
+fn resolve_toolchain_fallback(
     root: &Path,
     working_directory: &Path,
     toolchain: &str,

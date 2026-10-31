@@ -30,7 +30,11 @@
       "windows/tauri/src/platform/lsp-core-adapter.test.ts",
       "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs",
       "rust/lithe-core/src/execution/environment.rs",
-      "shared/fixtures/execution/launch-environment-v1.json"
+      "shared/fixtures/execution/launch-environment-v1.json",
+      "gpui/lithe-features/src/run/toolchain.rs",
+      "gpui/lithe-features/src/run/config.rs",
+      "gpui/lithe-features/src/settings.rs",
+      "gpui/lithe-workbench/src/workbench/overlays/settings.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

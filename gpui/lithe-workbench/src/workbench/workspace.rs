@@ -371,7 +371,6 @@ impl Workbench {
             layout::BOTTOM_PANEL_MAX_HEIGHT.as_f32(),
         );
         self.horizontal_state.update(cx, |state, _| state.clear());
-        self.vertical_state.update(cx, |state, _| state.clear());
     }
 
     pub(super) fn persist_layout_for(&self, root: &Path) {

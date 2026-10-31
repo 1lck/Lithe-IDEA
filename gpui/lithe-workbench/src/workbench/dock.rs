@@ -1,10 +1,13 @@
 use super::notifications::NotificationKind;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::resizable::{ResizableState, h_resizable, resizable_panel, v_resizable};
+use gpui_kit::component::resizable::{ResizableState, h_resizable, resizable_panel};
 use gpui_kit::component::{Sizable as _, v_flex};
 use gpui_kit::{
-    AnyElement, AppContext as _, Context, FontWeight, IntoElement, ParentElement as _, Pixels,
-    RenderOnce as _, SharedString, Styled as _, Window, div, px,
+    AnyElement, App, AppContext as _, Bounds, Context, DragMoveEvent, Element, ElementId, Empty,
+    FontWeight, GlobalElementId, InspectorElementId, InteractiveElement as _, IntoElement,
+    LayoutId, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement as _, Pixels, Render,
+    RenderOnce as _, SharedString, StatefulInteractiveElement as _, Style, Styled as _,
+    WeakEntity, Window, div, px,
 };
 use lithe_ui::components::tool_window_header::ToolWindowHeader;
 use lithe_ui::i18n::tr;
@@ -15,6 +18,88 @@ use super::Workbench;
 use crate::layout;
 use crate::top_bar::{TOOL_WINDOW_HEADER_BUTTON_RADIUS, TOOL_WINDOW_HEADER_BUTTON_SIZE};
 use crate::workspace_layout::{self, WorkspaceLayout};
+
+/// 底部工具窗高度拖动的载荷。
+///
+/// GPUI 只在存在活动拖动时派发 `on_drag_move`。载荷不绘制拖动预览，实际高度
+/// 由 `Workbench` 记录的开始位置计算。
+struct BottomResizeDrag;
+
+impl Render for BottomResizeDrag {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
+}
+
+/// 底部工具窗拖动的窗口级结束探测器。
+///
+/// 拖动会越过编辑区，而 Monaco 是覆盖在 GPUI 之上的原生 WebView，它的
+/// `BlockMouse` hitbox 会让祖先元素的 `on_mouse_up` 判定为未悬停。这里与
+/// `gpui-base` 的分栏组一样注册窗口级监听，保证在 WebView 上松开也能提交尺寸。
+struct BottomResizeCommit {
+    owner: WeakEntity<Workbench>,
+}
+
+impl IntoElement for BottomResizeCommit {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for BottomResizeCommit {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        (window.request_layout(Style::default(), None, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        _: &mut Window,
+        _: &mut App,
+    ) -> Self::PrepaintState {
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        _: &mut Self::PrepaintState,
+        window: &mut Window,
+        _: &mut App,
+    ) {
+        let owner = self.owner.clone();
+        window.on_mouse_event(move |_: &MouseUpEvent, phase, _window, cx| {
+            if !phase.bubble() {
+                return;
+            }
+            let _ = owner.update(cx, |this, cx| this.finish_bottom_resize(cx));
+        });
+    }
+}
 
 /// 工具窗停靠的锚点。每个锚点同一时间只显示一个工具窗。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -337,9 +422,8 @@ impl Workbench {
             DockAnchor::Left | DockAnchor::Right => {
                 self.horizontal_state = cx.new(|_| ResizableState::default());
             }
-            DockAnchor::Bottom => {
-                self.vertical_state = cx.new(|_| ResizableState::default());
-            }
+            // 底部高度直接由 `bottom_height` 驱动，没有需要清空的分栏缓存。
+            DockAnchor::Bottom => {}
         }
     }
 
@@ -361,14 +445,70 @@ impl Workbench {
         cx.notify();
     }
 
-    pub(super) fn commit_vertical_sizes(&mut self, sizes: &[Pixels], cx: &mut Context<Self>) {
-        if self.bottom_visible {
-            if let Some(height) = sizes.get(1) {
-                self.bottom_height = height.as_f32();
-            }
+    /// 开始拖动底部工具窗高度。
+    fn begin_bottom_resize(&mut self, pointer_y: Pixels) {
+        self.bottom_resize_origin = Some((pointer_y, self.bottom_height));
+    }
+
+    /// 跟随指针更新底部工具窗高度，并夹在 `layout` 的最小/最大尺寸之间。
+    fn update_bottom_resize(&mut self, pointer_y: Pixels, cx: &mut Context<Self>) {
+        let Some((origin_y, origin_height)) = self.bottom_resize_origin else {
+            return;
+        };
+        let height = (origin_height + (origin_y - pointer_y).as_f32()).clamp(
+            layout::BOTTOM_PANEL_MIN_HEIGHT.as_f32(),
+            layout::BOTTOM_PANEL_MAX_HEIGHT.as_f32(),
+        );
+        if (self.bottom_height - height).abs() < 0.5 {
+            return;
+        }
+        self.bottom_height = height;
+        cx.notify();
+    }
+
+    /// 结束拖动；只在高度真的变化时持久化，和分栏组的提交时机保持一致。
+    fn finish_bottom_resize(&mut self, cx: &mut Context<Self>) {
+        let Some((_, origin_height)) = self.bottom_resize_origin.take() else {
+            return;
+        };
+        if (self.bottom_height - origin_height).abs() < 0.5 {
+            return;
         }
         self.persist_layout();
         cx.notify();
+    }
+
+    fn on_bottom_resize_drag(
+        &mut self,
+        event: &DragMoveEvent<BottomResizeDrag>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_bottom_resize(event.event.position.y, cx);
+    }
+
+    /// 底部工具窗上沿的 6px 拖动间隙。
+    ///
+    /// 对齐 Tauri `bottom-pane.tsx` 的 `resizeGutter`：全宽命中、`ns-resize`
+    /// 光标，悬停和拖动都不高亮。
+    fn render_bottom_resize_gutter(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("lithe-bottom-pane-gutter")
+            .flex_shrink_0()
+            .w_full()
+            .h(layout::BOTTOM_PANE_GAP)
+            .cursor_row_resize()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, _window, _cx| {
+                    this.begin_bottom_resize(event.position.y);
+                }),
+            )
+            .on_drag(BottomResizeDrag, |_, _, _, cx| {
+                cx.stop_propagation();
+                cx.new(|_| BottomResizeDrag)
+            })
+            .into_any_element()
     }
 
     pub(super) fn persist_layout(&self) {
@@ -410,7 +550,6 @@ impl Workbench {
         self.right_width = layout.right_width;
         self.bottom_height = layout.bottom_height;
         self.horizontal_state = cx.new(|_| ResizableState::default());
-        self.vertical_state = cx.new(|_| ResizableState::default());
         self.layout_restored = true;
         cx.notify();
     }
@@ -757,31 +896,21 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let owner = cx.weak_entity();
-        let mut vertical = v_resizable(layout::VERTICAL_GROUP_ID)
-            .with_state(&self.vertical_state)
-            .on_resize(move |state, _window, cx| {
-                let sizes = state.read(cx).sizes().clone();
-                let _ = owner.update(cx, |this, cx| {
-                    this.commit_vertical_sizes(&sizes, cx);
-                });
-            })
-            .child(resizable_panel().child(self.render_top_row(window, cx)));
+        let mut column = v_flex().size_full().min_h(px(0.)).min_w(px(0.)).child(
+            div()
+                .flex_1()
+                .min_h(px(0.))
+                .child(self.render_top_row(window, cx)),
+        );
 
         if self.bottom_visible {
             if let Some(tool) = self.active_bottom {
-                vertical = vertical.child(
-                    resizable_panel()
-                        .size(px(self.bottom_height))
-                        .size_range(
-                            layout::BOTTOM_PANEL_MIN_HEIGHT..layout::BOTTOM_PANEL_MAX_HEIGHT,
-                        )
-                        .child(
-                            div()
-                                .size_full()
-                                .pt(px(6.))
-                                .child(self.render_dock_panel(tool, window, cx)),
-                        ),
+                column = column.child(self.render_bottom_resize_gutter(cx)).child(
+                    div()
+                        .h(px(self.bottom_height))
+                        .min_h(layout::BOTTOM_PANEL_MIN_HEIGHT)
+                        .max_h(layout::BOTTOM_PANEL_MAX_HEIGHT)
+                        .child(self.render_dock_panel(tool, window, cx)),
                 );
             }
         }
@@ -791,7 +920,11 @@ impl Workbench {
             .min_h(px(0.))
             .min_w(px(0.))
             .p(px(4.))
-            .child(vertical)
+            .on_drag_move(cx.listener(Self::on_bottom_resize_drag))
+            .child(column)
+            .child(BottomResizeCommit {
+                owner: cx.weak_entity(),
+            })
             .into_any_element()
     }
 }

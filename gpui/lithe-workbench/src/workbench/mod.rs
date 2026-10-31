@@ -11,11 +11,12 @@ use gpui_kit::base::TextSelectionLayer;
 use gpui_kit::component::command::CommandState;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::resizable::ResizableState;
 use gpui_kit::{
-    AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _, IntoElement,
-    KeyBinding, ParentElement as _, Render, SharedString, Styled as _, Subscription, Task, Window,
-    px,
+    AnyElement, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _,
+    IntoElement, KeyBinding, ParentElement as _, Pixels, Point, Render, SharedString, Styled as _,
+    Subscription, Task, Window, anchored, deferred, div, px,
 };
 use lithe_core_client::CoreClient;
 use lithe_features::editor::DiagnosticItem;
@@ -143,8 +144,9 @@ pub struct Workbench {
     left_width: f32,
     right_width: f32,
     bottom_height: f32,
+    /// 底部工具窗高度拖动的起点：按下时的指针纵坐标和当时的 `bottom_height`。
+    bottom_resize_origin: Option<(Pixels, f32)>,
     horizontal_state: Entity<ResizableState>,
-    vertical_state: Entity<ResizableState>,
     layout_root: Option<PathBuf>,
     layout_restored: bool,
     project_root: Option<PathBuf>,
@@ -219,6 +221,8 @@ pub struct Workbench {
     project_show_hidden: bool,
     project_show_ignored: bool,
     project_view_dependencies: bool,
+    tab_context_menu: Option<(Entity<PopupMenu>, Point<Pixels>)>,
+    _tab_context_menu_subscription: Option<Subscription>,
 }
 
 impl Workbench {
@@ -258,7 +262,6 @@ impl Workbench {
         let terminal = cx.new(|term_cx| TerminalPanel::new(tree_root.clone(), window, term_cx));
         let agent = cx.new(|agent_cx| AgentPanel::new(tree_root.clone(), window, agent_cx));
         let horizontal_state = cx.new(|_| ResizableState::default());
-        let vertical_state = cx.new(|_| ResizableState::default());
 
         let menu_bar = cx.new(|_| LitheMenuBar::new(Vec::new()));
         let menu_subscription =
@@ -296,17 +299,8 @@ impl Workbench {
                     });
                 }
             });
-            // 设置页里的「打开运行面板 / 打开 Agent 面板」跳转按钮：此前从未
-            // 注册 handler，点击静默无操作。
-            let open_run_owner = owner.clone();
-            view.on_open_run(move |window, cx| {
-                let _ = open_run_owner.update(cx, |this, cx| {
-                    if this.settings_visible {
-                        this.toggle_settings(window, cx);
-                    }
-                    this.show_tool(ToolWindow::Run, window, cx);
-                });
-            });
+            // 设置页里的「打开 Agent 面板」跳转按钮：此前从未注册 handler，
+            // 点击静默无操作。
             let open_agent_owner = owner.clone();
             view.on_open_agent(move |window, cx| {
                 let _ = open_agent_owner.update(cx, |this, cx| {
@@ -315,6 +309,11 @@ impl Workbench {
                     }
                     this.show_tool(ToolWindow::Agent, window, cx);
                 });
+            });
+            // 保存或重新识别运行配置后刷新 Run 面板，避免两个入口读到不同列表。
+            let run_panel_for_settings = run_panel.clone();
+            view.on_run_configurations_changed(move |cx| {
+                run_panel_for_settings.update(cx, |panel, panel_cx| panel.refresh(panel_cx));
             });
             view
         });
@@ -477,8 +476,8 @@ impl Workbench {
             left_width: layout::LEFT_PANEL_INITIAL_WIDTH.as_f32(),
             right_width: layout::RIGHT_PANEL_INITIAL_WIDTH.as_f32(),
             bottom_height: layout::BOTTOM_PANEL_INITIAL_HEIGHT.as_f32(),
+            bottom_resize_origin: None,
             horizontal_state,
-            vertical_state,
             layout_root: None,
             layout_restored: false,
             project_root: initial_root,
@@ -545,6 +544,8 @@ impl Workbench {
             project_show_hidden: false,
             project_show_ignored: false,
             project_view_dependencies: false,
+            tab_context_menu: None,
+            _tab_context_menu_subscription: None,
         };
 
         cx.subscribe(
@@ -567,6 +568,24 @@ impl Workbench {
                 panel.on_before_launch(move |cx| {
                     let _ = owner.update(cx, |this, cx| {
                         this.save_all_before_launch(cx);
+                    });
+                });
+            });
+        }
+
+        // Run 面板的「Edit」入口：打开设置页并落到当前配置的编辑器。
+        {
+            let owner = cx.weak_entity();
+            workbench.run_panel.update(cx, |panel, _panel_cx| {
+                panel.on_open_settings(move |configuration_id, window, cx| {
+                    let _ = owner.update(cx, |this, cx| {
+                        this.open_run_settings(window, cx);
+                        if let Some(view) = this.settings_view.clone() {
+                            let configuration_id = configuration_id.to_string();
+                            view.update(cx, |view, view_cx| {
+                                view.edit_run_configuration(&configuration_id, view_cx);
+                            });
+                        }
                     });
                 });
             });
@@ -785,6 +804,28 @@ impl Workbench {
     ) {
         self.close_menus(cx);
     }
+
+    fn render_tab_context_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (popup, position) = self.tab_context_menu.as_ref()?;
+        let popup = popup.clone();
+        let position = *position;
+        Some(
+            deferred(
+                anchored().position(position).snap_to_window().child(
+                    div()
+                        .occlude()
+                        .on_mouse_down_out(cx.listener(move |this, _, _, cx| {
+                            if this.tab_context_menu.take().is_some() {
+                                this._tab_context_menu_subscription = None;
+                                cx.notify();
+                            }
+                        }))
+                        .child(popup),
+                ),
+            )
+            .into_any_element(),
+        )
+    }
 }
 
 impl Render for Workbench {
@@ -868,7 +909,10 @@ impl Render for Workbench {
             || !self.toasts.is_empty()
             || self.prompt.is_some()
             || self.menu_open
+            || self.project_menu_visible
+            || self.branch_menu_visible
             || self.terminal_profile_menu_open
+            || self.tab_context_menu.is_some()
             || self
                 .pending_close_tab
                 .as_ref()
@@ -955,6 +999,7 @@ impl Render for Workbench {
             .child(self.render_status_bar(window, cx))
             .children(self.render_top_menu(window, cx))
             .children(self.render_toasts(cx))
+            .children(self.render_tab_context_menu(cx))
             .children(self.render_overlay(window, cx))
     }
 }

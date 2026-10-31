@@ -8,8 +8,9 @@ use std::rc::Rc;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, ElementId, InteractiveElement as _, IntoElement, ParentElement, RenderOnce, SharedString,
-    StatefulInteractiveElement as _, Styled, Window, div, px, transparent_black,
+    App, ElementId, InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent,
+    ParentElement, Pixels, Point, RenderOnce, SharedString, StatefulInteractiveElement as _,
+    Styled, Window, div, px, transparent_black,
 };
 
 use crate::icons::{LitheIcon, icon};
@@ -35,6 +36,8 @@ impl EditorTabItem {
 
 type SelectHandler = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
 type CloseHandler = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
+type ContextMenuHandler =
+    Rc<dyn Fn(SharedString, Point<Pixels>, &mut Window, &mut App) + 'static>;
 
 #[derive(IntoElement)]
 pub struct EditorTabs {
@@ -43,6 +46,7 @@ pub struct EditorTabs {
     active: Option<SharedString>,
     on_select: Option<SelectHandler>,
     on_close: Option<CloseHandler>,
+    on_context_menu: Option<ContextMenuHandler>,
 }
 
 impl EditorTabs {
@@ -53,6 +57,7 @@ impl EditorTabs {
             active: None,
             on_select: None,
             on_close: None,
+            on_context_menu: None,
         }
     }
 
@@ -81,6 +86,14 @@ impl EditorTabs {
         self.on_close = Some(Rc::new(handler));
         self
     }
+
+    pub fn on_context_menu(
+        mut self,
+        handler: impl Fn(SharedString, Point<Pixels>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_context_menu = Some(Rc::new(handler));
+        self
+    }
 }
 
 impl RenderOnce for EditorTabs {
@@ -92,6 +105,7 @@ impl RenderOnce for EditorTabs {
             active,
             on_select,
             on_close,
+            on_context_menu,
         } = self;
 
         let root_id = id.to_string();
@@ -136,6 +150,8 @@ impl RenderOnce for EditorTabs {
 
             let select = on_select.clone();
             let click_id = tab_id.clone();
+            let context_menu = on_context_menu.clone();
+            let context_id = tab_id.clone();
             let mut tab_element = div()
                 .id(format!("{root_id}:tab:{tab_id}"))
                 .flex()
@@ -159,6 +175,11 @@ impl RenderOnce for EditorTabs {
                 .on_click(move |_, window, cx| {
                     if let Some(handler) = &select {
                         handler(click_id.clone(), window, cx);
+                    }
+                })
+                .on_mouse_down(MouseButton::Right, move |event: &MouseDownEvent, window, cx| {
+                    if let Some(handler) = &context_menu {
+                        handler(context_id.clone(), event.position, window, cx);
                     }
                 });
 

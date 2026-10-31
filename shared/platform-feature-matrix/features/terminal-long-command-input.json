@@ -12,7 +12,7 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/crates/terminal/src/connection.rs",
+      "rust/lithe-terminal/src/connection.rs",
       "windows/tauri/src-tauri/src/terminal.rs"
     ],
     "implementationStatus": "implemented",

@@ -50,7 +50,7 @@
       "windows/tauri/src/features/run/stores/run-project-load.test.ts",
       "rust/lithe-core/src/tests/run_configuration.rs",
       "gpui/lithe-features/src/run/view.rs",
-      "gpui/lithe-workbench/src/workbench.rs"
+      "gpui/lithe-workbench/src/workbench/mod.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "generator": {
-    "fingerprint": "sha256:66d7178c6c7dc8a8ce8250d7f77e4e05be28ecee36fb0c1823ae8e55dbae89ff",
+    "fingerprint": "sha256:76a74fcb70db8b62bd3e2b3a2210b146f2cc5f4801f6b25ecb36a1c6c8cdfcb7",
     "inputs": {
       ".artifacts/test-project/src/main/java/demo/Main.java": "path",
       "Plugins/mac/Official/JavaSupport/templates/java/maven/pom.xml": "sha256:15c36a382aa9224675c6ea72916b875f848ba62930a7c85fea8a4c98d19a2548",
@@ -9,42 +9,66 @@
       "Plugins/mac/Official/JavaSupport/templates/java/standard-sample-main/Main.java": "path",
       "bun.lock": "sha256:4bc4fab53b23e0072e9fe8ace329c7fbbe810995c9c995dc3fcc2fba4f924b05",
       "frontend/editor/package.json": "sha256:5590515a0d6e1dfa6fa4e0d704e21b3ed4f31277b6f2168548b90efcd023445f",
-      "gpui/Cargo.toml": "sha256:db86def4cd2d2291629bc6fe420e711505d2985cbe9a162380c46b3f9a574f70",
-      "gpui/lithe-core-client/Cargo.toml": "sha256:ff85c60960b0b409baf20bd49a602c697ff83b84ac868cfb2e66ceb1f3f2c3b9",
-      "gpui/lithe-desktop/Cargo.toml": "sha256:24ea1f22ca143732704182d590805c8ca24e4555003bf672aaa2f73b164088a8",
-      "gpui/lithe-features/Cargo.toml": "sha256:270ad47e8252836fc361fdb896558b1edaafb6d07360f7781b7b9d6b4615168f",
-      "gpui/lithe-platform/Cargo.toml": "sha256:6fc845cae3218ca5d85bcb40aaff7930a8dd00f3de1e1f5014e4e1b3c060f32b",
-      "gpui/lithe-ui/Cargo.toml": "sha256:b1ff8d2531ec08193690c25e355a669a33704c6d8d340da40ecb14e49e8258dc",
-      "gpui/lithe-workbench/Cargo.toml": "sha256:3df26c753541833741b055f089ff8ebf887b4eb047a9db435363fe0577652ed9",
-      "gpui/rust-toolchain.toml": "sha256:ed5d763a17c6ae6f586ebd67e217a3aa9bc507766c4965544dbef0e25bdf3f63",
+      "gpui/Cargo.toml": "sha256:1a5d6d6282dac03dd0152cfd7778b01eafe9e4fc08be0ab1f9ecab3f7dac3712",
+      "gpui/lithe-core-client/Cargo.toml": "sha256:4fd858e89aff46cd2cd4c883ca03ce24c6a47df6177a461fbbd58987290c304c",
+      "gpui/lithe-desktop/Cargo.toml": "sha256:f8553217d6ba8526adc41f19f1e7bec324d15772264888e769229e198b9c44d7",
+      "gpui/lithe-features/Cargo.toml": "sha256:3bd119a84b89108ff2b11150d5bbd7a2cb00b12a9538e6101c63f39fe3991dfb",
+      "gpui/lithe-platform/Cargo.toml": "sha256:6db40e7e201d1e31d8b3f0cb0c5339b33692e7a4b6700cd7cb67c08cf6cdf4fd",
+      "gpui/lithe-ui/Cargo.toml": "sha256:3ea839b91a362f0074cf22f4c855d74498e85f0f83953eca351b543d7276cfaa",
+      "gpui/lithe-workbench/Cargo.toml": "sha256:4d757600b74051a65594d766ed9d50253505b6855c3f06f4461d0dfc37051ef7",
+      "gpui/rust-toolchain.toml": "sha256:093a3050b92cdd046c6cfd017ccc6d53e0190b054afd309deb26297a11e6e11f",
       "macos/Experiments/Monaco/bun.lock": "sha256:fc5700bf669ae3535287e0ca937812d21bc1685edd9c8d44219362c4709dce39",
       "macos/Experiments/Monaco/package.json": "sha256:6b41e5fe871aeac05f332d74caabedbee4ca100ec8ab97f10cc5d784c312248d",
       "macos/Tests/LitheTests/Fixtures/GitGraph/GenerateIdeaOracle.java": "path",
       "package.json": "sha256:aa78a18797e0d95505064aa626e06b252d6b3c2fbd7d11e938522bda366690c1",
-      "rust/Cargo.toml": "sha256:584ee5b5d62863e672544c727104cbfc710e8fc8505390e950ba45656cbc2705",
+      "rust/Cargo.toml": "sha256:2759bf402e7d8b608ecb119439c929aac6b9048996f75bebd4d004c089a3d098",
       "rust/lithe-agent-host/Cargo.toml": "sha256:6c273fb20ca8eeaf1a549b03bff967d0331877cb4a248f132a420df72f57ef9c",
-      "rust/lithe-core/Cargo.toml": "sha256:9178f8a84f6261087bcdb691a21cb9d78e318e12bbeaa7747e4fd9cbedfe1814",
+      "rust/lithe-core/Cargo.toml": "sha256:97f73db9866fff2002a1e8453670e54b7b2785c3633841e11ce962aa441ffc5b",
       "rust/lithe-git-host/Cargo.toml": "sha256:e93f415d28179e7fcb85f2af9b629aa3e915ad9c1a926df5a144240581286273",
       "rust/lithe-ide-host/Cargo.toml": "sha256:30a7b4ae9b0b43a485b48add1484e6dc7a29af66726a4ed2140a9b04f6d6a180",
-      "rust/lithe-remote-client/Cargo.toml": "sha256:1ffc0fad3ab7f25bf5d7f4d13e00f81398eb2f353093bbfb109aa10db5f195e7",
-      "rust/lithe-remote-protocol/Cargo.toml": "sha256:ebb98f69b8d4662cbc1f11e2bf3c962bf073e54140296352b266928cddec7ac6",
-      "rust/lithe-remote-server/Cargo.toml": "sha256:55a1bc99618b2704cf794bc35ddd63c3abcc19e9d8cd56597bb2afd7112ad8cd",
+      "rust/lithe-remote/Cargo.toml": "sha256:d6031a0d6fbc3229089b6438c01b4eb1eb054d4c7915d8a952cf9829a7b00a2e",
       "rust/lithe-terminal/Cargo.toml": "sha256:e96898cd10b6de65a013800f7b75108aad11e761268bfef49ef4c82a412b1f57",
       "shared/contracts/plugins/v1/fixtures/project-generator-templates/main/Main.java": "path",
       "shared/fixtures/projects/lithe-spring-boot-git-graph/history/OrderController-feature.java": "path",
       "shared/fixtures/projects/lithe-spring-boot-git-graph/history/UserService-feature.java": "path",
       "shared/fixtures/projects/lithe-spring-boot-git-graph/pom.xml": "sha256:fd060acea67ec36cde0cf43b7ef568717ac2a5922bac84c13b1f223334f6f189",
-      "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/DemoApplication.java": "path",
+      "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/DemoApplication.java": "sha256:d464c7061117b007c55f835319d0858c254804445044e77664368def69b9660b",
       "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/user/UserController.java": "path",
       "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/user/UserRepository.java": "path",
       "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/user/UserService.java": "path",
-      "windows/tauri/crates/project/Cargo.toml": "sha256:643f806cc438b6db0c9c5f9a9dd60f14262f7981c856d605f34342394c805ad6",
-      "windows/tauri/package.json": "sha256:987e059a139072fb967dd28c0747ebcd34fdbe5206ae04832359a9759b36e4a5",
+      "windows/tauri/crates/project/Cargo.toml": "sha256:2357005fa6071f08db7da12787f0fa3fc2d0a34f104db3942ac44cc734d2e6f6",
+      "windows/tauri/package.json": "sha256:a76496ce9d3c6f3ba689fa8924a9fa3a11eb3fb25d82b372586799618404648a",
       "windows/tauri/rust-toolchain.toml": "sha256:99976476fbf48b627a4815adff8fa9e5a1a2def95f4ab31cb2e784c95bc7ff0a",
-      "windows/tauri/src-tauri/Cargo.toml": "sha256:a51e0e47b34adec161c480fa3f53023c26930fac4369311ec5bf99b5d941dc34"
+      "windows/tauri/src-tauri/Cargo.toml": "sha256:12295739e0d2af882f274876aae4f938cb2caf0992d2084c2d962b90b0ad9d9a"
     }
   },
   "configurations": [
+    {
+      "id": "java-main:com.example.demo.DemoApplication",
+      "name": "DemoApplication",
+      "provider": "java.main",
+      "execution": "application",
+      "args": [],
+      "cwd": "shared/fixtures/projects/lithe-spring-boot-git-graph",
+      "env": {},
+      "confidence": "native",
+      "toolchains": {
+        "java": "project-jdk",
+        "maven": "project-maven"
+      },
+      "extensions": {
+        "java": {
+          "source": "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/DemoApplication.java",
+          "sourceSet": "main"
+        },
+        "maven": {
+          "module": ".",
+          "mainClass": "com.example.demo.DemoApplication"
+        }
+      },
+      "disabled": false,
+      "source": "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/DemoApplication.java"
+    },
     {
       "id": "current-file",
       "name": "Current File",
@@ -114,7 +138,7 @@
       "source": "rust/lithe-ide-host/Cargo.toml"
     },
     {
-      "id": "cargo.binary:rust/lithe-remote-server/lithe-remote-server",
+      "id": "cargo.binary:rust/lithe-remote/lithe-remote-server",
       "name": "lithe-remote-server",
       "provider": "cargo.binary",
       "execution": "application",
@@ -124,7 +148,7 @@
         "--bin",
         "lithe-remote-server"
       ],
-      "cwd": "rust/lithe-remote-server",
+      "cwd": "rust/lithe-remote",
       "env": {},
       "confidence": "declared",
       "toolchains": {},
@@ -134,7 +158,7 @@
         }
       },
       "disabled": false,
-      "source": "rust/lithe-remote-server/Cargo.toml"
+      "source": "rust/lithe-remote/Cargo.toml"
     },
     {
       "id": "npm.script:windows/tauri/build",
@@ -415,8 +439,13 @@
         "adapter": "jdwp"
       },
       "extensions": {
+        "java": {
+          "source": "shared/fixtures/projects/lithe-spring-boot-git-graph/src/main/java/com/example/demo/DemoApplication.java",
+          "sourceSet": "main"
+        },
         "maven": {
-          "module": "."
+          "module": ".",
+          "mainClass": "com.example.demo.DemoApplication"
         }
       },
       "disabled": false,
