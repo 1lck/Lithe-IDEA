@@ -1,0 +1,852 @@
+{
+  "proposalVersion": 1,
+  "status": "review-only",
+  "cases": [
+    {
+      "name": "installed project requirement",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-1",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "operationID": "query-1",
+          "generation": 1,
+          "providerID": "mise",
+          "installations": [
+            {
+              "tool": "java",
+              "version": "21.0.4",
+              "home": "/opt/lithe-fixtures/installs/java/21.0.4"
+            }
+          ],
+          "statements": [
+            {
+              "tool": "java",
+              "scope": "project",
+              "source": "/opt/lithe-fixtures/workspace/mise.toml",
+              "request": "21",
+              "installation": "/opt/lithe-fixtures/installs/java/21.0.4",
+              "kind": "declaration",
+              "reader": "native"
+            }
+          ],
+          "watch": [
+            "/opt/lithe-fixtures/workspace/mise.toml",
+            "/opt/lithe-fixtures/installs/java"
+          ]
+        }
+      },
+      "filesystemEvidence": [
+        {
+          "path": "/opt/lithe-fixtures/installs/java/21.0.4",
+          "canonical": "/opt/lithe-fixtures/installs/java/21.0.4",
+          "kind": "directory"
+        },
+        {
+          "path": "/opt/lithe-fixtures/installs/java/21.0.4/bin/java",
+          "canonical": "/opt/lithe-fixtures/installs/java/21.0.4/bin/java",
+          "kind": "file",
+          "executable": true
+        }
+      ],
+      "expected": {
+        "validation": "accepted",
+        "selectedHome": "/opt/lithe-fixtures/installs/java/21.0.4"
+      }
+    },
+    {
+      "name": "uninstalled request is retained as unmet",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-2",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "node"
+          ]
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "operationID": "query-2",
+          "generation": 1,
+          "providerID": "mise",
+          "installations": [],
+          "statements": [
+            {
+              "tool": "node",
+              "scope": "project",
+              "source": "/opt/lithe-fixtures/workspace/mise.toml",
+              "request": "99",
+              "installation": null,
+              "kind": "declaration",
+              "reader": "native"
+            }
+          ],
+          "watch": [
+            "/opt/lithe-fixtures/workspace/mise.toml"
+          ]
+        }
+      },
+      "expected": {
+        "validation": "accepted",
+        "reason": {
+          "code": "requestedNotInstalled",
+          "tool": "node",
+          "provider": "dev.lithe.fixture.mise:mise",
+          "source": "/opt/lithe-fixtures/workspace/mise.toml",
+          "request": "99"
+        },
+        "continueToLowerLayer": true
+      }
+    },
+    {
+      "name": "provider home inside workspace is unsafe",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-3",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "operationID": "query-3",
+          "generation": 1,
+          "providerID": "mise",
+          "installations": [
+            {
+              "tool": "java",
+              "version": "21.0.4",
+              "home": "/opt/lithe-fixtures/workspace/vendor/jdk"
+            }
+          ],
+          "statements": [
+            {
+              "tool": "java",
+              "scope": "project",
+              "source": "/opt/lithe-fixtures/workspace/mise.toml",
+              "request": "21",
+              "installation": "/opt/lithe-fixtures/workspace/vendor/jdk",
+              "kind": "declaration",
+              "reader": "native"
+            }
+          ],
+          "watch": []
+        }
+      },
+      "expected": {
+        "validation": "rejected",
+        "code": "plugin.toolchain.unsafePath",
+        "rpcCode": -32076
+      }
+    },
+    {
+      "name": "cancelled query ignores late success",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-4",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": {
+          "operationID": "query-4",
+          "generation": 1,
+          "providerID": "mise",
+          "installations": [
+            {
+              "tool": "java",
+              "version": "21.0.4",
+              "home": "/opt/lithe-fixtures/installs/java/21.0.4"
+            }
+          ],
+          "statements": [],
+          "watch": []
+        }
+      },
+      "events": [
+        "dispatched",
+        "cancelRequested",
+        "localCompletion",
+        "lateReply"
+      ],
+      "expected": {
+        "completionCount": 1,
+        "code": "plugin.toolchain.cancelled",
+        "rpcCode": -32800,
+        "publishReply": false,
+        "cacheReply": false
+      }
+    },
+    {
+      "name": "global query generation rejects old result",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-5",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": null,
+          "workspace": null,
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "result": {
+          "operationID": "query-5",
+          "generation": 1,
+          "providerID": "mise",
+          "installations": [
+            {
+              "tool": "java",
+              "version": "21.0.4",
+              "home": "/opt/lithe-fixtures/installs/java/21.0.4"
+            }
+          ],
+          "statements": [],
+          "watch": []
+        }
+      },
+      "events": [
+        "dispatchedGeneration1",
+        "watchChanged",
+        "dispatchedGeneration2",
+        "replyGeneration1"
+      ],
+      "expected": {
+        "publishReply": false,
+        "cacheReply": false,
+        "requery": "allProviders"
+      }
+    },
+    {
+      "name": "remote query never falls back to local",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-6",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "remote",
+            "id": "ssh-1"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/srv/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "expected": {
+        "validation": "rejected",
+        "code": "plugin.toolchain.authorityUnsupported",
+        "rpcCode": -32071,
+        "localProcessesStarted": 0
+      }
+    },
+    {
+      "name": "missing definition retains display-only requirement",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-7",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "maven"
+          ]
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "result": {
+          "operationID": "query-7",
+          "generation": 1,
+          "providerID": "mise",
+          "installations": [
+            {
+              "tool": "maven",
+              "version": "3.9.9",
+              "home": "/opt/lithe-fixtures/installs/maven/3.9.9"
+            }
+          ],
+          "statements": [
+            {
+              "tool": "maven",
+              "scope": "project",
+              "source": "/opt/lithe-fixtures/workspace/mise.toml",
+              "request": "3.9.9",
+              "installation": "/opt/lithe-fixtures/installs/maven/3.9.9",
+              "kind": "declaration",
+              "reader": "native"
+            }
+          ],
+          "watch": []
+        }
+      },
+      "enabledDefinitions": [
+        "java"
+      ],
+      "expected": {
+        "validation": "acceptedWithFilteredAuthority",
+        "installations": [],
+        "reason": {
+          "code": "definitionUnavailable",
+          "tool": "maven",
+          "source": "/opt/lithe-fixtures/workspace/mise.toml",
+          "request": "3.9.9"
+        },
+        "enableActionSource": "verifiedInstalledRegistry"
+      }
+    },
+    {
+      "name": "external spelling cannot hide workspace symlink",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-8",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "result": {
+          "operationID": "query-8",
+          "generation": 1,
+          "providerID": "mise",
+          "installations": [
+            {
+              "tool": "java",
+              "version": "21.0.4",
+              "home": "/opt/lithe-fixtures/linked-jdk"
+            }
+          ],
+          "statements": [],
+          "watch": []
+        }
+      },
+      "filesystemEvidence": [
+        {
+          "path": "/opt/lithe-fixtures/linked-jdk",
+          "canonical": "/opt/lithe-fixtures/workspace/vendor/jdk",
+          "kind": "directory"
+        }
+      ],
+      "expected": {
+        "validation": "rejected",
+        "code": "plugin.toolchain.unsafePath",
+        "rpcCode": -32076
+      }
+    },
+    {
+      "name": "statement cannot reference an unlisted home",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-9",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+          "operationID": "query-9",
+          "generation": 1,
+          "providerID": "mise",
+          "installations": [
+            {
+              "tool": "java",
+              "version": "21.0.4",
+              "home": "/opt/lithe-fixtures/installs/java/21.0.4"
+            }
+          ],
+          "statements": [
+            {
+              "tool": "java",
+              "scope": "project",
+              "source": "/opt/lithe-fixtures/workspace/mise.toml",
+              "request": "21",
+              "installation": "/opt/lithe-fixtures/other-jdk",
+              "kind": "declaration",
+              "reader": "native"
+            }
+          ],
+          "watch": []
+        }
+      },
+      "expected": {
+        "validation": "rejected",
+        "code": "plugin.toolchain.invalidReply",
+        "rpcCode": -32074
+      }
+    },
+    {
+      "name": "query timeout remains different from cancellation",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-10",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "events": [
+        "dispatched",
+        "advanceManualClockToDeadline",
+        "lateReply"
+      ],
+      "expected": {
+        "completionCount": 1,
+        "code": "plugin.toolchain.timeout",
+        "rpcCode": -32072,
+        "publishReply": false
+      }
+    },
+    {
+      "name": "create missing watched file re-queries all providers",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-11",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "events": [
+        "fingerprintMissingMiseToml",
+        "createMiseToml",
+        "watchEvent"
+      ],
+      "enabledProviders": [
+        "host:system",
+        "dev.lithe.fixture.mise:mise",
+        "dev.lithe.fixture.sdkman:sdkman"
+      ],
+      "expected": {
+        "requery": "allProviders",
+        "incremental": false
+      }
+    },
+    {
+      "name": "delete watched input re-queries all providers",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-12",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "events": [
+        "fingerprintExistingToolVersions",
+        "deleteToolVersions",
+        "watchEvent"
+      ],
+      "expected": {
+        "requery": "allProviders",
+        "incremental": false
+      }
+    },
+    {
+      "name": "provider disable invalidates pending reply",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 13,
+        "method": "toolchains/query",
+        "params": {
+          "operationID": "query-13",
+          "generation": 1,
+          "providerID": "mise",
+          "authority": {
+            "kind": "local"
+          },
+          "context": {
+            "contextID": "context-1",
+            "generation": 1
+          },
+          "workspace": {
+            "rootID": "root-1",
+            "root": "/opt/lithe-fixtures/workspace",
+            "directory": "."
+          },
+          "tools": [
+            "java"
+          ]
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 13,
+        "result": {
+          "operationID": "query-13",
+          "generation": 1,
+          "providerID": "mise",
+          "installations": [],
+          "statements": [],
+          "watch": []
+        }
+      },
+      "events": [
+        "dispatched",
+        "providerDisabled",
+        "lateReply"
+      ],
+      "expected": {
+        "publishReply": false,
+        "cacheReply": false,
+        "ownedListenersRemaining": 0
+      }
+    }
+  ],
+  "errorResponses": [
+    {
+      "jsonrpc": "2.0",
+      "id": 100,
+      "error": {
+        "code": -32601,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.methodUnavailable",
+          "operationID": "query-100",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 101,
+      "error": {
+        "code": -32602,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.invalidParams",
+          "operationID": "query-101",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 102,
+      "error": {
+        "code": -32800,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.cancelled",
+          "operationID": "query-102",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 103,
+      "error": {
+        "code": -32070,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.permissionDenied",
+          "operationID": "query-103",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 104,
+      "error": {
+        "code": -32071,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.authorityUnsupported",
+          "operationID": "query-104",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 105,
+      "error": {
+        "code": -32072,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.timeout",
+          "operationID": "query-105",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 106,
+      "error": {
+        "code": -32073,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.providerUnavailable",
+          "operationID": "query-106",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 107,
+      "error": {
+        "code": -32074,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.invalidReply",
+          "operationID": "query-107",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 108,
+      "error": {
+        "code": -32075,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.limitExceeded",
+          "operationID": "query-108",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 109,
+      "error": {
+        "code": -32076,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.unsafePath",
+          "operationID": "query-109",
+          "providerID": "mise"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 110,
+      "error": {
+        "code": -32077,
+        "message": "Fixture diagnostic.",
+        "data": {
+          "code": "plugin.toolchain.operationExpired",
+          "operationID": "query-110",
+          "providerID": "mise"
+        }
+      }
+    }
+  ]
+}

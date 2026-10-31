@@ -34,7 +34,7 @@ struct SettingsSidebarLayoutTests {
     @Test func pagesLiveInTheGroupsDescribedByTheOwnershipRules() {
         #expect(SettingsGroup.appearance.categories == [.general, .updates, .network, .editor, .keymap, .processTermination])
         #expect(SettingsGroup.versionControl.categories == [.git])
-        #expect(SettingsGroup.build.categories == [.project, .run])
+        #expect(SettingsGroup.build.categories == [.toolchainEnvironment, .toolchainSources, .project, .run])
         #expect(SettingsGroup.languages.categories == [.lsp])
         #expect(SettingsGroup.tools.categories == [.terminal, .diagnostics])
         #expect(SettingsGroup.ai.categories == [.providers, .agents, .instructions, .skills, .hooks, .mcp, .ai])

@@ -1,0 +1,615 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/proposals/toolchains/query.schema.json",
+  "title": "Proposed toolchain query protocol v1 (not implemented)",
+  "description": "Review-only JSON-RPC request, successful response or error response. Semantic validation and authority checks are specified in protocol.md.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    },
+    {
+      "$ref": "#/$defs/errorResponse"
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "toolID": {
+      "$ref": "manifest-contributions.schema.json#/$defs/toolID"
+    },
+    "providerID": {
+      "$ref": "manifest-contributions.schema.json#/$defs/identifier"
+    },
+    "nativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?:/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+      "not": {
+        "pattern": "[\\u0000-\\u001f\\u007f]"
+      },
+      "description": "Absolute native path in this query's authority; canonical containment requires native filesystem evidence, not this lexical pattern."
+    },
+    "directory": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^(?:\\.|(?!\\.\\.?(?:/|$))[^/\\\\:]+(?:/(?!\\.\\.?(?:/|$))[^/\\\\:]+)*)$",
+      "not": {
+        "pattern": "[\\u0000-\\u001f\\u007f]"
+      },
+      "description": "Workspace-relative directory using /; . means the opened root. Each other component must not be . or ..; control characters are forbidden semantically."
+    },
+    "authority": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "local"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "remote"
+            },
+            "id": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        }
+      ]
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contextID",
+        "generation"
+      ],
+      "properties": {
+        "contextID": {
+          "$ref": "#/$defs/identifier"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rootID",
+        "root",
+        "directory"
+      ],
+      "properties": {
+        "rootID": {
+          "$ref": "#/$defs/identifier"
+        },
+        "root": {
+          "$ref": "#/$defs/nativePath"
+        },
+        "directory": {
+          "$ref": "#/$defs/directory"
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationID",
+        "generation",
+        "providerID",
+        "authority",
+        "context",
+        "workspace",
+        "tools"
+      ],
+      "properties": {
+        "operationID": {
+          "$ref": "#/$defs/identifier"
+        },
+        "providerID": {
+          "$ref": "#/$defs/providerID"
+        },
+        "authority": {
+          "$ref": "#/$defs/authority"
+        },
+        "context": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/context"
+            }
+          ]
+        },
+        "workspace": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/workspace"
+            }
+          ]
+        },
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/toolID"
+          }
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Host query-round generation, including workspace:null queries; echoed unchanged."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "workspace": {
+                "type": "object"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/context"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "installation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "version",
+        "home"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/toolID"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "not": {
+            "pattern": "[\\u0000-\\u001f\\u007f]"
+          }
+        },
+        "home": {
+          "$ref": "#/$defs/nativePath"
+        }
+      }
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "scope",
+        "source",
+        "request",
+        "installation",
+        "kind",
+        "reader"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/toolID"
+        },
+        "scope": {
+          "enum": [
+            "project",
+            "global"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/nativePath"
+        },
+        "request": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "not": {
+            "pattern": "[\\u0000-\\u001f\\u007f]"
+          }
+        },
+        "installation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/nativePath"
+            }
+          ]
+        },
+        "kind": {
+          "enum": [
+            "environment",
+            "declaration"
+          ]
+        },
+        "reader": {
+          "enum": [
+            "native",
+            "compatible"
+          ]
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationID",
+        "generation",
+        "providerID",
+        "installations",
+        "statements",
+        "watch"
+      ],
+      "properties": {
+        "operationID": {
+          "$ref": "#/$defs/identifier"
+        },
+        "providerID": {
+          "$ref": "#/$defs/providerID"
+        },
+        "installations": {
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/installation"
+          }
+        },
+        "statements": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/statement"
+          }
+        },
+        "watch": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nativePath"
+          }
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Host query-round generation, including workspace:null queries; echoed unchanged."
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "method": {
+          "const": "toolchains/query"
+        },
+        "params": {
+          "$ref": "#/$defs/params"
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "result": {
+          "$ref": "#/$defs/result"
+        }
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "data"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                -32601,
+                -32602,
+                -32800,
+                -32070,
+                -32071,
+                -32072,
+                -32073,
+                -32074,
+                -32075,
+                -32076,
+                -32077
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "code",
+                "operationID",
+                "providerID"
+              ],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "plugin.toolchain.methodUnavailable",
+                    "plugin.toolchain.invalidParams",
+                    "plugin.toolchain.cancelled",
+                    "plugin.toolchain.permissionDenied",
+                    "plugin.toolchain.authorityUnsupported",
+                    "plugin.toolchain.timeout",
+                    "plugin.toolchain.providerUnavailable",
+                    "plugin.toolchain.invalidReply",
+                    "plugin.toolchain.limitExceeded",
+                    "plugin.toolchain.unsafePath",
+                    "plugin.toolchain.operationExpired"
+                  ]
+                },
+                "operationID": {
+                  "$ref": "#/$defs/identifier"
+                },
+                "providerID": {
+                  "$ref": "#/$defs/providerID"
+                },
+                "details": {
+                  "type": "object",
+                  "maxProperties": 8
+                }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "oneOf": [
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32601
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.methodUnavailable"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32602
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.invalidParams"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32800
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.cancelled"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32070
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.permissionDenied"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32071
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.authorityUnsupported"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32072
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.timeout"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32073
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.providerUnavailable"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32074
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.invalidReply"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32075
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.limitExceeded"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32076
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.unsafePath"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {
+                      "const": -32077
+                    },
+                    "data": {
+                      "properties": {
+                        "code": {
+                          "const": "plugin.toolchain.operationExpired"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

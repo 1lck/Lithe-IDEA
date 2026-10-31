@@ -12,6 +12,7 @@ This directory is the cross-platform source of truth:
 | --- | --- |
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
 | `fixtures/*.plugin.json` | Valid example manifests, named after the capability they exercise rather than a published plugin: `language-*` (packaged, system-command, and host-integration language servers; `node-runtime` for a discovered runtime), `hello-lithe` and `web-panel` (UI), `settings-v2`, and `build-*` (level 3 build systems and the two forms of a build provider) |
+| `fixtures/tool-definition.plugin.json`, `fixtures/toolchain-provider.plugin.json` | Production-shape Core fixtures for tool definitions and a packaged toolchain provider; require explicit new host capabilities, not yet supplied by native products |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
@@ -21,6 +22,8 @@ This directory is the cross-platform source of truth:
 | `fixtures/project-plans.json` | Golden `project.*` form evaluations, generation plans, and name checks |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
+| `toolchains.md` | Implemented Core foundation: plugin definitions/provider declarations, verified-origin registry, reply validation, directory pins, snapshot resolution, version matching and discovery plans; native hosts are not connected |
+| `proposals/toolchains/` | Broader design draft, including unimplemented query transport, native lifecycle/persistence, consumer migration, settings UI and manager plugins; examples are review projections, not installable manifests |
 
 Validation and template expansion are implemented once in Rust Core
 (`rust/lithe-core/src/plugins/`, with build systems in
@@ -36,6 +39,30 @@ schema's `$id` is its URL there. Contract changes land here first and must then
 be synced to that repository, so links in this file that leave this directory
 are absolute. `plugin.json` may not carry a `$schema` key, because unknown
 fields are rejected; editors associate the schema by file name instead.
+
+## Plugin-owned toolchains (Core foundation)
+
+The [toolchains draft](proposals/toolchains/README.md) records the replacement
+design discussed in [PR #1581](https://github.com/1lck/Lithe-IDEA/pull/1581#issuecomment-6541366112).
+All tool definitions belong to enabled plugins; the host supplies only generic
+query, validation, resolution, persistence, and presentation mechanisms. It
+does not add a built-in tool-definition table or interpret version-manager
+configuration formats.
+
+The [implemented Core contract](toolchains.md) now accepts `toolDefinitions: 1`
+and `toolchainProviders: 1` declarations and provides six `toolchains.*` commands.
+`executableResolution: 2` applies to tool-definition candidates only; it does not
+admit new sources into existing Build candidate sets. Definitions are entirely
+plugin-owned, with reserved short IDs checked against host-verified official
+provenance when constructing the registry.
+
+Neither native host advertises or integrates this foundation yet. Core consumes
+captured host facts; it does not start a provider, run a probe, watch files, scan
+the system, persist pins, or change current Java/Maven selection. The broader
+proposal remains unsupported where it exceeds this implemented slice. In
+particular, `toolchainConsumers`, generic runtime launches, settings pages, mise
+and SDKMAN providers, and live backend activation are not implemented here.
+Proposal envelopes remain separate from production manifests.
 
 ## Package layout
 
@@ -69,6 +96,8 @@ symbolic links. A host treats an installed package as read-only.
 | `settings` | User-adjustable plugin options (level 2 and later). |
 | `ui` | Host-rendered tool windows and commands (level 2 and later). |
 | `buildSystems` | Project-level build tools (level 3). |
+| `toolDefinitions` | Plugin-owned tool policy ([Core foundation](toolchains.md)); requires `toolDefinitions: 1` and `executableResolution: 2`; native adapters are not connected. |
+| `toolchainProviders` | Backend fact-provider declarations ([Core foundation](toolchains.md)); requires `toolchainProviders: 1`, backend/server-process capabilities and `toolchains.provide`. |
 
 Unknown fields are refused (`plugin.manifest.invalid`) so an older host
 rejects a package instead of ignoring part of it. At levels 1 and 2 a new
@@ -484,6 +513,9 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process | `1`, `2` (adds [start without a page and workspace contexts](#backend-2-workspace-contexts)) |
+| `toolDefinitions` | [Tool identities, layouts, discovery and four-layer candidates](toolchains.md) | `1` (Core only) |
+| `toolchainProviders` | [Provider declarations and permission-bound answer validation](toolchains.md) | `1` (Core only) |
+| `executableResolution` | [Shared executable candidates](#shared-executable-candidates-executableresolution-1); v2 adds tool-definition candidates without changing existing Build candidate sets | `1`, `2` (v2 Core only) |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so

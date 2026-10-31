@@ -1,0 +1,50 @@
+{
+  "proposalVersion": 1,
+  "pluginID": "dev.lithe.fixture.java-support",
+  "requires": { "toolDefinitions": 1, "executableResolution": 2, "toolchainConsumers": 1 },
+  "permissions": [],
+  "toolDefinitions": [
+    {
+      "id": "java",
+      "displayName": "JDK",
+      "icon": { "host": "plugin" },
+      "executableLayouts": [
+        { "path": "bin/java", "platforms": ["macos", "linux"] },
+        { "path": "bin/java.exe", "platforms": ["windows"] }
+      ],
+      "executables": [
+        { "id": "pinned", "kind": "setting", "settingID": "executable", "layer": "project" },
+        { "id": "project-request", "kind": "toolchain", "scope": "project" },
+        { "id": "default", "kind": "setting", "settingID": "executable", "layer": "global" },
+        { "id": "global-request", "kind": "toolchain", "scope": "global" },
+        { "id": "home", "kind": "environment", "variable": "JAVA_HOME", "path": "bin/java", "platforms": ["macos", "linux"] },
+        { "id": "home-windows", "kind": "environment", "variable": "JAVA_HOME", "path": "bin/java.exe", "platforms": ["windows"] },
+        { "id": "shell", "kind": "command", "command": "java" },
+        { "id": "detected", "kind": "toolchain", "scope": "installed" }
+      ],
+      "version": { "arguments": ["-version"], "pattern": "version \\\"(?:1\\.)?(\\d+(?:\\.\\d+)*)" },
+      "homeLayouts": [
+        { "match": "*.jdk", "home": "Contents/Home", "platforms": ["macos"] },
+        { "match": "*", "home": "." }
+      ],
+      "discovery": [
+        { "root": { "kind": "absolute", "path": "/Library/Java/JavaVirtualMachines" }, "pattern": "*.jdk", "platforms": ["macos"] },
+        { "root": { "kind": "home" }, "pattern": "Library/Java/JavaVirtualMachines/*.jdk", "platforms": ["macos"] }
+      ],
+      "homeVariable": "JAVA_HOME",
+      "commands": ["java"],
+      "wrappers": [],
+      "exports": [ { "name": "JAVA_HOME", "value": "${home}" }, { "name": "LITHE_JAVA_PATH", "value": "${executable}" } ],
+      "pathPrepend": ["${home}/bin"],
+      "launch": ["${executable}", "${runtimeArguments}", "-jar", "${entry}", "${arguments}"]
+    }
+  ],
+  "consumers": [
+    {
+      "id": "fixture-language-server",
+      "requiresTools": [ { "tool": "java", "minimumVersion": "21" } ],
+      "onToolchainChange": "restart",
+      "launch": { "kind": "runtime", "tool": "java", "entry": "server/fixture-language-server.jar" }
+    }
+  ]
+}

@@ -28,3 +28,7 @@ pub(crate) mod support;
 mod vcs;
 
 mod plugin_editor_resources;
+mod toolchain_definitions;
+mod toolchain_pins;
+mod toolchain_queries;
+mod toolchain_resolution;

@@ -1,0 +1,114 @@
+{
+  "proposalVersion": 1,
+  "description": "Proposed rejection scenarios, not current Core tests. Apply RFC 6902 patch to base; schema checks shape, registry checks enabled definition references and manifest semantics, hostTrust checks independently verified installation provenance. Context is supplied by the test host, never trusted plugin JSON.",
+  "cases": [
+    {
+      "name": "provider capability requires effective permission",
+      "base": "mise-provider.json",
+      "phase": "schema",
+      "patch": [{ "op": "replace", "path": "/permissions", "value": ["backend.launch"] }],
+      "expected": { "status": "rejected", "code": "plugin.permission.undeclared" }
+    },
+    {
+      "name": "export cannot replace PATH",
+      "base": "java-tool-definition.json",
+      "phase": "schema",
+      "patch": [{ "op": "replace", "path": "/toolDefinitions/0/exports/0/name", "value": "PATH" }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid" }
+    },
+    {
+      "name": "export cannot set loader injection variable",
+      "base": "java-tool-definition.json",
+      "phase": "schema",
+      "patch": [{ "op": "replace", "path": "/toolDefinitions/0/exports/0/name", "value": "DYLD_INSERT_LIBRARIES" }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid" }
+    },
+    {
+      "name": "PATH prepend cannot escape home",
+      "base": "java-tool-definition.json",
+      "phase": "schema",
+      "patch": [{ "op": "replace", "path": "/toolDefinitions/0/pathPrepend/0", "value": "${home}/../bin" }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid" }
+    },
+    {
+      "name": "watch glob cannot recurse without a bound",
+      "base": "mise-provider.json",
+      "phase": "schema",
+      "patch": [{ "op": "replace", "path": "/toolchainProviders/0/watchFiles/0/pattern", "value": "**/mise.toml" }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid" }
+    },
+    {
+      "name": "probe cannot pass an arbitrary script argument",
+      "base": "java-tool-definition.json",
+      "phase": "schema",
+      "patch": [{ "op": "replace", "path": "/toolDefinitions/0/version/arguments", "value": ["-c", "project-code"] }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid" }
+    },
+    {
+      "name": "launch interpolation is argv not shell text",
+      "base": "java-tool-definition.json",
+      "phase": "schema",
+      "patch": [{ "op": "replace", "path": "/toolDefinitions/0/launch/1", "value": "--args=${arguments}" }],
+      "expected": { "status": "rejected", "code": "plugin.template.invalid" }
+    },
+    {
+      "name": "provider backend cannot bootstrap from discovered runtime",
+      "base": "mise-provider.json",
+      "phase": "schema",
+      "patch": [{ "op": "replace", "path": "/backend/launch", "value": { "kind": "runtime", "tool": "node", "entry": "provider/main.mjs" } }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid" }
+    },
+    {
+      "name": "consumer reference to undefined tool is not a syntax error",
+      "base": "java-tool-definition.json",
+      "phase": "registry",
+      "patch": [{ "op": "replace", "path": "/consumers/0/requiresTools", "value": [{ "tool": "java", "minimumVersion": "21" }, { "tool": "dev.lithe.fixture.java-support:absent" }] }],
+      "context": { "enabledToolIDs": ["java"] },
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid", "reason": "undefinedTool" }
+    },
+    {
+      "name": "community plugin cannot claim reserved short definition",
+      "base": "java-tool-definition.json",
+      "phase": "hostTrust",
+      "patch": [],
+      "context": { "verifiedOrigin": "communityPackage" },
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid", "reason": "reservedToolID" }
+    },
+    {
+      "name": "community definition namespace belongs to its plugin",
+      "base": "java-tool-definition.json",
+      "phase": "registry",
+      "patch": [{ "op": "replace", "path": "/toolDefinitions/0/id", "value": "dev.lithe.fixture.other:java" }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid", "reason": "foreignToolNamespace" }
+    },
+    {
+      "name": "later definition cannot replace existing owner",
+      "base": "java-tool-definition.json",
+      "phase": "registry",
+      "patch": [],
+      "context": { "registeredTools": [{ "id": "java", "pluginID": "dev.lithe.fixture.first-java" }] },
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid", "reason": "duplicateToolID" }
+    },
+    {
+      "name": "capability list cannot advertise unused provider",
+      "base": "java-tool-definition.json",
+      "phase": "registry",
+      "patch": [{ "op": "add", "path": "/requires/toolchainProviders", "value": 1 }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid", "reason": "unusedCapability" }
+    },
+    {
+      "name": "pattern needs a numeric version capture",
+      "base": "java-tool-definition.json",
+      "phase": "registry",
+      "patch": [{ "op": "replace", "path": "/toolDefinitions/0/version/pattern", "value": "version.*" }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid", "reason": "missingVersionCapture" }
+    },
+    {
+      "name": "ordering cannot reference another contribution set",
+      "base": "java-tool-definition.json",
+      "phase": "registry",
+      "patch": [{ "op": "add", "path": "/toolDefinitions/0/executables/0/insertBefore", "value": "another-set" }],
+      "expected": { "status": "rejected", "code": "plugin.manifest.invalid", "reason": "unknownCandidateAnchor" }
+    }
+  ]
+}

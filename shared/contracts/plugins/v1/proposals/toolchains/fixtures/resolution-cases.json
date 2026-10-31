@@ -1,0 +1,571 @@
+{
+  "proposalVersion": 1,
+  "status": "review-only",
+  "cases": [
+    {
+      "name": "nearest ancestor pin applies component-wise",
+      "input": {
+        "directory": "apps/web/src",
+        "localFixture": "local.json"
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": "apps/web/src",
+        "outcome": {
+          "kind": "resolved",
+          "selection": {
+            "home": "/opt/lithe-fixtures/manual/java/17.0.12",
+            "executable": "/opt/lithe-fixtures/manual/java/17.0.12/bin/java",
+            "version": "17.0.12",
+            "provider": "host:manual",
+            "layer": "pinned",
+            "projectCode": false,
+            "environment": {
+              "JAVA_HOME": "/opt/lithe-fixtures/manual/java/17.0.12"
+            },
+            "pathPrepend": [
+              "/opt/lithe-fixtures/manual/java/17.0.12/bin"
+            ]
+          }
+        },
+        "trace": [
+          {
+            "candidateID": "pinned",
+            "layer": "pinned",
+            "state": "resolved",
+            "source": "apps/web"
+          }
+        ],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "similarly prefixed sibling does not inherit child pin",
+      "input": {
+        "directory": "apps/website",
+        "localFixture": "local.json"
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": "apps/website",
+        "outcome": {
+          "kind": "resolved",
+          "selection": {
+            "home": "/opt/lithe-fixtures/installs/java/21.0.4",
+            "executable": "/opt/lithe-fixtures/installs/java/21.0.4/bin/java",
+            "version": "21.0.4",
+            "provider": "dev.lithe.fixture.mise:mise",
+            "layer": "pinned",
+            "projectCode": false,
+            "environment": {
+              "JAVA_HOME": "/opt/lithe-fixtures/installs/java/21.0.4"
+            },
+            "pathPrepend": [
+              "/opt/lithe-fixtures/installs/java/21.0.4/bin"
+            ]
+          }
+        },
+        "trace": [
+          {
+            "candidateID": "pinned",
+            "layer": "pinned",
+            "state": "resolved",
+            "source": "."
+          }
+        ],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "nonempty unavailable pin stops fallback",
+      "input": {
+        "pinHome": "/opt/lithe-fixtures/missing",
+        "installedHomes": [
+          "/opt/lithe-fixtures/installs/java/21.0.4"
+        ]
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": ".",
+        "outcome": {
+          "kind": "terminalFailure",
+          "reason": {
+            "code": "notFound"
+          }
+        },
+        "trace": [
+          {
+            "candidateID": "pinned",
+            "layer": "pinned",
+            "state": "terminalFailure",
+            "reason": {
+              "code": "notFound"
+            }
+          }
+        ],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "uninstalled project version remains visible after fallback",
+      "input": {
+        "statement": {
+          "tool": "java",
+          "scope": "project",
+          "source": "/opt/lithe-fixtures/workspace/mise.toml",
+          "request": "99",
+          "installation": null,
+          "kind": "declaration",
+          "reader": "native"
+        },
+        "loginShellHome": "/opt/lithe-fixtures/installs/java/21.0.4"
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": ".",
+        "outcome": {
+          "kind": "resolved",
+          "selection": {
+            "home": "/opt/lithe-fixtures/installs/java/21.0.4",
+            "executable": "/opt/lithe-fixtures/installs/java/21.0.4/bin/java",
+            "version": "21.0.4",
+            "provider": "host:system",
+            "layer": "global",
+            "projectCode": false,
+            "environment": {
+              "JAVA_HOME": "/opt/lithe-fixtures/installs/java/21.0.4"
+            },
+            "pathPrepend": [
+              "/opt/lithe-fixtures/installs/java/21.0.4/bin"
+            ]
+          }
+        },
+        "trace": [
+          {
+            "candidateID": "project-request",
+            "layer": "project",
+            "state": "skip",
+            "reason": {
+              "code": "requestedNotInstalled",
+              "tool": "java",
+              "provider": "dev.lithe.fixture.mise:mise",
+              "source": "/opt/lithe-fixtures/workspace/mise.toml",
+              "request": "99"
+            }
+          },
+          {
+            "candidateID": "shell-command",
+            "layer": "global",
+            "state": "resolved"
+          }
+        ],
+        "unmet": [
+          {
+            "code": "requestedNotInstalled",
+            "tool": "java",
+            "provider": "dev.lithe.fixture.mise:mise",
+            "source": "/opt/lithe-fixtures/workspace/mise.toml",
+            "request": "99"
+          }
+        ],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "conflicting globals skip providers and use login shell",
+      "input": {
+        "providerGlobals": [
+          {
+            "provider": "dev.lithe.fixture.mise:mise",
+            "home": "/opt/lithe-fixtures/installs/java/21.0.4"
+          },
+          {
+            "provider": "dev.lithe.fixture.sdkman:sdkman",
+            "home": "/opt/lithe-fixtures/sdkman/java/17.0.12"
+          }
+        ],
+        "loginShellHome": "/opt/lithe-fixtures/installs/java/21.0.4"
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": ".",
+        "outcome": {
+          "kind": "resolved",
+          "selection": {
+            "home": "/opt/lithe-fixtures/installs/java/21.0.4",
+            "executable": "/opt/lithe-fixtures/installs/java/21.0.4/bin/java",
+            "version": "21.0.4",
+            "provider": "host:system",
+            "layer": "global",
+            "projectCode": false,
+            "environment": {
+              "JAVA_HOME": "/opt/lithe-fixtures/installs/java/21.0.4"
+            },
+            "pathPrepend": [
+              "/opt/lithe-fixtures/installs/java/21.0.4/bin"
+            ]
+          }
+        },
+        "trace": [
+          {
+            "candidateID": "global-request",
+            "layer": "global",
+            "state": "skip",
+            "reason": {
+              "code": "providerConflict"
+            }
+          },
+          {
+            "candidateID": "shell-command",
+            "layer": "global",
+            "state": "resolved"
+          }
+        ],
+        "unmet": [],
+        "conflicts": [
+          {
+            "scope": "global",
+            "providers": [
+              "dev.lithe.fixture.mise:mise",
+              "dev.lithe.fixture.sdkman:sdkman"
+            ],
+            "action": "chooseProvider"
+          }
+        ]
+      }
+    },
+    {
+      "name": "automatic compares numeric components not text",
+      "input": {
+        "probedVersions": [
+          "9.0.9",
+          "21.0.4",
+          "17.0.12"
+        ],
+        "minimumVersion": "17"
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": ".",
+        "outcome": {
+          "kind": "resolved",
+          "selection": {
+            "home": "/opt/lithe-fixtures/installs/java/21.0.4",
+            "executable": "/opt/lithe-fixtures/installs/java/21.0.4/bin/java",
+            "version": "21.0.4",
+            "provider": "dev.lithe.fixture.mise:mise",
+            "layer": "automatic",
+            "projectCode": false,
+            "environment": {
+              "JAVA_HOME": "/opt/lithe-fixtures/installs/java/21.0.4"
+            },
+            "pathPrepend": [
+              "/opt/lithe-fixtures/installs/java/21.0.4/bin"
+            ]
+          }
+        },
+        "trace": [],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "manual-only newer installation is not automatic",
+      "input": {
+        "installedHomes": [
+          "/opt/lithe-fixtures/installs/java/21.0.4"
+        ],
+        "manualInstallations": [
+          {
+            "home": "/opt/lithe-fixtures/manual/java/99",
+            "version": "99"
+          }
+        ]
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": ".",
+        "outcome": {
+          "kind": "resolved",
+          "selection": {
+            "home": "/opt/lithe-fixtures/installs/java/21.0.4",
+            "executable": "/opt/lithe-fixtures/installs/java/21.0.4/bin/java",
+            "version": "21.0.4",
+            "provider": "dev.lithe.fixture.mise:mise",
+            "layer": "automatic",
+            "projectCode": false,
+            "environment": {
+              "JAVA_HOME": "/opt/lithe-fixtures/installs/java/21.0.4"
+            },
+            "pathPrepend": [
+              "/opt/lithe-fixtures/installs/java/21.0.4/bin"
+            ]
+          }
+        },
+        "trace": [],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "child declaration beats more distant wrapper",
+      "input": {
+        "directory": "apps/web",
+        "projectCandidates": [
+          {
+            "directory": ".",
+            "kind": "wrapper",
+            "path": "mvnw"
+          },
+          {
+            "directory": "apps/web",
+            "kind": "declaration",
+            "home": "/opt/lithe-fixtures/installs/maven/3.9.9"
+          }
+        ]
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "maven",
+        "directory": "apps/web",
+        "outcome": {
+          "kind": "resolved",
+          "selection": {
+            "home": "/opt/lithe-fixtures/installs/maven/3.9.9",
+            "executable": "/opt/lithe-fixtures/installs/maven/3.9.9/bin/mvn",
+            "version": "3.9.9",
+            "provider": "dev.lithe.fixture.mise:mise",
+            "layer": "project",
+            "projectCode": false,
+            "environment": {},
+            "pathPrepend": [
+              "/opt/lithe-fixtures/installs/maven/3.9.9/bin"
+            ]
+          }
+        },
+        "trace": [],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "same-directory wrapper precedes manager statement after user action",
+      "input": {
+        "directory": ".",
+        "userActionAuthorized": true,
+        "wrapper": "/opt/lithe-fixtures/workspace/mvnw",
+        "providerHome": "/opt/lithe-fixtures/installs/maven/3.9.9"
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "maven",
+        "directory": ".",
+        "outcome": {
+          "kind": "resolved",
+          "selection": {
+            "home": null,
+            "executable": "/opt/lithe-fixtures/workspace/mvnw",
+            "version": null,
+            "provider": "dev.lithe.fixture.maven:wrapper",
+            "layer": "project",
+            "projectCode": true,
+            "environment": {},
+            "pathPrepend": []
+          }
+        },
+        "trace": [],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "native reader beats compatible reader for the same file",
+      "input": {
+        "source": "/opt/lithe-fixtures/workspace/.nvmrc",
+        "readers": [
+          {
+            "provider": "dev.lithe.fixture.mise:mise",
+            "reader": "compatible",
+            "home": "/opt/lithe-fixtures/installs/node/22.0.0"
+          },
+          {
+            "provider": "dev.lithe.fixture.nvm:nvm",
+            "reader": "native",
+            "home": "/opt/lithe-fixtures/nvm/node/20.0.0"
+          }
+        ]
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "node",
+        "directory": ".",
+        "outcome": {
+          "kind": "resolved",
+          "selection": {
+            "home": "/opt/lithe-fixtures/nvm/node/20.0.0",
+            "executable": "/opt/lithe-fixtures/nvm/node/20.0.0/bin/node",
+            "version": "20.0.0",
+            "provider": "dev.lithe.fixture.nvm:nvm",
+            "layer": "project",
+            "projectCode": false,
+            "environment": {},
+            "pathPrepend": [
+              "/opt/lithe-fixtures/nvm/node/20.0.0/bin"
+            ]
+          }
+        },
+        "trace": [],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "disabled definition leaves pin but no executable authority",
+      "input": {
+        "localFixture": "local.json",
+        "enabledDefinitions": []
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": ".",
+        "outcome": {
+          "kind": "skip",
+          "reason": {
+            "code": "definitionUnavailable",
+            "tool": "java"
+          }
+        },
+        "trace": [],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "unknown probed version cannot satisfy automatic minimum",
+      "input": {
+        "installedHomes": [
+          "/opt/lithe-fixtures/installs/java/21.0.4"
+        ],
+        "probeOutput": "unknown",
+        "minimumVersion": "17"
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": ".",
+        "outcome": {
+          "kind": "skip",
+          "reason": {
+            "code": "versionUnsatisfied"
+          }
+        },
+        "trace": [],
+        "unmet": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "equal newest versions at distinct homes require explicit choice",
+      "input": {
+        "installations": [
+          {
+            "provider": "dev.lithe.fixture.mise:mise",
+            "home": "/opt/lithe-fixtures/installs/java/21.0.4",
+            "normalizedVersion": "21.0.4"
+          },
+          {
+            "provider": "dev.lithe.fixture.mise:mise",
+            "home": "/opt/lithe-fixtures/other-installs/java/21.0.4",
+            "normalizedVersion": "21.0.4"
+          }
+        ]
+      },
+      "expected": {
+        "operationID": "resolve-1",
+        "tool": "java",
+        "directory": ".",
+        "outcome": {
+          "kind": "skip",
+          "reason": {
+            "code": "ambiguousInstallation",
+            "tool": "java"
+          }
+        },
+        "trace": [
+          {
+            "candidateID": "installed",
+            "layer": "automatic",
+            "state": "skip",
+            "reason": {
+              "code": "ambiguousInstallation",
+              "tool": "java"
+            }
+          }
+        ],
+        "unmet": [],
+        "conflicts": [
+          {
+            "scope": "automatic",
+            "providers": [
+              "dev.lithe.fixture.mise:mise"
+            ],
+            "installations": [
+              "/opt/lithe-fixtures/installs/java/21.0.4",
+              "/opt/lithe-fixtures/other-installs/java/21.0.4"
+            ],
+            "action": "chooseInstallation"
+          }
+        ]
+      }
+    }
+  ],
+  "invalidLocalDocuments": [
+    {
+      "name": "parent segment",
+      "value": {
+        "version": 1,
+        "toolchains": {},
+        "pins": {
+          "apps/../other": {}
+        }
+      }
+    },
+    {
+      "name": "absolute directory key",
+      "value": {
+        "version": 1,
+        "toolchains": {},
+        "pins": {
+          "/apps": {}
+        }
+      }
+    },
+    {
+      "name": "relative home",
+      "value": {
+        "version": 1,
+        "toolchains": {},
+        "pins": {
+          ".": {
+            "java": {
+              "home": "vendor/jdk",
+              "version": "21",
+              "provider": "host:manual"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
