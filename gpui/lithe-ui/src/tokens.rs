@@ -202,9 +202,11 @@ fn derived_chrome(
         (hex(0xBEE6BE), hex(0xD6D6D6), hex(0xC2D8F2))
     };
 
+    let chrome_surface = mix(surface, ink, strong_chrome_amount);
+
     LitheTokens {
-        window: surface,
-        titlebar: mix(surface, ink, strong_chrome_amount),
+        window: chrome_surface,
+        titlebar: chrome_surface,
         tool_header: surface,
         sidebar: surface,
         editor: surface,

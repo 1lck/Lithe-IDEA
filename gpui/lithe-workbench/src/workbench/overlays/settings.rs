@@ -1,31 +1,31 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{h_flex, v_flex, Sizable as _};
+use gpui_kit::component::{Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, ClickEvent, Context, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 use lithe_ui::i18n::tr;
-use lithe_ui::icons::{icon, LitheIcon};
-use lithe_ui::{current_tokens, LitheMetrics};
+use lithe_ui::icons::{LitheIcon, icon};
+use lithe_ui::{LitheMetrics, current_tokens};
 
-use super::super::{Workbench, OVERLAY_CONTEXT};
+use super::super::{OVERLAY_CONTEXT, Workbench};
 
 impl Workbench {
     /// 设置覆盖层：全屏半透明背板 + 居中 900×700 面板。
-    pub(crate) fn render_settings_overlay(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_settings_overlay(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let tokens = current_tokens(cx);
         let backdrop_owner = cx.weak_entity();
         let header_close_owner = cx.weak_entity();
         let footer_close_owner = cx.weak_entity();
         let restore_owner = cx.weak_entity();
         let window_size = window.window_bounds().get_bounds().size;
-        let panel_width = (window_size.width - px(32.))
-            .min(px(900.))
-            .max(px(600.));
-        let panel_height = (window_size.height - px(32.))
-            .min(px(700.))
-            .max(px(400.));
+        let panel_width = (window_size.width - px(32.)).min(px(900.)).max(px(600.));
+        let panel_height = (window_size.height - px(32.)).min(px(700.)).max(px(400.));
 
         div()
             .id("lithe-settings-overlay")
@@ -148,7 +148,11 @@ impl Workbench {
             .into_any_element()
     }
 
-    pub(crate) fn restore_settings_defaults(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn restore_settings_defaults(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(view) = self.settings_view.clone() else {
             return;
         };
@@ -179,17 +183,35 @@ impl Workbench {
         cx.notify();
     }
 
+    /// 打开设置覆盖层并直接落在「Project · JDK & Maven」页。Maven 工具窗用。
+    pub(crate) fn open_project_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.settings_visible {
+            self.toggle_settings(window, cx);
+        }
+        if let Some(view) = self.settings_view.clone() {
+            view.update(cx, |view, view_cx| view.open_project_page(view_cx));
+        }
+        cx.notify();
+    }
+
     /// 打开设置覆盖层并直接落在「AI 与提交」页。Git 提交区的 AI 入口用它。
-    pub(crate) fn open_ai_commit_settings(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn open_ai_commit_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.settings_visible {
             self.toggle_settings(window, cx);
         }
         if let Some(view) = self.settings_view.clone() {
             view.update(cx, |view, view_cx| view.open_ai_commit_page(view_cx));
+        }
+        cx.notify();
+    }
+
+    /// 打开设置覆盖层并直接落在「Git」页。Git Log 标题栏的设置入口用它。
+    pub(crate) fn open_git_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.settings_visible {
+            self.toggle_settings(window, cx);
+        }
+        if let Some(view) = self.settings_view.clone() {
+            view.update(cx, |view, view_cx| view.open_git_page(view_cx));
         }
         cx.notify();
     }

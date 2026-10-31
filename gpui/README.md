@@ -71,6 +71,7 @@ cargo check -p lithe-desktop
 - 顶栏分支切换器、真实分支名、状态栏 Git 变更计数。
 - Git 工具窗：Changes 分组、Unified/Split Diff、Commit/Amend、Log、Stage/Unstage/Discard（丢弃二次确认）。
 - 搜索工具窗：300ms 去抖、按文件分组、点击打开。
+- Maven 工具窗：右侧面板展示 Maven 项目树（Profiles / 模块 / 源码根 / 生命周期 / 懒加载依赖树），支持跳过测试、执行 Goal、运行 / 停止生命周期阶段、打开 pom.xml；底部「Run - Maven」面板展示进程输出、构建诊断与测试汇总。
 - 运行入口：常见项目类型（Cargo/npm/Maven/Gradle/Go/Python/Make/Compose/Procfile）检测候选命令，在终端执行。
 - 终端工具窗：xterm.js + portable-pty。
 - Agent 工具窗：自动发现已安装 ACP adapter，基础对话、权限、停止/重连。
@@ -89,7 +90,8 @@ cargo check -p lithe-desktop
 - Run 只按根目录常见文件做启发式检测，不使用 Core 的构建插件模型；不持久化自定义运行配置。
 - Agent 只做基础对话，未接会话历史、模型/配置选择、Markdown 渲染和安装向导。
 - 编辑器分屏只提供只读副窗格（同一文件的第二个观察点），不支持两个可写窗格；多项目标签页、同一窗口多组编辑器尚未实现。
-- Debug/References/Problems/Spring/Tests/Build Output、插件市场、GitHub PR、完整 LSP、Java/Maven/Spring、数据库、远程开发、自动更新尚未实现（工具窗显示真实占位说明）。
+- Debug/References/Problems/Spring/Tests/Build Output、插件市场、GitHub PR、完整 LSP、数据库、远程开发、自动更新尚未实现（工具窗显示真实占位说明）。
+- Maven 工具窗未接 Maven 设置存储与 JDT LS：settings / 本地仓库 / 工具链路径按默认规则解析，解决方案问题横幅与 Rerun test 尚未实现。
 - 已在 Windows + Rust 1.97.1 上通过 `cargo check --workspace --all-targets`、`cargo test -p lithe-core-client`，并实机验证启动稳定；交互功能请按上文步骤手动验证。
 - macOS/Linux 尚未实机启动验证；Linux 仅承诺 X11。
 

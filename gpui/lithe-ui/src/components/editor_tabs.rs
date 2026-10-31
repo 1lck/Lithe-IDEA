@@ -143,6 +143,7 @@ impl RenderOnce for EditorTabs {
                 .items_center()
                 .flex_shrink_0()
                 .h(px(LitheMetrics::EDITOR_TAB_HEIGHT))
+                .rounded_t(px(4.0))
                 // 对齐 macOS `editorTabContent`：文字左内边距 8
                 //（EditorAreaView.swift:743），关闭按钮到右边缘 4
                 //（EditorAreaView.swift:724）。

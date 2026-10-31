@@ -12,14 +12,14 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenu, PopupMenuItem};
-use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
+use gpui_kit::component::{Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Anchor, AnyElement, Context, IntoElement, ParentElement as _, SharedString, Styled as _,
     WeakEntity, Window, div, px,
 };
 use lithe_ui::i18n::tr;
-use lithe_ui::{current_tokens, LitheMetrics, LitheTokens};
+use lithe_ui::{LitheMetrics, LitheTokens, current_tokens};
 
 use crate::workbench::{DockAnchor, ToolWindow, Workbench};
 
@@ -230,10 +230,7 @@ pub(crate) fn render_project_tool_header(
                     PopupMenuItem::submenu("外观", appearance_menu)
                         .icon(Icon::new(IconName::Palette)),
                 )
-                .item(
-                    PopupMenuItem::submenu("排序顺序", sort_menu)
-                        .icon(Icon::new(IconName::List)),
-                )
+                .item(PopupMenuItem::submenu("排序顺序", sort_menu).icon(Icon::new(IconName::List)))
                 .item(
                     PopupMenuItem::submenu("缩进", indent_menu)
                         .icon(Icon::new(IconName::ListIndentIncrease)),

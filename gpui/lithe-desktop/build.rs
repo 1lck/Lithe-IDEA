@@ -16,6 +16,10 @@ fn main() {
         return;
     }
 
+    // Windows MSVC 默认主线程栈只有 1MB；大型 GUI 在 Debug 模式递归排版
+    // 提交历史树时极易爆栈。设置 8MB 栈空间对齐现代化桌面应用标准。
+    println!("cargo:rustc-link-arg=/STACK:8388608");
+
     let mut resource = winresource::WindowsResource::new();
     resource.set_icon("../../windows/tauri/src-tauri/icons/icon.ico");
     resource

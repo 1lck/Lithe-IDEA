@@ -5,13 +5,13 @@ use gpui_kit::{
     AppContext as _, Context, SharedString, Task, Window, WindowBounds, WindowOptions, px, size,
 };
 use lithe_features::settings::SettingsContext;
-use lithe_features::{format_memory, process_memory_bytes, AppSettings};
+use lithe_features::{AppSettings, format_memory, process_memory_bytes};
 use lithe_ui::i18n::tr;
 use lithe_ui::install_theme;
 
 use super::dock::ToolWindow;
 use super::notifications::NotificationKind;
-use super::{theme_kind_for, Workbench, MEMORY_REFRESH_INTERVAL};
+use super::{MEMORY_REFRESH_INTERVAL, Workbench, theme_kind_for};
 use crate::layout;
 use crate::workspace_layout;
 
@@ -104,6 +104,9 @@ impl Workbench {
         self.run_panel.update(cx, |panel, panel_cx| {
             panel.set_root(root.clone(), window, panel_cx)
         });
+        self.maven.update(cx, |panel, panel_cx| {
+            panel.set_root(root.clone(), window, panel_cx)
+        });
         self.terminal.update(cx, |panel, panel_cx| {
             panel.set_root(root.clone(), window, panel_cx)
         });
@@ -116,7 +119,7 @@ impl Workbench {
             .update(cx, |panel, panel_cx| panel.set_root(root, window, panel_cx));
     }
 
-    pub(super) fn pick_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn pick_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let platform = self.platform.clone();
         let title = tr("Open Project").to_string();
         cx.spawn_in(window, async move |this, cx| {
@@ -131,16 +134,22 @@ impl Workbench {
         .detach();
     }
 
-    pub(super) fn close_current_project(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn close_current_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(root) = self.project_root.take() else {
             return;
         };
         self.persist_layout_for(&root);
         self.layout_root = None;
-        self.tabs.clear();
-        self.active_tab = None;
-        self.problems.clear();
+        // 关项目必须与 `open_project` 对称：标签、编辑器文档、右分栏、Markdown
+        // 预览和导航历史都属于上一个工作区。留下任何一项，新项目都会看到旧
+        // 文件内容，`sync_editor_secondary` 还会对已关闭的文件继续发指令。
+        self.clear_editor(window, cx);
+        self.closed_tabs.clear();
+        self.nav_back.clear();
+        self.nav_forward.clear();
         self.status_message = None;
+        self.branch_refresh_generation = self.branch_refresh_generation.wrapping_add(1);
+        self._branch_task = Task::ready(());
         cx.notify();
     }
 
@@ -222,17 +231,49 @@ impl Workbench {
         }
         self.apply_editor_preferences(window, cx);
         self.apply_terminal_preferences(window, cx);
+        self.apply_git_preferences(cx);
+        self.apply_hidden_patterns(cx);
         // 提交区的 AI 按钮可用性跟着设置页里的开关走。
         let ai_commit_enabled = self.settings.ai_commit_enabled;
-        self.git
-            .update(cx, |panel, cx| panel.set_ai_commit_enabled(ai_commit_enabled, cx));
-        self.git_log
-            .update(cx, |panel, cx| panel.set_ai_commit_enabled(ai_commit_enabled, cx));
+        self.git.update(cx, |panel, cx| {
+            panel.set_ai_commit_enabled(ai_commit_enabled, cx)
+        });
+        self.git_log.update(cx, |panel, cx| {
+            panel.set_ai_commit_enabled(ai_commit_enabled, cx)
+        });
         if language_changed {
             self.refresh_localized_views(cx);
             cx.refresh_windows();
         }
         cx.notify();
+    }
+
+    /// 把 Git 设置注入两个 Git 面板（提交区 + 日志）。
+    pub(super) fn apply_git_preferences(&mut self, cx: &mut Context<Self>) {
+        let folder_view = self.settings.git_changes_folder_view;
+        let confirm_discard = self.settings.git_confirm_discard;
+        let show_untracked = self.settings.git_show_untracked;
+        let show_staged_first = self.settings.git_show_staged_first;
+        for panel in [self.git.clone(), self.git_log.clone()] {
+            panel.update(cx, |panel, panel_cx| {
+                panel.set_git_preferences(
+                    folder_view,
+                    confirm_discard,
+                    show_untracked,
+                    show_staged_first,
+                    panel_cx,
+                );
+            });
+        }
+    }
+
+    /// 把隐藏路径模式注入项目树；模式变化时树会自动重载。
+    pub(super) fn apply_hidden_patterns(&mut self, cx: &mut Context<Self>) {
+        let directories = self.settings.hidden_directory_patterns.clone();
+        let files = self.settings.hidden_file_patterns.clone();
+        self.project_tree.update(cx, |tree, tree_cx| {
+            tree.set_hidden_patterns(directories, files, tree_cx);
+        });
     }
 
     pub(super) fn refresh_localized_views(&mut self, cx: &mut Context<Self>) {
@@ -278,7 +319,7 @@ impl Workbench {
             if let Err(error) = opened {
                 this.push_notification(
                     tr("New Window"),
-                    SharedString::from(error.to_string()),
+                    Some(SharedString::from(error.to_string())),
                     NotificationKind::Error,
                 );
                 cx.notify();
@@ -296,7 +337,11 @@ impl Workbench {
         self.settings.save();
     }
 
-    pub(super) fn apply_layout(&mut self, layout: workspace_layout::WorkspaceLayout, cx: &mut Context<Self>) {
+    pub(super) fn apply_layout(
+        &mut self,
+        layout: workspace_layout::WorkspaceLayout,
+        cx: &mut Context<Self>,
+    ) {
         self.active_left = ToolWindow::from_id(&layout.active_left)
             .filter(|tool| tool.anchor() == super::dock::DockAnchor::Left)
             .unwrap_or(ToolWindow::Project);

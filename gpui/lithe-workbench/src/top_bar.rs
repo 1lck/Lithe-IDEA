@@ -53,7 +53,6 @@ const TOOLBAR_BUTTON_RADIUS: f32 = 6.0;
 /// `<MagnifyingGlassIcon large className="size-5" />` 等 20px 图标。
 const TOOLBAR_ACTION_ICON_SIZE: f32 = 20.0;
 
-
 /// 工具窗标题栏图标按钮 22×22：对齐 `LitheTheme.swift:971`
 /// `Metrics.toolbarIconButtonSize = 22`。
 pub(crate) const TOOL_WINDOW_HEADER_BUTTON_SIZE: f32 = 22.0;
@@ -171,7 +170,10 @@ impl TopBar {
         self
     }
 
-    pub(crate) fn on_toggle_menu(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+    pub(crate) fn on_toggle_menu(
+        mut self,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_toggle_menu = Some(Rc::new(handler));
         self
     }
@@ -235,7 +237,9 @@ impl RenderOnce for TopBar {
             .flex_shrink_0()
             .items_center()
             .gap(px(LitheMetrics::TOP_BAR_ITEM_GAP))
-            .pl(px(LitheMetrics::TOP_BAR_PADDING_LEFT + TITLE_ROW_LEADING_INSET))
+            .pl(px(
+                LitheMetrics::TOP_BAR_PADDING_LEFT + TITLE_ROW_LEADING_INSET
+            ))
             .pr(px(TITLE_ROW_TRAILING_INSET))
             // Tauri 顶栏只铺 surface，没有额外的底部 1pt 分隔线。
             .bg(tokens.titlebar)
@@ -286,39 +290,39 @@ impl RenderOnce for TopBar {
                     this.window_control_area(WindowControlArea::Drag)
                 }),
         )
-            // Search Everywhere 在 Settings 之前。Tauri 用
-            // `size="icon-xs"` 再以 `size-[30px]` 覆盖，`icon-xs` 自带
-            // `p-0`，图标在按钮内居中，不额外加内边距。
-            .content(
-                Button::new("lithe-top-bar-search")
-                    .ghost()
-                    .size(px(TOOLBAR_BUTTON_SIZE))
-                    .p(px(0.0))
-                    .rounded(px(TOOLBAR_BUTTON_RADIUS))
-                    .child(icon(LitheIcon::Search).with_size(px(TOOLBAR_ACTION_ICON_SIZE)))
-                    .tooltip(tr("Search Everywhere"))
-                    .accessibility_label(tr("Search Everywhere"))
-                    .when_some(on_search, |this, handler| {
-                        this.on_click(move |_, window, cx| handler(window, cx))
-                    }),
-            )
-            // Settings 打开主窗口内的设置覆盖层，不再走“未实现”状态栏提示。
-            // 尺寸/内边距同 Search（`icon-xs` 的 `p-0`），图标 20px。
-            .content(
-                Button::new("lithe-top-bar-settings")
-                    .ghost()
-                    .size(px(TOOLBAR_BUTTON_SIZE))
-                    .p(px(0.0))
-                    .rounded(px(TOOLBAR_BUTTON_RADIUS))
-                    .child(icon(LitheIcon::Settings).with_size(px(TOOLBAR_ACTION_ICON_SIZE)))
-                    .tooltip(tr("Settings"))
-                    .accessibility_label(tr("Settings"))
-                    .when_some(on_settings, |this, handler| {
-                        this.on_click(move |_, window, cx| handler(window, cx))
-                    }),
-            )
-            // 标题行最右侧的窗口按钮，与菜单栏同一条水平线。
-            .content(window_controls(window, tokens))
+        // Search Everywhere 在 Settings 之前。Tauri 用
+        // `size="icon-xs"` 再以 `size-[30px]` 覆盖，`icon-xs` 自带
+        // `p-0`，图标在按钮内居中，不额外加内边距。
+        .content(
+            Button::new("lithe-top-bar-search")
+                .ghost()
+                .size(px(TOOLBAR_BUTTON_SIZE))
+                .p(px(0.0))
+                .rounded(px(TOOLBAR_BUTTON_RADIUS))
+                .child(icon(LitheIcon::Search).with_size(px(TOOLBAR_ACTION_ICON_SIZE)))
+                .tooltip(tr("Search Everywhere"))
+                .accessibility_label(tr("Search Everywhere"))
+                .when_some(on_search, |this, handler| {
+                    this.on_click(move |_, window, cx| handler(window, cx))
+                }),
+        )
+        // Settings 打开主窗口内的设置覆盖层，不再走“未实现”状态栏提示。
+        // 尺寸/内边距同 Search（`icon-xs` 的 `p-0`），图标 20px。
+        .content(
+            Button::new("lithe-top-bar-settings")
+                .ghost()
+                .size(px(TOOLBAR_BUTTON_SIZE))
+                .p(px(0.0))
+                .rounded(px(TOOLBAR_BUTTON_RADIUS))
+                .child(icon(LitheIcon::Settings).with_size(px(TOOLBAR_ACTION_ICON_SIZE)))
+                .tooltip(tr("Settings"))
+                .accessibility_label(tr("Settings"))
+                .when_some(on_settings, |this, handler| {
+                    this.on_click(move |_, window, cx| handler(window, cx))
+                }),
+        )
+        // 标题行最右侧的窗口按钮，与菜单栏同一条水平线。
+        .content(window_controls(window, tokens))
     }
 }
 
@@ -470,7 +474,7 @@ fn dropdown_chevron(tokens: LitheTokens) -> Icon {
     icon(LitheIcon::ChevronDown)
         .with_size(px(LitheMetrics::TOP_BAR_CHEVRON_SIZE))
         .ml(px(
-            LitheMetrics::TOP_BAR_CHEVRON_GAP - LitheMetrics::TOP_BAR_TRIGGER_GAP,
+            LitheMetrics::TOP_BAR_CHEVRON_GAP - LitheMetrics::TOP_BAR_TRIGGER_GAP
         ))
         .text_color(tokens.secondary_text)
 }
@@ -653,10 +657,7 @@ fn project_initials(name: &str) -> String {
         if words.len() >= 2 {
             let first = words[0][0];
             let last = words[words.len() - 1][0];
-            return [first, last]
-                .into_iter()
-                .collect::<String>()
-                .to_uppercase();
+            return [first, last].into_iter().collect::<String>().to_uppercase();
         }
     }
 
@@ -665,7 +666,10 @@ fn project_initials(name: &str) -> String {
 
 fn camel_case_initials(text: &str) -> String {
     let characters: Vec<char> = text.chars().collect();
-    let Some(start) = characters.iter().position(|character| character.is_alphabetic()) else {
+    let Some(start) = characters
+        .iter()
+        .position(|character| character.is_alphabetic())
+    else {
         return String::new();
     };
 
@@ -683,5 +687,3 @@ fn camel_case_initials(text: &str) -> String {
     }
     initials.to_uppercase()
 }
-
-

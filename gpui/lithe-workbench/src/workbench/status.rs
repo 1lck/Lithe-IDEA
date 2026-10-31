@@ -1,20 +1,25 @@
 use std::path::{Path, PathBuf};
 
-use lithe_ui::components::status_bar::{LitheStatusBar, StatusBarItem};
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::{
     AnyElement, Context, FontWeight, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, RenderOnce as _, SharedString, StatefulInteractiveElement as _, Styled as _, WeakEntity, Window, div, px,
+    ParentElement as _, RenderOnce as _, SharedString, StatefulInteractiveElement as _,
+    Styled as _, WeakEntity, Window, div, px,
 };
 use lithe_features::editor::DiagnosticItem;
+use lithe_ui::components::status_bar::{LitheStatusBar, StatusBarItem};
 use lithe_ui::i18n::tr;
 use lithe_ui::icons::LitheIcon;
-use lithe_ui::{current_tokens, LitheMetrics, LitheTokens};
+use lithe_ui::{LitheMetrics, LitheTokens, current_tokens};
 
-use super::{theme_display_name, theme_kind_for, Workbench};
+use super::{Workbench, theme_display_name, theme_kind_for};
 
 impl Workbench {
-    pub(super) fn render_status_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_status_bar(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let mut left = vec![
             StatusBarItem::new("lithe-status-project", self.project_name())
                 .icon(LitheIcon::Project),
@@ -167,7 +172,12 @@ impl Workbench {
         path.to_string_lossy().into_owned().into()
     }
 
-    pub(super) fn open_problem(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn open_problem(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let requested = match self.project_root.as_deref() {
             Some(root) => path
                 .strip_prefix(root)

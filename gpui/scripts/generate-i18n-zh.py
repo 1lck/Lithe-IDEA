@@ -30,6 +30,8 @@ MANUAL = {
     "A file with this name already exists": "同名文件已存在",
     "Ask the agent…": "询问 Agent…",
     "Checking out": "正在切换",
+    # Git Log 提交 diff 的空态（并行开发补录，保持生成器可运行）。
+    "No textual changes": "无文本变更",
     "Filter files…": "筛选文件…",
     "Git actions": "Git 操作",
     "Read-Only Split": "只读分屏",
@@ -60,9 +62,7 @@ MANUAL = {
     "Invalid name": "名称无效",
     "Ln": "行",
     "Loading changes…": "正在加载变更…",
-    "Loading log…": "正在加载历史…",
     "Extensions are not available in this GPUI build.": "此 GPUI 构建未提供扩展页。",
-    "The Maven tool window is not available in this GPUI build.": "此 GPUI 构建未提供 Maven 工具窗。",
     "No Agent installed": "未安装 Agent",
     "No agent": "无 Agent",
     "No agent installed": "未安装 Agent",
@@ -70,7 +70,6 @@ MANUAL = {
     "No file open": "未打开文件",
     "No preview": "无预览",
     "No project open": "未打开项目",
-    "No run configuration found": "未找到运行配置",
     "Not available yet": "暂不可用",
     "Open Agent": "打开 Agent",
     "Open Run panel": "打开运行面板",
@@ -230,6 +229,93 @@ extra = {
     # 新建 Java 类型对话框的字段标签；该对话框尚未接入 GPUI，
     # 先把中文放进生成表，后续 tr("Class name") 可直接复用。
     "Class name": "类名",
+    # 运行配置的语言分类标题。Java / Python / Rust / Go / Node.js / Maven 这类
+    # 专有名词在 shared/i18n 里已有同名译文，其余的在这里补齐。
+    ".NET": ".NET",
+    "PHP": "PHP",
+    "Ruby": "Ruby",
+    "Swift": "Swift",
+    # Git 日志与变更列表工具条：GPUI 的 git 面板尚未接入 shared 的这些词条 id，
+    # 文案按 shared/i18n 里的中文逐条对齐，避免两端口径漂移。
+    "Branch: All": "分支：全部",
+    "Choose Diff Source": "选择差异来源",
+    "Default Changelist": "默认变更列表",
+    "Delete Changelist": "删除变更列表",
+    "Delete branch": "删除分支",
+    "Diff options": "差异选项",
+    "Filter by text…": "按文本筛选…",
+    "Filter my branches": "筛选我的分支",
+    "Go to HEAD": "导航到所选分支 HEAD",
+    "Group by Directory": "按目录分组",
+    "Log: All": "日志：全部",
+    "Mark branch": "标记分支",
+    "More options": "更多选项",
+    "New Changelist": "新建变更列表",
+    "Rename Changelist": "重命名变更列表",
+    "Unstage All Changes": "取消暂存全部更改",
+    "Update Parent Repository References": "更新父仓库引用",
+    "Update selected": "更新所选",
+    # Run 面板里尚未进 shared/i18n 的短语，按 shared 的同义词条对齐。
+    "Choose services": "选择服务",
+    "Clear output": "清除输出",
+    "Identify and generate": "识别并生成",
+    "Java project model is ready": "Java 项目模型已就绪",
+    # 终端工具条与配置菜单。GPUI 侧的措辞与 shared 的 terminal.* 词条不同，
+    # 中文按 Tauri 同义词条对齐（选择终端配置文件 / 向右拆分终端）。
+    "Choose terminal profile": "选择终端配置文件",
+    "Default Terminal": "默认终端",
+    "Rescan installed shells": "重新扫描已安装的 Shell",
+    "Split Terminal": "向右拆分终端",
+    # 提交记录（Git Log）。按 shared 的 git.log.* / git.log.toolbar.* 中文对齐。
+    "All branches": "全部分支",
+    "Select a commit to see its files.": "选择一个提交以查看其文件。",
+    "files": "个文件",
+    # 引用动作（右键菜单 / 动作条），中文对齐 shared 的 git.log.action.* 词条。
+    "Rebase Current onto Selected": "将当前分支变基到此引用",
+    "Merge Selected into Current": "将此引用合并到当前分支",
+    "Pull (Rebase) into Current": "使用变基拉入远程分支",
+    "Pull (Merge) into Current": "使用合并拉入远程分支",
+    "Branch deleted": "分支已删除",
+    "Tag deleted": "标签已删除",
+    "Source": "来源",
+    "Copy Branch Name": "复制分支名",
+    # 提交动作（右键菜单）：对齐 shared 的 git.* / git.log.* 中文。
+    "Undo Commit": "撤销提交",
+    "Edit Commit Message": "编辑提交消息",
+    "Delete Commit": "删除提交",
+    "Squash Commits": "合并提交",
+    "Reset to Commit": "重置到此处",
+    "Cherry-pick Commit": "Cherry-pick 提交",
+    "Revert Commit": "还原提交",
+    "Open Commit Diff": "打开提交差异",
+    "Compare with HEAD": "与 HEAD 比较",
+    "Copy Commit Hash": "复制提交哈希",
+    "Selected commits": "选中提交",
+    "Affected commits": "连带改写",
+    "History rewritten": "历史已改写",
+    "Soft - keep staged": "软重置 - 保留暂存",
+    "Mixed - keep files": "混合重置 - 保留文件",
+    "Hard - discard changes": "硬重置 - 丢弃更改",
+    "Commit message": "提交消息",
+    "Save": "保存",
+    # Git Log 提交表工具栏。中文对齐 shared 的 git.log.* 词条。
+    "Filter scope": "筛选字段",
+    "Branch filter": "分支筛选",
+    "Show decorations": "显示分支和标签",
+    "Author": "作者",
+    "Branch": "分支",
+    "Back": "返回",
+    "Commit Diff": "提交差异",
+    # Maven 工具窗（GPUI 侧尚未接入 shared 的 maven.* 词条 id，按 Tauri 中文对齐）。
+    "Could not read Maven diagnostics": "无法读取 Maven 诊断",
+    "Could not read Maven test results": "无法读取 Maven 测试结果",
+    "Could not resolve Maven dependencies": "无法解析 Maven 依赖",
+    "Could not start Maven task": "无法启动 Maven 任务",
+    "Could not stop Maven task": "无法停止 Maven 任务",
+    "Maven dependency resolution exited with code {code}.": "Maven 依赖解析以退出码 {code} 结束。",
+    "Maven exited with code {code}.": "Maven 以退出码 {code} 结束。",
+    "Maven task cancelled.": "Maven 任务已取消。",
+    "No source roots": "没有源码根目录",
 }
 
 
@@ -357,6 +443,9 @@ def main():
         # （例如 shared 的 "Database" 是“数据库连接”，菜单应为“数据库”）。
         "Database": "数据库",
         "Clear Terminal": "清空终端",
+        # 通知中心「全部清除」：shared 里同值的 aiSettings.clearAll 是「全部清空」，
+        # 这里对齐 Tauri 通知中心的 notifications.clearAll（「全部清除」）。
+        "Clear All": "全部清除",
         # 设置页里这两个词是分区名与运行时名称，shared 的同值词条分别是
         # “供应商管理”和“运行时长”，与这里的含义不同。
         "Providers": "服务商",

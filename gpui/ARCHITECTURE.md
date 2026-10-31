@@ -62,6 +62,60 @@ lithe-desktop
 
 调试（Stop / Breakpoint）未接入：`lithe-core` 已有 DAP 命令面（`debug.*`），但 GPUI 宿主缺少 DAP 传输层与调试 UI，菜单项保持禁用。
 
+## Maven 工具窗（Phase 1）
+
+### `lithe-features::maven::MavenPanel`
+
+```rust
+pub struct MavenPanel;
+impl MavenPanel {
+    pub fn new(client: CoreClient, root: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self;
+    pub fn set_root(&mut self, root: PathBuf, window: &mut Window, cx: &mut Context<Self>);
+    pub fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>);
+    pub fn run_selected(&mut self, cx: &mut Context<Self>);
+    pub fn run_goals(&mut self, goals: Vec<String>, module: Option<String>, title: String, cx: &mut Context<Self>);
+    pub fn stop_task(&mut self, cx: &mut Context<Self>);
+    pub fn clear_output(&mut self, cx: &mut Context<Self>);
+    pub fn has_maven_output(&self) -> bool;
+    pub fn on_open_location(&mut self, handler: impl Fn(PathBuf, Option<u32>, Option<u32>, &mut Window, &mut App) + 'static);
+    pub fn on_show_output(&mut self, handler: impl Fn(&mut Window, &mut App) + 'static);
+    pub fn on_open_settings(&mut self, handler: impl Fn(&mut Window, &mut App) + 'static);
+    pub fn on_run_module(&mut self, handler: impl Fn(&str, &str, &mut Window, &mut App) + 'static);
+}
+impl Render for MavenPanel { /* ... */ }
+```
+
+### `lithe-features::maven::MavenOutputPanel`
+
+```rust
+pub struct MavenOutputPanel;
+impl MavenOutputPanel {
+    pub fn new(maven: Entity<MavenPanel>, window: &mut Window, cx: &mut Context<Self>) -> Self;
+    pub fn on_open_location(&mut self, handler: impl Fn(PathBuf, Option<u32>, Option<u32>, &mut Window, &mut App) + 'static);
+    pub fn on_hide(&mut self, handler: impl Fn(&mut Window, &mut App) + 'static);
+}
+impl Render for MavenOutputPanel { /* ... */ }
+```
+
+- 交互对齐 Tauri `features/maven`（Maven 面板的 SSOT）：右侧停靠面板是
+  工具条 + Profiles / 项目 → 源码根 → 生命周期 → 依赖项 → 子模块 的树；
+  底部停靠的 `ToolWindow::MavenOutput`（id `maven-output`）是「Run - Maven」
+  构建输出，由面板工具条的「构建输出」按钮打开。
+- 数据边界：项目模型 / 依赖树 / 诊断 / 测试结果全部来自 Core 的
+  `maven.scan`、`maven.dependencies`、`maven.diagnostics`、`maven.testResults`；
+  本视图只做 camelCase 反序列化。Core 不拉起 Maven——`maven.launchPlan` /
+  `maven.dependencyPlan` 只返回启动计划，真实进程由 `maven::session` 用
+  `lithe-git-host::ProcessTree` 执行（wrapper 优先，再退回 `PATH` 上的
+  `mvn`），`JAVA_HOME` 经 Core `execution.resolveEnvironment` 解析。
+- 依赖树是懒加载：展开依赖项分组才解析（临时目录的会话级文件，读完后删除）。
+- 模块节点菜单：Run（经 `RunPanel::maven_module_run_configuration` 匹配，
+  找不到时通知）、Debug（GPUI 无 DAP，禁用）、Test / Package / Execute
+  Maven goal、Open pom.xml、Reload Maven projects。生命周期阶段单击选中、
+  双击运行。
+- 本构建未接入 Maven 设置存储与 JDT LS：settings / 本地仓库 / Maven 与 JDK
+  路径都交给 Core 与宿主解析器按默认规则处理；解决方案问题横幅
+  （JDT LS 诊断）与 Rerun test 尚未实现。
+
 启动参数：`--open-project <path>` 在 `Workbench::new` 构造期解析；路径是有效目录时直接打开，缺失或无效时静默忽略，保持欢迎页 / 最近项目行为。
 
 ## 必读源码
@@ -442,8 +496,10 @@ impl Render for WelcomeView { /* ... */ }
 
 - `ProjectTree::new` 收到空 `PathBuf` 表示“还没有打开项目”，不得拿空路径请求 Core；此时 `root()` 返回 `None`。
 - `ProjectTree::on_open_file` 传绝对路径（`root.join(workspace_relative)`）。
+- `ProjectTree::on_open_file` 必须由 `Workbench::new` 注册到 `open_file_from_tree`。回调未注册时 `activate_row` 只选中不打开——点击文件行没有任何反应，这属于缺陷而不是可选配置。`GitPanel::on_open_file`（变更树双击）同理，两个面板共用同一条打开链路。
 - `EditorSurface::open_file` 的第一个参数是工作区根，第二个是用于展示/标签身份的路径；调用方可以传绝对路径，但传给 Core 读写的始终是 `/` 分隔的工作区相对路径。
 - 标签身份用绝对路径；Windows 下折叠大小写，避免同一文件因写法不同产生两个标签。
+- `Workbench::close_current_project` 必须与 `open_project` 对称：走 `clear_editor`（标签、编辑器文档、右分栏、Markdown 预览、面板 root）并清空 `closed_tabs` 与导航历史，否则新项目会看到上一个工作区的文件内容。
 
 ## `lithe-workbench` 公开 API
 

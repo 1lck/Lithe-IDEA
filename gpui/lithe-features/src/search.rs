@@ -49,16 +49,16 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _, Toggle, ToggleVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{Disableable as _, Icon};
-use gpui_kit::assets::IconName;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, FontWeight, Hsla,
-    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window, div, px,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window, div, px,
 };
 use lithe_core_client::CoreClient;
 use lithe_ui::i18n::tr;
@@ -313,7 +313,8 @@ impl SearchPanel {
             return (input, replace, include, exclude);
         }
 
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Search the workspace")));
+        let input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(tr("Search the workspace")));
         let replace = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Replace with...")));
         let include = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Files to include")));
         let exclude = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Files to exclude")));
@@ -537,14 +538,9 @@ impl SearchPanel {
                     Ok(data) => {
                         let all_groups = parse_groups(&data);
                         // Core 先按文件枚举再截断，路径过滤只能发生在结果侧。
-                        let groups = filter_groups(
-                            all_groups,
-                            &include_filters,
-                            &exclude_filters,
-                        );
+                        let groups = filter_groups(all_groups, &include_filters, &exclude_filters);
                         let empty = groups.is_empty();
-                        this.total_matches =
-                            groups.iter().map(|group| group.matches.len()).sum();
+                        this.total_matches = groups.iter().map(|group| group.matches.len()).sum();
                         this.rows = flatten_rows(&groups);
                         this.has_more = this.rows.len() >= this.max_results
                             || this.total_matches >= this.max_results;
@@ -653,7 +649,9 @@ impl SearchPanel {
         }
         // 「全部」必须在结果完整时才允许，避免只替换了前 N 条却宣称全部。
         if self.has_more {
-            self.notice = Some(SharedString::from(tr("Load all search results before replacing all")));
+            self.notice = Some(SharedString::from(tr(
+                "Load all search results before replacing all",
+            )));
             cx.notify();
             return;
         }
@@ -661,12 +659,7 @@ impl SearchPanel {
     }
 
     /// 共用的替换流程：预览 → 写回 → 重新搜索。
-    fn run_replace(
-        &mut self,
-        paths: Vec<String>,
-        only_line: Option<u32>,
-        cx: &mut Context<Self>,
-    ) {
+    fn run_replace(&mut self, paths: Vec<String>, only_line: Option<u32>, cx: &mut Context<Self>) {
         let query = self.query.trim().to_string();
         if query.is_empty() {
             return;
@@ -712,8 +705,7 @@ impl SearchPanel {
                         // 复用 shared 里带参数的完整词条（「已替换 {count} 处匹配」），
                         // 不拼两个片段：中文语序与英文不同，分段拼接会错位。
                         this.notice = Some(SharedString::from(
-                            tr("Replaced {count} matches")
-                                .replace("{count}", &count.to_string()),
+                            tr("Replaced {count} matches").replace("{count}", &count.to_string()),
                         ));
                         // 写盘后重新搜索，让面板反映真实磁盘状态。
                         let query = this.query.trim().to_string();
@@ -1219,7 +1211,10 @@ fn parse_groups(data: &Value) -> Vec<SearchFileGroup> {
 
     for item in matches {
         // 只要内容命中；文件名命中会让「在文件中查找」出现无行号的行。
-        let kind = item.get("kind").and_then(Value::as_str).unwrap_or("content");
+        let kind = item
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("content");
         if kind != "content" {
             continue;
         }

@@ -1,13 +1,13 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{h_flex, v_flex, Sizable as _};
+use gpui_kit::component::{Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, ClickEvent, Context, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 use lithe_ui::i18n::tr;
-use lithe_ui::{current_tokens, LitheMetrics};
+use lithe_ui::{LitheMetrics, current_tokens};
 
-use super::super::{Workbench, OVERLAY_CONTEXT};
+use super::super::{OVERLAY_CONTEXT, Workbench};
 use crate::layout;
 
 impl Workbench {

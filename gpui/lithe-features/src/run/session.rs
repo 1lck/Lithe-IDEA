@@ -458,7 +458,12 @@ fn resolve_executable(
     }
 }
 
-fn resolve_toolchain(
+/// 解析一个工具链的可执行文件路径。
+///
+/// `project-maven` 的解析顺序（反应堆目录 / 工作区根的 wrapper 优先，再退回
+/// `PATH` 上的 `mvn`）同时被 Run 面板和 Maven 工具窗使用，因此放在这里共用，
+/// 避免两个入口解析出不同的 Maven。
+pub(crate) fn resolve_toolchain(
     root: &Path,
     working_directory: &Path,
     toolchain: &str,
@@ -776,7 +781,11 @@ fn prefer_executable_image(path: PathBuf) -> PathBuf {
     path
 }
 
-fn command_for(executable: &Path, arguments: &[String]) -> Command {
+/// 构造子进程命令。
+///
+/// Windows 上 `mvnw.cmd` / `mvn.cmd` 必须经 `cmd /c` 启动，`CreateProcess`
+/// 会拒绝批处理文件。
+pub(crate) fn command_for(executable: &Path, arguments: &[String]) -> Command {
     #[cfg(windows)]
     {
         let extension = executable

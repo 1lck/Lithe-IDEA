@@ -113,6 +113,11 @@ pub struct TerminalPanel {
     terminal_font_size: f32,
     /// xterm 回滚行数；设置页修改后由 `set_preferences` 写入。
     terminal_scrollback: u32,
+    /// 启动 PTY 时使用的 shell 可执行文件路径；`None` 表示系统默认 shell。
+    ///
+    /// 由工具窗的 Profile 菜单写入。切换 shell 需要重建 PTY，`set_shell`
+    /// 会关闭当前会话并由下一次 `Render` 用新 shell 重新启动。
+    shell: Option<String>,
 }
 
 impl TerminalPanel {
@@ -175,6 +180,7 @@ impl TerminalPanel {
             pending_command: None,
             terminal_font_size: LitheMetrics::CODE_FONT_SIZE,
             terminal_scrollback: DEFAULT_SCROLLBACK,
+            shell: None,
         }
     }
 
@@ -201,6 +207,40 @@ impl TerminalPanel {
             self.send_configure(cx);
         }
         cx.notify();
+    }
+
+    /// 切换 PTY 使用的 shell 并重建会话。
+    ///
+    /// `shell` 是可执行文件的绝对路径或 PATH 上的名字；`None` 表示回到系统
+    /// 默认 shell。PTY 无法热切换 shell，因此这里关闭当前会话，把状态复位为
+    /// “尚未启动”，由下一次 `Render` 重新创建；正在运行的进程会随之结束，
+    /// 与在 IDE 里换 shell 的语义一致。
+    pub fn set_shell(
+        &mut self,
+        shell: Option<String>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.shell == shell {
+            return;
+        }
+        self.shell = shell;
+        if let Some(id) = self.terminal_id.take() {
+            let _ = self.manager.close_terminal(&id);
+        }
+        self.terminal_started = false;
+        self.pending_output.clear();
+        self.pending_command = None;
+        self.saw_exit = false;
+        self.status = None;
+        // 旧 shell 的输出不能留在新 shell 的屏幕里。
+        self.evaluate("window.lithe && window.lithe.clear();".to_string(), cx);
+        cx.notify();
+    }
+
+    /// 当前 PTY 使用的 shell；`None` 表示系统默认 shell。
+    pub fn shell(&self) -> Option<&str> {
+        self.shell.as_deref()
     }
 
     /// 切换工作区根。关闭旧终端并清空运行期状态，下一次 `Render` 重建。
@@ -383,7 +423,7 @@ impl TerminalPanel {
         };
         let config = TerminalConfig {
             working_directory,
-            shell: None,
+            shell: self.shell.clone(),
             environment: None,
             command: None,
             args: None,

@@ -62,6 +62,14 @@ const DELETE_DIALOG_WIDTH: f32 = 420.0;
 
 type OpenFileHandler = Rc<dyn Fn(PathBuf, &mut Window, &mut App) + 'static>;
 
+/// 把树行的工作区相对路径拼成 `on_open_file` 回调要求的绝对路径。
+///
+/// 单独拆出来是为了让「点击文件回传绝对路径」这个契约可以被测试固定：
+/// 回调方（工作台）按绝对路径做标签身份与历史记录，拼错就会打开错误文件。
+fn absolute_from_relative(root: &Path, relative: &str) -> PathBuf {
+    root.join(relative)
+}
+
 /// 右键菜单里的一项。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MenuAction {
@@ -232,10 +240,16 @@ pub struct ProjectTree {
     refresh_after_load: HashSet<String>,
     /// 当前选中的行（仍使用工作区相对路径）。
     selected: Option<String>,
+    /// 当前编辑器打开的文件（工作区相对路径）；行高亮并自动展开定位，
+    /// 对齐 Tauri 文件树的 active 行。
+    active_file: Option<String>,
     /// 一行状态文本；错误不会 panic，也不会清空已加载的树。
     error: Option<SharedString>,
     /// `set_root` 时递增，用于丢弃旧根目录的异步结果。
     generation: u64,
+    /// 隐藏目录名 / 文件名模式（设置页注入；支持精确名与 `*` 通配）。
+    hidden_directory_patterns: Vec<String>,
+    hidden_file_patterns: Vec<String>,
     /// 首次渲染时再发起根目录加载。
     ///
     /// 不能在 `new` 里 `cx.spawn`：实体构造发生在 `App::run` 的可变借用内，
@@ -262,6 +276,7 @@ struct TreeRow {
     is_directory: bool,
     depth: usize,
     expanded: bool,
+    is_active: bool,
 }
 
 impl ProjectTree {
@@ -282,8 +297,11 @@ impl ProjectTree {
             loading: HashSet::new(),
             refresh_after_load: HashSet::new(),
             selected: None,
+            active_file: None,
             error: None,
             generation: 0,
+            hidden_directory_patterns: Vec::new(),
+            hidden_file_patterns: Vec::new(),
             pending_initial_load: has_root,
             menu: None,
             dialog: None,
@@ -383,11 +401,83 @@ impl ProjectTree {
     }
 
     /// 点击文件时回调。参数是 `root.join(relative_path)` 得到的绝对路径。
+    /// 注入隐藏路径模式；模式变化后清空目录缓存并重载。
+    pub fn set_hidden_patterns(
+        &mut self,
+        directories: Vec<String>,
+        files: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.hidden_directory_patterns == directories && self.hidden_file_patterns == files {
+            return;
+        }
+        self.hidden_directory_patterns = directories;
+        self.hidden_file_patterns = files;
+        // 缓存里可能已经藏着应被隐藏的节点；清空后按新模式重新加载。
+        self.loaded.clear();
+        self.expanded.clear();
+        cx.notify();
+    }
+
+    /// 一个名字是否命中隐藏模式：精确名或 `*` 通配（前缀 / 后缀）。
+    fn name_hidden(name: &str, patterns: &[String]) -> bool {
+        patterns.iter().any(|pattern| {
+            let pattern = pattern.trim();
+            if pattern.is_empty() {
+                return false;
+            }
+            if let Some(suffix) = pattern.strip_prefix('*') {
+                name.ends_with(suffix)
+            } else if let Some(prefix) = pattern.strip_suffix('*') {
+                name.starts_with(prefix)
+            } else {
+                name == pattern
+            }
+        })
+    }
+
     pub fn on_open_file(&mut self, handler: impl Fn(PathBuf, &mut Window, &mut App) + 'static) {
         self.on_open_file = Some(Rc::new(handler));
     }
 
     /// 定位指定文件并在树中逐级展开其父目录。
+    /// 同步当前编辑器打开的文件：行高亮 + 自动展开祖先目录。
+    ///
+    /// 路径未变化时不动（Workbench 每帧同步调用，靠这里去重）。
+    pub fn set_active_file(
+        &mut self,
+        path: Option<&Path>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let relative = path.and_then(|path| {
+            let root = self.root.as_ref()?;
+            path.strip_prefix(root).ok().map(|rel| {
+                rel.components()
+                    .map(|component| component.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/")
+            })
+        });
+        if self.active_file == relative {
+            return;
+        }
+        self.active_file = relative.clone();
+        if let Some(relative) = relative.as_deref() {
+            let mut current = String::new();
+            let components: Vec<&str> = relative.split('/').collect();
+            for component in components.iter().take(components.len().saturating_sub(1)) {
+                if current.is_empty() {
+                    current = component.to_string();
+                } else {
+                    current = format!("{current}/{component}");
+                }
+                self.expand(&current, window, cx);
+            }
+        }
+        cx.notify();
+    }
+
     pub fn reveal_path(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
         let Some(root) = &self.root else {
             return;
@@ -531,6 +621,7 @@ impl ProjectTree {
 
         let root_expanded = self.expanded.contains("");
         let mut rows = vec![TreeRow {
+            is_active: self.active_file.as_deref() == Some(String::new()).as_deref(),
             path: String::new(),
             name: root_display_name(root),
             is_directory: true,
@@ -557,6 +648,15 @@ impl ProjectTree {
             if child.path.is_empty() || child.path == parent {
                 continue;
             }
+            // 设置页的隐藏路径模式：目录按目录名匹配，文件按文件名匹配。
+            let hidden = if child.is_directory {
+                Self::name_hidden(&child.name, &self.hidden_directory_patterns)
+            } else {
+                Self::name_hidden(&child.name, &self.hidden_file_patterns)
+            };
+            if hidden {
+                continue;
+            }
 
             let expanded = child.is_directory && self.expanded.contains(&child.path);
             rows.push(TreeRow {
@@ -565,6 +665,7 @@ impl ProjectTree {
                 is_directory: child.is_directory,
                 depth,
                 expanded,
+                is_active: self.active_file.as_deref() == Some(child.path.as_str()),
             });
 
             if expanded {
@@ -593,7 +694,7 @@ impl ProjectTree {
         }
 
         if let Some(root) = self.root.clone() {
-            let absolute = root.join(&path);
+            let absolute = absolute_from_relative(&root, &path);
             if let Some(handler) = self.on_open_file.as_ref() {
                 handler(absolute, window, cx);
             }
@@ -938,15 +1039,20 @@ impl ProjectTree {
 
     fn render_row(&self, row: TreeRow, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
         let selected = self.selected.as_deref() == Some(row.path.as_str());
-        let foreground = if selected {
+        // 活动文件（编辑器正打开）行强高亮，与手动选中的行区分，对齐 Tauri。
+        let active = row.is_active;
+        let highlighted = active || selected;
+        let foreground = if highlighted {
             white()
         } else {
             tokens.primary_text
         };
-        let icon_color = if selected {
+        let icon_color = if highlighted {
             white()
-        } else {
+        } else if row.is_directory {
             tokens.secondary_text
+        } else {
+            file_icon_color(&row.name, tokens)
         };
 
         let row_icon = if row.is_directory {
@@ -955,36 +1061,40 @@ impl ProjectTree {
             } else {
                 LitheIcon::Folder
             }
-        } else if row.name.ends_with(".java") {
-            LitheIcon::Java
         } else {
             LitheIcon::File
         };
-
-        let disclosure = if row.is_directory {
+        let (disclosure, type_icon) = if row.is_directory {
             let direction = if row.expanded {
                 LitheIcon::ChevronDown
             } else {
                 LitheIcon::ChevronRight
             };
-            div()
-                .size(px(LitheMetrics::TREE_ICON_SIZE))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    icon(direction)
-                        .with_size(px(LitheMetrics::TREE_ICON_SIZE))
-                        .text_color(icon_color),
-                )
-                .into_any_element()
+            (
+                div()
+                    .size(px(LitheMetrics::TREE_ICON_SIZE))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        icon(direction)
+                            .with_size(px(LitheMetrics::TREE_ICON_SIZE))
+                            .text_color(icon_color),
+                    )
+                    .into_any_element(),
+                // 目录图标走 row_icon（Folder / FolderOpen）。
+                None,
+            )
         } else {
-            // 文件行用等宽占位符对齐目录的 disclosure 槽位。
-            div()
-                .size(px(LitheMetrics::TREE_ICON_SIZE))
-                .flex_shrink_0()
-                .into_any_element()
+            // 文件行用等宽占位符对齐目录的 disclosure 槽位；图标按扩展名着色。
+            (
+                div()
+                    .size(px(LitheMetrics::TREE_ICON_SIZE))
+                    .flex_shrink_0()
+                    .into_any_element(),
+                Some(file_type_icon(&row.name)),
+            )
         };
 
         let click_path = row.path.clone();
@@ -1002,10 +1112,14 @@ impl ProjectTree {
             .flex_row()
             .items_center()
             .gap(px(4.0))
+            .px(px(4.0))
             .pl(px(row.depth as f32 * LitheMetrics::TREE_INDENT + 4.0))
             .pr(px(8.0))
-            .when(selected, |this| this.bg(tokens.selection))
-            .when(!selected, |this| this.hover(|style| style.bg(tokens.hover)))
+            .rounded(px(4.0))
+            .when(highlighted, |this| this.bg(tokens.selection))
+            .when(!highlighted, |this| {
+                this.hover(|style| style.bg(tokens.hover))
+            })
             .cursor_pointer()
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.activate_row(click_path.clone(), click_is_directory, window, cx);
@@ -1024,11 +1138,17 @@ impl ProjectTree {
                 }),
             )
             .child(disclosure)
-            .child(
-                icon(row_icon)
+            .child(match type_icon {
+                // 已知扩展名用类型图标（对齐 Tauri 的按类型着色意图）。
+                Some(icon_name) => gpui_kit::component::Icon::new(icon_name)
                     .with_size(px(LitheMetrics::TREE_ICON_SIZE))
-                    .text_color(icon_color),
-            )
+                    .text_color(icon_color)
+                    .into_any_element(),
+                None => icon(row_icon)
+                    .with_size(px(LitheMetrics::TREE_ICON_SIZE))
+                    .text_color(icon_color)
+                    .into_any_element(),
+            })
             .child(
                 div()
                     .min_w(px(0.0))
@@ -1504,6 +1624,49 @@ fn root_display_name(root: &Path) -> String {
     }
 }
 
+/// 按扩展名选择文件类型图标，对齐 Tauri 文件树「不同文件不同图标」的意图。
+/// 完整图标主题引擎（IDEA 资产包 + Java 语义图标）属独立子系统；这里用
+/// gpui 内置图标集按类别区分。
+fn file_type_icon(name: &str) -> gpui_kit::assets::IconName {
+    use gpui_kit::assets::IconName;
+    let lower = name.to_ascii_lowercase();
+    let extension = lower.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("");
+    match extension {
+        "java" => IconName::Code,
+        "md" | "txt" | "log" => IconName::FileText,
+        "xml" | "json" | "yml" | "yaml" | "properties" | "toml" | "ini" | "cfg" | "conf" => {
+            IconName::Settings
+        }
+        "sql" => IconName::HardDrive,
+        "js" | "ts" | "jsx" | "tsx" | "py" | "rs" | "go" | "kt" | "kts" | "groovy" | "gradle"
+        | "cs" | "c" | "h" | "cpp" | "hpp" | "sh" | "ps1" | "bat" | "cmd" => IconName::Terminal,
+        "jar" | "zip" | "class" | "war" => IconName::Package,
+        "gitignore" | "gitattributes" | "patch" | "diff" => IconName::GitBranch,
+        "html" | "htm" | "css" | "scss" | "less" | "vue" => IconName::Eye,
+        _ => IconName::File,
+    }
+}
+
+/// 类型图标的着色（IDE 习惯：Java 蓝、配置黄、数据库青、脚本绿…）。
+fn file_icon_color(name: &str, tokens: LitheTokens) -> gpui_kit::Hsla {
+    let lower = name.to_ascii_lowercase();
+    let extension = lower.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("");
+    match extension {
+        "java" => tokens.accent,
+        "md" | "txt" | "log" => tokens.secondary_text,
+        "xml" | "json" | "yml" | "yaml" | "properties" | "toml" | "ini" | "cfg" | "conf" => {
+            tokens.warning
+        }
+        "sql" => tokens.success,
+        "js" | "ts" | "jsx" | "tsx" | "py" | "rs" | "go" | "kt" | "kts" | "groovy" | "gradle"
+        | "cs" | "c" | "h" | "cpp" | "hpp" | "sh" | "ps1" | "bat" | "cmd" => tokens.success,
+        "jar" | "zip" | "class" | "war" => tokens.warning,
+        "gitignore" | "gitattributes" | "patch" | "diff" => tokens.warning,
+        "html" | "htm" | "css" | "scss" | "less" | "vue" => tokens.accent,
+        _ => tokens.secondary_text,
+    }
+}
+
 fn node_display_name(path: &str, name: &str) -> String {
     if !name.is_empty() {
         return name.to_string();
@@ -1609,5 +1772,30 @@ fn join_relative(parent: &str, name: &str) -> String {
         name.to_string()
     } else {
         format!("{parent}/{name}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 项目树点击文件时必须回传绝对路径：工作台用绝对路径做标签身份、
+    /// 导航历史和工作区归属校验，回传相对路径会打开错误文件或直接失败。
+    #[test]
+    fn open_handler_receives_absolute_path_built_from_workspace_root() {
+        let root = Path::new("/work/project");
+        assert_eq!(
+            absolute_from_relative(root, "src/main.rs"),
+            PathBuf::from("/work/project/src/main.rs")
+        );
+    }
+
+    /// 树节点身份是 `/` 分隔的工作区相对路径；拼接不能在中间引入反斜杠。
+    #[test]
+    fn nested_relative_path_keeps_single_separator_between_segments() {
+        let root = Path::new("/work/project");
+        let joined = absolute_from_relative(root, "a/b/c.txt");
+        assert_eq!(joined, PathBuf::from("/work/project/a/b/c.txt"));
+        assert_eq!(joined.components().count(), 6);
     }
 }

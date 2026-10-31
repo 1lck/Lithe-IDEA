@@ -6,28 +6,27 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_channel::Receiver;
-use gpui_kit::base::{SelectableText, TextSelection};
+use gpui_kit::base::TextSelection;
 use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::resizable::{ResizableState, h_resizable, resizable_panel};
-use gpui_kit::component::scroll::{ScrollableElement as _, ScrollbarAxis};
 use gpui_kit::component::{
     Disableable as _, Icon, IconName, Selectable as _, Sizable as _, h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Anchor, AnyElement, AppContext as _, ClipboardItem, Context, DismissEvent, Entity, EventEmitter,
-    FocusHandle, FontWeight, Focusable as _, Hsla, InteractiveElement as _, IntoElement, KeyBinding,
-    MouseButton,
-    ParentElement, Render, ScrollEvent, ScrollHandle, SharedString, StatefulInteractiveElement as _,
-    Styled, Subscription, Task, TextStyleRefinement, WhiteSpace, Window, anchored, deferred, div,
-    point, px,
+    AnyElement, App, AppContext as _, ClickEvent, ClipboardItem, Context, DismissEvent, Entity,
+    EventEmitter, FocusHandle, Focusable as _, FontWeight, Hsla, InteractiveElement as _,
+    IntoElement, KeyBinding, MouseButton, ParentElement, Render, ScrollStrategy, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Task, TextStyleRefinement,
+    UniformListScrollHandle, WhiteSpace, Window, anchored, deferred, div, px, uniform_list,
 };
 use lithe_core_client::CoreClient;
 use lithe_git_host::ProcessTree;
@@ -35,7 +34,7 @@ use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, MONO_FONT_FAMILY, current_tokens, icon};
 
 use super::config::{self, LoadedRunConfigurations};
-use super::model::{RunConfiguration, RunDiagnostic, RunExecution, RunScope};
+use super::model::{RunConfiguration, RunDiagnostic, RunExecution, RunLanguage, RunScope};
 use super::session::{self, SessionEvent};
 
 /// Run 面板状态变化。工作台用它刷新顶栏 Run/Stop 和配置名。
@@ -49,6 +48,13 @@ pub enum RunPanelEvent {
 
 impl EventEmitter<RunPanelEvent> for RunPanel {}
 
+/// 启动前保存回调：工作台用它把脏缓冲写盘，面板不直接持有编辑器实体。
+///
+/// 与 `GitPanel::on_open_file` 等回调同形，避免 `lithe-features` 反向依赖
+/// `lithe-workbench`。对齐 Tauri `run.store.ts` 在启动前强制
+/// `saveWorkspaceBeforeLaunch` 的语义。
+type BeforeLaunchHandler = Rc<dyn Fn(&mut App) + 'static>;
+
 gpui_kit::actions!(
     lithe_run_console,
     [
@@ -60,12 +66,13 @@ gpui_kit::actions!(
 /// 控制台自己的键上下文。只有控制台获得焦点时才绑定 ⌘C / Ctrl+C，避免抢走
 /// 编辑器、终端 WebView 和设置页输入框原本的复制键。
 const CONSOLE_CONTEXT: &str = "LitheRunConsole";
-/// 距底部多远仍然算“贴底”。对齐 macOS `OutputTextView.bottomThreshold`。
-const FOLLOW_BOTTOM_THRESHOLD: f32 = 80.0;
 
 /// 标题栏高度。对齐 macOS `LitheToolWindowHeader` 的 41pt。
+#[allow(dead_code)]
 const HEADER_HEIGHT: f32 = 41.0;
+#[allow(dead_code)]
 const TOOLBAR_HEIGHT: f32 = 36.0;
+#[allow(dead_code)]
 const SCOPE_RAIL_WIDTH: f32 = 36.0;
 /// 配置列表默认宽度。对齐 macOS `lithe.run.configurationListWidth` 的 280。
 const CONFIGURATION_LIST_DEFAULT_WIDTH: f32 = 280.0;
@@ -77,25 +84,38 @@ const CONFIGURATION_LIST_MAX_WIDTH: f32 = 480.0;
 /// 整个分栏退化成横向滚动，而不是把两栏压到互相压字。
 const OUTPUT_MIN_WIDTH: f32 = 320.0;
 /// 控制台左侧动作条宽度。对齐 macOS `LitheTheme.ActionStripe.width` 的图标按钮列。
+#[allow(dead_code)]
 const CONSOLE_ACTION_STRIPE_WIDTH: f32 = 28.0;
 /// 控制台单行高度估算。macOS 用 TextKit 量出真实行框；GPUI 的纯文本视图没有
 /// 逐行句柄，堆栈跳转按“行号 × 行高”换算滚动偏移，关闭软换行时与真实位置一致。
+#[allow(dead_code)]
 const CONSOLE_LINE_HEIGHT: f32 = 18.0;
 const GROUP_HEADER_HEIGHT: f32 = 26.0;
 const CONFIGURATION_ROW_HEIGHT: f32 = 30.0;
 const PANEL_PADDING: f32 = 12.0;
 const STATUS_LINE_HEIGHT: f32 = 24.0;
-/// 保留的输出上限。GPUI 的文本视图每帧都要排版整段内容，
-/// 保留太多字符会把滚动和刷新都拖慢；macOS 靠 TextKit 的惰性排版不需要这个上限。
-const MAX_OUTPUT_CHARACTERS: usize = 200_000;
-/// 输出合批窗口：Maven 这类工具每秒可能打印上百行，逐块刷新会让整段
-/// 控制台反复重排。先攒在这个窗口内，再一次性追加并只重绘一次。
-const OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
+/// 虚拟化列表的可视区外预排版高度。滚轮快速拖动时避免露出一片空白。
+const CONSOLE_LIST_OVERDRAW: f32 = 400.0;
+/// 保留的输出行数上限。
+///
+/// 旧实现保留 20 万字符并整段 `drain(..)` 裁剪：那是 O(n) 的整段搬移，而且
+/// 每次都让 `SelectableText` 对全文重新排版，输出越快越卡。现在按行存储、
+/// 按行淘汰，裁剪只丢头部行，配合虚拟化列表只排版可视行。
+const MAX_OUTPUT_LINES: usize = 5_000;
+/// 输出合批窗口。Maven 这类工具每秒可能打印上百行；窗口内先攒着，
+/// 到期一次性并入行缓冲，避免每个数据块都触发一次重排。
+const OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(33);
 
 /// 一个配置的当前会话状态。
 struct SessionState {
     tree: Option<Arc<ProcessTree>>,
-    output: String,
+    /// 已提交的输出行。虚拟化列表按行取用，只排版可视范围内的行。
+    lines: Vec<SharedString>,
+    /// 尚未遇到换行的半行。控制台的字符串拼接边界通常落在行中间，
+    /// 直接留在这里等下一块一起补成完整行。
+    pending_line: String,
+    /// 有输出被行数上限淘汰过。界面据此提示历史被截断。
+    truncated: bool,
     starting: bool,
     running: bool,
     /// 用户主动停止；退出码不作为失败展示。
@@ -108,7 +128,9 @@ impl SessionState {
     fn starting() -> Self {
         Self {
             tree: None,
-            output: String::new(),
+            lines: Vec::new(),
+            pending_line: String::new(),
+            truncated: false,
             starting: true,
             running: false,
             stopped: false,
@@ -129,6 +151,7 @@ pub struct RunPanel {
     configurations: Vec<RunConfiguration>,
     default_id: Option<String>,
     selected_id: Option<String>,
+    #[allow(dead_code)]
     scope: RunScope,
     pinned: HashSet<String>,
     sessions: BTreeMap<String, SessionState>,
@@ -152,18 +175,28 @@ pub struct RunPanel {
     /// 批量选择模式下被勾选的配置 id。
     checked: HashSet<String>,
     /// 标题栏 more 菜单实体；打开期间持有，关闭时释放。
-    more_menu: Option<Entity<PopupMenu>>,
+    /// 工具条「…」弹出菜单与其触发位置；渲染期用 `anchored` 挂到前景层。
+    more_menu: Option<(Entity<PopupMenu>, gpui_kit::Point<gpui_kit::Pixels>)>,
     _more_menu_subscription: Option<Subscription>,
-    output_scroll: ScrollHandle,
-    /// 输出是否仍跟随末尾。用户上翻后不再跟随新输出，直到回到底部或点击
-    /// “跳转到最新位置”。
-    follow_output: bool,
+    /// 当前浏览的语言分类（Java / Go / Python 等），对齐 Tauri `RunConfigurationBrowser`。
+    selected_language: Option<String>,
+    /// 控制台的虚拟化列表状态。
+    ///
+    /// 控制台虚拟化滚动句柄：行高固定（Nowrap 单行），只排版可视行。
+    /// gpui 0.3.10 的 `list()` 在此布局下只度量不绘制，不要改回去。
+    console_scroll: UniformListScrollHandle,
+    /// 是否跟随最新输出；跳转堆栈帧后暂停，「回到最新」恢复。
+    console_follow_tail: bool,
+    /// 上次同步的行数，用来判断是否需要滚动跟随。
+    console_line_count: usize,
     /// 控制台焦点：只有它获得焦点时才响应复制快捷键。
     console_focus: FocusHandle,
     /// 尚未合并进会话状态的输出。按配置 id 累积，由定时器统一刷新。
     pending_output: BTreeMap<String, String>,
     /// 是否已经有一个刷新任务在等待；避免每个输出块都排一个定时器。
     output_flush_scheduled: bool,
+    /// 启动前保存回调查调；由工作台注入，见 [`BeforeLaunchHandler`]。
+    on_before_launch: Option<BeforeLaunchHandler>,
 }
 
 impl RunPanel {
@@ -207,12 +240,20 @@ impl RunPanel {
             checked: HashSet::new(),
             more_menu: None,
             _more_menu_subscription: None,
-            output_scroll: ScrollHandle::new(),
-            follow_output: true,
+            selected_language: None,
+            console_scroll: UniformListScrollHandle::new(),
+            console_follow_tail: true,
+            console_line_count: 0,
             console_focus: cx.focus_handle(),
             pending_output: BTreeMap::new(),
             output_flush_scheduled: false,
+            on_before_launch: None,
         }
+    }
+
+    /// 注入启动前保存回调。工作台在构造期注册一次，面板每次启动前调用。
+    pub fn on_before_launch(&mut self, handler: impl Fn(&mut App) + 'static) {
+        self.on_before_launch = Some(Rc::new(handler));
     }
 
     /// 切换项目根目录；旧会话先停止，旧配置和诊断全部清空。
@@ -233,6 +274,50 @@ impl RunPanel {
         self.pending_initial_load = self.root.is_some();
         self.emit(cx);
         cx.notify();
+    }
+
+    /// 查找某个 Maven 模块可明确选择的运行配置。
+    ///
+    /// 对齐 Tauri `findMavenModuleRunConfiguration`：配置必须带 Maven 扩展、
+    /// 反应堆根与模块路径都匹配，且是可执行的应用 / 服务配置；优先返回
+    /// 固定默认配置，候选多于一个且无默认时返回 `None`（不猜测）。
+    pub fn maven_module_run_configuration(
+        &self,
+        reactor_path: &str,
+        module_path: &str,
+    ) -> Option<String> {
+        let candidates: Vec<&RunConfiguration> = self
+            .configurations
+            .iter()
+            .filter(|configuration| {
+                matches!(
+                    configuration.execution,
+                    RunExecution::Application | RunExecution::Service
+                )
+            })
+            .filter(|configuration| {
+                let reactor = normalize_relative(configuration.maven_reactor_path());
+                let module = normalize_relative(configuration.module());
+                reactor == normalize_relative(Some(reactor_path))
+                    && module == normalize_relative(Some(module_path))
+            })
+            .collect();
+        let configured_default = candidates
+            .iter()
+            .find(|configuration| Some(configuration.id.as_str()) == self.default_id.as_deref());
+        if let Some(configuration) = configured_default {
+            return Some(configuration.id.clone());
+        }
+        if candidates.len() == 1 {
+            return Some(candidates[0].id.clone());
+        }
+        None
+    }
+
+    /// 选择并启动指定 id 的配置。Maven 工具窗的模块 Run 动作使用。
+    pub fn run_configuration(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.selected_id = Some(id.to_string());
+        self.start_configuration(id.to_string(), cx);
     }
 
     /// 当前选中配置名，供顶栏配置 pill 显示。
@@ -306,38 +391,60 @@ impl RunPanel {
     }
 
     /// 当前选中会话的输出文本。
-    fn selected_output(&self) -> &str {
+    ///
+    /// 只用于复制、打印、诊断这类需要全文的一次性动作；渲染走虚拟化列表，
+    /// 不再每帧拼接整段输出。
+    fn selected_output(&self) -> String {
         self.selected_id
             .as_ref()
             .and_then(|id| self.sessions.get(id))
-            .map(|session| session.output.as_str())
-            .unwrap_or("")
+            .map(SessionState::full_text)
+            .unwrap_or_default()
     }
 
-    /// 控制台是否贴着末尾。向下滚动时 `offset` 和 `max_offset` 都是负值，
-    /// 两者之差就是离底部的像素距离。
-    fn output_at_bottom(&self) -> bool {
-        let distance = self.output_scroll.offset().y - self.output_scroll.max_offset().y;
-        distance <= px(FOLLOW_BOTTOM_THRESHOLD)
+    /// 当前选中会话展示的行数与行文本访问器。
+    fn selected_line_count(&self) -> usize {
+        self.selected_id
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .map(SessionState::display_line_count)
+            .unwrap_or(0)
     }
 
-    /// 用户滚动控制台：只同步“是否仍然跟随末尾”，内容的滚动与重绘交给 GPUI。
-    fn on_console_scroll(&mut self, _: &ScrollEvent, window: &mut Window, cx: &mut Context<Self>) {
-        // 滚动偏移在同一轮事件派发里才落盘；延后一帧读取到的才是最终位置，
-        // 否则一次滚轮会被旧偏移判成“仍在底部”。
-        cx.defer_in(window, |this, _window, cx| {
-            let at_bottom = this.output_at_bottom();
-            if this.follow_output != at_bottom {
-                this.follow_output = at_bottom;
-                cx.notify();
-            }
-        });
+    /// 是否有任一控制台输出了内容。
+    fn selected_has_output(&self) -> bool {
+        self.selected_line_count() > 0
+    }
+
+    /// 把行数变化同步给虚拟化列表。
+    ///
+    /// 行数变化时跟随最新输出。uniform_list 的行数在渲染时传入，
+    /// 这里只负责把贴底跟随落成滚动指令。
+    fn sync_console_lines(&mut self) {
+        let count = self.selected_line_count();
+        if count == self.console_line_count {
+            return;
+        }
+        self.console_line_count = count;
+        let running = self
+            .selected_id
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(SessionState::is_active);
+        if self.console_follow_tail && running && count > 0 {
+            self.console_scroll
+                .scroll_to_item(count - 1, ScrollStrategy::Bottom);
+        }
     }
 
     /// 回到最新输出（macOS 的 “Jump to latest”）。
     fn scroll_to_latest(&mut self, cx: &mut Context<Self>) {
-        self.follow_output = true;
-        self.output_scroll.scroll_to_bottom();
+        self.console_follow_tail = true;
+        let count = self.selected_line_count();
+        if count > 0 {
+            self.console_scroll
+                .scroll_to_item(count - 1, ScrollStrategy::Bottom);
+        }
         cx.notify();
     }
 
@@ -350,7 +457,7 @@ impl RunPanel {
     ) {
         let selected = TextSelection::selected_text(window, cx);
         let text = if selected.trim().is_empty() {
-            self.selected_output().to_string()
+            self.selected_output()
         } else {
             selected
         };
@@ -361,7 +468,7 @@ impl RunPanel {
 
     /// 复制按钮与控制台快捷键共用同一份文本。
     fn copy_output(&mut self, cx: &mut Context<Self>) {
-        let text = self.selected_output().to_string();
+        let text = self.selected_output();
         if !text.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
@@ -483,10 +590,17 @@ impl RunPanel {
         self.show_details = false;
         self.sessions.insert(id.clone(), SessionState::starting());
         self.pending_output.remove(&id);
-        self.follow_output = true;
-        self.output_scroll.scroll_to_bottom();
+        // 新会话从第 0 行开始：重置跟随，不继承上一次的滚动位置。
+        self.console_line_count = 0;
+        self.console_follow_tail = true;
         self.emit(cx);
         cx.notify();
+
+        // 先把脏缓冲写盘再启动：改完源码直接点 Run 时，编译/运行必须看到新内容。
+        // 保存是异步的（Monaco 逐个提交 save 请求），这里只发出请求，不阻塞启动。
+        if let Some(save) = self.on_before_launch.clone() {
+            save(cx);
+        }
 
         let client = self.client;
         let session_id = id.clone();
@@ -544,12 +658,15 @@ impl RunPanel {
                     session.running = false;
                     session.exit_code = code;
                     session.tree = None;
+                    // 进程最后一行通常没有换行；不补进列表就会丢最后一条输出。
+                    session.flush_pending_line();
                 }
                 SessionEvent::Failed(message) => {
                     session.starting = false;
                     session.running = false;
                     session.exit_code = Some(1);
                     session.tree = None;
+                    session.flush_pending_line();
                     failed_output = Some(format!("{message}\n"));
                 }
             }
@@ -623,11 +740,9 @@ impl RunPanel {
         if !appended {
             return;
         }
-        // 贴底才跟随末尾：用户上翻查看日志时不为新输出抢走滚动位置，
-        // 与 macOS 控制台一致。是否贴底由滚动事件维护，输出本身不改状态。
-        if self.follow_output {
-            self.output_scroll.scroll_to_bottom();
-        }
+        // 行数变化交给虚拟化列表；是否跟随末尾由 `FollowMode::Tail` 自己决定，
+        // 用户上翻后框架会暂停跟随，回到底部时自动恢复，不需要再比对偏移量。
+        self.sync_console_lines();
         // 顶栏只关心服务地址这类结构性变化，普通日志不惊动工作台。
         if service_url_changed {
             self.emit(cx);
@@ -674,13 +789,12 @@ impl RunPanel {
     fn clear_output(&mut self, cx: &mut Context<Self>) {
         if let Some(id) = self.selected_id.clone() {
             if let Some(session) = self.sessions.get_mut(&id) {
-                session.output.clear();
-                session.service_url = None;
+                session.clear();
             }
             self.pending_output.remove(&id);
         }
-        self.follow_output = true;
-        self.output_scroll.scroll_to_bottom();
+        self.console_line_count = 0;
+        self.console_follow_tail = true;
         self.emit(cx);
         cx.notify();
     }
@@ -749,23 +863,38 @@ impl RunPanel {
     /// 控制台里的堆栈帧 / 错误行行号（0 基）。macOS 的 Previous/Next Stack Trace
     /// 在这些位置之间跳转。
     fn stack_trace_lines(&self) -> Vec<usize> {
-        self.selected_output()
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| is_stack_trace_line(line))
-            .map(|(index, _)| index)
+        let Some(session) = self
+            .selected_id
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+        else {
+            return Vec::new();
+        };
+        (0..session.display_line_count())
+            .filter(|index| is_stack_trace_line(session.line_at(*index)))
             .collect()
     }
 
-    /// 跳到上一条 / 下一条堆栈帧。GPUI 的纯文本视图没有逐行句柄，关闭软换行时
-    /// 按“行号 × 行高”换算的偏移与真实位置一致；开启软换行后是近似位置。
+    /// 跳到上一条 / 下一条堆栈帧。
+    ///
+    /// 虚拟化列表支持按行定位，不再需要旧实现的“行号 × 行高”像素换算——
+    /// 那种换算在开启软换行后只是近似位置，跳转会偏。
     fn jump_stack_trace(&mut self, forward: bool, cx: &mut Context<Self>) {
         let lines = self.stack_trace_lines();
         if lines.is_empty() {
             return;
         }
-        let current =
-            (-self.output_scroll.offset().y / px(CONSOLE_LINE_HEIGHT)).round().max(0.0) as usize;
+        // uniform_list 句柄没有公开的“当前顶行”查询（test-support 才有），
+        // 用像素偏移除以固定行高换算；行高固定（Nowrap 单行），换算是精确的。
+        let current = {
+            let state = self.console_scroll.0.borrow();
+            let item_height = state
+                .last_item_size
+                .map(|size| size.item.height)
+                .unwrap_or(px(CONSOLE_LINE_HEIGHT))
+                .max(px(1.0));
+            (state.base_handle.offset().y / item_height).round() as usize
+        };
         let target = if forward {
             lines.iter().copied().filter(|line| *line > current).min()
         } else {
@@ -774,17 +903,17 @@ impl RunPanel {
         let Some(target) = target else {
             return;
         };
-        let bottom = self.output_scroll.max_offset().y;
-        self.follow_output = false;
-        self.output_scroll
-            .set_offset(point(px(0.0), (-px(target as f32 * CONSOLE_LINE_HEIGHT)).max(bottom)));
+        // 跳转后暂停跟随，否则下一块输出会立刻把视图拉回末尾。
+        self.console_follow_tail = false;
+        self.console_scroll
+            .scroll_to_item(target, ScrollStrategy::Top);
         cx.notify();
     }
 
     /// 打印控制台输出。GPUI 没有系统打印对话框，这里把输出写到临时文件再用
     /// 系统默认程序打开，由该程序负责打印；写盘失败时保持界面不变。
     fn print_output(&mut self, cx: &mut Context<Self>) {
-        let text = self.selected_output().to_string();
+        let text = self.selected_output();
         if text.is_empty() {
             return;
         }
@@ -804,7 +933,12 @@ impl RunPanel {
     }
 
     /// 打开 / 关闭标题栏 more 菜单。条目与 macOS `RunView.runOptionsMenu` 一致。
-    fn toggle_more_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_more_menu(
+        &mut self,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.more_menu.is_some() {
             self.close_more_menu();
             cx.notify();
@@ -870,7 +1004,7 @@ impl RunPanel {
             focus_handle.focus(window, cx);
         }
 
-        self.more_menu = Some(popup);
+        self.more_menu = Some((popup, position));
         self._more_menu_subscription = Some(subscription);
         cx.notify();
     }
@@ -1074,45 +1208,112 @@ impl RunPanel {
                 .any(|configuration| configuration.execution != RunExecution::Group)
     }
 
-    fn render_scope_rail(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+    /// 当前可见的配置：先按语言分类过滤，再排除 group 类型。
+    ///
+    /// 对齐 Tauri `runConfigurationLanguageGroups`：`runnableConfigurations` 去掉
+    /// 内置的 “Current File” 后，再把 `execution === "group"` 排除掉——分组不是
+    /// 可启动目标，只用于组织。
+    fn configurations_for_language(&self, language: RunLanguage) -> Vec<&RunConfiguration> {
+        self.configurations
+            .iter()
+            .filter(|configuration| configuration.execution != RunExecution::Group)
+            .filter(|configuration| configuration.language() == language)
+            .collect()
+    }
+
+    /// 侧栏里实际有配置的语言分类，按 [`RunLanguage::ORDER`] 固定排序。
+    fn visible_languages(&self) -> Vec<RunLanguage> {
+        RunLanguage::ORDER
+            .into_iter()
+            .filter(|language| {
+                self.configurations
+                    .iter()
+                    .any(|configuration| configuration.language() == *language)
+            })
+            .collect()
+    }
+
+    /// 语言分类侧栏。对齐 Tauri `RunConfigurationBrowser` 的 `languages` 面板：
+    /// 只列出有配置的分类，顺序固定，选中项切换列表内容并选中该分类第一条配置。
+    fn render_language_rail(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+        let languages = self.visible_languages();
+        // 当前选中配置所属分类优先；用户手动切换过就用那个分类。都没有时
+        // 退回第一个有配置的分类，不伪造一个空列表。
+        let current = self
+            .selected_configuration()
+            .map(RunConfiguration::language)
+            .filter(|language| languages.contains(language))
+            .or_else(|| {
+                self.selected_language
+                    .as_deref()
+                    .and_then(RunLanguage::from_key)
+                    .filter(|language| languages.contains(language))
+            })
+            .or_else(|| languages.first().copied());
+
         let mut rail = v_flex()
-            .id("lithe-run-scopes")
-            .w(px(SCOPE_RAIL_WIDTH))
+            .id("lithe-run-languages")
+            .w(px(100.0))
             .flex_shrink_0()
             .h_full()
-            .items_center()
-            .gap(px(4.0))
-            .pt(px(6.0))
-            .min_h(px(0.0))
+            .gap(px(2.0))
+            .p(px(4.0))
             .overflow_y_scroll()
             .bg(tokens.sidebar)
             .border_r_1()
             .border_color(tokens.divider);
 
-        for (scope, icon) in [
-            (RunScope::All, IconName::Inbox),
-            (RunScope::Pinned, IconName::Star),
-            (RunScope::Execution(RunExecution::Service), IconName::Play),
-            (
-                RunScope::Execution(RunExecution::Application),
-                IconName::Play,
-            ),
-            (
-                RunScope::Execution(RunExecution::Task),
-                IconName::CircleCheck,
-            ),
-            (RunScope::Execution(RunExecution::Group), IconName::Folder),
-        ] {
-            let count = self.configurations_in_scope(scope).len();
+        for language in languages {
+            let is_selected = current == Some(language);
+            let title = language.title();
             rail = rail.child(
-                Button::new(format!("lithe-run:scope:{scope:?}"))
+                Button::new(format!("lithe-run:lang:{}", language.key()))
                     .ghost()
-                    .small()
-                    .child(Icon::new(icon).with_size(px(16.0)))
-                    .tooltip(format!("{} ({count})", scope.title()))
-                    .selected(self.scope == scope)
+                    .w_full()
+                    .h(px(26.0))
+                    .px(px(8.0))
+                    .rounded(px(4.0))
+                    .when(is_selected, |this| this.bg(tokens.selection))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .gap(px(6.0))
+                            .child(icon(language.icon()).with_size(px(14.0)).text_color(
+                                if is_selected {
+                                    tokens.tool_window_selected_text
+                                } else {
+                                    tokens.primary_text
+                                },
+                            ))
+                            .child(
+                                div()
+                                    .min_w(px(0.0))
+                                    .flex_1()
+                                    .truncate()
+                                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                                    .font_weight(if is_selected {
+                                        FontWeight::SEMIBOLD
+                                    } else {
+                                        FontWeight::NORMAL
+                                    })
+                                    .text_color(if is_selected {
+                                        tokens.tool_window_selected_text
+                                    } else {
+                                        tokens.primary_text
+                                    })
+                                    .child(title),
+                            ),
+                    )
                     .on_click(cx.listener(move |this, _, _window, cx| {
-                        this.scope = scope;
+                        // 切成该分类的第一条配置，和 Tauri `props.onSelect(group.configurations[0].id)`
+                        // 一致：只切分类而不选中任何配置，会让右边的输出区读不到会话。
+                        if let Some(first) = this.configurations_for_language(language).first() {
+                            this.selected_id = Some(first.id.clone());
+                        }
+                        this.selected_language = Some(language.key().to_string());
+                        this.show_details = false;
+                        this.emit(cx);
                         cx.notify();
                     })),
             );
@@ -1122,11 +1323,26 @@ impl RunPanel {
     }
 
     fn render_configuration_list(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
-        let configurations = self
-            .configurations_in_scope(self.scope)
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
+        // 与侧栏共用同一判据：当前分类 = 选中配置所属分类，否则用用户上次切换
+        // 的分类，再否则第一个有配置的分类。之前这里默认写死 "Java"，导致非 Java
+        // 项目的列表在没切换侧栏时永远为空。
+        let languages = self.visible_languages();
+        let current_language = self
+            .selected_configuration()
+            .map(RunConfiguration::language)
+            .filter(|language| languages.contains(language))
+            .or_else(|| {
+                self.selected_language
+                    .as_deref()
+                    .and_then(RunLanguage::from_key)
+                    .filter(|language| languages.contains(language))
+            })
+            .or_else(|| languages.first().copied());
+
+        let configurations = current_language
+            .map(|language| self.configurations_for_language(language))
+            .unwrap_or_default();
+
         let mut list = v_flex()
             .id("lithe-run-configurations")
             .w_full()
@@ -1158,7 +1374,12 @@ impl RunPanel {
                     .h(px(GROUP_HEADER_HEIGHT))
                     .items_center()
                     .gap(px(6.0))
-                    .px(px(10.0))
+                    .px(px(8.0))
+                    .child(
+                        Icon::new(IconName::ChevronDown)
+                            .with_size(px(12.0))
+                            .text_color(tokens.secondary_text),
+                    )
                     .child(
                         div()
                             .min_w(px(0.0))
@@ -1192,7 +1413,7 @@ impl RunPanel {
     ) -> AnyElement {
         let id = configuration.id.clone();
         let selected = self.selected_id.as_deref() == Some(id.as_str());
-        let pinned = self.pinned.contains(&id);
+        let _pinned = self.pinned.contains(&id);
         let session = self.sessions.get(&id);
         let starting = session.is_some_and(|session| session.starting);
         let stopped = session.is_some_and(|session| session.stopped);
@@ -1235,8 +1456,9 @@ impl RunPanel {
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.selected_id = Some(configuration_for_click.id.clone());
                 this.show_details = false;
-                this.follow_output = true;
-                this.output_scroll.scroll_to_bottom();
+                // 切换会话：重置跟随，不继承上一个会话的滚动位置。
+                this.console_line_count = 0;
+                this.console_follow_tail = true;
                 this.emit(cx);
                 cx.notify();
             }))
@@ -1266,29 +1488,14 @@ impl RunPanel {
             )
             .child(div().size(px(6.0)).rounded_full().bg(status_color))
             .child(
-                Button::new(format!("lithe-run:pin:{id}"))
+                Button::new(format!("lithe-run:edit:{id}"))
                     .ghost()
                     .small()
-                    .child(
-                        Icon::new(if pinned {
-                            IconName::StarFill
-                        } else {
-                            IconName::Star
-                        })
-                        .with_size(px(14.0)),
-                    )
-                    .tooltip(if pinned {
-                        tr("Unpin configuration")
-                    } else {
-                        tr("Pin configuration")
-                    })
+                    .child(Icon::new(IconName::Settings).with_size(px(13.0)))
+                    .tooltip(tr("Configuration details"))
                     .on_click(cx.listener(move |this, _, _window, cx| {
-                        if this.pinned.contains(&id_for_pin) {
-                            this.pinned.remove(&id_for_pin);
-                        } else {
-                            this.pinned.insert(id_for_pin.clone());
-                        }
-                        this.emit(cx);
+                        this.selected_id = Some(id_for_pin.clone());
+                        this.show_details = true;
                         cx.notify();
                     })),
             )
@@ -1296,12 +1503,20 @@ impl RunPanel {
                 Button::new(format!("lithe-run:toggle:{id}"))
                     .ghost()
                     .small()
-                    .icon(icon(if running {
-                        LitheIcon::Close
-                    } else {
-                        LitheIcon::Run
-                    }))
-                    .tooltip(if running { tr("Stop") } else { tr("Run") })
+                    .child(
+                        Icon::new(if running {
+                            IconName::Square
+                        } else {
+                            IconName::Play
+                        })
+                        .with_size(px(13.0))
+                        .text_color(if running {
+                            tokens.warning
+                        } else {
+                            tokens.success
+                        }),
+                    )
+                    .tooltip(tr(if running { "Stop" } else { "Run" }))
                     .on_click(cx.listener(move |this, _, _window, cx| {
                         if let Some(session) = this.sessions.get(&id_for_toggle) {
                             if session.is_active() {
@@ -1318,7 +1533,7 @@ impl RunPanel {
     /// 控制台左侧动作条。对齐 macOS `OutputTextView.consoleToolbar` 的六项动作：
     /// 上一条 / 下一条堆栈帧、软换行、滚动到底、打印、清空。
     fn render_console_stripe(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
-        let has_output = !self.selected_output().is_empty();
+        let has_output = self.selected_has_output();
         let has_stack = !self.stack_trace_lines().is_empty();
 
         v_flex()
@@ -1398,111 +1613,170 @@ impl RunPanel {
     }
 
     fn render_content(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
-        if self.show_details {
-            return self.render_details(tokens);
-        }
-        let output = self.selected_output();
-        let empty_message = if self.root.is_none() {
-            Some(tr("Open a project to discover run configurations"))
-        } else if self.configurations.is_empty() && !self.loading {
-            Some(tr("No run configuration found"))
-        } else {
-            None
-        };
+        let selected_config = self.selected_configuration();
 
-        h_flex()
-            .id("lithe-run-content")
+        let details_header = div()
+            .w_full()
+            .px(px(14.0))
+            .py(px(8.0))
+            .border_b_1()
+            .border_color(tokens.divider)
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(tokens.secondary_text)
+                    .child(tr("Configuration details")),
+            )
+            .when_some(selected_config, |this, config| {
+                this.child(
+                    div()
+                        .pt(px(2.0))
+                        .text_size(px(14.0))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(tokens.primary_text)
+                        .child(config.name.clone()),
+                )
+                .child(
+                    h_flex()
+                        .pt(px(4.0))
+                        .gap(px(20.0))
+                        .text_size(px(12.0))
+                        .child(
+                            h_flex()
+                                .gap(px(6.0))
+                                .child(div().text_color(tokens.secondary_text).child(tr("Type")))
+                                .child(
+                                    div()
+                                        .text_color(tokens.primary_text)
+                                        .child(config.kind_title()),
+                                ),
+                        )
+                        .when_some(config.main_class(), |this, main_class| {
+                            this.child(
+                                h_flex()
+                                    .gap(px(6.0))
+                                    .child(
+                                        div()
+                                            .text_color(tokens.secondary_text)
+                                            .child(tr("Main class")),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(tokens.primary_text)
+                                            .font_family(MONO_FONT_FAMILY)
+                                            .child(main_class.to_string()),
+                                    ),
+                            )
+                        }),
+                )
+            });
+
+        let output_area = v_flex()
             .flex_1()
+            .min_h(px(0.0))
+            .min_w(px(0.0))
+            .child(
+                div()
+                    .px(px(14.0))
+                    .pt(px(8.0))
+                    .text_size(px(12.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(tokens.secondary_text)
+                    .child(tr("Process output")),
+            )
+            .child(div().flex_1().min_h(px(0.0)).min_w(px(0.0)).child(
+                if !self.selected_has_output() {
+                    div()
+                        .size_full()
+                        .px(px(14.0))
+                        .pt(px(10.0))
+                        .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                        .text_color(tokens.secondary_text)
+                        .child(tr("Run a configuration to see process output."))
+                        .into_any_element()
+                } else {
+                    // 行样式只在渲染可视行时构造，不再对整段输出做全文排版。
+                    let text_style = self.console_text_style(tokens);
+                    div()
+                        .id("lithe-run-console")
+                        .relative()
+                        .size_full()
+                        .key_context(CONSOLE_CONTEXT)
+                        .track_focus(&self.console_focus)
+                        .on_action(cx.listener(Self::on_copy_selection))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, window, cx| this.console_focus.focus(window, cx)),
+                        )
+                        .child(
+                            div()
+                                .id("lithe-run-output")
+                                .relative()
+                                .size_full()
+                                .p(px(PANEL_PADDING))
+                                // 控制台用 uniform_list：行高固定（Nowrap 单行），
+                                // 只排版可视行。gpui 0.3.10 的 `list()` 在此布局下
+                                // 只度量不绘制，不要改回去。
+                                .child({
+                                    let panel = cx.entity();
+                                    uniform_list(
+                                        "lithe-run-output-lines",
+                                        self.selected_line_count(),
+                                        move |range, _window, cx| {
+                                            let panel = panel.read(cx);
+                                            range
+                                                .map(|index| {
+                                                    console_line_element(
+                                                        format!("lithe-run-line:{index}"),
+                                                        panel.selected_line_text(index),
+                                                        text_style.clone(),
+                                                    )
+                                                })
+                                                .collect::<Vec<_>>()
+                                        },
+                                    )
+                                    .track_scroll(&self.console_scroll)
+                                    .size_full()
+                                }),
+                        )
+                        .into_any_element()
+                },
+            ));
+
+        v_flex()
+            .id("lithe-run-content")
+            .size_full()
             .min_w(px(0.0))
             .min_h(px(0.0))
             .bg(tokens.editor)
-            // 动作条只在控制台视图出现；详情视图是纯文本表格，不需要控制台动作。
-            .child(self.render_console_stripe(tokens, cx))
-            .child(if let Some(message) = empty_message {
-                empty_state(tokens, message)
-            } else if output.is_empty() {
-                empty_state(tokens, tr("Run a configuration to see process output."))
-            } else {
-                let text = output.to_string();
-                // 控制台正文是可选中的纯文本：换行与缩进按原样排版，
-                // 关掉自动换行时用横向滚动查看长行（对齐 macOS 行为）。
-                let text_style = TextStyleRefinement {
-                    font_family: Some(MONO_FONT_FAMILY.into()),
-                    font_size: Some(px(LitheMetrics::CODE_FONT_SIZE).into()),
-                    color: Some(tokens.primary_text),
-                    white_space: Some(if self.wrap_output {
-                        WhiteSpace::Normal
-                    } else {
-                        WhiteSpace::Nowrap
-                    }),
-                    ..Default::default()
-                };
-                div()
-                    .id("lithe-run-console")
-                    .relative()
-                    .flex_1()
-                    .min_h(px(0.0))
-                    .min_w(px(0.0))
-                    .key_context(CONSOLE_CONTEXT)
-                    .track_focus(&self.console_focus)
-                    .on_action(cx.listener(Self::on_copy_selection))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, window, cx| this.console_focus.focus(window, cx)),
-                    )
-                    .child(
-                        div()
-                            .id("lithe-run-output")
-                            .relative()
-                            .size_full()
-                            .overflow_scroll()
-                            .track_scroll(&self.output_scroll)
-                            .on_scroll(cx.listener(Self::on_console_scroll))
-                            .p(px(PANEL_PADDING))
-                            .child(
-                                SelectableText::new("lithe-run-output-text", text)
-                                    .selection_color(tokens.selection)
-                                    .text_style(text_style),
-                            )
-                            // gpui-kit 的滚动条层：纵向 + 横向都跟随同一个句柄，
-                            // 放在正文之后，保证滚动条画在文本上面。
-                            .scrollbar(&self.output_scroll, ScrollbarAxis::Both),
-                    )
-                    // 右下角浮层：上翻后用 “Jump to latest” 回到底部，复制按钮常驻。
-                    .child(
-                        div()
-                            .absolute()
-                            .bottom(px(12.0))
-                            .right(px(16.0))
-                            .flex()
-                            .items_center()
-                            .gap(px(4.0))
-                            .when(!self.follow_output, |this| {
-                                this.child(
-                                    Button::new("lithe-run:jump-to-latest")
-                                        .ghost()
-                                        .small()
-                                        .icon(icon(LitheIcon::ChevronDown))
-                                        .tooltip(tr("Jump to latest"))
-                                        .on_click(cx.listener(|this, _, _window, cx| {
-                                            this.scroll_to_latest(cx);
-                                        })),
-                                )
-                            })
-                            .child(
-                                Button::new("lithe-run:copy-output")
-                                    .ghost()
-                                    .small()
-                                    .child(Icon::new(IconName::Copy).with_size(px(14.0)))
-                                    .tooltip(tr("Copy output"))
-                                    .on_click(
-                                        cx.listener(|this, _, _window, cx| this.copy_output(cx)),
-                                    ),
-                            ),
-                    )
-                    .into_any_element()
-            })
+            .child(details_header)
+            .child(output_area)
             .into_any_element()
+    }
+
+    /// 控制台行的文本样式。等宽字体 + 按需软换行，整份列表共用一份。
+    fn console_text_style(&self, tokens: LitheTokens) -> TextStyleRefinement {
+        TextStyleRefinement {
+            font_family: Some(MONO_FONT_FAMILY.into()),
+            font_size: Some(px(LitheMetrics::CODE_FONT_SIZE).into()),
+            color: Some(tokens.primary_text),
+            white_space: Some(if self.wrap_output {
+                WhiteSpace::Normal
+            } else {
+                WhiteSpace::Nowrap
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// 取当前会话第 `index` 行的文本，供虚拟化列表逐行渲染。
+    fn selected_line_text(&self, index: usize) -> String {
+        self.selected_id
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+            .map(|session| session.line_at(index).to_string())
+            .unwrap_or_default()
     }
 
     fn render_details(&self, tokens: LitheTokens) -> AnyElement {
@@ -1575,20 +1849,10 @@ impl RunPanel {
         details.into_any_element()
     }
 
-    fn configurations_in_scope(&self, scope: RunScope) -> Vec<&RunConfiguration> {
-        self.configurations
-            .iter()
-            .filter(|configuration| match scope {
-                RunScope::All => true,
-                RunScope::Pinned => self.pinned.contains(&configuration.id),
-                RunScope::Execution(execution) => configuration.execution == execution,
-            })
-            .collect()
-    }
-
+    /// 按配置类型分组（Java / Maven / Node.js …），组内按名称排序，保证渲染顺序确定。
     fn group_configurations<'a>(
         &self,
-        configurations: &'a [RunConfiguration],
+        configurations: &[&'a RunConfiguration],
     ) -> Vec<(String, Vec<&'a RunConfiguration>)> {
         let mut groups: BTreeMap<String, Vec<&RunConfiguration>> = BTreeMap::new();
         for configuration in configurations {
@@ -1610,59 +1874,231 @@ impl RunPanel {
         groups
     }
 
-    /// 41pt 标题栏：标题 + more 菜单 + 隐藏按钮。对齐 macOS `toolWindowHeader`。
+    /// 顶部项目准备状态条（对齐 Tauri `ProjectPreparationStatus`）。
+    fn render_preparation_status(&self, tokens: LitheTokens) -> AnyElement {
+        h_flex()
+            .id("lithe-run-preparation-status")
+            .w_full()
+            .h(px(26.0))
+            .items_center()
+            .gap(px(6.0))
+            .px(px(12.0))
+            .bg(tokens.sidebar)
+            .border_b_1()
+            .border_color(tokens.divider)
+            .child(
+                Icon::new(IconName::ChevronRight)
+                    .with_size(px(12.0))
+                    .text_color(tokens.secondary_text),
+            )
+            .child(
+                Icon::new(IconName::CircleCheck)
+                    .with_size(px(14.0))
+                    .text_color(tokens.success),
+            )
+            .child(
+                div()
+                    .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                    .text_color(tokens.secondary_text)
+                    .child(tr("Java project model is ready")),
+            )
+            .into_any_element()
+    }
+
+    /// 单层标题栏（完全对齐 Tauri `RunPane` Header：`▷ 运行 <项目名>` + 右侧操作按钮组）。
     fn render_header(&mut self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
-        let menu = self.more_menu.clone();
+        let is_running = self.is_running();
+        let project_name = self
+            .root
+            .as_ref()
+            .and_then(|r| r.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let title_text = if project_name.is_empty() {
+            tr("Run").to_string()
+        } else {
+            format!("{} {project_name}", tr("Run"))
+        };
+
         h_flex()
             .id("lithe-run-header")
             .w_full()
             .flex_shrink_0()
             .items_center()
-            .gap(px(2.0))
-            .h(px(HEADER_HEIGHT))
+            .gap(px(4.0))
+            .h(px(34.0))
             .pl(px(12.0))
             .pr(px(8.0))
             .bg(tokens.tool_header)
             .border_b_1()
             .border_color(tokens.divider)
             .child(
-                div()
-                    .text_size(px(13.0))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(tokens.primary_text)
-                    .child(tr("Run")),
+                Icon::new(IconName::Play)
+                    .with_size(px(14.0))
+                    .text_color(tokens.success),
             )
-            .child(div().flex_1())
             .child(
                 div()
-                    .id("lithe-run-more-anchor")
-                    .relative()
+                    .min_w(px(0.0))
+                    .truncate()
+                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(tokens.primary_text)
+                    .child(title_text),
+            )
+            .child(div().flex_1())
+            // 右侧操作图标组：运行/停止、重新扫描、滚动到底部、软换行、清空、收起
+            .child(
+                Button::new("lithe-run:play")
+                    .ghost()
+                    .small()
                     .child(
-                        Button::new("lithe-run:more")
-                            .ghost()
-                            .small()
-                            .icon(icon(LitheIcon::More))
-                            .tooltip(tr("More Run actions"))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.toggle_more_menu(window, cx)
-                            })),
+                        Icon::new(if is_running {
+                            IconName::Square
+                        } else {
+                            IconName::Play
+                        })
+                        .with_size(px(13.0))
+                        .text_color(if is_running {
+                            tokens.warning
+                        } else {
+                            tokens.success
+                        }),
                     )
-                    .when_some(menu, |this, popup| {
-                        this.child(deferred(
-                            anchored()
-                                .anchor(Anchor::TopRight)
-                                .snap_to_window_with_margin(px(8.0))
-                                .child(div().mt(px(2.0)).child(popup)),
-                        ))
-                    }),
+                    .tooltip(tr(if is_running { "Stop run" } else { "Run" }))
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        if this.is_running() {
+                            this.stop_selected(cx);
+                        } else {
+                            this.run_selected(cx);
+                        }
+                    })),
+            )
+            .child(
+                Button::new("lithe-run:more-services")
+                    .ghost()
+                    .small()
+                    .child(Icon::new(IconName::Ellipsis).with_size(px(13.0)))
+                    .tooltip(tr("Choose services"))
+                    .on_click(cx.listener(|this, event: &ClickEvent, window, cx| {
+                        // 点击处即菜单左上角；键盘触发的点击退回工具条右侧。
+                        let position = match event {
+                            ClickEvent::Mouse(mouse) => mouse.up.position,
+                            _ => Default::default(),
+                        };
+                        this.toggle_more_menu(position, window, cx);
+                    })),
+            )
+            .child(
+                Button::new("lithe-run:rescan")
+                    .ghost()
+                    .small()
+                    .child(Icon::new(IconName::RotateCw).with_size(px(13.0)))
+                    .tooltip(tr("Rescan services"))
+                    .disabled(self.loading)
+                    .on_click(cx.listener(|this, _, _window, cx| this.reload(cx))),
+            )
+            .child(
+                Button::new("lithe-run:scroll-end")
+                    .ghost()
+                    .small()
+                    .child(
+                        Icon::new(gpui_kit::assets::IconName::ArrowDownToLine).with_size(px(13.0)),
+                    )
+                    .tooltip(tr("Scroll to end"))
+                    .on_click(cx.listener(move |this, _, _window, cx| this.scroll_to_latest(cx))),
+            )
+            .child(
+                Button::new("lithe-run:wrap")
+                    .ghost()
+                    .small()
+                    .icon(icon(LitheIcon::WrapText))
+                    .tooltip(tr("Use soft wraps"))
+                    .selected(self.wrap_output)
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.wrap_output = !this.wrap_output;
+                        this.emit(cx);
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Button::new("lithe-run:clear")
+                    .ghost()
+                    .small()
+                    .child(Icon::new(gpui_kit::assets::IconName::Trash).with_size(px(13.0)))
+                    .tooltip(tr("Clear output"))
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        let id = this.selected_id.clone().or_else(|| this.default_id.clone());
+                        if let Some(id) = id {
+                            if let Some(session) = this.sessions.get_mut(&id) {
+                                session.clear();
+                            }
+                            this.console_line_count = 0;
+                            this.console_follow_tail = true;
+                            cx.notify();
+                        }
+                    })),
             )
             .child(
                 Button::new("lithe-run:hide")
                     .ghost()
                     .small()
-                    .child(Icon::new(IconName::PanelBottom).with_size(px(16.0)))
-                    .tooltip(tr("Hide Run window"))
+                    .child(Icon::new(IconName::Minus).with_size(px(13.0)))
+                    .tooltip(tr("Minimize"))
                     .on_click(cx.listener(|this, _, _window, cx| this.hide_panel(cx))),
+            )
+            .into_any_element()
+    }
+
+    /// 未找到运行配置的空状态视图（完全对齐 Tauri 图一）。
+    fn render_missing_configuration_view(
+        &self,
+        tokens: LitheTokens,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_loading = self.loading;
+        v_flex()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .gap(px(10.0))
+            .px(px(24.0))
+            .bg(tokens.editor)
+            .child(
+                Icon::new(IconName::Play)
+                    .with_size(px(36.0))
+                    .text_color(tokens.tertiary_text),
+            )
+            .child(
+                div()
+                    .text_size(px(15.0))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(tokens.primary_text)
+                    .child(tr("Project run configuration not found")),
+            )
+            .child(
+                div()
+                    .max_w(px(480.0))
+                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                    .text_color(tokens.secondary_text)
+                    .child(tr("Identify the project to enable Run. Existing project and local overrides will be preserved.")),
+            )
+            .child(
+                div()
+                    .pt(px(6.0))
+                    .child(
+                        Button::new("lithe-run:identify-btn")
+                            .primary()
+                            .disabled(is_loading)
+                            .label(if is_loading {
+                                tr("Identifying project…")
+                            } else {
+                                tr("Identify and generate")
+                            })
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.reload(cx);
+                            })),
+                    ),
             )
             .into_any_element()
     }
@@ -1694,8 +2130,7 @@ impl RunPanel {
     /// 宽度规则对齐 macOS `RunServicesSplitView`：配置列表 240..480，输出区
     /// 最小 320；可用宽度不足时整行横向滚动，而不是把两栏压到互相遮字。
     fn render_body(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
-        let minimum_width =
-            SCOPE_RAIL_WIDTH + CONFIGURATION_LIST_MIN_WIDTH + OUTPUT_MIN_WIDTH;
+        let minimum_width = 100.0 + CONFIGURATION_LIST_MIN_WIDTH + OUTPUT_MIN_WIDTH;
         div()
             .id("lithe-run-body")
             .flex_1()
@@ -1706,7 +2141,7 @@ impl RunPanel {
                 h_flex()
                     .h_full()
                     .min_w(px(minimum_width))
-                    .child(self.render_scope_rail(tokens, cx))
+                    .child(self.render_language_rail(tokens, cx))
                     .child(self.render_split(tokens, cx)),
             )
             .into_any_element()
@@ -1724,10 +2159,9 @@ impl RunPanel {
                     let Some(width) = sizes.first().copied() else {
                         return;
                     };
-                    let width = width.as_f32().clamp(
-                        CONFIGURATION_LIST_MIN_WIDTH,
-                        CONFIGURATION_LIST_MAX_WIDTH,
-                    );
+                    let width = width
+                        .as_f32()
+                        .clamp(CONFIGURATION_LIST_MIN_WIDTH, CONFIGURATION_LIST_MAX_WIDTH);
                     if (this.configuration_width - width).abs() > 0.5 {
                         this.configuration_width = width;
                         cx.notify();
@@ -1758,6 +2192,8 @@ impl RunPanel {
 impl Render for RunPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_loaded(window, cx);
+        // 输出行数变化在这里统一入账：列表只排版可视行，追加只改行数。
+        self.sync_console_lines();
         let tokens = current_tokens(cx);
 
         let mut panel = v_flex()
@@ -1767,13 +2203,8 @@ impl Render for RunPanel {
             .min_h(px(0.0))
             .bg(tokens.editor)
             .text_color(tokens.primary_text)
+            .child(self.render_preparation_status(tokens))
             .child(self.render_header(tokens, cx));
-
-        // 工具条只在有配置或已经跑起来时出现。对齐 macOS `RunView` 的显示条件：
-        // 空项目只留标题栏和空状态，不出现一排全禁用的按钮。
-        if !self.configurations.is_empty() || self.is_running() {
-            panel = panel.child(self.render_toolbar(tokens, cx));
-        }
 
         if let Some(error) = self.error.clone() {
             panel = panel.child(status_line(tokens.error, error));
@@ -1782,36 +2213,152 @@ impl Render for RunPanel {
             panel = panel.child(banner);
         }
 
-        if self.loading {
-            panel = panel.child(status_line(tokens.secondary_text, tr("Loading…").into()));
+        // 当没有运行配置且没有进程运行时，对齐图一展示居中的未找到运行配置引导卡片；
+        // 否则展示完整的运行控制台
+        if self.configurations.is_empty() && !self.is_running() {
+            panel = panel.child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.render_missing_configuration_view(tokens, cx)),
+            );
+        } else {
+            panel = panel.child(self.render_body(tokens, cx));
         }
 
-        panel.child(self.render_body(tokens, cx))
+        self.with_floating_menu(panel.into_any_element(), cx)
+    }
+}
+
+impl RunPanel {
+    /// 把「…」创建的 PopupMenu 渲染到窗口前景层。
+    ///
+    /// 之前菜单实体只创建不渲染，工具条菜单从未显示过。
+    fn with_floating_menu(&self, element: AnyElement, cx: &mut Context<Self>) -> AnyElement {
+        let Some((popup, position)) = &self.more_menu else {
+            return element;
+        };
+        let owner = cx.weak_entity();
+        deferred(
+            anchored().position(*position).snap_to_window().child(
+                div()
+                    .occlude()
+                    .on_mouse_down_out(cx.listener(move |this, _, _, cx| {
+                        if this.more_menu.take().is_some() {
+                            cx.notify();
+                        }
+                    }))
+                    .child(popup.clone()),
+            ),
+        )
+        .into_any_element()
     }
 }
 
 impl SessionState {
+    /// 追加一块输出。
+    ///
+    /// 完整行进入 `lines`，结尾的半行留在 `pending_line` 等下一块补全。
+    /// 这样虚拟化列表的每一行都是稳定的字符串，追加时只需要往尾部 push，
+    /// 不必像旧实现那样每帧把整段文本重新排版。
     fn append_output(&mut self, chunk: &str) {
         let text = strip_ansi(chunk);
-        self.output.push_str(&text);
-        if self.output.len() > MAX_OUTPUT_CHARACTERS {
-            let cut = self.output.len().saturating_sub(MAX_OUTPUT_CHARACTERS);
-            let cut = next_char_boundary(&self.output, cut);
-            self.output.drain(..cut);
+        if text.is_empty() {
+            return;
         }
         if self.service_url.is_none() {
             self.service_url = find_service_url(&text);
         }
+
+        self.pending_line.push_str(&text);
+        // 只按换行切分：`str::lines()` 会吞掉结尾空行，控制台需要保留它们。
+        let mut start = 0;
+        while let Some(offset) = self.pending_line[start..].find('\n') {
+            let end = start + offset;
+            let line = self.pending_line[start..end].to_string();
+            // 去掉行尾的 `\r`：Windows 控制台程序（含 Maven）混用 CRLF。
+            let line = line.strip_suffix('\r').unwrap_or(&line).to_string();
+            self.lines.push(SharedString::from(line));
+            start = end + 1;
+        }
+        if start > 0 {
+            self.pending_line.drain(..start);
+        }
+        self.trim_lines();
+    }
+
+    /// 把残留的半行也显示出来。
+    ///
+    /// 进程退出时最后一行通常没有换行；不把它并入 `lines` 就会丢最后一条输出。
+    fn flush_pending_line(&mut self) {
+        if self.pending_line.is_empty() {
+            return;
+        }
+        let line = std::mem::take(&mut self.pending_line);
+        let line = line.strip_suffix('\r').unwrap_or(&line).to_string();
+        self.lines.push(SharedString::from(line));
+        self.trim_lines();
+    }
+
+    /// 超出上限时从头部整行淘汰。每次只丢头部，避免整段搬运。
+    fn trim_lines(&mut self) {
+        let excess = self.lines.len().saturating_sub(MAX_OUTPUT_LINES);
+        if excess > 0 {
+            self.lines.drain(..excess);
+            self.truncated = true;
+        }
+    }
+
+    /// 当前用于展示的行数（含未换行的半行）。
+    fn display_line_count(&self) -> usize {
+        self.lines.len() + usize::from(!self.pending_line.is_empty())
+    }
+
+    /// 取第 `index` 行的文本。越界返回空行，保证虚拟化列表不会 panic。
+    fn line_at(&self, index: usize) -> &str {
+        match self.lines.get(index) {
+            Some(line) => line.as_ref(),
+            None if index == self.lines.len() => self.pending_line.as_str(),
+            None => "",
+        }
+    }
+
+    /// 整段输出文本。复制、打印和诊断需要全文时使用，不做流式渲染。
+    fn full_text(&self) -> String {
+        let mut text = self.lines.join("\n");
+        if !self.pending_line.is_empty() {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&self.pending_line);
+        }
+        text
+    }
+
+    fn clear(&mut self) {
+        self.lines.clear();
+        self.pending_line.clear();
+        self.truncated = false;
+        self.service_url = None;
     }
 }
 
-fn next_char_boundary(text: &str, mut index: usize) -> usize {
-    while index < text.len() && !text.is_char_boundary(index) {
-        index += 1;
-    }
-    index
+/// 渲染控制台的一行。
+///
+/// 空行也占一行高（`min_h`），否则连续空行会被折叠，输出位置和原进程不一致。
+/// 关闭软换行时行内容横向溢出交给列表的横向滚动，不把长行折断。
+fn console_line_element(id: String, text: String, style: TextStyleRefinement) -> AnyElement {
+    let element_id = SharedString::from(id.clone());
+    div()
+        .id(element_id.clone())
+        .w_full()
+        .min_h(px(CONSOLE_LINE_HEIGHT))
+        .flex_shrink_0()
+        .child(gpui_kit::base::SelectableText::new(element_id, text).text_style(style))
+        .into_any_element()
 }
 
+#[allow(dead_code)]
 fn empty_state(tokens: LitheTokens, message: &str) -> AnyElement {
     v_flex()
         .w_full()
@@ -1832,6 +2379,7 @@ fn empty_state(tokens: LitheTokens, message: &str) -> AnyElement {
 /// 判断一行是否是堆栈帧（Java 的 `at x.y.Foo.bar(Foo.java:42)` 或带
 /// `file:line` 的 `at ` 行）。上一/下一条堆栈帧按这些行跳转，与 macOS
 /// `ConsoleToolbarAction.previous/next` 的定位依据一致。
+#[allow(dead_code)]
 fn is_stack_trace_line(line: &str) -> bool {
     let trimmed = line.trim_start();
     let frame = trimmed
@@ -1841,7 +2389,10 @@ fn is_stack_trace_line(line: &str) -> bool {
     if let Some(open) = frame.rfind('(') {
         let inner = frame[open + 1..].trim_end_matches(')');
         if let Some((file, line_number)) = inner.rsplit_once(':') {
-            return !file.is_empty() && line_number.chars().all(|character| character.is_ascii_digit());
+            return !file.is_empty()
+                && line_number
+                    .chars()
+                    .all(|character| character.is_ascii_digit());
         }
     }
     false
@@ -1865,6 +2416,7 @@ fn status_line(color: Hsla, message: SharedString) -> AnyElement {
         .into_any_element()
 }
 
+#[allow(dead_code)]
 fn detail_row(label: &str, value: String, monospaced: bool, tokens: LitheTokens) -> AnyElement {
     h_flex()
         .w_full()
@@ -1968,6 +2520,14 @@ fn service_url_from_authority(authority: &str, secure: bool) -> Option<String> {
     }
     let scheme = if secure { "https" } else { "http" };
     Some(format!("{scheme}://127.0.0.1:{port}"))
+}
+
+/// 归一化 Maven 路径比较：`None` / 空串 / `.` 都视作反应堆根 `.`。
+fn normalize_relative(value: Option<&str>) -> &str {
+    match value {
+        Some(value) if !value.trim().is_empty() && value != "." => value,
+        _ => ".",
+    }
 }
 
 #[cfg(test)]

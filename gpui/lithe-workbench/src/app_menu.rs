@@ -277,6 +277,7 @@ fn command_handled(command: &str) -> bool {
             | "terminal.split"
             | "terminal.splitDown"
             | "run.run"
+            | "run.toggleWindow"
             | "run.debug"
             | "run.configurations"
             // 工具入口与窗口控制。
@@ -332,13 +333,7 @@ fn file_menu(state: &MenuState) -> MenuSpec {
         item("New Tab", "file.newTab", Some("⌘N")),
         item("New Window", "file.newWindow", Some("⇧⌘N")),
         item("New Project…", "file.newProject", None),
-        item_state(
-            "New File",
-            "file.newFile",
-            None,
-            false,
-            !state.has_project,
-        ),
+        item_state("New File", "file.newFile", None, false, !state.has_project),
         item_state(
             "New Folder",
             "file.newFolder",
@@ -390,7 +385,13 @@ fn file_menu(state: &MenuState) -> MenuSpec {
         // 与 Window > Close Window 是同一个窗口动作，复用同一 id。
         item("Close Window", "window.close", Some("⇧⌘W")),
         item_state("Close All Tabs", "file.closeAll", None, false, !has_tab),
-        item_state("Close Other Tabs", "file.closeOthers", None, false, !has_tab),
+        item_state(
+            "Close Other Tabs",
+            "file.closeOthers",
+            None,
+            false,
+            !has_tab,
+        ),
         item_state("Close Saved Tabs", "file.closeSaved", None, false, !has_tab),
         item_state(
             "Close Tabs to the Left",
@@ -731,7 +732,11 @@ fn view_menu(state: &MenuState) -> MenuSpec {
 
     MenuSpec::new(tr("View")).items([
         item("Toggle Activity Sidebar", "view.activityBar", Some("⌘B")),
-        item("Toggle Secondary Sidebar", "view.secondarySidebar", Some("⌘E")),
+        item(
+            "Toggle Secondary Sidebar",
+            "view.secondarySidebar",
+            Some("⌘E"),
+        ),
         item_state(
             "Toggle Terminal",
             "view.tool.terminal",
@@ -749,13 +754,7 @@ fn view_menu(state: &MenuState) -> MenuSpec {
         item("Run and Debug", "view.runAndDebug", None),
         MenuItemSpec::separator(),
         item("Split Editor", "view.splitEditor", None),
-        item_state(
-            "Toggle Minimap",
-            "view.minimap",
-            None,
-            state.minimap,
-            false,
-        ),
+        item_state("Toggle Minimap", "view.minimap", None, state.minimap, false),
         item_state(
             "Toggle Word Wrap",
             "view.wrap",
@@ -812,13 +811,7 @@ fn go_menu(state: &MenuState) -> MenuSpec {
         // Go to Line 复用编辑器命令，菜单里的两处入口行为一致。
         item_state("Go to Line", "edit.gotoLine", Some("⌘G"), false, disabled),
         MenuItemSpec::separator(),
-        item_state(
-            "Go Back",
-            "go.back",
-            Some("⌃⌥←"),
-            false,
-            !state.can_go_back,
-        ),
+        item_state("Go Back", "go.back", Some("⌃⌥←"), false, !state.can_go_back),
         item_state(
             "Go Forward",
             "go.forward",
@@ -914,6 +907,8 @@ fn run_menu() -> MenuSpec {
         item("Toggle Breakpoint", "run.toggleBreakpoint", Some("F9")),
         MenuItemSpec::separator(),
         item("Run", "run.run", Some("F5")),
+        // 只切换底部 Run 工具窗，不启动进程：与活动栏点击、Shift+F10 同一条路径。
+        item("Toggle Run", "run.toggleWindow", Some("⇧F10")),
         item("Run Configurations…", "run.configurations", None),
     ])
 }
@@ -970,6 +965,12 @@ fn help_menu() -> MenuSpec {
 mod tests {
     use super::*;
 
+    /// 菜单标签由 `tr()` 按当前语言生成。断言用 `tr()` 自己算期望值，
+    /// 这样既不依赖进程级语言状态，也不需要在测试里切换全局语言。
+    fn lang(key: &'static str) -> &'static str {
+        lithe_ui::i18n::tr(key)
+    }
+
     fn state() -> MenuState {
         MenuState {
             has_project: false,
@@ -1012,10 +1013,19 @@ mod tests {
         let menus = build_menus(&state());
         let labels: Vec<&str> = menus.iter().map(|menu| menu.label.as_ref()).collect();
 
+        // 顺序是结构契约，具体文字随语言变化，因此期望值也走 `tr()`。
         assert_eq!(
             labels,
             [
-                "File", "Edit", "View", "Go", "Terminal", "Run", "Tools", "Window", "Help"
+                lang("File"),
+                lang("Edit"),
+                lang("View"),
+                lang("Go"),
+                lang("Terminal"),
+                lang("Run"),
+                lang("Tools"),
+                lang("Window"),
+                lang("Help"),
             ]
         );
     }
@@ -1049,7 +1059,10 @@ mod tests {
             .items
             .iter()
             .find_map(|item| match item {
-                MenuItemSpec::Submenu { label, items } if label.as_ref() == "Tool Windows" => {
+                // 子菜单标题同样由 `tr()` 生成，期望值也走它。
+                MenuItemSpec::Submenu { label, items }
+                    if label.as_ref() == lang("Tool Windows") =>
+                {
                     Some(items)
                 }
                 _ => None,
@@ -1122,5 +1135,45 @@ mod tests {
                 "file.exit",
             ]
         );
+    }
+
+    /// 「切换 Run 工具窗」必须同时满足三点，否则三处入口会漂移：
+    ///
+    /// - 菜单里有 `run.toggleWindow`，快捷键显示 ⇧F10，且**未被禁用**
+    ///   （`command_handled` 白名单漏写会让菜单项静默变灰）；
+    /// - `view.tool.run` 与它并存：前者是 View > Tool Windows 里的勾选项，
+    ///   后者是 Run 菜单里的主动作，两者都走 `toggle_tool`，但 id 不能混用；
+    /// - `run.run`（真正启动配置）与切换动作是两个不同命令，不能被合并。
+    #[test]
+    fn run_menu_separates_toggle_from_start() {
+        let menus = build_menus(&state());
+        let run = menus
+            .iter()
+            .find(|menu| menu.label == tr("Run"))
+            .expect("Run menu");
+
+        let action = |command: &str| {
+            run.items.iter().find_map(|item| match item {
+                MenuItemSpec::Action {
+                    command: id,
+                    shortcut,
+                    disabled,
+                    ..
+                } if id.as_ref() == command => Some((shortcut.clone(), *disabled)),
+                _ => None,
+            })
+        };
+
+        let (shortcut, disabled) = action("run.toggleWindow").expect("toggle item");
+        // 菜单文案经 `display_shortcut` 按平台格式化：macOS 显示 ⇧F10，
+        // 其它平台显示 Shift+F10。两边都验证，避免把平台差异写死进断言。
+        assert_eq!(
+            shortcut.as_deref(),
+            Some(lithe_ui::shortcut::display_shortcut("⇧F10").as_ref())
+        );
+        assert!(!disabled, "toggle must be wired into run_menu_command");
+
+        let (_, start_disabled) = action("run.run").expect("start item");
+        assert!(!start_disabled, "start must stay wired");
     }
 }

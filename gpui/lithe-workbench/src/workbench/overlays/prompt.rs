@@ -2,14 +2,15 @@ use std::path::{Component, Path, PathBuf};
 
 use gpui_kit::{
     AnyElement, AppContext as _, ClickEvent, Context, InteractiveElement as _, IntoElement,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, px,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    px,
 };
 use lithe_ui::components::prompt::{LithePrompt, PromptEvent, PromptSpec};
 use lithe_ui::i18n::tr;
-use lithe_ui::{current_tokens, LitheMetrics};
+use lithe_ui::{LitheMetrics, current_tokens};
 
 use super::super::notifications::NotificationKind;
-use super::super::{Workbench, OVERLAY_CONTEXT};
+use super::super::{OVERLAY_CONTEXT, Workbench};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PromptAction {
@@ -21,7 +22,11 @@ pub(crate) enum PromptAction {
 }
 
 impl Workbench {
-    pub(crate) fn render_prompt_overlay(&self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_prompt_overlay(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let tokens = current_tokens(cx);
         let backdrop_owner = cx.weak_entity();
 
@@ -119,7 +124,11 @@ impl Workbench {
         );
     }
 
-    pub(crate) fn open_new_java_type_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_new_java_type_prompt(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_prompt(
             PromptSpec::new(tr("New Java Type"), tr("Name")).confirm_label(tr("Create")),
             PromptAction::NewJavaType,
@@ -128,7 +137,11 @@ impl Workbench {
         );
     }
 
-    pub(crate) fn open_new_java_package_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_new_java_package_prompt(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_prompt(
             PromptSpec::new(tr("New Java Package"), tr("Package name")).confirm_label(tr("Create")),
             PromptAction::NewJavaPackage,
@@ -146,7 +159,12 @@ impl Workbench {
         }
     }
 
-    pub(super) fn confirm_prompt(&mut self, value: SharedString, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn confirm_prompt(
+        &mut self,
+        value: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(action) = self.prompt_action else {
             self.close_prompt(cx);
             return;
@@ -202,7 +220,7 @@ impl Workbench {
                             };
                             this.push_notification(
                                 title,
-                                SharedString::from(error.to_string()),
+                                Some(SharedString::from(error.to_string())),
                                 NotificationKind::Error,
                             );
                             cx.notify();
@@ -252,7 +270,7 @@ impl Workbench {
                         Err(error) => {
                             this.push_notification(
                                 tr("New Java Type"),
-                                SharedString::from(error.to_string()),
+                                Some(SharedString::from(error.to_string())),
                                 NotificationKind::Error,
                             );
                             cx.notify();
@@ -293,7 +311,7 @@ impl Workbench {
                         Err(error) => {
                             this.push_notification(
                                 tr("New Java Package"),
-                                SharedString::from(error.to_string()),
+                                Some(SharedString::from(error.to_string())),
                                 NotificationKind::Error,
                             );
                             cx.notify();
@@ -317,7 +335,7 @@ impl Workbench {
                         Err(error) => {
                             this.push_notification(
                                 tr("New Project"),
-                                SharedString::from(error.to_string()),
+                                Some(SharedString::from(error.to_string())),
                                 NotificationKind::Error,
                             );
                             cx.notify();

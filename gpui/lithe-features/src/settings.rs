@@ -25,16 +25,18 @@ use std::rc::Rc;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _};
+use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Entity, FontWeight,
-    InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    Window, div, px,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window, div, px,
 };
+use lithe_platform as platform;
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, MONO_FONT_FAMILY, current_tokens, icon};
+
+use crate::maven::configuration::{self, MavenEffectiveSettings, MavenLocalSettings};
 
 /// 设置文件名；目录约定与最近项目列表保持一致。
 const STORE_FILE_NAME: &str = "settings.json";
@@ -129,7 +131,10 @@ const FETCH_TAGS: [(&str, &str); 4] = [
     ("inherit", "Use Git configuration"),
     ("all", "Fetch all tags"),
     ("none", "Do not fetch tags"),
-    ("prune", "Synchronize tags and delete local tags absent on remote"),
+    (
+        "prune",
+        "Synchronize tags and delete local tags absent on remote",
+    ),
 ];
 /// Keymap presets。
 const KEYMAP_PRESETS: [(&str, &str); 2] = [("default", "Default"), ("vim", "Vim")];
@@ -161,7 +166,14 @@ const DEFAULT_HIDDEN_DIRECTORY_PATTERNS: [&str; 10] = [
 
 /// Tauri 的默认隐藏文件模式。
 const DEFAULT_HIDDEN_FILE_PATTERNS: [&str; 8] = [
-    "*.pyc", "*.pyo", "*.rbc", "*.yarb", "*~", ".DS_Store", "vssver.scc", "vssver2.scc",
+    "*.pyc",
+    "*.pyo",
+    "*.rbc",
+    "*.yarb",
+    "*~",
+    ".DS_Store",
+    "vssver.scc",
+    "vssver2.scc",
 ];
 
 const SETTINGS_CONTENT_MIN_WIDTH: f32 = 500.0;
@@ -176,7 +188,6 @@ const SETTINGS_BUTTON_RADIUS: f32 = 6.0;
 const SETTINGS_OPTION_MIN_WIDTH: f32 = 72.0;
 /// 步进器按钮宽度。
 const SETTINGS_STEPPER_WIDTH: f32 = 28.0;
-
 
 /// 应用级设置。
 ///
@@ -709,7 +720,6 @@ impl SettingsPage {
             | SettingsPage::AiCommit => Some(SettingsGroup::Ai),
         }
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -800,6 +810,16 @@ pub struct SettingsView {
     on_change: Option<ChangeHandler>,
     on_open_run: Option<OpenHandler>,
     on_open_agent: Option<OpenHandler>,
+    /// Maven 项目配置：已保存值与 4 个字段草稿（对齐 Tauri MavenSettingsForm）。
+    maven_saved: MavenLocalSettings,
+    maven_effective: Option<MavenEffectiveSettings>,
+    maven_inputs: [Entity<InputState>; 4],
+    maven_error: Option<String>,
+    /// 项目切换后待写入草稿输入框的值；输入框 API 需要 Window，
+    /// 推迟到 Render 顶部应用。
+    maven_pending_inputs: Option<[String; 4]>,
+    /// Maven 项目的 reactor 路径；聚合根固定 "."。
+    maven_reactor: String,
 }
 
 impl SettingsView {
@@ -842,6 +862,17 @@ impl SettingsView {
             on_change: None,
             on_open_run: None,
             on_open_agent: None,
+            maven_saved: MavenLocalSettings::default(),
+            maven_effective: None,
+            maven_inputs: [
+                cx.new(|cx| InputState::new(window, cx).placeholder(tr("Automatic"))),
+                cx.new(|cx| InputState::new(window, cx).placeholder(tr("Automatic"))),
+                cx.new(|cx| InputState::new(window, cx).placeholder(tr("Automatic"))),
+                cx.new(|cx| InputState::new(window, cx).placeholder(tr("Automatic"))),
+            ],
+            maven_error: None,
+            maven_pending_inputs: None,
+            maven_reactor: String::from("."),
         }
     }
 
@@ -890,10 +921,181 @@ impl SettingsView {
         cx.notify();
     }
 
+    /// 直接落到「Project · JDK & Maven」页。Maven 工具窗的设置入口使用。
+    pub fn open_project_page(&mut self, cx: &mut Context<Self>) {
+        self.page = SettingsPage::Project;
+        cx.notify();
+    }
+
+    /// 直接落到「Git」页。Git Log 标题栏的设置入口使用（对齐 Tauri
+    /// `openSettingsDialog("git")`）。
+    pub fn open_git_page(&mut self, cx: &mut Context<Self>) {
+        self.page = SettingsPage::Git;
+        cx.notify();
+    }
+
     /// 更新只读工作台上下文并重绘。上下文变化不是设置修改，不写盘。
     pub fn set_context(&mut self, context: SettingsContext, cx: &mut Context<Self>) {
+        let project_changed = self.context.project_root != context.project_root;
         self.context = context;
+        if project_changed {
+            self.reload_maven_configuration(cx);
+        }
         cx.notify();
+    }
+
+    /// 重新读取 Maven 项目配置并解析生效值（Source-backed：打开页面只读，
+    /// 草稿在输入框里，应用确认后才写回）。
+    fn reload_maven_configuration(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.context.project_root.clone() else {
+            self.maven_saved = MavenLocalSettings::default();
+            self.maven_effective = None;
+            self.maven_pending_inputs = Some(Default::default());
+            return;
+        };
+        let saved = configuration::load_local(&root, &self.maven_reactor);
+        self.maven_pending_inputs = Some([
+            saved.settings_path.clone().unwrap_or_default(),
+            saved.local_repository_path.clone().unwrap_or_default(),
+            saved.maven_executable_path.clone().unwrap_or_default(),
+            saved.java_home_path.clone().unwrap_or_default(),
+        ]);
+        self.maven_saved = saved;
+        self.maven_error = None;
+        cx.notify();
+
+        // 生效解析做文件探测，放后台；JAVA_HOME 检测值取本机环境变量
+        // （与启动解析的默认来源一致；项目级覆盖解析由 resolve_effective 处理）。
+        let java_home = std::env::var("JAVA_HOME")
+            .ok()
+            .filter(|value| !value.is_empty());
+        let saved_for_resolve = self.maven_saved.clone();
+        cx.spawn(async move |this, cx| {
+            let effective = cx
+                .background_spawn(async move {
+                    configuration::resolve_effective(&root, ".", &saved_for_resolve, java_home)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.maven_effective = Some(effective);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 四个字段的标签与选择模式（文件 / 目录）。
+    const MAVEN_FIELDS: [(&'static str, bool); 4] = [
+        ("settings.xml", false),
+        ("Maven local repository", true),
+        ("Maven executable", true),
+        ("JDK Home", true),
+    ];
+
+    /// 当前草稿与已保存值是否不同；不同才允许应用。
+    fn maven_dirty(&self, cx: &Context<Self>) -> bool {
+        let values = self.maven_draft_values(cx);
+        values
+            .iter()
+            .zip([
+                self.maven_saved.settings_path.as_deref(),
+                self.maven_saved.local_repository_path.as_deref(),
+                self.maven_saved.maven_executable_path.as_deref(),
+                self.maven_saved.java_home_path.as_deref(),
+            ])
+            .any(|(draft, saved)| draft.trim() != saved.unwrap_or(""))
+    }
+
+    fn maven_draft_values(&self, cx: &Context<Self>) -> [String; 4] {
+        [
+            self.maven_inputs[0].read(cx).value().to_string(),
+            self.maven_inputs[1].read(cx).value().to_string(),
+            self.maven_inputs[2].read(cx).value().to_string(),
+            self.maven_inputs[3].read(cx).value().to_string(),
+        ]
+    }
+
+    /// 应用草稿：写回项目 Maven 配置（双写 Tauri/gpui 数据目录），成功后
+    /// 重新解析生效值展示。
+    fn apply_maven_configuration(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.context.project_root.clone() else {
+            return;
+        };
+        let values = self.maven_draft_values(cx);
+        let saved = MavenLocalSettings {
+            settings_path: Some(values[0].clone()).filter(|value| !value.trim().is_empty()),
+            local_repository_path: Some(values[1].clone()).filter(|value| !value.trim().is_empty()),
+            maven_executable_path: Some(values[2].clone()).filter(|value| !value.trim().is_empty()),
+            java_home_path: Some(values[3].clone()).filter(|value| !value.trim().is_empty()),
+        };
+        match configuration::save_local(&root, &self.maven_reactor, &saved) {
+            Ok(()) => {
+                self.maven_error = None;
+                self.maven_saved = saved;
+                // 保存后重新解析生效配置，让「当前生效」提示反映新值。
+                let java_home = std::env::var("JAVA_HOME")
+                    .ok()
+                    .filter(|value| !value.is_empty());
+                let saved_for_resolve = self.maven_saved.clone();
+                cx.spawn(async move |this, cx| {
+                    let effective = cx
+                        .background_spawn(async move {
+                            configuration::resolve_effective(
+                                &root,
+                                ".",
+                                &saved_for_resolve,
+                                java_home,
+                            )
+                        })
+                        .await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.maven_effective = Some(effective);
+                        cx.notify();
+                    });
+                })
+                .detach();
+                cx.notify();
+            }
+            Err(error) => {
+                self.maven_error = Some(error);
+                cx.notify();
+            }
+        }
+    }
+
+    /// 打开目录/文件选择器并回填对应草稿输入框。
+    fn browse_maven_field(&mut self, index: usize, cx: &mut Context<Self>) {
+        let (label, is_directory) = Self::MAVEN_FIELDS[index];
+        let title = tr(label).to_string();
+        let platform = platform::current();
+        cx.spawn(async move |this, cx| {
+            let picked = if is_directory {
+                platform.pick_folder(title).await
+            } else {
+                platform
+                    .pick_file(
+                        title,
+                        vec![platform::FileFilter {
+                            name: String::from("XML"),
+                            extensions: vec![String::from("xml")],
+                        }],
+                    )
+                    .await
+            };
+            if let Some(path) = picked {
+                let _ = this.update(cx, |this, cx| {
+                    let text = path.to_string_lossy().into_owned();
+                    let mut pending = this
+                        .maven_pending_inputs
+                        .take()
+                        .unwrap_or_else(|| this.maven_draft_values(cx));
+                    pending[index] = text;
+                    this.maven_pending_inputs = Some(pending);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     /// 当前设置的只读引用。
@@ -1115,12 +1317,7 @@ impl SettingsView {
         self.commit(window, cx);
     }
 
-    fn set_editor_code_lens(
-        &mut self,
-        enabled: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn set_editor_code_lens(&mut self, enabled: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.editor_code_lens == enabled {
             return;
         }
@@ -1555,7 +1752,10 @@ impl SettingsView {
         let query = query.trim().to_lowercase();
         query.is_empty()
             || tr(group.title()).to_lowercase().contains(&query)
-            || group.pages().iter().any(|page| self.page_matches(*page, &query))
+            || group
+                .pages()
+                .iter()
+                .any(|page| self.page_matches(*page, &query))
     }
 
     fn render_group(
@@ -1763,7 +1963,7 @@ impl SettingsView {
             SettingsPage::ProcessTermination => self.render_process_termination(tokens, cx),
             SettingsPage::Plugins => self.render_plugins(tokens),
             SettingsPage::Git => self.render_git(tokens, cx),
-            SettingsPage::Project => self.render_project(tokens),
+            SettingsPage::Project => self.render_project(tokens, cx),
             SettingsPage::RunConfigurations => self.render_run_configurations(tokens, cx),
             SettingsPage::Lsp => self.render_lsp(tokens),
             SettingsPage::Terminal => self.render_terminal(tokens, cx),
@@ -1798,16 +1998,12 @@ impl SettingsView {
     /// 内容区顶部固定 48pt 面包屑：分组 › 页面。
     fn render_breadcrumb(&self, tokens: LitheTokens) -> AnyElement {
         let page = self.page;
-        let mut row = div()
-            .flex()
-            .items_center()
-            .gap(px(6.0))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .child(tr(page.title()))
-                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE)),
-            );
+        let mut row = div().flex().items_center().gap(px(6.0)).child(
+            div()
+                .flex_shrink_0()
+                .child(tr(page.title()))
+                .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE)),
+        );
 
         if page != SettingsPage::Plugins {
             if let Some(group) = page.group() {
@@ -1968,7 +2164,12 @@ impl SettingsView {
                 projects.into_any_element(),
                 tokens,
             ))
-            .child(section_card("Files", None, files.into_any_element(), tokens))
+            .child(section_card(
+                "Files",
+                None,
+                files.into_any_element(),
+                tokens,
+            ))
             .child(section_card(
                 "Hidden paths",
                 None,
@@ -2511,7 +2712,12 @@ impl SettingsView {
                 tokens,
             ))
             .child(section_card("View", None, view.into_any_element(), tokens))
-            .child(section_card("Inline", None, inline.into_any_element(), tokens))
+            .child(section_card(
+                "Inline",
+                None,
+                inline.into_any_element(),
+                tokens,
+            ))
             .child(section_card(
                 "Fetch defaults",
                 None,
@@ -2521,41 +2727,166 @@ impl SettingsView {
             .into_any_element()
     }
 
-    fn render_project(&self, tokens: LitheTokens) -> AnyElement {
-        let details = div()
+    fn render_project(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+        let project_root_row = readonly_row(
+            "Project root",
+            project_root_label(self.context.project_root.as_ref()),
+            tokens,
+        );
+
+        // Maven 设置表单：无项目时展示说明；有项目时四个字段的草稿编辑 +
+        // 检测值提示 + 应用按钮（对齐 Tauri `MavenSettingsForm`）。
+        let Some(root) = self.context.project_root.clone() else {
+            return div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap(px(SETTINGS_SECTION_GAP))
+                .child(section_card(
+                    "Project",
+                    None,
+                    project_root_row.into_any_element(),
+                    tokens,
+                ))
+                .child(note_card(
+                    SharedString::from(tr(
+                        "Open a Maven project to configure its settings.xml, local repository, Maven executable and JDK home.",
+                    )),
+                    tokens,
+                ))
+                .into_any_element();
+        };
+        let _ = root;
+
+        let mut fields = v_flex().w_full().gap(px(SETTINGS_SECTION_GAP));
+        let resolutions = [
+            self.maven_effective.as_ref().map(|e| &e.settings_path),
+            self.maven_effective
+                .as_ref()
+                .map(|e| &e.local_repository_path),
+            self.maven_effective
+                .as_ref()
+                .map(|e| &e.maven_executable_path),
+            self.maven_effective.as_ref().map(|e| &e.java_home_path),
+        ];
+        for (index, (label, _directory)) in Self::MAVEN_FIELDS.iter().enumerate() {
+            let resolution = resolutions[index];
+            let mut row = v_flex()
+                .w_full()
+                .gap(px(4.0))
+                .child(
+                    div()
+                        .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                        .text_color(tokens.primary_text)
+                        .child(tr(label)),
+                )
+                .child(
+                    h_flex()
+                        .w_full()
+                        .gap(px(6.0))
+                        .child(
+                            Input::new(&self.maven_inputs[index])
+                                .small()
+                                .w_full()
+                                .font_family(MONO_FONT_FAMILY),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!(
+                                "lithe-settings:maven-clear:{index}"
+                            )))
+                            .ghost()
+                            .small()
+                            .icon(icon(LitheIcon::Close))
+                            .tooltip(tr("Clear"))
+                            .on_click(cx.listener(
+                                move |this, _: &ClickEvent, _window, cx| {
+                                    let mut pending = this
+                                        .maven_pending_inputs
+                                        .take()
+                                        .unwrap_or_else(|| this.maven_draft_values(cx));
+                                    pending[index] = String::new();
+                                    this.maven_pending_inputs = Some(pending);
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!(
+                                "lithe-settings:maven-browse:{index}"
+                            )))
+                            .ghost()
+                            .small()
+                            .icon(icon(LitheIcon::Folder))
+                            .tooltip(tr("Browse"))
+                            .on_click(cx.listener(
+                                move |this, _: &ClickEvent, _window, cx| {
+                                    this.browse_maven_field(index, cx);
+                                },
+                            )),
+                        ),
+                );
+
+            // 检测值 / 生效值提示（对齐 Tauri `MavenDetectedValue`）。
+            if let Some(resolution) = resolution {
+                let effective = resolution.effective.clone().unwrap_or_default();
+                let detected = resolution.detected.clone().unwrap_or_default();
+                let hint: SharedString = if effective.is_empty() {
+                    tr("Not detected").into()
+                } else if detected.is_empty() || detected == effective {
+                    SharedString::from(format!("{} · {}", tr("In effect"), effective))
+                } else {
+                    SharedString::from(format!(
+                        "{} · {}\n{}: {}",
+                        tr("In effect"),
+                        effective,
+                        tr("Detected"),
+                        detected
+                    ))
+                };
+                row = row.child(
+                    div()
+                        .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                        .text_color(tokens.tertiary_text)
+                        .child(hint),
+                );
+            }
+            fields = fields.child(row);
+        }
+
+        let dirty = self.maven_dirty(cx);
+        let mut card = v_flex()
             .w_full()
-            .flex()
-            .flex_col()
-            .child(readonly_row(
-                "Project root",
-                project_root_label(self.context.project_root.as_ref()),
-                tokens,
-            ))
-            .child(readonly_row(
-                "Maven",
-                SharedString::from(tr(
-                    "JDK and Maven are resolved by Lithe per project; this build does not store a separate JDK or Maven path.",
-                )),
-                tokens,
-            ));
+            .gap(px(SETTINGS_SECTION_GAP))
+            .child(fields);
+        if let Some(error) = self.maven_error.clone() {
+            card = card.child(
+                div()
+                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                    .text_color(tokens.error)
+                    .child(error),
+            );
+        }
+        card = card.child(
+            h_flex().w_full().justify_end().child(
+                Button::new("lithe-settings:maven-apply")
+                    .small()
+                    .h(px(SETTINGS_BUTTON_HEIGHT))
+                    .rounded(px(SETTINGS_BUTTON_RADIUS))
+                    .primary()
+                    .label(tr("Apply"))
+                    .disabled(!dirty)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.apply_maven_configuration(cx);
+                    })),
+            ),
+        );
 
         div()
             .w_full()
             .flex()
             .flex_col()
             .gap(px(SETTINGS_SECTION_GAP))
-            .child(section_card(
-                "Project",
-                None,
-                details.into_any_element(),
-                tokens,
-            ))
-            .child(note_card(
-                SharedString::from(tr(
-                    "JDK and Maven are resolved by Lithe per project; this build does not store a separate JDK or Maven path.",
-                )),
-                tokens,
-            ))
+            .child(section_card("Maven", None, card.into_any_element(), tokens))
             .into_any_element()
     }
 
@@ -2929,7 +3260,14 @@ impl SettingsView {
 }
 
 impl Render for SettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 项目切换后把 Maven 字段的已保存值写进草稿输入框；输入框 API
+        // 需要 Window，统一在拿到 Window 的渲染帧应用。
+        if let Some(values) = self.maven_pending_inputs.take() {
+            for (input, text) in self.maven_inputs.iter().zip(values) {
+                input.update(cx, |state, cx| state.set_value(text, window, cx));
+            }
+        }
         let tokens = current_tokens(cx);
         div()
             .id("lithe-settings")
@@ -2969,27 +3307,22 @@ fn section_card(
     body: AnyElement,
     tokens: LitheTokens,
 ) -> AnyElement {
-    let mut section = div()
-        .w_full()
-        .flex()
-        .flex_col()
-        .gap(px(10.0))
-        .child(
-            div()
-                .w_full()
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(tokens.secondary_text)
-                        .child(tr(title)),
-                )
-                .child(div().flex_1().h(px(1.0)).bg(tokens.divider)),
-        );
+    let mut section = div().w_full().flex().flex_col().gap(px(10.0)).child(
+        div()
+            .w_full()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(tokens.secondary_text)
+                    .child(tr(title)),
+            )
+            .child(div().flex_1().h(px(1.0)).bg(tokens.divider)),
+    );
 
     if let Some(note) = note {
         section = section.child(
@@ -3062,13 +3395,7 @@ fn setting_row(
                 .text_color(tokens.primary_text)
                 .child(tr(label)),
         )
-        .child(
-            div()
-                .min_w(px(0.0))
-                .flex()
-                .items_center()
-                .child(control),
-        )
+        .child(div().min_w(px(0.0)).flex().items_center().child(control))
         .into_any_element()
 }
 

@@ -6,14 +6,14 @@ use gpui_kit::{
 use lithe_features::local_history::format_time;
 use lithe_features::quick_open::{filter_files, index_project};
 use lithe_ui::i18n::tr;
-use lithe_ui::icons::{icon, LitheIcon};
-use lithe_ui::{current_tokens, LitheMetrics};
+use lithe_ui::icons::{LitheIcon, icon};
+use lithe_ui::{LitheMetrics, current_tokens};
 
 use super::super::notifications::NotificationKind;
 use super::super::tabs::file_icon;
 use super::super::{
-    OpenProject, OpenQuickFile, RestoreHistorySnapshot, ShowGit, ShowSearch, ToggleSettings,
-    ToggleTheme, ToggleWrap, Workbench, OVERLAY_CONTEXT,
+    OVERLAY_CONTEXT, OpenProject, OpenQuickFile, RestoreHistorySnapshot, ShowGit, ShowSearch,
+    ToggleSettings, ToggleTheme, ToggleWrap, Workbench,
 };
 use crate::layout;
 
@@ -25,7 +25,11 @@ pub(crate) enum PaletteMode {
 }
 
 impl Workbench {
-    pub(crate) fn render_palette_overlay(&self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_palette_overlay(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let tokens = current_tokens(cx);
         let backdrop_owner = cx.weak_entity();
         let cancel_owner = cx.weak_entity();
@@ -260,7 +264,7 @@ impl Workbench {
         if snapshots.is_empty() {
             self.push_notification(
                 tr("Local History…"),
-                tr("No snapshots yet").into(),
+                Some(tr("No snapshots yet").into()),
                 NotificationKind::Info,
             );
             cx.notify();

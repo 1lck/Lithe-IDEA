@@ -1,15 +1,15 @@
+use super::notifications::NotificationKind;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable, ResizableState};
-use gpui_kit::component::{v_flex, Sizable as _};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::resizable::{ResizableState, h_resizable, resizable_panel, v_resizable};
+use gpui_kit::component::{Sizable as _, v_flex};
 use gpui_kit::{
-    AnyElement, AppContext as _, Context, FontWeight, IntoElement,
-    ParentElement as _, Pixels, RenderOnce as _, Styled as _, Window, div, px,
+    AnyElement, AppContext as _, Context, FontWeight, IntoElement, ParentElement as _, Pixels,
+    RenderOnce as _, SharedString, Styled as _, Window, div, px,
 };
 use lithe_ui::components::tool_window_header::ToolWindowHeader;
 use lithe_ui::i18n::tr;
-use lithe_ui::icons::{icon, LitheIcon};
-use lithe_ui::{current_tokens, LitheMetrics};
+use lithe_ui::icons::{LitheIcon, icon};
+use lithe_ui::{LitheMetrics, current_tokens};
 
 use super::Workbench;
 use crate::layout;
@@ -29,6 +29,7 @@ pub(crate) enum DockAnchor {
 /// 标题栏在 `commit_header` 里渲染，真正的 Git 写操作由 `GitPanel` 执行，
 /// 两者通过这个枚举传递意图，避免布局层直接拼命令。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum CommitHeaderAction {
     StageAll,
     UnstageAll,
@@ -56,6 +57,8 @@ pub(crate) enum ToolWindow {
     Services,
     Extensions,
     Maven,
+    /// 底部停靠的 Maven 构建输出（Tauri 底部面板的 `maven` tab）。
+    MavenOutput,
 }
 
 impl ToolWindow {
@@ -80,6 +83,7 @@ impl ToolWindow {
             Self::Services => "services",
             Self::Extensions => "extensions",
             Self::Maven => "maven",
+            Self::MavenOutput => "maven-output",
         }
     }
 
@@ -104,6 +108,7 @@ impl ToolWindow {
             "services" => Some(Self::Services),
             "extensions" => Some(Self::Extensions),
             "maven" => Some(Self::Maven),
+            "maven-output" => Some(Self::MavenOutput),
             _ => None,
         }
     }
@@ -120,11 +125,10 @@ impl ToolWindow {
             | Self::Tests
             | Self::Debug
             | Self::BuildOutput => DockAnchor::Bottom,
-            Self::Database
-            | Self::Services
-            | Self::Extensions
-            | Self::Agent
-            | Self::Maven => DockAnchor::Right,
+            Self::Database | Self::Services | Self::Extensions | Self::Agent | Self::Maven => {
+                DockAnchor::Right
+            }
+            Self::MavenOutput => DockAnchor::Bottom,
         }
     }
 
@@ -148,6 +152,7 @@ impl ToolWindow {
             Self::Services => tr("Services"),
             Self::Extensions => tr("Extensions"),
             Self::Maven => tr("Maven"),
+            Self::MavenOutput => tr("Maven"),
         }
     }
 
@@ -169,7 +174,7 @@ impl ToolWindow {
             Self::BuildOutput => LitheIcon::BuildOutput,
             Self::Database | Self::Services => LitheIcon::Project,
             Self::Extensions => LitheIcon::Extensions,
-            Self::Maven => LitheIcon::Maven,
+            Self::Maven | Self::MavenOutput => LitheIcon::Maven,
         }
     }
 
@@ -182,7 +187,6 @@ impl ToolWindow {
             Self::Debug => tr("The debugger is not available in this GPUI build."),
             Self::BuildOutput => tr("Build output is not available in this GPUI build."),
             Self::Extensions => tr("Extensions are not available in this GPUI build."),
-            Self::Maven => tr("The Maven tool window is not available in this GPUI build."),
             _ => tr("This tool window is not available in this GPUI build."),
         }
     }
@@ -204,12 +208,20 @@ pub(super) struct ToolState {
 }
 
 impl Workbench {
-    pub(crate) fn set_project_view_dependencies(&mut self, dependencies: bool, cx: &mut Context<Self>) {
+    pub(crate) fn set_project_view_dependencies(
+        &mut self,
+        dependencies: bool,
+        cx: &mut Context<Self>,
+    ) {
         self.project_view_dependencies = dependencies;
         cx.notify();
     }
 
-    pub(crate) fn reveal_active_file_in_tree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn reveal_active_file_in_tree(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(tab_path) = self.active_tab_path() {
             let tree = self.project_tree.clone();
             tree.update(cx, |t, cx| {
@@ -241,7 +253,12 @@ impl Workbench {
         cx.notify();
     }
 
-    pub(super) fn toggle_tool(&mut self, tool: ToolWindow, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn toggle_tool(
+        &mut self,
+        tool: ToolWindow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let anchor = tool.anchor();
         let was_active = self.tool_state(tool).active;
         let was_visible = self.tool_state(tool).visible;
@@ -253,7 +270,12 @@ impl Workbench {
         }
     }
 
-    pub(super) fn show_tool(&mut self, tool: ToolWindow, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn show_tool(
+        &mut self,
+        tool: ToolWindow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let anchor = tool.anchor();
         match anchor {
             DockAnchor::Left => self.active_left = tool,
@@ -271,7 +293,12 @@ impl Workbench {
         }
     }
 
-    pub(crate) fn set_dock_visible(&mut self, anchor: DockAnchor, visible: bool, cx: &mut Context<Self>) {
+    pub(crate) fn set_dock_visible(
+        &mut self,
+        anchor: DockAnchor,
+        visible: bool,
+        cx: &mut Context<Self>,
+    ) {
         let was_visible = match anchor {
             DockAnchor::Left => self.left_visible,
             DockAnchor::Bottom => self.bottom_visible,
@@ -371,7 +398,10 @@ impl Workbench {
         if let Some(tool) = ToolWindow::from_id(&layout.active_left) {
             self.active_left = tool;
         }
-        self.active_bottom = layout.active_bottom.as_deref().and_then(ToolWindow::from_id);
+        self.active_bottom = layout
+            .active_bottom
+            .as_deref()
+            .and_then(ToolWindow::from_id);
         self.active_right = layout.active_right.as_deref().and_then(ToolWindow::from_id);
         self.left_visible = layout.left_visible;
         self.bottom_visible = layout.bottom_visible;
@@ -385,7 +415,12 @@ impl Workbench {
         cx.notify();
     }
 
-    pub(crate) fn refresh_tool(&mut self, tool: ToolWindow, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn refresh_tool(
+        &mut self,
+        tool: ToolWindow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match tool {
             ToolWindow::Project => self.refresh_project_tree(window, cx),
             ToolWindow::Changes => {
@@ -404,7 +439,44 @@ impl Workbench {
                     panel.set_root(root, window, panel_cx);
                 });
             }
+            ToolWindow::Maven => {
+                self.maven.update(cx, |panel, panel_cx| {
+                    panel.refresh(window, panel_cx);
+                });
+            }
             _ => {}
+        }
+    }
+
+    /// Maven 节点菜单的 Run：找到该模块可明确选择的运行配置并启动。
+    ///
+    /// 匹配规则在 `RunPanel` 里；找不到时给出明确提示，不静默失败。
+    pub(crate) fn run_maven_module(
+        &mut self,
+        reactor_path: &str,
+        module_path: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let configuration = self
+            .run_panel
+            .read(cx)
+            .maven_module_run_configuration(reactor_path, module_path);
+        match configuration {
+            Some(id) => {
+                self.show_tool(ToolWindow::Run, window, cx);
+                self.run_panel
+                    .update(cx, |panel, panel_cx| panel.run_configuration(&id, panel_cx));
+            }
+            None => {
+                self.push_notification(
+                    "Maven",
+                    Some(SharedString::from(tr(
+                        "No unambiguous Run configuration is available for this module.",
+                    ))),
+                    NotificationKind::Error,
+                );
+            }
         }
     }
 
@@ -412,7 +484,11 @@ impl Workbench {
     ///
     /// 标题栏只负责呈现，真正的 Git 写操作仍由 `GitPanel` 拥有；这里把菜单
     /// 请求转给同一个实体，避免在布局层复制业务规则。
-    pub(crate) fn commit_header_action(&mut self, action: CommitHeaderAction, cx: &mut Context<Self>) {
+    pub(crate) fn commit_header_action(
+        &mut self,
+        action: CommitHeaderAction,
+        cx: &mut Context<Self>,
+    ) {
         self.git.update(cx, |panel, panel_cx| match action {
             CommitHeaderAction::StageAll => panel.stage_all_changes(panel_cx),
             CommitHeaderAction::UnstageAll => panel.unstage_all_changes(panel_cx),
@@ -453,10 +529,17 @@ impl Workbench {
                 cx.weak_entity(),
                 cx,
             ))
+        } else if tool == ToolWindow::Run
+            || tool == ToolWindow::GitLog
+            || tool == ToolWindow::Maven
+            || tool == ToolWindow::MavenOutput
+        {
+            // 这些面板自带标题行（对齐 Tauri 的面板内标题 + 工具条），
+            // 再叠一层通用标题栏只会重复占高。
+            None
         } else {
             Some(self.render_tool_header(tool, window, cx))
         };
-        let header_is_none = header.is_none();
         let content = self.render_tool_content(tool, cx);
 
         v_flex()
@@ -464,6 +547,9 @@ impl Workbench {
             .min_h(px(0.))
             .min_w(px(0.))
             .rounded(px(LitheMetrics::PANE_RADIUS))
+            .overflow_hidden()
+            .border_1()
+            .border_color(tokens.panel_border)
             .bg(tokens.editor)
             .children(header)
             .child(
@@ -471,9 +557,6 @@ impl Workbench {
                     .flex_1()
                     .min_h(px(0.))
                     .min_w(px(0.))
-                    // 没有标题栏时内容区自己补上顶部圆角，保持与其它工具窗一致。
-                    .when(header_is_none, |this| this.rounded_t(px(LitheMetrics::PANE_RADIUS)))
-                    .rounded_b(px(LitheMetrics::PANE_RADIUS))
                     .overflow_hidden()
                     .child(content),
             )
@@ -515,7 +598,11 @@ impl Workbench {
             .into_any_element()
     }
 
-    pub(super) fn render_tool_content(&self, tool: ToolWindow, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_tool_content(
+        &self,
+        tool: ToolWindow,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         match tool {
             ToolWindow::Project => self.project_tree.clone().into_any_element(),
             ToolWindow::Changes => {
@@ -531,6 +618,8 @@ impl Workbench {
             ToolWindow::Terminal => self.render_terminal_content(cx),
             ToolWindow::Agent => self.agent.clone().into_any_element(),
             ToolWindow::Run => self.run_panel.clone().into_any_element(),
+            ToolWindow::Maven => self.maven.clone().into_any_element(),
+            ToolWindow::MavenOutput => self.maven_output.clone().into_any_element(),
             ToolWindow::PullRequests
             | ToolWindow::References
             | ToolWindow::Spring
@@ -539,12 +628,15 @@ impl Workbench {
             | ToolWindow::BuildOutput
             | ToolWindow::Database
             | ToolWindow::Services
-            | ToolWindow::Extensions
-            | ToolWindow::Maven => self.render_unavailable_tool(tool, cx),
+            | ToolWindow::Extensions => self.render_unavailable_tool(tool, cx),
         }
     }
 
-    pub(super) fn render_unavailable_tool(&self, tool: ToolWindow, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_unavailable_tool(
+        &self,
+        tool: ToolWindow,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let tokens = current_tokens(cx);
         v_flex()
             .size_full()
@@ -610,12 +702,11 @@ impl Workbench {
                 resizable_panel()
                     .size(px(self.left_width))
                     .size_range(layout::LEFT_PANEL_MIN_WIDTH..layout::LEFT_PANEL_MAX_WIDTH)
-                    .child(
-                        div()
-                            .size_full()
-                            .pr(px(6.))
-                            .child(self.render_dock_panel(self.active_left, window, cx)),
-                    ),
+                    .child(div().size_full().pr(px(6.)).child(self.render_dock_panel(
+                        self.active_left,
+                        window,
+                        cx,
+                    ))),
             );
         }
 
@@ -661,7 +752,11 @@ impl Workbench {
             .into_any_element()
     }
 
-    pub(super) fn render_dock_area(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_dock_area(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let owner = cx.weak_entity();
         let mut vertical = v_resizable(layout::VERTICAL_GROUP_ID)
             .with_state(&self.vertical_state)

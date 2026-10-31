@@ -46,6 +46,24 @@ pub enum LitheIcon {
     Menu,
     /// Git 分支入口。
     GitBranch,
+    /// 自动换行折行图标（对齐 Tauri `WrapText`）。
+    WrapText,
+    /// Maven 项目 / 模块 / 依赖节点（对齐 Tauri `PackageIcon`）。
+    Package,
+    /// Maven 运行按钮的停止字形（对齐 Tauri `StopIcon`）。
+    Stop,
+    /// 警告提示（对齐 Tauri `WarningIcon`）。
+    Warning,
+    /// 恢复默认（对齐 Tauri `ArrowCounterClockwiseIcon`）。
+    Restore,
+    /// 最小化（对齐 Tauri `MinusIcon`）。
+    Minus,
+    /// 清空输出（对齐 Tauri `TrashIcon`）。
+    Trash,
+    /// Maven 设置入口（对齐 Tauri `SlidersHorizontalIcon`）。
+    Sliders,
+    /// 全部折叠（对齐 Tauri `ArrowsInIcon`）。
+    CollapseAll,
 }
 
 pub fn icon(icon: LitheIcon) -> gpui_kit::component::Icon {
@@ -68,9 +86,19 @@ pub fn icon(icon: LitheIcon) -> gpui_kit::component::Icon {
         LitheIcon::Terminal => Icon::default().data(TERMINAL_ICON_SVG),
         LitheIcon::Problems => Icon::default().data(PROBLEMS_ICON_SVG),
         LitheIcon::GitLog => Icon::default().data(VCS_ICON_SVG),
+        LitheIcon::WrapText => Icon::default().data(WRAP_TEXT_ICON_SVG),
+        // 全量目录图标：默认图标包没有 package / rotate-ccw / trash。
+        LitheIcon::Package => Icon::new(gpui_kit::assets::IconName::Package),
+        LitheIcon::Restore => Icon::new(gpui_kit::assets::IconName::RotateCcw),
+        LitheIcon::Trash => Icon::new(gpui_kit::assets::IconName::Trash),
+        LitheIcon::Sliders => Icon::new(gpui_kit::assets::IconName::SlidersHorizontal),
+        LitheIcon::CollapseAll => Icon::new(gpui_kit::assets::IconName::ChevronsDownUp),
         _ => Icon::new(name_for(icon)),
     }
 }
+
+/// 自动换行折行图标（对齐 Lucide / Tauri `WrapText`）。
+const WRAP_TEXT_ICON_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" x2="21" y1="6" y2="6"/><line x1="3" x2="15" y1="12" y2="12"/><polyline points="15 8 19 12 15 16"/><path d="M19 12h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H3"/></svg>"#;
 
 /// Tauri Windows 全局菜单图标（四条横杠，windowsMenu@20x20.svg）。
 const WINDOWS_MENU_ICON_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none"><rect x="2" y="2.5" width="16" height="1.5" rx="0.75" fill="currentColor"/><rect x="2" y="7" width="16" height="1.5" rx="0.75" fill="currentColor"/><rect x="2" y="11.5" width="16" height="1.5" rx="0.75" fill="currentColor"/><rect x="2" y="16" width="16" height="1.5" rx="0.75" fill="currentColor"/></svg>"#;
@@ -144,7 +172,19 @@ fn name_for(icon: LitheIcon) -> IconName {
         LitheIcon::Markdown => IconName::BookOpen,
         LitheIcon::Plus => IconName::Plus,
         LitheIcon::More => IconName::Ellipsis,
+        // Maven 工具窗树节点与动作；package / rotate-ccw / trash 只在
+        // 全量图标目录里，与其余跨包图标一样在 `icon()` 里取全量 `IconName`。
+        LitheIcon::Stop => IconName::Square,
+        LitheIcon::Warning => IconName::TriangleAlert,
+        LitheIcon::Minus => IconName::Minus,
         // 由 `icon()` 直接走全量目录；默认图标包没有对应项。
-        LitheIcon::Menu | LitheIcon::GitBranch => unreachable!("handled in icon()"),
+        LitheIcon::Menu
+        | LitheIcon::GitBranch
+        | LitheIcon::WrapText
+        | LitheIcon::Package
+        | LitheIcon::Restore
+        | LitheIcon::Trash
+        | LitheIcon::Sliders
+        | LitheIcon::CollapseAll => unreachable!("handled in icon()"),
     }
 }

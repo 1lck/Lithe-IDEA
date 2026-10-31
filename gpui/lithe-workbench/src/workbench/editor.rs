@@ -1,33 +1,44 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
+use gpui_kit::component::{Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, AppContext as _, Context, InteractiveElement as _, IntoElement, ParentElement as _,
     RenderOnce as _, SharedString, Styled as _, Task, Window, div, px,
 };
-use lithe_features::editor::EditorEvent;
 use lithe_features::EditorSurface;
+use lithe_features::editor::EditorEvent;
 use lithe_ui::components::editor_tabs::{EditorTabItem, EditorTabs};
 use lithe_ui::i18n::tr;
-use lithe_ui::{current_tokens, LitheMetrics};
+use lithe_ui::{LitheMetrics, LitheTokens, current_tokens};
 
 use crate::layout::MARKDOWN_TOOLBAR_HEIGHT;
 
-use super::tabs::is_markdown_path;
 use super::Workbench;
+use super::tabs::is_markdown_path;
 
 impl Workbench {
-    pub(super) fn render_editor_area(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_editor_area(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let tokens = current_tokens(cx);
 
+        let has_secondary = self.editor_secondary.is_some();
         let mut area = v_flex()
             .size_full()
             .min_h(px(0.))
             .min_w(px(0.))
-            .rounded(px(LitheMetrics::PANE_RADIUS))
-            .overflow_hidden()
             .bg(tokens.editor);
+
+        if !has_secondary {
+            area = area
+                .rounded(px(LitheMetrics::PANE_RADIUS))
+                .overflow_hidden()
+                .border_1()
+                .border_color(tokens.panel_border);
+        }
 
         if !self.tabs.is_empty() {
             let items: Vec<EditorTabItem> = self
@@ -62,8 +73,14 @@ impl Workbench {
             area = area.child(self.render_markdown_toolbar(cx));
         }
 
-        let content = if self.project_root.is_none() && self.tabs.is_empty() {
+        let content = if self.commit_diff_visible {
+            // 提交差异是中央编辑区的一页（对齐 Tauri 的 diff 编辑器页），
+            // 优先于普通文件内容显示。
+            self.commit_diff.clone().into_any_element()
+        } else if self.project_root.is_none() && self.tabs.is_empty() {
             self.welcome.clone().into_any_element()
+        } else if self.tabs.is_empty() {
+            render_empty_editor(tokens)
         } else if self.preview_visible && self.active_is_markdown() {
             self.preview.clone().into_any_element()
         } else {
@@ -120,6 +137,8 @@ impl Workbench {
             .min_h(px(0.))
             .rounded(px(LitheMetrics::PANE_RADIUS))
             .overflow_hidden()
+            .border_1()
+            .border_color(tokens.panel_border)
             .child(div().flex_1().min_w(px(0.)).min_h(px(0.)).child(primary))
             .child(div().flex_shrink_0().w(px(1.)).bg(tokens.divider))
             .child(
@@ -132,6 +151,34 @@ impl Workbench {
                     .child(div().flex_1().min_h(px(0.)).min_w(px(0.)).child(secondary)),
             )
             .into_any_element()
+    }
+
+    /// 在中央编辑区打开某个提交里某个文件的差异。
+    ///
+    /// 对齐 Tauri `openCommitDiff`：差异是编辑区的一页，而不是 Log 右栏内容。
+    pub(super) fn open_commit_diff(
+        &mut self,
+        commit: String,
+        path: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let root = self.project_root.clone();
+        let diff = self.commit_diff.clone();
+        diff.update(cx, |view, diff_cx| {
+            view.set_root(root, diff_cx);
+            view.show(commit, path, diff_cx);
+        });
+        self.commit_diff_visible = true;
+        cx.notify();
+    }
+
+    /// 关闭差异页，回到普通编辑器内容。
+    pub(super) fn close_commit_diff(&mut self, cx: &mut Context<Self>) {
+        if self.commit_diff_visible {
+            self.commit_diff_visible = false;
+            cx.notify();
+        }
     }
 
     pub(super) fn render_markdown_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -164,6 +211,7 @@ impl Workbench {
                         Button::new("lithe-markdown-edit")
                             .ghost()
                             .small()
+                            .rounded(px(4.))
                             .label(tr("Editor"))
                             .when(!preview_visible, |this| this.bg(tokens.selection))
                             .on_click({
@@ -180,6 +228,7 @@ impl Workbench {
                         Button::new("lithe-markdown-preview")
                             .ghost()
                             .small()
+                            .rounded(px(4.))
                             .label(tr("Preview"))
                             .when(preview_visible, |this| this.bg(tokens.selection))
                             .on_click(move |_, _window, cx| {
@@ -329,7 +378,11 @@ impl Workbench {
         }
     }
 
-    pub(super) fn commit_editor_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn commit_editor_preferences(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.apply_editor_preferences(window, cx);
         self.settings.save();
         self.sync_settings_view(cx);
@@ -349,17 +402,30 @@ impl Workbench {
         self.commit_editor_preferences(window, cx);
     }
 
-    pub(super) fn toggle_editor_line_numbers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn toggle_editor_line_numbers(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.settings.editor_line_numbers = !self.settings.editor_line_numbers;
         self.commit_editor_preferences(window, cx);
     }
 
-    pub(super) fn toggle_editor_render_whitespace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn toggle_editor_render_whitespace(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.settings.editor_render_whitespace = !self.settings.editor_render_whitespace;
         self.commit_editor_preferences(window, cx);
     }
 
-    pub(super) fn nudge_editor_zoom(&mut self, delta: f32, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn nudge_editor_zoom(
+        &mut self,
+        delta: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.settings.nudge_editor_font_size(delta) {
             self.commit_editor_preferences(window, cx);
         }
@@ -394,7 +460,7 @@ impl Workbench {
             Err(error) => {
                 self.push_notification(
                     tr("Revert"),
-                    SharedString::from(error.to_string()),
+                    Some(SharedString::from(error.to_string())),
                     super::notifications::NotificationKind::Error,
                 );
                 cx.notify();
@@ -415,20 +481,34 @@ impl Workbench {
             }
             EditorEvent::DirtyChanged { path, dirty } => {
                 let identity = super::tabs::file_identity(path);
-                if let Some(tab) = self.tabs.iter_mut().find(|tab| super::tabs::file_identity(&tab.absolute_path) == identity) {
+                if let Some(tab) = self
+                    .tabs
+                    .iter_mut()
+                    .find(|tab| super::tabs::file_identity(&tab.absolute_path) == identity)
+                {
                     tab.modified = *dirty;
                     cx.notify();
                 }
             }
             EditorEvent::Saved { path } => {
                 let identity = super::tabs::file_identity(path);
-                if let Some(tab) = self.tabs.iter_mut().find(|tab| super::tabs::file_identity(&tab.absolute_path) == identity) {
+                if let Some(tab) = self
+                    .tabs
+                    .iter_mut()
+                    .find(|tab| super::tabs::file_identity(&tab.absolute_path) == identity)
+                {
                     tab.modified = false;
                 }
                 self.status_message = Some(tr("Saved").into());
                 self.push_notification(
                     tr("Saved"),
-                    path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string().into(),
+                    Some(
+                        path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file")
+                            .to_string()
+                            .into(),
+                    ),
                     super::notifications::NotificationKind::Success,
                 );
                 cx.notify();
@@ -436,7 +516,7 @@ impl Workbench {
             EditorEvent::SaveFailed { path, message } => {
                 self.push_notification(
                     tr("Save Failed"),
-                    format!("{}: {message}", path.display()).into(),
+                    Some(format!("{}: {message}", path.display()).into()),
                     super::notifications::NotificationKind::Error,
                 );
                 cx.notify();
@@ -445,11 +525,47 @@ impl Workbench {
                 self.pending_save_as = Some((from.clone(), to.clone()));
                 self.push_notification(
                     tr("Saved As"),
-                    to.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string().into(),
+                    Some(
+                        to.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file")
+                            .to_string()
+                            .into(),
+                    ),
                     super::notifications::NotificationKind::Success,
                 );
                 cx.notify();
             }
         }
     }
+}
+
+/// 空编辑器提示视图（对齐 Tauri 侧空卡片）。
+fn render_empty_editor(tokens: LitheTokens) -> AnyElement {
+    v_flex()
+        .size_full()
+        .items_center()
+        .justify_center()
+        .gap(px(8.0))
+        .px(px(16.0))
+        .bg(tokens.editor)
+        .child(
+            Icon::new(IconName::FileSearch)
+                .with_size(px(48.0))
+                .text_color(tokens.tertiary_text),
+        )
+        .child(
+            div()
+                .text_size(px(14.0))
+                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                .text_color(tokens.primary_text)
+                .child(tr("Select a file to review")),
+        )
+        .child(
+            div()
+                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                .text_color(tokens.secondary_text)
+                .child(tr("Changes from external tools will appear automatically.")),
+        )
+        .into_any_element()
 }

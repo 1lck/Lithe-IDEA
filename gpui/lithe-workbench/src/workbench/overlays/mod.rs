@@ -14,7 +14,11 @@ pub(crate) use prompt::PromptAction;
 
 impl Workbench {
     /// 覆盖层入口。没有覆盖层打开时不返回任何元素。
-    pub(crate) fn render_overlay(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(crate) fn render_overlay(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if self.pending_close_tab.is_some()
             && self
                 .tabs

@@ -7,17 +7,18 @@
 //! 刷新按钮属于变更区工具栏（`GitStatusPanel` 的 `toolbarLeading`），不在这里
 //! 重复一份；收起按钮由工具窗容器统一提供。
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_kit::component::{h_flex, Sizable as _};
+use gpui_kit::component::{Icon, Sizable as _, h_flex};
 use gpui_kit::{
-    AnyElement, Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
-    StatefulInteractiveElement as _, Styled as _, WeakEntity, div, px,
+    Anchor, AnyElement, Context, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, StatefulInteractiveElement as _, Styled as _, WeakEntity, div, px,
 };
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, icon};
 
-use crate::workbench::{CommitHeaderAction, Workbench};
+use crate::workbench::{CommitHeaderAction, ToolWindow, Workbench};
 
 /// Tauri `git-commit-tab` 的高度与圆角。
 const COMMIT_TAB_HEIGHT: f32 = 28.0;
@@ -72,33 +73,83 @@ pub(crate) fn render_commit_tool_header(
         .icon(icon(LitheIcon::More).with_size(px(HEADER_ICON_SIZE)))
         .tooltip(tr("Git actions"))
         .accessibility_label(tr("Git actions"))
-        .dropdown_menu({
+        .dropdown_menu_with_anchor(Anchor::TopRight, {
             let owner = actions_owner.clone();
-            move |menu, _, _| {
-                let stage_owner = owner.clone();
-                let unstage_owner = owner.clone();
-                let discard_owner = owner.clone();
+            move |menu, _window, _cx| {
+                let owner_stage = owner.clone();
+                let owner_discard = owner.clone();
+                let owner_stash = owner.clone();
+                let owner_refresh = owner.clone();
+                let owner_branch = owner.clone();
+                let owner_repo = owner.clone();
+
                 menu.item(
-                    PopupMenuItem::new(tr("Stage all changes")).on_click(move |_, _, cx| {
-                        let _ = stage_owner.update(cx, |this, cx| {
-                            this.commit_header_action(CommitHeaderAction::StageAll, cx);
-                        });
-                    }),
-                )
-                .item(
-                    PopupMenuItem::new(tr("Unstage all changes")).on_click(move |_, _, cx| {
-                        let _ = unstage_owner.update(cx, |this, cx| {
-                            this.commit_header_action(CommitHeaderAction::UnstageAll, cx);
-                        });
-                    }),
+                    PopupMenuItem::new(tr("Select Repository"))
+                        .icon(Icon::new(IconName::Folder))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_repo.update(cx, |this, cx| this.pick_project(window, cx));
+                        }),
                 )
                 .separator()
                 .item(
-                    PopupMenuItem::new(tr("Discard selected changes")).on_click(move |_, _, cx| {
-                        let _ = discard_owner.update(cx, |this, cx| {
-                            this.commit_header_action(CommitHeaderAction::DiscardSelected, cx);
-                        });
-                    }),
+                    PopupMenuItem::new(tr("Manage Branches"))
+                        .icon(Icon::new(IconName::GitBranch))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_branch
+                                .update(cx, |this, cx| this.toggle_branch_menu(window, cx));
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(tr("Show Branch Diff"))
+                        .icon(Icon::new(IconName::GitPullRequest))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_stage.update(cx, |this, cx| {
+                                this.show_tool(ToolWindow::GitLog, window, cx)
+                            });
+                        }),
+                )
+                .separator()
+                .item(PopupMenuItem::new(tr("Push Changes")).icon(Icon::new(IconName::Upload)))
+                .item(PopupMenuItem::new(tr("Pull Changes")).icon(Icon::new(IconName::Download)))
+                .item(PopupMenuItem::new(tr("Fetch")).icon(Icon::new(IconName::GitPullRequest)))
+                .separator()
+                .item(PopupMenuItem::new(tr("Manage Remotes")).icon(Icon::new(IconName::HardDrive)))
+                .item(PopupMenuItem::new(tr("Manage Tags")).icon(Icon::new(IconName::Tag)))
+                .item(
+                    PopupMenuItem::new(tr("View Stashes"))
+                        .icon(Icon::new(IconName::Archive))
+                        .on_click(move |_, _, cx| {
+                            let _ = owner_stash
+                                .update(cx, |this, cx| this.set_commit_tab(CommitTab::Stash, cx));
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(tr("Refresh Status"))
+                        .icon(Icon::new(IconName::RotateCw))
+                        .on_click(move |_, window, cx| {
+                            let _ = owner_refresh.update(cx, |this, cx| {
+                                this.refresh_tool(ToolWindow::Changes, window, cx)
+                            });
+                        }),
+                )
+                .separator()
+                .item(PopupMenuItem::new(tr("Manage Worktrees…")).icon(Icon::new(IconName::Folder)))
+                .item(
+                    PopupMenuItem::new(tr("Interactive Rebase Session…"))
+                        .icon(Icon::new(IconName::GitBranch)),
+                )
+                .item(PopupMenuItem::new(tr("Create Patch…")).icon(Icon::new(IconName::Upload)))
+                .item(PopupMenuItem::new(tr("Apply Patch…")).icon(Icon::new(IconName::Download)))
+                .separator()
+                .item(
+                    PopupMenuItem::new(tr("Discard All Changes"))
+                        .icon(Icon::new(IconName::RotateCcw))
+                        .on_click(move |_, _, cx| {
+                            let _ = owner_discard.update(cx, |this, cx| {
+                                this.commit_header_action(CommitHeaderAction::DiscardSelected, cx);
+                            });
+                        }),
                 )
             }
         })

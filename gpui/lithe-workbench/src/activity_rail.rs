@@ -15,16 +15,16 @@
 //!   6. `diagnostics` (问题): `Mod+Shift+J`, `LitheIcon::Problems`
 //!   7. `gitLog` (Git 日志): `Alt+9`, `LitheIcon::GitLog`
 
+use gpui_kit::component::Sizable as _;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::v_flex;
-use gpui_kit::component::Sizable as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, InteractiveElement as _, IntoElement, ParentElement as _,
     StatefulInteractiveElement as _, Styled as _, WeakEntity, div, px,
 };
 use lithe_ui::i18n::tr;
-use lithe_ui::{icon, LitheIcon, LitheMetrics, LitheTokens};
+use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, icon};
 
 use crate::workbench::{ToolWindow, Workbench};
 
@@ -139,12 +139,7 @@ pub(crate) fn render_activity_rail(
 
     for item in &TOP_ACTIVITY_ITEMS {
         let selected = left_visible && active_left == item.tool;
-        top_group = top_group.child(render_activity_slot(
-            item,
-            selected,
-            tokens,
-            owner.clone(),
-        ));
+        top_group = top_group.child(render_activity_slot(item, selected, tokens, owner.clone()));
     }
 
     rail = rail.child(top_group);
@@ -162,12 +157,8 @@ pub(crate) fn render_activity_rail(
 
     for item in &BOTTOM_ACTIVITY_ITEMS {
         let selected = bottom_visible && active_bottom == Some(item.tool);
-        bottom_group = bottom_group.child(render_activity_slot(
-            item,
-            selected,
-            tokens,
-            owner.clone(),
-        ));
+        bottom_group =
+            bottom_group.child(render_activity_slot(item, selected, tokens, owner.clone()));
     }
 
     rail = rail.child(bottom_group);

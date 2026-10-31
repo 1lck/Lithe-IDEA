@@ -5,9 +5,10 @@
 
 mod config;
 mod model;
-mod session;
+/// 供 Maven 工具窗复用 `project-maven` 工具链与 Windows 命令包装。
+pub(crate) mod session;
 mod view;
 
-pub use model::{RunConfiguration, RunDiagnostic, RunExecution, RunScope};
+pub use model::{RunConfiguration, RunDiagnostic, RunExecution, RunLanguage, RunScope};
 pub use session::SessionEvent;
 pub use view::{RunPanel, RunPanelEvent};

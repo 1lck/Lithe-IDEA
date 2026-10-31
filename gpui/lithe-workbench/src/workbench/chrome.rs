@@ -3,17 +3,17 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, Context, Hsla, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
-    RenderOnce as _, SharedString, StatefulInteractiveElement as _, Styled as _, WeakEntity, Window,
-    div, px,
+    AnyElement, Context, Hsla, InteractiveElement as _, IntoElement, MouseButton,
+    ParentElement as _, RenderOnce as _, SharedString, StatefulInteractiveElement as _,
+    Styled as _, WeakEntity, Window, div, px,
 };
 use lithe_ui::i18n::tr;
-use lithe_ui::icons::{icon, LitheIcon};
-use lithe_ui::{current_tokens, LitheMetrics, LitheTokens};
+use lithe_ui::icons::{LitheIcon, icon};
+use lithe_ui::{LitheMetrics, LitheTokens, current_tokens};
 
+use super::Workbench;
 use super::dock::ToolWindow;
 use super::overlays::PaletteMode;
-use super::Workbench;
 use crate::layout;
 use crate::top_bar::TopBar;
 
@@ -23,7 +23,11 @@ pub(super) struct TitleRowDragState {
 }
 
 impl Workbench {
-    pub(super) fn render_title_row(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_title_row(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let drag_state = window.use_state(cx, |_, _| TitleRowDragState { should_move: false });
 
         div()
@@ -110,7 +114,11 @@ impl Workbench {
     }
 
     /// 左侧 40pt 活动栏（完全对齐 Tauri 侧实现，见 `crate::activity_rail`）。
-    pub(super) fn render_activity_rail(&self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_activity_rail(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let tokens = current_tokens(cx);
         let owner = cx.weak_entity();
         crate::activity_rail::render_activity_rail(
@@ -130,10 +138,8 @@ impl Workbench {
     ) -> AnyElement {
         let tokens = current_tokens(cx);
         let owner = cx.weak_entity();
-        let has_unread = self
-            .notifications
-            .iter()
-            .any(|notification| !notification.read);
+        // 未读徽标只统计非 success 的未读（对齐 Tauri NotificationsTrigger）。
+        let has_unread = self.notification_unread_count() > 0;
         let tool_selected = |tool: ToolWindow| {
             !self.notifications_visible && self.right_visible && self.active_right == Some(tool)
         };
@@ -244,15 +250,24 @@ impl Workbench {
         }
     }
 
-    pub(super) fn toggle_notifications(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn toggle_notifications(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.notifications_visible {
             self.notifications_visible = false;
+            self.active_notification = None;
         } else {
+            // 打开面板即全部已读（对齐 Tauri 打开时的 markAllRead）。
             for entry in &mut self.notifications {
                 entry.read = true;
             }
             self.notifications_visible = true;
+            self.active_notification = None;
             self.right_visible = false;
+            // 打开时聚焦搜索框（对齐 Tauri focusNotificationSearch）。
+            if let Some(input) = self.notification_input.clone() {
+                cx.defer_in(window, move |_, window, cx| {
+                    input.update(cx, |state, cx| state.focus(window, cx));
+                });
+            }
         }
         cx.notify();
     }
@@ -285,10 +300,7 @@ fn right_rail_item(
                 this.handle_right_activity_select(id, window, cx)
             });
         })
-        .child(
-            icon.with_size(px(icon_size))
-                .text_color(foreground),
-        );
+        .child(icon.with_size(px(icon_size)).text_color(foreground));
 
     if unread {
         button

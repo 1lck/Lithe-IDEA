@@ -61,6 +61,145 @@ impl RunScope {
     }
 }
 
+/// 配置浏览侧栏的语言分类。
+///
+/// 逐条对齐 Tauri `run-configuration-language.ts`：只按 provider 命名空间和
+/// `category` 归类，**不**参与启动计划、工具链选择或执行语义。`java` 覆盖
+/// maven / gradle / spring-boot 等 JVM 生态，`nodejs` 覆盖 npm / pnpm / yarn /
+/// bun，`tools` 是 make / just / procfile 这类通用任务。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum RunLanguage {
+    Java,
+    NodeJs,
+    Python,
+    Rust,
+    Go,
+    Swift,
+    Php,
+    Ruby,
+    DotNet,
+    /// 外部依赖：Docker Compose 之类。
+    Infrastructure,
+    /// 通用构建工具。
+    Tools,
+    /// 没归类的 provider。
+    Other,
+}
+
+impl RunLanguage {
+    /// 侧栏展示顺序，对齐 Tauri `RUN_LANGUAGE_TITLES` 的键序。
+    pub const ORDER: [Self; 12] = [
+        Self::Java,
+        Self::NodeJs,
+        Self::Python,
+        Self::Rust,
+        Self::Go,
+        Self::Swift,
+        Self::Php,
+        Self::Ruby,
+        Self::DotNet,
+        Self::Infrastructure,
+        Self::Tools,
+        Self::Other,
+    ];
+
+    /// 从 Core 的 provider / category 推断分类。
+    ///
+    /// provider 形如 `maven.spring-boot`、`npm.script`，只看第一段的命名空间；
+    /// 拿不到的命名空间一律进 `Other`，不再回退到 Java——之前按子串猜测会把
+    /// npm / cargo / make 全部误判成 Java，导致 Rust 和 Node 项目的配置显示在
+    /// Java 分类下，切到其它分类后列表为空。
+    pub fn from_configuration(provider: &str, category: Option<&str>) -> Self {
+        if category == Some("infrastructure") {
+            return Self::Infrastructure;
+        }
+        let namespace = provider.split('.').next().unwrap_or(provider);
+        match namespace {
+            "java" | "maven" | "gradle" | "spring-boot" | "quarkus" | "micronaut" => Self::Java,
+            // npm 元数据不能证明源码语言：JS/TS 统一留在同一个生态分类里。
+            "npm" | "pnpm" | "yarn" | "bun" | "node" | "nodejs" | "javascript" | "typescript" => {
+                Self::NodeJs
+            }
+            "python" => Self::Python,
+            "cargo" | "rust" => Self::Rust,
+            "go" => Self::Go,
+            "swift" => Self::Swift,
+            "php" => Self::Php,
+            "ruby" => Self::Ruby,
+            "dotnet" | "csharp" | "fsharp" => Self::DotNet,
+            "docker" | "compose" => Self::Infrastructure,
+            "make" | "just" | "procfile" => Self::Tools,
+            _ => Self::Other,
+        }
+    }
+
+    /// 稳定 key：用于元素 id 和“记住用户切到哪个分类”，不参与界面文案。
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Java => "java",
+            Self::NodeJs => "nodejs",
+            Self::Python => "python",
+            Self::Rust => "rust",
+            Self::Go => "go",
+            Self::Swift => "swift",
+            Self::Php => "php",
+            Self::Ruby => "ruby",
+            Self::DotNet => "dotnet",
+            Self::Infrastructure => "infrastructure",
+            Self::Tools => "tools",
+            Self::Other => "other",
+        }
+    }
+
+    /// 从 [`Self::key`] 恢复；未知 key 返回 `None`。
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ORDER
+            .into_iter()
+            .find(|language| language.key() == key)
+    }
+
+    /// 侧栏分组标题。
+    ///
+    /// 必须经过 `tr`：生成脚本靠字面量扫描收词条，绕过它会在系统语言与应用
+    /// 语言不一致时漏出错误语言。注意 `"Go"` 是 View > Go 菜单的动词（转到），
+    /// 编程语言 Go 的词条 key 是 `"Go language"`——`provider_title` 也用它。
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Java => tr("Java"),
+            Self::NodeJs => tr("Node.js"),
+            Self::Python => tr("Python"),
+            Self::Rust => tr("Rust"),
+            Self::Go => tr("Go language"),
+            Self::Swift => tr("Swift"),
+            Self::Php => tr("PHP"),
+            Self::Ruby => tr("Ruby"),
+            Self::DotNet => tr(".NET"),
+            Self::Infrastructure => tr("Infrastructure"),
+            Self::Tools => tr("Build tools"),
+            Self::Other => tr("Other"),
+        }
+    }
+
+    /// 侧栏图标。GPUI 的 `LitheIcon` 没有逐语言图标，已实现的生态用最接近的
+    /// 现有图标，其余用通用代码图标。
+    pub fn icon(self) -> LitheIcon {
+        match self {
+            Self::Java => LitheIcon::Java,
+            Self::Infrastructure => LitheIcon::Terminal,
+            Self::Tools => LitheIcon::BuildOutput,
+            Self::NodeJs
+            | Self::Python
+            | Self::Rust
+            | Self::Go
+            | Self::Swift
+            | Self::Php
+            | Self::Ruby
+            | Self::DotNet
+            | Self::Other => LitheIcon::File,
+        }
+    }
+}
+
 /// 一条 Core 运行配置。
 #[derive(Clone, Debug)]
 pub struct RunConfiguration {
@@ -79,6 +218,15 @@ pub struct RunConfiguration {
 }
 
 impl RunConfiguration {
+    /// 语言分类。`infrastructure` 字段来自 Core 的 `category`，与
+    /// `RunLanguage::from_configuration` 保持同一判据。
+    pub fn language(&self) -> RunLanguage {
+        RunLanguage::from_configuration(
+            &self.provider,
+            self.infrastructure.then_some("infrastructure"),
+        )
+    }
+
     pub fn from_json(value: &Value) -> Option<Self> {
         let id = value.get("id")?.as_str()?.to_string();
         let name = value
@@ -192,6 +340,14 @@ impl RunConfiguration {
         self.extensions
             .get("maven")
             .and_then(|maven| maven.get("module"))
+            .and_then(Value::as_str)
+    }
+
+    /// Maven 反应堆根（工作区相对）；没有 Maven 扩展时返回 `None`。
+    pub fn maven_reactor_path(&self) -> Option<&str> {
+        self.extensions
+            .get("maven")
+            .and_then(|maven| maven.get("reactorPath"))
             .and_then(Value::as_str)
     }
 }

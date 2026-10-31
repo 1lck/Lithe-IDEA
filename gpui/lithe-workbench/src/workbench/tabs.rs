@@ -71,6 +71,10 @@ impl Workbench {
             return;
         };
 
+        // 打开真实文件时收起提交差异页：差异页占用整个编辑区，
+        // 继续显示会让用户点文件后看不到内容。
+        self.close_commit_diff(cx);
+
         let (absolute, relative) = match resolve_project_file(&root, &requested) {
             Ok(resolved) => resolved,
             Err(message) => {
@@ -193,7 +197,12 @@ impl Workbench {
         cx.notify();
     }
 
-    pub(super) fn activate_index(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn activate_index(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(tab) = self.tabs.get(index) else {
             return;
         };
@@ -213,6 +222,8 @@ impl Workbench {
 
     pub(super) fn select_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(index) = self.tabs.iter().position(|tab| tab.id.as_ref() == id) {
+            // 切回普通文件时收起提交差异页，否则差异会一直盖住选中的文件。
+            self.close_commit_diff(cx);
             self.activate_index(index, window, cx);
         }
     }
@@ -249,7 +260,8 @@ impl Workbench {
             .is_some_and(|active| active.as_ref() == id);
         let closed = self.tabs.remove(index);
 
-        if !closed.id.starts_with("untitled:") && !self.closed_tabs.contains(&closed.absolute_path) {
+        if !closed.id.starts_with("untitled:") && !self.closed_tabs.contains(&closed.absolute_path)
+        {
             self.closed_tabs.push(closed.absolute_path.clone());
             if self.closed_tabs.len() > 20 {
                 self.closed_tabs.remove(0);
@@ -362,6 +374,25 @@ impl Workbench {
         self.save_active_as(window, cx);
     }
 
+    /// 启动前把所有脏缓冲写盘。
+    ///
+    /// Run 面板通过 `on_before_launch` 回调查调这里。与 File > Save All 走同一个
+    /// 前端入口（Monaco 自己判断哪些模型需要保存），宿主不按自己的脏标记挑文件：
+    /// Rust 侧的 `dirty` 有 150ms 防抖，刚敲完立刻点 Run 会漏掉最新修改。
+    ///
+    /// 保存本身是异步的（`saveAll` 发出后前端逐个提交 `save` 请求）。这里不做
+    /// 阻塞等待：Run 启动也在后台线程里读文件，二者并发时最坏是跑到保存前的
+    /// 版本，而不会丢用户的修改；真正的“等保存完成再启动”需要编辑器回报
+    /// 保存完成事件，属于后续增强。
+    pub(super) fn save_all_before_launch(&mut self, cx: &mut Context<Self>) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        self.editor.update(cx, |editor, editor_cx| {
+            editor.save_all(editor_cx);
+        });
+    }
+
     pub(super) fn close_other_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let active = self.active_tab.clone().map(|id| id.to_string());
         let ids: Vec<String> = self
@@ -413,11 +444,17 @@ impl Workbench {
             .as_ref()
             .and_then(|active| self.tabs.iter().position(|tab| &tab.id == active))
             .unwrap_or(0);
-        let next_index = (current_index as isize + offset).rem_euclid(self.tabs.len() as isize) as usize;
+        let next_index =
+            (current_index as isize + offset).rem_euclid(self.tabs.len() as isize) as usize;
         self.activate_index(next_index, window, cx);
     }
 
-    pub(super) fn navigate_history(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn navigate_history(
+        &mut self,
+        back: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if back {
             if let Some(path) = self.nav_back.pop() {
                 if let Some(current) = self.active_tab_path() {
@@ -528,12 +565,8 @@ fn resolve_project_file(root: &Path, requested: &Path) -> Result<(PathBuf, Strin
         root.join(requested)
     };
 
-    let canonical_root = root
-        .canonicalize()
-        .unwrap_or_else(|_| root.to_path_buf());
-    let canonical_target = absolute
-        .canonicalize()
-        .unwrap_or_else(|_| absolute.clone());
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical_target = absolute.canonicalize().unwrap_or_else(|_| absolute.clone());
 
     if let Ok(relative) = canonical_target.strip_prefix(&canonical_root) {
         let text = relative.to_string_lossy().replace('\\', "/");
