@@ -974,6 +974,7 @@
 "Copy worktree path" = "Copy worktree path";
 "Could not check for updates" = "Could not check for updates";
 "Could not check for updates." = "Could not check for updates.";
+"Could not clear this project's local history. Check storage permissions and try again." = "Could not clear this project's local history. Check storage permissions and try again.";
 "Could not compare the local adapter with the verified version." = "Could not compare the local adapter with the verified version.";
 "Could not confirm" = "Could not confirm";
 "Could not connect to the Debug Adapter: %@" = "Could not connect to the Debug Adapter: %@";
@@ -4791,6 +4792,7 @@
 "git.rollback.warning" = "Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe.";
 "git.status.refreshFailed" = "Could not refresh Git status. Refresh to verify the changes.";
 "git.unifiedView" = "Unified view";
+"history.clearFailed" = "Could not clear this project's local history. Check storage permissions and try again.";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "java.launch.error.buildCancelled" = "The Java project build was cancelled before it finished.";
 "java.launch.error.buildFailed" = "The Java language service could not complete the project build. Check the Java language server log for the build error.";

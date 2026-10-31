@@ -214,6 +214,16 @@ final class AppSettings: ObservableObject {
     }
     static let defaultLocalHistoryStorageLimitMegabytes = 100
     static let localHistoryStorageLimitRange = 50...5000
+    /// Accept a whole nonnegative number, optionally followed by the displayed unit.
+    nonisolated static func parseLocalHistoryStorageLimitMegabytes(_ input: String) -> Int? {
+        var number = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if number.uppercased().hasSuffix("MB") {
+            number = String(number.dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !number.isEmpty, number.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
+        return Int(number)
+    }
+
     /// Per-project local history cap in MB (1 MB = 1024 × 1024 bytes).
     @Published var localHistoryStorageLimitMegabytes: Int {
         didSet {

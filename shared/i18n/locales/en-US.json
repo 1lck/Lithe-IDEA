@@ -9728,7 +9728,8 @@
     "native.localHistoryFormat": "Local history: {arg1}",
     "native.gitIgnored": "Git: ignored",
     "native.gitNotIgnored": "Git: not ignored",
-    "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx35941b6a99": "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them."
+    "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx35941b6a99": "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.",
+    "history.clearFailed": "Could not clear this project's local history. Check storage permissions and try again."
   },
   "overrides": {
     "windows": {

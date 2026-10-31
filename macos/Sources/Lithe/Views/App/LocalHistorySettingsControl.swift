@@ -24,13 +24,23 @@ struct LocalHistorySettingsControl: View {
     @State private var builtInPatterns: [String]?
     @State private var testPath = ""
     @State private var preview: LocalHistoryIgnorePreview?
-    @State private var usage: LocalHistoryUsage?
+    @StateObject private var storage = LocalHistoryStorageSettingsModel()
     @State private var isConfirmingClear = false
-    @State private var isClearing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             storageRow
+            if storage.clearFailed {
+                HStack(spacing: 6) {
+                    Label("Could not clear this project's local history. Check storage permissions and try again.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.warning)
+                    Button("Retry") { isConfirmingClear = true }
+                        .buttonStyle(LitheActionButtonStyle())
+                        .disabled(storage.isClearing)
+                }
+            }
             LitheSettingsSegmentedControl(selection: $kind, options: [.wildcard, .regex], width: 240) {
                 switch $0 {
                 case .wildcard: "Wildcard"
@@ -59,7 +69,7 @@ struct LocalHistorySettingsControl: View {
         .onAppear(perform: syncDrafts)
         .onChange(of: settings.localHistoryIgnorePatterns) { _ in syncDrafts() }
         .onChange(of: settings.localHistoryIgnoreRegexes) { _ in syncDrafts() }
-        .task { usage = await model.localHistoryUsage() }
+        .task { await storage.refreshUsage { await model.localHistoryUsage() } }
         .task(id: previewKey) {
             let input = previewKey
             // Debounce typing; a newer draft cancels this task.
@@ -89,7 +99,7 @@ struct LocalHistorySettingsControl: View {
     @ViewBuilder
     private var storageRow: some View {
         HStack(spacing: 6) {
-            if let usage {
+            if let usage = storage.usage {
                 Text("Used")
                     .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.tertiaryText)
@@ -100,10 +110,10 @@ struct LocalHistorySettingsControl: View {
                 limitStepper
                 Spacer(minLength: 8)
                 Button { isConfirmingClear = true } label: {
-                    isClearing ? Text("Clearing…") : Text("Clear Project History…")
+                    storage.isClearing ? Text("Clearing…") : Text("Clear Project History…")
                 }
                     .buttonStyle(LitheActionButtonStyle())
-                    .disabled(isClearing || usage.usedBytes == 0)
+                    .disabled(storage.isClearing || usage.usedBytes == 0)
             } else {
                 Text("Limit per project")
                     .font(LitheTheme.uiFont(size: 11))
@@ -126,17 +136,17 @@ struct LocalHistorySettingsControl: View {
             width: 126,
             accessibilityLabel: "Local history limit per project",
             title: { "\($0) MB" },
-            parse: { Int($0.filter(\.isNumber)) }
+            parse: AppSettings.parseLocalHistoryStorageLimitMegabytes
         )
         .help(Text("When the limit is reached, the oldest versions are removed first."))
     }
 
     private func clear() {
-        isClearing = true
         Task {
-            _ = await model.clearLocalHistory()
-            usage = await model.localHistoryUsage()
-            isClearing = false
+            await storage.clear(
+                using: { await model.clearLocalHistory() },
+                readUsage: { await model.localHistoryUsage() }
+            )
         }
     }
 

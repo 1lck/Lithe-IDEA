@@ -974,6 +974,7 @@
 "Copy worktree path" = "复制工作树路径";
 "Could not check for updates" = "无法检查更新";
 "Could not check for updates." = "无法检查更新。";
+"Could not clear this project's local history. Check storage permissions and try again." = "无法清空此项目的本地历史。请检查存储目录权限后重试。";
 "Could not compare the local adapter with the verified version." = "无法比较本地适配器与已核验版本。";
 "Could not confirm" = "无法确认";
 "Could not connect to the Debug Adapter: %@" = "无法连接调试适配器：%@";
@@ -4791,6 +4792,7 @@
 "git.rollback.warning" = "将回滚勾选文件中已暂存和未暂存的更改。Lithe 无法撤销此操作。";
 "git.status.refreshFailed" = "无法刷新 Git 状态。请刷新以确认更改结果。";
 "git.unifiedView" = "统一视图";
+"history.clearFailed" = "无法清空此项目的本地历史。请检查存储目录权限后重试。";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "java.launch.error.buildCancelled" = "Java 项目构建在完成前已被取消。";
 "java.launch.error.buildFailed" = "Java 语言服务未能完成项目构建，请查看 Java 语言服务器日志了解构建错误。";

@@ -93140,6 +93140,17 @@
         "key": "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`. The list starts with built-in dependency, cache and build output folders such as `**/node_modules/`; delete a line to record that folder again.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.",
         "arguments": []
       }
+    },
+    {
+      "id": "history.clearFailed",
+      "description": "Native UI: local history storage clear failure with an explicit retry action.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not clear this project's local history. Check storage permissions and try again.",
+        "arguments": []
+      }
     }
   ]
 }
