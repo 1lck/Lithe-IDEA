@@ -326,7 +326,8 @@ Windows 临时运行模型增量（2026-10-31）：已保存引用和准入后�
 原始参数；实际新版 JVM/环境/cwd/入口/Debug 选项仍由 Core 拒绝不兼容后端。
 验证报告以 `stage-d-private-run-final`、`stage-d-private-run-core-final`、
 `stage-d-windows-private-run-final/` 和 `stage-d-private-run-swift-regressions` 为准；
-受影响前端 427 项通过；真实 Core→Maven 11 项通过，临时 Profiles 1.669 秒，
+受影响前端 427 项、Core/集成 1437 项、Swift 292 项及最终桥接 19 项通过；
+真实 Core→Maven 11 项通过，临时 Profiles 1.669 秒，
 配置选择另一 Maven 入口并继续使用共享后端 1.921 秒，默认模型/选项和包字节不变。
 每项运行的工具覆盖、空值继承、团队合并及来源只读由新增共享 fixture 验证。
 未进行原生 Windows 验收。
