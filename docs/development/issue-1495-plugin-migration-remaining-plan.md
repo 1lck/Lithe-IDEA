@@ -304,11 +304,32 @@ Windows 已保存 Provider Run 增量（2026-10-31）：Core 的公共 Run 选�
 真实 Windows TypeScript→Core→Maven Provider 的集成补上只读来源检查，九项均
 通过，新增模块 Run 规划 137ms；默认模型/选项和开发包文件清单保持不变，后端已
 清理。报告在 `.artifacts/test-stability/stage-d-windows-real-run/`；测试运行于 macOS，
-不代表 Windows 原生启动验收。当前只支持已保存引用的默认模型，目标树 Run/Debug、
-临时 Profiles、旧配置/Java/Agent 迁移与正式发行仍未完成，能力准入继续关闭。
+不代表 Windows 原生启动验收。该批当时仅覆盖已保存引用的默认模型；后续临时模型增量见下。目标树 Run/Debug、
+旧配置/Java/Agent 迁移与正式发行仍未完成，能力准入继续关闭。
 
 本批 Windows Build/共享进程所有者 100 项、完整 Run 335 项计时通过，覆盖共享模型
 取消、原生启动迟到、失败清理重试、参数编辑后拒绝旧计划和会话替换事件隔离。
 TypeScript、生产 bundle、共享/服务/Windows 边界、172 Notes、222 矩阵、测试稳定性
 和 bundle 只读检查通过。报告为 `stage-d-build-run-final`、`stage-d-windows-run-final`
 及 `stage-d-build-run-*`；Windows host check 仍只含两项既有 macOS 平台 API 错误。
+
+Windows 临时运行模型增量（2026-10-31）：已保存引用和准入后的已有框架/模块配置
+都从 Core 的当前输入准备，保持已有服务 ID。每个 Run 使用自己的有效模型、Profiles
+和 reactor 工具选择，再应用运行配置明确保存的 Maven/JDK 路径。Core 复用原有配置
+合并，空路径继承 reactor；不把全局默认误当成单项覆盖。单项模型直接加载，不再
+依赖默认模型及默认工具可用，原生来源观察独立释放；后端会话继续由工作区拥有，关闭
+一个临时模型不会停止其他服务。启动前只读重新检测，未变化目录保留身份，漏文件
+通知也能发现新的团队选项。Native exit 早于启动确认时仍等待清理，失败保留所有者；
+同一次 Stop 不自动重试失败清理。原生能力表保持关闭，旧框架生产入口继续原路线。
+
+共享保存引用 fixture 增加旧应用参数通道约束，macOS/Windows 都保留协议 4 的
+原始参数；实际新版 JVM/环境/cwd/入口/Debug 选项仍由 Core 拒绝不兼容后端。
+验证报告以 `stage-d-private-run-final`、`stage-d-private-run-core-final`、
+`stage-d-windows-private-run-final/` 和 `stage-d-private-run-swift-regressions` 为准；
+受影响前端 427 项通过；真实 Core→Maven 11 项通过，临时 Profiles 1.669 秒，
+配置选择另一 Maven 入口并继续使用共享后端 1.921 秒，默认模型/选项和包字节不变。
+每项运行的工具覆盖、空值继承、团队合并及来源只读由新增共享 fixture 验证。
+未进行原生 Windows 验收。
+
+目标树 Run/Debug、同一临时输入的 JDT/资源准备、Agent、旧偏好迁移和其余生产消费者
+替换仍未完成；正式 SDK/插件发行及完整两端验收仍是退出条件，阶段 D 不关闭。

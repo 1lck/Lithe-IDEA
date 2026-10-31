@@ -54,6 +54,7 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
   const executePreLaunchStep = mock(async () => ({ exitCode: 0, output: "compiled\n" }));
   const startRunProcess = mock(async () => undefined);
   const dependencies: RunStoreDependencies = {
+      isBuildProviderRunAdmitted: async () => false,
     createLaunchPlan,
     mavenLaunchContextForWorkspace: mock(async () => null),
     resolveRunLaunch,

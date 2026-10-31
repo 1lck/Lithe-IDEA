@@ -1,6 +1,17 @@
 import { expect, test } from "bun:test";
 import { ExtensionProcessOwner } from "@/extensions/run/extension-process-owner";
 
+test("late catalog ownership cannot relabel a replacement execution", async () => {
+  const owner = new ExtensionProcessOwner(); let release!: () => void, entered!: () => void, stopped = 0;
+  const gate = new Promise<void>(resolve => { release = resolve; }), binding = new Promise<void>(resolve => { entered = resolve; });
+  const first = owner.start("same", "workspace", "", async bind => { entered(); await gate; bind("old-plugin"); }, async () => {}).catch(() => "retired");
+  try {
+    await binding; await owner.start("same", "workspace", "new-plugin", async () => {}, async () => { stopped++; });
+    release(); expect(await first).toBe("retired"); await owner.stop(undefined, "old-plugin"); expect(stopped).toBe(0);
+    await owner.stop(undefined, "new-plugin"); expect(stopped).toBe(1);
+  } finally { release(); await first; await owner.stop(); }
+}, 5000);
+
 test("disable waits for an in-flight start and stops the late process", async () => {
   const owner = new ExtensionProcessOwner();
   let release!: () => void;

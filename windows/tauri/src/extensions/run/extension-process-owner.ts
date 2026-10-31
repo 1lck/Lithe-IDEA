@@ -10,12 +10,15 @@ export class ExtensionProcessOwner {
     id: string,
     workspaceId: string,
     extensionId: string,
-    launch: () => Promise<void>,
+    launch: (bindExtension: (extensionId: string) => void) => Promise<void>,
     stop: () => Promise<void>,
     options?: { cancel: () => void; stopOnFailedStart?: boolean },
   ) {
     // Schedule launch after registration, including synchronous launch failures.
-    const ready = Promise.resolve().then(launch);
+    const ready = Promise.resolve().then(() => launch(extensionId => {
+      if (this.processes.get(id) !== entry) throw new DOMException("Aborted", "AbortError");
+      entry.extensionId = extensionId;
+    }));
     const entry = { extensionId, workspaceId, ready, stop, options };
     this.processes.set(id, entry);
     try {

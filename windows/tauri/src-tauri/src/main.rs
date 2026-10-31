@@ -307,6 +307,7 @@ fn main() {
                             run::run_stop_owned_processes,
                             plugin_host::lifecycle::declarative_plugins_lifecycle_ack,
                             plugin_host::declarative_plugins_rescan,
+                            plugin_host::declarative_plugins_host_capabilities,
                             plugin_host::declarative_plugins_state,
                             plugin_host::web::declarative_plugins_web_open_file_ack,
                             plugin_host::web::declarative_plugins_web_resolve_file,

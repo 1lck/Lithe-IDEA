@@ -9,7 +9,7 @@ const windowListen = mock(async (event: string, handler: (event: { payload: unkn
 });
 const globalListen = mock(async () => () => {});
 const appendOutput = mock(() => undefined);
-const finishProcess = mock(() => undefined);
+const finishProcess = mock((): boolean | void => undefined);
 const releaseRunSessionWorkspace = mock(() => undefined);
 const declarativeFinished = mock(() => undefined);
 let executionSnapshot: { primaryExecutionId?: string; sessions?: Array<{ id: string; executionId: string }> } = {};
@@ -97,6 +97,13 @@ describe("run process event listeners", () => {
     exit?.({ payload: { sessionId: "primary", executionId: "new-execution", exitCode: 0 } });
     expect(appendOutput).toHaveBeenCalledWith("primary", "current");
     expect(declarativeFinished).toHaveBeenCalledWith("new-execution");
+  }, 5000);
+
+  test("Provider-owned exit leaves asynchronous source cleanup with its existing Run owner", async () => {
+    await ensureRunProcessListeners(); executionSnapshot = { primaryExecutionId: "provider-execution" };
+    finishProcess.mockImplementation(() => true);
+    eventHandlers.get("run-exit")?.({ payload: { sessionId: "primary", executionId: "provider-execution", exitCode: 0 } });
+    expect(finishProcess).toHaveBeenCalledWith("primary", 0); expect(declarativeFinished).not.toHaveBeenCalled();
   }, 5000);
 
   test("a restart triggered by exit publication retains its new session binding", () => {

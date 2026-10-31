@@ -2,7 +2,6 @@ import type { WindowsBuildCatalog } from "@/platform/build-provider-platform";
 import type { BuildInstance, WindowsBuildProviderWorkspace } from "./build-provider-workspace";
 import { BuildNativeConfigurationController } from "./build-native-configuration-controller";
 import { buildCatalogMayChange } from "./build-file-inputs";
-import { BuildModelPreparationOwner } from "./build-model-preparation-owner";
 
 export type BuildEntry = WindowsBuildCatalog["detection"]["instances"][number];
 export interface BuildWorkspaceSnapshot {
@@ -33,12 +32,10 @@ export class BuildWorkspaceController {
   private cancelScheduledRefresh?: () => void;
   private readonly nativeEditors = new Map<string, BuildNativeConfigurationController>();
   readonly domain: WindowsBuildProviderWorkspace;
-  readonly modelPreparation: BuildModelPreparationOwner;
   private readonly unsubscribeFacts: () => void;
 
   constructor(readonly workspacePath: string, private readonly ports: BuildWorkspaceControllerPorts) {
     this.domain = ports.domain;
-    this.modelPreparation = new BuildModelPreparationOwner(this.domain);
     this.unsubscribeFacts = this.domain.subscribeFacts(() => {
       if (!this.disposed) this.publish({ modelRevision: this.state.modelRevision + 1 });
     });
@@ -80,9 +77,42 @@ export class BuildWorkspaceController {
     const finished = () => { if (this.detection?.completion === completion) this.detection = undefined; };
     void completion.then(finished, finished); return completion;
   }
-  ensureDetected(): Promise<void> {
-    if (this.state.status === "ready" || this.disposed) return Promise.resolve();
-    return this.detection?.generation === this.generation ? this.detection.completion : this.refresh();
+  ensureDetected(checkReadyInputs = false): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    if (this.detection?.generation === this.generation) return this.detection.completion;
+    if (this.state.status !== "ready") return this.refresh();
+    if (!checkReadyInputs) return Promise.resolve();
+    const generation = this.generation, guard = this.ports.guard();
+    const completion = this.own((async () => {
+      try {
+        const catalog = await this.ports.detect(this.workspacePath);
+        if (this.disposed || generation !== this.generation) return;
+        const manifests: Record<string, Record<string, unknown>> = {};
+        for (const { manifest } of catalog.plugins) {
+          if (typeof manifest.id !== "string") continue;
+          try { guard(manifest.id); manifests[manifest.id] = manifest; } catch { /* Revoked entries stay unavailable. */ }
+        }
+        const entries = catalog.detection.instances.filter(entry => manifests[entry.pluginID]);
+        // A Run rechecks canonical saved options even if a file notification
+        // was missed. Unchanged catalogs retain their object/model identities
+        // so concurrent services do not cancel each other's preparations.
+        if (JSON.stringify({ entries, manifests }) === JSON.stringify({ entries: this.state.entries, manifests: this.state.manifests })) return;
+        for (const entry of this.state.entries) this.domain.invalidate(entry);
+        this.generation++;
+        if (this.detection) this.detection.generation = this.generation;
+        this.publish({ status: "ready", entries, manifests, error: undefined, modelRevision: this.state.modelRevision + 1,
+          selectedID: entries.some(entry => entry.id === this.state.selectedID) ? this.state.selectedID : entries[0]?.id });
+      } catch (error) {
+        if (this.disposed || generation !== this.generation) return;
+        for (const entry of this.state.entries) this.domain.invalidate(entry);
+        this.generation++;
+        this.publish({ status: "failed", entries: [], manifests: {}, modelRevision: this.state.modelRevision + 1,
+          error: error instanceof Error ? error.message : String(error) });
+      }
+    })());
+    this.detection = { generation, completion };
+    const finished = () => { if (this.detection?.completion === completion) this.detection = undefined; };
+    void completion.then(finished, finished); return completion;
   }
   select(id: string): void { if (this.state.entries.some(entry => entry.id === id)) this.publish({ selectedID: id, error: undefined }); }
 
@@ -147,7 +177,6 @@ export class BuildWorkspaceController {
 
   async dispose(): Promise<void> {
     this.disposed = true; this.generation++;
-    this.modelPreparation.dispose();
     this.cancelScheduledRefresh?.(); this.cancelScheduledRefresh = undefined;
     this.unsubscribeFacts();
     for (const editor of this.nativeEditors.values()) editor.dispose();

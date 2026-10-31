@@ -91477,7 +91477,8 @@
       "id": "native.buildOptionInvalid",
       "description": "Agent build configuration: The build option value is invalid. Inspect its current kind and choices.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The build option value is invalid. Inspect its current kind and choices.",

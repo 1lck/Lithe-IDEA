@@ -1,6 +1,7 @@
 //! Read-only project tool paths for an authoritative workspace-relative owner.
 //! Platforms discover/probe executables; Core resolves only saved Run defaults
-//! and the nearest path override, without inspecting a POM or running a tool.
+//! the nearest path override, and explicit per-Run paths. It never inspects
+//! a POM or runs a tool.
 
 use super::{existing_root, local_layer_document, read_local_toolchains, validate_version_value};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
@@ -19,6 +20,10 @@ pub(crate) struct ProjectToolchainRequest {
     /// Optional host-owned replacement for the local Run document.
     #[serde(default)]
     pub(crate) local_document: Option<Value>,
+    /// Optional Run whose explicit path overrides take precedence over the
+    /// canonical project/reactor selection. Empty fields keep that selection.
+    #[serde(default)]
+    pub(crate) configuration_id: Option<String>,
 }
 
 /// Returns paths, never resolved executables. Empty override fields inherit the
@@ -88,12 +93,62 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
             .trim()
             .to_string()
     };
-    Ok(json!({ "toolchain": {
+    let mut result = json!({ "toolchain": {
         "javaHomePath": path("javaHomePath", &java),
         "mavenExecutablePath": path("mavenExecutablePath", &maven),
         "mavenJavaHomePath": path("mavenJavaHomePath", &maven_java),
         "runtimeExecutablePaths": runtimes,
-    }}))
+    }});
+    if let Some(id) = request.configuration_id.as_deref() {
+        let mut explicit = document.clone();
+        // Reuse the existing layer merge, without materializing global
+        // defaults as if they were per-configuration choices. The caller's
+        // canonical reactor defaults have already been selected above.
+        explicit
+            .as_object_mut()
+            .ok_or_else(invalid_paths)?
+            .remove("toolchain");
+        let resolved = super::resolve(super::ResolveRequest {
+            root: root.to_string_lossy().into_owned(),
+            toolchain_candidates: Vec::new(),
+            local_document: Some(explicit),
+        })?;
+        let config = resolved["configurations"]
+            .as_array()
+            .and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item["id"] == id && item["disabled"] != true)
+            })
+            .ok_or_else(|| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Run configuration is unavailable",
+                )
+            })?;
+        for owner in [
+            &config["extensions"]["build"]["root"],
+            &config["extensions"]["maven"]["reactorPath"],
+        ] {
+            if owner.as_str().is_some_and(|owner| owner != request.path) {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Run configuration belongs to a different provider instance",
+                ));
+            }
+        }
+        for (key, field) in [
+            ("javaHomePath", "homePath"),
+            ("mavenExecutablePath", "mavenExecutablePath"),
+            ("mavenJavaHomePath", "mavenJavaHomePath"),
+        ] {
+            let value = saved_path(&config["extensions"]["java"][field])?;
+            if !value.is_empty() {
+                result["toolchain"][key] = json!(value);
+            }
+        }
+    }
+    Ok(result)
 }
 
 fn invalid_paths() -> CoreError {

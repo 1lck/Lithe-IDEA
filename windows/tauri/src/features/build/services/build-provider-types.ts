@@ -65,6 +65,11 @@ export interface BuildLaunchOptions {
 export interface BuildRunSelection {
   run: string; projectID: string; targetID: string; userArguments?: string[]; launchOptions?: BuildLaunchOptions;
 }
+export interface BuildConfigurationRunSelection {
+  provider: string; projectPath: string; launchOptions: BuildLaunchOptions; optionOverrides: Record<string, unknown>;
+  reference?: { run: string; projectID: string; targetID: string; userArguments?: string[]; execution?: "application" | "service" | "task" };
+}
+export interface BuildRequiredOptions { values: Record<string, unknown>; modelValues?: BuildModel["optionValues"] }
 export interface BuildRunLaunch {
   executable: { kind: "command" | "toolchain"; value: string };
   arguments: string[]; workingDirectory: string; environment: Record<string, string>;
@@ -100,7 +105,7 @@ export interface BuildWork {
 export interface WorkspacePorts {
   core: typeof buildCore;
   providers: Pick<typeof windowsBuildProviders, "send" | "stop">;
-  tools: (target: CoreBuildProviderTarget, root: string, checkVersions: boolean) => Promise<BuildToolContext>;
+  tools: (target: CoreBuildProviderTarget, root: string, checkVersions: boolean, configurationID?: string) => Promise<BuildToolContext>;
   guard: typeof pluginPlanGuard;
   translate: (key: string) => string;
   configurationCheck?: (target: CoreBuildProviderTarget, sources: BuildConfigurationSourceVersion[]) => Promise<BuildConfigurationCheck>;

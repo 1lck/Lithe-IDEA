@@ -53,10 +53,10 @@ async function installRunProcessListeners(): Promise<void> {
       const store = runStoreForSession(sessionId), state = store.getState();
       if (!ownsEvent(state, event.payload)) return;
       const executionId = executionFor(state, sessionId);
-      state.actions.finishProcess(sessionId, event.payload.exitCode);
+      const providerOwned = state.actions.finishProcess(sessionId, event.payload.exitCode);
       if (executionFor(store.getState(), sessionId) === executionId) releaseRunSessionWorkspace(sessionId);
       extensionProcessOwner.finished(sessionId);
-      declarativePluginProcessOwner.finished(event.payload.executionId ?? sessionId);
+      if (!providerOwned) declarativePluginProcessOwner.finished(event.payload.executionId ?? sessionId);
     });
   }
 }

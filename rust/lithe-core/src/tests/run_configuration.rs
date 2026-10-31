@@ -7,6 +7,63 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
+fn configuration_toolchain_overrides_match_shared_fixture_without_writing_sources() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/configuration-toolchain-selection.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let root = temporary_root("configuration-toolchain-selection");
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        for directory in [".lithe/run", "reactor", "other"] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        let local = root.join(".lithe/run/local.json");
+        let team = root.join(".lithe/run/configurations.json");
+        let original = b"{ keep the original local document untouched }";
+        fs::write(&local, original).unwrap();
+        if let Some(generated) = case.get("generatedDocument") {
+            seed_generated(&root, generated.to_string());
+        }
+        let team_bytes = case
+            .get("teamDocument")
+            .map(|value| serde_json::to_vec(value).unwrap());
+        if let Some(bytes) = &team_bytes {
+            fs::write(&team, bytes).unwrap();
+        } else if team.exists() {
+            fs::remove_file(&team).unwrap();
+        }
+        let mut request = case["request"].clone();
+        request["root"] = serde_json::json!(root);
+        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+            "id":"configuration-toolchain", "command":"runConfig.projectToolchain", "payload":request
+        }).to_string())).unwrap();
+        let expected = &fixture["expected"][case["name"].as_str().unwrap()];
+        if let Some(code) = expected["errorCode"].as_str() {
+            assert_eq!(response["ok"], false, "{}: {response}", case["name"]);
+            assert_eq!(
+                response["error"]["code"], code,
+                "{}: {response}",
+                case["name"]
+            );
+        } else {
+            assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+            assert_eq!(response["data"], *expected, "{}", case["name"]);
+        }
+        assert_eq!(fs::read(&local).unwrap(), original);
+        if let Some(bytes) = team_bytes {
+            assert_eq!(fs::read(&team).unwrap(), bytes);
+        }
+    }
+}
+
+#[test]
 fn project_toolchain_selection_matches_shared_fixture_without_writing_local_data() {
     let root = temporary_root("provider-toolchain-selection");
     struct Cleanup(PathBuf);

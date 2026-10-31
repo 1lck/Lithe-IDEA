@@ -51,6 +51,7 @@ const configuration: RunConfiguration = {
 describe("Maven-backed Run context", () => {
   test("waits for the workspace Maven load before creating the launch plan", async () => {
     const pendingContext = deferred<MavenLaunchContext | null>();
+    const contextEntered = deferred<void>();
     const events: string[] = [];
     const createLaunchPlan = mock(
       async (...args: Parameters<RunStoreDependencies["createLaunchPlan"]>) => {
@@ -65,6 +66,7 @@ describe("Maven-backed Run context", () => {
     );
     const mavenLaunchContextForWorkspace = mock(async () => {
       events.push("context-started");
+      contextEntered.resolve();
       return pendingContext.promise;
     });
     const resolveRunLaunch = mock(async () => ({
@@ -78,6 +80,7 @@ describe("Maven-backed Run context", () => {
     const startRunProcess = mock(async () => undefined);
     const stopRunProcess = mock(async () => undefined);
     const dependencies: RunStoreDependencies = {
+      isBuildProviderRunAdmitted: async () => false,
       createLaunchPlan,
       mavenLaunchContextForWorkspace,
       resolveRunLaunch,
@@ -98,9 +101,7 @@ describe("Maven-backed Run context", () => {
 
     const run = store.getState().actions.runConfiguration(configuration.id, undefined, 5005);
     try {
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      await contextEntered.promise;
       expect(events).toEqual(["files-saved", "context-started"]);
       expect(createLaunchPlan).not.toHaveBeenCalled();
     } finally {
@@ -134,6 +135,7 @@ describe("Maven-backed Run context", () => {
     }));
     const startRunProcess = mock(async () => undefined);
     const dependencies: RunStoreDependencies = {
+      isBuildProviderRunAdmitted: async () => false,
       createLaunchPlan,
       mavenLaunchContextForWorkspace: mock(async () => mavenContext),
       resolveRunLaunch: mock(async () => ({
@@ -223,6 +225,7 @@ describe("Maven-backed Run context", () => {
       const executePreLaunchStep = mock(async () => ({ exitCode: 0, output: "" }));
       const startRunProcess = mock(async () => undefined);
       const dependencies: RunStoreDependencies = {
+      isBuildProviderRunAdmitted: async () => false,
         createLaunchPlan: mock(async () => ({
           executable: { toolchain: "project-maven" as const },
           arguments: ["-B", "spring-boot:run"],

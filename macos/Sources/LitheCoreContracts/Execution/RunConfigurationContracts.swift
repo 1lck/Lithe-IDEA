@@ -365,6 +365,17 @@ package struct ProviderLaunchInputs: Decodable, Equatable, Sendable {
     package let launchOptions: BuildLaunchOptions
     package let optionOverrides: [String: ToolingJSONValue]
 
+    /// Saved applications carry opaque Provider arguments from protocol 4.
+    /// Reclassifying them as opt-in version-10 launch options breaks old SDKs.
+    package var opaqueReferenceArguments: [String]? {
+        guard let reference, (reference.execution ?? .application) == .application,
+              launchOptions.execution == .application, launchOptions.runtimeArguments.isEmpty,
+              launchOptions.environment.isEmpty, launchOptions.workingDirectory == nil,
+              launchOptions.entrypoint == nil, launchOptions.debug == nil,
+              launchOptions.arguments == reference.userArguments else { return nil }
+        return reference.userArguments
+    }
+
     package init(buildSystemID: String, provider: String, projectPath: String, launchOptions: BuildLaunchOptions,
                  optionOverrides: [String: ToolingJSONValue] = [:], reference: BuildProviderRunReference? = nil) {
         self.reference = reference

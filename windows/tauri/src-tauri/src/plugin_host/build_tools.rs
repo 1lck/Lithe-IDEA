@@ -36,11 +36,14 @@ pub async fn declarative_plugins_build_tool(
     workspace_path: String,
     root: String,
     check_versions: bool,
+    configuration_id: Option<String>,
 ) -> Result<BuildToolContext, String> {
     crate::blocking::run_blocking(move || {
         let _lease = app.state::<LifecycleState>().acquire(&plugin_id)?;
         let package = launch::package_by_id(&app, &plugin_id).ok_or("Build plugin is unavailable")?;
-        let choices = core_execute("runConfig.projectToolchain", json!({"root":workspace_path,"path":root}))?;
+        // Core combines canonical reactor choices and explicit Run overrides.
+        // The platform does not maintain another inheritance or path policy.
+        let choices = core_execute("runConfig.projectToolchain", json!({"root":workspace_path,"path":root,"configurationId":configuration_id}))?;
         let layers = settings::load_layers(&app, &plugin_id, &workspace_path)?;
         let payload = |request| json!({"manifest":package.manifest,"buildSystemID":build_system_id,"request":request});
         let planned = core_execute("build.invocationPlan", payload(json!({"root":root,"platform":"windows","settings":layers.global})))?;

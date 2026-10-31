@@ -7,7 +7,7 @@ import { supportsDevToolsUpdate, updateJavaService } from "../services/java-serv
 import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { startWindowsBuildProviderRun } from "@/platform/build-provider-run";
+import { isWindowsBuildProviderRunAdmitted, startWindowsBuildProviderRun } from "@/platform/build-provider-run";
 import type { BuildProviderRunHandle } from "../services/build-provider-run-launch";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
@@ -180,12 +180,13 @@ interface RunState {
     ) => Promise<boolean>;
     writeStdin: (sessionId: string, input: string) => Promise<void>;
     appendOutput: (sessionId: string, chunk: string) => void;
-    finishProcess: (sessionId: string, exitCode: number) => void;
+    finishProcess: (sessionId: string, exitCode: number) => void | boolean;
   };
 }
 
 export interface RunStoreDependencies {
   startBuildProviderRun?: typeof startWindowsBuildProviderRun;
+  isBuildProviderRunAdmitted?: typeof isWindowsBuildProviderRunAdmitted;
   inspectRunConfiguration?: typeof inspectRunConfiguration;
   resolveConfigurations?: typeof resolveConfigurations;
   createLaunchPlan: typeof createLaunchPlan;
@@ -217,6 +218,7 @@ function seedMavenLocalConfiguration(workspaceId: string, settings: Partial<Mave
 
 const defaultRunStoreDependencies: RunStoreDependencies = {
   startBuildProviderRun: startWindowsBuildProviderRun,
+  isBuildProviderRunAdmitted: isWindowsBuildProviderRunAdmitted,
   createLaunchPlan,
   mavenLaunchContextForWorkspace,
   resolveRunLaunch,
@@ -913,7 +915,12 @@ export const createRunStore = (
           }
           await save;
           if (!isCurrent()) return null;
-          if (configuration.buildProvider) {
+          const legacyProvider = !configuration.buildProvider && configuration.execution !== "group"
+            && (configuration.provider === "maven.module" || configuration.provider.endsWith(".maven"));
+          const providerRun = Boolean(configuration.buildProvider) || (legacyProvider
+            && await (dependencies.isBuildProviderRunAdmitted ?? isWindowsBuildProviderRunAdmitted)(debugPort !== undefined));
+          if (!isCurrent()) return null;
+          if (providerRun) {
             if (sessionId !== PRIMARY_SESSION_ID) set((current) => ({ selectedSessionId: sessionId,
               sessions: [...current.sessions.filter(session => session.id !== sessionId), { id: sessionId, configurationId: configuration.id,
                 executionId, title: configuration.name, output: "", isRunning: false, isPreparing: true, exitCode: null }] }));
@@ -926,7 +933,9 @@ export const createRunStore = (
             };
             const startProvider = dependencies.startBuildProviderRun ?? startWindowsBuildProviderRun;
             const handle = startProvider({ workspaceId, root, configurationId: configuration.id, name: configuration.name,
-              reference: configuration.buildProvider, sessionId, executionId, debugPort, runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
+              ...(configuration.buildProvider ? { reference: configuration.buildProvider } : { source: { buildSystemID: "maven",
+                root: configuration.mavenReactorPath ?? ".", provider: configuration.provider, execution: configuration.execution as "application" | "service" | "task" } }),
+              sessionId, executionId, debugPort, runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
               isCurrent, onRevoked: stopPresentation,
               onOutput: text => { if (isCurrent()) get().actions.appendOutput(sessionId, text); },
               onReady: launch => {
@@ -1506,7 +1515,16 @@ export const createRunStore = (
 
       finishProcess: (sessionId, exitCode) => {
         const provider = providerRuns.get(sessionId);
-        if (provider) { provider.handle.finished(); providerRuns.delete(sessionId); }
+        if (provider) {
+          void Promise.resolve().then(() => provider.handle.finished()).then(() => {
+            if (providerRuns.get(sessionId) === provider) providerRuns.delete(sessionId);
+          }, error => {
+            // Keep failed ownership for Stop/restart/close to retry. An old
+            // exit cleanup must not append its error to a replacement run.
+            if (executions.get(sessionId) === provider.executionId) get().actions.appendOutput(sessionId,
+              `${error instanceof Error ? error.message : String(error)}\n`);
+          });
+        }
         if (sessionId === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,
@@ -1514,7 +1532,7 @@ export const createRunStore = (
             primaryExitCode: exitCode,
             primaryOutput: flushStampedOutput(sessionId, get().primaryOutput),
           });
-          return;
+          return Boolean(provider);
         }
         set((current) => ({
           sessions: current.sessions.map((session) =>
@@ -1529,6 +1547,7 @@ export const createRunStore = (
               : session,
           ),
         }));
+        return Boolean(provider);
       },
     },
   }));

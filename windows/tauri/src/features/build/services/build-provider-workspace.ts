@@ -3,10 +3,10 @@ import type { CoreBuildProviderTarget } from "@/platform/lsp-core-adapter";
 import { BuildResultStore, type BuildDiagnostic, type BuildTestResults, type BuildTestSelector } from "./build-results";
 import { BuildFileInputs } from "./build-file-inputs";
 import type { BuildConfigurationWatch, BuildConfigurationSourceVersion } from "./build-configuration-watch";
-import type { BuildLanguageImport } from "./build-language-import";
+import { configurationRunSelection, prepareBuildRun } from "./build-run-preparation";
 
 import type { BuildProject, BuildDependencies, BuildDependencySnapshot, BuildModel, BuildInstance, BuildOperation,
-  BuildTestSelection, BuildNativeConfiguration, BuildNativeConfigurationEdits, BuildRunSelection, BuildRunLaunch, BuildPreparedRun, BuildWork, WorkspacePorts } from "./build-provider-types";
+  BuildTestSelection, BuildNativeConfiguration, BuildNativeConfigurationEdits, BuildRunSelection, BuildConfigurationRunSelection, BuildRequiredOptions, BuildPreparedRun, BuildWork, WorkspacePorts } from "./build-provider-types";
 export type * from "./build-provider-types";
 
 const MAX_OUTPUT_CHARACTERS = 500_000;
@@ -52,6 +52,7 @@ export class WindowsBuildProviderWorkspace {
   private readonly targets = new Map<string, CoreBuildProviderTarget>();
   private readonly results = new BuildResultStore();
   private readonly fileInputs: BuildFileInputs;
+  private readonly runScopes = new Map<WindowsBuildProviderWorkspace, string>();
   private factRevision = 0;
 
   constructor(readonly workspacePath: string, private readonly ports: WorkspacePorts) { this.fileInputs = new BuildFileInputs(workspacePath); }
@@ -127,6 +128,7 @@ export class WindowsBuildProviderWorkspace {
     this.invalidateKey(owner(instance));
   }
   private invalidateKey(key: string): void {
+    for (const [scope, instance] of this.runScopes) if (instance === key) scope.invalidateKey(key);
     this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1);
     this.models.delete(key);
     this.modelInputs.delete(key);
@@ -141,11 +143,13 @@ export class WindowsBuildProviderWorkspace {
   }
   filesChanged(path: string, rescan = false): boolean {
     if (this.disposed) return false;
+    let scoped = false;
+    for (const scope of this.runScopes.keys()) scoped = scope.filesChanged(path, rescan) || scoped;
     const change = this.fileInputs.changed(path, rescan);
     if (change.workspace) { this.results.forgetDiscoveries(); this.factsChanged(); }
     for (const id of change.cancelled) this.cancel(id);
     for (const key of change.owners) this.invalidateKey(key);
-    return change.owners.size > 0;
+    return change.owners.size > 0 || scoped;
   }
   cancel(id: string): boolean {
     const pending = this.controllers.get(id);
@@ -153,9 +157,11 @@ export class WindowsBuildProviderWorkspace {
     pending.controller.abort(this.revoked()); return true;
   }
 
-  loadModel(instance: BuildInstance) {
+  loadModel(instance: BuildInstance, requiredOptions?: BuildRequiredOptions) {
+    const required = requiredOptions && structuredClone(requiredOptions);
     this.invalidate(instance);
     const started = this.begin<BuildModel>(instance, false, async operation => {
+      if (required) await this.validateRunOptions(operation, required.values, required.modelValues);
       const before = await operation.decode<{ sync: { fingerprint: string; watch: string[] } }>("build.syncFingerprint", { projects: [] });
       let nativeSources: BuildConfigurationSourceVersion[] | undefined;
       const declaration = (operation.tool.manifest.buildSystems as Array<{ id: string; configuration?: { source?: string } }> | undefined)
@@ -168,6 +174,7 @@ export class WindowsBuildProviderWorkspace {
       }
       const result = await operation.perform("build.modelPlan", { refresh: true });
       const decoded = await operation.decode<{ model: BuildModel }>("build.decodeModel", { result });
+      if (required) await this.validateRunOptions(operation, required.values, decoded.model.optionValues);
       const after = await operation.decode<typeof before>("build.syncFingerprint", { projects: [] });
       if (before.sync.fingerprint !== after.sync.fingerprint) { this.invalidate(operation.record.instance); operation.current(); }
       const watched = await operation.decode<typeof before>("build.syncFingerprint", { projects: decoded.model.projects.map(project => project.path) });
@@ -181,6 +188,38 @@ export class WindowsBuildProviderWorkspace {
       return decoded.model;
     }, false);
     return this.trackSourcePreparation(started, instance, true);
+  }
+
+  /** The Run owns private model/source leases, but borrows the workspace's
+   * backend session. Closing it must never stop another Run or the Build pane. */
+  createRunScope(instance: BuildInstance, input: BuildConfigurationRunSelection, configurationID?: string) {
+    if (this.disposed) throw this.revoked();
+    const baseline = structuredClone(instance), key = owner(baseline), revision = this.revisions.get(key) ?? 0;
+    const selected = { ...baseline, options: { ...baseline.options, ...structuredClone(input.optionOverrides) } };
+    const current = () => {
+      if (this.disposed || (this.revisions.get(key) ?? 0) !== revision) throw this.revoked();
+    };
+    const scope = new WindowsBuildProviderWorkspace(this.workspacePath, { ...this.ports,
+      guard: () => { const guard = this.ports.guard(); return plugin => { current(); guard(plugin); }; },
+      tools: (target, root, checkVersions) => this.ports.tools(target, root, checkVersions, configurationID),
+      providers: { send: (target, request) => this.ports.providers.send(target, request), stop: async () => {} },
+    });
+    this.runScopes.set(scope, key);
+    const target = { workspacePath: this.workspacePath, pluginId: baseline.pluginID, buildSystemId: baseline.buildSystemID };
+    this.targets.set(JSON.stringify(target), target);
+    return { domain: scope, instance: selected,
+      requiredOptions: { values: structuredClone(selected.options) },
+      dispose: async () => { try { await scope.dispose(); } finally { this.runScopes.delete(scope); } } };
+  }
+
+  private async validateRunOptions(operation: BuildWork, overrides: Record<string, unknown>, modelValues?: BuildModel["optionValues"]) {
+    if (!Object.keys(overrides).length) return;
+    const resolved = await operation.decode<{ options: { options: Array<{ id: string; source: string }>; dropped: string[] } }>(
+      "build.resolveOptions", { options: operation.record.instance.options, modelValues }, false);
+    if (Object.keys(overrides).some(key => resolved.options.dropped.includes(key)
+      || !resolved.options.options.some(option => option.id === key && option.source === "user"))) {
+      throw new Error(this.ports.translate("native.buildOptionInvalid"));
+    }
   }
   private trackSourcePreparation<T>(operation: { operationID: string; completion: Promise<T> }, instance: BuildInstance, model: boolean) {
     this.fileInputs.begin(operation.operationID, owner(instance), model);
@@ -319,29 +358,72 @@ export class WindowsBuildProviderWorkspace {
   prepareRun(instance: BuildInstance, selection: BuildRunSelection) {
     const snapshot = structuredClone(selection);
     return this.begin<BuildPreparedRun>(instance, true, async operation => {
-      const selected = operation.record.instance, model = this.models.get(owner(selected))!;
-      const target = model.targets.find(target => target.id === snapshot.targetID && target.projectID === snapshot.projectID);
-      const project = this.project(selected, snapshot.projectID);
-      if (!target || !project) throw new Error(this.message("missingProject"));
-      const validate = async () => {
-        operation.current();
-        const target = { workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID };
-        const tool = await operation.native(this.ports.tools(target, selected.root, false));
-        operation.current();
-        if (fingerprint(tool) !== operation.context) { this.invalidate(selected); throw this.revoked(); }
-        const sync = await operation.decode<{ sync: { fingerprint: string } }>("build.syncFingerprint", { projects: model.projects.map(project => project.path) });
-        if (sync.sync.fingerprint !== this.modelInputs.get(owner(selected))?.sync) { this.invalidate(selected); throw this.revoked(); }
-        const sources = this.modelInputs.get(owner(selected))?.nativeSources;
-        if (sources) await this.checkNativeSources(operation, sources);
-        operation.current();
-      };
-      const result = await operation.perform("build.prepareRunPlan", { run: snapshot.run, project, target,
-        workspaceRoot: this.workspacePath, userArguments: snapshot.userArguments ?? [], launchOptions: snapshot.launchOptions });
-      const decoded = await operation.decode<{ launch: BuildRunLaunch }>("build.decodeRunPreparation", { result, launchOptions: snapshot.launchOptions });
-      const imported = await operation.decode<{ languageImport: BuildLanguageImport | null }>("build.languageImport", { executablePath: operation.tool.tool.executable });
-      await validate();
-      return { launch: structuredClone(decoded.launch), tool: structuredClone(operation.tool), languageImport: imported.languageImport, assertCurrent: operation.current, validate };
+      const selected = operation.record.instance, model = this.models.get(owner(selected))!, inputs = this.modelInputs.get(owner(selected))!;
+      return await prepareBuildRun(this.workspacePath, operation, model, snapshot,
+        this.runValidation(operation, model, inputs.sync, inputs.nativeSources), () => new Error(this.message("missingProject")));
     });
+  }
+
+  /** A single Run may read another effective model. Its facts, options and
+   * receipts remain local to this operation; the default model/drafts survive. */
+  prepareConfigurationRun(instance: BuildInstance, selection: BuildConfigurationRunSelection) {
+    const baseline = structuredClone(instance), input = structuredClone(selection), key = owner(baseline);
+    const model = this.models.get(key), inputs = this.modelInputs.get(key);
+    if (!model || model.truncated || !inputs || !this.modelIsCurrent(baseline)) throw new Error(this.message("incompleteModel"));
+    const selected = { ...baseline, options: { ...baseline.options, ...input.optionOverrides } };
+    const started = this.begin<BuildPreparedRun>(selected, true, async operation => {
+      if (operation.context !== inputs.context) { this.invalidate(baseline); throw this.revoked(); }
+      await this.validateRunOptions(operation, input.optionOverrides, model.optionValues);
+      if (fingerprint(selected.options) === inputs.options) {
+        const target = configurationRunSelection(operation.tool.manifest, selected.buildSystemID, model, input);
+        if (!target) throw new Error(this.message("missingProject"));
+        const validate = this.runValidation(operation, model, inputs.sync, inputs.nativeSources);
+        await validate();
+        return await prepareBuildRun(this.workspacePath, operation, model, target, validate, () => new Error(this.message("missingProject")));
+      }
+      const projects = model.projects.map(project => project.path);
+      const initial = await operation.decode<{ sync: { fingerprint: string } }>("build.syncFingerprint", { projects, options: baseline.options });
+      if (initial.sync.fingerprint !== inputs.sync) { this.invalidate(baseline); throw this.revoked(); }
+      // A sync fingerprint includes effective options. Compare default inputs
+      // with defaults, then compare the private model only with its own inputs.
+      const before = await operation.decode<{ sync: { fingerprint: string } }>("build.syncFingerprint", { projects });
+      if (inputs.nativeSources) {
+        const raw = await operation.perform("build.configurationPlan", { refresh: true });
+        const decoded = await operation.decode<{ configuration: BuildNativeConfiguration }>("build.decodeConfiguration", { result: raw }, false);
+        const sources = decoded.configuration.sources.map(({ uri, revision }) => ({ uri, revision }));
+        // Core's current Run overrides are invocation preferences (Profiles /
+        // skip tests), not another native source selection. Keep the existing
+        // source watcher lease and reject a changed native baseline.
+        if (fingerprint(sources) !== fingerprint(inputs.nativeSources)) { this.invalidate(baseline); throw this.revoked(); }
+        await this.checkNativeSources(operation, sources);
+      }
+      const raw = await operation.perform("build.modelPlan", { refresh: true });
+      const decoded = await operation.decode<{ model: BuildModel }>("build.decodeModel", { result: raw });
+      const after = await operation.decode<typeof before>("build.syncFingerprint", { projects });
+      if (before.sync.fingerprint !== after.sync.fingerprint) { this.invalidate(baseline); throw this.revoked(); }
+      await this.validateRunOptions(operation, input.optionOverrides, decoded.model.optionValues);
+      const watched = await operation.decode<typeof before>("build.syncFingerprint", { projects: decoded.model.projects.map(project => project.path) });
+      const target = configurationRunSelection(operation.tool.manifest, selected.buildSystemID, decoded.model, input);
+      if (!target) throw new Error(this.message("missingProject"));
+      return await prepareBuildRun(this.workspacePath, operation, decoded.model, target,
+        this.runValidation(operation, decoded.model, watched.sync.fingerprint, inputs.nativeSources), () => new Error(this.message("missingProject")));
+    }, false);
+    return this.trackSourcePreparation(started, baseline, true);
+  }
+
+  private runValidation(operation: BuildWork, model: BuildModel, expected: string, sources?: BuildConfigurationSourceVersion[]) {
+    return async () => {
+      operation.current();
+      const selected = operation.record.instance;
+      const target = { workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID };
+      const tool = await operation.native(this.ports.tools(target, selected.root, false));
+      operation.current();
+      if (fingerprint(tool) !== operation.context) { this.invalidate(selected); throw this.revoked(); }
+      const sync = await operation.decode<{ sync: { fingerprint: string } }>("build.syncFingerprint", { projects: model.projects.map(project => project.path) });
+      if (sync.sync.fingerprint !== expected) { this.invalidate(selected); throw this.revoked(); }
+      if (sources) await this.checkNativeSources(operation, sources);
+      operation.current();
+    };
   }
 
   executeModelTask(instance: BuildInstance, taskID: string, userArguments: string[] = []) {
@@ -523,7 +605,7 @@ export class WindowsBuildProviderWorkspace {
   }
 
   async stopPlugin(pluginID: string): Promise<void> {
-    const keys = new Set([...this.models.keys(), ...this.configurations.keys(), ...[...this.controllers.values()].map(pending => pending.instance)]);
+    const keys = new Set([...this.models.keys(), ...this.configurations.keys(), ...this.runScopes.values(), ...[...this.controllers.values()].map(pending => pending.instance)]);
     for (const key of keys) {
       const [plugin, system, root] = JSON.parse(key);
       if (plugin === pluginID) this.invalidate({ pluginID: plugin, buildSystemID: system, root, options: {} });
@@ -540,6 +622,7 @@ export class WindowsBuildProviderWorkspace {
     // remains visible to the caller and requires another explicit cleanup.
     const retries = [...this.cleanupFailures.keys()];
     this.disposed = true;
+    for (const [scope, key] of this.runScopes) scope.invalidateKey(key);
     for (const pending of this.controllers.values()) pending.controller.abort(this.revoked());
     this.models.clear();
     this.modelInputs.clear();

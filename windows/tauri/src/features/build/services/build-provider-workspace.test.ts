@@ -40,7 +40,8 @@ function fixture() {
   const core = (async (command: string, _manifest: unknown, _system: string, request: Record<string, unknown>) => {
     coreCalls.push({ command, request: structuredClone(request) });
     if (coreGate?.command === command) { entered.decode.resolve(); return await coreGate.promise; }
-    if (command === "build.syncFingerprint") return { sync: { fingerprint: syncFingerprint, watch: ["project.marker", "service/project.marker"] } };
+    if (command === "build.syncFingerprint") return { sync: { fingerprint: JSON.stringify([syncFingerprint, request.options]), watch: ["project.marker", "service/project.marker"] } };
+    if (command === "build.resolveOptions") return { options: { dropped: [], options: Object.keys(request.options as object).map(id => ({ id, source: "user" })) } };
     if (command.endsWith("Plan")) return { plan: { provider: { method: command,
       params: { ...request, environment: { OPTION: "selected", PATH: "C:/option-path" } } } } };
     if (command === "build.decodeModel") return { model: structuredClone(model) };
@@ -99,6 +100,91 @@ function fixture() {
 }
 
 describe("Windows Build Provider workspace operations", () => {
+  test("a cold private Run scope needs no default model and still receives file invalidation and plugin stop", async () => {
+    const f = fixture();
+    const scope = f.workspace.createRunScope(instance, { provider: "entry", projectPath: "service", optionOverrides: { profiles: [] },
+      launchOptions: { execution: "service", runtimeArguments: [], arguments: [], environment: {} } }, "user:run");
+    try {
+      await scope.domain.loadModel(scope.instance, scope.requiredOptions).completion;
+      expect(f.workspace.model(instance)).toBeUndefined(); expect(scope.domain.hasCurrentModel(scope.instance)).toBe(true);
+      expect(f.workspace.filesChanged("C:/work/service/project.marker")).toBe(true);
+      expect(scope.domain.hasCurrentModel(scope.instance)).toBe(false);
+      await f.workspace.stopPlugin(instance.pluginID); expect(f.stopped).toEqual([instance.pluginID]);
+    } finally { await scope.dispose(); await f.workspace.dispose(); }
+  }, 5000);
+
+  test("closing a private Run scope releases only its source leases and leaves shared backend and sibling model alive", async () => {
+    const f = fixture();
+    f.tools({ ...context, manifest: { id: instance.pluginID, buildSystems: [{ id: instance.buildSystemID, configuration: { source: "provider" } }] } });
+    const scopes: ReturnType<WindowsBuildProviderWorkspace["createRunScope"]>[] = [];
+    try {
+      await f.workspace.loadModel(instance).completion; const defaults = f.workspace.model(instance);
+      for (let index = 0; index < 2; index++) {
+        const scope = f.workspace.createRunScope(instance, { provider: "entry", projectPath: "service", optionOverrides: { profiles: [] },
+          launchOptions: { execution: "service", runtimeArguments: [], arguments: [], environment: {} } });
+        scopes.push(scope); await scope.domain.loadModel(scope.instance, scope.requiredOptions).completion;
+      }
+      await scopes[0]!.dispose();
+      expect(f.stopped).toEqual([]); expect(f.watches.map(watch => watch.closed)).toEqual([false, true, false]);
+      expect(f.workspace.model(instance)).toEqual(defaults); expect(scopes[1]!.domain.hasCurrentModel(scopes[1]!.instance)).toBe(true);
+    } finally { await Promise.allSettled(scopes.map(scope => scope.dispose())); await f.workspace.dispose(); }
+  }, 5000);
+
+  test.each([{ profiles: ["release"] }, { profiles: [] }])("a private Run model with Profiles %j preserves the default model and native draft receipt", async ({ profiles }) => {
+    const f = fixture(), currentModel = { ...model, targets: [{ id: "app", projectID: "service", name: "upstream.entry", path: "service", tags: ["application"], properties: {} }] };
+    f.tools({ ...context, manifest: { id: instance.pluginID, buildSystems: [{ id: instance.buildSystemID, configuration: { source: "provider" },
+      run: [{ id: "serve", source: "provider", execution: "service", fromTargets: { tags: ["application"] } }] }] } });
+    f.holdCore("build.decodeModel", Promise.resolve({ model: currentModel }));
+    try {
+      await f.workspace.loadModel(instance).completion;
+      const defaults = f.workspace.model(instance), watches = [...f.watches];
+      const prepared = await f.workspace.prepareConfigurationRun(instance, { provider: "upstream.entry", projectPath: "service",
+        optionOverrides: { profiles, skipTests: false }, launchOptions: { execution: "service", runtimeArguments: [], arguments: ["", "two words"], environment: {} } }).completion;
+      expect(f.coreCalls.filter(call => call.command === "build.modelPlan").slice(-1)[0]?.request.options).toEqual({ profiles, skipTests: false });
+      expect(f.coreCalls.find(call => call.command === "build.prepareRunPlan")?.request).toMatchObject({ run: "serve", target: currentModel.targets[0] });
+      prepared.assertCurrent(); await prepared.validate();
+      expect(f.workspace.model(instance)).toEqual(defaults); expect(instance.options).toEqual({ profiles: ["dev"] });
+      expect(f.workspace.configurationIsCurrent(instance, configuration)).toBe(true); expect(f.watches).toEqual(watches);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("a rejected per-Run override cannot execute project code or replace defaults", async () => {
+    const f = fixture();
+    try {
+      await f.workspace.loadModel(instance).completion; const defaults = f.workspace.model(instance), before = f.sent.length;
+      f.holdCore("build.resolveOptions", Promise.resolve({ options: { dropped: ["profiles"], options: [] } }));
+      await expect(f.workspace.prepareConfigurationRun(instance, { provider: "upstream.entry", projectPath: "service", optionOverrides: { profiles: 42 },
+        launchOptions: { execution: "service", runtimeArguments: [], arguments: [], environment: {} } }).completion).rejects.toThrow("option value");
+      expect(f.sent).toHaveLength(before); expect(f.workspace.model(instance)).toEqual(defaults);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("cancelling a private model read discards its late reply and keeps the default model", async () => {
+    const f = fixture(), gate = deferred<Record<string, unknown>>();
+    try {
+      await f.workspace.loadModel(instance).completion; const defaults = f.workspace.model(instance);
+      f.holdCore("build.decodeModel", gate.promise);
+      const operation = f.workspace.prepareConfigurationRun(instance, { provider: "upstream.entry", projectPath: "service", optionOverrides: { profiles: ["release"] },
+        launchOptions: { execution: "service", runtimeArguments: [], arguments: [], environment: {} } });
+      const completed = operation.completion.catch(() => "cancelled"); await f.entered.decode.promise;
+      f.workspace.cancel(operation.operationID); expect(await completed).toBe("cancelled"); gate.resolve({ model });
+      expect(f.workspace.model(instance)).toEqual(defaults); expect(f.sent.some(request => request.method === "build.prepareRunPlan")).toBe(false);
+    } finally { gate.resolve({ model }); await f.workspace.dispose(); }
+  }, 5000);
+
+  test("a private model cannot adopt a different native source baseline without reloading defaults", async () => {
+    const f = fixture();
+    f.tools({ ...context, manifest: { id: instance.pluginID, buildSystems: [{ id: instance.buildSystemID, configuration: { source: "provider" } }] } });
+    try {
+      await f.workspace.loadModel(instance).completion;
+      const changed = structuredClone(configuration); changed.sources[0]!.revision = "sha256:" + "b".repeat(64);
+      f.holdCore("build.decodeConfiguration", Promise.resolve({ configuration: changed }));
+      await expect(f.workspace.prepareConfigurationRun(instance, { provider: "upstream.entry", projectPath: "service", optionOverrides: { profiles: [] },
+        launchOptions: { execution: "service", runtimeArguments: [], arguments: [], environment: {} } }).completion).rejects.toThrow("changed");
+      expect(f.workspace.model(instance)).toBeUndefined(); expect(f.sent.filter(request => request.method === "build.modelPlan")).toHaveLength(1);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
   test("Provider run preparation retains typed options, exact model identity and a revalidation receipt", async () => {
     const f = fixture(), target = { id: "upstream-target", projectID: "service", name: "Application", path: "service", tags: ["application"], properties: {} };
     f.holdCore("build.decodeModel", Promise.resolve({ model: { ...model, targets: [target] } }));

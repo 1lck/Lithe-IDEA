@@ -41,12 +41,14 @@
       "windows/tauri/src/extensions/run/extension-process-owner.ts",
       "windows/tauri/src/extensions/run/extension-process-owner.test.ts",
       "windows/tauri/src/features/run/services/build-provider-run-launch.ts",
-      "windows/tauri/src/features/run/stores/run-provider.test.ts"
+      "windows/tauri/src/features/run/stores/run-provider.test.ts",
+      "windows/tauri/src/features/run/hooks/use-run-process-events.ts",
+      "windows/tauri/src/features/run/hooks/use-run-process-events.test.ts"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "owner": "Run",
   "verification": "运行一个长驻服务（如 Spring Boot）、一个 setsid 脱离的后台进程和一个忽略终止信号的程序，分别通过菜单退出、更新重启和对主进程 kill -9 关闭 IDE，确认除用户选择保留的项目外，带本实例 LITHE_PROCESS_SCOPE 的进程全部退出、端口已释放；主进程和监护进程同时被结束后再次启动，确认残留进程出现在启动清扫确认中。 Windows Run 原生测试在停止前持有后代进程句柄，以两秒退出信号确认根进程和后代结束，以零等待确认另一窗口仍在运行；首字节就绪等待有界，夹具在断言失败时也清理所属进程树。",
-  "notes": "macOS 用 LITHE_PROCESS_SCOPE 标记本实例启动的进程，退出时做最终清扫；崩溃由随应用启动的监护进程兜底（Agent 任务和后台服务留到下次启动再确认）。分类规则在 Rust Core（processLifecycle.inventory），Windows 可直接复用。两端在关闭项目或窗口、退出、安装更新前按 Rust Core 的 runServicesOnExit 规则列出运行服务并询问（可设为直接停止）。Windows 的运行会话、调试适配器和语言服务器放在 Job Object 中，停止和 IDE 崩溃时都按整组结束；菜单退出走窗口关闭守卫，更新安装前先停止运行服务。Windows 终端和 Agent 进程树尚未放入 Job Object，也没有监护进程和启动清扫，IDE 崩溃时它们仍可能残留。 Windows 已保存 Provider Run 在准备前登记到现有插件/工作区进程所有者；停止等待迟到原生启动确认后按执行 ID 清理，失败保留所有者供重试。批量清理排空全部会话，旧清理不能删除替换执行。仅受控回归和跨平台 Maven 工作流通过，Windows 原生生命周期验收仍 pending。"
+  "notes": "macOS 用 LITHE_PROCESS_SCOPE 标记本实例启动的进程，退出时做最终清扫；崩溃由随应用启动的监护进程兜底（Agent 任务和后台服务留到下次启动再确认）。分类规则在 Rust Core（processLifecycle.inventory），Windows 可直接复用。两端在关闭项目或窗口、退出、安装更新前按 Rust Core 的 runServicesOnExit 规则列出运行服务并询问（可设为直接停止）。Windows 的运行会话、调试适配器和语言服务器放在 Job Object 中，停止和 IDE 崩溃时都按整组结束；菜单退出走窗口关闭守卫，更新安装前先停止运行服务。Windows 终端和 Agent 进程树尚未放入 Job Object，也没有监护进程和启动清扫，IDE 崩溃时它们仍可能残留。 Windows 已保存 Provider Run 在准备前登记到现有插件/工作区进程所有者；停止等待迟到原生启动确认后按执行 ID 清理，失败保留所有者供重试。批量清理排空全部会话，旧清理不能删除替换执行。仅受控回归和跨平台 Maven 工作流通过，Windows 原生生命周期验收仍 pending。 Windows Provider 的临时来源租约与启动确认一起由 Run 所有者持有；早到退出不能通过通用事件回调提前释放。来源清理失败停止对应 Native 执行并保留所有者，失败在同一次 Stop 内不自动重试，下一次 Stop/重启/关闭可明确重试；成功释放准备回调，避免长期服务保留临时模型。仅受控回归，Windows 实机 pending。"
 }

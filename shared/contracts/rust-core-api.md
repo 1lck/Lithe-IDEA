@@ -3204,7 +3204,7 @@ Windows `run_resolve_toolchains` includes an optional `warning` on resolved
 JDKs, including inherited Maven JDKs. This warning remains visible even when no
 run configuration exists to carry a scoped `toolchainVersionMismatch` diagnostic.
 
-`runConfig.projectToolchain` reads `{root,path,localDocument?}` and returns
+`runConfig.projectToolchain` reads `{root,path,localDocument?,configurationId?}` and returns
 `{toolchain:{javaHomePath,mavenExecutablePath,mavenJavaHomePath,runtimeExecutablePaths}}`, even without
 generated Run configurations. `path` is the current Provider's normalized,
 workspace-relative project/reactor root (`.` for the workspace). The nearest
@@ -3216,6 +3216,14 @@ tool, inspect project descriptors, or write files. `runtimeExecutablePaths`
 comes from the existing `.lithe/toolchains/local.json`; platforms resolve the selected
 paths through their existing toolchain adapters. Shared examples are in
 `shared/fixtures/run-configuration/project-toolchain-selection.json`.
+When `configurationId` is supplied, explicit Java/Maven paths from that current
+Run configuration override the canonical project/reactor selection. Core reuses
+the existing team/local configuration merge without projecting global defaults
+as explicit configuration choices. Empty configuration fields inherit the
+canonical selection; missing, disabled, mismatched-root or malformed choices fail
+instead of falling back. No generated layer is required for an explicitly saved
+Provider reference. Shared cases are in
+`shared/fixtures/run-configuration/configuration-toolchain-selection.json`.
 
 `runConfig.inspect` also returns the local document-level `toolchain`, including
 when no generated configuration exists (`status: "missing"`). Settings,

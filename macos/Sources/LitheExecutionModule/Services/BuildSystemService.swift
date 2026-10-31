@@ -1184,14 +1184,16 @@ package final class BuildSystemService: ObservableObject {
                 try await onLanguageImport(imported)
                 guard valid() else { throw CancellationError() }
             }
+            let opaqueArguments = inputs.opaqueReferenceArguments
+            let launchOptions = opaqueArguments == nil ? inputs.launchOptions : nil
             let request = try planner.prepareRunPlan(entry.target, context: context, run: run.id, project: BuildSelection(project: project),
-                selectedTarget: BuildSelection(target: selected), userArguments: [], workspaceURL: workspace, launchOptions: inputs.launchOptions)
+                selectedTarget: BuildSelection(target: selected), userArguments: opaqueArguments ?? [], workspaceURL: workspace, launchOptions: launchOptions)
             let prepared = try await providers.prepareRun(Self.request(request, with: launchTool), on: target, timeout: Self.modelTimeout) { value in
                 if valid() { progress(value) }
             }
             guard valid(), modelInputsAreCurrent(request) else { throw CancellationError() }
             let result = try await Task.detached(priority: .userInitiated) {
-                try planner.decodeRunPreparation(entry.target, workspaceURL: workspace, root: context.root, result: prepared, launchOptions: inputs.launchOptions)
+                try planner.decodeRunPreparation(entry.target, workspaceURL: workspace, root: context.root, result: prepared, launchOptions: launchOptions)
             }.value
             guard valid() else { throw CancellationError() }
             return result

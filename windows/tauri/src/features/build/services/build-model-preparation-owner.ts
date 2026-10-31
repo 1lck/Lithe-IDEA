@@ -1,5 +1,5 @@
 import { awaitBuildPreparation } from "@/platform/build-provider-operation";
-import type { BuildInstance, WindowsBuildProviderWorkspace } from "./build-provider-workspace";
+import type { BuildInstance, BuildRequiredOptions, WindowsBuildProviderWorkspace } from "./build-provider-workspace";
 
 interface PendingModel {
   operationID: string; inputs: string; settled: boolean; waiters: Set<symbol>; completion: Promise<unknown>;
@@ -7,12 +7,12 @@ interface PendingModel {
 type ModelPorts = Pick<WindowsBuildProviderWorkspace, "hasCurrentModel" | "loadModel" | "cancel">
   & Partial<Pick<WindowsBuildProviderWorkspace, "subscribe" | "operationOutput">>;
 
-/** Concurrent Run services share only the current default model. Each waiter
- * owns its cancellation; the last departing waiter stops unused preparation. */
+/** Operations within one model scope share its preparation. Each waiter
+ * owns its cancellation; the last departing waiter stops unused work. */
 export class BuildModelPreparationOwner {
   private readonly pending = new Map<string, PendingModel>();
   private disposed = false;
-  constructor(private readonly domain: ModelPorts) {}
+  constructor(private readonly domain: ModelPorts, private readonly requiredOptions?: BuildRequiredOptions) {}
 
   async ensure(instance: BuildInstance, signal: AbortSignal, onOutput?: (text: string) => void): Promise<void> {
     signal.throwIfAborted();
@@ -23,7 +23,7 @@ export class BuildModelPreparationOwner {
     let entry = this.pending.get(key);
     if (entry && entry.inputs !== inputs) { this.domain.cancel(entry.operationID); this.pending.delete(key); entry = undefined; }
     if (!entry) {
-      const started = this.domain.loadModel(structuredClone(instance));
+      const started = this.domain.loadModel(structuredClone(instance), this.requiredOptions);
       entry = { ...started, inputs, settled: false, waiters: new Set() };
       this.pending.set(key, entry);
       const captured = entry;

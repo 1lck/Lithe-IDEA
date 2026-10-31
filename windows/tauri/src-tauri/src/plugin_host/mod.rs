@@ -8,10 +8,10 @@
 //! capability rollout are recorded in
 //! .agents/notes/implemented/architecture/2026-10-22-windows-declarative-plugin-host.md
 
-pub mod install;
 pub mod build;
-pub mod build_tools;
 pub mod build_configuration;
+pub mod build_tools;
+pub mod install;
 #[cfg(test)]
 mod install_tests;
 pub mod launch;
@@ -45,6 +45,13 @@ pub fn host_capabilities() -> Value {
         "settings": [1, 2],
         "ui": [1, 2],
     })
+}
+
+/// Lets the product select its migration path from actual host admission,
+/// without reading project files or starting a tool just to inspect a flag.
+#[tauri::command]
+pub fn declarative_plugins_host_capabilities() -> Value {
+    host_capabilities()
 }
 
 /// Host CPU architecture in the vocabulary Core launch templates expect

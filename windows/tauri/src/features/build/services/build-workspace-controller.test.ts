@@ -49,6 +49,33 @@ test("team-file notifications revoke the catalog immediately, coalesce reads and
   expect(f.scheduled.size).toBe(0);
 }, 5000);
 
+test("Run revalidation coalesces reads and preserves unchanged entry and model identities", async () => {
+  const f = fixture(), gate = deferred<WindowsBuildCatalog>();
+  let reads = 0;
+  try {
+    await f.controller.refresh(); const entry = f.controller.snapshot().entries[0], revision = f.controller.snapshot().modelRevision;
+    f.detect(async () => { reads++; return gate.promise; });
+    const first = f.controller.ensureDetected(true), second = f.controller.ensureDetected(true);
+    expect(first).toBe(second); expect(reads).toBe(1); gate.resolve(catalog()); await first;
+    expect(f.controller.snapshot().entries[0]).toBe(entry); expect(f.controller.snapshot().modelRevision).toBe(revision);
+    expect(f.domain.operations()).toEqual([]);
+  } finally { gate.resolve(catalog()); await f.controller.dispose(); }
+}, 5000);
+
+test("Run revalidation publishes changed canonical options and refuses a failed read without relying on a file event", async () => {
+  const f = fixture();
+  const invalidate = spyOn(f.domain, "invalidate");
+  try {
+    await f.controller.refresh(); const previous = f.controller.snapshot().entries[0]!;
+    const changed = catalog(); changed.detection.instances[0]!.options = { features: ["new"] };
+    f.detect(async () => changed); await f.controller.ensureDetected(true);
+    expect(invalidate).toHaveBeenCalledWith(previous); expect(f.controller.snapshot().entries[0]?.options).toEqual({ features: ["new"] });
+    f.detect(async () => { throw new Error("canonical document is invalid"); }); await f.controller.ensureDetected(true);
+    expect(f.controller.snapshot()).toMatchObject({ status: "failed", entries: [], manifests: {}, error: "canonical document is invalid" });
+    expect(f.domain.operations()).toEqual([]);
+  } finally { invalidate.mockRestore(); await f.controller.dispose(); }
+}, 5000);
+
 test("a change during detection prevents its older catalog from publishing before the scheduled read", async () => {
   const f = fixture(), old = deferred<WindowsBuildCatalog>(); f.detect(() => old.promise);
   const detecting = f.controller.refresh();
