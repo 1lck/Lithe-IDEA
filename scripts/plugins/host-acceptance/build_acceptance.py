@@ -30,7 +30,14 @@ IDENTITY = ("operationId", "pluginId", "buildSystemId", "root", "workspaceRoot",
 
 def source_capabilities(root: Path = ROOT) -> dict:
     source = (root / "windows/tauri/src-tauri/src/plugin_host/mod.rs").read_text(encoding="utf-8")
-    match = re.search(r"pub fn host_capabilities\(\) -> Value\s*\{\s*json!\((\{.*?\})\)\s*\}", source, re.S)
+    # Only this exact cfg(test) seam may precede the production literal. Any
+    # production early return or different implementation remains unreadable.
+    test_override = (r"#\[cfg\(test\)\]\s*"
+                     r"if let Some\(capabilities\) = TEST_HOST_CAPABILITIES"
+                     r"\.with\(\|value\| value\.borrow\(\)\.clone\(\)\)\s*"
+                     r"\{\s*return capabilities;\s*\}\s*")
+    match = re.search(r"pub fn host_capabilities\(\) -> Value\s*\{\s*(?:" + test_override
+                      + r")?json!\((\{.*?\})\)\s*\}", source, re.S)
     if not match:
         raise ValueError("cannot read the host's literal capability prerequisite; never infer enabled")
     return json.loads(re.sub(r",\s*([}\]])", r"\1", match[1]))

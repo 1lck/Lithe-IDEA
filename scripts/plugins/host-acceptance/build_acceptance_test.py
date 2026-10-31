@@ -158,6 +158,76 @@ class BuildHelperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             acceptance.source_capabilities(self.directory / "source")
 
+    def test_source_capabilities_read_production_literal_after_exact_test_override(self):
+        source = self.directory / "source/windows/tauri/src-tauri/src/plugin_host"
+        source.mkdir(parents=True)
+        # Preserve the real host shape, including a separate test-only trust
+        # override that must never become a production prerequisite result.
+        (source / "mod.rs").write_text("""pub fn host_capabilities() -> Value {
+    #[cfg(test)]
+    if let Some(capabilities) = TEST_HOST_CAPABILITIES.with(|value| value.borrow().clone()) {
+        return capabilities;
+    }
+    json!({
+        "languages": [1],
+        "languageServers": [1, 2],
+        "serverProcess": [1],
+        "settings": [1, 2],
+        "ui": [1, 2],
+        "projectGenerators": [1],
+    })
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_HOST_CAPABILITIES: std::cell::RefCell<Option<Value>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn with_package_trust_for_tests<R>(run: impl FnOnce() -> R) -> R {
+    let mut capabilities = host_capabilities();
+    capabilities["packageTrust"] = json!([1]);
+    run()
+}
+""", encoding="utf-8")
+        capabilities = acceptance.source_capabilities(self.directory / "source")
+        self.assertEqual(capabilities, {"languages": [1], "languageServers": [1, 2],
+                                      "serverProcess": [1], "settings": [1, 2],
+                                      "ui": [1, 2], "projectGenerators": [1]})
+        self.assertEqual(acceptance.missing_capabilities({"packageTrust": 1}, capabilities), ["packageTrust:1"])
+
+    def test_source_capabilities_reject_dynamic_production_return_before_literal(self):
+        source = self.directory / "source/windows/tauri/src-tauri/src/plugin_host"
+        source.mkdir(parents=True)
+        for attribute in ("#[cfg(not(test))]", ""):
+            with self.subTest(attribute=attribute):
+                (source / "mod.rs").write_text("""pub fn host_capabilities() -> Value {
+    %s
+    if let Some(capabilities) = TEST_HOST_CAPABILITIES.with(|value| value.borrow().clone()) {
+        return capabilities;
+    }
+    json!({"languages": [1]})
+}
+""" % attribute, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "literal capability prerequisite"):
+                    acceptance.source_capabilities(self.directory / "source")
+
+    def test_source_capabilities_reject_other_test_override_shapes(self):
+        source = self.directory / "source/windows/tauri/src-tauri/src/plugin_host"
+        source.mkdir(parents=True)
+        for expression in ("OTHER_CAPABILITIES.with(|value| value.borrow().clone())", "from_config()"):
+            with self.subTest(expression=expression):
+                (source / "mod.rs").write_text("""pub fn host_capabilities() -> Value {
+    #[cfg(test)]
+    if let Some(capabilities) = %s {
+        return capabilities;
+    }
+    json!({"languages": [1]})
+}
+""" % expression, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "literal capability prerequisite"):
+                    acceptance.source_capabilities(self.directory / "source")
+
     def test_partial_capability_does_not_enable_settings_or_legacy(self):
         capabilities = {"buildSystems": [1], "settings": [1, 2]}
         legacy = next(variant for variant in self.plan["variants"] if variant["candidate"] == "executableSetting")
