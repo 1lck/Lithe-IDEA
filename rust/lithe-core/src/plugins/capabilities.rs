@@ -22,7 +22,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// First plugin API level whose manifests declare capability versions.
 pub(crate) const CAPABILITIES_API_VERSION: u32 = 3;
 
-/// `languages[]`: file types and project markers.
+/// `languages[]`: file types and project markers. Version 2 adds a
+/// declarative `grammar` and an editing `configuration`; see `super::grammar`.
 pub(crate) const LANGUAGES: &str = "languages";
 /// `languageServers[]` apart from their launch fields. Version 2 adds
 /// `workspaceConfiguration`.
@@ -80,7 +81,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (EXECUTION_PROVIDERS, &[1]),
     (EXECUTABLE_RESOLUTION, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
-    (LANGUAGES, &[1]),
+    (LANGUAGES, &[1, 2]),
     (PACKAGE_TRUST, &[1]),
     (PROJECT_GENERATORS, &[1]),
     (SERVER_PROCESS, &[1, 2]),

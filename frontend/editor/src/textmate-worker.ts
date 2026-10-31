@@ -2,6 +2,7 @@ import { createJavaGrammar, INITIAL } from "./textmate-grammar";
 import { tokenizeLineWithinLimit } from "./textmate-line-limit";
 import { TextmateDocument } from "./textmate-document";
 import { diffStateStacksRefEq } from "vscode-textmate";
+import { installPluginGrammarWorker } from "./plugin-grammar-worker";
 
 type Document = { text: TextmateDocument; visible: boolean; timer?: ReturnType<typeof setTimeout> };
 const documents = new Map<number, Document>();
@@ -39,6 +40,11 @@ function tokenize(id: number) {
 }
 self.onmessage = async ({ data }) => {
   try {
+    if (data.type === "pluginGrammar") {
+      installPluginGrammarWorker();
+      self.onmessage!({ data: { type: "init", languageID: data.languageID, source: data.source } } as MessageEvent);
+      return;
+    }
     if (data.type === "init") {
       grammar = (await createJavaGrammar(data.wasm, data.grammar)).grammar;
       // vscode-textmate/Oniguruma lazily compiles grammar patterns on the first

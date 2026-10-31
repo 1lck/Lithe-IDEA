@@ -532,7 +532,10 @@
       "method": "lithe/host/process/run",
       "params": {},
       "expected": { "rpcCode": -32601, "code": "plugin.host.unavailable" }
-    }
+    },
+    {"name": "editor actions are a discoverable independent host service", "method": "lithe/host/editor/registerActions", "version": 3, "hostServices": ["lithe/host/editor/registerActions"], "params": {"context": {"contextID": "w1", "generation": 1}, "id": "actions", "function": "actions.collect", "selector": {"fileExtensions": ["http"]}}, "expected": {"forward": "editor"}},
+    {"name": "document reads do not grant editor action contribution", "method": "lithe/host/editor/registerActions", "version": 3, "hostServices": ["lithe/host/documents/getSnapshot"], "params": {}, "expected": {"code": "plugin.host.permissionDenied", "rpcCode": -32010}},
+    {"name": "protocol 2 does not expose independent editor actions", "method": "lithe/host/editor/registerActions", "version": 2, "hostServices": ["lithe/host/editor/registerActions"], "params": {}, "expected": {"code": "plugin.host.unavailable", "rpcCode": -32601}}
   ],
   "invocationContexts": [
     {

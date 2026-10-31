@@ -81,6 +81,8 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Plugin grammar workers use checkout-built editor assets; decoded grammars,
+  // document tokens and editor action leases are memory-only, never reusable.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,

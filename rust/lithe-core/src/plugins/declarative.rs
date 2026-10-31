@@ -421,6 +421,13 @@ struct LanguageDeclaration {
     project_file_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<DependencyDeclaration>,
+    /// Syntax highlighting from a package file. `languages` 2; see
+    /// `super::grammar`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grammar: Option<super::grammar::GrammarDeclaration>,
+    /// Comment and bracket behavior of the editor. `languages` 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    configuration: Option<super::grammar::LanguageConfiguration>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -857,9 +864,14 @@ impl DeclarativePluginManifest {
             return Err(invalid("languages", "The plugin declares no languages."));
         }
 
+        let languages_version = self
+            .requires
+            .get(capabilities::LANGUAGES)
+            .copied()
+            .unwrap_or(1);
         let mut language_ids = BTreeSet::new();
         for (index, language) in self.languages.iter_mut().enumerate() {
-            language.normalize(index)?;
+            language.normalize(index, languages_version)?;
             if !language_ids.insert(language.id.clone()) {
                 return Err(invalid(
                     format!("languages[{index}].id"),
@@ -868,6 +880,17 @@ impl DeclarativePluginManifest {
             }
         }
         self.languages.sort_by(|left, right| left.id.cmp(&right.id));
+        if languages_version >= super::grammar::GRAMMAR_LANGUAGES_VERSION
+            && !self
+                .languages
+                .iter()
+                .any(LanguageDeclaration::uses_version_2)
+        {
+            return Err(invalid(
+                "requires.languages",
+                "The declared languages version must be used: languages 2 adds grammar and configuration.",
+            ));
+        }
 
         let declared_settings = self.validate_settings()?;
 
@@ -983,6 +1006,8 @@ impl DeclarativePluginManifest {
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
             && self.backend.is_none()
+            // A grammar alone is a complete highlighting plugin.
+            && !self.languages.iter().any(LanguageDeclaration::uses_version_2)
         {
             return Err(invalid(
                 "languages",
@@ -1406,6 +1431,20 @@ impl DeclarativePluginManifest {
                 "Host API permissions require backend 2.",
             ));
         }
+        if self
+            .permissions
+            .iter()
+            .any(|permission| permission == "editor.actions")
+            && !self
+                .permissions
+                .iter()
+                .any(|permission| permission == "documents.read")
+        {
+            return Err(invalid(
+                "permissions",
+                "Editor actions require documents.read for live snapshots.",
+            ));
+        }
         for permission in required {
             if !self
                 .permissions
@@ -1750,8 +1789,29 @@ impl DeclarativePluginManifest {
 }
 
 impl LanguageDeclaration {
-    fn normalize(&mut self, index: usize) -> Validation<()> {
+    /// Whether the language uses a field `languages` 2 adds.
+    fn uses_version_2(&self) -> bool {
+        self.grammar.is_some() || self.configuration.is_some()
+    }
+
+    fn normalize(&mut self, index: usize, capability_version: u32) -> Validation<()> {
         let field = format!("languages[{index}]");
+        if self.uses_version_2() && capability_version < super::grammar::GRAMMAR_LANGUAGES_VERSION {
+            return Err(invalid(
+                if self.grammar.is_some() {
+                    format!("{field}.grammar")
+                } else {
+                    format!("{field}.configuration")
+                },
+                "grammar and configuration require version 2 of the languages capability.",
+            ));
+        }
+        if let Some(grammar) = &self.grammar {
+            grammar.validate(&format!("{field}.grammar"))?;
+        }
+        if let Some(configuration) = &self.configuration {
+            configuration.validate(&format!("{field}.configuration"))?;
+        }
         let id = self.id.trim().to_lowercase();
         if id.is_empty()
             || id != self.id
@@ -4119,6 +4179,62 @@ pub fn workspace_configuration_command(payload: Value) -> Result<Value, CoreErro
             Ok(("configuration", configuration))
         }),
     ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GrammarPayload {
+    manifest: Value,
+    #[serde(rename = "languageID")]
+    language_id: String,
+    /// Text of the grammar file the host read from the package.
+    grammar: String,
+}
+
+/// `plugins.declarative.decodeGrammar`: validates the grammar file of one
+/// language and returns what the editor registers for it.
+pub fn decode_grammar_command(payload: Value) -> Result<Value, CoreError> {
+    let payload: GrammarPayload = decode_payload(payload, "plugins.declarative.decodeGrammar")?;
+    Ok(outcome(validate_manifest_value(payload.manifest).and_then(
+        |manifest| {
+            let language = manifest
+                .languages
+                .iter()
+                .find(|language| language.id == payload.language_id)
+                .filter(|language| language.grammar.is_some() || language.configuration.is_some())
+                .ok_or_else(|| {
+                    PluginRejection::new(
+                        "plugin.grammar.unavailable",
+                        format!(
+                            "The plugin declares no grammar for {}.",
+                            payload.language_id
+                        ),
+                    )
+                })?;
+            let grammar = language
+                .grammar
+                .as_ref()
+                .map(|grammar| match grammar.kind {
+                    super::grammar::GrammarKind::Monarch => {
+                        // Monarch cases are ordered. Keep the validated source
+                        // opaque across JSON maps and platform dictionaries.
+                        super::grammar::decode_monarch(&payload.grammar)
+                            .map(|_| json!({"kind": grammar.kind, "source": payload.grammar}))
+                    }
+                })
+                .transpose()?;
+            Ok((
+                "language",
+                json!({
+                    "id": language.id,
+                    "fileExtensions": language.file_extensions,
+                    "fileNames": language.file_names,
+                    "grammar": grammar,
+                    "configuration": language.configuration,
+                }),
+            ))
+        },
+    )))
 }
 
 /// `plugins.declarative.checkRuntimeVersion`: decides whether a launch

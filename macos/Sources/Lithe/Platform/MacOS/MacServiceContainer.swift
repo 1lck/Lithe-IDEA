@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheAIAssistanceModule
 import LitheAgentConversationModule
@@ -448,6 +449,8 @@ final class MacServiceContainer {
             )
             hostDispatcher.register(workspaceHost)
             hostDispatcher.register(PluginDocumentHostService(contexts: .shared))
+            let editorActions = PluginEditorActionHostService(contexts: .shared, decoder: declarativePluginOperations)
+            hostDispatcher.register(editorActions)
             hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,
                 files: MacPluginWorkspaceFileService(
                     searchOperations: RustWorkspaceOperations(core: rustCore),
@@ -470,8 +473,18 @@ final class MacServiceContainer {
                             fields: ["profiles": String(profiles), "passwords": String(passwords)])
                     }
                 },
+                canStart: { id in
+                    guard moduleLaunchMode != .safeMode,
+                          let package = pluginStartup.registeredPlugins.first(where: { $0.descriptor.id.rawValue == id }),
+                          let module = package.manifest.modules.first(where: {
+                              $0.manifest.id == .backendExtension(id) || $0.manifest.id == ModuleID("\(id).ui")
+                          })?.manifest else { return false }
+                    return (moduleStore.enabledState(for: module.id) ?? (module.defaultState == .enabled))
+                        && !moduleStore.isQuarantined(module.id)
+                },
                 hostDispatcher: hostDispatcher
             )
+            sessions.editorActions = editorActions
             sessions.onActivationFailure = { [applicationLogging] pluginID, error in
                 applicationLogging?.record(level: "warn", scope: "plugins.backend", message: "backend activation failed",
                     fields: ["plugin": pluginID, "error": error.localizedDescription])
@@ -500,7 +513,7 @@ final class MacServiceContainer {
         )
         // A debug-only declaration adds a debugger to a language another owner
         // serves, so it must not switch the host's own tools for it off.
-        let languageOwningSupports = installedLanguageSupports.filter { !$0.isDebugOnly }
+        let languageOwningSupports = installedLanguageSupports.filter { !$0.isDebugOnly && !$0.isEditorOnly }
         let pluginLanguageIDs = Set(languageOwningSupports.map(\.id))
         // A package may declare, through its host integration, that the host
         // keeps providing a feature of its language. Everything else of an
@@ -1132,6 +1145,34 @@ final class MacServiceContainer {
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
+        // Static editor resources follow their own enablement; ordinary tool
+        // actions register at runtime in the shared backend's host services.
+        let editorLanguageModuleChanges = PassthroughSubject<Void, Never>()
+        MacPluginEditorLanguages.observeModuleChanges(on: moduleRuntime, changed: {
+            editorLanguageModuleChanges.send()
+        }) { runtime in
+            for package in pluginStartup.registeredPlugins where package.descriptor.declaresBackend && package.descriptor.ui == nil {
+                let id = package.descriptor.id.rawValue
+                if let state = try? runtime.snapshot(for: .backendExtension(id)),
+                   state.state != .disabled, !state.isQuarantined, !state.isSuppressedBySafeMode {
+                    pluginBackends.enable(id)
+                } else { pluginBackends.disable(id) }
+            }
+        }
+        services.pluginEditorActions = pluginBackends.editorActions
+        services.pluginEditorLanguages = MacPluginEditorLanguages(
+            launchRegistered: pluginStartup.registeredPlugins,
+            isModuleUsable: { [weak moduleRuntime] id in
+                guard let snapshot = try? moduleRuntime?.snapshot(for: id) else { return false }
+                return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
+            },
+            livePackages: { liveSnapshotBox.snapshot.activePackages },
+            decoder: declarativePluginOperations,
+            triggers: [livePlugins.changes, editorLanguageModuleChanges.eraseToAnyPublisher()],
+            log: { message, fields in
+                NSLog("Lithe %@ %@", message, fields.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
+            }
+        )
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
         services.proxyPasswordStore = proxyPasswordStore
         services.proxyConnectionChecker = proxyConnectionChecker
@@ -1252,7 +1293,7 @@ final class MacServiceContainer {
         prepareTools: @MainActor (LanguageProviderDescriptor) async -> Void
     ) async throws {
         try Task.checkCancellation()
-        guard let support = supports.first(where: { $0.id == languageID && !$0.isDebugOnly }),
+        guard let support = supports.first(where: { $0.id == languageID && !$0.isDebugOnly && !$0.isEditorOnly }),
               let moduleID = support.languageServerModuleID,
               let snapshot = try? runtime.snapshot(for: moduleID),
               snapshot.state != .disabled, !snapshot.isQuarantined, !snapshot.isSuppressedBySafeMode else {
@@ -1351,6 +1392,8 @@ final class MacServiceContainer {
                     || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .vcsProvidersExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .debugAdaptersExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .grammarsExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .backendExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {

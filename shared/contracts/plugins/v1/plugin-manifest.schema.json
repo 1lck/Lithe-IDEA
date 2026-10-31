@@ -35,7 +35,7 @@
         "executableResolution": { "enum": [1], "description": "Shared executable candidate ordering and strict selection." },
     "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
-        "languages": { "enum": [1] },
+        "languages": { "description": "Version 2 adds languages[].grammar and languages[].configuration and is required exactly when one of them is used.", "enum": [1, 2] },
         "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
@@ -66,6 +66,7 @@
           "workspace.search",
           "documents.read",
           "editor.edit",
+          "editor.actions",
           "editor.open",
           "preview.open",
           "browser.open",
@@ -1056,8 +1057,36 @@
             "projectDependencyPaths": { "$ref": "#/$defs/fileNameList" },
             "projectBinaryPaths": { "$ref": "#/$defs/fileNameList" }
           }
+        },
+        "grammar": {
+          "description": "languages 2: syntax highlighting from a package file, applied by the editor without any process.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "description": "Highlighting engine of the file. Version 2 defines monarch: the JSON form of a Monaco Monarch definition.", "enum": ["monarch"] },
+            "path": { "description": "Package-relative grammar file inside the package.", "type": "string", "minLength": 1 }
+          }
+        },
+        "configuration": {
+          "description": "languages 2: comment and bracket behavior of the editor.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lineComment": { "$ref": "#/$defs/editorDelimiter" },
+            "blockComment": { "$ref": "#/$defs/editorDelimiterPair" },
+            "brackets": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/editorDelimiterPair" } },
+            "autoClosingPairs": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/editorDelimiterPair" } }
+          }
         }
       }
+    },
+    "editorDelimiter": { "type": "string", "minLength": 1, "maxLength": 16 },
+    "editorDelimiterPair": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/editorDelimiter" }
     },
     "languageServer": {
       "type": "object",

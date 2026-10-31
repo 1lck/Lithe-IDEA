@@ -117,6 +117,16 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
   });
+  await test("plugin grammar tokens and action leases cannot cross worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "editor-theme-assets");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<editor-memory>/plugin-grammar-workers-and-tokens"));
+    assert.ok(resource.locations.includes("<editor-memory>/plugin-editor-action-leases"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");

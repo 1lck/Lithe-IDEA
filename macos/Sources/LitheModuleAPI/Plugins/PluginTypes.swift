@@ -353,7 +353,7 @@ public extension Sequence where Element == LanguageSupportDeclaration {
     /// A debug-only declaration adds a debugger to a language another owner
     /// serves, so it never takes the host's run or test features away.
     func languageIDs(requiringExtensionFor capability: LanguageHostCapability) -> Set<String> {
-        Set(lazy.filter { !$0.isDebugOnly && !$0.hostCapabilities.contains(capability) }.map(\.id))
+        Set(lazy.filter { !$0.isDebugOnly && !$0.isEditorOnly && !$0.hostCapabilities.contains(capability) }.map(\.id))
     }
 }
 
@@ -371,6 +371,8 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
     public let executionModuleID: ModuleID?
     public let testingModuleID: ModuleID?
     public let debugModuleID: ModuleID?
+    /// Static editor resources; no language server or execution ownership.
+    public let editorModuleID: ModuleID?
     /// Features the host's own implementation provides for this language, as
     /// declared by the plugin's host integration. Never overlaps with a
     /// capability one of the modules above provides.
@@ -388,6 +390,7 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
         executionModuleID: ModuleID? = nil,
         testingModuleID: ModuleID? = nil,
         debugModuleID: ModuleID? = nil,
+        editorModuleID: ModuleID? = nil,
         hostCapabilities: Set<LanguageHostCapability> = []
     ) {
         self.id = id
@@ -401,6 +404,7 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
         self.executionModuleID = executionModuleID
         self.testingModuleID = testingModuleID
         self.debugModuleID = debugModuleID
+        self.editorModuleID = editorModuleID
         self.hostCapabilities = hostCapabilities
     }
 
@@ -414,15 +418,21 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
             && hostCapabilities.isEmpty
     }
 
+    /// A presentation-only contribution must not claim a language's domain ownership.
+    public var isEditorOnly: Bool {
+        editorModuleID != nil && languageServerModuleID == nil && executionModuleID == nil
+            && testingModuleID == nil && debugModuleID == nil && hostCapabilities.isEmpty
+    }
+
     public var moduleIDs: [ModuleID] {
-        [languageServerModuleID, executionModuleID, testingModuleID, debugModuleID].compactMap { $0 }
+        [languageServerModuleID, executionModuleID, testingModuleID, debugModuleID, editorModuleID].compactMap { $0 }
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, displayName, fileExtensions, fileNames, projectFileNames
         case dependencies, virtualDocumentSchemes
         case languageServerModuleID, executionModuleID, testingModuleID, debugModuleID
-        case hostCapabilities
+        case editorModuleID, hostCapabilities
     }
 
     public init(from decoder: Decoder) throws {
@@ -439,6 +449,7 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
             executionModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .executionModuleID),
             testingModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .testingModuleID),
             debugModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .debugModuleID),
+            editorModuleID: try values.decodeIfPresent(ModuleID.self, forKey: .editorModuleID),
             hostCapabilities: try values.decodeIfPresent(
                 Set<LanguageHostCapability>.self,
                 forKey: .hostCapabilities
@@ -514,7 +525,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "buildSystems": [1, 2], "debugAdapters": [1, 2], "executableResolution": [1],
         "executionProviders": [1],
         "languageServers": [1, 2],
-        "languages": [1],
+        "languages": [1, 2],
         "projectGenerators": [1],
         "serverProcess": [1],
         "settings": [1, 2],

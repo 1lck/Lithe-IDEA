@@ -88,6 +88,9 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     var holdFormat = false
     var heldFormat: ((Any?, String?) -> Void)?
     var formatWaiter: ((Any?, String?) -> Void)?
+    var holdPluginActions = false
+    var heldPluginActions: [((Any?, String?) -> Void)] = []
+    var pluginActionsWaiter: ((Any?, String?) -> Void)?
     let formatResult: [String: Any] = ["edits": [["range": ["startLineNumber": 1, "startColumn": 1,
         "endLineNumber": 1, "endColumn": 15], "text": "class Probe { }"]]]
     var holdSemantic = false
@@ -186,6 +189,21 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 replyHandler(["markers": markers, "canDebug": true], nil)
             case "javaRunMarkerAction":
                 javaRunActionCount += 1
+                replyHandler(["ok": true], nil)
+            case "pluginEditorActions":
+                if holdPluginActions {
+                    heldPluginActions.append(replyHandler)
+                    pluginActionsWaiter?(["ok": true], nil); pluginActionsWaiter = nil
+                } else { replyHandler(["actions": []], nil) }
+            case "holdPluginActions": holdPluginActions = true; replyHandler(["ok": true], nil)
+            case "awaitPluginActions":
+                if !heldPluginActions.isEmpty { replyHandler(["ok": true], nil) }
+                else { pluginActionsWaiter = replyHandler }
+            case "releasePluginActions":
+                holdPluginActions = false
+                let replies = heldPluginActions; heldPluginActions.removeAll()
+                replies.forEach { $0(["actions": []], nil) }
+                pluginActionsWaiter?(["cancelled": true], nil); pluginActionsWaiter = nil
                 replyHandler(["ok": true], nil)
             case "javaRunActionCount": replyHandler(["count": javaRunActionCount], nil)
             case "javaNavigation":
@@ -537,6 +555,8 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     func windowWillClose(_ notification: Notification) { finish(error: automated && !completed ? "Closed before completion" : nil) }
 
     func finish(error: String?) {
+        heldPluginActions.forEach { $0(nil, "Probe finished") }; heldPluginActions.removeAll()
+        pluginActionsWaiter?(nil, "Probe finished"); pluginActionsWaiter = nil
         closedDocumentNotificationWaiter?(nil, "Probe finished"); closedDocumentNotificationWaiter = nil
         closedFixtureDocuments.removeAll()
         markdownScrollWaiter?(nil, "Probe finished"); markdownScrollWaiter = nil

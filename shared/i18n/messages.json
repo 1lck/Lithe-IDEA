@@ -93151,6 +93151,17 @@
         "key": "Could not clear this project's local history. Check storage permissions and try again.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.addClickableActionsBesideDocumentText",
+      "description": "Native UI: editor action contribution permission",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add clickable actions beside document text",
+        "arguments": []
+      }
     }
   ]
 }

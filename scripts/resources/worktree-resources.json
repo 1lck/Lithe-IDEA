@@ -436,10 +436,12 @@
       "locations": [
         ".artifacts/editor/macos/",
         ".artifacts/monaco-workbench/test-assets/",
-        ".artifacts/monaco-probe/assets/"
+        ".artifacts/monaco-probe/assets/",
+        "<editor-memory>/plugin-grammar-workers-and-tokens",
+        "<editor-memory>/plugin-editor-action-leases"
       ],
       "identity": "Current source palettes, upstream pinned theme revisions, license/NOTICE files, Monaco and Bun versions; no validated build identity stamp",
-      "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines."
+      "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines. Plugin grammars compile only in terminable workers loaded from the same checkout-built textmate-worker.js. Decoded package resources, tokens and action leases stay in process memory; no reusable identity stamp or runtime bundle writes."
     },
     {
       "id": "plugin-host-runtime-state",

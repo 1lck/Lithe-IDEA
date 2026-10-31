@@ -45,7 +45,7 @@ extension LanguageProviderCatalog {
         // Debug-only declarations go last: they add to what the owning package
         // declared, and an owner applied after them would erase their debugger.
         let ordered = languageSupports.sorted {
-            ($0.isDebugOnly ? 1 : 0, $0.id) < ($1.isDebugOnly ? 1 : 0, $1.id)
+            ($0.isDebugOnly || $0.isEditorOnly ? 1 : 0, $0.id) < ($1.isDebugOnly || $1.isEditorOnly ? 1 : 0, $1.id)
         }
         for support in ordered {
             let existingIndex = indicesByID[support.id]
@@ -58,7 +58,7 @@ extension LanguageProviderCatalog {
             // A debug-only declaration adds a debugger to a language another
             // package or the catalog already provides; it must not take that
             // language's server, run, or test features away.
-            let isDebugOnly = support.isDebugOnly && existing != nil
+            let isDebugOnly = (support.isDebugOnly || support.isEditorOnly) && existing != nil
             if !isDebugOnly {
                 capabilities.subtract([.run, .languageServer, .debugAdapter, .testing])
             }

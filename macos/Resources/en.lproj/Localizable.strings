@@ -235,6 +235,7 @@
 "Add another account" = "Add another account";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "Add at least one absolute allowed folder path after the Filesystem package argument.";
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
+"Add clickable actions beside document text" = "Add clickable actions beside document text";
 "Add database connection" = "Add database connection";
 "Add header" = "Add header";
 "Add memory usage monitoring\n\nTrack current and average memory usage in the status bar." = "Add memory usage monitoring\n\nTrack current and average memory usage in the status bar.";
@@ -4874,6 +4875,7 @@
 "native.addAnAIProviderInAIProvidersFirst" = "Add an AI provider in AI Providers first.";
 "native.addAtLeastOneAbsoluteAllowedFolderPathAfterTheFilesystemPackageArgument" = "Add at least one absolute allowed folder path after the Filesystem package argument.";
 "native.addAtLeastOneAbsoluteFolderPathAfterThePackageArgumentOnePerLineFilesystemCanReadAndWriteOnlyInTheFoldersYouAllowRequiresNodeJs24OrLater" = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
+"native.addClickableActionsBesideDocumentText" = "Add clickable actions beside document text";
 "native.addDatabaseConnection" = "Add database connection";
 "native.addHeader" = "Add header";
 "native.addHook" = "Add Hook";

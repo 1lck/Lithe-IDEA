@@ -42,6 +42,10 @@ final class AppServices {
     /// Starts plugin backends on `onWorkspaceOpen` and `onCommand:<id>`;
     /// `nil` when the platform runs no plugin backends.
     var pluginBackendActivation: (any PluginBackendActivating)?
+    var pluginEditorActions: PluginEditorActionHostService?
+    /// Static plugin editor resources; `nil` when
+    /// the platform loads no plugins.
+    var pluginEditorLanguages: (any PluginEditorLanguageProviding)?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing

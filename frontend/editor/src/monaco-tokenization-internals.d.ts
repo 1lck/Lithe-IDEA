@@ -1,5 +1,13 @@
 // Narrow declarations for the private tokenization APIs in pinned Monaco 0.55.1.
 // Keep these with the shared adapter so both platform builds check the same boundary.
+declare module "monaco-editor/esm/vs/editor/standalone/common/monarch/monarchCompile.js" {
+  export function compile(languageID: string, grammar: unknown): unknown;
+}
+declare module "monaco-editor/esm/vs/editor/standalone/common/monarch/monarchLexer.js" {
+  export class MonarchTokenizer {
+    constructor(language: unknown, theme: unknown, languageID: string, lexer: unknown, configuration: unknown);
+  }
+}
 declare module "monaco-editor/esm/vs/editor/common/languages.js" {
   import type { IDisposable, editor, languages } from "monaco-editor";
   export class Token {
@@ -24,6 +32,7 @@ declare module "monaco-editor/esm/vs/editor/common/languages.js" {
     backgroundTokenizationFinished(): void;
   }
   export const TokenizationRegistry: {
+    get(language: string): any;
     handleChange(languages: string[]): void;
     register(language: string, support: {
       getInitialState(): languages.IState;
