@@ -1,3 +1,4 @@
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { canUseNativeFileSearch } from "@/features/file-search/utils/file-search-paths";
 import {
@@ -1076,7 +1077,10 @@ function FileExplorerTreeComponent({
     onCreateNewFileInDirectory,
     onCreateNewFolderInDirectory,
     onGenerateImage,
-    onRefreshDirectory,
+    onRefreshDirectory: (path, options) => {
+      workspaceRuntimeRegistry.getWorkspace(workspaceId)?.invalidateIndexing?.();
+      onRefreshDirectory?.(path, options);
+    },
     onRenamePath,
     onRevealInFinder,
     onUploadFile,

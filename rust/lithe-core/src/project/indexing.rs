@@ -343,6 +343,88 @@ pub struct ReleaseIndexingRequest {
     pub owner_id: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Refreshes external Git facts without replacing the caller's published lease.
+pub struct RefreshIndexingRequest {
+    pub root: String,
+    pub owner_id: String,
+    /// Existing release token, not the internal scan generation.
+    pub revision: u64,
+}
+
+/// Invalidates cached decisions for a live owner and reconciles existing providers.
+/// No content index is built, and a late request cannot acquire or revive a lease.
+pub fn refresh_indexing(request: RefreshIndexingRequest) -> Result<IndexingStatus, CoreError> {
+    let root = existing_root(&request.root)?;
+    let owner = Some(request.owner_id);
+    let check_lease = |context: &IndexingContext| -> Result<(), CoreError> {
+        context.check()?;
+        let leases = context
+            .leases
+            .lock()
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing lease lock was poisoned"))?;
+        if !leases.get(&owner).is_some_and(|lease| {
+            (lease.published && lease.revision == request.revision)
+                || lease.previous_published == Some(request.revision)
+        }) {
+            return Err(CoreError::new(
+                ErrorCode::Cancelled,
+                "Indexing lease changed",
+            ));
+        }
+        Ok(())
+    };
+    let next = {
+        let mut entries = policies()
+            .lock()
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing policy lock was poisoned"))?;
+        let old = entries
+            .get(&root)
+            .ok_or_else(|| CoreError::new(ErrorCode::Cancelled, "Indexing workspace closed"))?;
+        check_lease(old)?;
+        let next = refreshed_context(old);
+        old.retired.store(true, Ordering::Release);
+        entries.insert(root.clone(), Arc::clone(&next));
+        next
+    };
+    super::search_index::invalidate_root(&root);
+    crate::lsp::indexing_changed(&root)?;
+    // Release and replacement use this same lock: never acknowledge a retired owner.
+    let _entries = policies()
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing policy lock was poisoned"))?;
+    check_lease(&next)?;
+    let mut excluded_directories = next
+        .policy
+        .manual_excluded_directories
+        .iter()
+        .map(|path| (path.clone(), "manual".to_string()))
+        .collect::<BTreeMap<_, _>>();
+    let decisions = next
+        .decisions
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing decisions lock was poisoned"))?;
+    for (path, excluded) in decisions.iter() {
+        if *excluded
+            && !next
+                .policy
+                .included_directories
+                .iter()
+                .any(|included| contains(included, path) || contains(path, included))
+        {
+            excluded_directories
+                .entry(path.clone())
+                .or_insert_with(|| "git".into());
+        }
+    }
+    Ok(IndexingStatus {
+        revision: request.revision,
+        excluded_directories,
+        git_ignore_failed: next.git_failed.load(Ordering::Acquire),
+    })
+}
+
 pub fn release(request: ReleaseIndexingRequest) -> Result<bool, CoreError> {
     release_lease(request, false)
 }
@@ -421,26 +503,30 @@ pub(crate) fn refresh(root: &Path) -> Result<(), CoreError> {
         };
         // Closing a workspace must never be undone by a late watcher event.
         old.check()?;
-        let next = Arc::new(IndexingContext {
-            revision: REVISION.fetch_add(1, Ordering::Relaxed),
-            installation_revision: old.installation_revision,
-            owner_revision: old.owner_revision,
-            leases: Arc::clone(&old.leases),
-            root: old.root.clone(),
-            policy: old.policy.clone(),
-            fallback_policy: old.fallback_policy.clone(),
-            published: AtomicBool::new(old.published.load(Ordering::Acquire)),
-            decisions: Mutex::default(),
-            retired: AtomicBool::new(false),
-            git_failed: AtomicBool::new(false),
-            git_resolved: AtomicBool::new(false),
-        });
+        let next = refreshed_context(old);
         old.retired.store(true, Ordering::Release);
         entries.insert(root.to_path_buf(), next);
     }
     super::search_index::invalidate_root(root);
     // The caller rebuilds Git decisions before publishing provider settings.
     Ok(())
+}
+
+fn refreshed_context(old: &IndexingContext) -> Arc<IndexingContext> {
+    Arc::new(IndexingContext {
+        revision: REVISION.fetch_add(1, Ordering::Relaxed),
+        installation_revision: old.installation_revision,
+        owner_revision: old.owner_revision,
+        leases: Arc::clone(&old.leases),
+        root: old.root.clone(),
+        policy: old.policy.clone(),
+        fallback_policy: old.fallback_policy.clone(),
+        published: AtomicBool::new(old.published.load(Ordering::Acquire)),
+        decisions: Mutex::default(),
+        retired: AtomicBool::new(false),
+        git_failed: AtomicBool::new(false),
+        git_resolved: AtomicBool::new(false),
+    })
 }
 
 /// Resolve native Git decisions before a live provider receives a new generation.
@@ -713,6 +799,116 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::fs;
+
+    #[test]
+    fn owned_refresh_rechecks_git_without_replacing_any_release_token() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        let install = |owner| {
+            configure(
+                serde_json::from_value(json!({
+                    "root":workspace.0,"ownerId":owner,"manualExcludedDirectories":[],
+                    "includedDirectories":[],"gitIgnoreEnabled":true
+                }))
+                .unwrap(),
+            )
+            .unwrap()
+            .revision
+        };
+        let first = install("first");
+        let second = install("second");
+        assert!(workspace
+            .files()
+            .contains(&"ignored/deep/Excluded.java".into()));
+        let stale = context(&workspace.0).unwrap();
+        fs::write(workspace.0.join(".gitignore"), "ignored/\n").unwrap();
+        let refreshed = refresh_indexing(RefreshIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            owner_id: "first".into(),
+            revision: first,
+        })
+        .unwrap();
+        assert_eq!(refreshed.revision, first);
+        assert!(stale.check().is_err());
+        assert!(!workspace
+            .files()
+            .contains(&"ignored/deep/Excluded.java".into()));
+        fs::write(workspace.0.join(".gitignore"), "").unwrap();
+        refresh_indexing(RefreshIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            owner_id: "second".into(),
+            revision: second,
+        })
+        .unwrap();
+        assert!(workspace
+            .files()
+            .contains(&"ignored/deep/Excluded.java".into()));
+        for (owner, revision) in [("first", first), ("second", second)] {
+            assert!(release(ReleaseIndexingRequest {
+                root: workspace.0.to_string_lossy().into_owned(),
+                owner_id: Some(owner.into()),
+                revision
+            })
+            .unwrap());
+        }
+        let revision = install("reopened");
+        let current = context(&workspace.0).unwrap();
+        let error = refresh_indexing(RefreshIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            owner_id: "first".into(),
+            revision: first,
+        })
+        .err()
+        .expect("closed owner must fail");
+        assert!(matches!(error.code, ErrorCode::Cancelled));
+        assert!(Arc::ptr_eq(&current, &context(&workspace.0).unwrap()));
+        assert!(release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            owner_id: Some("reopened".into()),
+            revision
+        })
+        .unwrap());
+    }
+
+    #[test]
+    fn directory_action_fixture_preserves_real_git_search_eligibility() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/workspace/directory-actions-v1.json"
+        ))
+        .unwrap();
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::create_dir_all(workspace.0.join("archive")).unwrap();
+        fs::write(workspace.0.join("archive/Needle.java"), "class Needle {}").unwrap();
+        fs::write(workspace.0.join(".gitignore"), "archive/\n").unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            for step in case["steps"].as_array().unwrap() {
+                let excluded = step["role"] == "excluded";
+                let included = step["included"].as_bool().unwrap();
+                workspace.configure(
+                    if excluded { &["archive"] } else { &[] },
+                    if included { &["archive"] } else { &[] },
+                    true,
+                );
+                let found = files::search_everywhere(
+                    serde_json::from_value(json!({
+                        "root":workspace.0,"query":"Needle","includeGeneratedFileNames":true
+                    }))
+                    .unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    found
+                        .matches
+                        .iter()
+                        .any(|item| item.path == "archive/Needle.java"),
+                    included && !excluded,
+                    "{}",
+                    case["id"]
+                );
+            }
+        }
+    }
 
     #[test]
     fn scoped_everywhere_search_filters_each_source_before_limits_and_pagination() {

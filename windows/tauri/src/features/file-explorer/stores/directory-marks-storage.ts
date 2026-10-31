@@ -5,6 +5,10 @@ export const DIRECTORY_MARKS = [
   "plain", "sources", "resources", "excluded", "module", "package",
 ] as const;
 export type DirectoryMark = (typeof DIRECTORY_MARKS)[number];
+export type DirectoryAction =
+  | { kind: "setRole"; role: Exclude<DirectoryMark, "excluded"> }
+  | { kind: "exclude" }
+  | { kind: "cancelExclusion" };
 export type DirectoryMarks = Record<string, DirectoryMark>;
 
 export const directoryMarksStorageKey = (root: string) =>

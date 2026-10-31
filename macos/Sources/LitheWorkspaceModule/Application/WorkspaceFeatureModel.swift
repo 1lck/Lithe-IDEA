@@ -636,24 +636,31 @@ package final class WorkspaceFeatureModel: ObservableObject {
         )
     }
 
-    package func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark, cancelExclusion: Bool = false) async {
+    package func markDirectory(_ url: URL, action: WorkspaceDirectoryAction) async {
         guard !isPerformingProjectItemOperation,
               !indexingPreferencesFailed,
-              mark != .excluded || indexingStatus.supportsExclusions,
+              action != .exclude || indexingStatus.supportsExclusions,
               let workspaceURL,
               let relativePath = Self.relativePath(for: url, in: workspaceURL) else { return }
         let workspaceGeneration = self.workspaceGeneration
         let previousMarks = directoryMarks
         var updatedMarks = directoryMarks
         let previousSettings = indexingSettings
-        if cancelExclusion {
+        switch action {
+        case .cancelExclusion:
             guard !directoryMarks.contains(where: { $0.value == .excluded && $0.key != relativePath && (relativePath.hasPrefix($0.key + "/") || $0.key == ".") }) else { return }
-            updatedMarks[relativePath] = indexingSettings.previousRoles.removeValue(forKey: relativePath) ?? .plain
+            let remembered = indexingSettings.previousRoles.removeValue(forKey: relativePath)
+            if updatedMarks[relativePath] == .excluded {
+                updatedMarks[relativePath] = remembered ?? .plain
+            }
             if !indexingSettings.includedDirectories.contains(relativePath) { indexingSettings.includedDirectories.append(relativePath) }
-        } else {
-            if mark == .excluded, let previous = updatedMarks[relativePath], previous != .excluded { indexingSettings.previousRoles[relativePath] = previous }
-            updatedMarks[relativePath] = mark
-            if mark != .plain { indexingSettings.includedDirectories.removeAll { $0 == relativePath } }
+        case .exclude:
+            if let previous = updatedMarks[relativePath], previous != .excluded { indexingSettings.previousRoles[relativePath] = previous }
+            updatedMarks[relativePath] = .excluded
+            indexingSettings.includedDirectories.removeAll { $0 == relativePath }
+        case .setRole(let role):
+            guard role != .excluded else { return }
+            updatedMarks[relativePath] = role
         }
         guard updatedMarks != previousMarks || previousSettings != indexingSettings else { return }
 

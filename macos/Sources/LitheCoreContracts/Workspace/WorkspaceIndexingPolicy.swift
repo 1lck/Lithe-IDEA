@@ -1,5 +1,12 @@
 import Foundation
 
+/// Directory roles and explicit indexing overrides are independent user intents.
+package enum WorkspaceDirectoryAction: Equatable, Sendable {
+    case setRole(WorkspaceDirectoryMark)
+    case exclude
+    case cancelExclusion
+}
+
 /// Stable application failures. Presentation owns translation; adapters retain diagnostics.
 package enum WorkspaceIndexingFailure: Error, Equatable, Sendable {
     case invalidSettings, readFailed, writeFailed, configureFailed, workspaceUnavailable, permissionDenied

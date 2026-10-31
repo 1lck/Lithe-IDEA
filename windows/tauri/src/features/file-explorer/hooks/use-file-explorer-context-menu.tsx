@@ -1,4 +1,5 @@
-import { DIRECTORY_MARKS, type DirectoryMark } from "../stores/directory-marks";
+import { DIRECTORY_MARKS, type DirectoryAction, type DirectoryMark } from "../stores/directory-marks";
+import { IndexingSettingsError } from "../stores/indexing-settings-error";
 import {
   canOpenProjectLocalHistory,
   openLocalHistoryForPath,
@@ -93,7 +94,7 @@ interface UseFileExplorerContextMenuOptions {
   isIndexExcluded?: (path: string) => boolean;
   markForPath?: (path: string) => DirectoryMark | undefined;
   canExcludeDirectory?: (path: string) => boolean;
-  markDirectory?: (path: string, mark: DirectoryMark, cancelExclusion?: boolean) => void;
+  markDirectory?: (path: string, action: DirectoryAction) => void;
   onFileSelect: (path: string, isDir: boolean) => void | string | Promise<void | string>;
   onCreateNewFileInDirectory?: (
     directoryPath: string,
@@ -875,9 +876,12 @@ export function useFileExplorerContextMenu({
             ),
             onClick: () => {
               try {
-                markDirectory(contextMenu.path, mark, mark === "plain" && excluded);
+                markDirectory(contextMenu.path, excluded ? { kind: "cancelExclusion" }
+                  : mark === "excluded" ? { kind: "exclude" } : { kind: "setRole", role: mark });
               } catch (error) {
-                toast.error(t("project.markFailed"), { description: String(error) });
+                toast.error(t("project.markFailed"), {
+                  description: t(error instanceof IndexingSettingsError ? `indexing.${error.code}` : "indexing.writeFailed"),
+                });
               }
             },
           })),

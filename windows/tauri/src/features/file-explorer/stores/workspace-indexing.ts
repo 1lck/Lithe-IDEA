@@ -20,6 +20,7 @@ export interface IndexingStatus {
   gitIgnoreFailed: boolean;
 }
 export const indexingEvent = "lithe:workspace-indexing-changed";
+export const indexingRefreshedEvent = "lithe:workspace-indexing-refreshed";
 export const indexingSettingsStorageKey = (root: string) =>
   `lithe.workspace-indexing.${getPathIdentity(root).replace(/\/+$/, "")}`;
 
@@ -73,6 +74,7 @@ export function writeIndexingSettings(root: string, settings: IndexingSettings) 
 export function subscribeToIndexingChanges(
   roots: readonly string[] | (() => readonly string[]) | undefined,
   changed: () => void,
+  preferencesOnly = false,
 ): () => void {
   if (typeof window === "undefined") return () => {};
   let active = true;
@@ -98,17 +100,19 @@ export function subscribeToIndexingChanges(
     }
   };
   window.addEventListener(indexingEvent, local);
+  if (!preferencesOnly) window.addEventListener(indexingRefreshedEvent, local);
   window.addEventListener("lithe:directory-marks-changed", local);
   window.addEventListener("storage", stored);
   return () => {
     active = false;
     window.removeEventListener(indexingEvent, local);
+    if (!preferencesOnly) window.removeEventListener(indexingRefreshedEvent, local);
     window.removeEventListener("lithe:directory-marks-changed", local);
     window.removeEventListener("storage", stored);
   };
 }
 
-type RootLease = { root: string; revision?: number };
+type RootLease = { root: string; revision?: number; requested: number; applied: number };
 type IndexingOwner = {
   id: string;
   roots: Map<string, RootLease>;
@@ -128,10 +132,18 @@ function ownerFor(workspaceId: string): IndexingOwner {
   owners.set(runtime, owner);
   owner.stopPreferences = subscribeToIndexingChanges(() => [...owner.roots.values()].map((lease) => lease.root), () => {
     for (const { root } of owner.roots.values()) void configureWorkspaceIndexing(root, [], false, workspaceId).catch(console.error);
-  });
+  }, true);
+  runtime.invalidateIndexing = () => {
+    if (owner.closed) return;
+    for (const lease of owner.roots.values()) {
+      lease.requested++;
+      void configureWorkspaceIndexing(lease.root, [], false, workspaceId).catch(console.error);
+    }
+  };
   runtime.disposeIndexing = async () => {
     if (owner.closed) return;
     owner.closed = true;
+    runtime.invalidateIndexing = undefined;
     owner.stopPreferences();
     owner.stopRoots?.();
     const leases = [...owner.roots.values()];
@@ -174,7 +186,7 @@ export function syncWorkspaceIndexingRoots(workspaceId: string, roots: readonly 
     }
   }
   for (const [identity, root] of wanted) {
-    if (!owner.roots.has(identity)) owner.roots.set(identity, { root });
+    if (!owner.roots.has(identity)) owner.roots.set(identity, { root, requested: 0, applied: 0 });
   }
 }
 
@@ -205,17 +217,20 @@ export async function configureWorkspaceIndexing(
   const identity = getPathIdentity(root);
   const lease = owner.roots.get(identity);
   if (!lease || owner.closed) throw new IndexingSettingsError("configureFailed");
+  if (refresh) lease.requested++;
   return serialized(owner, root, async () => {
     let supersededRetries = 0;
+    let passes = 0;
     while (true) {
+      if (++passes > 4) throw new IndexingSettingsError("configureFailed");
       if (owner.closed || owner.roots.get(identity) !== lease) throw new IndexingSettingsError("configureFailed");
       const signature = JSON.stringify([readStoredValue(indexingSettingsStorageKey(root)), readStoredValue(key(root))]);
       const settings = readIndexingSettings(root);
       const marks = readDirectoryMarks(root);
-      const response = await executeCore<IndexingStatus>({
+      let response = await executeCore<IndexingStatus>({
         id: crypto.randomUUID(), command: "workspace.configureIndexing",
         payload: { root, ownerId: owner.id, ...settings,
-          manualExcludedDirectories: Object.entries(marks).filter(([, role]) => role === "excluded").map(([path]) => path), paths, refresh },
+          manualExcludedDirectories: Object.entries(marks).filter(([, role]) => role === "excluded").map(([path]) => path), paths, refresh: false },
       });
       if (!response.ok) {
         // Another workspace owner can replace the shared scan generation.
@@ -229,6 +244,21 @@ export async function configureWorkspaceIndexing(
         throw new IndexingSettingsError("configureFailed");
       }
       lease.revision = response.data.revision;
+      if (lease.requested !== lease.applied) {
+        const requested = lease.requested;
+        response = await executeCore<IndexingStatus>({
+          id: crypto.randomUUID(), command: "workspace.refreshIndexing", timeoutMilliseconds: 30000,
+          payload: {root, ownerId: owner.id, revision: lease.revision},
+        });
+        if (!response.ok) {
+          if (response.error.code === "cancelled" && supersededRetries++ < 2) continue;
+          throw new IndexingSettingsError("configureFailed", response.error);
+        }
+        if (owner.closed || owner.roots.get(identity) !== lease) throw new IndexingSettingsError("configureFailed");
+        lease.applied = requested;
+        // Re-query requested directory reasons against the refreshed generation.
+        continue;
+      }
       if (signature === JSON.stringify([readStoredValue(indexingSettingsStorageKey(root)), readStoredValue(key(root))])) return response.data;
     }
   });

@@ -2,6 +2,7 @@ pub mod document_file;
 pub mod document_watcher;
 use anyhow::{Context, Result, bail};
 pub mod git_watcher;
+pub mod indexing_refresh;
 use notify::{
    Event, EventKind, RecommendedWatcher, RecursiveMode,
    event::{ModifyKind, RenameMode},
@@ -10,7 +11,7 @@ use notify_debouncer_full::{
    DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache, new_debouncer,
 };
 use std::{
-   collections::HashSet,
+    collections::{HashMap, HashSet},
    path::PathBuf,
    sync::{Arc, Mutex},
    time::Duration,
@@ -35,6 +36,9 @@ pub enum FileChangeType {
 
 pub trait FileChangeEmitter: Send + Sync {
    fn emit_file_change(&self, event: &FileChangeEvent);
+    fn emit_file_changes(&self, events: &[FileChangeEvent]) {
+        for event in events { self.emit_file_change(event); }
+    }
 }
 
 pub struct FileWatcher {
@@ -42,6 +46,13 @@ pub struct FileWatcher {
    debouncer: Arc<Mutex<Option<Debouncer<RecommendedWatcher, RecommendedCache>>>>,
    watched_paths: Arc<Mutex<HashSet<PathBuf>>>,
    watched_directories: Arc<Mutex<HashSet<PathBuf>>>,
+    owners: Mutex<FileWatchOwners>,
+}
+
+#[derive(Default)]
+struct FileWatchOwners {
+    registrations: HashMap<String, PathBuf>,
+    closed_windows: HashSet<String>,
 }
 
 impl FileWatcher {
@@ -51,6 +62,69 @@ impl FileWatcher {
          debouncer: Arc::new(Mutex::new(None)),
          watched_paths: Arc::new(Mutex::new(HashSet::new())),
          watched_directories: Arc::new(Mutex::new(HashSet::new())),
+            owners: Mutex::new(FileWatchOwners::default()),
+        }
+    }
+
+    /// Registration identity is window/runtime/watch; native paths are shared by all holders.
+    pub fn watch_owned(&self, owner: String, path: String, project_root: bool) -> Result<()> {
+        let mut owners = self.owners.lock().unwrap();
+        if owners
+            .closed_windows
+            .contains(owner.split('\0').next().unwrap_or(&owner))
+        {
+            bail!("Watch window closed");
+        }
+        let canonical = std::fs::canonicalize(&path)?;
+        if let Some(previous) = owners.registrations.get(&owner) {
+            if *previous != canonical {
+                bail!("Watch registration cannot change its path");
+            }
+            return Ok(());
+        }
+        self.watch_path_with_mode(canonical.to_string_lossy().into_owned(), true, project_root)?;
+        owners.registrations.insert(owner, canonical);
+        Ok(())
+    }
+
+    pub fn unwatch_owned(&self, owner: &str) -> Result<()> {
+        let mut owners = self.owners.lock().unwrap();
+        self.release_owned(&mut owners, owner)
+    }
+
+    fn release_owned(&self, owners: &mut FileWatchOwners, owner: &str) -> Result<()> {
+        let Some(path) = owners.registrations.get(owner).cloned() else {
+            return Ok(());
+        };
+        if !owners
+            .registrations
+            .iter()
+            .any(|(key, other)| key != owner && *other == path)
+        {
+            self.stop_watching(path.to_string_lossy().into_owned())?;
+        }
+        owners.registrations.remove(owner);
+        Ok(())
+    }
+
+    pub fn remove_window(&self, window: &str) -> Result<()> {
+        let mut owners = self.owners.lock().unwrap();
+        owners.closed_windows.insert(window.to_owned());
+        let keys: Vec<_> = owners
+            .registrations
+            .keys()
+            .filter(|owner| owner.split('\0').next() == Some(window))
+            .cloned()
+            .collect();
+        let mut failure = None;
+        for key in keys {
+            if let Err(error) = self.release_owned(&mut owners, &key) {
+                failure = Some(error);
+            }
+        }
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(()),
       }
    }
 
@@ -154,19 +228,19 @@ impl FileWatcher {
          Self::emit_rescans(emitter, watched_directories);
          return;
       }
-      for (path, event_type) in changes {
-         emitter.emit_file_change(&FileChangeEvent {
-            path: path.to_string_lossy().to_string(),
-            event_type,
-         });
-      }
-   }
+        let events = changes.into_iter().map(|(path, event_type)| FileChangeEvent {
+            path: path.to_string_lossy().to_string(), event_type,
+        }).collect::<Vec<_>>();
+        emitter.emit_file_changes(&events);
+    }
 
    fn is_relevant_change(
       path: &PathBuf,
       watched_paths: &HashSet<PathBuf>,
       watched_dirs: &HashSet<PathBuf>,
    ) -> bool {
+        if path.file_name().is_some_and(|name| name == ".gitignore")
+            && watched_dirs.iter().any(|root| path.starts_with(root)) { return true; }
       if watched_paths.contains(path) {
          return true;
       }
@@ -174,8 +248,7 @@ impl FileWatcher {
          .iter()
          .filter(|root| path.starts_with(root))
          .max_by_key(|root| root.components().count());
-      root
-         .and_then(|root| path.strip_prefix(root).ok())
+        root.and_then(|root| path.strip_prefix(root).ok())
          .is_some_and(|relative| {
             lithe_core::is_workspace_event_relevant(&relative.to_string_lossy())
          })
@@ -294,8 +367,7 @@ impl FileWatcher {
    }
 
    fn setup_directory_watching(&self, path_buf: &PathBuf) -> Result<()> {
-      self
-         .watched_directories
+        self.watched_directories
          .lock()
          .unwrap()
          .insert(path_buf.clone());
@@ -320,7 +392,11 @@ impl FileWatcher {
       // transient adapter failure remains retryable.
       watched_paths.remove(&path_buf);
       self.watched_directories.lock().unwrap().remove(&path_buf);
-
+      let retired = if watched_paths.is_empty() { debouncer_guard.take() } else { None };
+      drop(debouncer_guard);
+      drop(watched_paths);
+      // A native callback may still need the path mutex while its worker exits.
+      drop(retired);
       Ok(())
    }
 }
@@ -355,7 +431,7 @@ mod tests {
             std::process::id()
          ));
          fs::create_dir_all(&path).expect("test directory should be created");
-         Self(path)
+         Self(fs::canonicalize(path).unwrap())
       }
    }
 
@@ -367,6 +443,7 @@ mod tests {
 
    fn receive_reload(receiver: &Receiver<FileChangeEvent>, path: &PathBuf) -> FileChangeEvent {
       let deadline = Instant::now() + Duration::from_secs(5);
+      let mut observed = Vec::new();
       loop {
          let remaining = deadline.saturating_duration_since(Instant::now());
          assert!(
@@ -376,13 +453,14 @@ mod tests {
          match receiver.recv_timeout(remaining) {
             Ok(event)
                if event.path == path.to_string_lossy()
-                  && matches!(event.event_type, FileChangeType::Reloaded) =>
+                  && (event.event_type == FileChangeType::Reloaded
+                        || (cfg!(target_os = "macos") && event.event_type == FileChangeType::Opened)) =>
             {
                return event;
             }
-            Ok(_) => continue,
+            Ok(event) => { observed.push(event); continue; },
             Err(RecvTimeoutError::Timeout) => {
-               panic!("timed out waiting for a POM reload event")
+               panic!("timed out waiting for a POM reload event; observed {observed:?}")
             }
             Err(RecvTimeoutError::Disconnected) => {
                panic!("file watcher event channel disconnected")
@@ -405,7 +483,9 @@ mod tests {
             path.display()
          );
          match receiver.recv_timeout(remaining) {
-            Ok(event) if event.path == path.to_string_lossy() && event.event_type == event_type => {
+                Ok(event)
+                    if event.path == path.to_string_lossy() && event.event_type == event_type =>
+                {
                return event;
             }
             Ok(_) => continue,
@@ -418,6 +498,49 @@ mod tests {
          }
       }
    }
+
+
+    #[test]
+    fn shared_native_path_survives_one_runtime_and_closes_with_its_last_owner() {
+        let directory = TestDirectory::new();
+        let root = std::fs::canonicalize(&directory.0).unwrap();
+        let file = root.join("pom.xml");
+        fs::write(&file, "before").unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let watcher = FileWatcher::new(Arc::new(ChannelEmitter(sender)));
+        let a = "window\0first\0root";
+        let b = "window\0second\0root";
+        watcher.watch_owned(a.into(), root.to_string_lossy().into_owned(), true).unwrap();
+        watcher.watch_owned(b.into(), root.join(".").to_string_lossy().into_owned(), true).unwrap();
+        assert_eq!(watcher.watched_paths.lock().unwrap().len(), 1);
+        watcher.unwatch_owned(a).unwrap();
+        fs::write(&file, "after").unwrap();
+        receive_reload(&receiver, &file);
+        watcher.remove_window("window").unwrap();
+        assert!(watcher.watched_paths.lock().unwrap().is_empty());
+        assert!(watcher.owners.lock().unwrap().registrations.is_empty());
+        assert!(watcher.debouncer.lock().unwrap().is_none());
+        assert!(watcher.watch_owned("window\0late\0root".into(), root.to_string_lossy().into_owned(), true).is_err());
+        watcher.watch_owned("new-window\0reopened\0root".into(), root.to_string_lossy().into_owned(), true).unwrap();
+        watcher.remove_window("new-window").unwrap();
+    }
+
+    #[test]
+    fn hidden_rule_events_survive_mixed_native_batches() {
+        let directory = TestDirectory::new();
+        let (sender, receiver) = mpsc::channel();
+        let emitter = ChannelEmitter(sender);
+        let paths = Arc::new(Mutex::new(HashSet::from([directory.0.clone()])));
+        let rules = directory.0.join("target/.gitignore");
+        let source = directory.0.join("Keep.rs");
+        let events = [rules.clone(), source.clone()].into_iter().map(|path| {
+            DebouncedEvent::new(Event::new(EventKind::Modify(ModifyKind::Any)).add_path(path), Instant::now())
+        }).collect();
+        let directories = Arc::new(Mutex::new(HashSet::from([directory.0.clone()])));
+        FileWatcher::handle_events(events, &emitter, &paths, &directories);
+        let received: HashSet<_> = receiver.try_iter().map(|event| PathBuf::from(event.path)).collect();
+        assert_eq!(received, HashSet::from([rules, source]));
+    }
 
    #[test]
    fn exact_nested_pom_watch_emits_reload_without_registration_event() {
@@ -437,7 +560,10 @@ mod tests {
       fs::write(&pom_path, "<project><version>2</version></project>")
          .expect("updated POM should be written");
       let event = receive_reload(&receiver, &pom_path);
-      assert!(matches!(event.event_type, FileChangeType::Reloaded));
+      // FSEvents can coalesce the fixture's creation and its first rewrite. Windows
+      // still requires Reloaded; both native events carry the same changed file.
+      assert!(event.event_type == FileChangeType::Reloaded
+          || (cfg!(target_os = "macos") && event.event_type == FileChangeType::Opened));
    }
 
    #[test]

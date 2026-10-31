@@ -8,6 +8,49 @@ import Testing
 @Suite("Lazy project tree inventory")
 @MainActor
 struct LazyProjectTreeInventoryTests {
+    @Test
+    func sharedDirectoryActionsPreserveRolesAndIncludeOverrides() async throws {
+        struct Fixture: Decodable {
+            struct Scenario: Decodable {
+                struct Step: Decodable {
+                    struct Action: Decodable { let kind: String; let role: String? }
+                    let action: Action
+                    let role: String
+                    let included: Bool
+                }
+                let id: String
+                let steps: [Step]
+            }
+            let cases: [Scenario]
+        }
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let contract = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            repository.appendingPathComponent("shared/fixtures/workspace/directory-actions-v1.json")))
+        for scenario in contract.cases {
+            let root = URL(fileURLWithPath: "/in-memory/roles/" + scenario.id)
+            let directory = root.appendingPathComponent("archive")
+            let fixture = InventoryFixture(root: root, files: [directory.appendingPathComponent("Keep.java")], rows: [root.path: []])
+            defer { fixture.close() }
+            await fixture.load()
+            for step in scenario.steps {
+                let action: WorkspaceDirectoryAction
+                switch step.action.kind {
+                case "exclude": action = .exclude
+                case "cancelExclusion": action = .cancelExclusion
+                default: action = .setRole(try #require(WorkspaceDirectoryMark(rawValue: step.action.role ?? "")))
+                }
+                await fixture.model.markDirectory(directory, action: action)
+                #expect((fixture.model.directoryMarks["archive"] ?? .plain).rawValue == step.role, "\(scenario.id)")
+                #expect(fixture.model.indexingSettings.includedDirectories == (step.included ? ["archive"] : []))
+            }
+            let saved = fixture.model.indexingSettings
+            await fixture.model.setGitIgnoreIndexing(false)
+            await fixture.model.setGitIgnoreIndexing(true)
+            #expect(fixture.model.indexingSettings == saved)
+        }
+    }
+
     @Test(arguments: [false, true])
     func aNewSnapshotDuringSessionRestoreDoesNotReplayTheSavedSession(fullRescan: Bool) async throws {
         let root = URL(fileURLWithPath: "/in-memory/snapshot-during-session-restore")
@@ -172,12 +215,12 @@ struct LazyProjectTreeInventoryTests {
         let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []], directoryMarkStore: store)
         defer { store.release.open(); fixture.close() }
         await fixture.load()
-        let first = Task { await fixture.model.markDirectory(root.appendingPathComponent("a"), as: .excluded) }
+        let first = Task { await fixture.model.markDirectory(root.appendingPathComponent("a"), action: .exclude) }
         defer { first.cancel(); store.release.open() }
         #expect(await store.started.waitUntilOpen())
         let second: Task<Void, Never>?
         if cancelExclusion {
-            second = Task { await fixture.model.markDirectory(root.appendingPathComponent("b"), as: .plain, cancelExclusion: true) }
+            second = Task { await fixture.model.markDirectory(root.appendingPathComponent("b"), action: .cancelExclusion) }
             #expect(await store.newSettingsSaved.waitUntilOpen())
         } else {
             second = nil
@@ -282,12 +325,12 @@ struct LazyProjectTreeInventoryTests {
         let fixture = InventoryFixture(root: root, files: [directory.appendingPathComponent("Keep.java")], rows: [root.path: []])
         defer { fixture.close() }
         await fixture.load()
-        await fixture.model.markDirectory(directory, as: .sources)
-        await fixture.model.markDirectory(directory, as: .plain)
+        await fixture.model.markDirectory(directory, action: .setRole(.sources))
+        await fixture.model.markDirectory(directory, action: .setRole(.plain))
         #expect(fixture.model.indexingSettings.includedDirectories.isEmpty)
         #expect(fixture.model.directoryMarks["src"] == .plain)
-        await fixture.model.markDirectory(directory, as: .excluded)
-        await fixture.model.markDirectory(directory, as: .plain, cancelExclusion: true)
+        await fixture.model.markDirectory(directory, action: .exclude)
+        await fixture.model.markDirectory(directory, action: .cancelExclusion)
         #expect(fixture.model.indexingSettings.includedDirectories == ["src"])
         #expect(fixture.model.directoryMarks["src"] == .plain)
     }
@@ -383,7 +426,7 @@ struct LazyProjectTreeInventoryTests {
         fixture.disk.supportsExclusions = false
         await fixture.load()
         await fixture.model.setGitIgnoreIndexing(false)
-        await fixture.model.markDirectory(root.appendingPathComponent("src"), as: .excluded)
+        await fixture.model.markDirectory(root.appendingPathComponent("src"), action: .exclude)
         #expect(fixture.model.indexingSettings.gitIgnoreEnabled)
         #expect(fixture.model.directoryMarks.isEmpty)
         #expect(fixture.model.projectFiles == [file])
@@ -404,7 +447,7 @@ struct LazyProjectTreeInventoryTests {
         defer { loading.cancel(); fixture.disk.releaseListing.open() }
         #expect(await fixture.disk.listingStarted.waitUntilOpen())
         if manualMark {
-            await fixture.model.markDirectory(directory, as: .excluded)
+            await fixture.model.markDirectory(directory, action: .exclude)
         } else {
             await fixture.model.setGitIgnoreIndexing(false)
         }

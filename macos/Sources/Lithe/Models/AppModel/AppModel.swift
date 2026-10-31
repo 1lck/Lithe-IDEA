@@ -1145,8 +1145,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await workspaceFeature.refreshCurrent()
     }
 
-    func markProjectDirectory(_ url: URL, as mark: WorkspaceDirectoryMark, cancelExclusion: Bool = false) async {
-        await workspaceFeature.markDirectory(url, as: mark, cancelExclusion: cancelExclusion)
+    func markProjectDirectory(_ url: URL, action: WorkspaceDirectoryAction) async {
+        await workspaceFeature.markDirectory(url, action: action)
     }
 
     func requestCreateFile(in directory: URL) {

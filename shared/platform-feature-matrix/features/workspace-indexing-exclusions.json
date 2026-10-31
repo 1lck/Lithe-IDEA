@@ -4,10 +4,10 @@
   "group": "工作区生命周期",
   "capability": "目录索引排除与 Git 自动排除",
   "owner": "Workspace",
-  "verification": "较早本地验收阶段未执行 Windows/Frontend 测试；用户随后授权 Ready 触发完整自动 CI，原生界面验证仍单独记录。整合 preview a1ed8f4c 后，补修源码921c888c通过完整Core1484项、本机Swift6.4.2/Xcode27.2受影响182条（含完整Git观察28条）、Rust↔Swift桥接及Core边界检查；编译与测试按现有CI分离，未放宽计时预算。完整开发App原生验收确认排除目录与后代仍可浏览并显示排除图标，冷JDT仅导入visible且实际返回PrintStream补全，外部stage/commit自动更新且JDT和补全保持；用户操作取消排除后由代理核验搜索、落盘、重启持久化及A/B项目查询与关闭隔离。损坏配置随App语言中英即时切换且原值保留，修正后显式重试成功；真实权限失败分别显示中英文错误，权限恢复后观察到项目重载，代理未点击该流程的Retry。1419包文件/9符号链接及签名不变；QA/JDT/辅助进程清理，用户Dev保留，开发偏好精确恢复，新增缓存归档。4e7b8441的插件512条及合成库存10202/201剪枝结果保留原版本，不能当作UI或LSP后台性能基准。较早源码的普通角色、linked-worktree和子模块原生证据见Note。macOS在上述能力范围完成本机运行验证，固定Xcode26.6完整CI与本机结果分别核对；Windows新回归仅书写和静态复审，原生仍pending。Java显式构建模块仍可能扫描，Go/Rust配置送达不等于后台零扫描。 后续补修内容搜索首次请求、加载更多及索引状态的错误呈现：保存类型化错误，按当前语言使用共享词条，不拼接内部错误码；本机Bun1.3.13的19条逐项计时及TypeScript检查通过，损坏偏好保留、语言切换不重搜及加载更多保留结果有回归。真实页面有结果时显示紧凑错误和重试，失败暂停自动翻页；新增回归接入Windows CI隔离分组；该补修的固定工具链及Windows CI按对应提交的PR报告单独记录，Windows原生界面保持pending。 批量Run夹具增加首扫完成与快照UUID同步，本机Swift6.4.2完整Run入口21条通过，固定工具链结果以对应PR提交报告为准。 继而统一全部10处Run/Debug/单项/批量/服务/重启首次库存发布：在主actor空闲边界释放库存，重查排队刷新状态并核验准确快照UUID，保留刻意门控的调用方刷新任务；本机完整Run入口21条在三个独立进程中通过。 目录标记读取由树与索引配置共用版本、结构、角色和相对路径校验，真实内容搜索API回归用于核验非法JSON、空结构、null、错误marks类型及越界路径均显示共享中英错误，切语言不重搜、不调用Core安装空策略、不覆盖原始存储。",
+  "verification": "本轮整合基线4e47d784后的目录动作、租约刷新及监听所有权补修随本记录提交到PR1597，准确提交身份见PR说明；本地源码哈希与验证报告保存在.artifacts/pr1597-final-verification。Core完整门禁、桥接、Swift聚焦33条和静态门禁通过。macOS独立QA已验证Git忽略→取消排除→源码角色、真实搜索与落盘例外；自动化窗口连接故障使第二方向菜单和重启界面验收未完成。用户要求本机不进行Windows测试，最新LSP所有权和在途编辑补修仅静态检查/审查，新增回归未运行；此前Bun79、project Rust41、宿主5条组件结果不覆盖后续源码，也不代替Windows A/B切换、多仓库、共享根和LSP恢复原生验收。两端本轮验证保持pending，历史记录按各自源码阅读。 较早本地验收阶段未执行 Windows/Frontend 测试；用户随后授权 Ready 触发完整自动 CI，原生界面验证仍单独记录。整合 preview a1ed8f4c 后，补修源码921c888c通过完整Core1484项、本机Swift6.4.2/Xcode27.2受影响182条（含完整Git观察28条）、Rust↔Swift桥接及Core边界检查；编译与测试按现有CI分离，未放宽计时预算。完整开发App原生验收确认排除目录与后代仍可浏览并显示排除图标，冷JDT仅导入visible且实际返回PrintStream补全，外部stage/commit自动更新且JDT和补全保持；用户操作取消排除后由代理核验搜索、落盘、重启持久化及A/B项目查询与关闭隔离。损坏配置随App语言中英即时切换且原值保留，修正后显式重试成功；真实权限失败分别显示中英文错误，权限恢复后观察到项目重载，代理未点击该流程的Retry。1419包文件/9符号链接及签名不变；QA/JDT/辅助进程清理，用户Dev保留，开发偏好精确恢复，新增缓存归档。4e7b8441的插件512条及合成库存10202/201剪枝结果保留原版本，不能当作UI或LSP后台性能基准。较早源码的普通角色、linked-worktree和子模块原生证据见Note。macOS在上述能力范围完成本机运行验证，固定Xcode26.6完整CI与本机结果分别核对；Windows新回归仅书写和静态复审，原生仍pending。Java显式构建模块仍可能扫描，Go/Rust配置送达不等于后台零扫描。 后续补修内容搜索首次请求、加载更多及索引状态的错误呈现：保存类型化错误，按当前语言使用共享词条，不拼接内部错误码；本机Bun1.3.13的19条逐项计时及TypeScript检查通过，损坏偏好保留、语言切换不重搜及加载更多保留结果有回归。真实页面有结果时显示紧凑错误和重试，失败暂停自动翻页；新增回归接入Windows CI隔离分组；该补修的固定工具链及Windows CI按对应提交的PR报告单独记录，Windows原生界面保持pending。 批量Run夹具增加首扫完成与快照UUID同步，本机Swift6.4.2完整Run入口21条通过，固定工具链结果以对应PR提交报告为准。 继而统一全部10处Run/Debug/单项/批量/服务/重启首次库存发布：在主actor空闲边界释放库存，重查排队刷新状态并核验准确快照UUID，保留刻意门控的调用方刷新任务；本机完整Run入口21条在三个独立进程中通过。 目录标记读取由树与索引配置共用版本、结构、角色和相对路径校验，真实内容搜索API回归用于核验非法JSON、空结构、null、错误marks类型及越界路径均显示共享中英错误，切语言不重搜、不调用Core安装空策略、不覆盖原始存储。",
   "macos": {
     "implementationStatus": "partial",
-    "verificationStatus": "verified",
+    "verificationStatus": "pending",
     "evidence": [
       "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
       "macos/Sources/Lithe/Views/App/WorkspaceIndexingSettingsView.swift",
@@ -22,7 +22,8 @@
       "macos/Tests/LitheTests/LazyProjectTreeInventoryTests.swift",
       "macos/Tests/LitheTests/WorkspaceSessionCoordinatorTests.swift",
       "macos/Tests/LitheTests/GitStatusObservationTests.swift",
-      "macos/Tests/LitheTests/RunEntryPointTests.swift"
+      "macos/Tests/LitheTests/RunEntryPointTests.swift",
+      "shared/fixtures/workspace/directory-actions-v1.json"
     ]
   },
   "windows": {
@@ -49,7 +50,12 @@
       "windows/tauri/src/features/file-system/services/file-watcher-listener.ts",
       "windows/tauri/src/features/file-system/services/file-watcher-listener.test.ts",
       "windows/tauri/src/features/file-explorer/stores/directory-marks-storage.ts",
-      "windows/tauri/src/features/global-search/hooks/use-content-search.integration.test.tsx"
+      "windows/tauri/src/features/global-search/hooks/use-content-search.integration.test.tsx",
+      "shared/fixtures/workspace/directory-actions-v1.json",
+      "windows/tauri/crates/project/src/indexing_refresh.rs",
+      "windows/tauri/crates/project/src/git_watcher.rs",
+      "windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx",
+      "windows/tauri/src/features/editor/lsp/mounted-lsp-documents.ts"
     ]
   }
 }

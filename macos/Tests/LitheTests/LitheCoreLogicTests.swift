@@ -3109,7 +3109,7 @@ struct EditorDocumentTests {
 
         await model.markDirectory(
             workspace.appendingPathComponent("assets", isDirectory: true),
-            as: .resources
+            action: .setRole(.resources)
         )
 
         #expect(model.directoryMarks["assets"] == .resources)
@@ -3146,7 +3146,7 @@ struct EditorDocumentTests {
         let saveTask = Task {
             await model.markDirectory(
                 firstWorkspace.appendingPathComponent("assets", isDirectory: true),
-                as: .resources
+                action: .setRole(.resources)
             )
         }
 
@@ -3184,14 +3184,14 @@ struct EditorDocumentTests {
         let firstSave = Task {
             await model.markDirectory(
                 workspace.appendingPathComponent("Sources", isDirectory: true),
-                as: .sources
+                action: .setRole(.sources)
             )
         }
         #expect(await saveStarted.waitUntilOpen(timeout: .seconds(5)))
         let secondSave = Task {
             await model.markDirectory(
                 workspace.appendingPathComponent("assets", isDirectory: true),
-                as: .resources
+                action: .setRole(.resources)
             )
         }
 

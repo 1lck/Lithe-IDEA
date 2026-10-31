@@ -596,8 +596,8 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func refreshWorkspace() {
         Task { await self.model.refreshWorkspace() }
     }
-    nonisolated func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark, cancelExclusion: Bool = false) {
-        Task { await self.model.markProjectDirectory(url, as: mark, cancelExclusion: cancelExclusion) }
+    nonisolated func markDirectory(_ url: URL, action: WorkspaceDirectoryAction) {
+        Task { await self.model.markProjectDirectory(url, action: action) }
     }
     nonisolated func showGitDirectoryDiff(_ url: URL) {
         Task { await self.model.showGitDirectoryDiff(for: url) }
@@ -1017,7 +1017,8 @@ private struct FileNodeRow: View {
                 iconKind: LitheIcons.kind(for: mark),
                 shortcut: currentDirectoryMark == mark ? "✓" : nil
             ) {
-                actions.markDirectory(node.url, as: mark, cancelExclusion: currentDirectoryMark == .excluded)
+                actions.markDirectory(node.url, action: currentDirectoryMark == .excluded
+                    ? .cancelExclusion : mark == .excluded ? .exclude : .setRole(mark))
             }
         }
     }

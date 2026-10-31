@@ -976,6 +976,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
+| `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
 | `workspace.configureIndexing` | Install a process-local, canonical-root indexing policy before workspace consumers run; returns a monotonic revision, effective directory reasons and Git failure state; see `shared/fixtures/workspace/indexing-policy-v1.json` |
 | `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
@@ -4574,7 +4575,31 @@ with workspace membership, never with tool-window or tree mounting. Omitting
 `ownerId` retains the legacy revision-guarded lease. A native window host must reclaim
 its leases on destruction, including installations that finish after destruction.
 
-`revision` is the requesting owner's release token. Explicit policy replacement or refresh
+`workspace.refreshIndexing` requires `root`, `ownerId` and its published `revision`.
+It validates the live lease, retires the scan generation and clears Git decisions and
+search caches without installing settings, acquiring a lease or replacing any owner's
+release token. Closed or superseded leases return `cancelled`. Its `IndexingStatus`
+retains the supplied release token; directory reasons remain lazy, just as for configure.
+Without a running language service it does not scan directories or prewarm content.
+Live providers reuse the existing directory-only preparation and withdraw excluded
+working copies and diagnostics. Hosts resynchronize still-open buffers after success.
+
+Windows maintains one invalidation queue per native canonical root. Events advance an
+epoch before fan-out to WebViews; waiting queries consume the same queue and reject
+results if its epoch changes. Concurrent refresh requests share the completed root status
+but retain their own envelope and lease token. Lock waits have a 30-second deadline;
+refreshes consume at most three epochs, leaving newer events dirty on failure. Root
+membership and watcher registrations belong to runtime lifetimes, including background
+workspaces. Preferences and refresh completion use distinct events to avoid write loops.
+The native host injects the window identity for Git/file watcher ownership, shares paths
+and releases only the last holder; window destruction also revokes late registrations.
+
+The directory-action sequence contract is `shared/fixtures/workspace/directory-actions-v1.json`.
+Role changes retain include exceptions, explicit exclusion deletes only its own exception,
+and canceling Git exclusion preserves the current role. Only canceling a manual exclusion
+restores the remembered role. Manual ancestor exclusion cannot be overridden.
+
+`revision` is the requesting owner's release token. Explicit policy replacement or legacy `configureIndexing` refresh
 replaces only that owner's token; other owners retain their valid release tokens; internal Git watcher refreshes retain it while advancing a
 separate Core-only scan generation used by index and language-service caches.
 Changing settings or `refresh: true` retires the old generation and discards its

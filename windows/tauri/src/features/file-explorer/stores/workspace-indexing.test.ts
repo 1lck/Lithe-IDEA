@@ -189,26 +189,69 @@ test("background project inventory keeps its owner when another workspace become
   store.setState({rootFolderPath: "C:/inventory-first", workspaceFolders: []});
   useFileSystemStore.getStore(second.descriptor.id).setState({rootFolderPath: "D:/inventory-second", workspaceFolders: []});
   registry.activateWorkspace(first.descriptor, "ready");
-  const owners: string[] = [];
+  const owners: Array<{root: string; ownerId: string}> = [];
   const execute = spyOn(core, "executeCore").mockImplementation(async <TData, TPayload>(request: core.CoreRequest<TPayload>) => {
     if (request.command === "workspace.configureIndexing") {
-      owners.push((request.payload as {ownerId: string}).ownerId);
+      owners.push(request.payload as {root: string; ownerId: string});
       return coreReply<TData>(request.id, {revision: 1, excludedDirectories: {}, gitIgnoreFailed: false});
     }
     if (request.command === "workspace.snapshot") {
       registry.activateWorkspace(second.descriptor, "ready");
       return coreReply<TData>(request.id, {files: ["Keep.ts"], incompleteDirectories: []});
     }
+    if (request.command === "workspace.refreshIndexing") return coreReply<TData>(request.id, {revision: 1, excludedDirectories: {}, gitIgnoreFailed: false});
     return coreReply<TData>(request.id, {released: true});
   });
   try {
     const files = await store.getState().getAllProjectFiles();
     expect(files.map((file) => file.path.replace(/\\/g, "/"))).toEqual(["C:/inventory-first/Keep.ts"]);
-    expect(owners).toHaveLength(2);
-    expect(new Set(owners).size).toBe(1);
+    const firstOwners = owners.filter((item) => item.root === "C:/inventory-first");
+    expect(firstOwners.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(firstOwners.map((item) => item.ownerId)).size).toBe(1);
+    const secondOwner = owners.find((item) => item.root === "D:/inventory-second");
+    if (secondOwner) expect(secondOwner.ownerId).not.toBe(firstOwners[0]!.ownerId);
   } finally {
     await first.disposeIndexing?.(); await second.disposeIndexing?.();
     registry.removeWorkspace(first.descriptor.id); registry.removeWorkspace(second.descriptor.id);
     registry.activateWorkspace({id: previous, name: "restored"}); execute.mockRestore();
   }
 });
+
+
+test("activation installs the query barrier before subscribers and completion does not reconfigure", async () => {
+  const previous = registry.getActiveWorkspaceId();
+  const runtime = registry.ensureWorkspace({id: "activation-barrier", name: "barrier"}, "ready");
+  syncWorkspaceIndexingRoots(runtime.descriptor.id, ["C:/activation"]);
+  let begin!: () => void; const began = new Promise<void>((resolve) => { begin = resolve; });
+  let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+  const calls: string[] = [];
+  const execute = spyOn(core, "executeCore").mockImplementation(async <TData, TPayload>(request: core.CoreRequest<TPayload>) => {
+    calls.push(request.command);
+    if (request.command === "workspace.refreshIndexing") { begin(); await gate; }
+    return coreReply<TData>(request.id, {revision: 7, excludedDirectories: {}, gitIgnoreFailed: false});
+  });
+  let query: Promise<unknown> | undefined;
+  let published = false;
+  const stop = registry.subscribe(() => {
+    if (registry.getActiveWorkspaceId() === runtime.descriptor.id) {
+      query = configureWorkspaceIndexing("C:/activation", [], false, runtime.descriptor.id).then(() => { published = true; });
+    }
+  });
+  try {
+    await configureWorkspaceIndexing("C:/activation", [], false, runtime.descriptor.id);
+    registry.activateWorkspace(runtime.descriptor, "ready");
+    await began;
+    expect(published).toBe(false);
+    expect(calls.filter((command) => command === "workspace.refreshIndexing")).toHaveLength(1);
+    release(); await query;
+    expect(published).toBe(true);
+    const count = calls.length;
+    window.dispatchEvent(new window.CustomEvent("lithe:workspace-indexing-refreshed", {detail: "C:/activation"}));
+    await Promise.resolve(); await Promise.resolve();
+    expect(calls).toHaveLength(count);
+  } finally {
+    stop(); release(); await query?.catch(() => {});
+    await runtime.disposeIndexing?.(); registry.removeWorkspace(runtime.descriptor.id);
+    registry.activateWorkspace({id: previous, name: "restored"}); execute.mockRestore();
+  }
+}, 2000);

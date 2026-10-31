@@ -56,6 +56,8 @@ export class WorkspaceRuntimeRegistry {
       return;
     }
 
+    // Install the freshness barrier before activation notifies query consumers.
+    this.runtimes.get(descriptor.id)?.invalidateIndexing?.();
     this.activeWorkspaceId = descriptor.id;
     this.emitChange();
   }
@@ -95,6 +97,11 @@ export class WorkspaceRuntimeRegistry {
 
   getWorkspace(id: string) {
     return this.runtimes.get(id);
+  }
+
+  /** Snapshot existing lifetimes without instantiating stores for closed projects. */
+  getWorkspaces() {
+    return [...this.runtimes.values()];
   }
 
   getExistingStores<T>(key: string) {
