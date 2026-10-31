@@ -975,7 +975,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
-| `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root` and the last observed `revision`, returns `released`; an old close must not retire a new generation |
+| `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
 | `workspace.configureIndexing` | Install a process-local, canonical-root indexing policy before workspace consumers run; returns a monotonic revision, effective directory reasons and Git failure state; see `shared/fixtures/workspace/indexing-policy-v1.json` |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
@@ -4378,8 +4378,14 @@ traversable. Standalone ignored files are not converted to directory exclusions.
 Git checks use native `check-ignore` and protect tracked descendants with `ls-files`.
 No `.gitignore`, index, or project configuration files are written by this command.
 
-`revision` is the host-owned release token. Explicit policy replacement or refresh
-creates a new token; internal Git watcher refreshes retain it while advancing a
+`ownerId` optionally identifies one workspace runtime lifetime. Independent runtimes
+using the same canonical root hold independent leases. Hosts acquire/release leases
+with workspace membership, never with tool-window or tree mounting. Omitting
+`ownerId` retains the legacy revision-guarded lease. A native window host must reclaim
+its leases on destruction, including installations that finish after destruction.
+
+`revision` is the requesting owner's release token. Explicit policy replacement or refresh
+replaces only that owner's token; other owners retain their valid release tokens; internal Git watcher refreshes retain it while advancing a
 separate Core-only scan generation used by index and language-service caches.
 Changing settings or `refresh: true` retires the old generation and discards its
 cache. Hosts persist settings in application storage and reinstall them on project
@@ -4400,8 +4406,8 @@ other providers may continue background scanning and hosts must display that lim
 `workspace.snapshot.incompleteDirectories` is present when optional child directories
 could not be scanned. Hosts retain browsing but must not treat that inventory as an
 authoritative deletion list or refresh automatic analysis from it. Root failures and
-cancellation remain errors. `workspace.releaseIndexing` retires the revision and clears
-cached Git decisions and indexes; a small retired policy record rejects late work
+cancellation remain errors. `workspace.releaseIndexing` removes only the matching owner/token lease. The last
+release retires the policy and clears cached Git decisions and indexes; a small retired policy record rejects late work
 until the next explicit configuration for that root.
 
 `workspace.search.scopePaths` optionally limits candidates to workspace-relative

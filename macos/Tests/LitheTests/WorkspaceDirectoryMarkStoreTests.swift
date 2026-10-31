@@ -4,6 +4,18 @@ import LitheCoreContracts
 @testable import Lithe
 
 struct WorkspaceDirectoryMarkStoreTests {
+    @Test(arguments: ["broken", "null", "{}", "{\"gitIgnoreEnabled\":null,\"includedDirectories\":[]}", "{\"gitIgnoreEnabled\":true,\"includedDirectories\":[1]}"])
+    func invalidIndexingSettingsAreClassifiedAndPreserved(_ raw: String) throws {
+        let preferences = DirectoryMarkKeyValueStore()
+        let root = URL(fileURLWithPath: "/projects/invalid-indexing")
+        let key = "lithe.workspace-indexing." + root.path
+        let data = Data(raw.utf8)
+        preferences.set(data, forKey: key)
+        let store = WorkspaceDirectoryMarkStore(store: preferences)
+        #expect(throws: WorkspaceIndexingFailure.invalidSettings) { try store.loadIndexingSettings(for: root) }
+        #expect(preferences.data(forKey: key) == data)
+    }
+
     @Test
     func directoryMarksRoundTripWithoutWritingIntoTheWorkspace() throws {
         let preferences = DirectoryMarkKeyValueStore()

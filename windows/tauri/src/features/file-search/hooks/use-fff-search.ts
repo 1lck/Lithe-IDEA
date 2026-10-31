@@ -1,3 +1,4 @@
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useIndexingVersion } from "@/features/file-explorer/stores/workspace-indexing";
 import { useEffect, useState } from "react";
 import { fffSearchFiles, type FffSearchHit } from "../lib/file-search-api";
@@ -9,12 +10,13 @@ export const useFffSearch = (
   rootPaths: readonly string[],
   limit = 100,
 ) => {
-  const indexingVersion = useIndexingVersion();
+  const workspaceId = useWorkspaceId();
+  const indexingVersion = useIndexingVersion(rootPaths);
   const trimmedQuery = query.trim();
   const searchRootPaths = getNativeWorkspaceRootPaths(rootPaths[0], rootPaths.slice(1));
   const searchKey =
     enabled && trimmedQuery && searchRootPaths.length > 0
-      ? JSON.stringify([searchRootPaths, trimmedQuery, limit, indexingVersion])
+      ? JSON.stringify([searchRootPaths, trimmedQuery, limit, indexingVersion, workspaceId])
       : null;
   const [searchState, setSearchState] = useState<{
     key: string | null;
@@ -32,7 +34,7 @@ export const useFffSearch = (
     const [currentRootPaths] = JSON.parse(searchKey) as [string[], string, number];
     let cancelled = false;
 
-    fffSearchFiles(trimmedQuery, currentRootPaths, limit)
+    fffSearchFiles(trimmedQuery, currentRootPaths, limit, workspaceId)
       .then((results) => {
         if (cancelled) return;
         setSearchState({ key: searchKey, hits: results, error: null });
@@ -46,7 +48,7 @@ export const useFffSearch = (
     return () => {
       cancelled = true;
     };
-  }, [searchKey, trimmedQuery, limit]);
+  }, [searchKey, trimmedQuery, limit, workspaceId]);
 
   const hasCurrentResult = searchKey !== null && searchState.key === searchKey;
 

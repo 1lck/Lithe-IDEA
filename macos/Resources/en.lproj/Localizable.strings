@@ -960,6 +960,7 @@
 "Copy session ID" = "Copy session ID";
 "Copy table" = "Copy table";
 "Copy worktree path" = "Copy worktree path";
+"Could not apply project indexing exclusions. Try reopening the project." = "Could not apply project indexing exclusions. Try reopening the project.";
 "Could not check for updates" = "Could not check for updates";
 "Could not check for updates." = "Could not check for updates.";
 "Could not compare the local adapter with the verified version." = "Could not compare the local adapter with the verified version.";
@@ -991,6 +992,7 @@
 "Could not prepare the run configuration: %@" = "Could not prepare the run configuration: %@";
 "Could not read %@." = "Could not read %@.";
 "Could not read %@: %@" = "Could not read %@: %@";
+"Could not read project indexing settings. Try reopening the project." = "Could not read project indexing settings. Try reopening the project.";
 "Could not read the command line." = "Could not read the command line.";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "Could not read the selected built-in background." = "Could not read the selected built-in background.";
@@ -1002,6 +1004,7 @@
 "Could not restore this project history entry" = "Could not restore this project history entry";
 "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved." = "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.";
 "Could not save access to the selected background image." = "Could not save access to the selected background image.";
+"Could not save project indexing settings. Your previous settings remain unchanged." = "Could not save project indexing settings. Your previous settings remain unchanged.";
 "Could not save service selection" = "Could not save service selection";
 "Could not save the connections: %@" = "Could not save the connections: %@";
 "Could not start the Java test result listener: %@" = "Could not start the Java test result listener: %@";
@@ -1977,6 +1980,7 @@
 "Lithe Shelves" = "Lithe Shelves";
 "Lithe application default" = "Lithe application default";
 "Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "Lithe asks again after the plugin is disabled, updated, or Lithe restarts.";
+"Lithe cannot access the project folder. Check its permissions, then retry." = "Lithe cannot access the project folder. Check its permissions, then retry.";
 "Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually." = "Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually.";
 "Lithe can’t give pages access to the camera or microphone in this version." = "Lithe can’t give pages access to the camera or microphone in this version.";
 "Lithe checks GitHub Releases for published updates." = "Lithe checks GitHub Releases for published updates.";
@@ -2806,6 +2810,7 @@
 "Project identification complete" = "Project identification complete";
 "Project identification did not produce a run configuration." = "Project identification did not produce a run configuration.";
 "Project identification failed" = "Project identification failed";
+"Project indexing settings are invalid. The saved data has been preserved." = "Project indexing settings are invalid. The saved data has been preserved.";
 "Project is still loading" = "Project is still loading";
 "Project opened" = "Project opened";
 "Project options" = "Project options";
@@ -3985,6 +3990,7 @@
 "The program chosen in the “%@” setting of %@ is missing or not executable: %@" = "The program chosen in the “%@” setting of %@ is missing or not executable: %@";
 "The project archive from %@ is too large." = "The project archive from %@ is too large.";
 "The project directory is unavailable." = "The project directory is unavailable.";
+"The project folder is unavailable. Restore it, then retry." = "The project folder is unavailable. Restore it, then retry.";
 "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.";
 "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.";
 "The project model is not loaded." = "The project model is not loaded.";
@@ -4665,16 +4671,22 @@
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "indexing.autoGit" = "Automatically exclude Git-ignored directories";
 "indexing.cancelExclusion" = "Cancel Exclusion";
+"indexing.configureFailed" = "Could not apply project indexing exclusions. Try reopening the project.";
 "indexing.description" = "Applies only to the current project, regardless of the Git configuration scope. Excluded directories remain browsable. Cancel Exclusion creates a project exception without changing Git rules.\n\nNative exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
 "indexing.gitFailed" = "Git ignore exclusions could not be fully resolved. Manual exclusions remain active.";
 "indexing.gitReason" = "Excluded from indexing by Git ignore rules";
 "indexing.incomplete" = "Some directories could not be scanned. Automatic project analysis was not refreshed.";
 "indexing.inheritedReason" = "Excluded from indexing by a parent directory";
+"indexing.invalidSettings" = "Project indexing settings are invalid. The saved data has been preserved.";
 "indexing.languageDescription" = "Native exclusion settings are merged for Java imports, Rust and Go. Java resources already imported may still be scanned. Python project configuration can override server exclusions; other providers remain active without a verified scan-exclusion guarantee.";
 "indexing.manualReason" = "Manually excluded from indexing";
+"indexing.permissionDenied" = "Lithe cannot access the project folder. Check its permissions, then retry.";
 "indexing.providerDependent" = "Provider-dependent";
+"indexing.readFailed" = "Could not read project indexing settings. Try reopening the project.";
 "indexing.remoteUnsupported" = "Directory indexing exclusions are not supported for remote projects.";
 "indexing.title" = "Project Indexing";
+"indexing.workspaceUnavailable" = "The project folder is unavailable. Restore it, then retry.";
+"indexing.writeFailed" = "Could not save project indexing settings. Your previous settings remain unchanged.";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";

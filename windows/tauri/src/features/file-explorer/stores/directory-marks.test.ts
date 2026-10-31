@@ -138,10 +138,10 @@ test("added and nested roots own exclusion marks and Git include exceptions", ()
   markWorkspaceDirectory(roots, "d:\\ADDED\\build", "excluded");
   expect(readDirectoryMarks("D:/added")).toEqual({build: "excluded"});
   expect(readIndexingSettings("D:/added").previousRoles).toEqual({build: "sources"});
-  markWorkspaceDirectory(roots, "D:/added/build", "plain");
+  markWorkspaceDirectory(roots, "D:/added/build", "plain", true);
   expect(readDirectoryMarks("D:/added")).toEqual({build: "sources"});
   expect(readIndexingSettings("D:/added").includedDirectories).toEqual(["build"]);
-  markWorkspaceDirectory(roots, "D:/added/nested/vendor", "plain");
+  markWorkspaceDirectory(roots, "D:/added/nested/vendor", "plain", true);
   expect(directoryMarkRoot("D:/ADDED/nested/vendor", roots)).toBe("D:/added/nested");
   expect(readIndexingSettings("D:/added/nested").includedDirectories).toEqual(["vendor"]);
   expect(readIndexingSettings("C:/main")).toEqual({gitIgnoreEnabled: false, includedDirectories: ["keep"], previousRoles: {}});
@@ -149,18 +149,29 @@ test("added and nested roots own exclusion marks and Git include exceptions", ()
   expect(() => markWorkspaceDirectory(roots, "E:/outside", "excluded")).toThrow();
 });
 
+test("normal-folder role changes do not create Git include exceptions", () => {
+  const roots = ["C:/normal"];
+  markWorkspaceDirectory(roots, "C:/normal/src", "sources");
+  markWorkspaceDirectory(roots, "C:/normal/src", "plain");
+  markWorkspaceDirectory(roots, "C:/normal/ordinary", "plain");
+  expect(readIndexingSettings(roots[0]).includedDirectories).toEqual([]);
+  markWorkspaceDirectory(roots, "C:/normal/src", "excluded");
+  markWorkspaceDirectory(roots, "C:/normal/src", "plain", true);
+  expect(readIndexingSettings(roots[0]).includedDirectories).toEqual(["src"]);
+});
+
 
 test.each(["D:/added", "C:/main/nested"])("added-root marks and include exceptions follow rename and deletion: %s", (root) => {
   const roots = ["C:/main", root];
   markWorkspaceDirectory(roots, `${root}/src`, "sources");
   markWorkspaceDirectory(roots, `${root}/src`, "excluded");
-  markWorkspaceDirectory(roots, `${root}/src/examples`, "plain");
+  markWorkspaceDirectory(roots, `${root}/src/examples`, "plain", true);
   // Include exceptions cannot override a manually excluded ancestor.
   expect(readIndexingSettings(root).includedDirectories).toEqual([]);
   migrateWorkspaceDirectoryMarks(roots, `${root}/src`, `${root}/code`);
   expect(readDirectoryMarks(root)).toEqual({code: "excluded"});
   expect(readIndexingSettings(root).previousRoles).toEqual({code: "sources"});
-  markWorkspaceDirectory(roots, `${root}/code`, "plain");
+  markWorkspaceDirectory(roots, `${root}/code`, "plain", true);
   expect(readDirectoryMarks(root)).toEqual({code: "sources"});
   expect(readIndexingSettings(root).includedDirectories).toEqual(["code"]);
   migrateWorkspaceDirectoryMarks(roots, `${root}/code`);
@@ -175,7 +186,7 @@ test.each(["D:/added", "C:/main/nested"])("moving between workspace roots preser
   const roots = ["C:/main", root];
   markWorkspaceDirectory(roots, `${root}/src`, "sources");
   markWorkspaceDirectory(roots, `${root}/src`, "excluded");
-  markWorkspaceDirectory(roots, `${root}/examples`, "plain");
+  markWorkspaceDirectory(roots, `${root}/examples`, "plain", true);
   migrateWorkspaceDirectoryMarks(roots, `${root}/src`, "C:/main/code");
   migrateWorkspaceDirectoryMarks(roots, `${root}/examples`, "C:/main/demos");
   expect(readDirectoryMarks(root)).toEqual({});
@@ -183,7 +194,7 @@ test.each(["D:/added", "C:/main/nested"])("moving between workspace roots preser
   expect(readIndexingSettings("C:/main").previousRoles).toEqual({code: "sources"});
   expect(readIndexingSettings("C:/main").includedDirectories).toEqual(["demos"]);
   expect(readIndexingSettings(root).includedDirectories).toEqual([]);
-  markWorkspaceDirectory(roots, "C:/main/code", "plain");
+  markWorkspaceDirectory(roots, "C:/main/code", "plain", true);
   expect(readDirectoryMarks("C:/main")).toEqual({code: "sources"});
 });
 

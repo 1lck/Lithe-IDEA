@@ -1,5 +1,6 @@
 import {
   indexingEvent,
+  subscribeToIndexingChanges,
   indexingSettingsStorageKey,
   readIndexingSettings,
   writeIndexingSettings,
@@ -163,13 +164,13 @@ export function migrateWorkspaceDirectoryMarks(roots: readonly string[], source:
   }
 }
 
-export function markWorkspaceDirectory(roots: readonly string[], path: string, mark: DirectoryMark) {
+export function markWorkspaceDirectory(roots: readonly string[], path: string, mark: DirectoryMark, cancelExclusion = false) {
   const root = directoryMarkRoot(path, roots);
   if (!root) throw new Error("Directory is outside the workspace");
   const marks = readDirectoryMarks(root);
   const relative = getRelativePath(path, root).replace(/\\/g, "/") || ".";
   const settings = readIndexingSettings(root);
-  if (mark === "plain") {
+  if (cancelExclusion) {
     if (
       Object.entries(marks).some(
         ([path, value]) =>
@@ -189,7 +190,7 @@ export function markWorkspaceDirectory(roots: readonly string[], path: string, m
     if (mark === "excluded" && marks[relative] && marks[relative] !== "excluded")
       settings.previousRoles[relative] = marks[relative];
     marks[relative] = mark;
-    settings.includedDirectories = settings.includedDirectories.filter(
+    if (mark !== "plain") settings.includedDirectories = settings.includedDirectories.filter(
       (path) => path !== relative,
     );
   }
@@ -218,17 +219,10 @@ export function useDirectoryMarks(roots: readonly string[]) {
       }
     };
     refresh();
-    window.addEventListener(eventName, refresh);
-    window.addEventListener(indexingEvent, refresh);
-    window.addEventListener("storage", refresh);
-    return () => {
-      window.removeEventListener(eventName, refresh);
-      window.removeEventListener(indexingEvent, refresh);
-      window.removeEventListener("storage", refresh);
-    };
+    return subscribeToIndexingChanges(roots, refresh);
   }, [rootsKey]);
-  const markDirectory = useCallback((path: string, mark: DirectoryMark) => {
-    markWorkspaceDirectory(roots, path, mark);
+  const markDirectory = useCallback((path: string, mark: DirectoryMark, cancelExclusion = false) => {
+    markWorkspaceDirectory(roots, path, mark, cancelExclusion);
   }, [rootsKey]);
   const markForPath = (path: string): DirectoryMark | undefined => {
     const root = directoryMarkRoot(path, roots);

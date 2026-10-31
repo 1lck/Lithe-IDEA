@@ -9567,7 +9567,9 @@
     "indexing.invalidSettings": "Project indexing settings are invalid. The saved data has been preserved.",
     "indexing.readFailed": "Could not read project indexing settings. Try reopening the project.",
     "indexing.writeFailed": "Could not save project indexing settings. Your previous settings remain unchanged.",
-    "indexing.configureFailed": "Could not apply project indexing exclusions. Try reopening the project."
+    "indexing.configureFailed": "Could not apply project indexing exclusions. Try reopening the project.",
+    "indexing.workspaceUnavailable": "The project folder is unavailable. Restore it, then retry.",
+    "indexing.permissionDenied": "Lithe cannot access the project folder. Check its permissions, then retry."
   },
   "overrides": {
     "windows": {

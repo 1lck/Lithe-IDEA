@@ -28,6 +28,13 @@ export function useActiveWorkspaceId() {
   );
 }
 
+/** Cached panes keep their explicit owner even while another workspace is active. */
+export function useWorkspaceId() {
+  const active = useActiveWorkspaceId();
+  const scoped = useWorkspaceStoreScopeId();
+  return scoped ?? active;
+}
+
 export function useWorkspaceReady(workspaceId: string) {
   const getSnapshot = useMemo(
     () => () => workspaceRuntimeRegistry.isWorkspaceReady(workspaceId),

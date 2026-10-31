@@ -902,7 +902,7 @@ export class LspClient {
     if (root) {
       const relative = getRelativePath(filePath, root);
       const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : ".";
-      const indexing = await configureWorkspaceIndexing(root, [parent]);
+      const indexing = await configureWorkspaceIndexing(root, [parent], false, scope.workspaceId);
       if (policyRoot() !== root) return { kind: "cancelled", reason: "superseded" };
       if (
         Object.keys(indexing.excludedDirectories).some(

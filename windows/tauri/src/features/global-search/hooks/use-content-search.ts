@@ -1,3 +1,4 @@
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useIndexingVersion } from "@/features/file-explorer/stores/workspace-indexing";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDebounce } from "use-debounce";
@@ -87,13 +88,14 @@ interface ProviderSearchSession {
 }
 
 export const useContentSearch = () => {
+  const workspaceId = useWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
   const nativeRootPaths = useMemo(
     () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
     [rootFolderPath, workspaceFolders],
   );
-  const indexingVersion = useIndexingVersion();
+  const indexingVersion = useIndexingVersion(nativeRootPaths);
   const searchSession = useGlobalSearchStore((state) => state);
   const {
     query,
@@ -128,6 +130,7 @@ export const useContentSearch = () => {
       [
         nativeRootPaths.join("\n") || rootFolderPath || "",
         indexingVersion,
+        workspaceId,
         debouncedQuery,
         JSON.stringify(scopePaths),
         debouncedIncludeQuery,
@@ -142,6 +145,7 @@ export const useContentSearch = () => {
       debouncedQuery,
       indexingVersion,
       nativeRootPaths,
+    workspaceId,
       scopePaths,
       rootFolderPath,
       searchOptions.caseSensitive,
@@ -216,6 +220,7 @@ export const useContentSearch = () => {
       }
 
       return searchFilesContent({
+        workspaceId,
         root_paths: nativeRootPaths,
         scope_paths: scopePaths,
         query: debouncedQuery,
@@ -229,11 +234,13 @@ export const useContentSearch = () => {
     },
     [
       availability,
+      workspaceId,
       debouncedExcludeQuery,
       debouncedIncludeQuery,
       debouncedQuery,
       getProviderFiles,
       nativeRootPaths,
+    workspaceId,
       scopePaths,
       rootFolderPath,
       searchActions,
@@ -328,6 +335,7 @@ export const useContentSearch = () => {
     },
     [
       availability,
+      workspaceId,
       debouncedQuery,
       requestVisibleSearchPage,
       resultsSearchKey,
@@ -395,7 +403,7 @@ export const useContentSearch = () => {
 
     const pollScanStatus = async () => {
       try {
-        const status = await fffScanStatus(nativeRootPaths);
+        const status = await fffScanStatus(nativeRootPaths, workspaceId);
         if (disposed || !searchActions.isCurrentRequest(pollingRequestId)) return;
 
         searchActions.setIndexProgress(
@@ -436,6 +444,7 @@ export const useContentSearch = () => {
     debouncedQuery,
     isIndexing,
     nativeRootPaths,
+    workspaceId,
     performSearch,
     requestGeneration,
     rootFolderPath,

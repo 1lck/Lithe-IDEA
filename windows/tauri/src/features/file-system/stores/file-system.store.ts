@@ -1,3 +1,4 @@
+import { bindWorkspaceIndexingRoots } from "@/features/file-explorer/stores/workspace-indexing";
 import { migrateWorkspaceDirectoryMarks } from "@/features/file-explorer/stores/directory-marks";
 import { loadFileContent } from "../controllers/workspace-session-restore";
 import { invoke } from "@/platform/tauri-core";
@@ -216,9 +217,9 @@ const getWorkspaceFolderPaths = (get: FileSystemGet) =>
     (folder) => folder.path,
   );
 
-const syncFffWorkspace = async (get: FileSystemGet): Promise<void> => {
+const syncFffWorkspace = async (get: FileSystemGet, workspaceId: string): Promise<void> => {
   try {
-    await ensureWorkspaceFileSearch(getWorkspaceFolderPaths(get));
+    await ensureWorkspaceFileSearch(getWorkspaceFolderPaths(get), workspaceId);
   } catch (error) {
     console.error("[fff] workspace sync failed:", error);
   }
@@ -617,7 +618,7 @@ const initializeLocalWorkspaceInBackground = (
         return;
       }
 
-      void syncFffWorkspace(get);
+      void syncFffWorkspace(get, workspaceId);
 
       await waitForWorkspaceIdle();
 
@@ -874,7 +875,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
   let deferredAiSession: ReturnType<typeof readPersistedAiWorkspaceSession> | undefined;
   const coordinateProjectFileScan = createProjectFileScanCoordinator<FileEntry[]>();
 
-  return createStore<ScopedFileSystemStoreState>()(
+  const store = createStore<ScopedFileSystemStoreState>()(
     immer((set, get) => ({
       // State
       files: [],
@@ -1068,7 +1069,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             }
             state.workspaceFolders = restoredWorkspaceFolders;
           });
-          void syncFffWorkspace(get);
+          void syncFffWorkspace(get, workspaceId);
         }
 
         useTerminalTabsStore.getStore(workspaceId).getState().actions.dispatch({
@@ -1373,7 +1374,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             state.isFileTreeLoading = false;
             state.projectFilesCache = undefined;
           });
-          void syncFffWorkspace(get);
+          void syncFffWorkspace(get, workspaceId);
 
           const fileTreeStore = useFileTreeStore.getStore(workspaceId);
           const expandedPaths = new Set(fileTreeStore.getState().actions.getExpandedPaths());
@@ -1442,7 +1443,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           state.filesVersion++;
           state.projectFilesCache = undefined;
         });
-        void syncFffWorkspace(get);
+        void syncFffWorkspace(get, workspaceId);
 
         useFileTreeStore.getStore(workspaceId).getState().actions.collapsePath(folder.path);
         get().persistActiveProjectSession();
@@ -2477,8 +2478,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
         if (canUseNativeFileSearch(rootFolderPath)) {
           return coordinateProjectFileScan(cachePath, async () => {
-            const nativeRootPaths = await ensureWorkspaceFileSearch(workspaceFolderPaths);
-            const indexedFiles = await fffListFiles(nativeRootPaths);
+            const nativeRootPaths = await ensureWorkspaceFileSearch(workspaceFolderPaths, workspaceId);
+            const indexedFiles = await fffListFiles(nativeRootPaths, workspaceId);
             const files = indexedFiles.map<FileEntry>((file) => ({
               name: file.name,
               path: file.path,
@@ -3133,6 +3134,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
     })),
   );
+  bindWorkspaceIndexingRoots(workspaceId, store);
+  return store;
 };
 
 scopedFileSystemStore = createWorkspaceScopedStore<ScopedFileSystemStoreState>(

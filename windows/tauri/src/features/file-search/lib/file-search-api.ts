@@ -38,6 +38,7 @@ export interface SearchFilesResponse {
 }
 
 export interface SearchFilesRequest {
+  workspaceId?: string;
   root_paths: string[];
   scope_paths?: string[];
   query: string;
@@ -101,7 +102,7 @@ export async function searchFilesContent(
           ),
       )
       .map(async (root) => {
-        await configureWorkspaceIndexing(root);
+        await configureWorkspaceIndexing(root, [], false, request.workspaceId);
         const response = await executeCore<{ matches: CoreSearchMatch[] }>({
           id: crypto.randomUUID(),
           command: "workspace.search",
@@ -170,12 +171,12 @@ export async function searchFilesContent(
   };
 }
 
-export async function fffEnsureWorkspaces(rootPaths: readonly string[]): Promise<void> {
-  await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths)));
+export async function fffEnsureWorkspaces(rootPaths: readonly string[], workspaceId?: string): Promise<void> {
+  await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths, workspaceId)));
 }
 
-export async function fffScanStatus(rootPaths: readonly string[]): Promise<FffScanStatus> {
-  const files = await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths)));
+export async function fffScanStatus(rootPaths: readonly string[], workspaceId?: string): Promise<FffScanStatus> {
+  const files = await Promise.all(rootPaths.map((root) => listWorkspaceFiles(root, rootPaths, workspaceId)));
   const count = files.reduce((total, entries) => total + entries.length, 0);
   return {
     is_scanning: false,
@@ -190,8 +191,9 @@ export async function fffSearchFiles(
   query: string,
   rootPaths: readonly string[],
   limit = 100,
+  workspaceId?: string,
 ): Promise<FffSearchHit[]> {
-  const files = await fffListFiles(rootPaths);
+  const files = await fffListFiles(rootPaths, workspaceId);
   const normalizedQuery = query.toLocaleLowerCase();
   return files
     .filter((file) => file.relative_path.toLocaleLowerCase().includes(normalizedQuery))
@@ -199,9 +201,9 @@ export async function fffSearchFiles(
     .map((file, index) => ({ ...file, score: limit - index }));
 }
 
-export async function fffListFiles(rootPaths: readonly string[]): Promise<FffIndexedFile[]> {
+export async function fffListFiles(rootPaths: readonly string[], workspaceId?: string): Promise<FffIndexedFile[]> {
   const workspaces = await Promise.all(
-    rootPaths.map(async (root) => ({ root, files: await listWorkspaceFiles(root, rootPaths) })),
+    rootPaths.map(async (root) => ({ root, files: await listWorkspaceFiles(root, rootPaths, workspaceId) })),
   );
   return workspaces.flatMap(({ root, files }) =>
     files.map((relativePath) => ({
@@ -219,8 +221,9 @@ export async function fffTrackAccess(_path: string): Promise<void> {
 async function listWorkspaceFiles(
   root: string,
   workspaceRoots: readonly string[],
+  workspaceId?: string,
 ): Promise<string[]> {
-  await configureWorkspaceIndexing(root);
+  await configureWorkspaceIndexing(root, [], false, workspaceId);
   const response = await executeCore<{
     root: CoreWorkspaceNode;
     files: string[];

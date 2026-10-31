@@ -72,11 +72,19 @@ test.each(["en-US", "zh-CN"] as const)(
       expect(window.localStorage.getItem(indexing.indexingSettingsStorageKey(first))).toBe(
         JSON.stringify(settings),
       );
-      expect(configure).toHaveBeenCalledWith(first);
+      expect(configure).toHaveBeenCalledWith(first, [], false, workspaceId);
       expect(configure.mock.calls.every(([path]) => path !== nested)).toBe(true);
       await act(async () => checkbox().click());
       expect(indexing.readIndexingSettings(first)).toEqual({ ...settings, gitIgnoreEnabled: true });
       expect(window.localStorage.getItem(indexing.indexingSettingsStorageKey(nested))).toBeNull();
+
+      // Storage events model a preference saved by another native window.
+      await act(async () => {
+        window.localStorage.setItem(indexing.indexingSettingsStorageKey(first), JSON.stringify(settings));
+        window.dispatchEvent(new window.StorageEvent("storage", {key: indexing.indexingSettingsStorageKey(first)}));
+      });
+      expect(checkbox().getAttribute("aria-checked")).toBe("false");
+      await act(async () => checkbox().click());
 
       await act(async () => fileSystem.setState({ rootFolderPath: second }));
       expect(checkbox().getAttribute("aria-checked")).toBe("true");

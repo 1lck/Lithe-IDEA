@@ -161,7 +161,7 @@ export async function initializeFileWatcherListener() {
       if (!canUseNativeFileSearch(root) || !isGitChangeRelevant(change, root)) continue;
       scheduleFileWatcherRefresh(workspaceId, `indexing:${root}`, async () => {
         if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return;
-        await configureWorkspaceIndexing(root, [], true);
+        await configureWorkspaceIndexing(root, [], true, workspaceId);
         window.dispatchEvent(new CustomEvent(indexingEvent, { detail: root }));
       });
     }
@@ -186,7 +186,7 @@ export async function initializeFileWatcherListener() {
     ) {
       scheduleFileWatcherRefresh(workspaceId, `indexing:${workspaceRoot}`, async () => {
         if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return;
-        await configureWorkspaceIndexing(workspaceRoot, [], true);
+        await configureWorkspaceIndexing(workspaceRoot, [], true, workspaceId);
         window.dispatchEvent(new CustomEvent(indexingEvent, { detail: workspaceRoot }));
       });
     }
@@ -212,7 +212,7 @@ export async function initializeFileWatcherListener() {
 
     const parentRelative =
       getRelativePath(parentDirectory, workspaceRoot).replace(/\\/g, "/") || ".";
-    const policy = await configureWorkspaceIndexing(workspaceRoot, [parentRelative]);
+    const policy = await configureWorkspaceIndexing(workspaceRoot, [parentRelative], false, workspaceId);
     const excluded = Object.keys(policy.excludedDirectories).some(
       (directory) =>
         directory === "." ||

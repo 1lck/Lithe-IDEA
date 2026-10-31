@@ -19,7 +19,8 @@ final class WorkspaceDirectoryMarkStore: WorkspaceDirectoryMarkStoring, @uncheck
         for workspaceURL: URL
     ) throws -> [String: WorkspaceDirectoryMark] {
         guard let data = store.data(forKey: key(for: workspaceURL)) else { return [:] }
-        return try JSONDecoder().decode(Payload.self, from: data).marks
+        do { return try JSONDecoder().decode(Payload.self, from: data).marks }
+        catch { throw WorkspaceIndexingFailure.invalidSettings }
     }
 
     func saveDirectoryMarks(
@@ -34,7 +35,8 @@ final class WorkspaceDirectoryMarkStore: WorkspaceDirectoryMarkStoring, @uncheck
 
     func loadIndexingSettings(for workspaceURL: URL) throws -> WorkspaceIndexingSettings {
         guard let data = store.data(forKey: "lithe.workspace-indexing." + workspaceURL.standardizedFileURL.path) else { return WorkspaceIndexingSettings() }
-        return try JSONDecoder().decode(WorkspaceIndexingSettings.self, from: data)
+        do { return try JSONDecoder().decode(WorkspaceIndexingSettings.self, from: data) }
+        catch { throw WorkspaceIndexingFailure.invalidSettings }
     }
 
     func saveIndexingSettings(_ settings: WorkspaceIndexingSettings, for workspaceURL: URL) throws {

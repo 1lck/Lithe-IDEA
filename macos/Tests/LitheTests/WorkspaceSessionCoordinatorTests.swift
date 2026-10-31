@@ -1,10 +1,111 @@
 import Foundation
+import LitheCoreContracts
+import LitheWorkspaceModule
 import Testing
 @testable import Lithe
 
 @Suite("Workspace session coordinator")
 @MainActor
 struct WorkspaceSessionCoordinatorTests {
+    @Test
+    func openingWaitsForOldModuleTeardownBeforeBeginningTheNewFeatureLifetime() async {
+        let preparationStarted = TestGate()
+        let finishTeardown = TestGate()
+        let loaded = TestGate()
+        let feature = makeOpeningFeature(loaded: loaded)
+        let platform = CoordinatorTestPlatformUI()
+        let coordinator = WorkspaceSessionCoordinator(
+            recentProjectsStore: RecentProjectsStore(store: CoordinatorTestStore()),
+            platformUI: platform, workspaceFeature: feature
+        )
+        defer { finishTeardown.open(); coordinator.clearSession(); feature.prepareForModuleRelease() }
+        let oldRoot = URL(fileURLWithPath: "/in-memory/coordinator-old")
+        let newRoot = URL(fileURLWithPath: "/in-memory/coordinator-new")
+        feature.beginWorkspace(at: oldRoot, visibilityRules: .default)
+        let oldGeneration = feature.workspaceGeneration
+        coordinator.configureLifecycle(with: openingHandlers(wait: {
+            preparationStarted.open()
+            #expect(await finishTeardown.waitUntilOpen())
+            // The old module owns the same long-lived UI projection.
+            feature.prepareForModuleRelease()
+        }))
+        coordinator.openWorkspace(at: newRoot)
+        #expect(await preparationStarted.waitUntilOpen())
+        #expect(feature.workspaceGeneration == oldGeneration)
+        #expect(feature.appliedSnapshot == nil)
+        finishTeardown.open()
+        #expect(await loaded.waitUntilOpen())
+        #expect(feature.rootNode?.url == newRoot)
+        #expect(feature.loadErrorMessage == nil)
+    }
+
+    @Test
+    func reopeningTheSameRootWhilePreparationIsPendingStartsOnlyTheLatestLifetime() async {
+        let preparationStarted = TestGate()
+        let finishPreparation = TestGate()
+        let loaded = TestGate()
+        let feature = makeOpeningFeature(loaded: loaded)
+        let platform = CoordinatorTestPlatformUI()
+        let coordinator = WorkspaceSessionCoordinator(
+            recentProjectsStore: RecentProjectsStore(store: CoordinatorTestStore()),
+            platformUI: platform, workspaceFeature: feature
+        )
+        defer { finishPreparation.open(); coordinator.clearSession(); feature.prepareForModuleRelease() }
+        var preparationCount = 0
+        var restorations = 0
+        var handlers = openingHandlers(wait: {
+            preparationCount += 1
+            preparationStarted.open()
+            _ = await finishPreparation.waitUntilOpen()
+        })
+        handlers = .init(
+            prepareForWorkspaceOpen: handlers.prepareForWorkspaceOpen,
+            prepareForWorkspaceClose: handlers.prepareForWorkspaceClose,
+            prepareForStandaloneOpen: handlers.prepareForStandaloneOpen,
+            finishStandaloneClose: handlers.finishStandaloneClose,
+            beginDocumentClose: handlers.beginDocumentClose,
+            runServicesCloseConfirmation: handlers.runServicesCloseConfirmation,
+            restoreDebugBreakpoints: { _ in restorations += 1 },
+            visibilityRules: handlers.visibilityRules,
+            waitForWorkspaceOpenPreparation: handlers.waitForWorkspaceOpenPreparation
+        )
+        coordinator.configureLifecycle(with: handlers)
+        let root = URL(fileURLWithPath: "/in-memory/coordinator-reopen")
+        coordinator.openWorkspace(at: root)
+        #expect(await preparationStarted.waitUntilOpen())
+        coordinator.openWorkspace(at: root)
+        finishPreparation.open()
+        #expect(await loaded.waitUntilOpen())
+        #expect(preparationCount == 2)
+        #expect(restorations == 1)
+        #expect(feature.workspaceGeneration == 1)
+        #expect(feature.rootNode?.url == root)
+    }
+
+    private func openingHandlers(wait: @escaping @MainActor () async -> Void) -> WorkspaceSessionCoordinator.LifecycleHandlers {
+        .init(prepareForWorkspaceOpen: { _ in }, prepareForWorkspaceClose: { _ in },
+              prepareForStandaloneOpen: { _ in }, finishStandaloneClose: {}, beginDocumentClose: { false },
+              runServicesCloseConfirmation: { nil }, restoreDebugBreakpoints: { _ in },
+              visibilityRules: { .default }, waitForWorkspaceOpenPreparation: wait)
+    }
+
+    private func makeOpeningFeature(loaded: TestGate) -> WorkspaceFeatureModel {
+        let feature = WorkspaceFeatureModel(
+            operations: CoordinatorWorkspaceOperations(), fileOperations: MacWorkspaceFileOperations(),
+            gitWatchContextProvider: CoordinatorGitContext(), directoryWatcherFactory: CoordinatorWatcherFactory(),
+            workspaceSessionStore: CoordinatorSessionStore()
+        )
+        feature.configureProjection(
+            documentsProvider: { [] }, activeDocumentProvider: { nil }, selectedSidebarProvider: { "project" },
+            setSelectedSidebar: { _ in }, restoreSession: { _, _ in }, openFile: { _ in }, notify: { _ in },
+            recordHistory: { _, _ in }, relocateHistory: { _, _ in }, relocateOpenDocuments: { _, _ in },
+            closeDocuments: { _ in }, processExternalChanges: { _ in false }, reloadProjectServices: {},
+            refreshGit: {}, updateHistoryVisibilityRules: { _ in }, onSnapshotLoaded: { _, _ in loaded.open() },
+            warmSearchIndex: { _, _ in }, updateSearchIndex: { _, _, _ in }, invalidateSearchIndex: { _, _ in }
+        )
+        return feature
+    }
+
     @Test
     func cancelledWorkspaceClosePreservesLeaseAndAllowsRetry() {
         let platform = CoordinatorTestPlatformUI()
@@ -249,6 +350,36 @@ struct WorkspaceSessionCoordinatorTests {
 
         #expect(coordinator.recentProjects.first?.branch == "feat/1316-settings-info-tips")
     }
+}
+
+private struct CoordinatorWorkspaceOperations: WorkspaceOperations {
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
+        WorkspaceSnapshot(root: FileNode(url: rootURL, isDirectory: true, children: []), files: [])
+    }
+    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+private struct CoordinatorGitContext: GitWatchContextProviding {
+    func watchContext(for workspace: URL) async -> GitWatchContext? { nil }
+}
+
+@MainActor
+private final class CoordinatorSessionStore: WorkspaceSessionStoring {
+    func load(for workspaceURL: URL) -> WorkspaceSession? { nil }
+    func save(_ session: WorkspaceSession, for workspaceURL: URL) {}
+}
+
+private struct CoordinatorWatcherFactory: DirectoryWatcherFactory {
+    func make(configuration: DirectoryWatchConfiguration, visibilityRules: FileVisibilityRules,
+              onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void) -> any DirectoryChangeSource {
+        CoordinatorChangeSource()
+    }
+}
+
+private final class CoordinatorChangeSource: DirectoryChangeSource {
+    func start() {}
+    func stop() {}
 }
 
 @MainActor

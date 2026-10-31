@@ -960,6 +960,7 @@
 "Copy session ID" = "复制会话 ID";
 "Copy table" = "复制表格";
 "Copy worktree path" = "复制工作树路径";
+"Could not apply project indexing exclusions. Try reopening the project." = "无法应用项目索引排除策略，请重新打开项目后重试。";
 "Could not check for updates" = "无法检查更新";
 "Could not check for updates." = "无法检查更新。";
 "Could not compare the local adapter with the verified version." = "无法比较本地适配器与已核验版本。";
@@ -991,6 +992,7 @@
 "Could not prepare the run configuration: %@" = "无法准备运行配置：%@";
 "Could not read %@." = "无法读取 %@。";
 "Could not read %@: %@" = "无法读取 %@：%@";
+"Could not read project indexing settings. Try reopening the project." = "无法读取项目索引设置，请重新打开项目后重试。";
 "Could not read the command line." = "无法读取命令行。";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "Could not read the selected built-in background." = "无法读取所选的内置背景。";
@@ -1002,6 +1004,7 @@
 "Could not restore this project history entry" = "无法恢复此项目历史记录";
 "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved." = "无法保存 %@：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。";
 "Could not save access to the selected background image." = "无法保存所选背景图片的访问权限。";
+"Could not save project indexing settings. Your previous settings remain unchanged." = "无法保存项目索引设置，原有设置未改变。";
 "Could not save service selection" = "无法保存服务勾选状态";
 "Could not save the connections: %@" = "无法保存连接：%@";
 "Could not start the Java test result listener: %@" = "无法启动 Java 测试结果监听器：%@";
@@ -1977,6 +1980,7 @@
 "Lithe Shelves" = "Lithe 搁置记录";
 "Lithe application default" = "Lithe 应用默认值";
 "Lithe asks again after the plugin is disabled, updated, or Lithe restarts." = "插件被停用、更新或 Lithe 重启后会再次询问。";
+"Lithe cannot access the project folder. Check its permissions, then retry." = "Lithe 无法访问项目目录。请检查权限后重试。";
 "Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually." = "Lithe 无法替换当前目录中的应用。请将应用移到有写入权限的应用程序目录，或手动安装正式版。";
 "Lithe can’t give pages access to the camera or microphone in this version." = "此版本的 Lithe 无法让页面使用摄像头或麦克风。";
 "Lithe checks GitHub Releases for published updates." = "Lithe 会检查 GitHub Releases 中发布的更新。";
@@ -2806,6 +2810,7 @@
 "Project identification complete" = "项目识别完成";
 "Project identification did not produce a run configuration." = "项目识别没有生成运行配置。";
 "Project identification failed" = "项目识别失败";
+"Project indexing settings are invalid. The saved data has been preserved." = "项目索引设置格式无效，原始设置已保留。";
 "Project is still loading" = "项目仍在加载中";
 "Project opened" = "项目已打开";
 "Project options" = "项目选项";
@@ -3985,6 +3990,7 @@
 "The program chosen in the “%@” setting of %@ is missing or not executable: %@" = "在 %2$@ 的“%1$@”设置中选择的程序不存在或不可执行：%3$@";
 "The project archive from %@ is too large." = "来自 %@ 的项目压缩包过大。";
 "The project directory is unavailable." = "项目目录不可用。";
+"The project folder is unavailable. Restore it, then retry." = "项目目录不可用。请恢复目录后重试。";
 "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "主机上的项目文件夹。“浏览”会连接主机，必要时在主机上安装 Lithe 远端服务，然后让你选择文件夹。";
 "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "主机上的项目文件夹，留空时使用主目录。“浏览”会连接主机，必要时在主机上安装 Lithe 远端服务，然后让你选择文件夹。";
 "The project model is not loaded." = "项目模型尚未加载。";
@@ -4665,16 +4671,22 @@
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "indexing.autoGit" = "根据 Git 忽略规则自动排除目录";
 "indexing.cancelExclusion" = "取消排除";
+"indexing.configureFailed" = "无法应用项目索引排除策略，请重新打开项目后重试。";
 "indexing.description" = "仅作用于当前项目，不受 Git 配置范围影响。已排除目录仍可浏览；取消排除会保存项目例外，不修改 Git 规则。\n\n已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
 "indexing.gitFailed" = "无法完整解析 Git 忽略规则，手动排除仍然生效。";
 "indexing.gitReason" = "根据 Git 忽略规则排除索引";
 "indexing.incomplete" = "部分目录无法扫描，未刷新项目自动分析。";
 "indexing.inheritedReason" = "继承父目录的索引排除";
+"indexing.invalidSettings" = "项目索引设置格式无效，原始设置已保留。";
 "indexing.languageDescription" = "已合并 Java 导入、Rust 和 Go 的原生排除配置。Java 已导入资源仍可能被扫描；Python 项目配置可覆盖服务端排除。其他服务保持运行，尚未保证其后台扫描排除效果。";
 "indexing.manualReason" = "手动排除索引";
+"indexing.permissionDenied" = "Lithe 无法访问项目目录。请检查权限后重试。";
 "indexing.providerDependent" = "取决于语言服务";
+"indexing.readFailed" = "无法读取项目索引设置，请重新打开项目后重试。";
 "indexing.remoteUnsupported" = "远程项目暂不支持目录索引排除。";
 "indexing.title" = "项目索引";
+"indexing.workspaceUnavailable" = "项目目录不可用。请恢复目录后重试。";
+"indexing.writeFailed" = "无法保存项目索引设置，原有设置未改变。";
 "just now" = "刚刚";
 "local commit(s)" = "个本地提交";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS 无法准备更新磁盘映像，请手动下载版本后重试。";

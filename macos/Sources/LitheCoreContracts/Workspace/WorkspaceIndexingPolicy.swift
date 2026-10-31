@@ -1,5 +1,10 @@
 import Foundation
 
+/// Stable application failures. Presentation owns translation; adapters retain diagnostics.
+package enum WorkspaceIndexingFailure: Error, Equatable, Sendable {
+    case invalidSettings, readFailed, writeFailed, configureFailed, workspaceUnavailable, permissionDenied
+}
+
 /// Project preferences are separate from roles and from tree-hiding rules.
 package struct WorkspaceIndexingSettings: Codable, Equatable, Sendable {
     package var gitIgnoreEnabled = true

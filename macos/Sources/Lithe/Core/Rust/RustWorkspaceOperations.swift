@@ -12,12 +12,22 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         directoryListings.invalidate()
     }
 
-    func releaseIndexing(at rootURL: URL, revision: UInt64) {
-        core.releaseIndexing(at: rootURL, revision: revision)
+    func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String? = nil) {
+        core.releaseIndexing(at: rootURL, revision: revision, ownerID: ownerID)
     }
 
-    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus {
-        try core.configureIndexing(at: rootURL, policy: policy, refresh: refresh)
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {
+        do {
+            return try core.configureIndexing(at: rootURL, policy: policy, refresh: refresh, ownerID: ownerID)
+        } catch let error as RustCoreBridge.CoreCallError {
+            switch error.code {
+            case "cancelled": throw CancellationError()
+            case "invalid_request", "parse_failed": throw WorkspaceIndexingFailure.invalidSettings
+            case "workspace_not_found": throw WorkspaceIndexingFailure.workspaceUnavailable
+            case "permission_denied": throw WorkspaceIndexingFailure.permissionDenied
+            default: throw WorkspaceIndexingFailure.configureFailed
+            }
+        } catch { throw WorkspaceIndexingFailure.configureFailed }
     }
 
     func snapshot(

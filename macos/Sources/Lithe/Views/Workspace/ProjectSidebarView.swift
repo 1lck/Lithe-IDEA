@@ -76,7 +76,7 @@ struct ProjectSidebarView: View {
                         .foregroundStyle(LitheTheme.warning)
                     Text("Could not load project")
                         .font(LitheTheme.uiFont(size: 12, weight: .semibold))
-                    Text(LocalizedStringKey(error))
+                    Text(error)
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .multilineTextAlignment(.center)
@@ -596,8 +596,8 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func refreshWorkspace() {
         Task { await self.model.refreshWorkspace() }
     }
-    nonisolated func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) {
-        Task { await self.model.markProjectDirectory(url, as: mark) }
+    nonisolated func markDirectory(_ url: URL, as mark: WorkspaceDirectoryMark, cancelExclusion: Bool = false) {
+        Task { await self.model.markProjectDirectory(url, as: mark, cancelExclusion: cancelExclusion) }
     }
     nonisolated func showGitDirectoryDiff(_ url: URL) {
         Task { await self.model.showGitDirectoryDiff(for: url) }
@@ -1017,7 +1017,7 @@ private struct FileNodeRow: View {
                 iconKind: LitheIcons.kind(for: mark),
                 shortcut: currentDirectoryMark == mark ? "✓" : nil
             ) {
-                actions.markDirectory(node.url, as: mark)
+                actions.markDirectory(node.url, as: mark, cancelExclusion: currentDirectoryMark == .excluded)
             }
         }
     }

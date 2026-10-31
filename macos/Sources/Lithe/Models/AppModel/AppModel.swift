@@ -541,6 +541,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 },
                 visibilityRules: { [weak self] in
                     self?.settings.fileVisibilityRules ?? .default
+                },
+                waitForWorkspaceOpenPreparation: { [weak self] in
+                    guard let self else { return }
+                    await self.awaitModuleRuntimeShutdown()
+                    guard let capability = try? await self.services.moduleRuntime.activateCapability(.workspaceFoundation),
+                          let capability = capability as? LitheWorkspaceModule.WorkspaceFoundationCapability else { return }
+                    capability.attach(workspaceProjection: self.workspaceFeature)
                 }
             )
         )
@@ -1124,8 +1131,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await workspaceFeature.refreshCurrent()
     }
 
-    func markProjectDirectory(_ url: URL, as mark: WorkspaceDirectoryMark) async {
-        await workspaceFeature.markDirectory(url, as: mark)
+    func markProjectDirectory(_ url: URL, as mark: WorkspaceDirectoryMark, cancelExclusion: Bool = false) async {
+        await workspaceFeature.markDirectory(url, as: mark, cancelExclusion: cancelExclusion)
     }
 
     func requestCreateFile(in directory: URL) {

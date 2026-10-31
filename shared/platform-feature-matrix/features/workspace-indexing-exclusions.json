@@ -4,7 +4,7 @@
   "group": "工作区生命周期",
   "capability": "目录索引排除与 Git 自动排除",
   "owner": "Workspace",
-  "verification": "两端开关已统一到设置 › 版本控制 › Git，移除原索引/项目环境入口。macOS 自动排除使用与凭据助手相同的小型 switch 样式，已在真实 App 目视核对；Windows 两项沿用同一个 Checkbox。真实 macOS App 已验证中文索引/忽略搜索定位、无项目禁用、默认开启、启闭重启和取消排除例外持久化。2026-10-30 同一开发构建的隔离英文原生实例补验通过：普通目录六项标记、继承排除仅取消排除且须由父级恢复、全局/仓库 Git 范围往返保持项目 A 的关闭值，项目 B 仍默认开启；两项目搜索结果分别符合开关值。Git 配置与忽略文件未变，原开发包 757 文件清单及哈希不变。此前 48 项 Swift、20 项前端定向测试通过，包含子仓库隔离和存储失败（本机 Swift 6.4，前端在 macOS/Bun 运行）。固定 Xcode 26.6 仍待验证；Windows 原生按用户要求不执行。Java 已导入项目仍可能扫描，Maven 显式模块保留；Go/Rust 原生配置与同步门禁已验证，不保证零后台目录访问。 2026-10-30 整合 preview fbb5e578 后修复刷新期间策略变更、watcher 刷新后的释放句柄、Java 原有导入排除保留、Windows 附加根菜单范围及远程误导提示；补充回归覆盖项目切换/同根重开/关闭期间的在途配置回收、跨工作区根移动目录的标记与例外迁移，以及先刷新策略再扫描时保留语言服务 Git 排除；TypeScript 类型检查通过。指定目录查找按用户要求暂不调整；远程索引排除未实现，明确显示不支持。 最终定向计时回归通过：Swift 79 项（6.4）、Rust 57 项、macOS/Bun 前端 26 项及相关回归 25 项；新增配额失败逆序回滚与可见性规则同根重开隔离。 本轮修复 Windows LSP 最近根查询、远程设置能力与本地化错误、多根请求的父根扫描剪枝和缓存回填边界，并修正两项 Java 排除测试的跨平台路径期望。本机最终 Core 1371 项单元及 32 项集成测试通过，相关索引/LSP 22 项逐项计时通过；macOS/Bun 前端 42 项与 TypeScript 检查通过，覆盖失效根限定搜索、根增删后的工作副本关闭/恢复及旧结果拒绝。独立 Swift/C ABI 探针通过，但整应用验证因缺 Metal Toolchain 中断，工具链为 Swift 6.4。Windows 原生验证尚未完成：本机 Parallels 命令链接指向已不存在的应用，不能据此标记 verified。",
+  "verification": "本地索引策略与目录浏览分离，Git 开关位于设置 › 版本控制 › Git；远程根明确禁用，不扩展远程索引能力。2026-10-30/31 的 Core 1379 项单元与 32 项集成测试、1411 项逐项计时、Swift 67 项定向计时，以及 macOS/Bun 设置、租约和目录角色 37 项回归与相关 tree/LSP/quick 分组通过，TypeScript 检查通过。覆盖共享根 owner 租约、迟到安装/释放、缓存 pane 身份、跨窗口 storage、普通目录与取消排除、冷启动排除、首次失败/重试及刷新保树。真实 macOS App 已验证普通目录不创建包含例外、Git 排除与取消排除搜索、同窗口项目切换、外部 stage/commit 自动更新、真实 JDT 冷启动仅导入 visible 且返回 print 补全，以及中英文错误的即时双向切换和损坏配置保留；1404 个包文件哈希及符号链接未变。本机为 Swift 6.4，最终固定 Xcode 26.6 CI 尚待最终 SHA；正在整合最新 preview 并补充剩余 Native 验收。Windows 原生界面未验收，前端本机 Bun 结果不能替代 Windows UI。Java 已导入资源与构建系统显式模块仍可能扫描，Go/Rust 仅合并原生配置，不保证零后台目录访问。",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -19,7 +19,9 @@
       "macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift",
       "macos/Tests/LitheTests/SettingsSearchVocabularyTests.swift",
       ".agents/notes/implemented/architecture/2026-10-28-workspace-indexing-exclusions.md",
-      "macos/Tests/LitheTests/LazyProjectTreeInventoryTests.swift"
+      "macos/Tests/LitheTests/LazyProjectTreeInventoryTests.swift",
+      "macos/Tests/LitheTests/WorkspaceSessionCoordinatorTests.swift",
+      "macos/Tests/LitheTests/GitStatusObservationTests.swift"
     ]
   },
   "windows": {
@@ -40,7 +42,9 @@
       "windows/tauri/src/features/file-search/lib/file-search-api.test.ts",
       "windows/tauri/src/features/file-search/hooks/use-fff-search.test.tsx",
       "windows/tauri/src/features/file-explorer/stores/workspace-indexing.test.ts",
-      "windows/tauri/src/features/editor/hooks/use-lsp-integration-indexing.test.tsx"
+      "windows/tauri/src/features/editor/hooks/use-lsp-integration-indexing.test.tsx",
+      "windows/tauri/src-tauri/src/core.rs",
+      "windows/tauri/src/features/workspace/services/workspace-lifecycle.ts"
     ]
   }
 }

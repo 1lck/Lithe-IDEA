@@ -9567,7 +9567,9 @@
     "indexing.invalidSettings": "项目索引设置格式无效，原始设置已保留。",
     "indexing.readFailed": "无法读取项目索引设置，请重新打开项目后重试。",
     "indexing.writeFailed": "无法保存项目索引设置，原有设置未改变。",
-    "indexing.configureFailed": "无法应用项目索引排除策略，请重新打开项目后重试。"
+    "indexing.configureFailed": "无法应用项目索引排除策略，请重新打开项目后重试。",
+    "indexing.workspaceUnavailable": "项目目录不可用。请恢复目录后重试。",
+    "indexing.permissionDenied": "Lithe 无法访问项目目录。请检查权限后重试。"
   },
   "overrides": {
     "macos": {

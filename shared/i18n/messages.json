@@ -91342,29 +91342,73 @@
       "id": "indexing.invalidSettings",
       "description": "Project indexing settings failure",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Project indexing settings are invalid. The saved data has been preserved.",
+        "arguments": []
+      }
     },
     {
       "id": "indexing.readFailed",
       "description": "Project indexing settings failure",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Could not read project indexing settings. Try reopening the project.",
+        "arguments": []
+      }
     },
     {
       "id": "indexing.writeFailed",
       "description": "Project indexing settings failure",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Could not save project indexing settings. Your previous settings remain unchanged.",
+        "arguments": []
+      }
     },
     {
       "id": "indexing.configureFailed",
       "description": "Project indexing settings failure",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Could not apply project indexing exclusions. Try reopening the project.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.workspaceUnavailable",
+      "description": "Project indexing failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "The project folder is unavailable. Restore it, then retry.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "indexing.permissionDenied",
+      "description": "Project indexing failure",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Lithe cannot access the project folder. Check its permissions, then retry.",
+        "arguments": []
+      }
     }
   ]
 }

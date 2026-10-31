@@ -69,8 +69,8 @@ package protocol WorkspaceSessionStoring: AnyObject {
 }
 
 package protocol WorkspaceOperations: Sendable {
-    func releaseIndexing(at rootURL: URL, revision: UInt64)
-    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus
+    func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String?)
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String?) throws -> WorkspaceIndexingStatus
 
     /// Drops package-compaction lookahead after workspace or filesystem changes.
     func invalidateDirectoryListings()
@@ -91,8 +91,12 @@ package protocol WorkspaceOperations: Sendable {
 }
 
 extension WorkspaceOperations {
-    package func releaseIndexing(at rootURL: URL, revision: UInt64) {}
-    package func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus { WorkspaceIndexingStatus() }
+    package func releaseIndexing(at rootURL: URL, revision: UInt64) { releaseIndexing(at: rootURL, revision: revision, ownerID: nil) }
+    package func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus {
+        try configureIndexing(at: rootURL, policy: policy, refresh: refresh, ownerID: nil)
+    }
+    package func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String?) {}
+    package func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String?) throws -> WorkspaceIndexingStatus { WorkspaceIndexingStatus() }
     package func invalidateDirectoryListings() {}
 
     /// Operations whose snapshots already carry the whole tree never leave a

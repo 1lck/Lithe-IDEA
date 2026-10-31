@@ -916,10 +916,16 @@ fn apply_indexing_to_sessions(
     if sessions.is_empty() {
         return Ok(());
     }
-    crate::project::indexing::prepare_provider_exclusions(root)?;
+    let prepared = crate::project::indexing::prepare_provider_exclusions(root)?;
     let roots = crate::project::indexing::excluded_roots(root);
-    let revision = crate::project::indexing::context(root).map_or(0, |policy| policy.revision);
+    let revision = prepared.as_ref().map_or(0, |policy| policy.revision);
+    if let Some(policy) = &prepared {
+        policy.check()?;
+    }
     for session in sessions {
+        if let Some(policy) = &prepared {
+            policy.check()?;
+        }
         if ensure_not_terminal(session.lock_state()?.lifecycle).is_err() {
             continue;
         }
@@ -1593,6 +1599,28 @@ impl LspEngine {
                 "Remote Java language servers require a host-compatible plugin launch plan",
             ));
         }
+        // Initial provider settings must include native Git decisions even when
+        // no session or inventory warm-up has run. Never scan under registry locks.
+        let indexing_root = canonical_workspace_root(&request.root_uri).map(PathBuf::from);
+        let indexing_context = if let Some(root) = &indexing_root {
+            crate::project::indexing::prepare_provider_exclusions(root)?
+        } else {
+            None
+        };
+        let check_indexing = || {
+            if let Some(context) = &indexing_context {
+                return context.check();
+            }
+            if indexing_root.as_ref().is_some_and(|root| {
+                crate::project::indexing::active_provider_context(root).is_some()
+            }) {
+                return Err(CoreError::new(
+                    ErrorCode::Cancelled,
+                    "Indexing policy changed",
+                ));
+            }
+            Ok(())
+        };
         let startup_started_at = Instant::now();
         let session_id = format!(
             "lsp-session-{}",
@@ -1901,8 +1929,16 @@ impl LspEngine {
             }
         }
 
+        // Register before checking the prepared generation. A policy change
+        // either retires that generation or sees this session for its update.
         self.lock_sessions()?
             .insert(session_id.clone(), session.clone());
+        if let Err(error) = check_indexing() {
+            self.lock_sessions()?.remove(&session_id);
+            session.active.store(false, Ordering::Release);
+            session.kill_process();
+            return Err(error);
+        }
         session.spawn_readers(process.output, process.errors);
         session.spawn_monitor();
         session.spawn_outbound_maintenance();
@@ -1915,6 +1951,13 @@ impl LspEngine {
                 Some(core_error_detail(&error)),
                 None,
             );
+            session.kill_process();
+            return Err(error);
+        }
+
+        if let Err(error) = check_indexing() {
+            self.lock_sessions()?.remove(&session_id);
+            session.active.store(false, Ordering::Release);
             session.kill_process();
             return Err(error);
         }
@@ -8748,6 +8791,7 @@ mod tests {
             fn drop(&mut self) {
                 let _ = crate::project::indexing::release(
                     crate::project::indexing::ReleaseIndexingRequest {
+                        owner_id: None,
                         root: self.root.to_string_lossy().into_owned(),
                         revision: self.revision,
                     },
@@ -8813,6 +8857,185 @@ mod tests {
     }
 
     #[test]
+    fn indexing_startup_cancels_when_policy_changes_during_process_launch() {
+        struct RetireOnLaunch {
+            inner: Arc<dyn LspProcessLauncher>,
+            root: PathBuf,
+            revision: Arc<AtomicU64>,
+            process: Arc<Mutex<Option<Arc<dyn LspProcessHandle>>>>,
+        }
+        impl LspProcessLauncher for RetireOnLaunch {
+            fn launch(
+                &self,
+                spec: LspProcessSpec,
+            ) -> Result<super::super::process::LspProcessStreams, CoreError> {
+                let process = self.inner.launch(spec)?;
+                *self.process.lock().unwrap() = Some(process.handle.clone());
+                let status = crate::project::indexing::configure(serde_json::from_value(json!({
+                    "root": self.root, "manualExcludedDirectories": ["reactor"], "includedDirectories": [], "gitIgnoreEnabled": false
+                })).unwrap())?;
+                self.revision.store(status.revision, Ordering::Release);
+                Ok(process)
+            }
+        }
+        struct Cleanup {
+            root: PathBuf,
+            revision: Arc<AtomicU64>,
+            process: Arc<Mutex<Option<Arc<dyn LspProcessHandle>>>>,
+        }
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                if let Some(process) = self.process.lock().unwrap().as_ref() {
+                    process.terminate();
+                }
+                let _ = crate::project::indexing::release(
+                    crate::project::indexing::ReleaseIndexingRequest {
+                        root: self.root.to_string_lossy().into_owned(),
+                        owner_id: None,
+                        revision: self.revision.load(Ordering::Acquire),
+                    },
+                );
+            }
+        }
+        for initially_configured in [false, true] {
+            let workspace = TemporaryMavenWorkspace::recursive(&format!(
+                "indexing-startup-retired-{initially_configured}"
+            ));
+            let root = workspace.root.canonicalize().unwrap();
+            let installed = if initially_configured {
+                crate::project::indexing::configure(serde_json::from_value(json!({
+            "root":root,"manualExcludedDirectories":[],"includedDirectories":[],"gitIgnoreEnabled":false
+        })).unwrap()).unwrap().revision
+            } else {
+                0
+            };
+            let cleanup = Cleanup {
+                root: root.clone(),
+                revision: Arc::new(AtomicU64::new(installed)),
+                process: Arc::new(Mutex::new(None)),
+            };
+            let server = ScriptedServer::new();
+            let engine = LspEngine::with_launcher(Arc::new(RetireOnLaunch {
+                inner: server.launcher(),
+                root: root.clone(),
+                revision: cleanup.revision.clone(),
+                process: cleanup.process.clone(),
+            }));
+            let mut request = start_request(&server);
+            request.provider_id = "python".into();
+            request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+            request.working_directory = root.to_string_lossy().into_owned();
+            match engine.start_server(request) {
+                Err(error) => assert!(matches!(error.code, ErrorCode::Cancelled)),
+                Ok(_) => panic!("an obsolete startup must not publish a session"),
+            }
+            assert!(engine.lock_sessions().unwrap().is_empty());
+            assert!(
+                server.input_was_closed(),
+                "the cancelled startup owns process termination"
+            );
+        }
+    }
+
+    #[test]
+    fn indexing_released_root_allows_a_standalone_provider_without_old_exclusions() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-released-standalone");
+        let root = workspace.root.canonicalize().unwrap();
+        let root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+        let status = crate::project::indexing::configure(serde_json::from_value(json!({
+            "root": root, "manualExcludedDirectories": ["reactor"], "includedDirectories": [], "gitIgnoreEnabled": false
+        })).unwrap()).unwrap();
+        let old = crate::project::indexing::context(&root).unwrap();
+        crate::project::indexing::release(crate::project::indexing::ReleaseIndexingRequest {
+            root: root.to_string_lossy().into_owned(),
+            revision: status.revision,
+            owner_id: None,
+        })
+        .unwrap();
+        assert!(
+            old.check().is_err(),
+            "late inventory readers must remain cancelled"
+        );
+        let harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.root_uri = root_uri.clone();
+            request.initialization_options =
+                Some(json!({"settings":{"java":{"import":{"exclusions":["**/vendor/**"]}}}}));
+        });
+        let initialize = notifications(&harness, "initialize").pop().unwrap();
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["settings"]["java"]["import"]
+                ["exclusions"],
+            json!(["**/vendor/**"])
+        );
+        let file_uri = url::Url::from_file_path(root.join("reactor/Visible.java"))
+            .unwrap()
+            .to_string();
+        assert!(!crate::project::indexing::uri_is_excluded(&root_uri, &file_uri).unwrap());
+    }
+
+    #[test]
+    fn indexing_cold_start_resolves_git_before_provider_initialization() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-cold-start");
+        let root = workspace.root.canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("ignored")).unwrap();
+        std::fs::write(root.join("ignored/hidden.txt"), "hidden").unwrap();
+        std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
+        let git = crate::git::execute_git_readonly(
+            &root.to_string_lossy(),
+            &["init".into(), "--quiet".into()],
+            None,
+        )
+        .unwrap();
+        assert_eq!(git.exit_code, 0, "{}", git.stderr);
+        let status = crate::project::indexing::configure(serde_json::from_value(json!({
+            "root": root, "manualExcludedDirectories": [], "includedDirectories": [], "gitIgnoreEnabled": true
+        })).unwrap()).unwrap();
+        let harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+            request.initialization_options =
+                Some(json!({"settings":{"java":{"import":{"exclusions":["**/vendor/**"]}}}}));
+        });
+        let initialize = notifications(&harness, "initialize").pop().unwrap();
+        let excluded = root.join("ignored").to_string_lossy().replace('\\', "/");
+        assert_eq!(
+            initialize["params"]["initializationOptions"]["settings"]["java"]["import"]
+                ["exclusions"],
+            json!(["**/vendor/**", excluded, format!("{excluded}/**")])
+        );
+        for (provider, pointer) in [
+            ("go", "/gopls/directoryFilters"),
+            ("rust", "/rust-analyzer/files/exclude"),
+        ] {
+            let value = crate::lsp::languages::indexing::configuration(
+                provider,
+                &harness.session().root_uri,
+                None,
+            )
+            .unwrap();
+            assert!(value
+                .pointer(pointer)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item
+                    == if provider == "go" {
+                        "-ignored"
+                    } else {
+                        "ignored"
+                    }));
+        }
+        crate::project::indexing::release(crate::project::indexing::ReleaseIndexingRequest {
+            root: root.to_string_lossy().into_owned(),
+            revision: status.revision,
+            owner_id: None,
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn indexing_watcher_rebuild_publishes_recomputed_git_exclusions_to_java() {
         let workspace = TemporaryMavenWorkspace::recursive("indexing-watcher-provider");
         let root = workspace.root.canonicalize().unwrap();
@@ -8843,6 +9066,7 @@ mod tests {
                 engine().sessions.lock().unwrap().remove(&self.key);
                 let _ = crate::project::indexing::release(
                     crate::project::indexing::ReleaseIndexingRequest {
+                        owner_id: None,
                         root: self.root.to_string_lossy().into_owned(),
                         revision: self.revision,
                     },
@@ -8967,6 +9191,7 @@ mod tests {
             status.revision
         );
         crate::project::indexing::release(crate::project::indexing::ReleaseIndexingRequest {
+            owner_id: None,
             root: root.to_string_lossy().into_owned(),
             revision: status.revision,
         })

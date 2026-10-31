@@ -41,7 +41,7 @@ test.each([
   try {
     expect((await client.startForFile(file, scope)).kind).toBe("attached");
     expect(starts).toEqual([scope]);
-    if (owner) expect(configure).toHaveBeenCalledWith(owner, [parent]);
+    if (owner) expect(configure).toHaveBeenCalledWith(owner, [parent], false, workspaceId);
     else expect(configure).not.toHaveBeenCalled();
     if (owner) {
       configure.mockResolvedValue({

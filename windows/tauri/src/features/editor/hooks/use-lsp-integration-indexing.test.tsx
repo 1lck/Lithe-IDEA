@@ -90,7 +90,7 @@ test("adding and removing a nested root reevaluates an open document's LSP polic
     );
     await flush();
     expect(events).toEqual(["open", "close", "stop"]);
-    expect(configure).toHaveBeenLastCalledWith("C:/main/nested", ["src"]);
+    expect(configure).toHaveBeenLastCalledWith("C:/main/nested", ["src"], false, workspaceId);
     await act(async () => store.setState({ workspaceFolders: [] }));
     await flush();
     expect(events).toEqual(["open", "close", "stop", "open"]);

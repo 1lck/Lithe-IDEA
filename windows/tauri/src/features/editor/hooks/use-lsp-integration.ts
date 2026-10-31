@@ -15,7 +15,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getSourceEditorBufferByPath } from "@/features/editor/utils/buffer-index";
 import { logger } from "@/features/editor/utils/logger";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
 import { getDirName } from "@/utils/path-helpers";
 
@@ -71,11 +71,11 @@ export const useLspIntegration = ({
   filePath,
   contentRevision = 0,
 }: UseLspIntegrationOptions) => {
-  const indexingVersion = useIndexingVersion();
   const lspClient = useMemo(() => LspClient.getInstance(), []);
-  const workspaceId = useActiveWorkspaceId();
+  const workspaceId = useWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
+  const indexingVersion = useIndexingVersion(getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders));
   // Root membership changes must withdraw old attachments even when settings are unchanged.
   const indexingKey = JSON.stringify([
     workspaceId, indexingVersion, getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),

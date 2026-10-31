@@ -2440,15 +2440,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         return String(cString: lithe_bridge_version())
     }
 
-    func releaseIndexing(at rootURL: URL, revision: UInt64) {
-        struct Payload: Encodable { let root: String; let revision: UInt64 }
+    func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String? = nil) {
+        struct Payload: Encodable { let root: String; let revision: UInt64; let ownerId: String? }
         struct Response: Decodable { let released: Bool }
-        let _: Response? = execute(command: "workspace.releaseIndexing", payload: Payload(root: rootURL.path, revision: revision))
+        let _: Response? = execute(command: "workspace.releaseIndexing", payload: Payload(root: rootURL.path, revision: revision, ownerId: ownerID))
     }
 
-    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool) throws -> WorkspaceIndexingStatus {
+    func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {
         struct Request: Encodable {
             let root: String
+            let ownerId: String?
             let manualExcludedDirectories: [String]
             let includedDirectories: [String]
             let gitIgnoreEnabled: Bool
@@ -2456,6 +2457,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
         return try executeResult(command: "workspace.configureIndexing", payload: Request(
             root: rootURL.standardizedFileURL.path,
+            ownerId: ownerID,
             manualExcludedDirectories: policy.manualExcludedDirectories,
             includedDirectories: policy.includedDirectories,
             gitIgnoreEnabled: policy.gitIgnoreEnabled, refresh: refresh

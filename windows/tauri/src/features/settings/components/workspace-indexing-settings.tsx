@@ -1,3 +1,4 @@
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useEffect, useState } from "react";
 import { canUseNativeFileSearch } from "@/features/file-search/utils/file-search-paths";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -8,13 +9,14 @@ import { SettingRow } from "./settings-section";
 import {
   configureWorkspaceIndexing,
   IndexingSettingsError,
-  indexingEvent,
+  subscribeToIndexingChanges,
   readIndexingSettings,
   writeIndexingSettings,
 } from "@/features/file-explorer/stores/workspace-indexing";
 
 export function WorkspaceIndexingSettings({ root }: { root: string | undefined }) {
   const { t } = useTranslation();
+  const workspaceId = useWorkspaceId();
   const supported = canUseNativeFileSearch(root);
   const errorKey = (cause: unknown, fallback: string) =>
     cause instanceof IndexingSettingsError ? `indexing.${cause.code}` : fallback;
@@ -41,7 +43,7 @@ export function WorkspaceIndexingSettings({ root }: { root: string | undefined }
         return;
       }
       if (!supported) return;
-      void configureWorkspaceIndexing(root)
+      void configureWorkspaceIndexing(root, [], false, workspaceId)
         .then((status) => {
           if (!disposed && current === generation) setFailed(status.gitIgnoreFailed);
         })
@@ -51,12 +53,12 @@ export function WorkspaceIndexingSettings({ root }: { root: string | undefined }
         });
     };
     read();
-    window.addEventListener(indexingEvent, read);
+    const unsubscribe = subscribeToIndexingChanges([root], read);
     return () => {
       disposed = true;
-      window.removeEventListener(indexingEvent, read);
+      unsubscribe();
     };
-  }, [root, supported]);
+  }, [root, supported, workspaceId]);
   return (
     <>
       <SettingRow

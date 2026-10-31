@@ -79,6 +79,7 @@ export class WorkspaceRuntimeRegistry {
       return;
     }
 
+    void this.runtimes.get(id)?.disposeIndexing?.().catch(console.error);
     if (this.runtimes.delete(id) && this.activeWorkspaceId !== id) {
       this.emitChange();
     }

@@ -1,8 +1,9 @@
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { canUseNativeFileSearch } from "@/features/file-search/utils/file-search-paths";
 import {
   configureWorkspaceIndexing,
-  releaseWorkspaceIndexing,
-  indexingEvent,
+  IndexingSettingsError,
+  subscribeToIndexingChanges,
   type IndexingStatus,
 } from "../stores/workspace-indexing";
 import { directoryMarkRoot, useDirectoryMarks } from "../stores/directory-marks";
@@ -188,46 +189,26 @@ function FileExplorerTreeComponent({
   onFileMove,
 }: FileExplorerTreeProps) {
   useJavaFileIconCacheLifecycle();
+  const workspaceId = useWorkspaceId();
   const [projectView, setProjectView] = useState("project");
-  const workspaceRootPaths = useMemo(() => {
-    const roots: string[] = [];
-    let hasRootFolderPath = false;
-
-    for (const file of files) {
-      if (!file.isDir) continue;
-      roots.push(file.path);
-      if (file.path === rootFolderPath) {
-        hasRootFolderPath = true;
-      }
-    }
-
-    if (rootFolderPath && !hasRootFolderPath) {
-      roots.unshift(rootFolderPath);
-    }
-
-    return roots;
-  }, [files, rootFolderPath]);
-
+  const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
+  const nativeRootPaths = useMemo(
+    () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
+    [rootFolderPath, workspaceFolders],
+  );
+  const workspaceRootPaths = useMemo(
+    () => [...new Set([rootFolderPath, ...workspaceFolders.map((folder) => folder.path)].filter((path): path is string => Boolean(path)))],
+    [rootFolderPath, workspaceFolders],
+  );
   const { markForPath, markDirectory, error: directoryMarksError } = useDirectoryMarks(workspaceRootPaths);
   useEffect(() => { if (directoryMarksError) toast.error(directoryMarksError); }, [directoryMarksError]);
-  const indexingRootsKey = JSON.stringify(workspaceRootPaths.filter(canUseNativeFileSearch));
-  useEffect(
-    () => () => {
-      for (const root of JSON.parse(indexingRootsKey) as string[]) void releaseWorkspaceIndexing(root).catch(console.error);
-    },
-    [indexingRootsKey],
-  );
   const [indexingStatuses, setIndexingStatuses] = useState<Record<string, IndexingStatus>>({});
   useEffect(() => {
-    const roots = [
-      ...new Set(
-        [rootFolderPath, ...files.filter((entry) => entry.isDir).map((entry) => entry.path)].filter(
-          canUseNativeFileSearch,
-        ),
-      ),
-    ];
+    const roots = nativeRootPaths;
     let disposed = false;
+    let generation = 0;
     const refresh = () => {
+      const current = ++generation;
       void Promise.all(
         roots.map(async (root) => {
           const paths: string[] = [];
@@ -240,25 +221,23 @@ function FileExplorerTreeComponent({
             }
           };
           visit(files);
-          return [root, await configureWorkspaceIndexing(root, paths)] as const;
+          return [root, await configureWorkspaceIndexing(root, paths, false, workspaceId)] as const;
         }),
       )
         .then((values) => {
-          if (!disposed) setIndexingStatuses(Object.fromEntries(values));
+          if (!disposed && current === generation) setIndexingStatuses(Object.fromEntries(values));
         })
         .catch((error) => {
-          if (!disposed) toast.error(String(error));
+          if (!disposed && current === generation) toast.error(t(error instanceof IndexingSettingsError ? `indexing.${error.code}` : "indexing.configureFailed"));
         });
     };
     refresh();
-    window.addEventListener(indexingEvent, refresh);
-    window.addEventListener("lithe:directory-marks-changed", refresh);
+    const unsubscribe = subscribeToIndexingChanges(roots, refresh);
     return () => {
       disposed = true;
-      window.removeEventListener(indexingEvent, refresh);
-      window.removeEventListener("lithe:directory-marks-changed", refresh);
+      unsubscribe();
     };
-  }, [files, rootFolderPath]);
+  }, [files, nativeRootPaths, workspaceId]);
   const exclusionReason = (path: string): string | undefined => {
     const root = Object.keys(indexingStatuses)
       .filter((root) => pathStartsWithRoot(path, root))
@@ -340,11 +319,6 @@ function FileExplorerTreeComponent({
   const addFolderToWorkspace = useFileSystemStore((state) => state.addFolderToWorkspace);
   const removeFolderFromWorkspace = useFileSystemStore((state) => state.removeFolderFromWorkspace);
   const revealPathInTree = useFileSystemStore((state) => state.revealPathInTree);
-  const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
-  const nativeRootPaths = useMemo(
-    () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
-    [rootFolderPath, workspaceFolders],
-  );
 
   useLayoutEffect(() => {
     if (!rootFolderPath) return;
@@ -1081,6 +1055,8 @@ function FileExplorerTreeComponent({
     selectedEntries,
     selectedPaths,
     markDirectory,
+    markForPath,
+    canExcludeDirectory: canUseNativeFileSearch,
     isIndexExcluded,
     onFileSelect,
     onCreateNewFileInDirectory,
@@ -1858,7 +1834,9 @@ function FileExplorerTreeComponent({
                 directoryMark={
                   isIndexExcluded(row.file.path)
                     ? "excluded"
-                    : markForPath(row.file.path)
+                    : !canUseNativeFileSearch(row.file.path) && markForPath(row.file.path) === "excluded"
+                      ? undefined
+                      : markForPath(row.file.path)
                 }
                 semanticKind={
                   markForPath(row.file.path) === "sources"

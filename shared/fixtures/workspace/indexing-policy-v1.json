@@ -14,7 +14,8 @@
     "paths": [
       "vendor",
       "generated"
-    ]
+    ],
+    "ownerId": "window-one/workspace-one"
   },
   "response": {
     "revision": 1,
@@ -46,6 +47,23 @@
     {
       "nestedRegistered": false,
       "parentScopedMatches": 1
+    }
+  ],
+  "leaseCases": [
+    {
+      "owners": [
+        "window-one/workspace-one",
+        "window-two/workspace-two"
+      ],
+      "releasedOwner": "window-one/workspace-one",
+      "rootRetired": false
+    },
+    {
+      "owners": [
+        "window-two/workspace-two"
+      ],
+      "releasedOwner": "window-two/workspace-two",
+      "rootRetired": true
     }
   ]
 }

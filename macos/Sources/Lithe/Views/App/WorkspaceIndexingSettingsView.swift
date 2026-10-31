@@ -14,7 +14,7 @@ struct WorkspaceIndexingSettingsView: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .disabled(feature.rootNode == nil || !feature.indexingStatus.supportsExclusions)
+                .disabled(feature.rootNode == nil || !feature.indexingStatus.supportsExclusions || !feature.canEditIndexingSettings)
             }
             if !feature.indexingStatus.supportsExclusions {
                 Text("Directory indexing exclusions are not supported for remote projects.")

@@ -22,6 +22,9 @@ pub struct IndexingPolicy {
 /// Installs a policy before workspace consumers start; refresh discards Git decisions.
 pub struct ConfigureIndexingRequest {
     pub root: String,
+    /// Runtime identity. Omitted by legacy callers, which share one guarded lease.
+    #[serde(default)]
+    pub owner_id: Option<String>,
     #[serde(flatten)]
     pub policy: IndexingPolicy,
     #[serde(default)]
@@ -42,14 +45,24 @@ pub struct IndexingStatus {
 /// Immutable policy generation with lazily cached Git directory decisions.
 pub(crate) struct IndexingContext {
     pub(crate) revision: u64,
-    /// Host release token; watcher refreshes replace readers without changing ownership.
+    /// Legacy release token; watcher refreshes preserve host ownership.
     owner_revision: u64,
+    /// Shared across scan generations so one owner cannot retire another owner's root.
+    leases: Arc<Mutex<BTreeMap<Option<String>, IndexingLease>>>,
     root: PathBuf,
     policy: IndexingPolicy,
     decisions: Mutex<HashMap<String, bool>>,
     pub(crate) retired: AtomicBool,
     git_failed: AtomicBool,
     git_resolved: AtomicBool,
+}
+
+/// A failed installer may reclaim a token only before any caller has received it.
+struct IndexingLease {
+    revision: u64,
+    published: bool,
+    /// Remains releasable until a replacement token has actually been returned.
+    previous_published: Option<u64>,
 }
 
 static POLICIES: OnceLock<Mutex<HashMap<PathBuf, Arc<IndexingContext>>>> = OnceLock::new();
@@ -82,30 +95,59 @@ fn validate_paths(paths: &mut Vec<String>) -> Result<(), CoreError> {
 }
 
 /// Registers a project policy atomically. In-flight readers cannot publish a retired generation.
-pub fn configure(mut request: ConfigureIndexingRequest) -> Result<IndexingStatus, CoreError> {
+pub fn configure(request: ConfigureIndexingRequest) -> Result<IndexingStatus, CoreError> {
+    configure_with_provider_update(request, crate::lsp::indexing_changed)
+}
+
+fn configure_with_provider_update(
+    mut request: ConfigureIndexingRequest,
+    update_provider: impl FnOnce(&Path) -> Result<(), CoreError>,
+) -> Result<IndexingStatus, CoreError> {
+    if request
+        .owner_id
+        .as_ref()
+        .is_some_and(|owner| owner.is_empty())
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Indexing owner is empty",
+        ));
+    }
     let root = existing_root(&request.root)?;
     validate_paths(&mut request.policy.manual_excluded_directories)?;
     validate_paths(&mut request.policy.included_directories)?;
     validate_paths(&mut request.paths)?;
     let mut changed = false;
-    let context = {
+    let (context, lease_revision, installed_lease) = {
         let mut entries = policies()
             .lock()
             .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing policy lock was poisoned"))?;
         let unchanged = entries.get(&root).filter(|old| {
             old.policy == request.policy && !request.refresh && !old.retired.load(Ordering::Acquire)
         });
-        if let Some(old) = unchanged {
+        let context = if let Some(old) = unchanged {
             Arc::clone(old)
         } else {
             changed = true;
+            let active = entries
+                .get(&root)
+                .filter(|old| !old.retired.load(Ordering::Acquire));
+            let leases = active
+                .map(|old| Arc::clone(&old.leases))
+                .unwrap_or_default();
+            let legacy_revision = active.map(|old| old.owner_revision);
             if let Some(old) = entries.get(&root) {
                 old.retired.store(true, Ordering::Release);
             }
             let revision = REVISION.fetch_add(1, Ordering::Relaxed);
             let next = Arc::new(IndexingContext {
                 revision,
-                owner_revision: revision,
+                owner_revision: if request.owner_id.is_none() {
+                    revision
+                } else {
+                    legacy_revision.unwrap_or(revision)
+                },
+                leases,
                 root: root.clone(),
                 policy: request.policy,
                 decisions: Mutex::default(),
@@ -115,41 +157,111 @@ pub fn configure(mut request: ConfigureIndexingRequest) -> Result<IndexingStatus
             });
             entries.insert(root.clone(), Arc::clone(&next));
             next
-        }
+        };
+        let (lease_revision, installed_lease) = {
+            let mut leases = context.leases.lock().map_err(|_| {
+                CoreError::new(ErrorCode::Unknown, "Indexing lease lock was poisoned")
+            })?;
+            let installed = changed || !leases.contains_key(&request.owner_id);
+            if installed {
+                let previous_published = leases.get(&request.owner_id).and_then(|lease| {
+                    if lease.published {
+                        Some(lease.revision)
+                    } else {
+                        lease.previous_published
+                    }
+                });
+                let token = if request.owner_id.is_none() {
+                    context.owner_revision
+                } else {
+                    REVISION.fetch_add(1, Ordering::Relaxed)
+                };
+                leases.insert(
+                    request.owner_id.clone(),
+                    IndexingLease {
+                        revision: token,
+                        published: false,
+                        previous_published,
+                    },
+                );
+            }
+            (leases[&request.owner_id].revision, installed)
+        };
+        (context, lease_revision, installed_lease)
     };
     if changed {
         super::search_index::invalidate_root(&root);
     }
-    let mut excluded_directories = BTreeMap::new();
-    for path in request.paths {
-        if let Some(reason) = context.reason(&path, true)? {
-            excluded_directories.insert(path, reason.to_string());
-        }
-    }
-    for path in &context.policy.manual_excluded_directories {
-        excluded_directories.insert(path.clone(), "manual".into());
-    }
-    if let Ok(decisions) = context.decisions.lock() {
-        for (path, excluded) in decisions.iter() {
-            if *excluded
-                && !context
-                    .policy
-                    .included_directories
-                    .iter()
-                    .any(|included| contains(included, path) || contains(path, included))
-            {
-                excluded_directories
-                    .entry(path.clone())
-                    .or_insert_with(|| "git".into());
+    let result = (|| {
+        let mut excluded_directories = BTreeMap::new();
+        for path in request.paths {
+            if let Some(reason) = context.reason(&path, true)? {
+                excluded_directories.insert(path, reason.to_string());
             }
         }
+        for path in &context.policy.manual_excluded_directories {
+            excluded_directories.insert(path.clone(), "manual".into());
+        }
+        if let Ok(decisions) = context.decisions.lock() {
+            for (path, excluded) in decisions.iter() {
+                if *excluded
+                    && !context
+                        .policy
+                        .included_directories
+                        .iter()
+                        .any(|included| contains(included, path) || contains(path, included))
+                {
+                    excluded_directories
+                        .entry(path.clone())
+                        .or_insert_with(|| "git".into());
+                }
+            }
+        }
+        update_provider(&root)?;
+        {
+            // Publication and policy replacement share the registry lock. A
+            // scan cannot pass its generation check and then publish an old set.
+            let entries = policies().lock().map_err(|_| {
+                CoreError::new(ErrorCode::Unknown, "Indexing policy lock was poisoned")
+            })?;
+            if !entries
+                .get(&root)
+                .is_some_and(|current| Arc::ptr_eq(current, &context))
+            {
+                return Err(CoreError::new(
+                    ErrorCode::Cancelled,
+                    "Indexing policy changed",
+                ));
+            }
+            context.check()?;
+            let mut leases = context.leases.lock().map_err(|_| {
+                CoreError::new(ErrorCode::Unknown, "Indexing lease lock was poisoned")
+            })?;
+            let lease = leases
+                .get_mut(&request.owner_id)
+                .filter(|lease| lease.revision == lease_revision)
+                .ok_or_else(|| CoreError::new(ErrorCode::Cancelled, "Indexing lease changed"))?;
+            lease.published = true;
+            lease.previous_published = None;
+        }
+        Ok(IndexingStatus {
+            revision: lease_revision,
+            excluded_directories,
+            git_ignore_failed: context.git_failed.load(Ordering::Acquire),
+        })
+    })();
+    if result.is_err() && installed_lease {
+        // A caller receiving no token cannot release a failed installation.
+        let _ = release_lease(
+            ReleaseIndexingRequest {
+                root: root.to_string_lossy().into_owned(),
+                revision: lease_revision,
+                owner_id: request.owner_id,
+            },
+            true,
+        );
     }
-    crate::lsp::indexing_changed(&root)?;
-    Ok(IndexingStatus {
-        revision: context.owner_revision,
-        excluded_directories,
-        git_ignore_failed: context.git_failed.load(Ordering::Acquire),
-    })
+    result
 }
 
 #[derive(Deserialize)]
@@ -158,27 +270,64 @@ pub fn configure(mut request: ConfigureIndexingRequest) -> Result<IndexingStatus
 pub struct ReleaseIndexingRequest {
     pub root: String,
     pub revision: u64,
+    /// Releases only this runtime's lease, never another runtime using the same root.
+    #[serde(default)]
+    pub owner_id: Option<String>,
 }
 
 pub fn release(request: ReleaseIndexingRequest) -> Result<bool, CoreError> {
+    release_lease(request, false)
+}
+
+fn release_lease(
+    request: ReleaseIndexingRequest,
+    only_unpublished: bool,
+) -> Result<bool, CoreError> {
     let requested = PathBuf::from(request.root);
     let root =
         super::search_index::canonicalize_with_missing_components(&requested).unwrap_or(requested);
     let entries = policies()
         .lock()
         .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing policy lock was poisoned"))?;
-    let Some(context) = entries
-        .get(&root)
-        .filter(|context| context.owner_revision == request.revision)
-    else {
+    let Some(context) = entries.get(&root) else {
         return Ok(false);
     };
+    let mut leases = context
+        .leases
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing lease lock was poisoned"))?;
+    let Some(lease) = leases.get(&request.owner_id) else {
+        return Ok(false);
+    };
+    let matches = lease.revision == request.revision
+        || (!only_unpublished && lease.previous_published == Some(request.revision));
+    if !matches || (only_unpublished && lease.published) {
+        return Ok(false);
+    }
+    if only_unpublished {
+        if let Some(previous) = lease.previous_published {
+            leases.insert(
+                request.owner_id,
+                IndexingLease {
+                    revision: previous,
+                    published: true,
+                    previous_published: None,
+                },
+            );
+            return Ok(false);
+        }
+    }
+    leases.remove(&request.owner_id);
+    if !leases.is_empty() {
+        return Ok(true);
+    }
     context.retired.store(true, Ordering::Release);
     context
         .decisions
         .lock()
         .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing decision lock was poisoned"))?
         .clear();
+    drop(leases);
     drop(entries);
     super::search_index::invalidate_root(&root);
     Ok(true)
@@ -186,6 +335,12 @@ pub fn release(request: ReleaseIndexingRequest) -> Result<bool, CoreError> {
 
 pub(crate) fn context(root: &Path) -> Option<Arc<IndexingContext>> {
     policies().lock().ok()?.get(root).cloned()
+}
+
+/// Provider requests without a live owner retain their standalone behavior.
+/// Retired records still cancel late inventory readers through `context`.
+pub(crate) fn active_provider_context(root: &Path) -> Option<Arc<IndexingContext>> {
+    context(root).filter(|context| !context.retired.load(Ordering::Acquire))
 }
 
 pub(crate) fn refresh(root: &Path) -> Result<(), CoreError> {
@@ -201,6 +356,7 @@ pub(crate) fn refresh(root: &Path) -> Result<(), CoreError> {
         let next = Arc::new(IndexingContext {
             revision: REVISION.fetch_add(1, Ordering::Relaxed),
             owner_revision: old.owner_revision,
+            leases: Arc::clone(&old.leases),
             root: old.root.clone(),
             policy: old.policy.clone(),
             decisions: Mutex::default(),
@@ -218,9 +374,11 @@ pub(crate) fn refresh(root: &Path) -> Result<(), CoreError> {
 
 /// Resolve native Git decisions before a live provider receives a new generation.
 /// This reuses the inventory walker (no file text reads) and prunes excluded trees.
-pub(crate) fn prepare_provider_exclusions(root: &Path) -> Result<(), CoreError> {
-    let Some(context) = context(root) else {
-        return Ok(());
+pub(crate) fn prepare_provider_exclusions(
+    root: &Path,
+) -> Result<Option<Arc<IndexingContext>>, CoreError> {
+    let Some(context) = active_provider_context(root) else {
+        return Ok(None);
     };
     context.check()?;
     if context.policy.git_ignore_enabled && !context.git_resolved.load(Ordering::Acquire) {
@@ -235,7 +393,7 @@ pub(crate) fn prepare_provider_exclusions(root: &Path) -> Result<(), CoreError> 
         context.check()?;
         context.git_resolved.store(true, Ordering::Release);
     }
-    Ok(())
+    Ok(Some(context))
 }
 
 fn contains(directory: &str, path: &str) -> bool {
@@ -401,7 +559,7 @@ pub(crate) fn is_excluded(root: &Path, path: &Path, is_directory: bool) -> Resul
 
 /// Resolved roots for provider adapters. Git decisions are populated by the project scan.
 pub(crate) fn excluded_roots(root: &Path) -> Vec<String> {
-    let Some(context) = context(root) else {
+    let Some(context) = active_provider_context(root) else {
         return Vec::new();
     };
     let mut roots = context.policy.manual_excluded_directories.clone();
@@ -437,6 +595,9 @@ pub(crate) fn uri_is_excluded(root_uri: &str, uri: &str) -> Result<bool, CoreErr
         (Some(root), Some(path)) if path.starts_with(&root) => {
             let relative = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
             let root = root.canonicalize().unwrap_or(root);
+            if active_provider_context(&root).is_none() {
+                return Ok(false);
+            }
             is_excluded(&root, &root.join(relative), false)
         }
         _ => Ok(false),
@@ -640,6 +801,7 @@ mod tests {
         assert_eq!(search(&parent.0, &[]).matches.len(), 3);
         let status = context(&nested.0).unwrap();
         release(ReleaseIndexingRequest {
+            owner_id: None,
             root: nested.0.to_string_lossy().into_owned(),
             revision: status.owner_revision,
         })
@@ -830,6 +992,7 @@ mod tests {
         assert!(before.check().is_err());
         assert_eq!(workspace.files(), ["src/Included.java"]);
         assert!(release(ReleaseIndexingRequest {
+            owner_id: None,
             root: workspace.0.to_string_lossy().into_owned(),
             revision: installed.revision,
         })
@@ -845,6 +1008,7 @@ mod tests {
         );
         let reopened = workspace.configure(&[], &[], false);
         assert!(!release(ReleaseIndexingRequest {
+            owner_id: None,
             root: workspace.0.to_string_lossy().into_owned(),
             revision: installed.revision,
         })
@@ -859,6 +1023,7 @@ mod tests {
         let first = workspace.configure(&[], &[], false);
         let old = context(&workspace.0).unwrap();
         assert!(release(ReleaseIndexingRequest {
+            owner_id: None,
             root: workspace.0.to_string_lossy().into_owned(),
             revision: first.revision
         })
@@ -867,11 +1032,177 @@ mod tests {
         let second = workspace.configure(&["ignored"], &[], false);
         assert!(second.revision > first.revision);
         assert!(!release(ReleaseIndexingRequest {
+            owner_id: None,
             root: workspace.0.to_string_lossy().into_owned(),
             revision: first.revision
         })
         .unwrap());
         assert_eq!(workspace.files(), ["src/Included.java"]);
+    }
+
+    #[test]
+    fn shared_root_leases_survive_other_owner_refresh_close_and_late_release() {
+        let workspace = Workspace::new();
+        let install = |owner: &str, excluded: bool, refresh: bool| {
+            configure(serde_json::from_value(json!({
+            "root": workspace.0, "ownerId": owner, "manualExcludedDirectories": if excluded { vec!["ignored"] } else { vec![] },
+            "includedDirectories": [], "gitIgnoreEnabled": false, "refresh": refresh
+        })).unwrap()).unwrap().revision
+        };
+        let close = |owner: &str, revision| {
+            release(ReleaseIndexingRequest {
+                root: workspace.0.to_string_lossy().into_owned(),
+                owner_id: Some(owner.into()),
+                revision,
+            })
+            .unwrap()
+        };
+        let first = install("window-a/workspace-a", false, false);
+        let second = install("window-b/workspace-b", false, false);
+        assert_ne!(first, second);
+        assert!(
+            !release_lease(
+                ReleaseIndexingRequest {
+                    root: workspace.0.to_string_lossy().into_owned(),
+                    owner_id: Some("window-b/workspace-b".into()),
+                    revision: second,
+                },
+                true
+            )
+            .unwrap(),
+            "a failed concurrent installer cannot reclaim a token already returned to a caller"
+        );
+        assert!(close("window-a/workspace-a", first));
+        assert_eq!(
+            workspace.files().len(),
+            2,
+            "the other workspace still owns this root"
+        );
+        let reopened = install("window-a/workspace-reopened", true, true);
+        assert!(!close("window-a/workspace-a", first));
+        assert!(
+            close("window-b/workspace-b", second),
+            "policy replacement preserves other leases"
+        );
+        refresh(&workspace.0).unwrap();
+        assert_eq!(workspace.files(), ["src/Included.java"]);
+        let replacement = install("window-a/workspace-reopened", false, true);
+        assert!(!close("window-a/workspace-reopened", reopened));
+        assert_eq!(workspace.files().len(), 2);
+        assert!(close("window-a/workspace-reopened", replacement));
+        assert!(context(&workspace.0).unwrap().check().is_err());
+        assert!(
+            refresh(&workspace.0).is_err(),
+            "watchers must not resurrect the last closed lease"
+        );
+    }
+
+    #[test]
+    fn cancelled_reconfiguration_preserves_the_last_published_owner_lease() {
+        let workspace = Workspace::new();
+        let request = |owner: &str, excluded: bool, refresh: bool| {
+            serde_json::from_value(json!({
+            "root":workspace.0,"ownerId":owner,"manualExcludedDirectories":if excluded {vec!["ignored"]} else {vec![]},
+            "includedDirectories":[],"gitIgnoreEnabled":false,"refresh":refresh
+        })).unwrap()
+        };
+        let original = configure(request("owner-a", false, false)).unwrap();
+        let mut other = 0;
+        let cancelled = configure_with_provider_update(request("owner-a", false, true), |_| {
+            other = configure(request("owner-b", true, false))?.revision;
+            Ok(())
+        });
+        assert!(matches!(
+            cancelled,
+            Err(CoreError {
+                code: ErrorCode::Cancelled,
+                ..
+            })
+        ));
+        assert!(release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            owner_id: Some("owner-b".into()),
+            revision: other
+        })
+        .unwrap());
+        assert_eq!(
+            workspace.files(),
+            ["src/Included.java"],
+            "the still-open owner keeps the latest root policy alive"
+        );
+        assert!(release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            owner_id: Some("owner-a".into()),
+            revision: original.revision
+        })
+        .unwrap());
+        assert!(context(&workspace.0).unwrap().check().is_err());
+    }
+
+    #[test]
+    fn cancelled_installer_cannot_withdraw_a_shared_token_returned_by_another_call() {
+        let workspace = Workspace::new();
+        let request = |owner: &str, excluded: bool| {
+            serde_json::from_value(json!({
+            "root":workspace.0,"ownerId":owner,"manualExcludedDirectories":if excluded {vec!["ignored"]} else {vec![]},
+            "includedDirectories":[],"gitIgnoreEnabled":false
+        })).unwrap()
+        };
+        let mut received = 0;
+        let mut other = 0;
+        let cancelled = configure_with_provider_update(request("owner-a", false), |_| {
+            received = configure(request("owner-a", false))?.revision;
+            other = configure(request("owner-b", true))?.revision;
+            Ok(())
+        });
+        assert!(cancelled.is_err());
+        assert!(release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            owner_id: Some("owner-b".into()),
+            revision: other
+        })
+        .unwrap());
+        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert!(release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            owner_id: Some("owner-a".into()),
+            revision: received
+        })
+        .unwrap());
+    }
+
+    #[test]
+    fn closing_the_published_lease_also_cancels_an_unpublished_replacement() {
+        let workspace = Workspace::new();
+        let request = |refresh| {
+            serde_json::from_value(json!({
+            "root":workspace.0,"ownerId":"owner-a","manualExcludedDirectories":[],"includedDirectories":[],"gitIgnoreEnabled":false,"refresh":refresh
+        })).unwrap()
+        };
+        let original = configure(request(false)).unwrap();
+        let cancelled = configure_with_provider_update(request(true), |_| {
+            assert!(release(ReleaseIndexingRequest {
+                root: workspace.0.to_string_lossy().into_owned(),
+                owner_id: Some("owner-a".into()),
+                revision: original.revision
+            })?);
+            Ok(())
+        });
+        assert!(cancelled.is_err());
+        assert!(context(&workspace.0).unwrap().check().is_err());
+    }
+
+    #[test]
+    fn provider_preparation_returns_the_exact_generation_that_was_scanned() {
+        let workspace = Workspace::new();
+        workspace.configure(&[], &[], true);
+        let prepared = prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert!(prepared.git_resolved.load(Ordering::Acquire));
+        refresh(&workspace.0).unwrap();
+        assert!(prepared.check().is_err());
+        let next = context(&workspace.0).unwrap();
+        assert!(!next.git_resolved.load(Ordering::Acquire));
+        assert!(next.check().is_ok());
     }
 
     #[test]
