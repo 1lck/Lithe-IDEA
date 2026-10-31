@@ -59,6 +59,16 @@ Eclipse 文件继承的 macOS 映射见 [`Mac OS X 10.5+.xml`](https://github.co
 旧命令。
 
 Search Everywhere 的 macOS 预设保留双击 Shift 和 `⇧⌘O` 两个默认入口。
+Find Action 使用稳定 ID `find-action`，macOS 默认 `⇧⌘A`，由搜索模块持有。
+它调用现有 Search Everywhere 的 `/` 命令模式；重复调用会替换当前查询并重新
+聚焦，不关闭弹窗。菜单和监听器继续使用当前有效绑定，录制时仍暂停分发。
+当前工作树没有可核验的上游 keymap XML，因此 IDEA Classic 和 Eclipse
+显式不绑定此命令，避免误继承 macOS 默认值。关闭弹窗清空命令模式的临时查询，普通搜索仍保留草稿；无工作区
+或搜索模块不可用时禁用，激活失败走现有关闭流程。不新增键盘事件监听器或资源写入。
+原生弹窗获得焦点时会全选恢复的草稿；每次打开或重新填入查询后，搜索输入框通过
+AppKit 重新获得焦点，若内容恰为 `/` 则把插入点放到 `/` 后，避免输入 `run` 时替换
+斜线而误回工作区搜索。普通草稿仍沿用原生全选行为。
+
 该功能只属于 macOS，不把 Windows keymap 或新的跨平台
 快捷键契约纳入本决策。
 
@@ -94,7 +104,14 @@ Search Everywhere 的 macOS 预设保留双击 Shift 和 `⇧⌘O` 两个默认�
 - `./scripts/architecture/verify-service-boundaries.sh`
 - `macos/Tests/LitheTests/KeyboardShortcutTests.swift`
 - `macos/Tests/LitheTests/AppLocalizationTests.swift`
+- `macos/Tests/LitheTests/SearchEverywhereQueryModeTests.swift`
 - `./scripts/agent-notes/verify-agent-notes.sh`
+
+原生验证步骤：从编辑器、侧栏及第二个项目窗口按 `⇧⌘A`，确认输入聚焦，
+输入 `/run` 过滤操作，Return 只执行一次，Escape 关闭，重开无旧文本；弹窗
+已打开时再次调用应切换到 `/` 并聚焦。检查改绑、禁用、恢复、录制抑制，以及
+双击 Shift 和 `⇧⌘O` 的普通工作区搜索。原生交互验收仍待执行，不能用静态
+检查代替运行时证据。
 
 测试覆盖命令目录唯一性和默认冲突、绑定编码往返、用户覆盖持久化、禁用和
 恢复、损坏载荷回退、过滤、冲突拒绝、监听器更新以及录制期间暂停分发。

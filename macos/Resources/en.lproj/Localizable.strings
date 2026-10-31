@@ -1537,10 +1537,13 @@
 "Filter results" = "Filter results";
 "Filter route, controller, or method" = "Filter route, controller, or method";
 "Find" = "Find";
+"Find Action" = "Find Action";
+"Find Action…" = "Find Action…";
 "Find Branch" = "Find Branch";
 "Find Next" = "Find Next";
 "Find Previous" = "Find Previous";
 "Find Usages" = "Find Usages";
+"Find and execute a command" = "Find and execute a command";
 "Find files and actions" = "Find files and actions";
 "Find in File" = "Find in File";
 "Find in Files" = "Find in Files";
@@ -6235,6 +6238,9 @@
 "native.filterResults" = "Filter results";
 "native.filterRouteControllerOrMethod" = "Filter route, controller, or method";
 "native.find" = "Find";
+"native.findAction" = "Find Action";
+"native.findAction.variant2" = "Find Action…";
+"native.findAndExecuteCommand" = "Find and execute a command";
 "native.findBranch" = "Find Branch";
 "native.findFilesAndActions" = "Find files and actions";
 "native.findInFile" = "Find in File";
