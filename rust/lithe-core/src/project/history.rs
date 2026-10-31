@@ -650,8 +650,8 @@ fn ignored_rule(rules: &HistoryIgnoreRules, relative_path: &str) -> Option<Histo
             pattern: built_in_ignore_pattern(name),
         });
     }
-    // Built-in hidden paths are already rejected, so a hit here comes from the
-    // user's own pattern.
+    // Match only this history glob. Re-adding default hidden rules here would
+    // override the caller's disabled built-ins and misreport unrelated globs.
     let found = rules
         .path_patterns
         .iter()
@@ -659,8 +659,11 @@ fn ignored_rule(rules: &HistoryIgnoreRules, relative_path: &str) -> Option<Histo
         .find(|pattern| {
             !pattern.is_empty()
                 && !pattern.starts_with('!')
-                && VisibilityRules::new(Vec::new(), vec![pattern.to_string()])
-                    .is_hidden(relative_path, false)
+                && VisibilityRules {
+                    hidden_directories: Vec::new(),
+                    hidden_file_patterns: vec![pattern.to_string()],
+                }
+                .is_hidden(relative_path, false)
         });
     if let Some(pattern) = found {
         return Some(HistoryIgnoreMatch::Pattern {
@@ -1633,6 +1636,45 @@ mod tests {
             preview_match(&rules, &[], "build/out.txt"),
             Some(HistoryIgnoreMatch::Hidden)
         );
+    }
+
+    #[test]
+    fn unrelated_history_globs_do_not_reenable_disabled_hidden_rules() {
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = temporary_root("history-disabled-hidden");
+        let _cleanup = Cleanup(root.clone());
+        let workspace = root.join("workspace");
+        let storage = root.join("storage");
+        fs::create_dir_all(&workspace).unwrap();
+        for (path, disabled) in [
+            ("build/src/Main.java", "**/build/"),
+            ("src/cached.pyc", "*.pyc"),
+        ] {
+            let hidden = vec![format!("!{disabled}")];
+            let rules = ignore_rules(&[&format!("!{disabled}"), "*.log", "**/generated/"], &[]);
+            assert_eq!(preview_match(&rules, &hidden, path), None);
+            let mut request = record_request(&workspace, &storage, path, "saved", Some("text"));
+            request.hidden_file_patterns = hidden;
+            request.ignore_rules = rules;
+            assert!(record(request).unwrap().is_some());
+        }
+        let rules = ignore_rules(&["!**/build/", "*.log", "**/generated/"], &[]);
+        for (path, pattern) in [
+            ("build/run.log", "*.log"),
+            ("build/generated/Main.java", "**/generated/"),
+        ] {
+            assert_eq!(
+                preview_match(&rules, &["!**/build/".into()], path),
+                Some(HistoryIgnoreMatch::Pattern {
+                    pattern: pattern.into()
+                })
+            );
+        }
     }
 
     #[test]

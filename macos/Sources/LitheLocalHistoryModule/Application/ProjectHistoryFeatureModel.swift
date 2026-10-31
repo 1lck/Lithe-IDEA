@@ -114,12 +114,14 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         await localHistoryService?.usage()
     }
 
-    /// Deletes every snapshot of the open project. A running baseline stops
-    /// first so it cannot refill the storage being cleared.
+    /// Deletes every snapshot after cancelling and draining owned writers.
     public func clearHistory() async -> Bool {
         guard let localHistoryService else { return false }
-        seedTask?.cancel()
+        let writers = Array(backgroundTasks.values) + [seedTask].compactMap { $0 }
+        writers.forEach { $0.cancel() }
         seedTask = nil
+        backgroundTasks.removeAll()
+        for writer in writers { await writer.value }
         let cleared = await localHistoryService.clear()
         if cleared {
             localHistoryEntries = []

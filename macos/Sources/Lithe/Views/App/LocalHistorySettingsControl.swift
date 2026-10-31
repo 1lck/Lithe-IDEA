@@ -3,6 +3,12 @@ import LitheLocalHistoryModule
 import LitheModuleAPI
 import SwiftUI
 
+/// The task identity and the operation use the same effective preview inputs.
+struct LocalHistoryIgnorePreviewInput: Hashable {
+    let path: String
+    let rules: LocalHistoryVisibilityRules
+}
+
 /// Local history storage and ignore rules. Rules are edited as drafts and only
 /// saved by Apply; the test path is checked against the drafts as they change.
 struct LocalHistorySettingsControl: View {
@@ -55,12 +61,13 @@ struct LocalHistorySettingsControl: View {
         .onChange(of: settings.localHistoryIgnoreRegexes) { _ in syncDrafts() }
         .task { usage = await model.localHistoryUsage() }
         .task(id: previewKey) {
+            let input = previewKey
             // Debounce typing; a newer draft cancels this task.
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
             let result = await model.localHistoryIgnorePreview(
-                path: testPath.trimmingCharacters(in: .whitespaces),
-                rules: draftRules
+                path: input.path,
+                rules: input.rules
             )
             guard !Task.isCancelled else { return }
             preview = result
@@ -195,7 +202,11 @@ struct LocalHistorySettingsControl: View {
         }
     }
 
-    private var previewKey: String { [testPath, patternsDraft, regexesDraft].joined(separator: "\u{0}") }
+    private var previewKey: LocalHistoryIgnorePreviewInput {
+        LocalHistoryIgnorePreviewInput(
+            path: testPath.trimmingCharacters(in: .whitespaces), rules: draftRules
+        )
+    }
 
     /// The drafts as rules, with the saved hidden paths so a shown built-in previews as visible.
     private var draftRules: LocalHistoryVisibilityRules {
