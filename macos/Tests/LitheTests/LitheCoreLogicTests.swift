@@ -1425,8 +1425,9 @@ struct LitheCoreLogicTests {
                 isDirectory: false
             )
         )
+        // Run configurations are edited through the run configuration editor.
         #expect(
-            !rules.isHidden(
+            rules.isHidden(
                 root.appendingPathComponent(".lithe/run/configurations.json"),
                 relativeTo: root,
                 isDirectory: false
@@ -1468,10 +1469,13 @@ struct LitheCoreLogicTests {
         #expect(rules.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
         #expect(rules.isWatchedDespiteHiding(workspace.appendingPathComponent(".lithe"), relativeTo: workspace))
         #expect(!rules.isWatchedDespiteHiding(workspace.appendingPathComponent("src/App.java"), relativeTo: workspace))
-        #expect(!FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe"), relativeTo: workspace))
+        #expect(FileVisibilityRules.default.isHidden(workspace.appendingPathComponent(".lithe"), relativeTo: workspace, isDirectory: true))
+        // Turning the built-in off shows the folder again.
+        let shown = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: ["!.lithe/**"])
+        #expect(!shown.isHidden(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace, isDirectory: false))
 
-        // By default `.lithe` follows the ordinary visibility logic (shown in the
-        // tree) and is watched; every way of hiding it only changes the display.
+        // By default `.lithe` is hidden from the tree yet watched; every way of
+        // hiding it only changes the display.
         let variants: [FileVisibilityRules] = [
             .default,
             FileVisibilityRules(hiddenDirectoryNames: [".lithe"], hiddenFilePatterns: []),
@@ -1491,7 +1495,7 @@ struct LitheCoreLogicTests {
             )
             #expect(variantBatch.workspacePaths == rootConfiguration.sorted(), "\(variant)")
         }
-        #expect(!FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
+        #expect(FileVisibilityRules.default.isHiddenPath(workspace.appendingPathComponent(".lithe/project.json"), relativeTo: workspace))
     }
 
     @Test
@@ -1529,13 +1533,14 @@ struct LitheCoreLogicTests {
         // Matching ignores case.
         #expect(hidden("Modules/A/DIST", ["**/dist/"], isDirectory: true))
         // A plain name or a glob without a folder suffix stays a file pattern.
-        #expect(hidden(".lithe", [".lithe"], isDirectory: false))
-        #expect(!hidden(".lithe", [".lithe"], isDirectory: true))
-        #expect(!hidden(".lithe/dependencies/index.json", [".lithe"], isDirectory: false))
+        // `!.lithe/**` takes the built-in configuration folder rule off.
+        #expect(hidden(".lithe", [".lithe", "!.lithe/**"], isDirectory: false))
+        #expect(!hidden(".lithe", [".lithe", "!.lithe/**"], isDirectory: true))
+        #expect(!hidden(".lithe/dependencies/index.json", [".lithe", "!.lithe/**"], isDirectory: false))
         #expect(hidden("src/Name.log", ["*.log"], isDirectory: false))
         #expect(!hidden("src/Name.log", ["*.log"], isDirectory: true))
-        // The default rules leave `.lithe` visible.
-        #expect(!FileVisibilityRules.default.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: true))
+        // The default rules hide `.lithe` like IDEA's `.idea`.
+        #expect(FileVisibilityRules.default.isHidden(root.appendingPathComponent(".lithe"), relativeTo: root, isDirectory: true))
     }
 
     @Test

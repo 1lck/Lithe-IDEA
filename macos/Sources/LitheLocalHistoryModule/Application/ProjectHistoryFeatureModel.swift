@@ -99,6 +99,41 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         await localHistoryService?.updateVisibilityRules(rules)
     }
 
+    /// Validates ignore rules for the settings page; needs no open project, but
+    /// only an open one can also report whether Git ignores the path.
+    public func previewIgnoreRules(path: String?, rules: LocalHistoryVisibilityRules) async -> LocalHistoryIgnorePreview? {
+        let operations = localHistoryOperations
+        let workspaceURL = workspaceURLProvider()
+        return await Task.detached {
+            operations.ignorePreview(path: path, rules: rules, workspaceURL: workspaceURL)
+        }.value
+    }
+
+    /// The open project's history size, or nil without a project.
+    public func storageUsage() async -> LocalHistoryUsage? {
+        await localHistoryService?.usage()
+    }
+
+    /// Deletes every snapshot after cancelling and draining owned writers.
+    public func clearHistory() async -> Bool {
+        guard let localHistoryService else { return false }
+        let writers = Array(backgroundTasks.values) + [seedTask].compactMap { $0 }
+        writers.forEach { $0.cancel() }
+        seedTask = nil
+        backgroundTasks.removeAll()
+        for writer in writers { await writer.value }
+        let cleared = await localHistoryService.clear()
+        if cleared {
+            localHistoryEntries = []
+            selectedLocalHistoryEntry = nil
+            localHistoryDiffRows = []
+            projectLocalHistoryEntries = []
+            selectedProjectLocalHistoryEntry = nil
+            projectLocalHistoryDiffRows = []
+        }
+        return cleared
+    }
+
     public func seed(files: [URL]) {
         seedTask?.cancel()
         guard let localHistoryService else { return }

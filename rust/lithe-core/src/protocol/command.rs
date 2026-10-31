@@ -104,6 +104,10 @@ pub enum CoreCommand {
     PluginsDeclarativeResolveSettings,
     /// Expands a language server's `workspaceConfiguration` (`plugins.declarative.workspaceConfiguration`).
     PluginsDeclarativeWorkspaceConfiguration,
+    /// Validates a language's grammar file (`plugins.declarative.decodeGrammar`).
+    PluginsDeclarativeDecodeGrammar,
+    /// Validates independent editor action registration or results.
+    PluginsEditorActionsDecode,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
@@ -222,6 +226,12 @@ pub enum CoreCommand {
     HistoryRename,
     /// Deletes one history snapshot (`history.delete`).
     HistoryDelete,
+    /// Validates local-history ignore rules against a sample path (`history.ignorePreview`).
+    HistoryIgnorePreview,
+    /// Reports one project's history storage size (`history.usage`).
+    HistoryUsage,
+    /// Deletes every snapshot of one project (`history.clear`).
+    HistoryClear,
     /// Inspects a declared Maven reactor (`maven.scan`).
     MavenScan,
     /// Produces a deterministic Maven invocation (`maven.launchPlan`).
@@ -576,6 +586,8 @@ impl CoreCommand {
             "plugins.declarative.workspaceConfiguration" => {
                 Some(Self::PluginsDeclarativeWorkspaceConfiguration)
             }
+            "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
+            "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
             "build.detect" => Some(Self::BuildDetect),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),
@@ -635,6 +647,9 @@ impl CoreCommand {
             "history.relocate" => Some(Self::HistoryRelocate),
             "history.rename" => Some(Self::HistoryRename),
             "history.delete" => Some(Self::HistoryDelete),
+            "history.ignorePreview" => Some(Self::HistoryIgnorePreview),
+            "history.usage" => Some(Self::HistoryUsage),
+            "history.clear" => Some(Self::HistoryClear),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
             "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),

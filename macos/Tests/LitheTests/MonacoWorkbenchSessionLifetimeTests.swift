@@ -69,7 +69,7 @@ struct MonacoWorkbenchSessionLifetimeTests {
     @Test func readOnlyPreviewRejectsRunActionsAtTheNativeBoundary() {
         let main = MonacoWorkbenchSession.forModel(UUID())
         let preview = MonacoWorkbenchSession.forModel(UUID(), documentID: UUID(), previewID: UUID())
-        for message in ["javaRunMarkerAction", "format", "rename", "executeCodeAction", "setBlameVisibility"] {
+        for message in ["javaRunMarkerAction", "pluginEditorAction", "format", "rename", "executeCodeAction", "setBlameVisibility"] {
             #expect(main.allowsMessage(message))
             #expect(!preview.allowsMessage(message))
         }

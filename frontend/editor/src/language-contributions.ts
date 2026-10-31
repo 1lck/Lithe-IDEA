@@ -35,6 +35,7 @@ import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.
 import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js";
 import { zigMonarchLanguage } from "./zig-language";
+import { hasPluginGrammar } from "./plugin-languages";
 
 type MonarchLanguageModule = {
   conf: Parameters<typeof languages.setLanguageConfiguration>[1];
@@ -83,6 +84,8 @@ const monarchLanguageLoaders: Record<string, () => Promise<MonarchLanguageModule
 const monarchLanguagePromises = new Map<string, Promise<boolean>>();
 
 export function ensureMonacoLanguageTokenizer(languageId: string): Promise<boolean> {
+  // A plugin grammar replaces the built-in one for its language.
+  if (hasPluginGrammar(languageId)) return Promise.resolve(true);
   if (languageId === "json") {
     const existing = monarchLanguagePromises.get(languageId);
     if (existing) return existing;
