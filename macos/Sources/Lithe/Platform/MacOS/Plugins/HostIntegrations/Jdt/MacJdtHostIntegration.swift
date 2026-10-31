@@ -77,7 +77,7 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
             // release; the JDK it runs on cannot build a project for a newer
             // Java release.
             let discovered = runtimeService.javaRuntimes.isEmpty
-                ? MacRuntimeDiscovery.discover(environment: ProcessInfo.processInfo.environment).javaRuntimes
+                ? MacRuntimeDiscovery.discover(environment: MacRuntimeLocator().environment()).javaRuntimes
                 : runtimeService.javaRuntimes
             let resources = try launchResources.resources(
                 from: declared,

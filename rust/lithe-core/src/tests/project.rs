@@ -690,6 +690,80 @@ fn workspace_snapshot_hides_build_artifact_directory() {
 }
 
 #[test]
+fn workspace_snapshot_skips_python_environments_and_bytecode_caches() {
+    let root = temporary_root("snapshot-python");
+    write_fixture_file(&root.join("app/main.py"), "print('hi')");
+    write_fixture_file(&root.join("app/helper.py"), "");
+    // Environments are skipped at any depth, not only at the workspace root.
+    write_fixture_file(&root.join(".venv/Lib/site-packages/pkg/mod.py"), "");
+    write_fixture_file(&root.join("venv/bin/activate"), "");
+    write_fixture_file(&root.join("service/.venv/Lib/site-packages/dep.py"), "");
+    // Bytecode is generated output: both the cache folder and stray `.pyc` files.
+    write_fixture_file(&root.join("app/__pycache__/main.cpython-311.pyc"), "");
+    write_fixture_file(&root.join("app/legacy.pyc"), "");
+    // Names that merely resemble the hidden ones stay visible.
+    write_fixture_file(&root.join("environment/venv_notes.md"), "");
+    write_fixture_file(&root.join("app/pyc_overview.md"), "");
+
+    let expected = serde_json::json!([
+        "app/helper.py",
+        "app/main.py",
+        "app/pyc_overview.md",
+        "environment/venv_notes.md",
+    ]);
+    let sorted = |data: &Value| {
+        let mut files: Vec<String> = data["files"]
+            .as_array()
+            .expect("snapshot should list files")
+            .iter()
+            .map(|path| path.as_str().expect("path should be text").to_string())
+            .collect();
+        files.sort();
+        serde_json::json!(files)
+    };
+    let full = core_data(
+        "snapshot-python",
+        "workspace.snapshot",
+        serde_json::json!({"root": root}),
+    );
+    let files_only = core_data(
+        "snapshot-python-files-only",
+        "workspace.snapshot",
+        serde_json::json!({"root": root, "includeTree": false}),
+    );
+    assert_eq!(sorted(&full), expected);
+    assert_eq!(sorted(&files_only), expected);
+
+    // The project tree lists directories through the same rules, so the hidden
+    // folders must not appear one level at a time either.
+    let listing = core_data(
+        "list-python",
+        "workspace.listDirectories",
+        serde_json::json!({"root": root, "paths": ["", "app"]}),
+    );
+    let listed = listing.to_string();
+    for hidden in [".venv", "\"venv\"", "__pycache__", "legacy.pyc"] {
+        assert!(
+            !listed.contains(hidden),
+            "{hidden} must stay hidden: {listed}"
+        );
+    }
+    assert!(listed.contains("main.py"), "{listed}");
+
+    // File watchers use the same boundary, so environment churn raises no refresh.
+    assert!(!crate::project::files::is_workspace_event_relevant(
+        ".venv/Lib/site-packages/pkg/mod.py"
+    ));
+    assert!(!crate::project::files::is_workspace_event_relevant(
+        "app/__pycache__/main.cpython-311.pyc"
+    ));
+    assert!(crate::project::files::is_workspace_event_relevant(
+        "app/main.py"
+    ));
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
 fn search_everywhere_names_exclude_nested_worktrees_during_incremental_updates() {
     let root = temporary_root("everywhere-linked-worktree");
     struct Cleanup(std::path::PathBuf);

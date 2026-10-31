@@ -20,6 +20,8 @@ type EditorCursorStyle =
   | "block-outline"
   | "underline-thin";
 type EditorCursorBlinking = "blink" | "smooth" | "phase" | "expand" | "solid";
+/** Which tab closes when the tab limit is exceeded (IntelliJ's tab closing policy). */
+export type TabLimitPolicy = "leastRecentlyUsed" | "oldestOpened";
 type TerminalCursorInactiveStyle = "outline" | "block" | "bar" | "underline" | "none";
 export type TabCloseButtonVisibility = "active" | "hover" | "always";
 // Matches the macOS EditorTabLayoutMode raw values.
@@ -191,6 +193,7 @@ export interface Settings {
     | "skill"
     | "agent";
   maxOpenTabs: number;
+  tabLimitPolicy: TabLimitPolicy;
   //// File tree
   fileTreeSortOrder: FileTreeSortOrder;
   fileTreeIndentSize: number;
@@ -223,7 +226,6 @@ export interface Settings {
   gitFetchSubmodules: "inherit" | "no" | "onDemand" | "yes";
   gitFetchTags: "inherit" | "all" | "none" | "prune";
   githubSidebarSectionOrder: Array<"pull-requests" | "issues" | "actions">;
-  enableInlineGitBlame: boolean;
   /** Git change markers in the editor gutter; clicking one opens its inline review. */
   enableGitGutter: boolean;
 }

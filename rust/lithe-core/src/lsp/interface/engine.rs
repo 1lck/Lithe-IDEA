@@ -225,10 +225,11 @@ pub struct SyncDocumentRequest {
     pub session_id: String,
     pub uri: String,
     pub language_id: String,
-    /// Full document text. Required for `didOpen`; optional for incremental `didChange`.
+    /// Full document text. May be omitted when `content_changes` extends a
+    /// document Core already holds.
     #[serde(default)]
     pub text: String,
-    /// Range-based edits used when the server advertised Incremental `textDocumentSync`.
+    /// Edits in the order they happened, each range relative to the previous result.
     #[serde(default)]
     pub content_changes: Vec<LspDocumentContentChange>,
 }
@@ -2066,11 +2067,16 @@ impl RuntimeSession {
                         content_changes: request.content_changes,
                     })?
                 } else {
+                    let text = unopened_document_text(
+                        state.client.open_documents.get(&uri),
+                        request.text,
+                        &request.content_changes,
+                    )?;
                     client_open_document(ClientOpenDocumentRequest {
                         state: state.client.clone(),
                         uri: uri.clone(),
                         language_id: request.language_id,
-                        text: request.text,
+                        text,
                     })?
                 };
                 state.client = response.state;
@@ -2087,6 +2093,11 @@ impl RuntimeSession {
                 // Version zero means the semantic document exists in the Rust
                 // store but has not yet been opened on the server. The latest
                 // sync wins until initialize completes.
+                let text = unopened_document_text(
+                    state.client.open_documents.get(&uri),
+                    request.text,
+                    &request.content_changes,
+                )?;
                 state.client.diagnostics.remove(&uri);
                 state.client.diagnostic_versions.remove(&uri);
                 state.client.open_documents.insert(
@@ -2095,7 +2106,7 @@ impl RuntimeSession {
                         uri,
                         language_id: request.language_id,
                         version: 0,
-                        text: request.text.into(),
+                        text: text.into(),
                     },
                 );
                 // Version zero remains an internal "not opened on the wire"
@@ -6904,6 +6915,29 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     push_features_event(session, state, Vec::new());
 }
 
+/// Resolves the text of a document that has not been opened on the wire yet.
+///
+/// Hosts may send only ranged edits, which then extend the text Core retained.
+/// Edits for a document Core never received cannot be resolved, so the host
+/// resends the full text.
+fn unopened_document_text(
+    stored: Option<&LspClientDocument>,
+    text: String,
+    changes: &[LspDocumentContentChange],
+) -> Result<String, CoreError> {
+    if !text.is_empty() || changes.is_empty() {
+        return Ok(text);
+    }
+    let Some(stored) = stored else {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Cannot apply ranged edits to a document Core has not received.",
+        )
+        .with_details("documentNotSynchronized"));
+    };
+    crate::lsp::apply_content_changes_sequential(&stored.text, changes)
+}
+
 fn flush_queued_documents_locked(state: &mut SessionState) -> Result<Vec<String>, CoreError> {
     let queued: Vec<_> = state
         .client
@@ -8428,6 +8462,63 @@ mod tests {
             "class Main { int value; }"
         );
         assert_eq!(harness.snapshot().open_documents[uri].version, 1);
+    }
+
+    #[test]
+    fn ranged_edits_extend_text_retained_before_the_server_is_ready() {
+        let harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        let uri = "file:///workspace/First.java";
+        harness.sync(uri, "class First {}");
+        let appended = LspDocumentContentChange {
+            range: Some(LspRange {
+                start: LspPosition {
+                    line: 0,
+                    utf16_column: 11,
+                },
+                end: LspPosition {
+                    line: 0,
+                    utf16_column: 11,
+                },
+            }),
+            text: "Renamed".to_string(),
+        };
+        harness
+            .session()
+            .sync_document(SyncDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: uri.to_string(),
+                language_id: "java".to_string(),
+                text: String::new(),
+                content_changes: vec![appended.clone()],
+            })
+            .expect("ranged edits should extend the retained text");
+
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        assert!(harness.server.await_notification("textDocument/didOpen"));
+        let written = String::from_utf8_lossy(&harness.server.written_bytes()).into_owned();
+        assert!(written.contains("class FirstRenamed {}"));
+
+        let error = harness
+            .session()
+            .sync_document(SyncDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: "file:///workspace/Unknown.java".to_string(),
+                language_id: "java".to_string(),
+                text: String::new(),
+                content_changes: vec![appended],
+            })
+            .expect_err("edits to an unknown document cannot be resolved");
+        assert_eq!(error.details.as_deref(), Some("documentNotSynchronized"));
     }
 
     #[test]

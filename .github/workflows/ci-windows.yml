@@ -173,6 +173,10 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory frontend/editor --report .artifacts/test-stability/shared-editor.json
 
+      - name: Test Windows perf statistics
+        shell: pwsh
+        run: node --test --test-timeout=15000 scripts/windows/perf/lib/stats.test.mjs
+
       - name: Test Windows dependency install recovery
         shell: pwsh
         # Native PowerShell/Job Object startup and owned-process cleanup need
@@ -273,6 +277,14 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-ownership.json -- src/features/editor/extensions/api.owner-navigation.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-workspace.json -- src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-document-sync.json -- src/features/editor/lsp/lsp-client-document-change.test.ts src/features/editor/utils/editor-text-change.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-syntax-definition.json -- src/features/editor/lsp/java-syntax-definition.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-open-performance.json -- src/features/editor/engines/monaco/hover-widgets.test.ts src/features/editor/engines/monaco/model-position-resolver.test.ts src/features/editor/engines/monaco/surface-visibility.test.ts src/features/editor/engines/monaco/theme-definition-cache.test.ts src/features/editor/utils/workspace-index-overrides.test.ts src/features/editor/stores/buffer-eviction.test.ts src/features/tabs/utils/tab-recency.test.ts src/features/panes/utils/mounted-editor-buffers.test.ts src/features/file-explorer/lib/tree-guide-visibility.test.ts src/features/file-explorer/styles/file-explorer-tree-guides.test.ts src/features/mybatis/utils/mybatis-index-paths.test.ts src/features/logging/frontend-log-runtime.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-drop-listeners.json -- src/features/file-system/hooks/use-file-system-folder-drop.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-events.json -- src/features/debugger/services/debug-adapter-events.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -764,6 +776,11 @@ jobs:
       - name: Test quick-open file search, number input steppers and editor settings route
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-quick-open-number-input.json -- src/features/quick-open/hooks/use-file-loader.test.tsx src/features/quick-open/hooks/use-file-search.test.tsx src/ui/number-input.test.tsx src/features/settings/components/editor-settings-routing.test.tsx
+
+      - name: Test workspace snapshot file-list request
+        shell: pwsh
+        # Isolated step: this suite installs a process-wide Tauri boundary mock.
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-search-snapshot.json -- src/features/file-search/lib/file-search-api.test.ts
 
       - name: Test wheel scroll animation and container wheel ownership
         shell: pwsh

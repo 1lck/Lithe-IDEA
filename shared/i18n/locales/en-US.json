@@ -1,4 +1,12 @@
 {
+  "overrides": {
+    "windows": {
+      "files.reveal": {
+        "value": "Reveal in File Explorer",
+        "reason": "Windows uses File Explorer; macOS uses Finder."
+      }
+    }
+  },
   "messages": {
     "agent.actions.close": "Close the Agent panel",
     "agent.actions.closeSearch": "Close search",
@@ -1851,6 +1859,12 @@
     "git.behindRemote": "{count} commits behind the remote branch",
     "git.binaryDiffDescription": "{name} cannot be displayed as a text diff.",
     "git.binaryFileChanged": "Binary file changed",
+    "git.blame.annotate": "Annotate with Git Blame",
+    "git.blame.copyRevision": "Copy Revision Number",
+    "git.blame.hide": "Close Annotations",
+    "git.blame.revisionCopied": "Revision number copied",
+    "git.blame.showDiff": "Show Diff",
+    "git.blame.uncommitted": "Uncommitted",
     "git.branch": "Branch",
     "git.branchActions": "Branch actions for {branch}",
     "git.branchCount": "{count} branch",
@@ -3706,6 +3720,7 @@
     "menu.saveAsTitle": "Save As",
     "menu.saveFileFailed": "Failed to save file. Please try again.",
     "menu.selectAll": "Select All",
+    "menu.settings": "Settings",
     "menu.showHover": "Show Hover",
     "menu.showLocalHistory": "Show Local History",
     "menu.sourceControl": "Source Control",
@@ -3752,6 +3767,7 @@
     "native.aRebaseCannotStartWithAnyUncommittedChangesIncludingTheseUnrelatedTo": "A rebase cannot start with any uncommitted changes, including these unrelated to '{arg1}':",
     "native.aRemovedHookCannotBeSaved": "A removed Hook cannot be saved.",
     "native.aRunningLocalJVMAndItsJDKJstatToolAreRequired": "A running local JVM and its JDK jstat tool are required.",
+    "native.aSecureConnectionToCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSystemCertificateSettings": "A secure connection to {arg1} could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.",
     "native.aSecureConnectionToGitHubCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSyst9ed7704d75": "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.",
     "native.aSecureConnectionToTheMcpRegistryCouldNotBeEstablishedCheckTheProxyOrRetryDirectly": "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.",
     "native.aSkillHasAnUnknownScopeAndCannotBeClassified": "A skill has an unknown scope and cannot be classified.",
@@ -4556,6 +4572,7 @@
     "native.copyThreadName": "Copy Thread Name",
     "native.copyValue": "Copy Value",
     "native.copyWorktreePath": "Copy worktree path",
+    "native.couldNotBeReachedCheckYourInternetProxyOrVPNConnectionAndTryAgain": "{arg1} could not be reached. Check your internet, proxy, or VPN connection and try again.",
     "native.couldNotCheckForUpdates": "Could not check for updates",
     "native.couldNotCheckForUpdates.variant2": "Could not check for updates.",
     "native.couldNotCompareTheLocalAdapterWithTheVerifiedVersion": "Could not compare the local adapter with the verified version.",
@@ -4845,6 +4862,7 @@
     "native.downloadPHPSupportFromTheOfficialPluginRelease": "Download PHP Support from the official plugin release.",
     "native.downloadPHPSupportFromTheOfficialSignedPluginPackage": "Download PHP Support from the official signed plugin package.",
     "native.downloadStableRelease": "Download Stable Release",
+    "native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped": "Downloaded data was kept. Try again to resume from where it stopped.",
     "native.downloadedLldOfLldEnabled": "Downloaded ({arg1} of {arg2} enabled)",
     "native.downloadedS": "Downloaded {arg1} · {arg2}/s",
     "native.downloading": "Downloading {arg1}…",
@@ -4993,6 +5011,7 @@
     "native.enterACompleteServerURL": "Enter a complete server URL.",
     "native.enterADebuggerCommandTabToComplete": "Enter a debugger command (Tab to complete)",
     "native.enterADescriptionAndInstructions": "Enter a description and instructions.",
+    "native.enterAFullWebAddressSuchAsHttpsMirrorExampleComLithe": "Enter a full web address, such as https://mirror.example.com/lithe/.",
     "native.enterAHost": "Enter a host.",
     "native.enterAJvmDebugPortBetween1And": "Enter a JVM debug port between 1 and 65535.",
     "native.enterAModelIDSupportedByYourProvider": "Enter a model ID supported by your provider.",
@@ -5181,6 +5200,7 @@
     "native.forward": "Forward",
     "native.found": "found",
     "native.foundAutomatically": "Found automatically",
+    "native.foundLitheAtThisSource": "Found Lithe {arg1} at this source.",
     "native.framesAreNotAvailable": "Frames are not available",
     "native.framesRenderedPerSecond": "Frames rendered per second",
     "native.freeOf": "{arg1} free of {arg2}",
@@ -6226,6 +6246,7 @@
     "native.noTextualDifference": "No textual difference",
     "native.noToolsRunning": "No tools running",
     "native.noUpdateCheckHasBeenPerformedYet": "No update check has been performed yet.",
+    "native.noUpdateFeedWasFoundAtThisAddressTheSourceMustProvideNextToTheUpdateArchives": "No update feed was found at this address. The source must provide {arg1} next to the update archives.",
     "native.noUpdatePackageIsAvailableForThisMacArchitectureOpenTheReleasePageToCheckAvailableDownloads": "No update package is available for this Mac architecture. Open the Release page to check available downloads.",
     "native.noUpdatePackageIsAvailableForThisMacDownloadTheReleaseManually": "No update package is available for this Mac. Download the release manually.",
     "native.noUpdatesFoundInTheLocalHomebrewIndex": "No updates found in the local Homebrew index.",
@@ -6917,6 +6938,8 @@
     "native.returnToStable.variant2": "Return to Stable?",
     "native.returnToTheWelcomeScreen": "Return to the Welcome screen",
     "native.returnedAnInvalidLanguageServerProvider": "{arg1} returned an invalid language-server provider.",
+    "native.returnedAnUnexpectedResponse": "{arg1} returned an unexpected response.",
+    "native.returnedHTTP": "{arg1} returned HTTP {arg2}.",
     "native.revealActiveFileInProjectTree": "Reveal Active File in Project Tree",
     "native.revealInFinder": "Reveal in Finder",
     "native.revert": "Revert",
@@ -7328,6 +7351,7 @@
     "native.squashLldCommitsInto1LaterCommitsInTheAffectedHistoryWillBeReplayed": "Squash {arg1} commits into 1. Later commits in the affected history will be replayed.",
     "native.stableRecommended": "Stable (Recommended)",
     "native.stableReleaseIsReady": "Stable release {arg1} is ready.",
+    "native.stableUpdatesDownloadFromThisAddressAMirrorMustServeTheSameSignedAppcastAndUpdateArchivesSideBySideAndLitheStillV": "Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.",
     "native.stackFrameDisplayOptions": "Stack frame display options",
     "native.stageAllAndCommitUseTheCurrentChangeList": "Stage All and Commit use the current ChangeList.",
     "native.stageAllChanges": "Stage all changes",
@@ -7554,6 +7578,7 @@
     "native.theConfiguredBuildToolIsNotExecutable": "The configured build tool is not executable: {arg1}",
     "native.theConnectionFailed": "The connection failed.",
     "native.theConnectionToTheRemoteHostWasLostReconnectToContinue": "The connection to the remote host was lost. Reconnect to continue.",
+    "native.theConnectionToTimedOutCheckYourProxyOrVPNConnectionAndTryAgain": "The connection to {arg1} timed out. Check your proxy or VPN connection and try again.",
     "native.theConversationIsStillBeingPreparedTryAgainInAMoment": "The conversation is still being prepared. Try again in a moment.",
     "native.theCredentialStoreFailed": "The credential store failed: {arg1}",
     "native.theCredentialStoreVersionIsUnsupportedExistingCredentialsWerePreserved": "The credential store version is unsupported. Existing credentials were preserved.",
@@ -7755,6 +7780,7 @@
     "native.theSkillFileCouldNotBeOpened": "The skill file could not be opened.",
     "native.theSkillFileCouldNotBeRead": "The skill file could not be read.",
     "native.theSkillIsNoLongerAvailableInThisScopeRefreshAndRetry": "The skill is no longer available in this scope. Refresh and retry.",
+    "native.theSourceListsLitheButDoesNotProvide": "The source lists Lithe {arg1} but does not provide {arg2}.",
     "native.theSpringInitializrServerThatGeneratesTheProjectChangeItToUseAMirrorOrYourCompanySOwnServe": "The Spring Initializr server that generates the project. Change it to use a mirror or your company's own server.",
     "native.theStableInstallerStoppedYourCurrentAppHasBeenPreservedTryAgainOrDownloadTheStd70ce1979b": "The stable installer stopped. Your current app has been preserved. Try again or download the stable release manually.",
     "native.theStableProfileCouldNotBeCopiedSafelyItsOriginalDataHasBeenPreserved": "The Stable profile could not be copied safely. Its original data has been preserved.",
@@ -8040,6 +8066,8 @@
     "native.updateProject.variant2": "Update Project…",
     "native.updateRequired": "Update required",
     "native.updateRunningService": "Update running service",
+    "native.updateSource": "Update source",
+    "native.updateSourcesMustUseHttpsHttpIsOnlyAllowedForThisMacLocalhost": "Update sources must use https://. http:// is only allowed for this Mac (localhost).",
     "native.updateStatus": "Update status",
     "native.updateThisCLIUsingItsOriginalInstallerThenCheckAgain": "Update this CLI using its original installer, then check again.",
     "native.updateTo": "Update to",
@@ -8277,6 +8305,7 @@
     "navigation.noTargetFound": "No {target} found.",
     "navigation.reference": "reference",
     "navigation.resolving": "Finding {target}…",
+    "navigation.syntaxFallback": "Based on syntax only: {name} is still importing the project.",
     "navigation.typeDefinition": "type definition",
     "navigation.waitingForImport": "{name} is importing the project ({percent}%). Navigation is available once the import finishes.",
     "newProject.backToStarters": "Back to project starters",
@@ -8550,7 +8579,7 @@
     "quickOpen.noMatch": "No matching files found",
     "quickOpen.noSymbols": "No symbols found",
     "quickOpen.openFolder": "Open a folder to start searching files",
-    "quickOpen.searchFiles": "Type to search files...",
+    "quickOpen.searchFiles": "Type to search files or Spring routes...",
     "quickOpen.searchSymbols": "Type to filter symbols...",
     "quickOpen.searchWorkspaceSymbols": "Type to search symbols across the project...",
     "quickOpen.searching": "Searching...",
@@ -9098,7 +9127,7 @@
     "settings.editor.lintOnSave": "Lint on Save",
     "settings.editor.lintOnSaveDescription": "Run linter when saving files",
     "settings.editor.maxOpenTabs": "Max Open Tabs",
-    "settings.editor.maxOpenTabsDescription": "Maximum number of tabs before oldest closes",
+    "settings.editor.maxOpenTabsDescription": "Tabs close automatically past this count. Pinned and unsaved tabs, terminals, and agents do not count. 0 means no limit.",
     "settings.editor.parameterHints": "Parameter Hints",
     "settings.editor.parameterHintsDescription": "Show function parameter hints",
     "settings.editor.phase": "Phase",
@@ -9121,6 +9150,10 @@
     "settings.editor.stickyScrollDescription": "Keep containing scopes visible at the top while scrolling",
     "settings.editor.symbolBreadcrumb": "Show Symbol in Breadcrumb",
     "settings.editor.symbolBreadcrumbDescription": "Show the containing function/class for the cursor position in the breadcrumb bar",
+    "settings.editor.tabLimitPolicy": "When the Tab Limit Is Reached",
+    "settings.editor.tabLimitPolicy.leastRecentlyUsed": "Close least recently used",
+    "settings.editor.tabLimitPolicy.oldestOpened": "Close oldest opened",
+    "settings.editor.tabLimitPolicyDescription": "Which tab closes when opening another tab would exceed the limit. Pinned tabs and tabs with unsaved changes are never closed.",
     "settings.editor.tabSize": "Tab Size",
     "settings.editor.tabSizeDescription": "Number of spaces per tab",
     "settings.editor.whitespaceAll": "All",
@@ -9213,8 +9246,6 @@
     "settings.git.gitIntegrationDescription": "Enable source control management with Git repositories",
     "settings.git.gutter": "Enable Git Gutter",
     "settings.git.gutterDescription": "Mark changed lines in the editor gutter; click a marker to review the change inline",
-    "settings.git.inlineBlame": "Enable Inline Blame",
-    "settings.git.inlineBlameDescription": "Show inline Git blame metadata for the current line in the editor",
     "settings.git.integration": "Integration",
     "settings.git.openDiff": "Open Diff On Click",
     "settings.git.openDiffDescription": "Open the diff when clicking a changed file instead of opening the file directly",
@@ -10134,13 +10165,5 @@
     "workbench.settings": "Settings",
     "workbench.springEndpoints": "Spring Endpoints",
     "workbench.terminal": "Terminal"
-  },
-  "overrides": {
-    "windows": {
-      "files.reveal": {
-        "value": "Reveal in File Explorer",
-        "reason": "Windows uses File Explorer; macOS uses Finder."
-      }
-    }
   }
 }

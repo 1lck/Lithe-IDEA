@@ -533,6 +533,7 @@ struct LitheApp: App {
         }
         self.applicationLogWriter = applicationLogWriter
         applicationLogWriter.record(level: "info", scope: "session", message: "session started")
+        MacLoginShellEnvironment.shared.attach(logging: applicationLogWriter)
         let gitPerformanceLogger = MacGitPerformanceLogger(writer: applicationLogWriter)
         MacBundledFontRegistry.registerFonts { message in
             Self.appendApplicationLog(applicationLogWriter, message: message)
@@ -939,21 +940,30 @@ private struct ProjectWindowMissingSessionView: View {
     }
 }
 
-private struct SettingsWindowHost: View {
+struct SettingsWindowHost: View {
     @ObservedObject var projectSessions: ProjectSessionManager
     @ObservedObject var settings: AppSettings
 
     var body: some View {
-        if let model = projectSessions.settingsModel {
-            SettingsWindow(
-                model: model,
-                settings: settings,
-                projectSessions: projectSessions,
-                bindingID: projectSessions.settingsBindingID
-            ) {
-                projectSessions.releaseSettings(for: model.id)
+        // A restored scene initially has no model. Keep a real host mounted so
+        // its appearance can establish the same binding as an explicit command.
+        ZStack {
+            Color.clear.allowsHitTesting(false).accessibilityHidden(true)
+            if let model = projectSessions.settingsModel {
+                let bindingID = projectSessions.settingsBindingID
+                SettingsWindow(
+                    model: model,
+                    settings: settings,
+                    projectSessions: projectSessions,
+                    bindingID: bindingID
+                ) {
+                    projectSessions.releaseSettings(for: model.id, bindingID: bindingID)
+                }
+                .id(model.id)
             }
-            .id(model.id)
+        }
+        .onAppear {
+            projectSessions.prepareSettingsForPresentation()
         }
     }
 }
@@ -1025,7 +1035,6 @@ private struct SettingsWindow: View {
         )
         .onDisappear {
             viewState.pendingPluginEnabledStates.removeAll()
-            model.isSettingsPresented = false
             onDisappear()
         }
     }

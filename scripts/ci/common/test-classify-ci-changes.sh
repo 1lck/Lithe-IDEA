@@ -133,6 +133,10 @@ modify_macos_performance_baseline() {
     mkdir -p scripts/macos/perf
     printf '%s\n' '#!/bin/zsh' 'print -- baseline' > scripts/macos/perf/measure-macos-performance-baseline.sh
 }
+modify_windows_performance_scripts() {
+    mkdir -p scripts/windows/perf
+    printf '%s\n' '// baseline' > scripts/windows/perf/run-windows-perf.mjs
+}
 modify_unknown_script() { printf '%s\n' '#!/bin/zsh' 'print -- unknown' > scripts/unclassified-fixture.sh; }
 modify_swift_source() { printf '%s\n' 'struct UpdatedApp {}' > macos/Sources/Lithe/App.swift; }
 modify_swift_bridge() { printf '%s\n' 'struct UpdatedRustCoreBridge {}' > macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift; }
@@ -271,6 +275,9 @@ assert_classification git-performance-test \
 assert_classification localization-packaging \
     "$(classification true false false true false false false false)" \
     modify_localization_packaging
+assert_classification windows-performance-scripts \
+    "$(classification false false false false true false false false)" \
+    modify_windows_performance_scripts
 assert_classification macos-performance-baseline \
     "$(classification false false false true false false false false)" \
     modify_macos_performance_baseline

@@ -1657,6 +1657,8 @@ fn java_home_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
                 let path = entry.path();
                 if path.is_dir() {
                     homes.push(path.join("Contents").join("Home"));
+                    // Scoop keeps each app's active version under `current`.
+                    homes.push(path.join("current"));
                     homes.push(path);
                 }
             }
@@ -1685,16 +1687,79 @@ fn well_known_java_roots() -> Vec<PathBuf> {
             }
         }
     }
+    for key in ["ProgramFiles", "LOCALAPPDATA"] {
+        if let Ok(base) = std::env::var(key) {
+            let base = PathBuf::from(base);
+            roots.push(base.join("Semeru"));
+            roots.push(base.join("OpenJDK"));
+        }
+    }
     if let Ok(profile) = std::env::var("USERPROFILE") {
         let profile = PathBuf::from(profile);
         roots.push(profile.join(".jdks"));
         roots.push(profile.join(".sdkman").join("candidates").join("java"));
+        roots.push(profile.join("scoop").join("apps"));
+    }
+    roots.extend(version_manager_install_roots("java"));
+    roots
+}
+
+/// Install directories of `tool` (`java`, `maven`) kept by mise and asdf, whose
+/// shims are not real homes. Mirrors OpenIDEA's version-manager detection
+/// (https://github.com/l0ng-ai/openidea, Apache-2.0); see the repository NOTICE.
+fn version_manager_install_roots(tool: &str) -> Vec<PathBuf> {
+    let variable = |key: &str| {
+        std::env::var_os(key)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    let mut roots = Vec::new();
+    if let Some(mise) =
+        variable("MISE_DATA_DIR").or_else(|| variable("LOCALAPPDATA").map(|base| base.join("mise")))
+    {
+        roots.push(mise.join("installs").join(tool));
+    }
+    if let Some(asdf) =
+        variable("ASDF_DATA_DIR").or_else(|| variable("USERPROFILE").map(|home| home.join(".asdf")))
+    {
+        roots.push(asdf.join("installs").join(tool));
     }
     roots
 }
 
+/// Maven homes installed by version managers and Scoop, after every explicit and
+/// `PATH` candidate so they never shadow a project wrapper or a configured Maven.
+fn version_manager_maven_executables() -> Vec<PathBuf> {
+    let mut roots = version_manager_install_roots("maven");
+    if let Some(profile) = std::env::var_os("USERPROFILE").filter(|value| !value.is_empty()) {
+        let profile = PathBuf::from(profile);
+        roots.push(profile.join(".sdkman").join("candidates").join("maven"));
+        roots.push(profile.join("scoop").join("apps").join("maven"));
+    }
+    let mut executables = Vec::new();
+    for root in roots {
+        let Ok(entries) = fs::read_dir(&root) else {
+            continue;
+        };
+        let mut homes = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>();
+        homes.sort();
+        for home in homes {
+            executables.extend(
+                MAVEN_LAUNCHERS
+                    .iter()
+                    .map(|name| home.join("bin").join(name)),
+            );
+        }
+    }
+    executables
+}
+
 fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
-    maven_executable_candidates_with_sources(
+    let mut executables = maven_executable_candidates_with_sources(
         project_root,
         |key| {
             std::env::var_os(key)
@@ -1702,7 +1767,9 @@ fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
                 .map(PathBuf::from)
         },
         lookup_on_path,
-    )
+    );
+    executables.extend(version_manager_maven_executables());
+    executables
 }
 
 fn maven_executable_candidates_with_sources(

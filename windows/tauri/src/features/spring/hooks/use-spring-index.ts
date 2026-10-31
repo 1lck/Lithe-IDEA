@@ -6,7 +6,10 @@ import { homeDir, join } from "@tauri-apps/api/path";
 import { useEffect } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { hasTextContent } from "@/features/panes/types/pane-content.types";
+import {
+  collectUnsavedIndexTextOverrides,
+  didIndexedEditorTextChange,
+} from "@/features/editor/utils/workspace-index-overrides";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { pathStartsWithRoot } from "@/utils/path-helpers";
 import { requestSpringIndex } from "../api/spring-index-api";
@@ -21,7 +24,9 @@ import {
 } from "../utils/spring-index-paths";
 import { isSupportedSpringRoot } from "../utils/spring-root";
 
-const RELOAD_DELAY_MS = 300;
+// A reload parses the workspace again and copies every open file across IPC, so
+// it waits for the same pause as autosave rather than for a gap between words.
+const RELOAD_DELAY_MS = 1_000;
 
 async function resolveMavenMetadataRepository(): Promise<string | undefined> {
   try {
@@ -116,12 +121,11 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
           files.map((file) => file.path),
           rootFolderPath,
         );
-        const textOverrides: Record<string, string> = {};
-        for (const buffer of bufferStore.getState().buffers) {
-          if (!buffer.path || !hasTextContent(buffer) || !isSpringIndexPath(buffer.path)) continue;
-          const relative = workspaceRelativeSpringPath(buffer.path, rootFolderPath);
-          if (relative) textOverrides[relative] = buffer.content;
-        }
+        const textOverrides = collectUnsavedIndexTextOverrides(
+          bufferStore.getState().buffers,
+          isSpringIndexPath,
+          (path) => workspaceRelativeSpringPath(path, rootFolderPath),
+        );
         // Keep the repository on every request: Core's cache is keyed by the
         // supplied roots, so omitting it would drop dependency completions as
         // soon as the user types. Resolve again when JDT finishes importing.
@@ -201,18 +205,12 @@ export function useSpringIndex(dependencies: SpringIndexDependencies = defaultDe
     });
     void load(true);
 
+    // Opening or saving a clean Java file leaves the indexed text unchanged;
+    // only unsaved edits and discarded edits need a rescan.
     const unsubscribeBuffers = bufferStore.subscribe((state, previous) => {
-      const changed = state.buffers.some((buffer) => {
-        if (!buffer.path || !isSpringIndexPath(buffer.path) || !hasTextContent(buffer))
-          return false;
-        const previousBuffer = previous.buffers.find((candidate) => candidate.id === buffer.id);
-        return (
-          !previousBuffer ||
-          !hasTextContent(previousBuffer) ||
-          previousBuffer.content !== buffer.content
-        );
-      });
-      if (changed) scheduleReload();
+      if (didIndexedEditorTextChange(state.buffers, previous.buffers, isSpringIndexPath)) {
+        scheduleReload();
+      }
     });
 
     const handleExternalChange = (event: Event) => {

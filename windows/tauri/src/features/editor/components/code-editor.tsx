@@ -68,7 +68,7 @@ import {
   type MarkdownScrollMetrics,
 } from "../markdown/scroll-sync";
 import { SvgEditor } from "./svg-editor";
-import { EditorStylesheet } from "./stylesheet";
+import "../styles/editor-shell.css";
 import { ExternalConflictBanner } from "./external-conflict-banner";
 import Breadcrumb, { type BreadcrumbProps } from "./toolbar/breadcrumb";
 
@@ -81,6 +81,8 @@ interface CodeEditorProps {
   paneId?: string;
   bufferId?: string;
   isActiveSurface?: boolean;
+  /** Shown in its pane, focused or not; defaults to `isActiveSurface`. */
+  isVisibleSurface?: boolean;
   showToolbar?: boolean;
   readOnly?: boolean;
   breadcrumbProps?: BreadcrumbProps;
@@ -152,6 +154,7 @@ const CodeEditor = ({
   paneId,
   bufferId: propBufferId,
   isActiveSurface = true,
+  isVisibleSurface = isActiveSurface,
   showToolbar = false,
   readOnly = false,
   breadcrumbProps,
@@ -188,7 +191,11 @@ const CodeEditor = ({
     editorBufferSurfacesEqual,
   );
   const editorViewKey = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : activeBufferId;
-  const { handleContentChange } = useEditorAppStore.use.actions();
+  const { handleContentChange, flushAutoSaves } = useEditorAppStore.use.actions();
+  useEffect(() => {
+    window.addEventListener("blur", flushAutoSaves);
+    return () => window.removeEventListener("blur", flushAutoSaves);
+  }, [flushAutoSaves]);
   const handleBufferContentChange = useCallback<NonNullable<CodeEditorProps["onContentChange"]>>(
     (content, previousContent, previousCursorPosition, previousSelection, options) => {
       if (!activeBufferId) return;
@@ -242,18 +249,31 @@ const CodeEditor = ({
   const showNotebookEditor =
     activeBuffer?.type === "editor" && filePath.toLowerCase().endsWith(".ipynb");
   const [forceExpensiveServices, setForceExpensiveServices] = useState(false);
+  // Editor surfaces are reused across files; the large-file override belongs
+  // to the file it was granted for.
+  const [forcedServicesBufferId, setForcedServicesBufferId] = useState(activeBufferId);
+  if (forcedServicesBufferId !== activeBufferId) {
+    setForcedServicesBufferId(activeBufferId);
+    setForceExpensiveServices(false);
+  }
   const tooLargeForEditorServices = useEditorViewStore(
     (state) => state.tooLargeForEditorServices === true,
   );
-  const enableInteractiveServices =
-    isActiveSurface &&
+  const supportsInteractiveServices =
     !isPreviewBuffer &&
     !readOnly &&
     !showNotebookEditor &&
     !isRestorePending &&
     !hasRestoreLoadError;
+  const enableInteractiveServices = isActiveSurface && supportsInteractiveServices;
   const enableRichEditorServices =
     enableInteractiveServices && (!tooLargeForEditorServices || forceExpensiveServices);
+  // Hidden tabs keep their rich view options so switching tabs does not
+  // rebuild editor parts; their providers skip requests while hidden. The
+  // size flag describes the focused editor only, so it applies only there.
+  const enableRichViewOptions =
+    supportsInteractiveServices &&
+    (!isActiveSurface || !tooLargeForEditorServices || forceExpensiveServices);
   const enableCodeLens = enableRichEditorServices && codeLensEnabled;
 
   useLayoutEffect(() => {
@@ -624,8 +644,11 @@ const CodeEditor = ({
     paneId,
     viewStateKey: editorViewKey ?? undefined,
     isActiveSurface,
+    isVisibleSurface,
     isPreviewMode: isPreviewBuffer,
     enableExpensiveServices: enableRichEditorServices,
+    enableRichViewOptions,
+    isContentReady: !isRestorePending,
     readOnly,
     scrollable,
     alwaysConsumeMouseWheel: alwaysConsumeMouseWheel,
@@ -636,6 +659,7 @@ const CodeEditor = ({
     lineNumberStart: lineNumberStart,
     lineNumberMap: lineNumberMap,
     onContentChange: handleEditorContentChange,
+    onEditorBlur: flushAutoSaves,
     onScrollOffsetChange: syncLspOverlayTransform,
     onModelPositionResolverChange: handleModelPositionResolverChange,
   };
@@ -647,7 +671,6 @@ const CodeEditor = ({
 
   return (
     <>
-      <EditorStylesheet />
       <div className="absolute inset-0 flex flex-col overflow-hidden">
         {/* Breadcrumbs */}
         {showToolbar && (
@@ -730,11 +753,14 @@ const CodeEditor = ({
 
           {/* Main editor - absolute positioned to fill container */}
           <div className="absolute inset-0 bg-background">
-            {isRestorePending ? (
-              <div className="flex size-full items-center justify-center">
+            {/* The loading state covers the editor instead of replacing it, so
+                the editor surface is kept and reused for the next file. */}
+            {isRestorePending && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
                 <Spinner label={t("ui.loading")} showLabel />
               </div>
-            ) : hasRestoreLoadError ? (
+            )}
+            {hasRestoreLoadError ? (
               <div className="flex size-full items-center justify-center p-6">
                 <div className="flex max-w-md flex-col items-center gap-3 text-center" role="alert">
                   <p className="font-medium text-foreground">{t("editor.restoreLoadFailed")}</p>

@@ -469,6 +469,8 @@ async function startAutosaveHarness(options: {
    * the re-read afterwards no longer sees an owner.
    */
   onClaimRefusedWhileSaving?: (writes: PendingWrite[]) => Promise<void>;
+  /** Holds a claim that will succeed, so a test can act between timer and write. */
+  onClaim?: () => Promise<void>;
 } = {}) {
   const documentFiles = await import("@/platform/document-files");
   const lifecycle = await import("@/platform/document-lifecycle");
@@ -501,6 +503,7 @@ async function startAutosaveHarness(options: {
           }
           return { state, action: state.status === "conflict" ? "showConflict" : "none" };
         }
+        await options.onClaim?.();
         return {
           state: {
             status: "saving",
@@ -673,6 +676,70 @@ describe("editor autosave continuation", () => {
     }
   }, 1_000);
 
+  test("flushAutoSaves writes the queued text without waiting for the debounce", async () => {
+    const harness = await startAutosaveHarness();
+    try {
+      setWorkspaceBuffers(
+        WORKSPACE_A,
+        [editorBuffer("a", "first line", { path: "C:/fixture/a.txt", isVirtual: false })],
+        "a",
+      );
+      const { actions } = harness.store.getState();
+      await actions.handleContentChange("a", "first line!");
+      await flushUntil(() => harness.timer.size === 1, "the autosave debounce");
+
+      actions.flushAutoSaves();
+      actions.flushAutoSaves();
+      await flushUntil(() => harness.writes.length === 1, "the flushed write");
+
+      expect(harness.timer.size).toBe(0);
+      expect(harness.writes[0].content).toBe("first line!");
+      harness.writes[0].resolve();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "the save to settle");
+      expect(harness.writes).toHaveLength(1);
+    } finally {
+      harness.restore();
+    }
+  }, 1_000);
+
+  test("a focus change while the fired autosave claims the document does not start it again", async () => {
+    let claims = 0;
+    let releaseClaim = () => {};
+    const claimHeld = new Promise<void>((resolve) => {
+      releaseClaim = resolve;
+    });
+    const harness = await startAutosaveHarness({
+      onClaim: async () => {
+        claims += 1;
+        await claimHeld;
+      },
+    });
+    try {
+      setWorkspaceBuffers(
+        WORKSPACE_A,
+        [editorBuffer("a", "first line", { path: "C:/fixture/a.txt", isVirtual: false })],
+        "a",
+      );
+      const { actions } = harness.store.getState();
+      await actions.handleContentChange("a", "first line!");
+      await flushUntil(() => harness.timer.size === 1, "the autosave debounce");
+      await harness.timer.fireNext();
+      await flushUntil(() => claims === 1, "the fired autosave to claim the document");
+
+      actions.flushAutoSaves();
+      releaseClaim();
+      await flushUntil(() => harness.writes.length > 0, "the write after the claim");
+      harness.writes[0].resolve();
+      await flushUntil(() => !getEditorBuffer(WORKSPACE_A, "a").isDirty, "the save to settle");
+
+      expect(claims).toBe(1);
+      expect(harness.writes).toHaveLength(1);
+    } finally {
+      releaseClaim();
+      harness.restore();
+    }
+  }, 1_000);
+
   test("drops the queued continuation when a manual save fails", async () => {
     const harness = await startAutosaveHarness();
     try {
@@ -697,6 +764,7 @@ describe("editor autosave continuation", () => {
             timeoutId: 1 as unknown as ReturnType<typeof setTimeout>,
             context: { bufferId: "a", path: "C:/workspace/a.txt", operationId: "continuation" },
             continuesOperationId: lifecycle.operationId,
+            run: () => undefined,
           },
         },
       }));

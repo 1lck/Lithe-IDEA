@@ -9,6 +9,7 @@ import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { evictLeastRecentAutoClosableBuffer } from "@/features/editor/stores/buffer-eviction";
+import { forgetTab } from "@/features/tabs/utils/tab-recency";
 import {
   createPaneContent,
   createRestoredEditorPlaceholder,
@@ -49,7 +50,6 @@ import { usePaneStore } from "@/features/panes/stores/pane.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { SINGLETON_TOOL_BUFFER_METADATA } from "@/features/panes/constants/tool-buffers";
 import { ensureBufferInPane as ensureBufferInWorkspacePane } from "@/features/panes/utils/pane-buffer-actions";
-import { defaultSettings } from "@/features/settings/config/default-settings";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createTranslator } from "@/i18n/locale";
 import { cleanupBufferHistoryTracking, trackImmediateBufferHistoryChange } from "@/features/editor/stores/buffer-history-tracking";
@@ -120,7 +120,6 @@ type ClosedBuffer = ClosedEditorLikeBuffer | ClosedDiffBuffer | ClosedPreviewBuf
 interface BufferState {
   buffers: PaneContent[];
   activeBufferId: string | null;
-  maxOpenTabs: number;
   pendingClose: PendingClose | null;
   closedBuffersHistory: ClosedBuffer[];
   actions: BufferActions;
@@ -238,7 +237,6 @@ interface BufferActions {
   switchToNextBuffer: () => void;
   switchToPreviousBuffer: () => void;
   getActiveBuffer: () => PaneContent | null;
-  setMaxOpenTabs: (max: number) => void;
   reloadBufferFromDisk: (bufferId: string) => Promise<void>;
   createRestoredBufferMetadata: (options: {
     path: string;
@@ -356,20 +354,25 @@ function makeDocumentBufferOwner(
 const tracksUnsavedEdits = (buffer: EditorContent): boolean =>
   !buffer.readOnly && (!buffer.isVirtual || buffer.path.startsWith("untitled:"));
 
+const releaseClosedBufferTracking = (bufferId: string) => {
+  cleanupBufferHistoryTracking(bufferId);
+  forgetTab(bufferId);
+};
+
 const applyWorkspaceAutoEviction = (
   buffers: PaneContent[],
-  maxOpenTabs: number,
   workspaceId: string,
   options?: { includePreviews?: boolean },
 ): PaneContent[] => {
+  const { maxOpenTabs, tabLimitPolicy } = useSettingsStore.getState().settings;
   const { buffers: nextBuffers, evictedBuffer } = evictLeastRecentAutoClosableBuffer(
     buffers,
     maxOpenTabs,
-    options,
+    { ...options, policy: tabLimitPolicy },
   );
 
   if (evictedBuffer) {
-    cleanupBufferHistoryTracking(evictedBuffer.id);
+    releaseClosedBufferTracking(evictedBuffer.id);
     removeBufferFromWorkspacePanes(evictedBuffer.id, false, workspaceId);
   }
 
@@ -619,11 +622,8 @@ const scheduleExtensionSupportCheck = (path: string) => {
 const createBufferStore = (workspaceId: string) => {
   const paneStore = usePaneStore.getStore(workspaceId);
   let restorePromoter: ((bufferId: string) => void) | null = null;
-  const applyAutoEviction = (
-    buffers: PaneContent[],
-    maxOpenTabs: number,
-    options?: { includePreviews?: boolean },
-  ) => applyWorkspaceAutoEviction(buffers, maxOpenTabs, workspaceId, options);
+  const applyAutoEviction = (buffers: PaneContent[], options?: { includePreviews?: boolean }) =>
+    applyWorkspaceAutoEviction(buffers, workspaceId, options);
   const ensureBufferInPane = (paneId: string, bufferId: string, setActive = true) =>
     ensureBufferInWorkspacePane(paneId, bufferId, setActive, workspaceId);
   const getPaneReplacementBufferId = (closingBufferIds: string[], buffers: PaneContent[]) =>
@@ -646,12 +646,11 @@ const createBufferStore = (workspaceId: string) => {
     immer((set, get) => ({
       buffers: [],
       activeBufferId: null,
-      maxOpenTabs: defaultSettings.maxOpenTabs,
       pendingClose: null,
       closedBuffersHistory: [],
       actions: {
         openContent: (spec: OpenContentSpec): string => {
-          const { buffers, maxOpenTabs } = get();
+          const { buffers } = get();
 
           switch (spec.type) {
             case "editor": {
@@ -680,13 +679,13 @@ const createBufferStore = (workspaceId: string) => {
                   ? getBufferById(newBuffers, previewTargetPane.previewBufferId)
                   : null;
                 if (existingPreview?.isPreview) {
-                  cleanupBufferHistoryTracking(existingPreview.id);
+                  releaseClosedBufferTracking(existingPreview.id);
                   removeBufferFromPanes(existingPreview.id, true);
                   newBuffers = newBuffers.filter((b) => b.id !== existingPreview.id);
                 }
               }
 
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs, {
+              newBuffers = applyAutoEviction(newBuffers, {
                 includePreviews: false,
               });
 
@@ -729,7 +728,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, {
@@ -774,7 +773,7 @@ const createBufferStore = (workspaceId: string) => {
               const displayName = `Agent ${agentNumber}`;
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, {
@@ -806,7 +805,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, spec);
@@ -844,7 +843,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, spec);
@@ -863,7 +862,7 @@ const createBufferStore = (workspaceId: string) => {
             case "markdownDocument": {
               const path = `markdown-document://${spec.documentId}`;
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, spec);
@@ -913,7 +912,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, spec);
@@ -960,7 +959,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, spec);
@@ -1006,7 +1005,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, spec);
@@ -1034,7 +1033,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, spec);
 
@@ -1066,7 +1065,7 @@ const createBufferStore = (workspaceId: string) => {
                     logger.error("BufferStore", "Failed to close old external editor terminal:", e);
                   });
                 }
-                cleanupBufferHistoryTracking(existingExternalEditor.id);
+                releaseClosedBufferTracking(existingExternalEditor.id);
                 removeBufferFromPanes(existingExternalEditor.id);
                 newBuffers = newBuffers.filter((b) => b.id !== existingExternalEditor.id);
               }
@@ -1098,7 +1097,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(SINGLETON_TOOL_BUFFER_METADATA[spec.type].path);
               const newBuffer = createPaneContent(id, spec);
@@ -1124,7 +1123,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+              newBuffers = applyAutoEviction(newBuffers);
 
               const id = generateBufferId(path);
               const newBuffer = createPaneContent(id, spec);
@@ -1162,7 +1161,7 @@ const createBufferStore = (workspaceId: string) => {
               }
 
               let newBuffers = [...buffers];
-              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs, {
+              newBuffers = applyAutoEviction(newBuffers, {
                 includePreviews: false,
               });
 
@@ -1404,7 +1403,7 @@ const createBufferStore = (workspaceId: string) => {
 
           if (bufferIndex === -1) return;
 
-          cleanupBufferHistoryTracking(bufferId);
+          releaseClosedBufferTracking(bufferId);
 
           const replacementBufferId =
             activeBufferId === bufferId ? getPaneReplacementBufferId([bufferId], buffers) : null;
@@ -1999,11 +1998,6 @@ const createBufferStore = (workspaceId: string) => {
           return getBufferById(buffers, activeBufferId);
         },
 
-        setMaxOpenTabs: (max: number) => {
-          set((state) => {
-            state.maxOpenTabs = max;
-          });
-        },
 
         reloadBufferFromDisk: async (bufferId: string): Promise<void> => {
           const buffer = getBufferById(get().buffers, bufferId);

@@ -279,8 +279,6 @@ export const useLspIntegration = ({
         const contentChanges = takeLspDocumentChanges(filePath);
         try {
           if (preferIncremental && contentChanges.length > 0) {
-            // Core validates a multi-change batch and falls back to the full
-            // text when ranges overlap or cannot be replayed safely.
             await lspClient.synchronizeDocument(
               filePath,
               documentTextForPath(filePath, workspaceId),

@@ -76,10 +76,6 @@ interface CoreSearchMatch {
   preview: string;
 }
 
-interface CoreWorkspaceNode {
-  path: string;
-}
-
 function coreData<T>(response: Awaited<ReturnType<typeof executeCore<T>>>): T {
   if (response.ok) return response.data;
   throw new Error(response.error.message);
@@ -199,10 +195,13 @@ export async function fffTrackAccess(_path: string): Promise<void> {
 }
 
 async function listWorkspaceFiles(root: string): Promise<string[]> {
-  const response = await executeCore<{ root: CoreWorkspaceNode; files: string[] }>({
+  // Only the flat file list is used here. The project tree loads one directory at a
+  // time, so asking Core to also build and serialize every node is wasted work that
+  // grows with the workspace.
+  const response = await executeCore<{ files: string[] }>({
     id: crypto.randomUUID(),
     command: "workspace.snapshot",
-    payload: { root },
+    payload: { root, includeTree: false },
   });
   return coreData(response).files;
 }

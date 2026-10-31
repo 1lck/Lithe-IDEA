@@ -35,7 +35,9 @@ import type {
 } from "@/features/diagnostics/types/diagnostics.types";
 import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
+import { flushLspDocumentChanges } from "./pending-document-changes";
 import type { EditorTextChange } from "../types/editor.types";
+import { replayEditorTextChanges } from "../utils/editor-text-change";
 import { logger } from "../utils/logger";
 import { normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { getLanguageDisplayName } from "../utils/language-id";
@@ -1215,7 +1217,7 @@ export class LspClient {
     const availability = await this.ensureDocumentReady(target, scope, content, feature);
     const document = normalizeLspDocumentTarget(target);
     if (lspSessionFilePath(document) === document.filePath) {
-      await this.synchronizeDocument(document.filePath, content);
+      await this.synchronizeAfterQueuedChanges(document.filePath, content);
     }
     return availability;
   }
@@ -2000,7 +2002,7 @@ export class LspClient {
 
   private async notifyDocumentChange(
     filePath: string,
-    content: string | undefined,
+    content: string,
     version: number,
     contentChanges?: EditorTextChange[],
   ): Promise<void> {
@@ -2011,25 +2013,41 @@ export class LspClient {
       return;
     }
 
+    // Ranges reach the server only if they lead from the text it has to the text
+    // the editor shows; anything else, such as a reload or a save that already
+    // published them, is sent whole. Core is not given the text to compare, since
+    // that would copy a large document across IPC for every pause in typing.
+    const ranges = contentChanges?.length && replayEditorTextChanges(document.content, contentChanges) === content
+      ? contentChanges
+      : undefined;
     try {
-      await invoke<void>("lsp_document_change", {
-        filePath,
-        content,
-        version,
-        contentChanges,
-        attachmentId,
-      });
+      const sendFullText = () => invoke<void>("lsp_document_change", { filePath, content, version, attachmentId });
+      if (ranges) {
+        await invoke<void>("lsp_document_change", { filePath, version, contentChanges: ranges, attachmentId })
+          .catch(sendFullText);
+      } else {
+        await sendFullText();
+      }
       const current = this.documents.get(attachmentKey);
       if (current?.phase === "open" && current.attachmentId === attachmentId) {
-        this.documents.set(attachmentKey, {
-          ...current,
-          version,
-          content: content ?? current.content,
-        });
+        this.documents.set(attachmentKey, { ...current, version, content });
       }
     } catch (error) {
       logger.error("LSPClient", "LSP document change error:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Publishes `content` once the queued ranges are out. Those usually carry the
+   * same text, which spares copying the whole document ahead of the debounce.
+   */
+  private async synchronizeAfterQueuedChanges(filePath: string, content: string): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = this.fileAttachmentIds.get(attachmentKey);
+    await flushLspDocumentChanges(filePath);
+    if (this.fileAttachmentIds.get(attachmentKey) === attachmentId) {
+      await this.synchronizeDocument(filePath, content);
     }
   }
 
@@ -2072,7 +2090,7 @@ export class LspClient {
     const attachmentKey = trackedFileKey(filePath);
     const attachmentId = this.fileAttachmentIds.get(attachmentKey);
     if (currentContent !== undefined) {
-      await this.synchronizeDocument(filePath, currentContent);
+      await this.synchronizeAfterQueuedChanges(filePath, currentContent);
     }
     // Finish the editor's preceding changes before reporting the disk save.
     // Core rejects a delayed save whose text has already been superseded.

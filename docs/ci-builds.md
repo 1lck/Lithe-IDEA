@@ -406,6 +406,11 @@ SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记�
 由本工作树 SwiftPM 清理管理；这些操作仅作用于构建目录，不修改已安装应用、签名
 发行基线或 Sparkle delta。
 
+`scripts/windows/perf/run-windows-perf.mjs` 的生产构建、本地基线和 CPU profile 写入
+`.artifacts/windows-perf/`，登记为 `windows-perf-state`，所有复用阶段均拒绝复制。这些内容
+跟随所在工作树的源码和机器，没有 identity stamp；工具在本工作树重新构建，不写 app bundle、
+安装目录或 Sparkle delta 基线。
+
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
 然后运行 `node scripts/i18n/generate-i18n.mjs --check` 校验。修改源翻译后运行不带

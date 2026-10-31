@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { createPaneContent } from "@/features/editor/stores/buffer-content-factory";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import * as commitsApi from "../../api/git-commits-api";
 import * as diffApi from "../../api/git-diff-api";
-import type { GitCommit, GitCommitFile } from "../../types/git.types";
+import type { GitCommit, GitCommitFile, GitDiff } from "../../types/git.types";
+import { moveCommitFile } from "../../utils/commit-file-diff-navigation";
+import { COMMIT_FILE_PREVIEW_PATH, createCommitFileDiffPreview } from "../../utils/multi-file-diff";
 import { GitCommitInspector } from "./git-commit-inspector";
 
 const commit = (hash: string, parents: string[] = []): GitCommit => ({
@@ -217,4 +221,119 @@ test("a pending read is not restarted by repainting, only failures retry", async
   await render([commit("tip")]);
   await render([{ ...commit("tip"), message: "Repainted" }], "C:/fixture", 1);
   expect(filesSpy).toHaveBeenCalledTimes(1);
+});
+
+test("the file list selection follows the preview when it moves to another file", async () => {
+  const diff = (path: string): GitDiff => ({
+    file_path: path,
+    is_new: false,
+    is_deleted: false,
+    is_renamed: false,
+    lines: [],
+    additions: 1,
+    deletions: 0,
+  });
+  const showPreview = async (
+    data: NonNullable<ReturnType<typeof createCommitFileDiffPreview>>["diffData"],
+  ) =>
+    act(async () =>
+      useBufferStore.setState({
+        activeBufferId: COMMIT_FILE_PREVIEW_PATH,
+        buffers: [
+          createPaneContent(COMMIT_FILE_PREVIEW_PATH, {
+            type: "diff",
+            path: COMMIT_FILE_PREVIEW_PATH,
+            name: "preview",
+            content: "",
+            diffData: data,
+          }),
+        ],
+      }),
+    );
+  const selectedRows = () =>
+    [...container.querySelectorAll('[data-sidebar-tree-row][data-active="true"]')].map(
+      (row) => row.textContent,
+    );
+  const fixture = (hash: string) =>
+    createCommitFileDiffPreview({
+      repoPath: "C:/fixture",
+      commitHash: hash,
+      diffs: [diff("a.ts"), diff("b.ts")],
+      filePath: "a.ts",
+      label: hash,
+    })!.diffData;
+
+  await render([commit("tip")]);
+  await act(async () =>
+    requests[0].resolve([
+      { path: "a.ts", status: "M" },
+      { path: "b.ts", status: "M" },
+    ]),
+  );
+  const first = fixture("tip");
+  await showPreview(first);
+  expect(selectedRows().map((text) => text?.includes("a.ts"))).toEqual([true]);
+
+  // The diff toolbar's next-file action replaces the buffer data without touching the tree.
+  await showPreview(moveCommitFile(first, 1)!);
+  expect(selectedRows().map((text) => text?.includes("b.ts"))).toEqual([true]);
+
+  // A preview that belongs to another commit must not move this selection.
+  await showPreview(fixture("other"));
+  expect(selectedRows().map((text) => text?.includes("b.ts"))).toEqual([true]);
+  useBufferStore.setState({ activeBufferId: null, buffers: [] });
+});
+
+test("following the preview reopens a folder the user had collapsed", async () => {
+  const diff = (path: string): GitDiff => ({
+    file_path: path,
+    is_new: false,
+    is_deleted: false,
+    is_renamed: false,
+    lines: [],
+    additions: 1,
+    deletions: 0,
+  });
+  const data = createCommitFileDiffPreview({
+    repoPath: "C:/fixture",
+    commitHash: "tip",
+    diffs: [diff("a/x.ts"), diff("b/y.ts")],
+    filePath: "a/x.ts",
+    label: "tip",
+  })!.diffData;
+  const show = async (diffData: typeof data) =>
+    act(async () =>
+      useBufferStore.setState({
+        activeBufferId: COMMIT_FILE_PREVIEW_PATH,
+        buffers: [
+          createPaneContent(COMMIT_FILE_PREVIEW_PATH, {
+            type: "diff",
+            path: COMMIT_FILE_PREVIEW_PATH,
+            name: "preview",
+            content: "",
+            diffData,
+          }),
+        ],
+      }),
+    );
+  const rows = () => [...container.querySelectorAll("[data-sidebar-tree-row]")];
+  const rowText = (name: string) =>
+    rows().find((row) => row.textContent?.includes(name)) as HTMLElement | undefined;
+
+  await render([commit("tip")]);
+  await act(async () =>
+    requests[0].resolve([
+      { path: "a/x.ts", status: "M" },
+      { path: "b/y.ts", status: "M" },
+    ]),
+  );
+  await show(data);
+  await act(async () =>
+    rowText("b1 file")!.querySelector<HTMLElement>('[role="treeitem"]')!.click(),
+  );
+  expect(rowText("y.ts")).toBeUndefined();
+
+  await show(moveCommitFile(data, 1)!);
+  expect(rowText("y.ts")?.getAttribute("data-active")).toBe("true");
+  useBufferStore.setState({ activeBufferId: null, buffers: [] });
 });

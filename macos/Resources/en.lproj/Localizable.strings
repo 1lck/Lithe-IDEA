@@ -14,6 +14,7 @@
 "%@ already exists. Choose another name or location." = "%@ already exists. Choose another name or location.";
 "%@ answered with status %lld. %@" = "%@ answered with status %lld. %@";
 "%@ build files changed" = "%@ build files changed";
+"%@ could not be reached. Check your internet, proxy, or VPN connection and try again." = "%@ could not be reached. Check your internet, proxy, or VPN connection and try again.";
 "%@ debug adapter is unavailable." = "%@ debug adapter is unavailable.";
 "%@ did not finish within %lld seconds." = "%@ did not finish within %lld seconds.";
 "%@ did not report a version; %@ or newer is required." = "%@ did not report a version; %@ or newer is required.";
@@ -44,7 +45,9 @@
 "%@ options" = "%@ options";
 "%@ provider (inside the plugin)" = "%@ provider (inside the plugin)";
 "%@ provider (installed on this Mac)" = "%@ provider (installed on this Mac)";
+"%@ returned HTTP %@." = "%@ returned HTTP %@.";
 "%@ returned an invalid language-server provider." = "%@ returned an invalid language-server provider.";
+"%@ returned an unexpected response." = "%@ returned an unexpected response.";
 "%@ sent messages too quickly, so some were not shown." = "%@ sent messages too quickly, so some were not shown.";
 "%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved." = "%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved.";
 "%@ started a task that is still running" = "%@ started a task that is still running";
@@ -165,6 +168,7 @@
 "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':" = "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':";
 "A removed Hook cannot be saved." = "A removed Hook cannot be saved.";
 "A running local JVM and its JDK jstat tool are required." = "A running local JVM and its JDK jstat tool are required.";
+"A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "A secure connection to %@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.";
 "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings." = "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.";
 "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly." = "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.";
 "A skill has an unknown scope and cannot be classified." = "A skill has an unknown scope and cannot be classified.";
@@ -1255,6 +1259,7 @@
 "Download and Install" = "Download and Install";
 "Downloaded %@ · %@/s" = "Downloaded %@ · %@/s";
 "Downloaded (%lld of %lld enabled)" = "Downloaded (%lld of %lld enabled)";
+"Downloaded data was kept. Try again to resume from where it stopped." = "Downloaded data was kept. Try again to resume from where it stopped.";
 "Downloading %@…" = "Downloading %@…";
 "Downloading full stable release…" = "Downloading full stable release…";
 "Downloading packages…" = "Downloading packages…";
@@ -1375,6 +1380,7 @@
 "Enter a complete server URL." = "Enter a complete server URL.";
 "Enter a debugger command (Tab to complete)" = "Enter a debugger command (Tab to complete)";
 "Enter a description and instructions." = "Enter a description and instructions.";
+"Enter a full web address, such as https://mirror.example.com/lithe/." = "Enter a full web address, such as https://mirror.example.com/lithe/.";
 "Enter a host." = "Enter a host.";
 "Enter a model ID supported by your provider." = "Enter a model ID supported by your provider.";
 "Enter a nonempty Git identity without control characters or angle brackets" = "Enter a nonempty Git identity without control characters or angle brackets";
@@ -1572,6 +1578,7 @@
 "Format" = "Format";
 "Format JSON" = "Format JSON";
 "Forward" = "Forward";
+"Found Lithe %@ at this source." = "Found Lithe %@ at this source.";
 "Found automatically" = "Found automatically";
 "Frames are not available" = "Frames are not available";
 "Frames rendered per second" = "Frames rendered per second";
@@ -2486,6 +2493,7 @@
 "No textual difference" = "No textual difference";
 "No tools running" = "No tools running";
 "No update check has been performed yet." = "No update check has been performed yet.";
+"No update feed was found at this address. The source must provide %@ next to the update archives." = "No update feed was found at this address. The source must provide %@ next to the update archives.";
 "No update package is available for this Mac architecture. Open the Release page to check available downloads." = "No update package is available for this Mac architecture. Open the Release page to check available downloads.";
 "No update package is available for this Mac. Download the release manually." = "No update package is available for this Mac. Download the release manually.";
 "No updates found in the local Homebrew index." = "No updates found in the local Homebrew index.";
@@ -3631,6 +3639,7 @@
 "Squash → 1" = "Squash → 1";
 "Stable (Recommended)" = "Stable (Recommended)";
 "Stable release %@ is ready." = "Stable release %@ is ready.";
+"Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source." = "Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.";
 "Stack frame display options" = "Stack frame display options";
 "Stage All and Commit use the current ChangeList." = "Stage All and Commit use the current ChangeList.";
 "Stage File" = "Stage File";
@@ -3916,6 +3925,7 @@
 "The configured build tool is not executable: %@" = "The configured build tool is not executable: %@";
 "The connection check failed." = "The connection check failed.";
 "The connection failed." = "The connection failed.";
+"The connection to %@ timed out. Check your proxy or VPN connection and try again." = "The connection to %@ timed out. Check your proxy or VPN connection and try again.";
 "The connection to the remote host was lost. Reconnect to continue." = "The connection to the remote host was lost. Reconnect to continue.";
 "The conversation is still being prepared. Try again in a moment." = "The conversation is still being prepared. Try again in a moment.";
 "The credential store failed: %@" = "The credential store failed: %@";
@@ -4105,6 +4115,7 @@
 "The skill file could not be opened." = "The skill file could not be opened.";
 "The skill file could not be read." = "The skill file could not be read.";
 "The skill is no longer available in this scope. Refresh and retry." = "The skill is no longer available in this scope. Refresh and retry.";
+"The source lists Lithe %@ but does not provide %@." = "The source lists Lithe %@ but does not provide %@.";
 "The stable installer stopped. Your current app has been preserved. Try again or download the stable release manually." = "The stable installer stopped. Your current app has been preserved. Try again or download the stable release manually.";
 "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.";
 "The staged changes have no textual diff to summarize." = "The staged changes have no textual diff to summarize.";
@@ -4403,6 +4414,8 @@
 "Update parent repository references" = "Update parent repository references";
 "Update required" = "Update required";
 "Update running service" = "Update running service";
+"Update source" = "Update source";
+"Update sources must use https://. http:// is only allowed for this Mac (localhost)." = "Update sources must use https://. http:// is only allowed for this Mac (localhost).";
 "Update status" = "Update status";
 "Update this CLI using its original installer, then check again." = "Update this CLI using its original installer, then check again.";
 "Update to" = "Update to";
@@ -4796,6 +4809,7 @@
 "native.aRebaseCannotStartWithAnyUncommittedChangesIncludingTheseUnrelatedTo" = "A rebase cannot start with any uncommitted changes, including these unrelated to '%1$@':";
 "native.aRemovedHookCannotBeSaved" = "A removed Hook cannot be saved.";
 "native.aRunningLocalJVMAndItsJDKJstatToolAreRequired" = "A running local JVM and its JDK jstat tool are required.";
+"native.aSecureConnectionToCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSystemCertificateSettings" = "A secure connection to %1$@ could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.";
 "native.aSecureConnectionToGitHubCouldNotBeEstablishedCheckTLSInspectionProxyVPNOrSyst9ed7704d75" = "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.";
 "native.aSecureConnectionToTheMcpRegistryCouldNotBeEstablishedCheckTheProxyOrRetryDirectly" = "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.";
 "native.aSkillHasAnUnknownScopeAndCannotBeClassified" = "A skill has an unknown scope and cannot be classified.";
@@ -5600,6 +5614,7 @@
 "native.copyThreadName" = "Copy Thread Name";
 "native.copyValue" = "Copy Value";
 "native.copyWorktreePath" = "Copy worktree path";
+"native.couldNotBeReachedCheckYourInternetProxyOrVPNConnectionAndTryAgain" = "%1$@ could not be reached. Check your internet, proxy, or VPN connection and try again.";
 "native.couldNotCheckForUpdates" = "Could not check for updates";
 "native.couldNotCheckForUpdates.variant2" = "Could not check for updates.";
 "native.couldNotCompareTheLocalAdapterWithTheVerifiedVersion" = "Could not compare the local adapter with the verified version.";
@@ -5889,6 +5904,7 @@
 "native.downloadPHPSupportFromTheOfficialPluginRelease" = "Download PHP Support from the official plugin release.";
 "native.downloadPHPSupportFromTheOfficialSignedPluginPackage" = "Download PHP Support from the official signed plugin package.";
 "native.downloadStableRelease" = "Download Stable Release";
+"native.downloadedDataWasKeptTryAgainToResumeFromWhereItStopped" = "Downloaded data was kept. Try again to resume from where it stopped.";
 "native.downloadedLldOfLldEnabled" = "Downloaded (%1$lld of %2$lld enabled)";
 "native.downloadedS" = "Downloaded %1$@ · %2$@/s";
 "native.downloading" = "Downloading %1$@…";
@@ -6037,6 +6053,7 @@
 "native.enterACompleteServerURL" = "Enter a complete server URL.";
 "native.enterADebuggerCommandTabToComplete" = "Enter a debugger command (Tab to complete)";
 "native.enterADescriptionAndInstructions" = "Enter a description and instructions.";
+"native.enterAFullWebAddressSuchAsHttpsMirrorExampleComLithe" = "Enter a full web address, such as https://mirror.example.com/lithe/.";
 "native.enterAHost" = "Enter a host.";
 "native.enterAJvmDebugPortBetween1And" = "Enter a JVM debug port between 1 and 65535.";
 "native.enterAModelIDSupportedByYourProvider" = "Enter a model ID supported by your provider.";
@@ -6225,6 +6242,7 @@
 "native.forward" = "Forward";
 "native.found" = "found";
 "native.foundAutomatically" = "Found automatically";
+"native.foundLitheAtThisSource" = "Found Lithe %1$@ at this source.";
 "native.framesAreNotAvailable" = "Frames are not available";
 "native.framesRenderedPerSecond" = "Frames rendered per second";
 "native.freeOf" = "%1$@ free of %2$@";
@@ -7270,6 +7288,7 @@
 "native.noTextualDifference" = "No textual difference";
 "native.noToolsRunning" = "No tools running";
 "native.noUpdateCheckHasBeenPerformedYet" = "No update check has been performed yet.";
+"native.noUpdateFeedWasFoundAtThisAddressTheSourceMustProvideNextToTheUpdateArchives" = "No update feed was found at this address. The source must provide %1$@ next to the update archives.";
 "native.noUpdatePackageIsAvailableForThisMacArchitectureOpenTheReleasePageToCheckAvailableDownloads" = "No update package is available for this Mac architecture. Open the Release page to check available downloads.";
 "native.noUpdatePackageIsAvailableForThisMacDownloadTheReleaseManually" = "No update package is available for this Mac. Download the release manually.";
 "native.noUpdatesFoundInTheLocalHomebrewIndex" = "No updates found in the local Homebrew index.";
@@ -7961,6 +7980,8 @@
 "native.returnToStable.variant2" = "Return to Stable?";
 "native.returnToTheWelcomeScreen" = "Return to the Welcome screen";
 "native.returnedAnInvalidLanguageServerProvider" = "%1$@ returned an invalid language-server provider.";
+"native.returnedAnUnexpectedResponse" = "%1$@ returned an unexpected response.";
+"native.returnedHTTP" = "%1$@ returned HTTP %2$@.";
 "native.revealActiveFileInProjectTree" = "Reveal Active File in Project Tree";
 "native.revealInFinder" = "Reveal in Finder";
 "native.revert" = "Revert";
@@ -8372,6 +8393,7 @@
 "native.squashLldCommitsInto1LaterCommitsInTheAffectedHistoryWillBeReplayed" = "Squash %1$lld commits into 1. Later commits in the affected history will be replayed.";
 "native.stableRecommended" = "Stable (Recommended)";
 "native.stableReleaseIsReady" = "Stable release %1$@ is ready.";
+"native.stableUpdatesDownloadFromThisAddressAMirrorMustServeTheSameSignedAppcastAndUpdateArchivesSideBySideAndLitheStillV" = "Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.";
 "native.stackFrameDisplayOptions" = "Stack frame display options";
 "native.stageAllAndCommitUseTheCurrentChangeList" = "Stage All and Commit use the current ChangeList.";
 "native.stageAllChanges" = "Stage all changes";
@@ -8598,6 +8620,7 @@
 "native.theConfiguredBuildToolIsNotExecutable" = "The configured build tool is not executable: %1$@";
 "native.theConnectionFailed" = "The connection failed.";
 "native.theConnectionToTheRemoteHostWasLostReconnectToContinue" = "The connection to the remote host was lost. Reconnect to continue.";
+"native.theConnectionToTimedOutCheckYourProxyOrVPNConnectionAndTryAgain" = "The connection to %1$@ timed out. Check your proxy or VPN connection and try again.";
 "native.theConversationIsStillBeingPreparedTryAgainInAMoment" = "The conversation is still being prepared. Try again in a moment.";
 "native.theCredentialStoreFailed" = "The credential store failed: %1$@";
 "native.theCredentialStoreVersionIsUnsupportedExistingCredentialsWerePreserved" = "The credential store version is unsupported. Existing credentials were preserved.";
@@ -8799,6 +8822,7 @@
 "native.theSkillFileCouldNotBeOpened" = "The skill file could not be opened.";
 "native.theSkillFileCouldNotBeRead" = "The skill file could not be read.";
 "native.theSkillIsNoLongerAvailableInThisScopeRefreshAndRetry" = "The skill is no longer available in this scope. Refresh and retry.";
+"native.theSourceListsLitheButDoesNotProvide" = "The source lists Lithe %1$@ but does not provide %2$@.";
 "native.theSpringInitializrServerThatGeneratesTheProjectChangeItToUseAMirrorOrYourCompanySOwnServe" = "The Spring Initializr server that generates the project. Change it to use a mirror or your company's own server.";
 "native.theStableInstallerStoppedYourCurrentAppHasBeenPreservedTryAgainOrDownloadTheStd70ce1979b" = "The stable installer stopped. Your current app has been preserved. Try again or download the stable release manually.";
 "native.theStableProfileCouldNotBeCopiedSafelyItsOriginalDataHasBeenPreserved" = "The Stable profile could not be copied safely. Its original data has been preserved.";
@@ -9084,6 +9108,8 @@
 "native.updateProject.variant2" = "Update Project…";
 "native.updateRequired" = "Update required";
 "native.updateRunningService" = "Update running service";
+"native.updateSource" = "Update source";
+"native.updateSourcesMustUseHttpsHttpIsOnlyAllowedForThisMacLocalhost" = "Update sources must use https://. http:// is only allowed for this Mac (localhost).";
 "native.updateStatus" = "Update status";
 "native.updateThisCLIUsingItsOriginalInstallerThenCheckAgain" = "Update this CLI using its original installer, then check again.";
 "native.updateTo" = "Update to";

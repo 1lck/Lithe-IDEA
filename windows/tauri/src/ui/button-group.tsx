@@ -18,6 +18,11 @@ const buttonGroupVariants = cva(
           "rounded-md bg-accent *:data-[slot=button]:bg-transparent *:data-[slot=button]:hover:bg-selected",
         accent:
           "overflow-hidden rounded-md border border-primary/25 bg-primary/10 *:data-[slot=button]:text-primary *:data-[slot=button]:hover:bg-primary/10 *:data-[slot=button-group-separator]:bg-primary/25",
+        // IntelliJ default option button: solid fill with white text, and a 1px separator
+        // inset from the top and bottom edges. The group dims as a whole when disabled so
+        // the fill and the labels fade together.
+        primary:
+          "overflow-hidden rounded-[4px] bg-primary has-[button:disabled]:opacity-50 *:data-[slot=button]:border-0 *:data-[slot=button]:text-white *:data-[slot=button]:hover:bg-white/10 *:data-[slot=button]:focus-visible:ring-inset *:data-[slot=button]:focus-visible:ring-white/70 *:data-[slot=button]:disabled:opacity-100 *:data-[slot=button-group-separator]:my-1.5 *:data-[slot=button-group-separator]:bg-black/30",
       },
     },
     defaultVariants: {

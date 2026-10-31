@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createTranslator, type DisplayLanguage } from "./locale";
 
@@ -18,9 +18,12 @@ export function LocaleProvider({
 }) {
   const storedLanguage = useSettingsStore((state) => state.settings.displayLanguage);
   const language = overrideLanguage ?? storedLanguage;
+  // Nearly every component reads this context. A new value on each provider
+  // render would re-render all of them even when the language is unchanged.
+  const value = useMemo(() => ({ language, t: createTranslator(language) }), [language]);
 
   return (
-    <LocaleContext.Provider value={{ language, t: createTranslator(language) }}>
+    <LocaleContext.Provider value={value}>
       {children}
     </LocaleContext.Provider>
   );
