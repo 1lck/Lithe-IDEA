@@ -158,6 +158,36 @@ R29 的当前候选源码仅开放 `projectGenerators:1`，使独立生成器包
 工作区切换、生成后的语言服务与构建运行、签名 Windows 包和 ARM64 尚待验证。
 因此受控创建链有独立的成功标记，完整 M8/M10 继续保持 `partial/pending`。
 
+Windows 欢迎页的「New Project」使用已有 `new-project` 模式，继续进入
+`ProjectPicker → NewProjectContent → ProjectGeneratorWizard`，图标与文案使用公共
+`PlusIcon` 和 `welcome.newProject`。不要另建只服务欢迎页的生成对话框，否则项目菜单
+与欢迎页会出现不同的创建与清理行为。审批详情展示原生返回的完整计划，包括所选
+运行时的路径与版本；它仍由 Core 计算，宿主不重新推导 JDK 版本或文件内容。
+
+向导只拥有打开它的源工作区。普通工作区切换会关闭原生创建会话并使迟到结果失效；
+点击「创建」后由向导主动打开新工程是一次明确交接，可以继续完成新工程的文件打开。
+交接中的 `openFiles` 必须使用新工程固定的工作区 store（保存该工程状态的对象），
+不能在 `await` 后读取当前活动工程。例如 A 创建 B、B 还在打开时用户切回 A，
+文件仍只能交给 B。B 激活时同步关闭源 A 的旧选择器，完成回调不再关闭选择器，
+否则 A 重新打开的新选择器也会被旧操作误关。若 B 初始化失败并回滚到 A，仍挂载的
+向导保留行内错误和打开按钮；旧向导已关闭时，通过已有错误提示保留「打开已创建的项目」
+动作，用户点击后只重新打开 B 与它的文件，不再次生成，也不调用旧选择器的关闭回调。
+受控回归先证明旧实现会把 B 的文件交给 A、误关 A 的新选择器、丢失打开失败后的
+重试入口，以及在普通切换后打开迟到结果，再验证上述边界；无需为此重写创建会话状态机。
+
+真实 JDK 验收复用平台工具链发现与原生目录选择器，用独立的 `runtime-success`
+条目创建 `src/Main.java`，与 `minimumVersion=999` 的失败条目并存。驱动对照
+探测结果、界面选择、审批计划和 `.lithe/run/local.json`，并在项目 A/B 往返后检查
+编辑器标签与项目 JDK。错误版本必须被原生重新探测拒绝；替换测试只在隔离配置的
+`generator-runtime/` JDK 副本内暂时移走 `bin/java.exe`，通过 `finally` 恢复，再随
+原有配置 owner 整体清理。该副本只属于本次运行，禁止作为跨工作树资源复用，
+不会写入已发布镜像、已安装插件、代码签名或增量更新基线。
+
+正确做法是保存实际探测版本、PE 架构、程序摘要、完整审批计划和创建后的本地配置，
+再记录同一固定源码程序的实机结果。不要修改冻结的 IPC 传输对象来观察调用，也不要
+把离线一致性断言当成真实 JDK、欢迎页或工作区交接已通过。新增驱动仍需专用产品
+执行证据，完整 Java Support 准入、生成后语言服务与构建运行继续独立验收。
+
 ```bash
 cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 ./scripts/architecture/verify-shared-contracts.sh
@@ -179,3 +209,8 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 - `macos/Sources/Lithe/Platform/MacOS/ProjectGeneration/`
 - `macos/Sources/Lithe/Views/Components/LitheSidebarList.swift`
 - `macos/Sources/Lithe/Views/Components/PluginFieldControls.swift`
+- `windows/tauri/src/features/layout/components/welcome-screen.tsx`
+- `windows/tauri/src/features/project-generators/`
+- `windows/tauri/src-tauri/src/plugin_host/project_generators/`
+- `scripts/plugins/host-acceptance/generator_acceptance.py`
+- `scripts/plugins/host-acceptance/generator_fixture.py`

@@ -12,6 +12,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import sys
 import time
 from contextlib import contextmanager
@@ -20,7 +21,7 @@ from pathlib import Path
 from build_acceptance import missing_capabilities, source_capabilities
 from build_fixture import confined, json_bytes
 from generator_fixture import (CANCEL_OBSERVATION_SECONDS, COMMAND_TIMEOUT_SECONDS, DISPLAY_NAME,
-                               PLUGIN_ID, REQUIRES, load_plan, sha256, source_inventory,
+                               PLUGIN_ID, REQUIRES, declaration, load_plan, sha256, source_inventory,
                                verify_extracted_reference)
 from settings_functions_acceptance import assert_resources, resource_diff, snapshot_resources, verify_host, verify_installed_archive, wait_for
 from web_bridge_fallback_acceptance import require_x64_executable
@@ -29,6 +30,8 @@ CASES = ("complete-package-install-review", "files-ui-create-git-open", "command
          "https-archive-ui-open", "missing-runtime-and-advisory-requirements", "existing-target-preserved",
          "failed-command-cleanup", "cancel-command-cleanup", "closed-wizard-cleanup",
          "disable-and-uninstall", "product-profile-cleanup", "resource-invariance")
+CASES += ("welcome-new-project", "real-jdk-ui-plan-local", "workspace-a-b-roundtrip",
+          "runtime-version-and-replacement-rejected", "switch-during-generation")
 
 
 def pending_rows(reason: str) -> list[dict]:
@@ -51,6 +54,44 @@ def assert_clean_projects(parent: Path, *absent: str) -> None:
         raise AssertionError(f"generator left partial output/staging: {stages}; targets: {absent}")
 
 
+def same_home(left: str, right: str) -> bool:
+    return left.replace("\\", "/").rstrip("/").casefold() == right.replace("\\", "/").rstrip("/").casefold()
+
+
+def assert_runtime_chain(runtime: dict, prepared: dict, document: dict) -> None:
+    selections = [row for row in prepared["plan"]["runtimes"] if row["field"] == "jdk" and row["runtime"] == "java"]
+    if (len(selections) != 1 or not runtime.get("version")
+            or selections[0]["version"] != runtime["version"]
+            or not same_home(selections[0]["home"], runtime["homePath"])
+            or document.get("version") != 2
+            or not same_home(document["toolchain"]["java"]["homePath"], runtime["homePath"])):
+        raise AssertionError("adapter, reviewed JDK and local run configuration differ")
+
+
+def choose_runtime(page, driver, app_pid: int, home: Path) -> None:
+    page.locator("#generator-field-jdk").click(timeout=10_000)
+    driver.select_native_file(app_pid, home)
+    page.get_by_text(home.as_posix(), exact=True).wait_for(state="visible", timeout=10_000)
+
+
+def require_native_rejection(page, command: str, arguments: dict, codes: tuple[str, ...]) -> str:
+    # Keep the structured native code; a transport timeout is not a rejection.
+    result = page.evaluate("""async ([command, args]) => {
+      let timer;
+      try {
+        return await Promise.race([
+          window.__TAURI_INTERNALS__.invoke(command, args).then(
+            value => ({accepted: true, value}), error => ({accepted: false, error})),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('native rejection deadline')), 10000); })
+        ]);
+      } finally { clearTimeout(timer); }
+    }""", [command, arguments])
+    code = result.get("error", {}).get("code")
+    if result["accepted"] or code not in codes:
+        raise AssertionError(f"expected native {codes}, received {result}")
+    return code
+
+
 def installation_review_text(review) -> str:
     # Program details are collapsed by the product until explicitly disclosed.
     review.get_by_role("button", name=re.compile(r"^Program declaration \(\d+\)$")).click(timeout=10_000)
@@ -60,6 +101,14 @@ def installation_review_text(review) -> str:
 
 def cancel_generation(page) -> None:
     page.get_by_role("button", name="Cancel generation", exact=True).click(timeout=10_000)
+
+
+def open_file_menu(page) -> None:
+    file_menu = page.get_by_role("menuitem", name="File", exact=True)
+    if not file_menu.is_visible():
+        page.get_by_role("button", name="Menu", exact=True).click(timeout=10_000)
+    if file_menu.get_attribute("aria-expanded", timeout=10_000) != "true":
+        file_menu.click(timeout=10_000)
 
 
 def runtime_paths(args) -> None:
@@ -174,7 +223,7 @@ def run(args, driver, reporter, plan):
         with reporter.step("controlled-generators / " + name):
             # Reserve two minutes of the external 600s Job limit for native
             # shutdown, resource snapshots and profile cleanup after failures.
-            if name not in CASES[10:] and time.monotonic() >= work_deadline:
+            if name not in ("product-profile-cleanup", "resource-invariance") and time.monotonic() >= work_deadline:
                 raise TimeoutError("generator workflow exhausted its work deadline before cleanup")
             yield
     def wait(predicate, description, seconds=20):
@@ -191,25 +240,27 @@ def run(args, driver, reporter, plan):
         return page.locator("[data-settings-content='declarative-plugins']").get_by_role("region", name=DISPLAY_NAME, exact=True)
     def wizard(generator, name, *, disabled=False):
         driver.close_settings(page)
-        file_menu = page.get_by_role("menuitem", name="File", exact=True)
-        if not file_menu.is_visible():
-            page.get_by_role("button", name="Menu", exact=True).click(timeout=10_000)
-        if file_menu.get_attribute("aria-expanded", timeout=10_000) != "true":
-            file_menu.click(timeout=10_000)
-        page.get_by_role("menuitem", name="New", exact=True).hover(timeout=10_000)
-        page.get_by_role("menuitem", name="New Project…", exact=True).click(timeout=10_000)
+        if page.get_by_role("heading", name="Welcome to Lithe", exact=True).is_visible():
+            page.get_by_role("button", name="New Project", exact=True).click(timeout=10_000)
+        else:
+            open_file_menu(page)
+            page.get_by_role("menuitem", name="New", exact=True).hover(timeout=10_000)
+            page.get_by_role("menuitem", name="New Project…", exact=True).click(timeout=10_000)
         page.get_by_text("Plugin project generators", exact=True).click(timeout=10_000)
         label = f"Acceptance {generator} · {DISPLAY_NAME}" + (" · Disabled" if disabled else "")
         page.get_by_role("button", name=label, exact=True).click(timeout=10_000)
         page.locator("#generator-name").fill(name, timeout=10_000)
         page.locator("#generator-location").fill(str(projects), timeout=10_000)
         page.get_by_role("button", name="Review creation", exact=True).wait_for(state="visible", timeout=10_000)
-    def review_and_create(name, *, create_git=False):
+    def review_and_create(name, *, create_git=False, capture_plan=None):
         if create_git:
             page.get_by_label("Create Git repository", exact=True).check(timeout=10_000)
         page.get_by_role("button", name="Review creation", exact=True).click(timeout=10_000)
         create = page.get_by_role("button", name="Create project", exact=True)
         create.wait_for(state="visible", timeout=10_000)
+        if capture_plan is not None:
+            page.locator("details > summary").click(timeout=10_000)
+            capture_plan["plan"] = json.loads(page.locator("details > pre").inner_text(timeout=5000))
         page.screenshot(path=str(evidence / (name + "-review.png")), timeout=5000)
         started_at = time.monotonic()
         create.click(timeout=10_000)
@@ -237,6 +288,14 @@ def run(args, driver, reporter, plan):
         write(name + "-project", snapshot_resources(target))
         page.screenshot(path=str(evidence / (name + "-opened.png")), timeout=5000)
         return target
+    def switch_project(target, open_file):
+        opened_target = target.resolve(strict=True)
+        tab = page.get_by_role("tab").and_(page.get_by_title(opened_target.as_posix(), exact=True))
+        tab.click(timeout=10_000)
+        wait(lambda: tab.get_attribute("aria-selected") == "true", "selected workspace " + target.name)
+        page.get_by_role("tab", selected=True).filter(
+            has=page.get_by_title((opened_target / open_file).as_posix(), exact=True)).wait_for(state="visible", timeout=10_000)
+        return {"projectPath": tab.get_attribute("title"), "selectedFile": (opened_target / open_file).as_posix()}
     try:
         write("identity", {"host": identity, "fixture": plan})
         write("resources-before", image_before)
@@ -264,6 +323,22 @@ def run(args, driver, reporter, plan):
                     write("installation", record)
                     verify_installed_archive(package_root, confined(args.fixture_root, plan["archive"]["path"]), evidence / "installed-package.json")
                     package_before = snapshot_resources(package_root)
+                with step("welcome-new-project"):
+                    driver.close_settings(page)
+                    # The tab bar intentionally hides a single project. Close
+                    # it through its real File action before testing welcome.
+                    open_file_menu(page)
+                    page.get_by_role("menuitem", name="Close Folder", exact=True).click(timeout=10_000)
+                    page.get_by_role("heading", name="Welcome to Lithe", exact=True).wait_for(state="visible", timeout=10_000)
+                    page.get_by_role("button", name="New Project", exact=True).click(timeout=10_000)
+                    page.get_by_text("Plugin project generators", exact=True).wait_for(state="visible", timeout=10_000)
+                    page.screenshot(path=str(evidence / "welcome-new-project.png"), timeout=5000)
+                    page.keyboard.press("Escape")
+                    # Reopen A through welcome's existing Open action so later
+                    # creation has two projects and its normal tab bar visible.
+                    page.get_by_role("button", name="Open", exact=True).click(timeout=10_000)
+                    driver.select_native_file(session.process.pid, args.fixture_root / "workspace")
+                    page.get_by_role("button", name="Project: workspace", exact=True).wait_for(state="visible", timeout=30_000)
                 with step(CASES[1]):
                     wizard("Files", "Files Project")
                     page.locator("#generator-field-message").fill("Kept user input", timeout=10_000)
@@ -273,6 +348,7 @@ def run(args, driver, reporter, plan):
                     target = created("Files Project", "main.mjs")
                     if "Kept user input" not in (target / "README.md").read_text(encoding="utf-8") or not (target / ".git").is_dir():
                         raise AssertionError("template values or Git initialization were lost")
+                    project_a = target
                 with step(CASES[2]):
                     wizard("Command", "Command Project")
                     review_and_create("Command Project")
@@ -293,6 +369,83 @@ def run(args, driver, reporter, plan):
                     page.get_by_role("button", name="Back", exact=True).click(timeout=10_000)
                     page.keyboard.press("Escape")
                     assert_clean_projects(projects, "No Runtime")
+                with step("real-jdk-ui-plan-local"):
+                    switch_project(project_a, "main.mjs")
+                    discovered = driver.invoke(page, "run_discover_toolchains", {
+                        "root": str(project_a.resolve()), "javaHomePath": str(args.java_home) if args.java_home else None})
+                    write("real-jdk-discovery", discovered)
+                    candidates = [row for row in discovered["java"] if not args.java_home or same_home(row["homePath"], str(args.java_home.resolve()))]
+                    if not candidates:
+                        raise AssertionError("the existing platform adapter found no requested real JDK")
+                    runtime = candidates[0]
+                    wizard("Runtime Success", "Real JDK Project")
+                    choose_runtime(page, driver, session.process.pid, Path(runtime["homePath"]))
+                    wait(lambda: page.get_by_role("button", name="Review creation", exact=True).is_enabled(), "real JDK accepted by Core")
+                    selected_home = page.locator("#generator-field-jdk").locator("..").locator("span").inner_text(timeout=5000)
+                    if not same_home(selected_home, runtime["homePath"]):
+                        raise AssertionError("the UI selected JDK differs from the adapter discovery result")
+                    prepared = {}
+                    review_and_create("Real JDK Project", capture_plan=prepared)
+                    project_b = created("Real JDK Project", "src/Main.java")
+                    local_path = project_b / ".lithe/run/local.json"
+                    local_bytes = local_path.read_bytes()
+                    local = json.loads(local_bytes)
+                    assert_runtime_chain(runtime, prepared, local)
+                    if "generator-real-jdk-success" not in (project_b / "src/Main.java").read_text(encoding="utf-8"):
+                        raise AssertionError("real JDK success marker/source is absent")
+                    java_executable = Path(runtime["homePath"]) / "bin/java.exe"
+                    source_java_sha = sha256(java_executable)
+                    write("real-jdk-chain", {"discovered": runtime, "selectedUIHome": selected_home, "prepared": prepared, "local": local, "localSha256": sha256(local_path),
+                                            "javaExecutable": str(java_executable), "javaSha256": source_java_sha, "javaArchitecture": require_x64_executable(java_executable)})
+                with step("workspace-a-b-roundtrip"):
+                    visits = []
+                    for target, opened in ((project_a, "main.mjs"), (project_b, "src/Main.java"), (project_a, "main.mjs"), (project_b, "src/Main.java")):
+                        visits.append(switch_project(target, opened))
+                        other = project_b / "src/Main.java" if target == project_a else project_a / "main.mjs"
+                        if page.get_by_role("tab").filter(has=page.get_by_title(other.resolve().as_posix(), exact=True)).count():
+                            raise AssertionError("another workspace's editor tab leaked into the selected workspace")
+                    if local_path.read_bytes() != local_bytes or (project_a / ".lithe/run/local.json").exists():
+                        raise AssertionError("A/B switching changed or leaked the selected JDK")
+                    resolved = driver.invoke(page, "run_resolve_toolchains", {"args": {"root": str(project_b.resolve()), "javaHomePath": "", "mavenExecutablePath": "", "mavenJavaHomePath": ""}})
+                    if resolved["java"]["status"] != "resolved" or not same_home(resolved["java"]["path"], runtime["homePath"]):
+                        raise AssertionError("B no longer resolves its selected JDK after the roundtrip")
+                    write("workspace-roundtrip", {"visits": visits, "resolvedB": resolved, "localSha256": sha256(local_path)})
+                    page.screenshot(path=str(evidence / "workspace-roundtrip.png"), timeout=5000)
+                with step("runtime-version-and-replacement-rejected"):
+                    wizard("Missing Runtime", "Unsupported JDK")
+                    choose_runtime(page, driver, session.process.pid, Path(runtime["homePath"]))
+                    page.get_by_text("Check this field and its required format or runtime version.", exact=True).wait_for(state="visible", timeout=10_000)
+                    if page.get_by_role("button", name="Review creation", exact=True).is_enabled():
+                        raise AssertionError("a real JDK incorrectly satisfied minimumVersion=999")
+                    page.keyboard.press("Escape")
+                    entry = next(row for row in driver.invoke(page, "declarative_plugins_generator_catalog")["generators"] if row["pluginID"] == PLUGIN_ID and row["generator"]["id"] == "runtime-success")
+                    request = {"pluginId": PLUGIN_ID, "generatorId": "runtime-success", "packageIdentity": entry["packageIdentity"], "parent": str(projects), "createGit": False,
+                               "form": {"projectName": "Wrong Version", "values": {}, "edited": [], "runtimes": {"jdk": {"home": runtime["homePath"], "version": "998"}}}}
+                    approved = driver.invoke(page, "declarative_plugins_generator_prepare", {"request": request})
+                    wrong_version = require_native_rejection(page, "declarative_plugins_generator_generate", {"id": approved["id"]}, ("generator.stale",))
+                    # Only a run-owned copy is replaced. The user's installed JDK
+                    # and the immutable product/package images remain read-only.
+                    runtime_copy = args.app_local_data / "generator-runtime"
+                    shutil.copytree(Path(runtime["homePath"]), runtime_copy)
+                    copied = driver.invoke(page, "declarative_plugins_generator_runtime", {"pluginId": PLUGIN_ID, "home": str(runtime_copy)})
+                    copy_java_sha = sha256(runtime_copy / "bin/java.exe")
+                    if copy_java_sha != source_java_sha:
+                        raise AssertionError("the isolated JDK copy differs from the selected runtime executable")
+                    request["form"]["projectName"] = "Replaced Runtime"
+                    request["form"]["runtimes"]["jdk"] = {"home": copied["homePath"], "version": copied["version"]}
+                    approved = driver.invoke(page, "declarative_plugins_generator_prepare", {"request": request})
+                    original = runtime_copy / "bin/java.exe"
+                    retained = original.with_name("java.exe.acceptance-retained")
+                    original.rename(retained)
+                    try:
+                        replaced = require_native_rejection(page, "declarative_plugins_generator_generate", {"id": approved["id"]}, ("generator.runtimeInvalid",))
+                    finally:
+                        retained.rename(original)
+                    if sha256(original) != copy_java_sha or sha256(java_executable) != source_java_sha:
+                        raise AssertionError("the run-owned Java executable was not restored")
+                    write("runtime-rejections", {"wrongVersion": wrong_version, "replacedRuntime": replaced, "originalJavaSha256": sha256(java_executable), "copyJavaSha256": sha256(original),
+                                                 "copyArchitecture": require_x64_executable(original), "copyRuntime": copied, "restored": True})
+                    assert_clean_projects(projects, "Unsupported JDK", "Wrong Version", "Replaced Runtime")
                 with step(CASES[5]):
                     existing = projects / "Existing"
                     existing.mkdir()
@@ -325,6 +478,21 @@ def run(args, driver, reporter, plan):
                         assert_clean_projects(projects, name)
                         write(case, {"targetAbsent": True, "stagingAbsent": True})
                         page.keyboard.press("Escape")
+                with step("switch-during-generation"):
+                    wizard("Command", "Switched Project")
+                    page.get_by_role("button", name="Wait", exact=True).click(timeout=10_000)
+                    started_at = review_and_create("Switched Project")
+                    marker = wait(lambda: next(iter(projects.glob(".Switched Project.lithe-creating-*/.generator-ready")), None), "switch scenario command ready")
+                    owner = owned_marker_process(driver, session, json.loads(marker.read_text(encoding="utf-8"))["pid"])
+                    page.keyboard.press("Escape")
+                    page.get_by_role("heading", name="Plugin project generators", exact=True).wait_for(state="detached", timeout=10_000)
+                    selected_a = switch_project(project_a, "main.mjs")
+                    observe_cancelled(owner, wait, started_at)
+                    wait(lambda: not any(projects.glob(".Switched Project.lithe-creating-*")), "switched old generation cleanup")
+                    assert_clean_projects(projects, "Switched Project")
+                    if page.get_by_role("tab").and_(page.get_by_title(project_b.resolve().as_posix(), exact=True)).get_attribute("aria-selected") != "false":
+                        raise AssertionError("old generation reactivated B after switching to A")
+                    write("switch-during-generation", {"selectedA": selected_a, "oldChildExited": True, "targetAbsent": True, "stagingAbsent": True})
                 with step(CASES[9]):
                     assert_resources(package_before, snapshot_resources(package_root))
                     region = details()
@@ -332,7 +500,7 @@ def run(args, driver, reporter, plan):
                     wait(lambda: (row if (row := catalog()) and not row["enabled"] else None), "generator disabled")
                     native_catalog = driver.invoke(page, "declarative_plugins_generator_catalog")
                     own = [row for row in native_catalog["generators"] if row["pluginID"] == PLUGIN_ID]
-                    if len(own) != 4 or any(row["pluginEnabled"] for row in own):
+                    if len(own) != len(declaration(plan["archiveURL"], plan["archiveOpenFile"])["projectGenerators"]) or any(row["pluginEnabled"] for row in own):
                         raise AssertionError("disabled generators must remain inspectable but disabled")
                     wizard("Files", "Enable Only", disabled=True)
                     if page.get_by_role("button", name="Review creation", exact=True).is_enabled():
@@ -402,6 +570,7 @@ def main():
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--java-home", type=Path, help="Optional real JDK acceptance input; otherwise use existing platform discovery")
     for key in ("host-identity", "executable", "run-image", "artifact-root", "app-local-data", "app-roaming-data", "webview-data"):
         parser.add_argument("--" + key, type=Path)
     args = parser.parse_args()

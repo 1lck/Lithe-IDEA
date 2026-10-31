@@ -39,6 +39,51 @@ class GeneratorHelperTests(unittest.TestCase):
         self.assertEqual(steps, {"files", "command", "archive"})
         self.assertNotIn("languageServers", manifest)
 
+    def test_real_jdk_success_is_separate_from_the_999_failure_fixture(self):
+        manifest = fixture.declaration(self.url, self.opened)
+        generators = {row["id"]: row for row in manifest["projectGenerators"]}
+        self.assertEqual(generators["runtime"]["fields"][0]["minimumVersion"], "999")
+        success = generators["runtime-success"]
+        self.assertEqual(success["fields"][0], {"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java", "minimumVersion": "17"})
+        self.assertEqual(success["openFiles"], ["src/Main.java"])
+        self.assertEqual(success["steps"], [{"kind": "files", "source": "templates/runtime"}])
+        self.assertIn(b"generator-real-jdk-success", fixture.FILES["templates/runtime/src/Main.java"])
+
+    def test_adapter_review_and_local_configuration_must_match_exact_jdk_version_and_home(self):
+        runtime = {"homePath": "C:/Tools/JDK", "version": "21.0.8"}
+        prepared = {"plan": {"runtimes": [{"field": "jdk", "runtime": "java", "home": "c:\\tools\\jdk", "version": "21.0.8"}]}}
+        local = {"version": 2, "toolchain": {"java": {"homePath": "C:/Tools/JDK/"}}}
+        acceptance.assert_runtime_chain(runtime, prepared, local)
+        for key, value in (("version", "21.0.9"), ("home", "C:/Other/JDK")):
+            changed = copy.deepcopy(prepared)
+            changed["plan"]["runtimes"][0][key] = value
+            with self.assertRaisesRegex(AssertionError, "differ"):
+                acceptance.assert_runtime_chain(runtime, changed, local)
+        changed = copy.deepcopy(local)
+        changed["toolchain"]["java"]["homePath"] = "C:/Other/JDK"
+        with self.assertRaisesRegex(AssertionError, "differ"):
+            acceptance.assert_runtime_chain(runtime, prepared, changed)
+
+    def test_real_runtime_choice_uses_existing_native_directory_picker(self):
+        page, driver = MagicMock(), MagicMock()
+        home = Path("real-runtime")
+        acceptance.choose_runtime(page, driver, 81, home)
+        page.locator.assert_called_once_with("#generator-field-jdk")
+        page.locator.return_value.click.assert_called_once_with(timeout=10_000)
+        driver.select_native_file.assert_called_once_with(81, home)
+
+    def test_transport_failure_cannot_be_reported_as_native_runtime_rejection(self):
+        page = MagicMock()
+        page.evaluate.return_value = {"accepted": False, "error": {"code": "generator.stale"}}
+        self.assertEqual(acceptance.require_native_rejection(page, "generate", {"id": "real-ticket"}, ("generator.stale",)), "generator.stale")
+        for result in ({"accepted": True, "value": {}}, {"accepted": False, "error": {"code": "transport.timeout"}}):
+            page.evaluate.return_value = result
+            with self.assertRaisesRegex(AssertionError, "expected native"):
+                acceptance.require_native_rejection(page, "generate", {"id": "real-ticket"}, ("generator.stale",))
+        page.evaluate.side_effect = TimeoutError("transport deadline")
+        with self.assertRaisesRegex(TimeoutError, "transport deadline"):
+            acceptance.require_native_rejection(page, "generate", {}, ("generator.stale",))
+
     def test_archive_credentials_plain_http_and_unsafe_open_files_are_rejected(self):
         for url in ("http://example.invalid/source.zip", "https://user:secret@example.invalid/source.zip",
                     self.url + "?token=private", self.url + "#fragment"):

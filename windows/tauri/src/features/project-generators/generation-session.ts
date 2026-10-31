@@ -15,7 +15,11 @@ export interface GenerationRequest {
 export interface GenerationReview {
   id: string;
   destination: string;
-  plan: { steps: unknown[]; usesNetwork: boolean };
+  plan: {
+    steps: unknown[];
+    usesNetwork: boolean;
+    runtimes?: { field: string; runtime: string; home: string; version: string }[];
+  };
   programs: { executable: string; arguments: string[] }[];
 }
 export interface CreatedProject {

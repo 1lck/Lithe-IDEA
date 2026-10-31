@@ -41,6 +41,8 @@ FILES = {
     "templates/files/main.mjs": b'console.log("generator files project");\n',
     "templates/files/dot-gitignore": b"node_modules/\n",
     "templates/command/create.mjs": COMMAND_SOURCE,
+    "templates/runtime/README.md": b"# Real JDK selection acceptance\nJDK: {{ field.jdk }}\nMajor: {{ field.jdk.major }}\n",
+    "templates/runtime/src/Main.java": b'public class Main { public static void main(String[] args) { System.out.println("generator-real-jdk-success"); } }\n',
 }
 
 
@@ -73,6 +75,9 @@ def declaration(archive_url: str, archive_open_file: str) -> dict:
             {"id": "runtime", "displayName": "Acceptance Missing Runtime", "section": "generator",
              "fields": [{"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java", "minimumVersion": "999"}],
              "steps": [{"kind": "files", "source": "templates/command"}]},
+            {"id": "runtime-success", "displayName": "Acceptance Runtime Success", "section": "project",
+             "fields": [{"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java", "minimumVersion": "17"}],
+             "steps": [{"kind": "files", "source": "templates/runtime"}], "openFiles": ["src/Main.java"]},
         ],
     }
 

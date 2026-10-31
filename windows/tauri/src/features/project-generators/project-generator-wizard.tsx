@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { invoke } from "@/platform/tauri-core";
 import { openFolder } from "@/features/file-system/controllers/platform";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -7,6 +8,8 @@ import Input from "@/ui/input";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/ui/field";
 import { Spinner } from "@/ui/spinner";
 import { normalizePath } from "@/utils/path-helpers";
+import { createProjectTabId } from "@/features/window/utils/project-tab-path";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { setDeclarativePluginEnabled } from "@/features/plugins/declarative-plugin-launch";
 import { DeclarativeMarketplaceSection } from "@/features/plugins/marketplace/marketplace-section";
 import {
@@ -51,6 +54,9 @@ export default function ProjectGeneratorWizard({
   const [review, setReview] = useState<GenerationReview>();
   const [created, setCreated] = useState<CreatedProject>();
   const alive = useRef(false);
+  const openingCreated = useRef(false);
+  const sourceOnClose = useRef(onClose);
+  const sourcePickerClosed = useRef(false);
   const [marketplaceQuery, setMarketplaceQuery] = useState<string>();
   const [marketplace] = useState(() => marketplaceHostService(() => {}));
   const session = useRef<GenerationSession | null>(null);
@@ -90,10 +96,28 @@ export default function ProjectGeneratorWizard({
     );
     forms.current = formOwner;
     void formOwner.reload();
-    return () => {
+    const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
+    const stop = () => {
       alive.current = false;
       formOwner.dispose();
       void owner.close().catch((error) => console.error("Project generator cleanup failed", error));
+    };
+    const unsubscribe = workspaceRuntimeRegistry.subscribe(() => {
+      // Opening this result deliberately activates its new workspace. Other
+      // switches invalidate the old wizard, including a still-pending create.
+      if (!alive.current || workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId) return;
+      if (openingCreated.current) {
+        // Close the original picker as B activates, before A can host another
+        // picker incarnation. A late completion must never close that new UI.
+        if (!sourcePickerClosed.current) {
+          sourcePickerClosed.current = true;
+          sourceOnClose.current();
+        }
+      } else stop();
+    });
+    return () => {
+      unsubscribe();
+      stop();
     };
   }, []);
 
@@ -117,16 +141,56 @@ export default function ProjectGeneratorWizard({
       edited: [...new Set([...form.edited, id])],
     });
   };
-  const openCreated = async (project: CreatedProject) => {
-    const { useFileSystemStore } = await import("@/features/file-system/stores/file-system.store");
-    const store = useFileSystemStore.getState();
-    if (!(await store.handleOpenFolderByPath(normalizePath(project.root)))) {
-      setError(t("newProject.errorCreatedButCouldNotOpen"));
-      return;
+  const openCreated = async (project: CreatedProject, retry = false): Promise<void> => {
+    const reportOpenFailure = () => {
+      const message = t("newProject.errorCreatedButCouldNotOpen");
+      if (alive.current && !sourcePickerClosed.current) setError(message);
+      else
+        toast.error(message, {
+          description: project.root,
+          duration: Infinity,
+          action: {
+            label: t("generator.openCreated"),
+            // This explicit action only reopens the already-created project;
+            // its old picker and generation session no longer own any UI.
+            onClick: () => {
+              void openCreated(project, true);
+            },
+          },
+        });
+    };
+    try {
+      const { useFileSystemStore } =
+        await import("@/features/file-system/stores/file-system.store");
+      if (!alive.current && !retry) return;
+      openingCreated.current = true;
+      const store = useFileSystemStore.getState();
+      const root = normalizePath(project.root);
+      if (!(await store.handleOpenFolderByPath(root))) {
+        reportOpenFailure();
+        return;
+      }
+      const workspaceId = createProjectTabId(root);
+      // The open may finish after the user switches back to another tab.
+      // Bind generated files to their project rather than the active store.
+      if (workspaceRuntimeRegistry.hasWorkspace(workspaceId)) {
+        const target = useFileSystemStore.getStore(workspaceId);
+        for (const path of project.openFiles) {
+          if (!workspaceRuntimeRegistry.hasWorkspace(workspaceId)) return;
+          await target.getState().handleFileOpen(normalizePath(path), false);
+        }
+      }
+      // A routed open can succeed without switching this window's workspace.
+      // Only the still-mounted original picker may be closed at this point.
+      if (!retry && alive.current && !sourcePickerClosed.current) {
+        sourcePickerClosed.current = true;
+        sourceOnClose.current();
+      }
+    } catch {
+      reportOpenFailure();
+    } finally {
+      openingCreated.current = false;
     }
-    const target = useFileSystemStore.getState();
-    for (const path of project.openFiles) await target.handleFileOpen(normalizePath(path), false);
-    if (alive.current) onClose();
   };
   const cancel = () =>
     act(async () => {
@@ -434,7 +498,7 @@ export default function ProjectGeneratorWizard({
           <details>
             <summary>{t("generator.steps", { count: review.plan.steps.length })}</summary>
             <pre className="whitespace-pre-wrap break-all">
-              {JSON.stringify(review.plan.steps, null, 2)}
+              {JSON.stringify(review.plan, null, 2)}
             </pre>
           </details>
           {review.programs.map((program, index) => (
