@@ -31,6 +31,8 @@ export interface JavaLspLaunch {
 export interface JavaLspRuntime {
   homePath: string;
   version: string;
+  /** JDT LS makes this runtime the default VM; one JDK must be marked. */
+  default?: boolean;
 }
 
 export interface JavaLspGradle {

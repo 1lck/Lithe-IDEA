@@ -157,6 +157,8 @@ pub(crate) struct JdtJavaRuntime {
     pub name: String,
     /// JDK home directory.
     pub path: String,
+    /// Make this runtime JDT LS's global default VM.
+    pub default: bool,
 }
 
 /// Values Lithe owns in JDT LS's `settings.java`, borrowed from one session.
@@ -177,10 +179,17 @@ pub(crate) struct JdtSettings<'a> {
 /// Without these, JDT LS knows only the JDK it runs on, so a project that
 /// compiles for a newer release fails with "release N is not found in the
 /// system" even though that JDK is installed. The first JDK the platform lists
-/// for a major version wins, so platforms order their candidates by
-/// preference. Versions that do not parse are skipped, not guessed.
+/// for a major version wins unless the platform marks another one, so platforms
+/// order their candidates by preference. Versions that do not parse are
+/// skipped, not guessed.
+///
+/// JDT LS also resets its default VM to the language server's own JDK when no
+/// runtime is marked default (`JVMConfigurator.configureJVMSettings`). Prefer
+/// the platform's marked runtime, otherwise the newest installed JDK: older
+/// releases still compile through their `--release` system library.
 pub(crate) fn jdt_java_runtimes(candidates: &[JavaRuntimeCandidate]) -> Vec<JdtJavaRuntime> {
     let mut by_major = BTreeMap::new();
+    let mut requested_default = None;
     for candidate in candidates {
         let Some(major) = java_major_version(&candidate.version) else {
             continue;
@@ -188,10 +197,16 @@ pub(crate) fn jdt_java_runtimes(candidates: &[JavaRuntimeCandidate]) -> Vec<JdtJ
         if candidate.home_path.trim().is_empty() {
             continue;
         }
-        by_major
-            .entry(major)
-            .or_insert_with(|| candidate.home_path.trim().to_string());
+        if candidate.default {
+            requested_default.get_or_insert(major);
+            by_major.insert(major, candidate.home_path.trim().to_string());
+        } else {
+            by_major
+                .entry(major)
+                .or_insert_with(|| candidate.home_path.trim().to_string());
+        }
     }
+    let default_major = requested_default.or_else(|| by_major.keys().next_back().copied());
     by_major
         .into_iter()
         .map(|(major, path)| JdtJavaRuntime {
@@ -201,6 +216,7 @@ pub(crate) fn jdt_java_runtimes(candidates: &[JavaRuntimeCandidate]) -> Vec<JdtJ
                 format!("JavaSE-{major}")
             },
             path,
+            default: Some(major) == default_major,
         })
         .collect()
 }
@@ -1219,7 +1235,13 @@ fn java_runtimes_value(runtimes: &[JdtJavaRuntime]) -> Value {
     Value::Array(
         runtimes
             .iter()
-            .map(|runtime| json!({ "name": runtime.name, "path": runtime.path }))
+            .map(|runtime| {
+                if runtime.default {
+                    json!({ "name": runtime.name, "path": runtime.path, "default": true })
+                } else {
+                    json!({ "name": runtime.name, "path": runtime.path })
+                }
+            })
             .collect(),
     )
 }
@@ -1500,6 +1522,14 @@ mod tests {
         JavaRuntimeCandidate {
             home_path: home_path.to_string(),
             version: version.to_string(),
+            default: false,
+        }
+    }
+
+    fn default_runtime(home_path: &str, version: &str) -> JavaRuntimeCandidate {
+        JavaRuntimeCandidate {
+            default: true,
+            ..runtime(home_path, version)
         }
     }
 
@@ -1520,15 +1550,41 @@ mod tests {
             vec![
                 JdtJavaRuntime {
                     name: "JavaSE-1.8".to_string(),
-                    path: "/jdks/jdk8".to_string()
+                    path: "/jdks/jdk8".to_string(),
+                    default: false,
                 },
                 JdtJavaRuntime {
                     name: "JavaSE-21".to_string(),
-                    path: "/jdks/temurin-21".to_string()
+                    path: "/jdks/temurin-21".to_string(),
+                    default: false,
                 },
                 JdtJavaRuntime {
                     name: "JavaSE-25".to_string(),
-                    path: "/jdks/temurin-25".to_string()
+                    path: "/jdks/temurin-25".to_string(),
+                    default: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn platform_marked_runtime_wins_over_the_newest_installed_jdk() {
+        let runtimes = jdt_java_runtimes(&[
+            default_runtime("/jdks/jdk17", "17.0.9"),
+            runtime("/jdks/jdk25", "25.0.4"),
+        ]);
+        assert_eq!(
+            runtimes,
+            vec![
+                JdtJavaRuntime {
+                    name: "JavaSE-17".to_string(),
+                    path: "/jdks/jdk17".to_string(),
+                    default: true,
+                },
+                JdtJavaRuntime {
+                    name: "JavaSE-25".to_string(),
+                    path: "/jdks/jdk25".to_string(),
+                    default: false,
                 },
             ]
         );
@@ -1539,6 +1595,7 @@ mod tests {
         let runtimes = [JdtJavaRuntime {
             name: "JavaSE-25".to_string(),
             path: "C:/Program Files/Java/jdk-25".to_string(),
+            default: true,
         }];
         let settings = JdtSettings {
             maven: None,
@@ -1546,7 +1603,7 @@ mod tests {
             java_runtimes: &runtimes,
             ..Default::default()
         };
-        let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25" }]);
+        let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25", "default": true }]);
         let options = adapt_initialization_options("java", None, &[], settings).unwrap();
         assert_eq!(
             options["settings"]["java"]["configuration"]["runtimes"],

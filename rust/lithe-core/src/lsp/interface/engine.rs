@@ -200,6 +200,12 @@ pub struct JavaRuntimeCandidate {
     pub home_path: String,
     /// Version reported by `java -version`, such as `25.0.4` or `1.8.0_402`.
     pub version: String,
+    /// The platform selected this JDK for the workspace. JDT LS resets its
+    /// default VM to the JDK the language server runs on unless one runtime is
+    /// marked default, so a Java 25 project would still build with the bundled
+    /// JDK.
+    #[serde(default)]
+    pub default: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
