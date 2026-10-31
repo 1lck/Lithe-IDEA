@@ -72,7 +72,7 @@ private struct TestOperations: LocalHistoryOperations {
     func entries(at workspaceURL: URL, storageURL: URL, relativePath: String?, visibilityRules: LocalHistoryVisibilityRules) -> [LocalHistoryEntryPayload]? { [] }
     func content(at storageURL: URL, contentPath: String) -> String? { nil }
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool { false }
-    func usage(at storageURL: URL) -> LocalHistoryUsage? { nil }
+    func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage? { nil }
     func clear(at storageURL: URL) -> Bool { false }
-    func ignorePreview(path: String?, ignorePatterns: [String], ignoreRegexes: [String]) -> LocalHistoryIgnorePreview? { nil }
+    func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules) -> LocalHistoryIgnorePreview? { nil }
 }

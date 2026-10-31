@@ -14,11 +14,12 @@ const MAX_FILE_SIZE: usize = 2 * 1024 * 1024;
 const MAX_ENTRIES_PER_FILE: usize = 100;
 const RETENTION_SECONDS: i64 = 30 * 24 * 60 * 60;
 const HISTORY_VERSION: u32 = 2;
-/// Upper bound for one project's history storage, measured in allocated blocks.
+/// Default upper bound for one project's history storage, measured in allocated blocks.
 const MAX_STORAGE_BYTES: u64 = 100 * 1024 * 1024;
-/// Baseline snapshots stop here so edits always keep headroom under the cap and
-/// reopening a project does not churn baselines through eviction.
-const MAX_BASELINE_STORAGE_BYTES: u64 = MAX_STORAGE_BYTES / 2;
+/// Bounds for a host-supplied cap: a tiny cap would evict every edit, and a
+/// huge one would let one project fill the disk unnoticed.
+const MIN_CONFIGURED_STORAGE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_CONFIGURED_STORAGE_BYTES: u64 = 100 * 1024 * 1024 * 1024;
 /// Small files still occupy whole filesystem blocks; counting blocks keeps the
 /// budget close to what Finder and disk cleaners report.
 const STORAGE_BLOCK_BYTES: u64 = 4096;
@@ -80,6 +81,9 @@ pub struct HistoryRecordRequest {
     pub hidden_file_patterns: Vec<String>,
     #[serde(default)]
     pub ignore_rules: HistoryIgnoreRules,
+    /// Storage cap in bytes; `None` keeps the 100 MB default.
+    #[serde(default)]
+    pub storage_limit_bytes: Option<u64>,
 }
 
 /// User rules for files whose changes local history should not record.
@@ -95,6 +99,39 @@ pub struct HistoryIgnoreRules {
     pub path_patterns: Vec<String>,
     #[serde(default)]
     pub path_regexes: Vec<String>,
+    /// Folders added to the built-in baseline exclusions, and `!name` entries
+    /// that turn a built-in one off.
+    #[serde(default)]
+    pub baseline_excluded_directory_names: Vec<String>,
+}
+
+impl HistoryIgnoreRules {
+    /// Built-in baseline exclusions, minus those turned off, plus the user's own.
+    fn baseline_excluded_directories(&self) -> Vec<String> {
+        let entries = self
+            .baseline_excluded_directory_names
+            .iter()
+            .map(|name| name.trim())
+            .filter(|name| !name.is_empty());
+        let disabled = entries
+            .clone()
+            .filter_map(|name| name.strip_prefix('!'))
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        let mut names: Vec<String> = Vec::new();
+        for name in BASELINE_EXCLUDED_DIRECTORY_NAMES
+            .iter()
+            .copied()
+            .chain(entries.filter(|name| !name.starts_with('!')))
+        {
+            if !disabled.iter().any(|off| off.eq_ignore_ascii_case(name))
+                && !names.iter().any(|kept| kept.eq_ignore_ascii_case(name))
+            {
+                names.push(name.to_string());
+            }
+        }
+        names
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,6 +142,9 @@ pub struct HistoryIgnorePreviewRequest {
     pub path: Option<String>,
     #[serde(default)]
     pub ignore_rules: HistoryIgnoreRules,
+    /// Hidden-path entries, so the preview honours built-ins the user turned off.
+    #[serde(default)]
+    pub hidden_file_patterns: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -138,7 +178,8 @@ pub enum HistoryIgnoreMatch {
 /// Validation and sample-path result for the local history settings.
 pub struct HistoryIgnorePreviewResponse {
     pub regex_errors: Vec<HistoryIgnoreRegexError>,
-    pub baseline_excluded_directory_names: Vec<String>,
+    /// The built-in defaults, for settings to show and edit against.
+    pub built_in_baseline_excluded_directory_names: Vec<String>,
     pub matched: Option<HistoryIgnoreMatch>,
 }
 
@@ -147,6 +188,9 @@ pub struct HistoryIgnorePreviewResponse {
 /// One project's history storage, for usage reporting or clearing.
 pub struct HistoryStorageRequest {
     pub storage_root: String,
+    /// Cap reported by `usage`; `None` keeps the 100 MB default.
+    #[serde(default)]
+    pub storage_limit_bytes: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -238,7 +282,8 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
     {
         return Ok(None);
     }
-    if request.reason == "projectBaseline" && is_excluded_from_baseline(&workspace, &relative_path)
+    if request.reason == "projectBaseline"
+        && is_excluded_from_baseline(&workspace, &relative_path, &request.ignore_rules)
     {
         return Ok(None);
     }
@@ -275,8 +320,9 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
         return Ok(None);
     }
     let storage = storage_root(&request.storage_root)?;
+    let limit = storage_limit(request.storage_limit_bytes);
     let is_baseline = request.reason == "projectBaseline";
-    if is_baseline && storage_usage(&storage) >= MAX_BASELINE_STORAGE_BYTES {
+    if is_baseline && storage_usage(&storage) >= baseline_budget(limit) {
         return Ok(None);
     }
     let directory = storage.join(stable_identifier(&relative_path));
@@ -319,8 +365,8 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
     );
     trim_entries(&directory, &storage);
     if request.prune_expired {
-        prune_expired(&storage);
-        enforce_storage_limit(&storage, MAX_STORAGE_BYTES);
+        prune_expired(&storage, &request.ignore_rules);
+        enforce_storage_limit(&storage, limit);
     }
     Ok(Some(stored.into_response()))
 }
@@ -482,13 +528,17 @@ pub fn ignore_preview(
     let matched = match request.path.as_deref().map(str::trim) {
         Some(path) if !path.is_empty() => {
             let relative = safe_relative_path(path)?;
-            preview_match(&request.ignore_rules, &relative)
+            preview_match(
+                &request.ignore_rules,
+                &request.hidden_file_patterns,
+                &relative,
+            )
         }
         _ => None,
     };
     Ok(HistoryIgnorePreviewResponse {
         regex_errors,
-        baseline_excluded_directory_names: BASELINE_EXCLUDED_DIRECTORY_NAMES
+        built_in_baseline_excluded_directory_names: BASELINE_EXCLUDED_DIRECTORY_NAMES
             .iter()
             .map(|name| (*name).to_string())
             .collect(),
@@ -502,8 +552,21 @@ pub fn usage(request: HistoryStorageRequest) -> Result<HistoryUsageResponse, Cor
     invalidate_storage_usage(&storage);
     Ok(HistoryUsageResponse {
         used_bytes: storage_usage(&storage),
-        limit_bytes: MAX_STORAGE_BYTES,
+        limit_bytes: storage_limit(request.storage_limit_bytes),
     })
+}
+
+/// The cap to enforce: the host's value kept within sane bounds, or the default.
+fn storage_limit(requested: Option<u64>) -> u64 {
+    requested.map_or(MAX_STORAGE_BYTES, |bytes| {
+        bytes.clamp(MIN_CONFIGURED_STORAGE_BYTES, MAX_CONFIGURED_STORAGE_BYTES)
+    })
+}
+
+/// Baseline snapshots stop at half of the cap (50 MB by default) so edits always
+/// keep headroom and reopening a project does not churn baselines through eviction.
+fn baseline_budget(limit: u64) -> u64 {
+    limit / 2
 }
 
 /// Deletes every snapshot of one project. The storage root itself stays.
@@ -518,8 +581,14 @@ pub fn clear(request: HistoryStorageRequest) -> Result<(), CoreError> {
     result.map_err(CoreError::from)
 }
 
-fn preview_match(rules: &HistoryIgnoreRules, relative_path: &str) -> Option<HistoryIgnoreMatch> {
-    if VisibilityRules::new(Vec::new(), Vec::new()).is_hidden(relative_path, false) {
+fn preview_match(
+    rules: &HistoryIgnoreRules,
+    hidden_file_patterns: &[String],
+    relative_path: &str,
+) -> Option<HistoryIgnoreMatch> {
+    if VisibilityRules::new(Vec::new(), hidden_file_patterns.to_vec())
+        .is_hidden(relative_path, false)
+    {
         return Some(HistoryIgnoreMatch::Hidden);
     }
     if let Some(found) = ignored_rule(rules, relative_path) {
@@ -527,12 +596,13 @@ fn preview_match(rules: &HistoryIgnoreRules, relative_path: &str) -> Option<Hist
     }
     let mut components = relative_path.split('/').collect::<Vec<_>>();
     components.pop();
+    let excluded = rules.baseline_excluded_directories();
     components.into_iter().find_map(|component| {
-        BASELINE_EXCLUDED_DIRECTORY_NAMES
+        excluded
             .iter()
             .find(|name| component.eq_ignore_ascii_case(name))
             .map(|name| HistoryIgnoreMatch::BaselineExcluded {
-                directory: (*name).to_string(),
+                directory: name.clone(),
             })
     })
 }
@@ -703,12 +773,13 @@ fn trim_entries(directory: &Path, storage: &Path) {
 /// Older releases seeded every visible file, including virtual environments and
 /// nested worktrees; dropping those baselines here reclaims that space without
 /// touching snapshots of real edits.
-fn prune_expired(storage: &Path) {
+fn prune_expired(storage: &Path, rules: &HistoryIgnoreRules) {
     let cutoff = unix_seconds() - RETENTION_SECONDS;
+    let excluded = rules.baseline_excluded_directories();
     let mut removed = false;
     for entry in all_entries(storage) {
         let excluded_baseline = entry.reason == "projectBaseline"
-            && has_excluded_baseline_component(&entry.relative_path);
+            && has_excluded_baseline_component(&entry.relative_path, &excluded);
         if entry.timestamp < cutoff || excluded_baseline {
             remove_entry(storage, &entry);
             removed = true;
@@ -844,11 +915,11 @@ fn invalidate_storage_usage(storage: &Path) {
     }
 }
 
-fn has_excluded_baseline_component(relative_path: &str) -> bool {
+fn has_excluded_baseline_component(relative_path: &str, excluded: &[String]) -> bool {
     let mut components = relative_path.split('/').collect::<Vec<_>>();
     components.pop();
     components.iter().any(|component| {
-        BASELINE_EXCLUDED_DIRECTORY_NAMES
+        excluded
             .iter()
             .any(|name| component.eq_ignore_ascii_case(name))
     })
@@ -858,8 +929,12 @@ fn has_excluded_baseline_component(relative_path: &str) -> bool {
 ///
 /// A nested `.git` marks another checkout, such as a worktree or vendored clone,
 /// whose files belong to that repository's own history rather than this project.
-fn is_excluded_from_baseline(workspace: &Path, relative_path: &str) -> bool {
-    if has_excluded_baseline_component(relative_path) {
+fn is_excluded_from_baseline(
+    workspace: &Path,
+    relative_path: &str,
+    rules: &HistoryIgnoreRules,
+) -> bool {
+    if has_excluded_baseline_component(relative_path, &rules.baseline_excluded_directories()) {
         return true;
     }
     let mut directory = workspace.to_path_buf();
@@ -997,13 +1072,24 @@ mod tests {
             hidden_directory_names: Vec::new(),
             hidden_file_patterns: Vec::new(),
             ignore_rules: HistoryIgnoreRules::default(),
+            storage_limit_bytes: None,
         }
+    }
+
+    #[test]
+    fn configured_limit_is_kept_within_bounds() {
+        assert_eq!(storage_limit(None), MAX_STORAGE_BYTES);
+        assert_eq!(storage_limit(Some(300 * 1024 * 1024)), 300 * 1024 * 1024);
+        assert_eq!(storage_limit(Some(0)), MIN_CONFIGURED_STORAGE_BYTES);
+        assert_eq!(storage_limit(Some(u64::MAX)), MAX_CONFIGURED_STORAGE_BYTES);
+        assert_eq!(baseline_budget(storage_limit(None)), 50 * 1024 * 1024);
     }
 
     fn ignore_rules(patterns: &[&str], regexes: &[&str]) -> HistoryIgnoreRules {
         HistoryIgnoreRules {
             path_patterns: patterns.iter().map(|value| value.to_string()).collect(),
             path_regexes: regexes.iter().map(|value| value.to_string()).collect(),
+            baseline_excluded_directory_names: Vec::new(),
         }
     }
 
@@ -1169,7 +1255,7 @@ mod tests {
         usage_cache()
             .lock()
             .unwrap()
-            .insert(canonical.clone(), MAX_BASELINE_STORAGE_BYTES);
+            .insert(canonical.clone(), baseline_budget(MAX_STORAGE_BYTES));
 
         let baseline = record(record_request(
             &workspace,
@@ -1249,6 +1335,7 @@ mod tests {
             ignore_preview(HistoryIgnorePreviewRequest {
                 path: Some(path.into()),
                 ignore_rules: ignore_rules(&["docs/*.md"], &["(", r"\.tmp$"]),
+                hidden_file_patterns: Vec::new(),
             })
             .unwrap()
         };
@@ -1256,7 +1343,7 @@ mod tests {
         assert_eq!(result.regex_errors.len(), 1);
         assert_eq!(result.regex_errors[0].index, 0);
         assert!(result
-            .baseline_excluded_directory_names
+            .built_in_baseline_excluded_directory_names
             .contains(&"Pods".to_string()));
         assert_eq!(
             result.matched,
@@ -1280,8 +1367,43 @@ mod tests {
         assert!(ignore_preview(HistoryIgnorePreviewRequest {
             path: Some("../outside".into()),
             ignore_rules: HistoryIgnoreRules::default(),
+            hidden_file_patterns: Vec::new(),
         })
         .is_err());
+    }
+
+    #[test]
+    fn baseline_exclusions_can_be_extended_and_turned_off() {
+        let rules = HistoryIgnoreRules {
+            baseline_excluded_directory_names: vec!["generated".into(), " !Pods ".into()],
+            ..HistoryIgnoreRules::default()
+        };
+        let excluded = rules.baseline_excluded_directories();
+        assert!(excluded.contains(&"generated".to_string()));
+        assert!(!excluded
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("pods")));
+        assert!(excluded.contains(&".idea".to_string()));
+        assert!(has_excluded_baseline_component(
+            "src/generated/A.java",
+            &excluded
+        ));
+        assert!(!has_excluded_baseline_component(
+            "ios/Pods/Lib/a.h",
+            &excluded
+        ));
+        assert_eq!(preview_match(&rules, &[], "ios/Pods/Lib/a.h"), None);
+        // A turned-off hidden folder is visible again; `build` still gets no baseline.
+        assert_eq!(
+            preview_match(&rules, &["!**/build/".into()], "build/out.txt"),
+            Some(HistoryIgnoreMatch::BaselineExcluded {
+                directory: "build".into()
+            })
+        );
+        assert_eq!(
+            preview_match(&rules, &[], "build/out.txt"),
+            Some(HistoryIgnoreMatch::Hidden)
+        );
     }
 
     #[test]
@@ -1291,6 +1413,7 @@ mod tests {
         write_file(&workspace, "a.txt", "a\n");
         let request = || HistoryStorageRequest {
             storage_root: storage.to_string_lossy().into_owned(),
+            storage_limit_bytes: None,
         };
         assert_eq!(usage(request()).unwrap().used_bytes, 0);
         record(record_request(
@@ -1313,6 +1436,12 @@ mod tests {
         // Two snapshots and two metadata files, one block each.
         assert_eq!(measured.used_bytes, 4 * STORAGE_BLOCK_BYTES);
         assert_eq!(measured.limit_bytes, MAX_STORAGE_BYTES);
+        let configured = usage(HistoryStorageRequest {
+            storage_limit_bytes: Some(500 * 1024 * 1024),
+            ..request()
+        })
+        .unwrap();
+        assert_eq!(configured.limit_bytes, 500 * 1024 * 1024);
 
         clear(request()).unwrap();
         assert_eq!(usage(request()).unwrap().used_bytes, 0);

@@ -100,10 +100,10 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
     }
 
     /// Validates ignore rules for the settings page; needs no open project.
-    public func previewIgnoreRules(path: String?, patterns: [String], regexes: [String]) async -> LocalHistoryIgnorePreview? {
+    public func previewIgnoreRules(path: String?, rules: LocalHistoryVisibilityRules) async -> LocalHistoryIgnorePreview? {
         let operations = localHistoryOperations
         return await Task.detached {
-            operations.ignorePreview(path: path, ignorePatterns: patterns, ignoreRegexes: regexes)
+            operations.ignorePreview(path: path, rules: rules)
         }.value
     }
 

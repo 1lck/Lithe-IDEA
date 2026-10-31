@@ -6,12 +6,20 @@ public struct LocalHistoryVisibilityRules: Hashable, Sendable {
     /// Files the user keeps out of local history only; the project tree still shows them.
     public let ignorePatterns: [String]
     public let ignoreRegexes: [String]
+    /// Folders added to the built-in No initial copy list, and `!name` entries
+    /// for built-in ones the user removed.
+    public let baselineExcludedDirectoryNames: [String]
+    /// Storage cap for the project; nil keeps Rust Core's 100 MB default.
+    public let storageLimitBytes: Int64?
     public init(hiddenDirectoryNames: [String], hiddenFilePatterns: [String],
-                ignorePatterns: [String] = [], ignoreRegexes: [String] = []) {
+                ignorePatterns: [String] = [], ignoreRegexes: [String] = [],
+                baselineExcludedDirectoryNames: [String] = [], storageLimitBytes: Int64? = nil) {
         self.hiddenDirectoryNames = hiddenDirectoryNames
         self.hiddenFilePatterns = hiddenFilePatterns
         self.ignorePatterns = ignorePatterns
         self.ignoreRegexes = ignoreRegexes
+        self.baselineExcludedDirectoryNames = baselineExcludedDirectoryNames
+        self.storageLimitBytes = storageLimitBytes
     }
 }
 
@@ -38,11 +46,12 @@ public enum LocalHistoryIgnoreMatch: Equatable, Sendable {
 /// Settings feedback for ignore rules: rejected regexes by list position and the sample-path result.
 public struct LocalHistoryIgnorePreview: Equatable, Sendable {
     public let regexErrors: [Int: String]
-    public let baselineExcludedDirectoryNames: [String]
+    /// The built-in No initial copy folders, before the user's changes.
+    public let builtInBaselineExcludedDirectoryNames: [String]
     public let matched: LocalHistoryIgnoreMatch?
-    public init(regexErrors: [Int: String], baselineExcludedDirectoryNames: [String], matched: LocalHistoryIgnoreMatch?) {
+    public init(regexErrors: [Int: String], builtInBaselineExcludedDirectoryNames: [String], matched: LocalHistoryIgnoreMatch?) {
         self.regexErrors = regexErrors
-        self.baselineExcludedDirectoryNames = baselineExcludedDirectoryNames
+        self.builtInBaselineExcludedDirectoryNames = builtInBaselineExcludedDirectoryNames
         self.matched = matched
     }
 }
@@ -70,9 +79,9 @@ public protocol LocalHistoryOperations: Sendable {
     func entries(at workspaceURL: URL, storageURL: URL, relativePath: String?, visibilityRules: LocalHistoryVisibilityRules) -> [LocalHistoryEntryPayload]?
     func content(at storageURL: URL, contentPath: String) -> String?
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool
-    func usage(at storageURL: URL) -> LocalHistoryUsage?
+    func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage?
     func clear(at storageURL: URL) -> Bool
-    func ignorePreview(path: String?, ignorePatterns: [String], ignoreRegexes: [String]) -> LocalHistoryIgnorePreview?
+    func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules) -> LocalHistoryIgnorePreview?
 }
 
 public protocol LocalHistoryWorkspaceAccess: Sendable {

@@ -51,6 +51,8 @@ final class AppSettings: ObservableObject {
         static let searchExclusionsEnabled = "settings.searchExclusionsEnabled"
         static let localHistoryIgnorePatterns = "settings.localHistoryIgnorePatterns"
         static let localHistoryIgnoreRegexes = "settings.localHistoryIgnoreRegexes"
+        static let localHistoryBaselineExcludedDirectoryNames = "settings.localHistoryBaselineExcludedDirectoryNames"
+        static let localHistoryStorageLimitMegabytes = "settings.localHistoryStorageLimitMegabytes"
         static let gitExecutable = "settings.gitExecutable"
         static let gitUseCredentialHelper = "settings.gitUseCredentialHelper"
         static let gitFetchOptions = "settings.gitFetchOptions"
@@ -207,6 +209,23 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(localHistoryIgnoreRegexes, forKey: Key.localHistoryIgnoreRegexes)
             if oldValue != localHistoryIgnoreRegexes { localHistoryIgnoreRulesDidChange.send() }
+        }
+    }
+    /// User changes to the No initial copy folders: added names, and `!name`
+    /// for removed built-ins, so later built-ins still apply.
+    @Published var localHistoryBaselineExcludedDirectoryNames: [String] {
+        didSet {
+            defaults.set(localHistoryBaselineExcludedDirectoryNames, forKey: Key.localHistoryBaselineExcludedDirectoryNames)
+            if oldValue != localHistoryBaselineExcludedDirectoryNames { localHistoryIgnoreRulesDidChange.send() }
+        }
+    }
+    static let defaultLocalHistoryStorageLimitMegabytes = 100
+    static let localHistoryStorageLimitRange = 50...5000
+    /// Per-project local history cap in MB (1 MB = 1024 × 1024 bytes).
+    @Published var localHistoryStorageLimitMegabytes: Int {
+        didSet {
+            defaults.set(localHistoryStorageLimitMegabytes, forKey: Key.localHistoryStorageLimitMegabytes)
+            if oldValue != localHistoryStorageLimitMegabytes { localHistoryIgnoreRulesDidChange.send() }
         }
     }
     let gitExecutionPreferences = GitExecutionPreferences()
@@ -474,6 +493,10 @@ final class AppSettings: ObservableObject {
         searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
         localHistoryIgnorePatterns = defaults.stringArray(forKey: Key.localHistoryIgnorePatterns) ?? []
         localHistoryIgnoreRegexes = defaults.stringArray(forKey: Key.localHistoryIgnoreRegexes) ?? []
+        localHistoryBaselineExcludedDirectoryNames = defaults.stringArray(forKey: Key.localHistoryBaselineExcludedDirectoryNames) ?? []
+        localHistoryStorageLimitMegabytes = (defaults.object(forKey: Key.localHistoryStorageLimitMegabytes) as? Int)
+            .map { min(max($0, Self.localHistoryStorageLimitRange.lowerBound), Self.localHistoryStorageLimitRange.upperBound) }
+            ?? Self.defaultLocalHistoryStorageLimitMegabytes
         gitExecutable = defaults.string(forKey: Key.gitExecutable) ?? ""
         gitUseCredentialHelper = defaults.object(forKey: Key.gitUseCredentialHelper) as? Bool ?? true
         var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
@@ -685,6 +708,8 @@ final class AppSettings: ObservableObject {
         searchExclusionsEnabled = true
         localHistoryIgnorePatterns = []
         localHistoryIgnoreRegexes = []
+        localHistoryBaselineExcludedDirectoryNames = []
+        localHistoryStorageLimitMegabytes = Self.defaultLocalHistoryStorageLimitMegabytes
         gitFetchOptions = GitFetchOptions()
         gitExecutable = ""
         gitUseCredentialHelper = true

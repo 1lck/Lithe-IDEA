@@ -1988,6 +1988,7 @@
 "License" = "许可证";
 "Lifecycle" = "生命周期";
 "Light" = "浅色";
+"Limit per project" = "每个项目上限";
 "Line" = "行";
 "Line %lld is not a valid regular expression and is skipped." = "第 %lld 行不是有效的正则表达式，已跳过。";
 "Line Breakpoints" = "行断点";
@@ -2102,7 +2103,8 @@
 "Local development package" = "本地开发包";
 "Local edits to these files are lost." = "这些文件的本地修改将会丢失。";
 "Local history" = "本地历史";
-"Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded." = "本地历史会在你保存和编辑时保留文件版本，每个项目最多 100 MB。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n「不做初始副本」中的文件夹里的文件，打开项目时不会复制，编辑仍会记录。";
+"Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again." = "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n不做初始副本：每行一个文件夹名。其中的文件在打开项目时不会复制，编辑仍会记录。列表开头是内置文件夹，删掉一行即可重新复制其中的文件。";
+"Local history limit per project" = "每个项目的本地历史上限";
 "Local history work is still active." = "本地历史任务仍在进行。";
 "Location" = "位置";
 "Lock Worktree" = "锁定工作树";
@@ -2420,6 +2422,7 @@
 "No host yet" = "尚未填写主机";
 "No implementations found" = "没有找到实现";
 "No initial copy" = "不做初始副本";
+"No initial copy folders" = "不做初始副本的文件夹";
 "No installed plugin supports %@ yet." = "尚未安装支持 %@ 的插件。";
 "No items" = "暂无项目";
 "No language dependency sources registered" = "未注册语言依赖来源";
@@ -2557,7 +2560,7 @@
 "One entry per line. Directory names hide matching folders; file entries support * and ?." = "每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。";
 "One file: %@" = "单个文件：%@";
 "One path per line. Relative paths are resolved from the workspace." = "每行一个路径；相对路径以当前工作区为基准。";
-"One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply." = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n下方的内置规则始终生效。";
+"One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them." = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n列表开头是内置规则。删掉一行即可重新显示这些文件，再输入回来就会重新隐藏。";
 "One pattern per line, for example org.mockito.* or com.example.generated.*" = "每行一个模式，例如 org.mockito.* 或 com.example.generated.*";
 "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。";
 "One sentence focused on the main change" = "聚焦主要更改的一句话";
@@ -4330,6 +4333,7 @@
 "Type" = "类型";
 "Type / to see commands" = "输入 / 查看命令";
 "Type / to see options" = "输入 / 查看选项";
+"Type a project-relative path to see whether local history records it." = "输入项目内的相对路径，查看本地历史是否会记录它。";
 "Type changed" = "类型已更改";
 "Type your task or / for commands" = "输入任务，或用 / 选择命令";
 "Type your task, / for commands or @ for files" = "输入任务，用 / 选择命令，用 @ 添加文件";
@@ -6732,6 +6736,7 @@
 "native.license" = "许可证";
 "native.lifecycle" = "生命周期";
 "native.light" = "浅色";
+"native.limitPerProject" = "每个项目上限";
 "native.line" = "行";
 "native.lineBreakpointActions" = "行断点操作";
 "native.lineBreakpoints" = "行断点";
@@ -6897,7 +6902,8 @@
 "native.localHistory.variant2" = "本地历史…";
 "native.localHistory.variant3" = "本地历史";
 "native.localHistoryIsAvailableForTextFiles" = "本地历史仅适用于文本文件";
-"native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul3649ff1aa0" = "本地历史会在你保存和编辑时保留文件版本，每个项目最多 100 MB。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n「不做初始副本」中的文件夹里的文件，打开项目时不会复制，编辑仍会记录。";
+"native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul124b531bdc" = "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n不做初始副本：每行一个文件夹名。其中的文件在打开项目时不会复制，编辑仍会记录。列表开头是内置文件夹，删掉一行即可重新复制其中的文件。";
+"native.localHistoryLimitPerProject" = "每个项目的本地历史上限";
 "native.localHistoryWorkIsStillActive" = "本地历史任务仍在进行。";
 "native.localJDKHomeOptional" = "本地 JDK 主目录（可选）";
 "native.localPackage" = "本地插件包";
@@ -7207,6 +7213,7 @@
 "native.noHostYet" = "尚未填写主机";
 "native.noImplementationsFound" = "没有找到实现";
 "native.noInitialCopy" = "不做初始副本";
+"native.noInitialCopyFolders" = "不做初始副本的文件夹";
 "native.noInstalledPluginSupportsYet" = "尚未安装支持 %1$@ 的插件。";
 "native.noItems" = "暂无项目";
 "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory" = "未找到 JDK。请设置 JAVA_HOME、安装 JDK，或选择 JDK 目录。";
@@ -7362,7 +7369,7 @@
 "native.oneFile" = "单个文件：%1$@";
 "native.oneNAMEValueEntryPerLine" = "每行填写一个 NAME=value";
 "native.onePathPerLineRelativePathsAreResolvedFromTheWorkspace" = "每行一个路径；相对路径以当前工作区为基准。";
-"native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx4f7ef7b38a" = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n下方的内置规则始终生效。";
+"native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx3ebe586fc1" = "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n列表开头是内置规则。删掉一行即可重新显示这些文件，再输入回来就会重新隐藏。";
 "native.onePatternPerLineForExampleOrgMockito" = "每行一个模式，例如 org.mockito.* 或 com.example.generated.*";
 "native.onePatternPerLineLogCacheOnlyAffectsThisSearchEverywhereWindow" = "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。";
 "native.oneSentenceFocusedOnTheMainChange" = "聚焦主要更改的一句话";
@@ -9036,6 +9043,7 @@
 "native.turningThisOffStopsEveryAgentProcess" = "关闭后会停止所有 Agent 进程。";
 "native.turns" = "轮次";
 "native.type" = "类型";
+"native.typeAProjectRelativePathToSeeWhetherLocalHistoryRecordsIt" = "输入项目内的相对路径，查看本地历史是否会记录它。";
 "native.typeChanged" = "类型已更改";
 "native.typeToSeeCommands" = "输入 / 查看命令";
 "native.typeToSeeOptions" = "输入 / 查看选项";

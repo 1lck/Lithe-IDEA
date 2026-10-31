@@ -556,13 +556,12 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
         CoreCommand::WorkspaceFilterChanges => {
-            match serde_json::from_value::<Vec<String>>(parsed.payload) {
-                Ok(paths) => CoreResponse::success(
+            match serde_json::from_value::<crate::project::WorkspaceChangeFilterRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
                     id,
-                    serde_json::json!(paths
-                        .into_iter()
-                        .filter(|path| crate::project::is_workspace_event_relevant(path))
-                        .collect::<Vec<_>>()),
+                    serde_json::json!(crate::project::filter_workspace_changes(request)),
                 ),
                 Err(error) => CoreResponse::failure(
                     id,

@@ -48584,13 +48584,13 @@
       }
     },
     {
-      "id": "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx4f7ef7b38a",
-      "description": "Native UI: One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.",
+      "id": "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx3ebe586fc1",
+      "description": "Native UI: One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.",
+        "key": "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.",
         "arguments": []
       }
     },
@@ -92803,6 +92803,50 @@
       }
     },
     {
+      "id": "native.noInitialCopyFolders",
+      "description": "Native UI: No initial copy folders",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No initial copy folders",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.limitPerProject",
+      "description": "Native UI: Limit per project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Limit per project",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.localHistoryLimitPerProject",
+      "description": "Native UI: Local history limit per project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local history limit per project",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.typeAProjectRelativePathToSeeWhetherLocalHistoryRecordsIt",
+      "description": "Native UI: Type a project-relative path to see whether local history records it.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Type a project-relative path to see whether local history records it.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.lineLldIsNotAValidRegularExpressionAndIsSkipped",
       "description": "Native UI: Line %lld is not a valid regular expression and is skipped.",
       "platforms": [
@@ -92889,13 +92933,13 @@
       }
     },
     {
-      "id": "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul3649ff1aa0",
-      "description": "Native UI: Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded.",
+      "id": "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul124b531bdc",
+      "description": "Native UI: Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded.",
+        "key": "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again.",
         "arguments": []
       }
     }

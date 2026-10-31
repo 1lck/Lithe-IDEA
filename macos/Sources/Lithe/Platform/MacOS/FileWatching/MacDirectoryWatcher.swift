@@ -181,8 +181,13 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
             path.hasPrefix(rootPrefix) ? String(path.dropFirst(rootPrefix.count)) : ""
         }
         // One Core call per batch; native loss flags above remain unconditional.
+        // The `!` entries keep events of built-in folders the user shows again.
         let filtered: Result<[String], RustCoreBridge.CoreCallError> = core.executeResult(
-            command: "workspace.filterChanges", payload: relativePaths
+            command: "workspace.filterChanges",
+            payload: WorkspaceChangeFilterPayload(
+                paths: relativePaths,
+                hiddenFilePatterns: visibilityRules.hiddenFilePatterns.filter { $0.hasPrefix("!") }
+            )
         )
         switch filtered {
         case .success(let paths):
@@ -199,4 +204,9 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
     deinit {
         stop()
     }
+}
+
+private struct WorkspaceChangeFilterPayload: Encodable {
+    let paths: [String]
+    let hiddenFilePatterns: [String]
 }

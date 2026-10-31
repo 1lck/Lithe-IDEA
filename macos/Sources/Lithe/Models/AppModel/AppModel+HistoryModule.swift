@@ -12,8 +12,8 @@ extension AppModel {
         await historyModuleCoordinator.activate()
     }
 
-    func localHistoryIgnorePreview(path: String?, patterns: [String], regexes: [String]) async -> LocalHistoryIgnorePreview? {
-        await activateHistoryModule()?.previewIgnoreRules(path: path, patterns: patterns, regexes: regexes)
+    func localHistoryIgnorePreview(path: String?, rules: LocalHistoryVisibilityRules) async -> LocalHistoryIgnorePreview? {
+        await activateHistoryModule()?.previewIgnoreRules(path: path, rules: rules)
     }
 
     /// Nil when no project is open.

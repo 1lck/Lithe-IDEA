@@ -1988,6 +1988,7 @@
 "License" = "License";
 "Lifecycle" = "Lifecycle";
 "Light" = "Light";
+"Limit per project" = "Limit per project";
 "Line" = "Line";
 "Line %lld is not a valid regular expression and is skipped." = "Line %lld is not a valid regular expression and is skipped.";
 "Line Breakpoints" = "Line Breakpoints";
@@ -2102,7 +2103,8 @@
 "Local development package" = "Local development package";
 "Local edits to these files are lost." = "Local edits to these files are lost.";
 "Local history" = "Local history";
-"Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded." = "Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded.";
+"Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again." = "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again.";
+"Local history limit per project" = "Local history limit per project";
 "Local history work is still active." = "Local history work is still active.";
 "Location" = "Location";
 "Lock Worktree" = "Lock Worktree";
@@ -2420,6 +2422,7 @@
 "No host yet" = "No host yet";
 "No implementations found" = "No implementations found";
 "No initial copy" = "No initial copy";
+"No initial copy folders" = "No initial copy folders";
 "No installed plugin supports %@ yet." = "No installed plugin supports %@ yet.";
 "No items" = "No items";
 "No language dependency sources registered" = "No language dependency sources registered";
@@ -2557,7 +2560,7 @@
 "One entry per line. Directory names hide matching folders; file entries support * and ?." = "One entry per line. Directory names hide matching folders; file entries support * and ?.";
 "One file: %@" = "One file: %@";
 "One path per line. Relative paths are resolved from the workspace." = "One path per line. Relative paths are resolved from the workspace.";
-"One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply." = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.";
+"One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them." = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.";
 "One pattern per line, for example org.mockito.* or com.example.generated.*" = "One pattern per line, for example org.mockito.* or com.example.generated.*";
 "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.";
 "One sentence focused on the main change" = "One sentence focused on the main change";
@@ -4330,6 +4333,7 @@
 "Type" = "Type";
 "Type / to see commands" = "Type / to see commands";
 "Type / to see options" = "Type / to see options";
+"Type a project-relative path to see whether local history records it." = "Type a project-relative path to see whether local history records it.";
 "Type changed" = "Type changed";
 "Type your task or / for commands" = "Type your task or / for commands";
 "Type your task, / for commands or @ for files" = "Type your task, / for commands or @ for files";
@@ -6732,6 +6736,7 @@
 "native.license" = "License";
 "native.lifecycle" = "Lifecycle";
 "native.light" = "Light";
+"native.limitPerProject" = "Limit per project";
 "native.line" = "Line";
 "native.lineBreakpointActions" = "Line breakpoint actions";
 "native.lineBreakpoints" = "Line Breakpoints";
@@ -6897,7 +6902,8 @@
 "native.localHistory.variant2" = "Local History…";
 "native.localHistory.variant3" = "Local history";
 "native.localHistoryIsAvailableForTextFiles" = "Local History is available for text files";
-"native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul3649ff1aa0" = "Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded.";
+"native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul124b531bdc" = "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again.";
+"native.localHistoryLimitPerProject" = "Local history limit per project";
 "native.localHistoryWorkIsStillActive" = "Local history work is still active.";
 "native.localJDKHomeOptional" = "Local JDK Home (optional)";
 "native.localPackage" = "Local Package";
@@ -7207,6 +7213,7 @@
 "native.noHostYet" = "No host yet";
 "native.noImplementationsFound" = "No implementations found";
 "native.noInitialCopy" = "No initial copy";
+"native.noInitialCopyFolders" = "No initial copy folders";
 "native.noInstalledPluginSupportsYet" = "No installed plugin supports %1$@ yet.";
 "native.noItems" = "No items";
 "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory" = "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.";
@@ -7362,7 +7369,7 @@
 "native.oneFile" = "One file: %1$@";
 "native.oneNAMEValueEntryPerLine" = "One NAME=value entry per line";
 "native.onePathPerLineRelativePathsAreResolvedFromTheWorkspace" = "One path per line. Relative paths are resolved from the workspace.";
-"native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx4f7ef7b38a" = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.";
+"native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx3ebe586fc1" = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.";
 "native.onePatternPerLineForExampleOrgMockito" = "One pattern per line, for example org.mockito.* or com.example.generated.*";
 "native.onePatternPerLineLogCacheOnlyAffectsThisSearchEverywhereWindow" = "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.";
 "native.oneSentenceFocusedOnTheMainChange" = "One sentence focused on the main change";
@@ -9036,6 +9043,7 @@
 "native.turningThisOffStopsEveryAgentProcess" = "Turning this off stops every Agent process.";
 "native.turns" = "Turns";
 "native.type" = "Type";
+"native.typeAProjectRelativePathToSeeWhetherLocalHistoryRecordsIt" = "Type a project-relative path to see whether local history records it.";
 "native.typeChanged" = "Type changed";
 "native.typeToSeeCommands" = "Type / to see commands";
 "native.typeToSeeOptions" = "Type / to see options";

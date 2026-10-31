@@ -977,7 +977,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
-| `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
+| `workspace.filterChanges` | Filter an array of workspace-relative paths, or `{ paths, hiddenFilePatterns }` whose `!` entries turn default exclusions off, against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
@@ -3135,17 +3135,26 @@ are ignored. `history.entries` returns Unix-second timestamps and relative
 `history.delete` validate both the relative file path and entry ID before
 changing stored metadata.
 
-`history.record` also accepts optional `ignoreRules: { pathPatterns, pathRegexes }`.
+A `hiddenFilePatterns` entry starting with `!` turns a rule off instead of
+adding one: `!**/name/` or `!name` removes that hidden folder (built-in or not),
+and `!pattern` removes an equal file pattern. `!` entries never match a path.
+
+`history.record` also accepts optional `ignoreRules: { pathPatterns, pathRegexes,
+baselineExcludedDirectoryNames }` and an optional `storageLimitBytes` (default
+100 MiB, clamped to 10 MiB–100 GiB); baselines stop at half of that cap.
 Patterns use the hidden-path glob syntax; regexes use Rust `regex` syntax,
 case-insensitive, matched unanchored against the `/`-separated relative path.
 A matching file is not recorded, existing entries stay listed, and an invalid
-or empty regex never matches. `history.ignorePreview` accepts the same
-`ignoreRules` and an optional relative `path`, and returns `regexErrors`
-(`{ index, message }` per rejected regex), the built-in
-`baselineExcludedDirectoryNames`, and `matched`: `null` or an object tagged by
+or empty regex never matches. `baselineExcludedDirectoryNames` adds folder
+names whose files get no initial copy when a project opens, on top of the
+built-in list; `!name` turns a built-in off. `history.ignorePreview` accepts the
+same `ignoreRules`, optional `hiddenFilePatterns` and an optional relative
+`path`, and returns `regexErrors` (`{ index, message }` per rejected regex), the
+built-in `builtInBaselineExcludedDirectoryNames`, and `matched`: `null` or an object tagged by
 `kind` — `hidden`, `baselineExcluded` (`directory`), `pattern` or `regex`
-(`index` into its list). `history.usage` and `history.clear` accept only
-`storageRoot`; usage rescans the disk and returns `{ usedBytes, limitBytes }` in
+(`index` into its list). `history.usage` and `history.clear` accept
+`storageRoot`, and `history.usage` also the optional `storageLimitBytes` it
+reports back as `limitBytes`; usage rescans the disk and returns `{ usedBytes, limitBytes }` in
 allocated bytes, and clear removes every snapshot directory while keeping the
 storage root, returning `{ "cleared": true }`.
 

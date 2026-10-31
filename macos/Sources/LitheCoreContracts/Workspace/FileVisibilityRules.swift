@@ -31,13 +31,41 @@ package struct FileVisibilityRules: Hashable, Sendable {
         hiddenFilePatterns: builtInHiddenFilePatterns
     )
 
+    /// A `!` entry in `hiddenFilePatterns` turns a rule off, built-in or not.
+    /// It stays in `hiddenFilePatterns` so Rust Core, which adds the built-ins
+    /// again, drops the same ones; it is never matched as a pattern.
     package init(hiddenDirectoryNames: [String], hiddenFilePatterns: [String]) {
+        let disabled = Self.disabledEntries(hiddenFilePatterns)
         self.hiddenDirectoryNames = Self.normalizedEntries(
             Self.builtInHiddenDirectories + hiddenDirectoryNames
-        )
+        ).filter { !Self.isDisabledDirectory($0, disabled: disabled) }
         self.hiddenFilePatterns = Self.normalizedEntries(
             Self.builtInHiddenFilePatterns + hiddenFilePatterns
-        )
+        ).filter { pattern in
+            !disabled.contains { $0.caseInsensitiveCompare(pattern) == .orderedSame }
+        }
+    }
+
+    /// Whether `pattern` is one of `builtInPatterns`, ignoring case.
+    package static func isBuiltInPattern(_ pattern: String) -> Bool {
+        builtInPatterns.contains { $0.caseInsensitiveCompare(pattern) == .orderedSame }
+    }
+
+    /// The entries after a leading `!`.
+    package static func disabledEntries(_ patterns: [String]) -> [String] {
+        patterns.compactMap { pattern in
+            let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("!") else { return nil }
+            return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    /// A folder is turned off by its displayed form `**/name/` or its bare name.
+    private static func isDisabledDirectory(_ name: String, disabled: [String]) -> Bool {
+        disabled.contains { entry in
+            entry.caseInsensitiveCompare(name) == .orderedSame
+                || entry.caseInsensitiveCompare("**/\(name)/") == .orderedSame
+        }
     }
 
     package func isHidden(
@@ -67,7 +95,8 @@ package struct FileVisibilityRules: Hashable, Sendable {
         }
 
         let directoryCount = isDirectory == false ? max(0, components.count - 1) : components.count
-        let folderGlobs = hiddenFilePatterns.compactMap(Self.folderGlob)
+        let patterns = hiddenFilePatterns.filter { !$0.hasPrefix("!") }
+        let folderGlobs = patterns.compactMap(Self.folderGlob)
         if !folderGlobs.isEmpty {
             // Each ancestor prefix is joined once and shared by every folder
             // rule, instead of being rebuilt per rule.
@@ -80,7 +109,7 @@ package struct FileVisibilityRules: Hashable, Sendable {
             if hidesFolder { return true }
         }
         guard isDirectory != true else { return false }
-        return hiddenFilePatterns.contains { pattern in
+        return patterns.contains { pattern in
             Self.pathGlobMatches(pattern, value: lastComponent) ||
                 Self.pathGlobMatches(pattern, value: relativePath)
         }

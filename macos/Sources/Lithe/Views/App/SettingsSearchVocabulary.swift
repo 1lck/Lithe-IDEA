@@ -16,7 +16,7 @@ enum SettingsSearchVocabulary {
     static func terms(for category: SettingsCategory) -> [String] {
         switch category {
         case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Hidden paths", "Local history", "Wildcard", "Regular expression", "Clear Project History…"]
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Hidden paths", "Local history", "Wildcard", "Regular expression", "No initial copy", "Limit per project", "Clear Project History…"]
         case .editor:
             ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width", "Line spacing", "Font ligatures", "Syntax highlighting", "Editor color scheme", "Italic comments", "Colorize bracket pairs", "Line numbers", "Render whitespace", "Soft wrap", "Show indent guides", "Highlight current line", "Sticky scroll", "Smooth scrolling", "Scroll beyond last line", "Cursor style", "Cursor blinking"]
         case .keymap:

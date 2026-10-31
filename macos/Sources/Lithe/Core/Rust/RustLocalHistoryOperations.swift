@@ -11,7 +11,9 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns,
             ignorePatterns: visibilityRules.ignorePatterns,
-            ignoreRegexes: visibilityRules.ignoreRegexes
+            ignoreRegexes: visibilityRules.ignoreRegexes,
+            baselineExcludedDirectoryNames: visibilityRules.baselineExcludedDirectoryNames,
+            storageLimitBytes: visibilityRules.storageLimitBytes
         ).map(Self.makePayload)
     }
 
@@ -26,14 +28,20 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
     func content(at storageURL: URL, contentPath: String) -> String? { core.historyContent(storageURL: storageURL, contentPath: contentPath)?.text }
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool { core.historyRelocate(storageURL: storageURL, sourcePath: sourcePath, destinationPath: destinationPath) }
 
-    func usage(at storageURL: URL) -> LocalHistoryUsage? {
-        core.historyUsage(storageURL: storageURL).map { LocalHistoryUsage(usedBytes: $0.usedBytes, limitBytes: $0.limitBytes) }
+    func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage? {
+        core.historyUsage(storageURL: storageURL, limitBytes: limitBytes).map { LocalHistoryUsage(usedBytes: $0.usedBytes, limitBytes: $0.limitBytes) }
     }
 
     func clear(at storageURL: URL) -> Bool { core.historyClear(storageURL: storageURL) }
 
-    func ignorePreview(path: String?, ignorePatterns: [String], ignoreRegexes: [String]) -> LocalHistoryIgnorePreview? {
-        guard let value = core.historyIgnorePreview(path: path, ignorePatterns: ignorePatterns, ignoreRegexes: ignoreRegexes) else { return nil }
+    func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules) -> LocalHistoryIgnorePreview? {
+        guard let value = core.historyIgnorePreview(
+            path: path,
+            ignorePatterns: rules.ignorePatterns,
+            ignoreRegexes: rules.ignoreRegexes,
+            baselineExcludedDirectoryNames: rules.baselineExcludedDirectoryNames,
+            hiddenFilePatterns: rules.hiddenFilePatterns
+        ) else { return nil }
         let matched: LocalHistoryIgnoreMatch? = switch value.matched {
         case nil: nil
         case .hidden: .hidden
@@ -43,7 +51,7 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
         }
         return LocalHistoryIgnorePreview(
             regexErrors: Dictionary(value.regexErrors.map { ($0.index, $0.message) }, uniquingKeysWith: { first, _ in first }),
-            baselineExcludedDirectoryNames: value.baselineExcludedDirectoryNames,
+            builtInBaselineExcludedDirectoryNames: value.builtInBaselineExcludedDirectoryNames,
             matched: matched
         )
     }

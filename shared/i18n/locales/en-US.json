@@ -5326,7 +5326,7 @@
     "native.oneFile": "One file: {arg1}",
     "native.oneNAMEValueEntryPerLine": "One NAME=value entry per line",
     "native.onePathPerLineRelativePathsAreResolvedFromTheWorkspace": "One path per line. Relative paths are resolved from the workspace.",
-    "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx4f7ef7b38a": "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.",
+    "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx3ebe586fc1": "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.",
     "native.onePatternPerLineLogCacheOnlyAffectsThisSearchEverywhereWindow": "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.",
     "native.oneSentenceFocusedOnTheMainChange": "One sentence focused on the main change",
     "native.oneTIMECODE": "ONE-TIME CODE",
@@ -9704,13 +9704,17 @@
     "native.clearProjectHistory": "Clear Project History…",
     "native.openAProjectToSeeHowMuchSpaceItsHistoryUses": "Open a project to see how much space its history uses.",
     "native.noInitialCopy": "No initial copy",
+    "native.noInitialCopyFolders": "No initial copy folders",
     "native.lineLldIsNotAValidRegularExpressionAndIsSkipped": "Line {arg1} is not a valid regular expression and is skipped.",
     "native.recorded": "Recorded",
     "native.hiddenInTheProjectTreeNotRecorded": "Hidden in the project tree, not recorded",
     "native.inNoInitialCopyEditsAreRecorded": "In {arg1}: no initial copy, edits are recorded",
     "native.ignoredByWildcardLineLld": "Ignored by wildcard line {arg1}",
     "native.ignoredByRegularExpressionLineLld": "Ignored by regular expression line {arg1}",
-    "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul3649ff1aa0": "Local history keeps versions of files as you save and edit them, up to 100 MB per project.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nFiles inside the folders under No initial copy are not copied when a project opens; edits to them are still recorded."
+    "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul124b531bdc": "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.\nNo initial copy: one folder name per line. Files inside them are not copied when a project opens; edits to them are still recorded. The list starts with the built-in folders; delete one to copy its files again.",
+    "native.limitPerProject": "Limit per project",
+    "native.localHistoryLimitPerProject": "Local history limit per project",
+    "native.typeAProjectRelativePathToSeeWhetherLocalHistoryRecordsIt": "Type a project-relative path to see whether local history records it."
   },
   "overrides": {
     "windows": {

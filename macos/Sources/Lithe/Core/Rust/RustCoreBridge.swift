@@ -295,7 +295,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
 
         let regexErrors: [RegexError]
-        let baselineExcludedDirectoryNames: [String]
+        let builtInBaselineExcludedDirectoryNames: [String]
         let matched: Match?
     }
 
@@ -1645,20 +1645,24 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
         let ignoreRules: HistoryIgnoreRules
+        let storageLimitBytes: Int64?
     }
 
     private struct HistoryIgnoreRules: Encodable {
         let pathPatterns: [String]
         let pathRegexes: [String]
+        let baselineExcludedDirectoryNames: [String]
     }
 
     private struct HistoryIgnorePreviewRequest: Encodable {
         let path: String?
         let ignoreRules: HistoryIgnoreRules
+        let hiddenFilePatterns: [String]
     }
 
     private struct HistoryStorageRequest: Encodable {
         let storageRoot: String
+        var storageLimitBytes: Int64?
     }
 
     private struct HistoryEntriesRequest: Encodable {
@@ -2736,7 +2740,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         hiddenDirectoryNames: [String],
         hiddenFilePatterns: [String],
         ignorePatterns: [String] = [],
-        ignoreRegexes: [String] = []
+        ignoreRegexes: [String] = [],
+        baselineExcludedDirectoryNames: [String] = [],
+        storageLimitBytes: Int64? = nil
     ) -> HistoryEntryPayload? {
         execute(
             command: "history.record",
@@ -2749,23 +2755,42 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 pruneExpired: pruneExpired,
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns,
-                ignoreRules: HistoryIgnoreRules(pathPatterns: ignorePatterns, pathRegexes: ignoreRegexes)
+                ignoreRules: HistoryIgnoreRules(
+                    pathPatterns: ignorePatterns,
+                    pathRegexes: ignoreRegexes,
+                    baselineExcludedDirectoryNames: baselineExcludedDirectoryNames
+                ),
+                storageLimitBytes: storageLimitBytes
             )
         )
     }
 
-    func historyIgnorePreview(path: String?, ignorePatterns: [String], ignoreRegexes: [String]) -> HistoryIgnorePreviewPayload? {
+    func historyIgnorePreview(
+        path: String?,
+        ignorePatterns: [String],
+        ignoreRegexes: [String],
+        baselineExcludedDirectoryNames: [String],
+        hiddenFilePatterns: [String]
+    ) -> HistoryIgnorePreviewPayload? {
         execute(
             command: "history.ignorePreview",
             payload: HistoryIgnorePreviewRequest(
                 path: path,
-                ignoreRules: HistoryIgnoreRules(pathPatterns: ignorePatterns, pathRegexes: ignoreRegexes)
+                ignoreRules: HistoryIgnoreRules(
+                    pathPatterns: ignorePatterns,
+                    pathRegexes: ignoreRegexes,
+                    baselineExcludedDirectoryNames: baselineExcludedDirectoryNames
+                ),
+                hiddenFilePatterns: hiddenFilePatterns
             )
         )
     }
 
-    func historyUsage(storageURL: URL) -> HistoryUsagePayload? {
-        execute(command: "history.usage", payload: HistoryStorageRequest(storageRoot: storageURL.standardizedFileURL.path))
+    func historyUsage(storageURL: URL, limitBytes: Int64? = nil) -> HistoryUsagePayload? {
+        execute(
+            command: "history.usage",
+            payload: HistoryStorageRequest(storageRoot: storageURL.standardizedFileURL.path, storageLimitBytes: limitBytes)
+        )
     }
 
     func historyClear(storageURL: URL) -> Bool {

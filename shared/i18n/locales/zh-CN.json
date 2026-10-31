@@ -5326,7 +5326,7 @@
     "native.oneFile": "单个文件：{arg1}",
     "native.oneNAMEValueEntryPerLine": "每行填写一个 NAME=value",
     "native.onePathPerLineRelativePathsAreResolvedFromTheWorkspace": "每行一个路径；相对路径以当前工作区为基准。",
-    "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx4f7ef7b38a": "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n下方的内置规则始终生效。",
+    "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx3ebe586fc1": "每行一条规则，不区分大小写。规则使用通配符，是正则表达式的简化写法：`*` 匹配任意字符，`?` 匹配单个字符。\n以 `/` 或 `/*` 结尾表示隐藏整个文件夹及其内容，以 `**/` 开头表示匹配任意层级；其他写法隐藏匹配的文件。\n示例：\n`**/dist/` — 任意层级的 dist 文件夹\n`.lithe/*` — 项目根目录下的 .lithe 文件夹\n`*.log` — 所有 .log 文件\n`docs/*.md` — docs 下的 Markdown 文件\n列表开头是内置规则。删掉一行即可重新显示这些文件，再输入回来就会重新隐藏。",
     "native.onePatternPerLineLogCacheOnlyAffectsThisSearchEverywhereWindow": "每行一个表达式：`*.log`、`**/.*/`、`.*`、`cache/`。仅影响当前双 Shift 搜索窗口。",
     "native.oneSentenceFocusedOnTheMainChange": "聚焦主要更改的一句话",
     "native.oneTIMECODE": "一次性代码",
@@ -9704,13 +9704,17 @@
     "native.clearProjectHistory": "清空项目历史…",
     "native.openAProjectToSeeHowMuchSpaceItsHistoryUses": "打开项目后可查看其历史占用的空间。",
     "native.noInitialCopy": "不做初始副本",
+    "native.noInitialCopyFolders": "不做初始副本的文件夹",
     "native.lineLldIsNotAValidRegularExpressionAndIsSkipped": "第 {arg1} 行不是有效的正则表达式，已跳过。",
     "native.recorded": "会记录",
     "native.hiddenInTheProjectTreeNotRecorded": "已在项目树中隐藏，不记录",
     "native.inNoInitialCopyEditsAreRecorded": "位于 {arg1}：不做初始副本，编辑仍会记录",
     "native.ignoredByWildcardLineLld": "被通配符第 {arg1} 行忽略",
     "native.ignoredByRegularExpressionLineLld": "被正则表达式第 {arg1} 行忽略",
-    "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul3649ff1aa0": "本地历史会在你保存和编辑时保留文件版本，每个项目最多 100 MB。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n「不做初始副本」中的文件夹里的文件，打开项目时不会复制，编辑仍会记录。"
+    "native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul124b531bdc": "本地历史会在你保存和编辑时保留文件版本，每个项目默认最多 100 MB，可在「已用」旁修改上限。\n忽略规则只让文件不进本地历史，项目树里仍然显示。隐藏路径始终不记录。\n通配符：每行一条，语法与隐藏路径相同，例如 `*.log` 或 `**/generated/`。\n正则表达式：每行一条，不区分大小写，匹配以 `/` 分隔的项目相对路径的任意部分，例如 `^build/` 或 `(test|spec)/`。\n不做初始副本：每行一个文件夹名。其中的文件在打开项目时不会复制，编辑仍会记录。列表开头是内置文件夹，删掉一行即可重新复制其中的文件。",
+    "native.limitPerProject": "每个项目上限",
+    "native.localHistoryLimitPerProject": "每个项目的本地历史上限",
+    "native.typeAProjectRelativePathToSeeWhetherLocalHistoryRecordsIt": "输入项目内的相对路径，查看本地历史是否会记录它。"
   },
   "overrides": {
     "macos": {

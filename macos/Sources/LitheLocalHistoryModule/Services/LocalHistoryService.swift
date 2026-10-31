@@ -27,7 +27,7 @@ actor LocalHistoryService {
     }
 
     func usage() -> LocalHistoryUsage? {
-        operations.usage(at: storageURL)
+        operations.usage(at: storageURL, limitBytes: visibilityRules.storageLimitBytes)
     }
 
     func clear() -> Bool {
