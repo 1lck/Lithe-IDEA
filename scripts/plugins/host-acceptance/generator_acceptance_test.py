@@ -6,6 +6,7 @@ import argparse
 import copy
 from contextlib import nullcontext
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -216,7 +217,7 @@ class GeneratorHelperTests(unittest.TestCase):
             executable = image / "host.exe"
             executable.write_bytes(b"not executed")
             inputs = root / "inputs"
-            (inputs / "projects").mkdir(parents=True)
+            inputs.mkdir()
             (inputs / "fixture.zip").write_bytes(b"not installed")
             plan = {"requires": fixture.REQUIRES, "sourceInventory": {"source": "fixed"},
                     "archiveReference": "reference.zip", "archiveInput": {"fixed": True},
@@ -225,7 +226,20 @@ class GeneratorHelperTests(unittest.TestCase):
                 artifact_root=root / "evidence", app_local_data=root / "local",
                 app_roaming_data=root / "roaming", webview_data=root / "webview2", host_identity=root / "identity.json")
             driver = MagicMock(owned_processes={})
-            driver.sync_playwright.return_value.__enter__.side_effect = RuntimeError("original observer entry failure")
+            driver.ACCEPTANCE_IDENTIFIER = "controlled"
+            def remove_profile(path, parent, name):
+                self.assertIn(path, (args.app_local_data, args.app_roaming_data, args.webview_data))
+                self.assertEqual(parent, path.parent)
+                if path.exists():
+                    shutil.rmtree(path)
+            driver.safe_remove_owned_directory.side_effect = remove_profile
+            def observer_entry():
+                # Outputs must leave the source fixture tree so Core's nested
+                # repository guard does not reject the real Git-init scenario.
+                self.assertTrue((args.app_local_data / "generator-projects").is_dir())
+                self.assertFalse((inputs / "projects").exists())
+                raise RuntimeError("original observer entry failure")
+            driver.sync_playwright.return_value.__enter__.side_effect = observer_entry
             reporter = SimpleNamespace(step=lambda *args: nullcontext())
             identity = {"sourceInventory": plan["sourceInventory"], "configSha256": "fixed"}
             with patch.object(acceptance, "source_capabilities", return_value={"projectGenerators": [1]}), \
@@ -234,10 +248,13 @@ class GeneratorHelperTests(unittest.TestCase):
                     patch.object(acceptance, "sha256", return_value="fixed"), \
                     patch.object(acceptance, "require_x64_executable"), \
                     patch.object(acceptance, "snapshot_resources", return_value={}), \
-                    patch.object(acceptance, "cleanup_session", return_value={"survivors": [], "errors": [], "profilesAbsent": True}) as cleanup:
+                    patch.object(acceptance, "cleanup_session", wraps=acceptance.cleanup_session) as cleanup:
                 with self.assertRaisesRegex(RuntimeError, "original observer entry failure"):
                     acceptance.run(args, driver, reporter, plan)
             cleanup.assert_called_once_with(args, driver, None)
+            self.assertFalse(args.app_local_data.exists())
+            self.assertFalse(args.app_roaming_data.exists())
+            self.assertTrue((inputs / "fixture.zip").is_file())
             driver.AppSession.assert_not_called()
 
     def test_changed_package_cannot_be_adopted_by_updating_its_receipt(self):

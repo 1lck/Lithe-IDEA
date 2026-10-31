@@ -68,9 +68,9 @@ const button = (host: HTMLElement, label: string) => {
   if (!result) throw new Error(`Missing button ${label}`);
   return result;
 };
-async function mount(enabled = true, failEnable = false) {
+async function mount(enabled = true, failEnable = false, entry = fixture(enabled)) {
   const calls: string[] = [];
-  let current = fixture(enabled);
+  let current = entry;
   const invoke = spyOn(native, "invoke").mockImplementation(
     async <T,>(command: string, input?: Parameters<typeof native.invoke>[1]): Promise<T> => {
       const args = input as Record<string, unknown> | undefined;
@@ -84,14 +84,16 @@ async function mount(enabled = true, failEnable = false) {
           valid: !!form.projectName,
           projectName: {},
           activeRequirements: form.values.build === "maven" ? [0, 1] : [0],
-          fields: [
-            { id: "build", visible: true, value: form.values.build ?? "none" },
-            {
-              id: "group",
-              visible: form.values.build === "maven",
-              value: form.values.group ?? "org.example",
-            },
-          ],
+          fields: current.generator.fields?.length
+            ? [
+                { id: "build", visible: true, value: form.values.build ?? "none" },
+                {
+                  id: "group",
+                  visible: form.values.build === "maven",
+                  value: form.values.group ?? "org.example",
+                },
+              ]
+            : [],
         } as T;
       }
       if (command === "declarative_plugins_set_enabled") {
@@ -141,6 +143,30 @@ async function mount(enabled = true, failEnable = false) {
       }
     },
   };
+}
+
+for (const representation of ["omitted", "empty"] as const) {
+  test(`fieldless catalog with ${representation} fields keeps the wizard usable`, async () => {
+    const entry = fixture();
+    entry.generator.fields = [];
+    entry.requirements = [];
+    if (representation === "omitted") Reflect.deleteProperty(entry.generator, "fields");
+    const view = await mount(true, false, entry);
+    try {
+      await act(async () => button(view.host, "Fixture App · Fixture Generator").click());
+      await settle();
+      const name = view.host.querySelector<HTMLInputElement>("#generator-name")!;
+      expect(name).not.toBeNull();
+      expect(button(view.host, "Review creation").disabled).toBe(true);
+      await act(async () => inputValue(name, "Archive Project"));
+      await settle();
+      expect(name.value).toBe("Archive Project");
+      expect(button(view.host, "Review creation").disabled).toBe(false);
+      expect(view.host.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      await view.close();
+    }
+  }, 2000);
 }
 
 test("disabled entry is inspectable and creation waits for explicit enable and native re-read", async () => {

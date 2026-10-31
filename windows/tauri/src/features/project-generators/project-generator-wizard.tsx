@@ -276,7 +276,7 @@ export default function ProjectGeneratorWizard({
             />{" "}
             {t("generator.advanced")}
           </label>
-          {selected.generator.fields.map((field) => {
+          {(selected.generator.fields ?? []).map((field) => {
             const state = evaluation?.fields.find((value) => value.id === field.id);
             if (!state?.visible || (field.advanced && !advanced)) return null;
             const id = `generator-field-${field.id}`;

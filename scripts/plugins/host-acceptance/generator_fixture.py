@@ -138,8 +138,7 @@ def generate(root: Path, archive_url: str, archive_open_file: str, *, reference:
     root.mkdir(parents=True, exist_ok=False)
     archive = root / "generators.zip"
     write_archive(archive, {"plugin.json": json_bytes(manifest), **FILES})
-    for directory in ("workspace", "projects"):
-        (root / directory).mkdir()
+    (root / "workspace").mkdir()
     if bool(reference) != bool(receipt_path):
         raise ValueError("archive reference and receipt must be supplied together")
     integration = archive_input(receipt_path, reference) if reference else None

@@ -152,8 +152,11 @@ def run(args, driver, reporter, plan):
     if not plan.get("archiveReference") or not plan.get("archiveInput"):
         raise ValueError("runtime requires the explicit fixed HTTPS archive reference and receipt")
     require_x64_executable(args.executable)
-    evidence, projects = args.artifact_root, args.fixture_root / "projects"
-    if any(projects.iterdir()):
+    # Core rejects Git initialization anywhere inside an existing repository.
+    # The isolated product profile owns outputs outside this source checkout,
+    # and the existing shutdown/cleanup path removes them after evidence capture.
+    evidence, projects = args.artifact_root, args.app_local_data / "generator-projects"
+    if projects.exists():
         raise ValueError("runtime requires fresh empty run-owned generator project output")
     evidence.mkdir(parents=True, exist_ok=False)
     image_before = snapshot_resources(args.run_image)
@@ -218,14 +221,17 @@ def run(args, driver, reporter, plan):
         # Review already removes the name field; only the whole wizard closing
         # proves openCreated completed. Bind both selected tabs to full paths so
         # the previous project's same-named file cannot satisfy this stage.
-        project_tab = page.get_by_role("tab", selected=True).and_(page.get_by_title(target.as_posix(), exact=True))
+        # Native creation canonicalizes its parent. Windows packaged storage
+        # can map the logical profile path to a different physical directory.
+        opened_target = target.resolve(strict=True)
+        project_tab = page.get_by_role("tab", selected=True).and_(page.get_by_title(opened_target.as_posix(), exact=True))
         project_tab.wait_for(state="visible", timeout=30_000)
         editor_tab = page.get_by_role("tab", selected=True).filter(
-            has=page.get_by_title((target / open_file).as_posix(), exact=True))
+            has=page.get_by_title((opened_target / open_file).as_posix(), exact=True))
         editor_tab.wait_for(state="visible", timeout=30_000)
         write(name + "-opened-state", {"projectPath": project_tab.get_attribute("title"),
               "projectSelected": project_tab.get_attribute("aria-selected"),
-              "openFilePath": (target / open_file).as_posix(),
+              "requestedProjectPath": target.as_posix(), "openFilePath": (opened_target / open_file).as_posix(),
               "editorSelected": editor_tab.get_attribute("aria-selected")})
         assert_clean_projects(projects)
         write(name + "-project", snapshot_resources(target))
@@ -236,6 +242,7 @@ def run(args, driver, reporter, plan):
         write("resources-before", image_before)
         args.app_roaming_data.mkdir(parents=True, exist_ok=False)
         (args.app_roaming_data / "settings.json").write_bytes(json_bytes({"displayLanguage": "en-US"}))
+        projects.mkdir(parents=True, exist_ok=False)
         with driver.sync_playwright() as playwright:
             try:
                 with step(CASES[0]):
@@ -260,8 +267,8 @@ def run(args, driver, reporter, plan):
                 with step(CASES[1]):
                     wizard("Files", "Files Project")
                     page.locator("#generator-field-message").fill("Kept user input", timeout=10_000)
-                    if not page.get_by_role("button", name="Find lithe-acceptance-missing in plugin marketplace", exact=True).is_visible():
-                        raise AssertionError("missing requirement is not an advisory marketplace action")
+                    # Editing re-evaluates requirements through Core before the action reappears.
+                    page.get_by_role("button", name="Find lithe-acceptance-missing in plugin marketplace", exact=True).wait_for(state="visible", timeout=10_000)
                     review_and_create("Files Project", create_git=True)
                     target = created("Files Project", "main.mjs")
                     if "Kept user input" not in (target / "README.md").read_text(encoding="utf-8") or not (target / ".git").is_dir():

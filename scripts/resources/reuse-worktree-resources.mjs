@@ -419,6 +419,8 @@ async function main() {
       // evidence output stay run-owned, never reusable.
       // Generator fixture ZIPs, fixed HTTPS archive references, source plans and
       // creation/cancellation evidence use this route; a hash transfers no approval.
+      // Isolated-profile generator-projects outputs stay outside the source Git
+      // repository and are removed with that profile, never copied as build inputs.
 
       // SwiftPM scratch-local compiler stamps only invalidate local products;
       // swiftpm-build-state is not a sealed download cache and has no copy stage.

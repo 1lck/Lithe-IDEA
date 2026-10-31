@@ -477,6 +477,10 @@ try {
     const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes(".artifacts/plugin-host-acceptance/"));
+    assert.ok(resource.locations.includes("<windows-local-app-data>/app.lithe.windows.host-acceptance/generator-projects/"));
+    const profileProject = path.join(testRoot, "isolated-profile/generator-projects/Created/README.md");
+    await fs.mkdir(path.dirname(profileProject), { recursive: true });
+    await fs.writeFile(profileProject, "run-owned generated project");
     const fixture = ".artifacts/plugin-host-acceptance/marketplace-fixture/packages/a1.zip";
     const source = path.join(sourceRoot, fixture);
     await fs.mkdir(path.dirname(source), { recursive: true });
@@ -485,7 +489,9 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
     assert.equal(await fs.readFile(source, "utf8"), "deterministic fixture bytes");
+    assert.equal(await fs.readFile(profileProject, "utf8"), "run-owned generated project");
     await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+    await assert.rejects(fs.access(path.join(targetRoot, "isolated-profile")));
   });
   await test("controlled build fixtures remain isolated acceptance state", { timeout: 15000 }, async () => {
     const fixture = ".artifacts/plugin-host-acceptance/build-fixture/tools with spaces/bin/fake-build-tool.mjs";

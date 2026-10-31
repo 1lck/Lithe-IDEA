@@ -26,7 +26,8 @@ export interface GeneratorEntry {
     displayName: string;
     description?: string;
     section: string;
-    fields: DeclarationField[];
+    // Core omits empty declaration arrays from catalog responses.
+    fields?: DeclarationField[];
   };
   requirements: Requirement[];
 }

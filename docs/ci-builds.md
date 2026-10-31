@@ -927,8 +927,12 @@ plan、当前 checkout 和隔离宿主的提交标识必须一致；切换提交
 `-SkipBuild` 同时检查目标架构、已冻结配置和可执行文件哈希，并保留该配置；配置或提交变化时重新构建隔离宿主。驱动先恢复原生 invoke 并有界等待已观测调用结束，再退出本次产品进程，最后比较资源快照；退出失败或调用未结束不能报告资源工作流通过。
 驱动在插件详情验证普通设置，再经已注册的语言设置页保存 reload；受控设置子集通过不会把缺少兼容签名包、关闭中的 Provider 能力、arm64 或人工视觉验收算作通过。
 
-项目生成器的 `generator_fixture.py` 在本工作树生成完整 unsigned 社区包、模板、空工作区、
-项目输出目录及绑定当前源码清单的 plan。显式 HTTPS 集成输入还须提供原 ZIP 和 receipt
+项目生成器的 `generator_fixture.py` 在本工作树生成完整 unsigned 社区包、模板、空工作区
+及绑定当前源码清单的 plan。真实项目输出由驱动在隔离应用本地配置的 `generator-projects/`
+创建，避开源码仓库；Core 会拒绝在已有 Git 仓库内再次初始化仓库，不能为验收绕过该保护。
+输出在采集项目文件与打开状态证据后，随原有 profile 清理路径回收。
+Windows 打包应用可能将逻辑配置路径映射到物理缓存目录；打开断言使用已创建目录的真实路径，仍逐项核对完整项目、文件路径及选中状态。
+显式 HTTPS 集成输入还须提供原 ZIP 和 receipt
 （仓库、固定提交、许可、URL、SHA-256、字节/条目数与预期打开文件），例如：
 
 ```powershell
@@ -944,7 +948,7 @@ python -B scripts/plugins/host-acceptance/generator_acceptance.py --fixture-root
 实际 HTTPS 解压的每个上游文件与固定参考 ZIP 比较；下载内容不执行。失败保留首次记录，
 退出后比较实际运行镜像、已安装包和原完整 fixture ZIP；受控子集不代表完整 M8/M10。
 
-`generator-fixture*` ZIP/plan/项目、`generator-archive-input` 固定归档/receipt、
+`generator-fixture*` ZIP/plan/模板、隔离本地 profile 的 `generator-projects/` 项目、`generator-archive-input` 固定归档/receipt、
 进程与清理证据均归既有 `plugin-host-acceptance-state`；没有可复用的版本、平台、架构或
 工具链身份，所有复制阶段拒绝。重新在目标工作树生成，不能从来源工作树拷贝安装审批、
 用户配置或项目。它们只写本次 artifact、隔离用户配置与用户工作区，不影响代码签名或
