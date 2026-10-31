@@ -18,6 +18,10 @@ enum MacApplicationEntryPoint {
             exit(CommandLine.arguments[1].withCString { lithe_bridge_git_askpass($0) })
         }
         #if DEBUG
+        if CommandLine.arguments.contains("--toolchain-settings-demo") || CommandLine.arguments.contains("--toolchain-sources-demo") {
+            ToolchainSettingsDemo.run()
+            return
+        }
         if CommandLine.arguments.contains("--problems-demo")
             || Bundle.main.object(forInfoDictionaryKey: "LitheProblemsDemo") as? Bool == true {
             ProblemsDemo.run()

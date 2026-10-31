@@ -68,6 +68,7 @@ extension AppModel {
             buildSystemsFeatureIfActive?.pluginsChanged()
             vcsProvidersFeature?.pluginsChanged()
             closeStalePluginWebPages()
+            await toolchainSettingsFeature.load(workspace: workspaceURL)
         }
         objectWillChange.send()
         return appliedPluginIDs

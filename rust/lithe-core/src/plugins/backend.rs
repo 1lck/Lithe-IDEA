@@ -66,6 +66,8 @@ pub(crate) struct DeclarationContext<'a> {
     pub(crate) has_command: bool,
     /// Whether the manifest lists `onWorkspaceOpen`.
     pub(crate) activates_on_workspace_open: bool,
+    /// A provider capability may start this backend for a host-owned query.
+    pub(crate) toolchain_query_trigger: bool,
 }
 
 impl BackendDeclaration {
@@ -78,7 +80,7 @@ impl BackendDeclaration {
         }
         // Only the plugin's own pages call a backend in version 1, so one
         // without a web window could never start. Version 2 may also start
-        // with a workspace or a command, but still needs one of the three.
+        // with a workspace, a command or an admitted toolchain query trigger.
         if context.version < WORKSPACE_CONTEXT_VERSION {
             if !context.has_web_window {
                 return Err(invalid(
@@ -89,10 +91,11 @@ impl BackendDeclaration {
         } else if !context.has_web_window
             && !context.has_command
             && !context.activates_on_workspace_open
+            && !context.toolchain_query_trigger
         {
             return Err(invalid(
                 "backend",
-                "A plugin backend needs a way to start: a web tool window, a command, or onWorkspaceOpen.",
+                "A plugin backend needs an admitted page, command, workspace or toolchain query trigger.",
             ));
         }
         self.process.validate(

@@ -23,6 +23,10 @@ enum SettingsSearchVocabulary {
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:
             ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
+        case .toolchainEnvironment:
+            ["Runtime Environment", "Tools", "Directories", "Version files", "Fixed", "Project requirements", "Global defaults", "Automatic discovery"]
+        case .toolchainSources:
+            ["Toolchain Sources", "Login shell", "Shell", "PATH", "Version managers", "Watched files"]
         case .run:
             ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
         case .terminal:

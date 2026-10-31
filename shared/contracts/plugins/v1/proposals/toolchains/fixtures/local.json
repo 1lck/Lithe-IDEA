@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "toolchains": {},
+  "pins": {
+    ".": {
+      "java": {
+        "home": "/opt/lithe-fixtures/installs/java/21.0.4",
+        "version": "21.0.4",
+        "provider": "dev.lithe.fixture.mise:mise"
+      }
+    },
+    "apps/web": {
+      "java": {
+        "home": "/opt/lithe-fixtures/manual/java/17.0.12",
+        "version": "17.0.12",
+        "provider": "host:manual"
+      }
+    },
+    ".config/tools": {
+      "java": {
+        "home": "/opt/lithe-fixtures/installs/java/21.0.4",
+        "version": "21.0.4",
+        "provider": "dev.lithe.fixture.mise:mise"
+      }
+    }
+  }
+}

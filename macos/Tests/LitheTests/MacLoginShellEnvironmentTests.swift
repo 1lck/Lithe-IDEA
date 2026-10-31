@@ -141,6 +141,125 @@ struct MacLoginShellEnvironmentTests {
         #expect(refresh == nil)
         #expect(!applied)
     }
+
+    // MARK: Settings inspector
+
+    @Test
+    func inspectorMarksWhichPathEntriesCameFromTheLoginShell() throws {
+        let fixture = try ShellFixture()
+        defer { fixture.remove() }
+        try fixture.writeRC("""
+        export PATH=/fixture/login/bin:/usr/bin:/bin
+        export LITHE_TEST_SECRET=hunter2
+        """)
+        let shared = MacLoginShellEnvironment()
+        MacLoginShellEnvironment.activate(
+            cacheURL: fixture.root.appendingPathComponent("login-path"),
+            environment: ["SHELL": fixture.shell, "PATH": "/usr/bin:/fixture/launch-only/bin"],
+            shared: shared, shellTimeout: Self.shellTimeout, applyPath: { _ in }
+        )
+
+        let snapshot = shared.inspect()
+
+        #expect(snapshot.shell == fixture.shell)
+        #expect(snapshot.state == .read)
+        #expect((snapshot.variableCount ?? 0) > 0)
+        #expect(snapshot.durationMilliseconds != nil && snapshot.readAt != nil)
+        #expect(!snapshot.startedFromCache && !snapshot.pathChangedSinceLaunch)
+        #expect(snapshot.processPath == [
+            .init(path: "/fixture/login/bin", origin: .loginShell),
+            .init(path: "/usr/bin", origin: .loginShell),
+            .init(path: "/bin", origin: .loginShell),
+            .init(path: "/fixture/launch-only/bin", origin: .inherited)
+        ])
+    }
+
+    @Test
+    func warmStartIsReadingUntilItsRefreshFinishes() throws {
+        let fixture = try ShellFixture()
+        defer { fixture.remove() }
+        try fixture.writeRC("export PATH=/fixture/cached/bin:/usr/bin")
+        let cache = fixture.root.appendingPathComponent("login-path")
+        try "/fixture/cached/bin:/usr/bin".write(to: cache, atomically: true, encoding: .utf8)
+        let shared = MacLoginShellEnvironment()
+
+        let refresh = try #require(MacLoginShellEnvironment.activate(
+            cacheURL: cache, environment: ["SHELL": fixture.shell, "PATH": "/usr/bin"],
+            shared: shared, shellTimeout: Self.shellTimeout, applyPath: { _ in }
+        ))
+        let before = shared.inspect()
+        #expect(before.state == .reading && before.startedFromCache)
+        #expect(before.variableCount == nil)
+
+        refresh()
+        let after = shared.inspect()
+        #expect(after.state == .read && after.startedFromCache)
+        #expect(!after.pathChangedSinceLaunch)
+    }
+
+    @Test
+    func rereadKeepsThisProcessPathAndReportsThatTheLoginPathChanged() throws {
+        let fixture = try ShellFixture()
+        defer { fixture.remove() }
+        try fixture.writeRC("export PATH=/fixture/first/bin:/usr/bin")
+        let cache = fixture.root.appendingPathComponent("login-path")
+        let shared = MacLoginShellEnvironment()
+        var applied: [String] = []
+        MacLoginShellEnvironment.activate(
+            cacheURL: cache, environment: ["SHELL": fixture.shell, "PATH": "/usr/bin"],
+            shared: shared, shellTimeout: Self.shellTimeout, applyPath: { applied.append($0) }
+        )
+        try fixture.writeRC("export PATH=/fixture/second/bin:/usr/bin")
+
+        let snapshot = shared.rereadSynchronously(timeout: Self.shellTimeout)
+
+        #expect(snapshot.state == .read && snapshot.pathChangedSinceLaunch)
+        #expect(snapshot.processPath.first?.path == "/fixture/first/bin")
+        #expect(applied == ["/fixture/first/bin:/usr/bin"], "A reread must not change this process's PATH")
+        #expect(try String(contentsOf: cache, encoding: .utf8).hasPrefix("/fixture/second/bin:"))
+    }
+
+    @Test
+    func failedReadKeepsTheLaunchPathAndHasNoVariableCount() throws {
+        let fixture = try ShellFixture()
+        defer { fixture.remove() }
+        try fixture.writeRC("exit 3")
+        let shared = MacLoginShellEnvironment()
+        let refresh = MacLoginShellEnvironment.activate(
+            cacheURL: fixture.root.appendingPathComponent("login-path"),
+            environment: ["SHELL": fixture.shell, "PATH": "/usr/bin:/bin"],
+            shared: shared, shellTimeout: Self.shellTimeout, applyPath: { _ in }
+        )
+
+        let snapshot = shared.inspect()
+
+        #expect(refresh == nil)
+        #expect(snapshot.state == .failed && snapshot.variableCount == nil)
+        #expect(snapshot.processPath == [.init(path: "/usr/bin", origin: .inherited), .init(path: "/bin", origin: .inherited)])
+    }
+
+    @Test
+    func optOutAndUnreadShellsAreDescribedWithoutRunningTheShell() throws {
+        let fixture = try ShellFixture()
+        defer { fixture.remove() }
+        let ran = fixture.root.appendingPathComponent("ran")
+        try fixture.writeRC("touch '\(ran.path)'")
+
+        let prepared = MacLoginShellEnvironment()
+        prepared.prepare(shell: fixture.shell, cacheURL: nil, environment: ["PATH": "/usr/bin"])
+        #expect(prepared.inspect().state == .notRead)
+        #expect(prepared.inspect().processPath == [.init(path: "/usr/bin", origin: .inherited)])
+
+        let disabled = MacLoginShellEnvironment()
+        MacLoginShellEnvironment.activate(
+            cacheURL: fixture.root.appendingPathComponent("login-path"),
+            environment: ["SHELL": fixture.shell, "PATH": "/usr/bin", MacLoginShellEnvironment.skipVariable: "1"],
+            shared: disabled, shellTimeout: Self.shellTimeout, applyPath: { _ in }
+        )
+        #expect(disabled.inspect().state == .disabled)
+        #expect(disabled.rereadSynchronously(timeout: Self.shellTimeout).state == .disabled)
+        #expect(!FileManager.default.fileExists(atPath: ran.path), "The opt-out must not run the shell, even on reread")
+    }
 }
 
 private final class RecordingLog: ApplicationLogging, @unchecked Sendable {
