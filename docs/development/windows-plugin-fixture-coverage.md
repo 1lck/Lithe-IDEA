@@ -108,6 +108,17 @@ node --test scripts/plugins/check-plugin-fixture-coverage.test.mjs
 | project-generator-templates/main/Main.java | 同上（条件占位符模板） | 无 | indirect-core → M8 |
 | vcs-provider.plugin.json | `vcs.rs:65/94/147/196` 审查、权限、启动计划、根识别 | 无 | **unwired** → M9 |
 
+### 4.5 冻结路线图后的独立编辑器扩展
+
+preview 新增的编辑器动作和静态语法资源按 `followup` 登记，不纳入历史快照计数。
+`grammar-assets` 分类用于插件包中的只读语法数据；它仍须提供 Core 证据，不能绕过 Windows 接线状态校验。
+
+| Fixture | Core 入口 | Windows 状态 / 缺口 |
+| --- | --- | --- |
+| editor-actions.plugin.json | `declarative_plugins.rs contract_fixtures_and_official_plugins_validate` | **unwired** → followup：Windows 未声明 backend，缺权限审查、动作注册/调用与会话回收的 fixture 级产品测试 |
+| language-grammar.plugin.json | `declarative_plugins.rs contract_fixtures_and_official_plugins_validate`；`plugin_editor_resources.rs` 的纯语法清单验证和语言解码 | **unwired** → followup：Windows 仅声明 `languages:[1]`；非法修改用例的间接读取不证明 `languages:2` 已接线 |
+| grammars/http.monarch.json | `plugin_editor_resources.rs a_grammar_file_decodes_to_the_language_the_editor_registers` | **unwired** → followup：缺 Windows 插件资源加载、worker 注册/停用及资源只读的产品路径测试 |
+
 ## 5. 横切发现（记录，不在本 PR 修改）
 
 1. **过时门控注释**：`windows/tauri/src-tauri/src/plugin_host/tests.rs:149` 注释称 settings-v2 被门控是因为"settings 2 与 languageServers 2 未声明"；实际 `mod.rs::host_capabilities` 已声明 `settings:[1,2]`、`languageServers:[1,2]`，真正的门控原因是该 fixture 同时 `requires buildSystems:1, buildProviders:1`。断言本身仍通过且有效，注释需在下次触碰该测试的 PR 中修正。

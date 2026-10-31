@@ -390,6 +390,18 @@
       "gapDetail": "preview #1510 新增 API 4/debugAdapters 1 声明。Windows 宿主仍未声明该能力，未接入此夹具的会话与运行链，需另行实现并验收后才能开放。"
     },
     {
+      "path": "editor-actions.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs contract_fixtures_and_official_plugins_validate"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview 新增后端驱动的独立编辑器动作清单，Core 已覆盖清单合法性；Windows 未声明 backend 能力，没有直接消费本 fixture 的合法清单、能力门控或产品路径测试。editor.actions 权限审查、动作注册/调用及会话回收需在冻结路线图后的后续阶段接入，现有编辑器工具栏与通用函数桥不作为此能力已支持的证据。"
+    },
+    {
       "path": "function-protocol.json",
       "category": "function-protocol",
       "outcome": "success",
@@ -406,6 +418,18 @@
       "windowsStatus": "indirect-core",
       "gapStage": "M6",
       "gapDetail": "R10/R11 设置与网页函数入口已复用 Core 协商、调用、取消和解码；受控 runtime/页面 listener 回归覆盖归属、审批、结果与清理。共享协议向量仍由 Core 消费；真实签名包、动态注册/撤回与进程树的完整 Windows 包验收保持 M6/M10 pending。"
+    },
+    {
+      "path": "grammars/http.monarch.json",
+      "category": "grammar-assets",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/plugin_editor_resources.rs a_grammar_file_decodes_to_the_language_the_editor_registers"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "language-grammar.plugin.json 引用的只读 Monarch 语法资源，Core 测试直接读取并验证解码后的语言、原始语法与配置。Windows 尚无读取本资源的产品路径测试，插件语法文件加载、校验、worker 注册/停用与资源只读验证属于冻结路线图后的后续阶段；内置 Monaco 高亮不等于本插件资源链已接入。"
     },
     {
       "path": "hello-lithe.plugin.json",
@@ -439,6 +463,20 @@
       "windowsStatus": "wired",
       "gapStage": null,
       "gapDetail": null
+    },
+    {
+      "path": "language-grammar.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs contract_fixtures_and_official_plugins_validate",
+        "rust/lithe-core/src/tests/plugin_editor_resources.rs a_grammar_only_plugin_validates_without_a_language_server",
+        "rust/lithe-core/src/tests/plugin_editor_resources.rs a_grammar_file_decodes_to_the_language_the_editor_registers"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "Core 已覆盖 languages:2 的独立语法清单及语言配置解码；Windows 只声明 languages:[1]，本 fixture 不在合法/能力门控清单，也无插件语法注册的产品路径测试。invalid-manifests 中作为5个非法修改用例基底的间接读取不证明宿主接线；语法、语言配置和停用清理按冻结路线图后的后续阶段接入。"
     },
     {
       "path": "language-host-integration.plugin.json",

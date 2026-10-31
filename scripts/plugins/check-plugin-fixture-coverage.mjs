@@ -42,6 +42,9 @@ export const CATEGORY_VALUES = [
   'native-ui',
   'vcs-provider',
   'template-assets',
+  // Read-only syntax data consumed by an independent editor contribution.
+  // It still requires Core evidence and an honest Windows wiring status.
+  'grammar-assets',
 ];
 
 export const OUTCOME_VALUES = ['success', 'rejection', 'partial-support'];

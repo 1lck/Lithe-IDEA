@@ -348,6 +348,35 @@ test('signature-vectors entries may carry host-side evidence only', (t) => {
   assert.ok(rejected.problems.some((problem) => /plain\.json: coreEvidence must name/.test(problem.detail)));
 });
 
+test('grammar assets keep Core evidence and an honest Windows gap', (t) => {
+  const repo = tempRepo(t);
+  const fixture = 'grammars/http.monarch.json';
+  repo.writeFixture(fixture);
+  const asset = entry(fixture, {
+    category: 'grammar-assets',
+    windowsStatus: 'unwired',
+    windowsEvidence: [],
+    gapStage: 'followup',
+    gapDetail: 'Core decodes the resource; Windows has no plugin grammar consumer yet',
+  });
+  repo.writeManifest([asset]);
+  const accepted = repo.check();
+  assert.equal(accepted.ok, true);
+  assert.deepEqual(accepted.summary.byCategory, { 'grammar-assets': 1 });
+  assert.equal(accepted.summary.wired, 0);
+  assert.equal(accepted.summary.knownGaps, 1);
+
+  repo.writeManifest([{ ...asset, coreEvidence: [] }]);
+  const noCoreEvidence = repo.check();
+  assert.equal(noCoreEvidence.ok, false);
+  assert.ok(noCoreEvidence.problems.some((problem) => /coreEvidence must name/.test(problem.detail)));
+
+  repo.writeManifest([{ ...asset, windowsStatus: 'wired', gapStage: null, gapDetail: null }]);
+  const noWindowsEvidence = repo.check();
+  assert.equal(noWindowsEvidence.ok, false);
+  assert.ok(noWindowsEvidence.problems.some((problem) => /wired.*requires at least one windowsEvidence/.test(problem.detail)));
+});
+
 // CI wiring guard: the Linux changes lane must invoke both the detector CLI
 // and this test file. If the workflow stops calling them, a new fixture can
 // land unregistered without any real pull request check failing.
