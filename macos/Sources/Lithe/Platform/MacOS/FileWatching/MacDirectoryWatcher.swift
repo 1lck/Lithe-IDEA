@@ -154,15 +154,22 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
             }
             if configuration.isGitContextPointer(url) {
                 batch.gitStateMayHaveChanged = true
+                batch.gitMetadataMayHaveChanged = true
                 batch.watchRootsChanged = true
                 continue
             }
             if configuration.containsGitMetadataPath(url) {
                 batch.gitStateMayHaveChanged = true
+                batch.gitMetadataMayHaveChanged = true
                 continue
             }
             if configuration.containsRepositoryPath(url) {
                 batch.gitStateMayHaveChanged = true
+                // Ignore rules matter even when hidden from the tree or when
+                // the repository root is above the opened workspace folder.
+                if url.lastPathComponent == ".gitignore" {
+                    batch.gitMetadataMayHaveChanged = true
+                }
             }
             // `.lithe` may be hidden from the tree, yet its JSON files still
             // reload project services, so its events are not filtered out.

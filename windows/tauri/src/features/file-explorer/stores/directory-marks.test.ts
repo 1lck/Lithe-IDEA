@@ -1,6 +1,10 @@
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { LocaleProvider } from "@/i18n/locale-provider";
+import { useFileExplorerContextMenu } from "../hooks/use-file-explorer-context-menu";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { installHappyDom } from "@/test-utils/happy-dom";
-import { readIndexingSettings, writeIndexingSettings } from "./workspace-indexing";
+import { indexingSettingsStorageKey, readIndexingSettings, writeIndexingSettings } from "./workspace-indexing";
 import { directoryMarkRoot, markWorkspaceDirectory, migrateWorkspaceDirectoryMarks, migrateDirectoryMarks, readDirectoryMarks } from "./directory-marks";
 
 let restore: () => void;
@@ -245,5 +249,44 @@ test("cross-root quota failure rolls back in reverse order without publishing pa
     else Reflect.deleteProperty(window, "localStorage");
     window.removeEventListener("lithe:directory-marks-changed", listener);
     window.removeEventListener("lithe:workspace-indexing-changed", listener);
+  }
+});
+
+test.each(["remote://host/project", "wsl://Ubuntu/project"])("unsupported roots keep old exclusion preferences and ordinary role actions: %s", async (rootPath) => {
+  const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const previousAct = actGlobal.IS_REACT_ACT_ENVIRONMENT;
+  actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  const renderer = createRoot(host);
+  const path = `${rootPath}/src`;
+  const marksKey = `lithe.workspace-directory-marks.${rootPath}`;
+  const oldMarks = JSON.stringify({ version: 1, marks: { src: "excluded" } });
+  window.localStorage.setItem(marksKey, oldMarks);
+  const calls: unknown[][] = [];
+  let menu!: ReturnType<typeof useFileExplorerContextMenu>;
+  function Probe() {
+    menu = useFileExplorerContextMenu({
+      rootFolderPath: rootPath, canExcludeDirectory: () => false,
+      isIndexExcluded: () => false, markForPath: () => "excluded",
+      markDirectory: (...args) => { calls.push(args); },
+      onFileSelect: () => {}, onDeleteRequested: () => {},
+      onStartInlineEditing: () => {}, onOpenAllFilesInDirectory: async () => {},
+    });
+    return null;
+  }
+  try {
+    await act(async () => renderer.render(createElement(LocaleProvider, { children: createElement(Probe) })));
+    await act(async () => menu.setContextMenu({ x: 0, y: 0, path, isDir: true }));
+    type Item = { id: string; onClick: () => void; children?: Item[] };
+    const element = menu.contextMenuElement as import("react").ReactElement<{ children: Array<import("react").ReactElement<{ items: Item[] }> | null> }>;
+    const markMenu = element.props.children[0]!.props.items.find((item) => item.id === "mark-directory")!;
+    expect(markMenu.children!.map((item) => item.id)).toEqual(["mark-plain", "mark-sources", "mark-resources", "mark-module", "mark-package"]);
+    markMenu.children!.find((item) => item.id === "mark-plain")!.onClick();
+    expect(calls).toEqual([[path, "plain", false]]);
+    expect(window.localStorage.getItem(marksKey)).toBe(oldMarks);
+    expect(window.localStorage.getItem(indexingSettingsStorageKey(rootPath))).toBeNull();
+  } finally {
+    await act(async () => renderer.unmount());
+    actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
   }
 });

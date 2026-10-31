@@ -406,14 +406,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ["git", "remember", "panel", "stash", "history"],
   },
   {
-    id: "git-enable-inline-blame",
-    tab: "git",
-    section: "Editor",
-    label: "Enable Inline Blame",
-    description: "Show inline Git blame metadata in the editor",
-    keywords: ["git", "blame", "inline", "editor"],
-  },
-  {
     id: "git-enable-gutter",
     tab: "git",
     section: "Editor",

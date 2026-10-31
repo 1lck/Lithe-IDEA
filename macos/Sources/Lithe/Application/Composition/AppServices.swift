@@ -36,6 +36,12 @@ final class AppServices {
     /// Fires after plugins that take effect without a restart were installed,
     /// updated, removed, enabled or disabled; `nil` when the platform has none.
     var pluginRegistrationChanges: AnyPublisher<Void, Never>?
+    /// The workspace contexts plugin backends see, shared by every window;
+    /// `nil` when the platform runs no plugin backends.
+    var pluginWorkspaceContexts: PluginWorkspaceContexts?
+    /// Starts plugin backends on `onWorkspaceOpen` and `onCommand:<id>`;
+    /// `nil` when the platform runs no plugin backends.
+    var pluginBackendActivation: (any PluginBackendActivating)?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing
@@ -97,6 +103,12 @@ final class AppServices {
     let directoryWatcherFactory: any DirectoryWatcherFactory
     let platformUI: any PlatformUI
     let shortcutDetectorFactory: any ShortcutDetectorFactory
+    /// Keychain-backed store for the custom proxy password; `nil` leaves the
+    /// password field on the network settings page disabled.
+    var proxyPasswordStore: (any SecureStore)?
+    /// Performs the network settings page's proxy connectivity check; `nil`
+    /// hides the test button.
+    var proxyConnectionChecker: (any NetworkProxyChecking)?
 
     init(
         moduleRuntime: ModuleRuntime,
@@ -205,5 +217,7 @@ final class AppServices {
         self.directoryWatcherFactory = directoryWatcherFactory
         self.platformUI = platformUI
         self.shortcutDetectorFactory = shortcutDetectorFactory
+        self.proxyPasswordStore = nil
+        self.proxyConnectionChecker = nil
     }
 }

@@ -88,7 +88,8 @@ final class MacServiceContainer {
         aiConfigurationSources providedAIConfigurationSources: [any AIConfigurationSource]? = nil,
         gitPerformanceLogger: (any GitPerformanceLogger)? = nil,
         pluginWebPageLifecycle providedPluginWebPageLifecycle: PluginWebPageLifecycle? = nil,
-        applicationLogging: (any ApplicationLogging)? = nil
+        applicationLogging: (any ApplicationLogging)? = nil,
+        networkSessionProvider providedNetworkSessionProvider: MacNetworkSessionProvider? = nil
     ) {
         let pluginWebPageLifecycle = providedPluginWebPageLifecycle ?? .shared
         let gitExecutionJournal = GitExecutionJournal()
@@ -111,6 +112,23 @@ final class MacServiceContainer {
             metadataRepositoryURLs: [mavenRepositoryURL, gradleRepositoryURL]
         )
         let fileStorage = MacFileStorage()
+        // One proxy-aware session factory per process: LitheApp creates it so
+        // the rollback downloader outside this container shares the policy,
+        // and every transport inside resolves sessions through it per request.
+        let networkSessionProvider = providedNetworkSessionProvider
+            ?? MacNetworkSessionProvider(
+                preferences: settings.networkProxyPreferences,
+                policyResolver: { [rustCore] configuration in
+                    rustCore.networkProxyPolicy(from: configuration)
+                }
+            )
+        let proxyPasswordStore = MacKeychainSecureStore(service: fileStorage.identity.keychainService("proxy"))
+        if let credential = NetworkProxyCredential.load(from: proxyPasswordStore, key: AppSettings.networkProxyPasswordKey) {
+            settings.updateNetworkProxyCredential(credential)
+        }
+        let proxyConnectionChecker = MacNetworkProxyTester(policyResolver: { [rustCore] configuration in
+            rustCore.networkProxyPolicy(from: configuration)
+        })
         let workspaceLanguageServerPreferences = MacWorkspaceLanguageServerPreferencesStore(store: store)
         let directoryMarkStore = WorkspaceDirectoryMarkStore(store: store)
         let runConfigurationStore = MacRunConfigurationStore(
@@ -137,7 +155,7 @@ final class MacServiceContainer {
         let secureStore = MacLocalSecretStore()
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
-            transport: MacGitHubHTTPTransport(),
+            transport: MacGitHubHTTPTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.acquireSession() }),
             configuration: MacGitHubConfiguration(),
             secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("github")),
             git: MacGitHubGitOperations(core: rustCore)
@@ -263,11 +281,12 @@ final class MacServiceContainer {
         }
         let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
+        let proxySessionProvider: @Sendable () -> MacNetworkSessionLease = { [networkSessionProvider] in networkSessionProvider.acquireSession() }
         #if DEBUG
         pluginMarketplaceTransport = MacPluginMarketplaceFixtureTransport.fromEnvironment()
-            ?? MacURLSessionPluginMarketplaceTransport()
+            ?? MacURLSessionPluginMarketplaceTransport(sessionProvider: proxySessionProvider)
         #else
-        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport()
+        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport(sessionProvider: proxySessionProvider)
         #endif
         let remotePluginPackages = MacRemotePluginPackageDeployer(
             installed: pluginStartup.registeredPlugins,
@@ -297,7 +316,9 @@ final class MacServiceContainer {
                 contributions: AIAssistanceModule.moduleContributions
             ) {
                 AIAssistanceModule(
-                    transportFactory: { MacURLSessionTransport() },
+                    transportFactory: {
+                        MacURLSessionTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.acquireSession() })
+                    },
                     credentialResolver: credentialResolver
                 )
             })
@@ -413,7 +434,29 @@ final class MacServiceContainer {
                     applicationLogging?.record(level: "warn", scope: "plugins.migration", message: message, fields: [:])
                 }
             )
-            return MacPluginBackendSessions(
+            // Host services of backend requests: the credentials of
+            // protocol 2 and the workspace contexts of protocol 3. Context
+            // state lives below each plugin's `${stateDir}` in Application
+            // Support, never in the bundle or the package.
+            let hostDispatcher = PluginHostServiceDispatcher(contexts: .shared)
+            hostDispatcher.register(PluginCredentialHostService(credentials: pluginCredentials))
+            let backendDirectories = MacPluginStateDirectories(fileStorage: fileStorage)
+            let workspaceHost = PluginWorkspaceHostService(
+                contexts: .shared,
+                backendStateDirectory: { backendDirectories.backendStateDirectory(pluginID: $0) },
+                rootIDSecret: { MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)) }
+            )
+            hostDispatcher.register(workspaceHost)
+            hostDispatcher.register(PluginDocumentHostService(contexts: .shared))
+            hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,
+                files: MacPluginWorkspaceFileService(
+                    searchOperations: RustWorkspaceOperations(core: rustCore),
+                    watcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport),
+                    isRemoteWorkspaceRoot: { remoteWorkspaces.resolve($0) != nil }
+                )))
+            hostDispatcher.register(PluginWindowHostService(contexts: .shared, metadata: workspaceHost,
+                                                            fileStorage: fileStorage, platformUI: platformUI))
+            let sessions = MacPluginBackendSessions(
                 launchResolver: pluginLaunchResolver,
                 tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
                 versionChecker: declarativePluginOperations,
@@ -426,8 +469,14 @@ final class MacServiceContainer {
                         applicationLogging?.record(level: "info", scope: "plugins.migration", message: "database connections moved into the plugin",
                             fields: ["profiles": String(profiles), "passwords": String(passwords)])
                     }
-                }
+                },
+                hostDispatcher: hostDispatcher
             )
+            sessions.onActivationFailure = { [applicationLogging] pluginID, error in
+                applicationLogging?.record(level: "warn", scope: "plugins.backend", message: "backend activation failed",
+                    fields: ["plugin": pluginID, "error": error.localizedDescription])
+            }
+            return sessions
         }
         pluginBackends.register(pluginStartup.registeredPlugins)
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
@@ -1084,6 +1133,8 @@ final class MacServiceContainer {
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
+        services.proxyPasswordStore = proxyPasswordStore
+        services.proxyConnectionChecker = proxyConnectionChecker
         services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
             core: rustCore, storage: fileStorage
         )
@@ -1122,6 +1173,8 @@ final class MacServiceContainer {
                 }
             )
         }
+        services.pluginWorkspaceContexts = PluginWorkspaceContexts.shared
+        services.pluginBackendActivation = pluginBackends
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared

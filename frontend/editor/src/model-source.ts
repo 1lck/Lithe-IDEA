@@ -63,15 +63,3 @@ export class EditorModelSource {
     return this.source.textInNormalizedRange(offset, count);
   }
 }
-
-/** Positions for LSP are calculated against the source before a simultaneous batch. */
-export function sourcePositionAt(content: string, offset: number): { line: number; column: number } {
-  let line = 0, start = 0;
-  for (let index = 0; index < offset; index++) {
-    if (content[index] === "\r") {
-      if (index + 1 < offset && content[index + 1] === "\n") index++;
-      line++; start = index + 1;
-    } else if (content[index] === "\n") { line++; start = index + 1; }
-  }
-  return { line, column: offset - start };
-}

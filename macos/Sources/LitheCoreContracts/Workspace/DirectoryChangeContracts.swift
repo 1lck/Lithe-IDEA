@@ -150,23 +150,27 @@ package struct DirectoryWatchConfiguration: Equatable, Sendable {
 package struct DirectoryChangeBatch: Equatable, Sendable {
     package var workspacePaths: [String]
     package var gitStateMayHaveChanged: Bool
+    /// Git metadata can change ignore/tracked membership even in a mixed file batch.
+    package var gitMetadataMayHaveChanged: Bool
     package var requiresFullRescan: Bool
     package var watchRootsChanged: Bool
 
     package init(
         workspacePaths: [String] = [],
         gitStateMayHaveChanged: Bool = false,
+        gitMetadataMayHaveChanged: Bool = false,
         requiresFullRescan: Bool = false,
         watchRootsChanged: Bool = false
     ) {
         self.workspacePaths = workspacePaths
         self.gitStateMayHaveChanged = gitStateMayHaveChanged
+        self.gitMetadataMayHaveChanged = gitMetadataMayHaveChanged
         self.requiresFullRescan = requiresFullRescan
         self.watchRootsChanged = watchRootsChanged
     }
 
     package var isEmpty: Bool {
-        workspacePaths.isEmpty && !gitStateMayHaveChanged && !requiresFullRescan && !watchRootsChanged
+        workspacePaths.isEmpty && !gitStateMayHaveChanged && !gitMetadataMayHaveChanged && !requiresFullRescan && !watchRootsChanged
     }
 }
 

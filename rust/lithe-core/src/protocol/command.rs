@@ -298,6 +298,9 @@ pub enum CoreCommand {
     /// Resolves the line comment token for a file extension
     /// (`editor.lineCommentToken`).
     EditorLineCommentToken,
+    /// Normalizes the stored proxy settings into the policy a network stack
+    /// must apply (`network.proxyPolicy`).
+    NetworkProxyPolicy,
     /// Reduces an LSP snippet to insertion text (`lsp.plainSnippet`).
     LspPlainSnippet,
     /// Provides same-document fallback completions (`lsp.builtinCompletions`).
@@ -330,6 +333,8 @@ pub enum CoreCommand {
     LspUpdateWorkspaceConfiguration,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
+    /// Reports a successful native document save (`lsp.saveDocument`).
+    LspSaveDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
     LspWorkspaceFilesChanged,
     /// Closes a synchronized document (`lsp.closeDocument`).
@@ -344,8 +349,12 @@ pub enum CoreCommand {
     LspFunctionRequest,
     /// Answers a plugin backend's host-service request (`lsp.hostResponse`).
     LspHostResponse,
+    /// Sends a plugin backend one host notification (`lsp.hostNotify`).
+    LspHostNotify,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
     JavaNavigationMarkers,
+    /// Queues shared Java entry selection, build and classpath preparation (`java.prepareLaunch`).
+    JavaPrepareLaunch,
     /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
     JavaResolveNavigation,
     /// Cancels one pending semantic request (`lsp.cancelOperation`).
@@ -667,6 +676,7 @@ impl CoreCommand {
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
             "editor.lineEdit" => Some(Self::EditorLineEdit),
             "editor.lineCommentToken" => Some(Self::EditorLineCommentToken),
+            "network.proxyPolicy" => Some(Self::NetworkProxyPolicy),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),
             "lsp.builtinCompletions" => Some(Self::LspBuiltinCompletions),
             "lsp.builtinHover" => Some(Self::LspBuiltinHover),
@@ -682,6 +692,7 @@ impl CoreCommand {
             "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.updateWorkspaceConfiguration" => Some(Self::LspUpdateWorkspaceConfiguration),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
+            "lsp.saveDocument" => Some(Self::LspSaveDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
             "lsp.request" => Some(Self::LspRequest),
@@ -689,7 +700,9 @@ impl CoreCommand {
             "lsp.vcsRequest" => Some(Self::LspVcsRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "lsp.hostResponse" => Some(Self::LspHostResponse),
+            "lsp.hostNotify" => Some(Self::LspHostNotify),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
+            "java.prepareLaunch" => Some(Self::JavaPrepareLaunch),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
             "lsp.waitEvents" => Some(Self::LspWaitEvents),
@@ -803,6 +816,7 @@ mod tests {
             "lsp.vcsRequest",
             "lsp.functionRequest",
             "lsp.hostResponse",
+            "lsp.hostNotify",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",
@@ -825,6 +839,12 @@ mod tests {
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }
+    }
+
+    #[test]
+    fn parses_network_proxy_policy_command() {
+        assert!(CoreCommand::parse("network.proxyPolicy").is_some());
+        assert!(CoreCommand::parse("network.unknown").is_none());
     }
 
     #[test]

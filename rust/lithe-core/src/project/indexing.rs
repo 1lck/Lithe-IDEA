@@ -45,12 +45,17 @@ pub struct IndexingStatus {
 /// Immutable policy generation with lazily cached Git directory decisions.
 pub(crate) struct IndexingContext {
     pub(crate) revision: u64,
+    /// Watcher scan refreshes retain the installation being committed or rolled back.
+    installation_revision: u64,
     /// Legacy release token; watcher refreshes preserve host ownership.
     owner_revision: u64,
     /// Shared across scan generations so one owner cannot retire another owner's root.
     leases: Arc<Mutex<BTreeMap<Option<String>, IndexingLease>>>,
     root: PathBuf,
     policy: IndexingPolicy,
+    /// Last successfully returned policy; failed generations never become the fallback.
+    fallback_policy: Option<IndexingPolicy>,
+    published: AtomicBool,
     decisions: Mutex<HashMap<String, bool>>,
     pub(crate) retired: AtomicBool,
     git_failed: AtomicBool,
@@ -101,7 +106,7 @@ pub fn configure(request: ConfigureIndexingRequest) -> Result<IndexingStatus, Co
 
 fn configure_with_provider_update(
     mut request: ConfigureIndexingRequest,
-    update_provider: impl FnOnce(&Path) -> Result<(), CoreError>,
+    mut update_provider: impl FnMut(&Path) -> Result<(), CoreError>,
 ) -> Result<IndexingStatus, CoreError> {
     if request
         .owner_id
@@ -136,12 +141,20 @@ fn configure_with_provider_update(
                 .map(|old| Arc::clone(&old.leases))
                 .unwrap_or_default();
             let legacy_revision = active.map(|old| old.owner_revision);
+            let fallback_policy = active.and_then(|old| {
+                if old.published.load(Ordering::Acquire) {
+                    Some(old.policy.clone())
+                } else {
+                    old.fallback_policy.clone()
+                }
+            });
             if let Some(old) = entries.get(&root) {
                 old.retired.store(true, Ordering::Release);
             }
             let revision = REVISION.fetch_add(1, Ordering::Relaxed);
             let next = Arc::new(IndexingContext {
                 revision,
+                installation_revision: revision,
                 owner_revision: if request.owner_id.is_none() {
                     revision
                 } else {
@@ -150,6 +163,8 @@ fn configure_with_provider_update(
                 leases,
                 root: root.clone(),
                 policy: request.policy,
+                fallback_policy,
+                published: AtomicBool::new(false),
                 decisions: Mutex::default(),
                 retired: AtomicBool::new(false),
                 git_failed: AtomicBool::new(false),
@@ -243,6 +258,7 @@ fn configure_with_provider_update(
                 .ok_or_else(|| CoreError::new(ErrorCode::Cancelled, "Indexing lease changed"))?;
             lease.published = true;
             lease.previous_published = None;
+            context.published.store(true, Ordering::Release);
         }
         Ok(IndexingStatus {
             revision: lease_revision,
@@ -260,8 +276,60 @@ fn configure_with_provider_update(
             },
             true,
         );
+        if rollback_failed_policy(&root, &context)? {
+            super::search_index::invalidate_root(&root);
+            // Restore providers that received only part of the failed update.
+            // Preserve the original error if shutdown/cancellation also blocks recovery.
+            let _ = update_provider(&root);
+        }
     }
     result
+}
+
+fn rollback_failed_policy(root: &Path, failed: &Arc<IndexingContext>) -> Result<bool, CoreError> {
+    let mut entries = policies()
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing policy lock was poisoned"))?;
+    let Some(current) = entries.get(root).cloned() else {
+        return Ok(false);
+    };
+    if current.installation_revision != failed.installation_revision
+        || current.retired.load(Ordering::Acquire)
+        || current.published.load(Ordering::Acquire)
+    {
+        return Ok(false);
+    }
+    let Some(policy) = current.fallback_policy.clone() else {
+        return Ok(false);
+    };
+    let leases = current
+        .leases
+        .lock()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing lease lock was poisoned"))?;
+    if leases.is_empty() {
+        return Ok(false);
+    }
+    let revision = REVISION.fetch_add(1, Ordering::Relaxed);
+    let next = Arc::new(IndexingContext {
+        revision,
+        installation_revision: revision,
+        owner_revision: leases
+            .get(&None)
+            .map_or(current.owner_revision, |lease| lease.revision),
+        leases: Arc::clone(&current.leases),
+        root: root.to_path_buf(),
+        policy: policy.clone(),
+        fallback_policy: Some(policy),
+        published: AtomicBool::new(true),
+        decisions: Mutex::default(),
+        retired: AtomicBool::new(false),
+        git_failed: AtomicBool::new(false),
+        git_resolved: AtomicBool::new(false),
+    });
+    current.retired.store(true, Ordering::Release);
+    drop(leases);
+    entries.insert(root.to_path_buf(), next);
+    Ok(true)
 }
 
 #[derive(Deserialize)]
@@ -355,10 +423,13 @@ pub(crate) fn refresh(root: &Path) -> Result<(), CoreError> {
         old.check()?;
         let next = Arc::new(IndexingContext {
             revision: REVISION.fetch_add(1, Ordering::Relaxed),
+            installation_revision: old.installation_revision,
             owner_revision: old.owner_revision,
             leases: Arc::clone(&old.leases),
             root: old.root.clone(),
             policy: old.policy.clone(),
+            fallback_policy: old.fallback_policy.clone(),
+            published: AtomicBool::new(old.published.load(Ordering::Acquire)),
             decisions: Mutex::default(),
             retired: AtomicBool::new(false),
             git_failed: AtomicBool::new(false),
@@ -592,13 +663,19 @@ pub(crate) fn uri_is_excluded(root_uri: &str, uri: &str) -> Result<bool, CoreErr
         .ok()
         .and_then(|value| value.to_file_path().ok());
     match (root, path) {
-        (Some(root), Some(path)) if path.starts_with(&root) => {
-            let relative = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
+        (Some(root), Some(path)) => {
             let root = root.canonicalize().unwrap_or(root);
+            // A server may report a canonical URI while its workspace uses a
+            // symlink alias. Deleted files still need their surviving ancestor.
+            let path =
+                super::search_index::canonicalize_with_missing_components(&path).unwrap_or(path);
+            if !path.starts_with(&root) {
+                return Ok(false);
+            }
             if active_provider_context(&root).is_none() {
                 return Ok(false);
             }
-            is_excluded(&root, &root.join(relative), false)
+            is_excluded(&root, &path, false)
         }
         _ => Ok(false),
     }
@@ -1095,6 +1172,92 @@ mod tests {
             refresh(&workspace.0).is_err(),
             "watchers must not resurrect the last closed lease"
         );
+    }
+
+    #[test]
+    fn failed_policy_update_restores_the_last_successful_policy_and_owner_leases() {
+        assert_failed_policy_restores_published_state(false);
+    }
+
+    #[test]
+    fn failed_policy_update_restores_the_policy_after_a_concurrent_watcher_refresh() {
+        assert_failed_policy_restores_published_state(true);
+    }
+
+    fn assert_failed_policy_restores_published_state(watcher_refresh: bool) {
+        let workspace = Workspace::new();
+        let request = |owner: &str, excluded: bool| {
+            serde_json::from_value(json!({
+            "root":workspace.0,"ownerId":owner,"manualExcludedDirectories":if excluded {vec!["ignored"]} else {vec![]},
+            "includedDirectories":[],"gitIgnoreEnabled":false
+        })).unwrap()
+        };
+        let original = configure(request("owner-a", false)).unwrap();
+        let other = configure(request("owner-b", false)).unwrap();
+        let old_context = context(&workspace.0).unwrap();
+        let mut calls = 0;
+        let result = configure_with_provider_update(request("owner-a", true), |_| {
+            calls += 1;
+            if calls == 1 {
+                if watcher_refresh {
+                    refresh(&workspace.0)?;
+                }
+                Err(CoreError::new(
+                    ErrorCode::Cancelled,
+                    "provider update cancelled",
+                ))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 2, "providers receive a best-effort restoration");
+        assert!(
+            old_context.check().is_err(),
+            "old in-flight scans stay retired after rollback"
+        );
+        assert_eq!(
+            workspace.files().len(),
+            2,
+            "failed exclusions must not remain active"
+        );
+        for (owner, revision) in [("owner-a", original.revision), ("owner-b", other.revision)] {
+            assert!(release(ReleaseIndexingRequest {
+                root: workspace.0.to_string_lossy().into_owned(),
+                owner_id: Some(owner.into()),
+                revision
+            })
+            .unwrap());
+        }
+        assert!(context(&workspace.0).unwrap().check().is_err());
+    }
+
+    #[test]
+    fn another_successful_installer_keeps_an_adopted_policy_after_the_first_caller_fails() {
+        let workspace = Workspace::new();
+        let request = |excluded| {
+            serde_json::from_value(json!({
+            "root":workspace.0,"ownerId":"owner-a","manualExcludedDirectories":if excluded {vec!["ignored"]} else {vec![]},
+            "includedDirectories":[],"gitIgnoreEnabled":false
+        })).unwrap()
+        };
+        configure(request(false)).unwrap();
+        let mut received = 0;
+        let result = configure_with_provider_update(request(true), |_| {
+            received = configure(request(true))?.revision;
+            Err(CoreError::new(
+                ErrorCode::Cancelled,
+                "caller cancelled after concurrent publication",
+            ))
+        });
+        assert!(result.is_err());
+        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert!(release(ReleaseIndexingRequest {
+            root: workspace.0.to_string_lossy().into_owned(),
+            owner_id: Some("owner-a".into()),
+            revision: received
+        })
+        .unwrap());
     }
 
     #[test]

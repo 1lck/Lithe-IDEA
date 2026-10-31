@@ -24,6 +24,8 @@ import {
 } from "./language-server-feedback";
 import type {
   CompletionItem,
+  CompletionList,
+  CompletionContext,
   Hover,
   PublishDiagnosticsParams,
 } from "vscode-languageserver-protocol";
@@ -39,7 +41,9 @@ import type {
 } from "@/features/diagnostics/types/diagnostics.types";
 import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
+import { flushLspDocumentChanges } from "./pending-document-changes";
 import type { EditorTextChange } from "../types/editor.types";
+import { replayEditorTextChanges } from "../utils/editor-text-change";
 import { logger } from "../utils/logger";
 import { getRelativePath, joinPath, normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { getLanguageDisplayName } from "../utils/language-id";
@@ -1214,7 +1218,7 @@ export class LspClient {
     const availability = await this.ensureDocumentReady(target, scope, content, feature);
     const document = normalizeLspDocumentTarget(target);
     if (lspSessionFilePath(document) === document.filePath) {
-      await this.synchronizeDocument(document.filePath, content);
+      await this.synchronizeAfterQueuedChanges(document.filePath, content);
     }
     return availability;
   }
@@ -1394,7 +1398,8 @@ export class LspClient {
     target: LspDocumentTargetInput,
     line: number,
     character: number,
-  ): Promise<CompletionItem[]> {
+    completionContext?: CompletionContext,
+  ): Promise<CompletionList> {
     const document = normalizeLspDocumentTarget(target);
     try {
       logger.debug(
@@ -1405,20 +1410,21 @@ export class LspClient {
         "LSPClient",
         `Active language servers: ${Array.from(this.activeLanguageServers).join(", ")}`,
       );
-      const completions = await invoke<CompletionItem[]>("lsp_get_completions", {
+      const completions = await invoke<CompletionList>("lsp_get_completions", {
         ...lspDocumentRequestArgs(document),
         line,
         character,
+        completionContext,
       });
-      if (completions.length === 0) {
+      if (completions.items.length === 0) {
         logger.warn("LSPClient", "LSP returned 0 completions - checking LSP status");
       } else {
-        logger.debug("LSPClient", `Got ${completions.length} completions from LSP server`);
+        logger.debug("LSPClient", `Got ${completions.items.length} completions from LSP server`);
       }
       return completions;
     } catch (error) {
       logger.error("LSPClient", "LSP completion error:", error);
-      return [];
+      return { items: [], isIncomplete: false };
     }
   }
 
@@ -1979,7 +1985,7 @@ export class LspClient {
 
   private async notifyDocumentChange(
     filePath: string,
-    content: string | undefined,
+    content: string,
     version: number,
     contentChanges?: EditorTextChange[],
   ): Promise<void> {
@@ -1990,25 +1996,41 @@ export class LspClient {
       return;
     }
 
+    // Ranges reach the server only if they lead from the text it has to the text
+    // the editor shows; anything else, such as a reload or a save that already
+    // published them, is sent whole. Core is not given the text to compare, since
+    // that would copy a large document across IPC for every pause in typing.
+    const ranges = contentChanges?.length && replayEditorTextChanges(document.content, contentChanges) === content
+      ? contentChanges
+      : undefined;
     try {
-      await invoke<void>("lsp_document_change", {
-        filePath,
-        content,
-        version,
-        contentChanges,
-        attachmentId,
-      });
+      const sendFullText = () => invoke<void>("lsp_document_change", { filePath, content, version, attachmentId });
+      if (ranges) {
+        await invoke<void>("lsp_document_change", { filePath, version, contentChanges: ranges, attachmentId })
+          .catch(sendFullText);
+      } else {
+        await sendFullText();
+      }
       const current = this.documents.get(attachmentKey);
       if (current?.phase === "open" && current.attachmentId === attachmentId) {
-        this.documents.set(attachmentKey, {
-          ...current,
-          version,
-          content: content ?? current.content,
-        });
+        this.documents.set(attachmentKey, { ...current, version, content });
       }
     } catch (error) {
       logger.error("LSPClient", "LSP document change error:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Publishes `content` once the queued ranges are out. Those usually carry the
+   * same text, which spares copying the whole document ahead of the debounce.
+   */
+  private async synchronizeAfterQueuedChanges(filePath: string, content: string): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = this.fileAttachmentIds.get(attachmentKey);
+    await flushLspDocumentChanges(filePath);
+    if (this.fileAttachmentIds.get(attachmentKey) === attachmentId) {
+      await this.synchronizeDocument(filePath, content);
     }
   }
 
@@ -2022,14 +2044,19 @@ export class LspClient {
     contentChanges?: EditorTextChange[],
   ): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
+    const attachmentId = this.fileAttachmentIds.get(attachmentKey);
     const previous = this.documentChangeTasks.get(attachmentKey) ?? Promise.resolve();
-    const task = previous
-      .catch(() => undefined)
-      .then(async () => {
-        const document = this.documents.get(attachmentKey);
-        if (document?.phase !== "open" || document.content === content) return;
-        await this.notifyDocumentChange(filePath, content, document.version + 1, contentChanges);
-      });
+    const task = previous.catch(() => undefined).then(async () => {
+      const document = this.documents.get(attachmentKey);
+      if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId
+          || this.fileAttachmentIds.get(attachmentKey) !== attachmentId || document.content === content) return;
+      await this.notifyDocumentChange(
+        filePath,
+        content,
+        document.version + 1,
+        contentChanges,
+      );
+    });
     this.documentChangeTasks.set(attachmentKey, task);
     const cleanup = () => {
       if (this.documentChangeTasks.get(attachmentKey) === task) {
@@ -2040,9 +2067,15 @@ export class LspClient {
     return task;
   }
 
-  async notifyDocumentSave(filePath: string, content: string): Promise<void> {
+  async notifyDocumentSave(filePath: string, content: string, currentContent?: string): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
     const attachmentId = this.fileAttachmentIds.get(attachmentKey);
+    if (currentContent !== undefined) {
+      await this.synchronizeAfterQueuedChanges(filePath, currentContent);
+    }
+    // Finish the editor's preceding changes before reporting the disk save.
+    // Core rejects a delayed save whose text has already been superseded.
+    await this.documentChangeTasks.get(attachmentKey);
     const document = this.documents.get(attachmentKey);
     if (!attachmentId || document?.phase !== "open" || document.attachmentId !== attachmentId) {
       return;

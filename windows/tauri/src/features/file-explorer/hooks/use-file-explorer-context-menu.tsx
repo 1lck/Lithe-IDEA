@@ -856,7 +856,8 @@ export function useFileExplorerContextMenu({
     }
 
     if (contextMenu.isDir) {
-      const excluded = Boolean(isIndexExcluded?.(contextMenu.path)) || markForPath?.(contextMenu.path) === "excluded";
+      const excluded = canExcludeDirectory?.(contextMenu.path) !== false
+        && (Boolean(isIndexExcluded?.(contextMenu.path)) || markForPath?.(contextMenu.path) === "excluded");
       if (markDirectory)
         items.push({
           id: "mark-directory",

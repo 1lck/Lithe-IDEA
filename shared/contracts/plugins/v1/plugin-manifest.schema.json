@@ -27,7 +27,7 @@
       "minProperties": 1,
       "additionalProperties": false,
       "properties": {
-        "backend": { "description": "Required exactly when backend is present: the plugin's own process serving its web pages.", "enum": [1] },
+        "backend": { "description": "Required exactly when backend is present: the plugin's own process. Version 1 serves only its web pages. Version 2 may also start on onWorkspaceOpen or a plugin command, receives workspace contexts through plugin-function protocol 3, and may be granted workspace.metadata.", "enum": [1, 2] },
         "buildModelInputs": {"description": "Optional public model sharing between already enabled workspace plugins; no installation, private function, or process authority. Required exactly when modelSharing or modelInputs is used. Consumers require buildProviders 6. Version 1 producers cannot also consume inputs.", "enum": [1]},
         "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs.", "enum": [1, 2, 3, 4, 5, 6] },
         "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1, 2] },
@@ -40,7 +40,7 @@
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
         "settings": { "enum": [1] },
-        "ui": { "description": "Version 2 adds web content; version 3 adds native controls.", "enum": [1, 2, 3] },
+        "ui": { "description": "Version 2 adds web content; version 3 adds native controls; version 4 adds backend-only commands.", "enum": [1, 2, 3, 4] },
         "vcsProviders": { "description": "Required exactly when vcsProviders is non-empty. The provider protocol itself is negotiated in initialize (shared/contracts/vcs-provider-v1.md).", "enum": [1] }
       }
     },
@@ -60,11 +60,24 @@
     },
     "permissions": {
       "type": "array",
-      "items": { "enum": ["backend.launch", "credentials.store", "debug.attach", "debug.launch", "languageServer.launch", "process.build", "process.run", "process.test", "process.vcs", "project.generate", "ui.contribute", "ui.web"] }
+      "items": { "enum": ["backend.launch", "credentials.store", "debug.attach", "debug.launch", "languageServer.launch", "process.build", "process.run", "process.test", "process.vcs", "project.generate", "ui.contribute", "ui.web", "workspace.metadata",
+          "workspace.files.read",
+          "workspace.files.watch",
+          "workspace.search",
+          "documents.read",
+          "editor.edit",
+          "editor.open",
+          "preview.open",
+          "browser.open",
+          "window.messages"] }
     },
     "activationEvents": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest|onView|onCommand|onBuildSystem|onVcsRoot|onDebug):[a-z0-9.+_-]+$" }
+      "items": {
+        "type": "string",
+        "description": "onWorkspaceOpen names no ID and needs requires.backend 2; it starts the backend once a workspace is open.",
+        "pattern": "^((onLanguage|onRun|onTest|onView|onCommand|onBuildSystem|onVcsRoot|onDebug):[a-z0-9.+_-]+|onWorkspaceOpen)$"
+      }
     },
     "languages": {
       "type": "array",
@@ -86,7 +99,7 @@
       "items": { "$ref": "#/$defs/buildSystem" }
     },
     "backend": {
-      "description": "pluginAPIVersion 3, requires.backend 1: the plugin's own LSP base-protocol process. The host starts it on the first plugin-function call from one of the plugin's web pages, keeps one process per plugin independent of any workspace, and ends it when the plugin is disabled, updated, or uninstalled. Requires backend.launch and a web tool window; credentials.store lets it use the host's private credential store.",
+      "description": "pluginAPIVersion 3, requires.backend 1 or 2: the plugin's own LSP base-protocol process. The host keeps one process per plugin on the machine that runs Lithe, independent of any workspace, and ends it when the plugin is disabled, updated, or uninstalled. Version 1 starts on the first plugin-function call from one of the plugin's web pages and requires a web tool window. Version 2 also starts on onWorkspaceOpen or one of the plugin's commands and requires one of the three. Requires backend.launch; credentials.store lets it use the host's private credential store; workspace.metadata (version 2) lets it list workspace contexts.",
       "$ref": "#/$defs/backend"
     },
     "vcsProviders": {
@@ -110,13 +123,11 @@
     "ui": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "toolWindows"
-      ],
+      "description": "ui 4 permits backend commands without toolWindowID or tool windows; older ui versions require a tool window.",
       "properties": {
         "toolWindows": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 64,
           "items": {
             "type": "object",
@@ -185,7 +196,6 @@
             "required": [
               "id",
               "title",
-              "toolWindowID",
               "placements"
             ],
             "properties": {
@@ -1175,7 +1185,7 @@
       ]
     },
     "backend": {
-      "description": "Launch fields of the plugin backend. ${workspaceStateDir} is refused because the backend is not bound to a workspace.",
+      "description": "Launch fields of the plugin backend. ${workspaceStateDir} is refused because one backend process serves every workspace; version 2 receives each workspace's state directory in its context instead.",
       "type": "object",
       "$ref": "#/$defs/serverProcess",
       "unevaluatedProperties": false

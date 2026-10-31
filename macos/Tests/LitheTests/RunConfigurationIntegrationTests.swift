@@ -2301,16 +2301,17 @@ struct RunConfigurationIntegrationTests {
         #expect(hint.tooltip == "Parameter name" && hint.paddingLeft && !hint.paddingRight)
         #expect(hint.textEdits.first?.newText == "value: ")
 
-        var completionsResult: Result<[LanguageServerCompletionItem], Error>?
-        try manager.completions(
+        var completionsResult: Result<LanguageServerCompletionList, Error>?
+        try manager.completionList(
             fileURL: source,
             text: "struct App { let tit }\n",
             position: LanguageServerPosition(line: 0, utf16Column: 20),
-            rootURL: root
+            rootURL: root, completionContext: .init(triggerKind: 3)
         ) { result in
             completionsResult = result
         }
         core.enqueueRequestSuccess(operation: .completion, result: [
+            "isIncomplete": true,
             "items": [[
                 "label": "title",
                 "insertText": "title",
@@ -2319,7 +2320,9 @@ struct RunConfigurationIntegrationTests {
             ]]
         ])
         #expect(await Self.waitForMainActorCondition { completionsResult != nil })
-        #expect(try completionsResult?.get().first?.label == "title")
+        #expect(try completionsResult?.get().items.first?.label == "title")
+        #expect(try completionsResult?.get().isIncomplete == true)
+        #expect(core.requestCalls.last?.completionContext?.triggerKind == 3)
         let completionOperationID = try #require(
             core.requestCalls.last(where: { $0.operation == .completion })?.operationID
         )
@@ -3396,6 +3399,22 @@ struct RunConfigurationIntegrationTests {
         #expect(mavenOptions["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx2g"])
     }
 
+    private func generateConfirmedSpringService(at root: URL, store: MacRunConfigurationStore) throws {
+        // A plugin declaration alone no longer establishes an application. Model
+        // the confirmed JDT entry so these tests exercise persistence, not detection failure.
+        let sourcePath = "src/main/java/demo/App.java"
+        let source = root.appendingPathComponent(sourcePath)
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data("package demo; @SpringBootApplication public class App { public static void main(String[] args) {} }".utf8)
+            .write(to: source)
+        _ = try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: JavaEntrypoints(
+            entries: [JavaEntrypoint(sourcePath: sourcePath, mainClass: "demo.App", projectName: "demo")]
+        ))
+        let resolved = try store.resolve(at: root, toolchainCandidates: [])
+        _ = try #require(resolved.configurations.first { $0.configuration.id == "spring-boot.maven:demo" })
+    }
+
     @Test
     func serviceToolchainOverridesRoundTripThroughRustConfigurationDocuments() throws {
         let core = RustCoreBridge()
@@ -3412,7 +3431,7 @@ struct RunConfigurationIntegrationTests {
             preferences: RunTestKeyValueStore()
         )
         // Core identifies the project in memory; the workspace holds only user documents.
-        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
+        try generateConfirmedSpringService(at: root, store: store)
         try store.saveOptions(
             RunOptions(
                 javaHomePath: "/test/jdk-21",
@@ -3456,7 +3475,7 @@ struct RunConfigurationIntegrationTests {
             preferences: RunTestKeyValueStore()
         )
         // Core identifies the project in memory; the workspace holds only user documents.
-        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
+        try generateConfirmedSpringService(at: root, store: store)
 
         try store.saveOptions(
             RunOptions(
@@ -4085,9 +4104,9 @@ struct RunConfigurationIntegrationTests {
             storage: storage,
             preferences: RunTestKeyValueStore()
         )
-        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
+        try generateConfirmedSpringService(at: root, store: store)
 
-        #expect(throws: (any Error).self) {
+        do {
             try store.saveEditorChanges(
                 RunOptions(),
                 toolchain: ProjectToolchainSelection(javaHomePath: "/opt/jdk-21"),
@@ -4095,7 +4114,11 @@ struct RunConfigurationIntegrationTests {
                 scope: .project,
                 at: root
             )
+            Issue.record("Expected the project document write to fail")
+        } catch let failure as RunConfigurationEditorSaveFailure {
+            #expect(failure.stage == .write)
         }
+        #expect(storage.writeCount > 0)
         #expect(try storage.readData(from: localURL, options: []) == oldLocal)
         #expect(try storage.readData(from: projectURL, options: []) == oldProject)
     }
@@ -4595,6 +4618,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         let newName: String?
         let range: LanguageServerRange?
         let diagnostics: [LanguageServerDiagnostic]
+        let completionContext: LanguageServerCompletionContext?
         let completionItem: LanguageServerCompletionItem?
         let codeAction: LanguageServerCodeAction?
         let command: LanguageServerCommand?
@@ -4735,7 +4759,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         newName: String?,
         range: LanguageServerRange?,
         diagnostics: [LanguageServerDiagnostic],
-        completionItem: LanguageServerCompletionItem?,
+        completionContext: LanguageServerCompletionContext?, completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
@@ -4751,6 +4775,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             newName: newName,
             range: range,
             diagnostics: diagnostics,
+            completionContext: completionContext,
             completionItem: completionItem,
             codeAction: codeAction,
             command: command

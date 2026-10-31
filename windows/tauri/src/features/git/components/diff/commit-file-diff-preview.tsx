@@ -137,7 +137,11 @@ function CommitFileDiffPage({ multiDiff, index,
     onRollback: id => { void review.rollback(id); },
   } : undefined;
   return (
-    <div ref={appearanceRoot} className="commit-file-diff-preview monaco-editor-shell flex h-full min-h-0 flex-col overflow-hidden">
+    <div
+      ref={appearanceRoot}
+      data-readonly-diff="true"
+      className="commit-file-diff-preview monaco-editor-shell flex h-full min-h-0 flex-col overflow-hidden"
+    >
       <CommitFileDiffToolbar
         navigation={commitDifferenceNavigation(currentNavigation, filePosition.index, filePosition.count)}
         fileIndex={filePosition.index}

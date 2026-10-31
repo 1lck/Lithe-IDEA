@@ -9,6 +9,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { useQuickOpen } from "../hooks/use-quick-open";
 import { getWorkspaceSymbolKey } from "../hooks/use-workspace-symbol-search";
 import { EmptyState } from "./empty-state";
+import { EndpointListItem } from "./endpoint-list-item";
 import { FileCountBadge } from "./file-count-badge";
 import { FileListItem } from "./file-list-item";
 import { SymbolListItem } from "./symbol-list-item";
@@ -43,6 +44,8 @@ const QuickOpen = () => {
     workspaceSymbols,
     isLoadingWorkspaceSymbols,
     handleWorkspaceSymbolSelect,
+    endpointResults,
+    handleEndpointSelect,
   } = useQuickOpen();
 
   if (!isVisible) {
@@ -50,8 +53,15 @@ const QuickOpen = () => {
   }
 
   const hasResults =
-    openBufferFiles.length > 0 || recentFilesInResults.length > 0 || otherFiles.length > 0;
-  const totalResults = openBufferFiles.length + recentFilesInResults.length + otherFiles.length;
+    endpointResults.length > 0 ||
+    openBufferFiles.length > 0 ||
+    recentFilesInResults.length > 0 ||
+    otherFiles.length > 0;
+  const totalResults =
+    endpointResults.length +
+    openBufferFiles.length +
+    recentFilesInResults.length +
+    otherFiles.length;
   const symbolSearchQuery = isSymbolMode || isWorkspaceSymbolMode ? query.slice(1).trim() : query;
 
   return (
@@ -73,9 +83,7 @@ const QuickOpen = () => {
         />
         {isSymbolMode ? (
           <CommandHeaderBadge>
-            {isLoadingSymbols
-              ? "..."
-              : t("quickOpen.symbolsCount", { count: symbols.length })}
+            {isLoadingSymbols ? "..." : t("quickOpen.symbolsCount", { count: symbols.length })}
           </CommandHeaderBadge>
         ) : isWorkspaceSymbolMode ? (
           <CommandHeaderBadge>
@@ -115,9 +123,7 @@ const QuickOpen = () => {
         ) : isWorkspaceSymbolMode ? (
           workspaceSymbols.length === 0 ? (
             <CommandEmpty>
-              {isLoadingWorkspaceSymbols
-                ? t("quickOpen.loadingSymbols")
-                : t("quickOpen.noSymbols")}
+              {isLoadingWorkspaceSymbols ? t("quickOpen.loadingSymbols") : t("quickOpen.noSymbols")}
             </CommandEmpty>
           ) : (
             workspaceSymbols.map((symbol, index) => (
@@ -144,6 +150,22 @@ const QuickOpen = () => {
           />
         ) : (
           <>
+            {endpointResults.length > 0 && (
+              <div className="p-0">
+                {endpointResults.map((result, index) => (
+                  <EndpointListItem
+                    key={result.key}
+                    result={result}
+                    index={index}
+                    isSelected={index === selectedIndex}
+                    onClick={handleEndpointSelect}
+                    onMouseEnter={setSelectedIndex}
+                    searchQuery={query}
+                  />
+                ))}
+              </div>
+            )}
+
             {openBufferFiles.length > 0 && (
               <div className="p-0">
                 {openBufferFiles.map((file, index) => (
@@ -151,8 +173,8 @@ const QuickOpen = () => {
                     key={`open-${file.path}`}
                     file={file}
                     category="open"
-                    index={index}
-                    isSelected={index === selectedIndex}
+                    index={endpointResults.length + index}
+                    isSelected={endpointResults.length + index === selectedIndex}
                     onClick={handleItemSelect}
                     onMouseEnter={handleItemHover}
                     rootFolderPath={rootFolderPath}
@@ -165,7 +187,7 @@ const QuickOpen = () => {
             {recentFilesInResults.length > 0 && (
               <div className="p-0">
                 {recentFilesInResults.map((file, index) => {
-                  const globalIndex = openBufferFiles.length + index;
+                  const globalIndex = endpointResults.length + openBufferFiles.length + index;
                   return (
                     <FileListItem
                       key={`recent-${file.path}`}
@@ -186,7 +208,11 @@ const QuickOpen = () => {
             {otherFiles.length > 0 && (
               <div className="p-0">
                 {otherFiles.map((file, index) => {
-                  const globalIndex = openBufferFiles.length + recentFilesInResults.length + index;
+                  const globalIndex =
+                    endpointResults.length +
+                    openBufferFiles.length +
+                    recentFilesInResults.length +
+                    index;
                   return (
                     <FileListItem
                       key={`other-${file.path}`}

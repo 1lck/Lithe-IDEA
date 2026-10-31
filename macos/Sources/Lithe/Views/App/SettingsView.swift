@@ -438,6 +438,7 @@ struct SettingsView: View {
                     case .git:
                         GitSettingsPage(settings: settings)
                     case .updates: updatesSettings
+                    case .network: NetworkSettingsView(settings: settings)
                     case .processTermination: ProcessTerminationSettingsView(settings: settings)
                     case .diagnostics: diagnosticsSettings
                     case .plugins: EmptyView()
@@ -1451,6 +1452,10 @@ struct SettingsView: View {
 
             group("Update channel") {
                 UpdateChannelControl()
+            }
+
+            group("Update source", info: "Stable updates download from this address. A mirror must serve the same signed appcast and update archives side by side, and Lithe still verifies their signatures before installing. AutoBuild always uses the official source.") {
+                UpdateSourceControl()
             }
 
             group("Update status") {

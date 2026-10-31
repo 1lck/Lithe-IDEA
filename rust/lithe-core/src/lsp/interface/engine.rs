@@ -2,7 +2,7 @@
 
 use super::client::{
     client_apply_server_message_for_plugin, client_initialize_for_plugin, json_rpc_error_with_code,
-    json_rpc_result,
+    json_rpc_error_with_data, json_rpc_notification, json_rpc_result,
 };
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
@@ -15,6 +15,9 @@ use super::{
 };
 use crate::lsp::languages::java_entrypoints::{
     java_entrypoints_command, normalize_java_entrypoints,
+};
+use crate::lsp::languages::java_launch::{
+    JavaLaunchAction, JavaLaunchFailure, JavaLaunchPreparation,
 };
 use crate::lsp::languages::java_main_methods::{
     java_main_methods_command, normalize_java_main_methods,
@@ -222,12 +225,22 @@ pub struct SyncDocumentRequest {
     pub session_id: String,
     pub uri: String,
     pub language_id: String,
-    /// Full document text. Required for `didOpen`; optional for incremental `didChange`.
+    /// Full document text. May be omitted when `content_changes` extends a
+    /// document Core already holds.
     #[serde(default)]
     pub text: String,
-    /// Range-based edits used when the server advertised Incremental `textDocumentSync`.
+    /// Edits in the order they happened, each range relative to the previous result.
     #[serde(default)]
     pub content_changes: Vec<LspDocumentContentChange>,
+}
+
+/// A host-confirmed disk save, carrying the exact saved text rather than newer edits.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveDocumentRequest {
+    pub session_id: String,
+    pub uri: String,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -374,12 +387,29 @@ pub struct SemanticRequest {
     pub range: Option<LspRange>,
     #[serde(default)]
     pub diagnostics: Vec<LspClientDiagnostic>,
+    /// LSP completion trigger context; validated by the shared request mapper.
+    #[serde(default)]
+    pub completion_context: Option<Value>,
     #[serde(default)]
     pub completion_item: Option<Value>,
     #[serde(default)]
     pub code_action: Option<Value>,
     #[serde(default)]
     pub command: Option<Value>,
+}
+
+/// One saved Java source to prepare through the owning JDT session.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct JavaPrepareLaunchRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// Absolute native path used only for the upstream build request.
+    pub source_path: String,
+    /// Optional persisted selector to disambiguate multiple mains in one source.
+    #[serde(default)]
+    pub main_class: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -447,7 +477,9 @@ pub struct PluginHostResponse {
     #[serde(default)]
     pub result: Option<Value>,
     /// The host could not perform the service. Its message reaches the
-    /// backend, bounded; the code is always `plugin.host.failed`.
+    /// backend, bounded. Its code passes only when it is one a host may
+    /// report (`plugin_function::host_failure`); otherwise, and before
+    /// protocol version 3, it is `plugin.host.failed`.
     #[serde(default)]
     pub error: Option<PluginHostFailure>,
 }
@@ -457,6 +489,35 @@ pub struct PluginHostResponse {
 /// Why the host could not perform a forwarded host-service request.
 pub struct PluginHostFailure {
     pub message: String,
+    /// Stable `plugin.host.*` code of the failure, from protocol version 3.
+    #[serde(default)]
+    pub code: Option<String>,
+    /// Structured facts a backend may act on, such as the current version
+    /// of a `plugin.host.versionConflict`. From protocol version 3 it
+    /// reaches the backend as `error.data.details` when it is an object
+    /// within `plugin_function::MAX_HOST_DETAILS_BYTES`; otherwise it is
+    /// dropped and the code and message still arrive.
+    #[serde(default)]
+    pub details: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One notification from the host to a plugin backend, such as a
+/// subscription event or a changed set of workspace contexts. Core admits
+/// only the methods of `plugin_function::HOST_NOTIFICATIONS`.
+pub struct PluginHostNotification {
+    pub session_id: String,
+    pub method: String,
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Whether a host notification was written to the backend. `false` means
+/// the backend negotiated a protocol version without the notification.
+pub struct PluginHostNotificationResponse {
+    pub delivered: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -476,6 +537,11 @@ pub struct PluginFunctionRequest {
     /// session's request timeout when absent.
     #[serde(default)]
     pub timeout_milliseconds: Option<u64>,
+    /// Workspace context `{ contextID, generation }` the call belongs to.
+    /// It reaches a backend that negotiated protocol version 3 or later as
+    /// `params.context`, and is dropped for an older backend.
+    #[serde(default)]
+    pub context: Option<Value>,
 }
 
 fn empty_object() -> Value {
@@ -721,6 +787,10 @@ struct SessionState {
     maven_profile_request_generations: BTreeMap<String, u64>,
     /// Serialized, configuration-gated `vscode.java.buildWorkspace` calls.
     java_builds: JavaBuildCoordinator,
+    /// Launch attempts share their operation ID across discovery, build and classpath.
+    java_launches: BTreeMap<String, JavaLaunchPreparation>,
+    /// Already allocated classpath requests; the bounded writer sends only live ones.
+    java_launch_messages: Vec<(String, Vec<String>)>,
     java_build_timeout: Duration,
     /// Deadline cancellations awaiting the outbound worker, never written by the monitor.
     deadline_cancellations: Vec<String>,
@@ -766,6 +836,9 @@ struct RuntimeSession {
     /// Workspace URI the server was initialized with; scopes workspace-wide
     /// queries such as Java entry-point discovery.
     root_uri: String,
+    /// Serializes policy eligibility with document/file-event publication and
+    /// policy withdrawal. Acquire before outbound_order; Git scans stay outside
+    /// the outbound and registry locks.
     indexing_roots: Mutex<Vec<String>>,
     indexing_revision: std::sync::atomic::AtomicU64,
     /// Serializes protocol-state commits with complete outbound message batches.
@@ -932,10 +1005,7 @@ fn apply_indexing_to_sessions(
         if canonical_workspace_root(&session.root_uri) != canonical_root {
             continue;
         }
-        let mut previous = session
-            .indexing_roots
-            .lock()
-            .map_err(|_| CoreError::new(ErrorCode::Unknown, "LSP indexing lock was poisoned"))?;
+        let mut previous = session.lock_indexing_roots()?;
         if *previous == roots && session.indexing_revision.load(Ordering::Acquire) == revision {
             continue;
         }
@@ -964,6 +1034,20 @@ fn apply_indexing_to_sessions(
                 state.client.diagnostics.remove(&uri);
                 state.client.diagnostic_versions.remove(&uri);
                 push_diagnostics_event(&session, &mut state, &uri, None, Vec::new());
+            }
+        }
+        let pending_uris = session
+            .lock_state()?
+            .pending_workspace_file_changes
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for uri in pending_uris {
+            if crate::project::indexing::uri_is_excluded(&session.root_uri, &uri)? {
+                session
+                    .lock_state()?
+                    .pending_workspace_file_changes
+                    .remove(&uri);
             }
         }
         if session.provider_id == "java" {
@@ -1296,6 +1380,14 @@ pub fn sync_document(request: SyncDocumentRequest) -> Result<SyncDocumentRespons
         .sync_document(request)
 }
 
+/// Notifies an interested server after a successful native save. Returns false
+/// for unopened documents, unsupported saves, or a save superseded by new edits.
+pub fn save_document(request: SaveDocumentRequest) -> Result<bool, CoreError> {
+    engine()
+        .session(&request.session_id)?
+        .save_document(request)
+}
+
 /// Forwards external source and build-configuration changes without restarting
 /// the server or invalidating its durable workspace state.
 pub fn workspace_files_changed(request: WorkspaceFilesChangedRequest) -> Result<(), CoreError> {
@@ -1331,6 +1423,7 @@ pub fn java_navigation_markers(
             new_name: None,
             range: None,
             diagnostics: Vec::new(),
+            completion_context: None,
             completion_item: None,
             code_action: None,
             command: None,
@@ -1381,6 +1474,7 @@ pub fn java_resolve_navigation(
             new_name: None,
             range: None,
             diagnostics: Vec::new(),
+            completion_context: None,
             completion_item: None,
             code_action: None,
             command: None,
@@ -1408,6 +1502,20 @@ pub fn semantic_request(request: SemanticRequest) -> Result<OperationResponse, C
     engine()
         .session(&request.session_id)?
         .request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
+/// Prepares a Java launch as one cancellable operation in the owning session.
+pub fn java_prepare_launch(
+    request: JavaPrepareLaunchRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .prepare_java_launch(request, operation_id.clone())?;
     Ok(OperationResponse { operation_id })
 }
 
@@ -1443,6 +1551,16 @@ pub fn plugin_host_response(request: PluginHostResponse) -> Result<(), CoreError
     engine()
         .session(&request.session_id)?
         .host_response(request)
+}
+
+/// Sends one host notification to a plugin backend.
+pub fn plugin_host_notify(
+    request: PluginHostNotification,
+) -> Result<PluginHostNotificationResponse, CoreError> {
+    let delivered = engine()
+        .session(&request.session_id)?
+        .host_notify(request)?;
+    Ok(PluginHostNotificationResponse { delivered })
 }
 
 /// Invokes one plugin function on a session of the function's plugin.
@@ -1870,6 +1988,8 @@ impl LspEngine {
                 maven_profile_generation: 0,
                 maven_profile_request_generations: BTreeMap::new(),
                 java_builds: JavaBuildCoordinator::default(),
+                java_launches: BTreeMap::new(),
+                java_launch_messages: Vec::new(),
                 java_build_timeout,
                 deadline_cancellations: Vec::new(),
                 maintenance_write_deadline: None,
@@ -2005,10 +2125,41 @@ impl LspEngine {
 }
 
 impl RuntimeSession {
+    fn save_document(&self, request: SaveDocumentRequest) -> Result<bool, CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let message = {
+            let state = self.lock_state()?;
+            ensure_not_terminal(state.lifecycle)?;
+            if state.lifecycle != LspLifecycleState::Ready {
+                return Ok(false);
+            }
+            let Some(include_text) = state.client.text_document_save_include_text else {
+                return Ok(false);
+            };
+            let Some(document) = state.client.open_documents.get(&request.uri) else {
+                return Ok(false);
+            };
+            // JDT discards and reloads its working copy on didSave. A delayed
+            // save must not discard a newer editor revision already synchronized.
+            if *document.text != request.text {
+                return Ok(false);
+            }
+            let mut params = json!({"textDocument": {"uri": request.uri}});
+            if include_text {
+                params["text"] = json!(request.text);
+            }
+            json!({"jsonrpc": "2.0", "method": "textDocument/didSave", "params": params})
+                .to_string()
+        };
+        self.send_messages_or_fail(&outbound_order, vec![message], "saveDocument")?;
+        Ok(true)
+    }
+
     fn workspace_files_changed(&self, changes: Vec<WorkspaceFileChange>) -> Result<(), CoreError> {
         if changes.is_empty() {
             return Ok(());
         }
+        let _indexing_order = self.lock_indexing_roots()?;
         let mut normalized = BTreeMap::new();
         for change in changes {
             if crate::project::indexing::uri_is_excluded(&self.root_uri, &change.uri)? {
@@ -2024,6 +2175,9 @@ impl RuntimeSession {
             // The last event for a URI represents its final filesystem state
             // and prevents a watcher burst from causing redundant imports.
             normalized.insert(change.uri, change.kind);
+        }
+        if normalized.is_empty() {
+            return Ok(());
         }
         let outbound_order = self.lock_outbound_order()?;
         let message = {
@@ -2045,12 +2199,22 @@ impl RuntimeSession {
         &self,
         request: SyncDocumentRequest,
     ) -> Result<SyncDocumentResponse, CoreError> {
+        self.sync_document_after_policy_check(request, || {})
+    }
+
+    fn sync_document_after_policy_check(
+        &self,
+        request: SyncDocumentRequest,
+        after_policy_check: impl FnOnce(),
+    ) -> Result<SyncDocumentResponse, CoreError> {
+        let _indexing_order = self.lock_indexing_roots()?;
         if crate::project::indexing::uri_is_excluded(&self.root_uri, &request.uri)? {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
                 "Document is excluded from indexing",
             ));
         }
+        after_policy_check();
         let uri = request.uri;
         let mut messages = Vec::new();
         let mut stale_cancellations = Vec::new();
@@ -2092,11 +2256,16 @@ impl RuntimeSession {
                         content_changes: request.content_changes,
                     })?
                 } else {
+                    let text = unopened_document_text(
+                        state.client.open_documents.get(&uri),
+                        request.text,
+                        &request.content_changes,
+                    )?;
                     client_open_document(ClientOpenDocumentRequest {
                         state: state.client.clone(),
                         uri: uri.clone(),
                         language_id: request.language_id,
-                        text: request.text,
+                        text,
                     })?
                 };
                 state.client = response.state;
@@ -2113,6 +2282,11 @@ impl RuntimeSession {
                 // Version zero means the semantic document exists in the Rust
                 // store but has not yet been opened on the server. The latest
                 // sync wins until initialize completes.
+                let text = unopened_document_text(
+                    state.client.open_documents.get(&uri),
+                    request.text,
+                    &request.content_changes,
+                )?;
                 state.client.diagnostics.remove(&uri);
                 state.client.diagnostic_versions.remove(&uri);
                 state.client.open_documents.insert(
@@ -2121,7 +2295,7 @@ impl RuntimeSession {
                         uri,
                         language_id: request.language_id,
                         version: 0,
-                        text: request.text.into(),
+                        text: text.into(),
                     },
                 );
                 // Version zero remains an internal "not opened on the wire"
@@ -2226,6 +2400,74 @@ impl RuntimeSession {
             None,
         );
         Ok(true)
+    }
+
+    /// Allocates the first request and attempt atomically, so cancellation always
+    /// finds the current upstream request or the existing build coordinator waiter.
+    fn prepare_java_launch(
+        &self,
+        request: JavaPrepareLaunchRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        if self.provider_id != "java" {
+            return Err(CoreError::new(
+                ErrorCode::NotSupported,
+                "Java launch preparation requires the Java language service.",
+            ));
+        }
+        let canonical_root = canonical_workspace_root(&self.root_uri);
+        let preparation = JavaLaunchPreparation::new(
+            &self.root_uri,
+            canonical_root.as_deref(),
+            request.source_path,
+            request.main_class,
+        )
+        .map_err(|message| CoreError::new(ErrorCode::InvalidRequest, message))?;
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            let response = allocate_raw_request(
+                state.client.clone(),
+                "workspace/executeCommand",
+                java_entrypoints_command(&java_entrypoint_scope_uri(&self.root_uri)),
+            )?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            let timeout = state.request_timeout;
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::JavaEntrypoints,
+                    operation_id: Some(operation_id.clone()),
+                    method: "workspace/executeCommand".to_string(),
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id.clone(), request_id.clone());
+            state.java_launches.insert(operation_id, preparation);
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
     }
 
     fn request(&self, request: SemanticRequest, operation_id: String) -> Result<(), CoreError> {
@@ -2522,6 +2764,12 @@ impl RuntimeSession {
                 &wire_operation_id,
                 &request.params,
             )?;
+            let mut params = params;
+            super::plugin_function::attach_context(
+                &mut params,
+                state.client.plugin_function_version.unwrap_or(0),
+                request.context.as_ref(),
+            )?;
             let timeout = request
                 .timeout_milliseconds
                 .map(|milliseconds| {
@@ -2583,16 +2831,81 @@ impl RuntimeSession {
                     )
                 })?;
             match (response.result, response.error) {
-                (_, Some(failure)) => json_rpc_error_with_code(
-                    &backend_id,
-                    -32603,
-                    &super::plugin_function::bounded_host_message(&failure.message),
-                    super::plugin_function::codes::HOST_FAILED,
-                )?,
-                (result, None) => json_rpc_result(&backend_id, result.unwrap_or(Value::Null))?,
+                (_, Some(failure)) => {
+                    let version = state.client.plugin_function_version.unwrap_or(0);
+                    let (code, rpc_code) = if version >= super::plugin_function::CONTEXT_VERSION {
+                        super::plugin_function::host_failure(failure.code.as_deref())
+                    } else {
+                        (super::plugin_function::codes::HOST_FAILED, -32603)
+                    };
+                    let mut data = json!({ "code": code });
+                    if version >= super::plugin_function::CONTEXT_VERSION {
+                        if let Some(details) =
+                            super::plugin_function::bounded_host_details(failure.details.as_ref())
+                        {
+                            data["details"] = details;
+                        }
+                    }
+                    json_rpc_error_with_data(
+                        &backend_id,
+                        rpc_code,
+                        &super::plugin_function::bounded_host_message(&failure.message),
+                        data,
+                    )?
+                }
+                (result, None) => {
+                    let result = result.unwrap_or(Value::Null);
+                    if state.client.plugin_function_version.unwrap_or(0)
+                        >= super::plugin_function::CONTEXT_VERSION
+                        && result.to_string().len() > super::plugin_function::MAX_RESULT_BYTES
+                    {
+                        json_rpc_error_with_code(
+                            &backend_id,
+                            -32014,
+                            "Host result exceeds the byte limit.",
+                            super::plugin_function::codes::HOST_LIMIT_EXCEEDED,
+                        )?
+                    } else {
+                        json_rpc_result(&backend_id, result)?
+                    }
+                }
             }
         };
         self.send_messages_or_fail(&outbound_order, vec![message], "hostResponse")
+    }
+
+    /// Writes one host notification to a ready plugin-owned backend.
+    /// Returns `false`, writing nothing, when the backend negotiated a
+    /// protocol version without the notification.
+    fn host_notify(&self, notification: PluginHostNotification) -> Result<bool, CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let message = {
+            let state = self.lock_state()?;
+            if self.plugin_id.is_none() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Only a plugin process receives host notifications.",
+                ));
+            }
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            let delivered = super::plugin_function::host_notification(
+                &notification.method,
+                &notification.params,
+                state.client.plugin_function_version.unwrap_or(0),
+                &state.client.host_services,
+            )?;
+            if !delivered {
+                return Ok(false);
+            }
+            json_rpc_notification(&notification.method, notification.params)?
+        };
+        self.send_messages_or_fail(&outbound_order, vec![message], "hostNotify")?;
+        Ok(true)
     }
 
     fn request_with_kind(
@@ -2820,6 +3133,7 @@ impl RuntimeSession {
                         new_name: request.new_name,
                         range: request.range,
                         diagnostics: request.diagnostics,
+                        completion_context: request.completion_context,
                         completion_item: request.completion_item,
                         code_action: request.code_action,
                         command: request.command,
@@ -3237,10 +3551,21 @@ impl RuntimeSession {
     }
 
     fn handle_server_message(&self, message: String) -> Result<(), CoreError> {
+        self.handle_server_message_after_policy_check(message, || {})
+    }
+
+    fn handle_server_message_after_policy_check(
+        &self,
+        message: String,
+        after_policy_check: impl FnOnce(),
+    ) -> Result<(), CoreError> {
         let value: Value = serde_json::from_str(&message).map_err(|error| {
             CoreError::new(ErrorCode::ParseFailed, "Invalid LSP server JSON message.")
                 .with_details(error.to_string())
         })?;
+        // Diagnostics and readiness flushes must share the same policy boundary
+        // as host document commits and exclusion withdrawal.
+        let _indexing_order = self.lock_indexing_roots()?;
         let outbound_order = self.lock_outbound_order()?;
         let response_id = if value.get("method").is_none() {
             lsp_value_id(value.get("id"))
@@ -3300,6 +3625,7 @@ impl RuntimeSession {
                 }
             }
         }
+        after_policy_check();
         let readiness = readiness_signal(&self.provider_id, method, value.get("params"));
         let java_import_progress = import_progress(&self.provider_id, method, value.get("params"));
         if method == Some("workspace/configuration") {
@@ -4131,6 +4457,17 @@ impl RuntimeSession {
                         );
                     }
                 } else if event.kind == "notification"
+                    && self.plugin_id.is_some()
+                    && event.method.as_deref() == Some("$/cancelRequest")
+                    && cancel_host_request_locked(
+                        self,
+                        &mut state,
+                        event.result.as_ref(),
+                        &mut outbound,
+                    )?
+                {
+                    // The backend withdrew one of its own host requests.
+                } else if event.kind == "notification"
                     && !(suppress_structured_java_preparation_notification
                         && is_structured_import_notification(
                             &self.provider_id,
@@ -4264,11 +4601,8 @@ impl RuntimeSession {
         }
         self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
         if service_ready {
-            let queued_messages = {
-                let mut state = self.lock_state()?;
-                state.initialize_deadline = None;
-                flush_queued_documents_locked(&mut state)?
-            };
+            self.lock_state()?.initialize_deadline = None;
+            let queued_messages = self.flush_queued_documents()?;
             self.send_messages_or_fail(&outbound_order, queued_messages, "serviceReady")?;
             {
                 let mut state = self.lock_state()?;
@@ -4458,6 +4792,36 @@ impl RuntimeSession {
     }
 
     fn flush_queued_documents(&self) -> Result<Vec<String>, CoreError> {
+        let queued = {
+            let state = self.lock_state()?;
+            state
+                .pending_workspace_file_changes
+                .keys()
+                .cloned()
+                .chain(
+                    state
+                        .client
+                        .open_documents
+                        .values()
+                        .filter(|document| document.version == 0)
+                        .map(|document| document.uri.clone()),
+                )
+                .collect::<BTreeSet<_>>()
+        };
+        for uri in queued {
+            if crate::project::indexing::uri_is_excluded(&self.root_uri, &uri)? {
+                let mut state = self.lock_state()?;
+                state.pending_workspace_file_changes.remove(&uri);
+                if state
+                    .client
+                    .open_documents
+                    .get(&uri)
+                    .is_some_and(|document| document.version == 0)
+                {
+                    state.client.open_documents.remove(&uri);
+                }
+            }
+        }
         let mut state = self.lock_state()?;
         flush_queued_documents_locked(&mut state)
     }
@@ -4666,6 +5030,7 @@ impl RuntimeSession {
     fn pump_outbound_maintenance(&self) {
         if !self.lock_state().is_ok_and(|state| {
             state.java_builds.has_queued()
+                || !state.java_launch_messages.is_empty()
                 || !state.deadline_cancellations.is_empty()
                 || (state.maven_profile_update_pending
                     && state.lifecycle == LspLifecycleState::Ready
@@ -4711,6 +5076,12 @@ impl RuntimeSession {
             })
             .collect();
         messages.extend(profile_messages);
+        for (request_id, queued) in std::mem::take(&mut state.java_launch_messages) {
+            // Cancellation or timeout can win before the writer acquires its lock.
+            if state.pending.contains_key(&request_id) {
+                messages.extend(queued);
+            }
+        }
         messages.extend(self.dispatch_java_build_locked(&mut state, Instant::now()));
         if messages.is_empty() {
             return;
@@ -5186,6 +5557,12 @@ impl RuntimeSession {
         })
     }
 
+    fn lock_indexing_roots(&self) -> Result<MutexGuard<'_, Vec<String>>, CoreError> {
+        self.indexing_roots
+            .lock()
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "LSP indexing lock was poisoned"))
+    }
+
     fn lock_state(&self) -> Result<MutexGuard<'_, SessionState>, CoreError> {
         self.state.lock().map_err(|_| {
             CoreError::new(
@@ -5207,7 +5584,7 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
             || request
                 .host_services
                 .iter()
-                .any(|service| service != super::plugin_function::HOST_SERVICE_CREDENTIALS))
+                .any(|service| !super::plugin_function::is_host_grant(service)))
     {
         return Err(invalid_field("hostServices"));
     }
@@ -5728,6 +6105,87 @@ fn push_request_event(
     result: Option<Value>,
     error: Option<LspRuntimeError>,
 ) {
+    let (result, error) = if let Some(mut preparation) = state.java_launches.remove(operation_id) {
+        match preparation.advance(result, error) {
+            Ok(JavaLaunchAction::Build(command)) => {
+                state.java_builds.enqueue(
+                    operation_id.to_string(),
+                    command,
+                    Instant::now(),
+                    state.java_build_timeout,
+                );
+                state
+                    .java_launches
+                    .insert(operation_id.to_string(), preparation);
+                return;
+            }
+            Ok(JavaLaunchAction::Classpath(command)) => {
+                match allocate_raw_request(
+                    state.client.clone(),
+                    "workspace/executeCommand",
+                    command,
+                ) {
+                    Ok(response) => {
+                        let request_id = (response.state.next_request_id - 1).to_string();
+                        let now = Instant::now();
+                        state.client = response.state;
+                        state.pending.insert(
+                            request_id.clone(),
+                            PendingRequest {
+                                kind: PendingKind::Feature,
+                                operation_id: Some(operation_id.to_string()),
+                                method: "workspace/executeCommand".to_string(),
+                                document_uri: None,
+                                document_version: None,
+                                created_at: now,
+                                deadline: now + state.request_timeout,
+                            },
+                        );
+                        state
+                            .request_by_operation
+                            .insert(operation_id.to_string(), request_id.clone());
+                        state
+                            .java_launch_messages
+                            .push((request_id, response.messages));
+                        state
+                            .java_launches
+                            .insert(operation_id.to_string(), preparation);
+                        return;
+                    }
+                    Err(error) => (
+                        None,
+                        Some(runtime_error(
+                            session,
+                            "invalidServerResult",
+                            "javaLaunch",
+                            Some(method),
+                            None,
+                            &error.message,
+                            None,
+                            None,
+                        )),
+                    ),
+                }
+            }
+            Ok(JavaLaunchAction::Complete(result)) => (Some(result), None),
+            Err(JavaLaunchFailure::Upstream(error)) => (None, Some(error)),
+            Err(JavaLaunchFailure::Invalid(message)) => (
+                None,
+                Some(runtime_error(
+                    session,
+                    "invalidServerResult",
+                    "javaLaunch",
+                    Some(method),
+                    None,
+                    message,
+                    None,
+                    None,
+                )),
+            ),
+        }
+    } else {
+        (result, error)
+    };
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
@@ -5968,6 +6426,72 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
     );
 }
 
+/// Handles a backend's `$/cancelRequest` for one of its own pending host
+/// requests: the backend gets `plugin.host.cancelled` at once, so the
+/// pending slot frees without waiting for the host, and the host gets a
+/// `hostRequestCancelled` event naming the `hostRequestID` so it can stop
+/// the work. A later answer from the host for that ID is refused like any
+/// unknown ID. Returns false when the notification names no pending host
+/// request, so it is handled like any other notification.
+fn cancel_host_request_locked(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    params: Option<&Value>,
+    outbound: &mut Vec<String>,
+) -> Result<bool, CoreError> {
+    if state.client.plugin_function_version.unwrap_or(0) < super::plugin_function::CONTEXT_VERSION {
+        return Ok(false);
+    }
+    let Some(backend_id) = params.and_then(|params| params.get("id")) else {
+        return Ok(false);
+    };
+    let Some(host_request_id) = state
+        .host_requests
+        .iter()
+        .find(|(_, pending)| *pending == backend_id)
+        .map(|(host_request_id, _)| host_request_id.clone())
+    else {
+        return Ok(false);
+    };
+    let backend_id = state
+        .host_requests
+        .remove(&host_request_id)
+        .unwrap_or(Value::Null);
+    outbound.push(json_rpc_error_with_code(
+        &backend_id,
+        -32800,
+        "The plugin process cancelled this host-service request.",
+        super::plugin_function::codes::HOST_CANCELLED,
+    )?);
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "hostRequestCancelled".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(json!({ "hostRequestID": host_request_id })),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+    Ok(true)
+}
+
 /// Publishes the session's registered functions after a registry change.
 /// Publishes a backend's well-formed host-service request as `hostRequest`,
 /// or answers it at once when the session already has the most requests the
@@ -5980,11 +6504,17 @@ fn forward_host_request_locked(
 ) -> Result<Vec<String>, CoreError> {
     let backend_id = request.get("id").cloned().unwrap_or(Value::Null);
     if state.host_requests.len() >= super::plugin_function::MAX_PENDING_HOST_REQUESTS {
+        let version = state.client.plugin_function_version.unwrap_or(0);
+        let code = if version >= super::plugin_function::CONTEXT_VERSION {
+            super::plugin_function::codes::HOST_LIMIT_EXCEEDED
+        } else {
+            super::plugin_function::codes::HOST_FAILED
+        };
         return Ok(vec![json_rpc_error_with_code(
             &backend_id,
-            -32603,
+            super::plugin_function::host_rpc_code(code),
             "Too many host-service requests are waiting for the host.",
-            super::plugin_function::codes::HOST_FAILED,
+            code,
         )?]);
     }
     let host_request_id = format!("host-{}", state.next_host_request_id);
@@ -6600,6 +7130,7 @@ fn clear_function_registry(session: &RuntimeSession, state: &mut SessionState) {
 fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     clear_runtime_diagnostics(session, state);
     state.client.initialized = false;
+    state.client.text_document_save_include_text = None;
     state.client.shutdown_requested = false;
     state.client.server_capabilities.clear();
     state.client.open_documents.clear();
@@ -6613,6 +7144,8 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
     state.java_builds = JavaBuildCoordinator::default();
+    state.java_launches.clear();
+    state.java_launch_messages.clear();
     state.deadline_cancellations.clear();
     state.maintenance_write_deadline = None;
     state.pending_workspace_file_changes.clear();
@@ -6621,6 +7154,29 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.initialize_deadline = None;
     state.shutdown_deadline = None;
     push_features_event(session, state, Vec::new());
+}
+
+/// Resolves the text of a document that has not been opened on the wire yet.
+///
+/// Hosts may send only ranged edits, which then extend the text Core retained.
+/// Edits for a document Core never received cannot be resolved, so the host
+/// resends the full text.
+fn unopened_document_text(
+    stored: Option<&LspClientDocument>,
+    text: String,
+    changes: &[LspDocumentContentChange],
+) -> Result<String, CoreError> {
+    if !text.is_empty() || changes.is_empty() {
+        return Ok(text);
+    }
+    let Some(stored) = stored else {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Cannot apply ranged edits to a document Core has not received.",
+        )
+        .with_details("documentNotSynchronized"));
+    };
+    crate::lsp::apply_content_changes_sequential(&stored.text, changes)
 }
 
 fn flush_queued_documents_locked(state: &mut SessionState) -> Result<Vec<String>, CoreError> {
@@ -6742,6 +7298,43 @@ mod tests {
         /// Events are drained by every poll, so the harness accumulates them and
         /// tests assert against the whole history.
         events: Vec<LspRuntimeEvent>,
+    }
+
+    struct IndexingPolicyFixture {
+        root: PathBuf,
+        revision: u64,
+    }
+
+    impl IndexingPolicyFixture {
+        fn new(root: PathBuf) -> Self {
+            let mut fixture = Self { root, revision: 0 };
+            fixture.exclude(&[]);
+            fixture
+        }
+
+        fn exclude(&mut self, paths: &[&str]) {
+            self.revision = crate::project::indexing::configure(
+                serde_json::from_value(json!({
+                    "root": self.root, "manualExcludedDirectories": paths,
+                    "includedDirectories": [], "gitIgnoreEnabled": false
+                }))
+                .unwrap(),
+            )
+            .unwrap()
+            .revision;
+        }
+    }
+
+    impl Drop for IndexingPolicyFixture {
+        fn drop(&mut self) {
+            let _ = crate::project::indexing::release(
+                crate::project::indexing::ReleaseIndexingRequest {
+                    root: self.root.to_string_lossy().into_owned(),
+                    owner_id: None,
+                    revision: self.revision,
+                },
+            );
+        }
     }
 
     struct TemporaryMavenWorkspace {
@@ -6939,6 +7532,7 @@ mod tests {
                         new_name: None,
                         range: None,
                         diagnostics: Vec::new(),
+                        completion_context: None,
                         completion_item: None,
                         code_action: None,
                         command: None,
@@ -6964,6 +7558,7 @@ mod tests {
                         new_name: None,
                         range: None,
                         diagnostics: Vec::new(),
+                        completion_context: None,
                         completion_item: None,
                         code_action: None,
                         command: Some(command),
@@ -7077,6 +7672,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -8107,6 +8703,63 @@ mod tests {
     }
 
     #[test]
+    fn ranged_edits_extend_text_retained_before_the_server_is_ready() {
+        let harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        let uri = "file:///workspace/First.java";
+        harness.sync(uri, "class First {}");
+        let appended = LspDocumentContentChange {
+            range: Some(LspRange {
+                start: LspPosition {
+                    line: 0,
+                    utf16_column: 11,
+                },
+                end: LspPosition {
+                    line: 0,
+                    utf16_column: 11,
+                },
+            }),
+            text: "Renamed".to_string(),
+        };
+        harness
+            .session()
+            .sync_document(SyncDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: uri.to_string(),
+                language_id: "java".to_string(),
+                text: String::new(),
+                content_changes: vec![appended.clone()],
+            })
+            .expect("ranged edits should extend the retained text");
+
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        assert!(harness.server.await_notification("textDocument/didOpen"));
+        let written = String::from_utf8_lossy(&harness.server.written_bytes()).into_owned();
+        assert!(written.contains("class FirstRenamed {}"));
+
+        let error = harness
+            .session()
+            .sync_document(SyncDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: "file:///workspace/Unknown.java".to_string(),
+                language_id: "java".to_string(),
+                text: String::new(),
+                content_changes: vec![appended],
+            })
+            .expect_err("edits to an unknown document cannot be resolved");
+        assert_eq!(error.details.as_deref(), Some("documentNotSynchronized"));
+    }
+
+    #[test]
     fn java_ready_flush_precedes_concurrent_edits_and_closes() {
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
@@ -8857,6 +9510,162 @@ mod tests {
     }
 
     #[test]
+    fn indexing_policy_withdrawal_serializes_with_a_checked_document_commit() {
+        assert_policy_withdrawal_serializes_with_checked_commit(false);
+    }
+
+    #[test]
+    fn indexing_policy_withdrawal_serializes_with_checked_diagnostics() {
+        assert_policy_withdrawal_serializes_with_checked_commit(true);
+    }
+
+    fn assert_policy_withdrawal_serializes_with_checked_commit(diagnostics: bool) {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-document-commit");
+        let root = workspace.root.canonicalize().unwrap();
+        let mut policy = IndexingPolicyFixture::new(root.clone());
+        let mut harness = Harness::start(|request| workspace.configure(request));
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = url::Url::from_file_path(root.join("reactor/Hidden.java"))
+            .unwrap()
+            .to_string();
+        let session = harness.session();
+        let (checked_tx, checked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (sync_done_tx, sync_done_rx) = std::sync::mpsc::channel();
+        let syncing = {
+            let session = session.clone();
+            let uri = uri.clone();
+            thread::spawn(move || {
+                let checked = || {
+                    checked_tx.send(()).unwrap();
+                    release_rx
+                        .recv_timeout(Duration::from_secs(3))
+                        .expect("document commit was not released");
+                };
+                let result = if diagnostics {
+                    session.handle_server_message_after_policy_check(json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{
+                        "uri":uri,"diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"old diagnostic"}]
+                    }}).to_string(), checked)
+                } else {
+                    session
+                        .sync_document_after_policy_check(
+                            SyncDocumentRequest {
+                                session_id: session.id.clone(),
+                                uri,
+                                language_id: "java".into(),
+                                text: "class Hidden {}".into(),
+                                content_changes: Vec::new(),
+                            },
+                            checked,
+                        )
+                        .map(|_| ())
+                };
+                let _ = sync_done_tx.send(());
+                result
+            })
+        };
+        checked_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("document eligibility was not reached");
+        assert!(
+            matches!(
+                session.indexing_roots.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ),
+            "eligibility and document publication must retain the policy serialization guard"
+        );
+        policy.exclude(&["reactor"]);
+        let (update_done_tx, update_done_rx) = std::sync::mpsc::channel();
+        let updating = {
+            let session = session.clone();
+            let root = root.clone();
+            thread::spawn(move || {
+                let result = apply_indexing_to_sessions(&root, vec![session]);
+                let _ = update_done_tx.send(());
+                result
+            })
+        };
+        release_tx.send(()).unwrap();
+        sync_done_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("document commit did not finish");
+        update_done_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("policy update did not finish");
+        syncing.join().unwrap().unwrap();
+        updating.join().unwrap().unwrap();
+        assert!(!harness.snapshot().open_documents.contains_key(&uri));
+        assert!(!session
+            .lock_state()
+            .unwrap()
+            .client
+            .diagnostics
+            .contains_key(&uri));
+        if !diagnostics {
+            assert!(notifications(&harness, "textDocument/didClose")
+                .iter()
+                .any(|message| message["params"]["textDocument"]["uri"] == uri));
+        }
+    }
+
+    #[test]
+    fn indexing_policy_withdraws_queued_file_changes_before_service_readiness() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-pending-file-changes");
+        let root = workspace.root.canonicalize().unwrap();
+        let mut policy = IndexingPolicyFixture::new(root.clone());
+        let mut harness = Harness::start(|request| workspace.configure(request));
+        let hidden = url::Url::from_file_path(root.join("reactor/Hidden.java"))
+            .unwrap()
+            .to_string();
+        let visible = url::Url::from_file_path(root.join("Visible.java"))
+            .unwrap()
+            .to_string();
+        harness
+            .session()
+            .workspace_files_changed(vec![
+                WorkspaceFileChange {
+                    uri: hidden.clone(),
+                    kind: WorkspaceFileChangeKind::Created,
+                },
+                WorkspaceFileChange {
+                    uri: visible.clone(),
+                    kind: WorkspaceFileChangeKind::Created,
+                },
+            ])
+            .unwrap();
+        assert_eq!(
+            harness
+                .session()
+                .lock_state()
+                .unwrap()
+                .pending_workspace_file_changes
+                .len(),
+            2
+        );
+        policy.exclude(&["reactor"]);
+        // The policy is installed, but this independent session has not received
+        // its withdrawal callback yet. Readiness must recheck queued eligibility.
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let changes = notifications(&harness, "workspace/didChangeWatchedFiles");
+        assert!(changes.iter().any(|message| message["params"]["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["uri"] == visible)));
+        assert!(!changes.iter().any(|message| message["params"]["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["uri"] == hidden)));
+    }
+
+    #[test]
     fn indexing_startup_cancels_when_policy_changes_during_process_launch() {
         struct RetireOnLaunch {
             inner: Arc<dyn LspProcessLauncher>,
@@ -9425,6 +10234,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -9491,6 +10301,7 @@ mod tests {
                         new_name: None,
                         range: None,
                         diagnostics: Vec::new(),
+                        completion_context: None,
                         completion_item: None,
                         code_action: None,
                         command: None,
@@ -9624,6 +10435,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: Some(json!({
@@ -9805,6 +10617,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -9858,6 +10671,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -9872,6 +10686,56 @@ mod tests {
         (operation_id, request_id)
     }
 
+    #[test]
+    fn document_saves_honor_server_options_and_never_replace_newer_editor_text() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/lsp/document-save-v1.json"
+        )))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let option = &case["saveOption"];
+            let mut harness = Harness::start(|_| {});
+            let mut capabilities = ready_capabilities();
+            capabilities["textDocumentSync"] = json!({"change": 1, "save": option});
+            harness.server.complete_initialize(capabilities);
+            harness.await_state(LspLifecycleState::Ready);
+            let uri = case["uri"].as_str().unwrap();
+            let saved_text = case["savedText"].as_str().unwrap();
+            harness.sync(uri, saved_text);
+            let saved = || SaveDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: uri.to_string(),
+                text: saved_text.to_string(),
+            };
+            let supported = case["sent"].as_bool().unwrap();
+            assert_eq!(harness.session().save_document(saved()).unwrap(), supported);
+            if supported {
+                let notification = harness
+                    .server
+                    .await_notification_at("textDocument/didSave", 0)
+                    .unwrap();
+                assert_eq!(notification["params"]["textDocument"]["uri"], uri);
+                assert_eq!(
+                    notification["params"].get("text"),
+                    case["includeText"]
+                        .as_bool()
+                        .unwrap()
+                        .then_some(&json!(saved_text))
+                );
+            }
+            harness.sync(uri, "newer unsaved edit");
+            assert!(!harness.session().save_document(saved()).unwrap());
+            let session = harness.session();
+            let state = session.lock_state().unwrap();
+            assert_eq!(
+                state.client.open_documents[uri].text.as_ref(),
+                "newer unsaved edit"
+            );
+            assert_eq!(state.client.open_documents[uri].version, 2);
+        }
+    }
+
     fn java_entrypoints_harness() -> Harness {
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
@@ -9882,6 +10746,238 @@ mod tests {
         }));
         harness.await_state(LspLifecycleState::Ready);
         harness
+    }
+
+    fn begin_java_launch(harness: &Harness) -> (String, String) {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .prepare_java_launch(
+                JavaPrepareLaunchRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    source_path: "/workspace/app/src/TestMain.java".to_string(),
+                    main_class: Some("demo.TestMain".to_string()),
+                },
+                operation_id.clone(),
+            )
+            .expect("Java launch should start");
+        let discovery = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .expect("entry request");
+        (operation_id, discovery)
+    }
+
+    fn answer_java_launch_entries(harness: &Harness, request_id: &str) {
+        harness.server.send(json!({"jsonrpc": "2.0", "id": request_id, "result": [
+            {"mainClass": "demo.Other", "projectName": "app", "filePath": "/workspace/app/src/TestMain.java"},
+            {"mainClass": "test.module/demo.TestMain", "projectName": "app", "filePath": "/workspace/app/src/TestMain.java"},
+            {"mainClass": "demo.TestMain", "projectName": "lib", "filePath": "/workspace/lib/src/TestMain.java"}
+        ]}));
+    }
+
+    #[test]
+    fn java_launch_preparation_owns_selection_build_and_classpath_under_one_operation() {
+        let mut harness = java_entrypoints_harness();
+        let (operation, discovery) = begin_java_launch(&harness);
+        answer_java_launch_entries(&harness, &discovery);
+        let build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 1)
+            .expect("build request");
+        let request = harness.written_request(&build);
+        assert_eq!(request["params"]["command"], "vscode.java.buildWorkspace");
+        let payload: Value =
+            serde_json::from_str(request["params"]["arguments"][0].as_str().unwrap()).unwrap();
+        assert_eq!(
+            payload,
+            json!({"mainClass": "test.module/demo.TestMain", "projectName": "app",
+            "filePath": "/workspace/app/src/TestMain.java", "isFullBuild": false})
+        );
+        assert!(!harness
+            .poll()
+            .iter()
+            .any(|event| event.operation_id.as_deref() == Some(&operation)));
+        harness
+            .server
+            .send(json!({"jsonrpc": "2.0", "id": build, "result": 1}));
+        let paths = harness
+            .server
+            .await_request_at("workspace/executeCommand", 2)
+            .expect("classpath request");
+        assert_eq!(
+            harness.written_request(&paths)["params"],
+            json!({
+                "command": "vscode.java.resolveClasspath", "arguments": ["test.module/demo.TestMain", "app"]
+            })
+        );
+        harness.server.send(json!({"jsonrpc": "2.0", "id": paths, "result": [
+            ["/workspace/app/custom-modules"], ["/workspace/app/custom-tests", "/cache/junit.jar"]
+        ]}));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(&operation))
+            .clone();
+        assert!(event.error.is_none(), "{event:?}");
+        assert_eq!(
+            event.result.unwrap(),
+            json!({"kind": "ready", "target": {
+                "mainClass": "test.module/demo.TestMain", "projectName": "app",
+                "modulePaths": ["/workspace/app/custom-modules"], "classPaths": ["/workspace/app/custom-tests", "/cache/junit.jar"]
+            }})
+        );
+        assert_eq!(
+            harness
+                .poll()
+                .iter()
+                .filter(|event| event.operation_id.as_deref() == Some(&operation))
+                .count(),
+            1
+        );
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+        assert!(harness
+            .session()
+            .lock_state()
+            .unwrap()
+            .java_launches
+            .is_empty());
+    }
+
+    #[test]
+    fn java_launch_preparation_preserves_failed_build_evidence_with_resolved_paths() {
+        for (status, code) in [(0, "javaBuildFailed"), (2, "javaBuildCompilationErrors")] {
+            let mut harness = java_entrypoints_harness();
+            let (operation, discovery) = begin_java_launch(&harness);
+            answer_java_launch_entries(&harness, &discovery);
+            let build = harness
+                .server
+                .await_request_at("workspace/executeCommand", 1)
+                .expect("build request");
+            harness
+                .server
+                .send(json!({"jsonrpc": "2.0", "id": build, "result": status}));
+            let paths = harness
+                .server
+                .await_request_at("workspace/executeCommand", 2)
+                .expect("classpath request after terminal build");
+            harness.server.send(
+                json!({"jsonrpc": "2.0", "id": paths, "result": [[], ["/workspace/app/out"]]}),
+            );
+            let event =
+                harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
+            assert!(event.error.is_none());
+            let result = event.result.as_ref().unwrap();
+            assert_eq!(result["kind"], "buildFailed");
+            assert_eq!(result["failure"]["code"], code);
+            assert_eq!(result["failure"]["report"]["markerScope"], "launchTarget");
+            assert_eq!(
+                result["target"]["classPaths"],
+                json!(["/workspace/app/out"])
+            );
+        }
+    }
+
+    #[test]
+    fn java_launch_preparation_rejects_cancelled_build_without_resolving_paths() {
+        let mut harness = java_entrypoints_harness();
+        let (operation, discovery) = begin_java_launch(&harness);
+        answer_java_launch_entries(&harness, &discovery);
+        let build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 1)
+            .expect("build request");
+        harness
+            .server
+            .send(json!({"jsonrpc": "2.0", "id": build, "result": 3}));
+        let event = harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
+        assert_eq!(event.error.as_ref().unwrap().code, "javaBuildCancelled");
+        assert!(event.result.is_none());
+        assert!(harness
+            .session()
+            .lock_state()
+            .unwrap()
+            .java_launches
+            .is_empty());
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|message| message["params"]["command"] == "vscode.java.resolveClasspath"));
+    }
+
+    #[test]
+    fn java_launch_preparation_cancel_during_build_ignores_its_late_success() {
+        let mut harness = java_entrypoints_harness();
+        let (operation, discovery) = begin_java_launch(&harness);
+        answer_java_launch_entries(&harness, &discovery);
+        let build = harness
+            .server
+            .await_request_at("workspace/executeCommand", 1)
+            .expect("build request");
+        harness
+            .session()
+            .cancel_operation(&operation)
+            .expect("cancel composed launch");
+        let event = harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
+        assert_eq!(event.error.as_ref().unwrap().code, "requestCancelled");
+        harness
+            .server
+            .send(json!({"jsonrpc": "2.0", "id": build, "result": 1}));
+        // The log is emitted after the late build answer was processed; no sleep
+        // or negative timeout is used to infer that no next stage was scheduled.
+        harness
+            .await_event(|event| event.message.as_deref() == Some("Java project build finished"));
+        assert!(harness
+            .session()
+            .lock_state()
+            .unwrap()
+            .java_launches
+            .is_empty());
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|message| message["params"]["command"] == "vscode.java.resolveClasspath"));
+        assert_eq!(
+            harness
+                .poll()
+                .iter()
+                .filter(|event| event.operation_id.as_deref() == Some(&operation))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn java_launch_preparation_rejects_malformed_classpath_instead_of_dropping_entries() {
+        for paths in [
+            json!([[], []]),
+            json!([[], [42]]),
+            json!([[], [" "]]),
+            json!([null, ["/out"]]),
+        ] {
+            let mut harness = java_entrypoints_harness();
+            let (operation, discovery) = begin_java_launch(&harness);
+            answer_java_launch_entries(&harness, &discovery);
+            let build = harness
+                .server
+                .await_request_at("workspace/executeCommand", 1)
+                .expect("build request");
+            harness
+                .server
+                .send(json!({"jsonrpc": "2.0", "id": build, "result": 1}));
+            let request = harness
+                .server
+                .await_request_at("workspace/executeCommand", 2)
+                .expect("classpath request");
+            harness
+                .server
+                .send(json!({"jsonrpc": "2.0", "id": request, "result": paths}));
+            let event =
+                harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
+            assert_eq!(event.error.as_ref().unwrap().code, "invalidServerResult");
+            assert!(event.result.is_none());
+        }
     }
 
     #[test]
@@ -10157,6 +11253,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10185,6 +11282,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10269,6 +11367,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10359,6 +11458,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10402,6 +11502,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10565,6 +11666,7 @@ mod tests {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -10879,6 +11981,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -11025,6 +12128,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -11144,6 +12248,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -11219,6 +12324,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -11297,6 +12403,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -11386,6 +12493,7 @@ public class Main {
                     new_name: None,
                     range: None,
                     diagnostics: Vec::new(),
+                    completion_context: None,
                     completion_item: None,
                     code_action: None,
                     command: None,
@@ -12712,6 +13820,7 @@ public class Main {
                     },
                     params: json!({ "project": "app" }),
                     timeout_milliseconds,
+                    context: None,
                 },
                 operation_id.clone(),
             )
@@ -12817,7 +13926,7 @@ public class Main {
             initialize["params"]["capabilities"]["experimental"],
             json!({
                 "litheBuild": { "versions": [6, 5, 4, 3, 2, 1] },
-                "litheFunctions": { "versions": [1, 2] },
+                "litheFunctions": { "versions": [1, 2, 3] },
                 "litheVcs": { "versions": [1] }
             })
         );
@@ -13599,7 +14708,10 @@ public class Main {
             wire["result"] = result;
         }
         if let Some(message) = error {
-            wire["error"] = json!({ "message": message });
+            wire["error"] = match message.split_once('|') {
+                Some((code, message)) => json!({ "message": message, "code": code }),
+                None => json!({ "message": message }),
+            };
         }
         let response: PluginHostResponse =
             serde_json::from_value(wire).expect("documented wire shape");
@@ -13704,6 +14816,252 @@ public class Main {
         assert_eq!(
             harness.session().lock_state().unwrap().host_requests.len(),
             limit
+        );
+    }
+
+    /// From version 3 Core answers capability discovery itself, listing
+    /// only the session's grants; the host never sees the request.
+    #[test]
+    fn capability_discovery_is_answered_by_core() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "caps",
+            "method": "lithe/host/getCapabilities"
+        }));
+        let reply = await_reply(&harness, "caps");
+        assert_eq!(reply["result"]["protocolVersion"], 3);
+        assert_eq!(reply["result"]["backendAuthority"], "local");
+        assert!(reply["result"]["services"]["workspace"].is_object());
+        assert!(reply["result"]["services"]["credentials"].is_null());
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "hostRequest"));
+    }
+
+    /// From version 3 a field a method does not define is answered as an
+    /// unsupported option naming it, so a backend can retry without it; the
+    /// host never sees the request.
+    #[test]
+    fn an_unknown_option_is_named_to_a_version_3_backend() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "folders",
+            "method": "lithe/host/workspace/getFolders",
+            "params": {
+                "context": { "contextID": "w-1", "generation": 1 },
+                "includeHidden": true
+            }
+        }));
+        let reply = await_reply(&harness, "folders");
+        assert_eq!(reply["error"]["code"], -32018);
+        assert_eq!(
+            reply["error"]["data"]["code"],
+            "plugin.host.unsupportedOption"
+        );
+        assert_eq!(
+            reply["error"]["data"]["details"],
+            json!({ "option": "includeHidden" })
+        );
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "hostRequest"));
+    }
+
+    /// From version 3 a host failure's code reaches the backend when it is
+    /// one a host may report; an unknown code is `plugin.host.failed`.
+    #[test]
+    fn typed_host_failures_reach_a_version_3_backend() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        for (id, code, expected, rpc_code) in [
+            (
+                "a",
+                "plugin.host.contextExpired",
+                "plugin.host.contextExpired",
+                -32011,
+            ),
+            ("b", "plugin.function.unknown", "plugin.host.failed", -32603),
+        ] {
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": id,
+                "method": "lithe/host/workspace/getFolders",
+                "params": { "context": { "contextID": "w1", "generation": 1 } }
+            }));
+            let event = harness
+                .await_event(|event| event.kind == "hostRequest")
+                .clone();
+            let host_request_id = event.result.unwrap()["hostRequestID"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            harness.events.clear();
+            host_response(
+                &harness,
+                &host_request_id,
+                None,
+                Some(&format!("{code}|The workspace closed.")),
+            )
+            .expect("the host reports its failure");
+            let reply = await_reply(&harness, id);
+            assert_eq!(reply["error"]["data"]["code"], expected, "{code}");
+            assert_eq!(reply["error"]["code"], rpc_code, "{code}");
+        }
+    }
+
+    /// A host failure's details reach a version 3 backend under
+    /// `error.data.details`, next to the stable code.
+    #[test]
+    fn host_failure_details_reach_a_version_3_backend() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "folders",
+            "method": "lithe/host/workspace/getFolders",
+            "params": { "context": { "contextID": "w1", "generation": 1 } }
+        }));
+        let host_request_id = harness
+            .await_event(|event| event.kind == "hostRequest")
+            .clone()
+            .result
+            .unwrap()["hostRequestID"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let response: PluginHostResponse = serde_json::from_value(json!({
+            "sessionId": harness.session_id,
+            "hostRequestID": host_request_id,
+            "error": {
+                "message": "The context changed.",
+                "code": "plugin.host.contextExpired",
+                "details": { "generation": 2 }
+            }
+        }))
+        .expect("documented wire shape");
+        harness
+            .session()
+            .host_response(response)
+            .expect("the host reports its failure");
+        let reply = await_reply(&harness, "folders");
+        assert_eq!(reply["error"]["data"]["code"], "plugin.host.contextExpired");
+        assert_eq!(
+            reply["error"]["data"]["details"],
+            json!({ "generation": 2 })
+        );
+    }
+
+    /// `lsp.hostNotify` writes an admitted notification to the backend and
+    /// refuses one the session was not granted.
+    #[test]
+    fn host_notifications_reach_a_version_3_backend() {
+        let harness = host_service_backend(3, &["workspace"]);
+        let notify = |method: &str, params: Value| {
+            let request: PluginHostNotification = serde_json::from_value(json!({
+                "sessionId": harness.session_id,
+                "method": method,
+                "params": params,
+            }))
+            .expect("documented wire shape");
+            harness.session().host_notify(request)
+        };
+        assert!(notify(
+            "lithe/host/workspace/didChangeContexts",
+            json!({ "revision": 2 })
+        )
+        .expect("an admitted notification"));
+        assert!(harness
+            .server
+            .await_notification("lithe/host/workspace/didChangeContexts"));
+        assert!(notify("lithe/build/run", json!({})).is_err());
+    }
+
+    /// A version 2 backend never receives a notification it cannot read.
+    #[test]
+    fn host_notifications_skip_a_version_2_backend() {
+        let harness = host_service_backend(2, &["workspace"]);
+        let request: PluginHostNotification = serde_json::from_value(json!({
+            "sessionId": harness.session_id,
+            "method": "lithe/host/workspace/didChangeContexts",
+            "params": { "revision": 2 },
+        }))
+        .expect("documented wire shape");
+        assert!(!harness
+            .session()
+            .host_notify(request)
+            .expect("a known notification"));
+    }
+
+    /// A backend that cancels its own host request is answered at once, the
+    /// host learns which request to stop, and its late answer is refused.
+    #[test]
+    fn a_backend_can_cancel_its_host_request() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "list",
+            "method": "lithe/host/workspace/listContexts"
+        }));
+        let host_request_id = harness
+            .await_event(|event| event.kind == "hostRequest")
+            .clone()
+            .result
+            .unwrap()["hostRequestID"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": "list" }
+        }));
+        let cancelled = harness
+            .await_event(|event| event.kind == "hostRequestCancelled")
+            .clone();
+        assert_eq!(
+            cancelled.result.unwrap()["hostRequestID"],
+            json!(host_request_id)
+        );
+        let reply = await_reply(&harness, "list");
+        assert_eq!(reply["error"]["data"]["code"], "plugin.host.cancelled");
+        assert!(host_response(&harness, &host_request_id, Some(json!({})), None).is_err());
+    }
+
+    /// A call's workspace context reaches a version 3 backend as
+    /// `params.context`, and a malformed reference never leaves Core.
+    #[test]
+    fn invocations_carry_the_workspace_context_from_version_3() {
+        let harness = plugin_backend(json!({
+            "litheFunctions": { "version": 3, "functions": [{ "id": "snapshot.refresh" }] }
+        }));
+        let call = |context: Value| {
+            let operation_id = harness.engine.next_operation_id();
+            harness.session().function_request(
+                PluginFunctionRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    function: super::super::plugin_function::FunctionReference {
+                        plugin_id: FUNCTION_PLUGIN.to_string(),
+                        function_id: "snapshot.refresh".to_string(),
+                    },
+                    params: json!({}),
+                    timeout_milliseconds: None,
+                    context: Some(context),
+                },
+                operation_id,
+            )
+        };
+        let error = call(json!({ "contextID": "w/1", "generation": 1 }))
+            .expect_err("a malformed context is refused");
+        assert_eq!(
+            error.details.as_deref(),
+            Some("plugin.function.invalidParams")
+        );
+        call(json!({ "contextID": "w1", "generation": 2 })).expect("sent");
+        let request_id = harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("the call should reach the backend");
+        assert_eq!(
+            harness.written_request(&request_id)["params"]["context"],
+            json!({ "contextID": "w1", "generation": 2 })
         );
     }
 }

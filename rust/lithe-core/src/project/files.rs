@@ -24,6 +24,13 @@ pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     ".build",
     ".swiftpm",
     "node_modules",
+    // Python virtual environments and bytecode caches are dependency or generated
+    // output like `node_modules`. They hold tens of thousands of files that no
+    // snapshot consumer wants. Environments are matched by their conventional
+    // names only, so a differently named one still has to be hidden by the user.
+    ".venv",
+    "venv",
+    "__pycache__",
     "target",
     "build",
     "DerivedData",
@@ -46,7 +53,7 @@ pub fn is_workspace_event_relevant(relative: &str) -> bool {
 }
 
 /// File names omitted from workspace snapshots, search, and related scans.
-const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store"];
+const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store", "*.pyc"];
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
 const MAX_OPEN_FILE_SIZE: u64 = 32 * 1024 * 1024;
 

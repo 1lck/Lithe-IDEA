@@ -157,7 +157,7 @@ pub(crate) fn normalize_java_entrypoints(
 ///
 /// This is done textually rather than through the host OS so that a Windows
 /// URI such as `file:///c%3A/work` normalizes identically on every platform.
-fn workspace_root_path(root_uri: &str) -> Option<String> {
+pub(crate) fn workspace_root_path(root_uri: &str) -> Option<String> {
     let url = url::Url::parse(root_uri).ok()?;
     if url.scheme() != "file" {
         return None;
@@ -180,7 +180,7 @@ fn workspace_root_path(root_uri: &str) -> Option<String> {
 ///
 /// Windows drive and UNC paths compare case-insensitively, matching the file
 /// system; the returned relative path keeps JDT's casing.
-fn workspace_relative_path(root: &str, file_path: &str) -> Option<String> {
+pub(crate) fn workspace_relative_path(root: &str, file_path: &str) -> Option<String> {
     let file_path = file_path.replace('\\', "/");
     let case_insensitive = is_windows_path(root) || is_windows_path(&file_path);
     let prefix_matches = file_path.len() > root.len()
@@ -201,7 +201,7 @@ fn workspace_relative_path(root: &str, file_path: &str) -> Option<String> {
     is_contained.then(|| relative.to_string())
 }
 
-fn is_windows_path(path: &str) -> bool {
+pub(crate) fn is_windows_path(path: &str) -> bool {
     path.starts_with("//")
         || matches!(path.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic())
 }

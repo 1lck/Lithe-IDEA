@@ -73,3 +73,25 @@ test("multi-root inventory and scoped search carry the complete ownership contex
     configure.mockRestore();
   }
 });
+
+
+test("workspace file listing asks Core for flat files without allocating a tree", async () => {
+  const root = "C:/work/project";
+  const configure = spyOn(indexing, "configureWorkspaceIndexing").mockResolvedValue({
+    revision: 1, excludedDirectories: {}, gitIgnoreFailed: false,
+  });
+  const requests: Array<core.CoreRequest> = [];
+  const execute = spyOn(core, "executeCore").mockImplementation(async <T, P = unknown>(request: core.CoreRequest<P>) => {
+    requests.push(request);
+    return {id: request.id, ok: true as const, data: {files: ["src/a.ts", "src/b.ts"]} as T};
+  });
+  try {
+    const files = await fffListFiles([root]);
+    expect(files.map((file) => file.relative_path)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.command).toBe("workspace.snapshot");
+    expect(requests[0]?.payload).toEqual({root, workspaceRoots: [root], includeTree: false});
+  } finally {
+    execute.mockRestore(); configure.mockRestore();
+  }
+});

@@ -3,6 +3,7 @@ import type React from "react";
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
@@ -19,6 +20,7 @@ import {
 } from "@/features/file-explorer/lib/file-tree-viewport";
 import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import { cn } from "@/utils/cn";
+import { installTreeGuideVisibility } from "@/features/file-explorer/lib/tree-guide-visibility";
 
 export interface FileExplorerViewportHandle {
   focus: () => void;
@@ -178,6 +180,9 @@ export const FileExplorerViewport = forwardRef<
     );
   }, [range.endIndex, range.startIndex]);
 
+  useEffect(() => {
+    installTreeGuideVisibility();
+  }, []);
   const contentWidth = useTreeContentWidth({
     viewportRef: scrollRef,
     rowSelector: ".file-tree-row",

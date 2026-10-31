@@ -94,6 +94,7 @@ import {
   joinPath,
   pathStartsWithRoot,
   stripTrailingPathSeparators,
+  toRootedPath,
 } from "@/utils/path-helpers";
 import { useFileExplorerContextMenu } from "../hooks/use-file-explorer-context-menu";
 import { useFileExplorerDragDrop } from "../hooks/use-file-explorer-drag-drop";
@@ -843,6 +844,19 @@ function FileExplorerTreeComponent({
     setEditingValue("");
   };
 
+  // Rows are memoized by identity of these callbacks. Handing them the inline
+  // editors directly made every row re-render whenever the tree rendered.
+  const inlineEditingRef = useRef({ finish: finishInlineEditing, cancel: cancelInlineEditing });
+  inlineEditingRef.current = { finish: finishInlineEditing, cancel: cancelInlineEditing };
+  const submitRowInlineEditing = useCallback(
+    (value: string, file: FileEntry) => inlineEditingRef.current.finish(file, value),
+    [],
+  );
+  const cancelRowInlineEditing = useCallback(
+    (file: FileEntry) => inlineEditingRef.current.cancel(file),
+    [],
+  );
+
   const openPathInTab = useCallback(
     async (path: string) => {
       if (onFileOpen) {
@@ -1139,19 +1153,11 @@ function FileExplorerTreeComponent({
       }
       selectPath(t.path, { additive: e.ctrlKey || e.metaKey, range: e.shiftKey });
       if (e.ctrlKey || e.metaKey || e.shiftKey) return;
-      if (!t.isDir) {
-        fileOpenBenchmark.ensureStarted(t.path, "explorer-click");
-        fileOpenBenchmark.mark(t.path, "explorer-click");
-      }
-      if (t.isDir) {
-        setFocusedPath(t.path);
-        updateActivePath?.(t.path);
-      } else {
-        setFocusedPath(t.path);
-        void Promise.resolve(onFileSelect(t.path, false));
-      }
+      // A single click only selects; opening a file is the double-click (or Enter) action.
+      setFocusedPath(t.path);
+      updateActivePath?.(t.path);
     },
-    [onFileSelect, toggleDirectory, updateActivePath, pathToFile, selectPath],
+    [toggleDirectory, updateActivePath, pathToFile, selectPath],
   );
 
   const handleContainerDoubleClick = useCallback(
@@ -1485,6 +1491,26 @@ function FileExplorerTreeComponent({
             onRenamePath?.(current.path);
             break;
           }
+          case "Delete": {
+            // Shift+Delete means "permanent delete" on Windows; this tree has no such action.
+            if (!current || mod || e.altKey || e.shiftKey) break;
+            const entries = selectedEntries.length
+              ? selectedEntries
+              : workspaceRootPaths.includes(current.path)
+                ? []
+                : [{ path: current.path, is_dir: !!isDir }];
+            const [first] = entries;
+            if (!first) break;
+            e.preventDefault();
+            // A stray key press must never delete on its own, so this path always asks first,
+            // even when "confirm before delete" is off for the context menu.
+            setDeleteCandidate(
+              entries.length === 1
+                ? { path: first.path, isDir: first.is_dir }
+                : { path: first.path, isDir: first.is_dir, entries },
+            );
+            break;
+          }
         }
       }}
       onDragOver={(e) => {
@@ -1530,8 +1556,12 @@ function FileExplorerTreeComponent({
               setProjectView("project");
               setTreeSearchQuery("");
               setTreeSearchOpen(false);
-              void requestRevealPath(activePath);
-              selectPath(activePath);
+              // The editor may spell the path differently from the tree nodes it must match.
+              const treePath = rootFolderPath
+                ? toRootedPath(activePath, rootFolderPath)
+                : activePath;
+              void requestRevealPath(treePath);
+              selectPath(treePath);
             }
           }}
         >
@@ -1795,6 +1825,14 @@ function FileExplorerTreeComponent({
             const previousRow = visibleRows[index - 1];
             const nextRow = visibleRows[index + 1];
             const isEditingRow = row.file.isEditing || row.file.isRenaming;
+            // Every visible row is re-prepared on each tree render (selection,
+            // opened file), so the mark lookup runs once per row, not per prop.
+            const markedRole = markForPath(row.file.path);
+            const directoryMark = isIndexExcluded(row.file.path)
+              ? "excluded"
+              : !canUseNativeFileSearch(row.file.path) && markedRole === "excluded"
+                ? undefined
+                : markedRole;
             const guideTargets: Array<FileTreeGuideTarget | null> =
               fileTreeSettings.showIndentGuidesInFileTree
                 ? getGuideAncestorRows(visibleRows, index).map((ancestor) =>
@@ -1831,19 +1869,13 @@ function FileExplorerTreeComponent({
                     : highlightedPath === row.file.path
                 }
                 exclusionReason={exclusionReason(row.file.path)}
-                directoryMark={
-                  isIndexExcluded(row.file.path)
-                    ? "excluded"
-                    : !canUseNativeFileSearch(row.file.path) && markForPath(row.file.path) === "excluded"
-                      ? undefined
-                      : markForPath(row.file.path)
-                }
+                directoryMark={directoryMark}
                 semanticKind={
-                  markForPath(row.file.path) === "sources"
+                  markedRole === "sources"
                     ? "folder.source-root"
-                    : markForPath(row.file.path) === "resources"
+                    : markedRole === "resources"
                       ? "folder.resources-root"
-                      : markForPath(row.file.path) === "package"
+                      : markedRole === "package"
                         ? "folder.package"
                         : row.semanticKind
                 }
@@ -1857,8 +1889,8 @@ function FileExplorerTreeComponent({
                 isDragging={dragState.isDragging}
                 editingValue={isEditingRow ? editingValue : undefined}
                 onEditingValueChange={setEditingValue}
-                onSubmit={(value, file) => finishInlineEditing(file, value)}
-                onCancel={cancelInlineEditing}
+                onSubmit={submitRowInlineEditing}
+                onCancel={cancelRowInlineEditing}
                 getGitStatusDecoration={getGitStatusDecoration}
                 rowId={getFileTreeRowId(row.file.path)}
                 searchQuery={displayedTreeSearch?.query}

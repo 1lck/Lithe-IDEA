@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheExecutionModule
 
 // Note: 插件网页内容与宿主窗口的分工见 .agents/notes/implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md
@@ -35,6 +36,37 @@ extension AppModel: PluginWebBridgeHost {
     }
 
     var pluginWebBackends: (any PluginBackendRequesting)? { services.pluginWebPages.backends }
+
+    var pluginWebWorkspaceContext: PluginWorkspaceContextReference? {
+        services.pluginWorkspaceContexts?.context(ownedBy: self)?.reference
+    }
+
+    // Note: 工作区上下文与 onWorkspaceOpen 激活见 .agents/notes/implemented/architecture/2026-10-30-plugin-backend-workspace-context.md
+
+    /// Gives the workspace this window opens a context for plugin backends,
+    /// with the SSH host as its authority when it is remote, then starts
+    /// the `onWorkspaceOpen` backends once the window shows it. Their start
+    /// never delays the workspace.
+    func openPluginWorkspaceContext(at rootURL: URL) {
+        guard let contexts = services.pluginWorkspaceContexts else { return }
+        let root = rootURL.standardizedFileURL
+        let binding = services.remoteConnections?.workspaces.binding(forRoot: root)
+        contexts.open(
+            owner: self,
+            rootURL: root,
+            remote: binding.map { (connectionID: $0.connectionID.uuidString, remoteRoot: $0.remoteRoot) }
+        )
+        Task { @MainActor [weak self] in
+            guard let self, !self.isProjectSessionClosed, self.workspaceURL == root else { return }
+            self.services.pluginBackendActivation?.activate(event: "onWorkspaceOpen", owner: nil)
+        }
+    }
+
+    /// The window no longer shows the workspace: backends see its context
+    /// close, and what they subscribed to in it is disposed.
+    func closePluginWorkspaceContext() {
+        services.pluginWorkspaceContexts?.close(owner: self)
+    }
 
     /// True while the window's plugin has a new version, a rollback, or an
     /// uninstall waiting for restart: its old page is not shown again.

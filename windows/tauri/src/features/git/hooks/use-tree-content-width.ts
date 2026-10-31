@@ -1,5 +1,5 @@
 import type React from "react";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   isLabelTruncated,
   measureLabelNaturalWidth,
@@ -18,6 +18,19 @@ export function measureTreeRowWidth(row: HTMLElement): { width: number; truncate
     width: Math.ceil(row.offsetWidth - label.clientWidth + measureLabelNaturalWidth(label)) + 1,
     truncated: isLabelTruncated(label),
   };
+}
+
+/**
+ * Identity of the rendered rows' contents. Serializing markup does not force layout,
+ * unlike the width measurement it guards. The row element's own classes are left out:
+ * they carry selection and hover state, which never changes the width a row needs.
+ */
+function renderedRowsSignature(viewport: HTMLElement, rowSelector: string): string {
+  let signature = "";
+  for (const row of viewport.querySelectorAll<HTMLElement>(rowSelector)) {
+    signature += `${row.style.cssText}\u0000${row.innerHTML}\u0001`;
+  }
+  return signature;
 }
 
 /**
@@ -41,6 +54,7 @@ export function useTreeContentWidth({
   enabled?: boolean;
 }) {
   const [treeContentWidth, setTreeContentWidth] = useState(0);
+  const measuredRowsRef = useRef<string | null>(null);
 
   const measureTreeContentWidth = useCallback(() => {
     const viewport = viewportRef.current;
@@ -58,10 +72,20 @@ export function useTreeContentWidth({
   }, [rowSelector, viewportRef]);
 
   useLayoutEffect(() => {
+    measuredRowsRef.current = null;
     setTreeContentWidth(0);
   }, [resetKey]);
 
+  // The first layout read after a React commit forces a synchronous layout of the
+  // whole window. Trees re-render on selection, focus and status changes that leave
+  // their labels untouched, so measure only when the rendered labels change; viewport
+  // and font changes are covered by the observers below.
   useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const rows = renderedRowsSignature(viewport, rowSelector);
+    if (rows === measuredRowsRef.current) return;
+    measuredRowsRef.current = rows;
     measureTreeContentWidth();
   });
 

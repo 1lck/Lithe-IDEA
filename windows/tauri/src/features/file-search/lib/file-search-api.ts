@@ -79,10 +79,6 @@ interface CoreSearchMatch {
   preview: string;
 }
 
-interface CoreWorkspaceNode {
-  path: string;
-}
-
 function coreData<T>(response: Awaited<ReturnType<typeof executeCore<T>>>): T {
   if (response.ok) return response.data;
   throw new Error(response.error.message);
@@ -224,8 +220,8 @@ async function listWorkspaceFiles(
   workspaceId?: string,
 ): Promise<string[]> {
   await configureWorkspaceIndexing(root, [], false, workspaceId);
+  // Search consumes a flat inventory; directory rows are loaded lazily by the tree.
   const response = await executeCore<{
-    root: CoreWorkspaceNode;
     files: string[];
     incompleteDirectories?: string[];
   }>({

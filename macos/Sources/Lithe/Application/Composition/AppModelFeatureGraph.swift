@@ -10,6 +10,8 @@ import LitheWorkspaceModule
 final class AppModelFeatureGraph {
     let keyboardShortcut: KeyboardShortcutFeatureModel
     let notification: WorkbenchNotificationFeatureModel
+    /// Plugin messages show their own text verbatim, so they are not part of `notification`.
+    let pluginMessages = PluginHostMessageFeatureModel()
     let workbench: WorkbenchFeatureModel
     let commitDraft: CommitDraftFeatureModel
     let searchSession: SearchSessionFeatureModel

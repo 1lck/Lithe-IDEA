@@ -373,6 +373,11 @@ SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记�
 由本工作树 SwiftPM 清理管理；这些操作仅作用于构建目录，不修改已安装应用、签名
 发行基线或 Sparkle delta。
 
+`scripts/windows/perf/run-windows-perf.mjs` 的生产构建、本地基线和 CPU profile 写入
+`.artifacts/windows-perf/`，登记为 `windows-perf-state`，所有复用阶段均拒绝复制。这些内容
+跟随所在工作树的源码和机器，没有 identity stamp；工具在本工作树重新构建，不写 app bundle、
+安装目录或 Sparkle delta 基线。
+
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
 然后运行 `node scripts/i18n/generate-i18n.mjs --check` 校验。修改源翻译后运行不带
@@ -802,6 +807,12 @@ Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app
 这类用户 JSON 没有版本、平台、架构或工具链 identity stamp，工作区摘要只是存储键，
 任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
 排除路由直接拒绝，由 `scripts/resources/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
+
+插件宿主的 `<app-support>/Lithe/PluginHost/root-id.key` 是安装级密钥，
+`<app-support>/Lithe/PluginState/<plugin-id>/backend/workspaces/<workspace-digest>/`
+是按插件、工作区归属的可变状态。二者都没有版本/平台/架构/工具链复用身份，
+任何复制阶段都不得共享；`excludedResources.plugin-host-runtime-state` 走拒绝路由，
+由资源复用测试验证。运行期仅写平台 Application Support，不改签名包或 Sparkle 源基线。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity

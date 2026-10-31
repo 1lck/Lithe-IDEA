@@ -7,6 +7,86 @@ import Testing
 @Suite("Lazy project tree inventory")
 @MainActor
 struct LazyProjectTreeInventoryTests {
+    @Test(arguments: [false, true])
+    func mixedRuleChangesStillDeliverOrdinaryFileUpdates(metadata: Bool) async throws {
+        let root = URL(fileURLWithPath: "/in-memory/mixed-indexing-rules")
+        let keep = root.appendingPathComponent("Keep.java")
+        let fixture = InventoryFixture(root: root, files: [keep], rows: [root.path: []])
+        defer { fixture.close() }
+        await fixture.load()
+        let configured = fixture.disk.configurationCount
+        let finished = fixture.expectRefresh(for: keep)
+        let gitFinished = fixture.expectGitRefresh()
+        let source = try #require(fixture.watcher.source)
+        source.emit(DirectoryChangeBatch(
+            workspacePaths: metadata ? [keep.path] : [root.appendingPathComponent(".gitignore").path, keep.path],
+            gitStateMayHaveChanged: true,
+            gitMetadataMayHaveChanged: metadata
+        ))
+        #expect(await finished.waitUntilOpen())
+        // A stable inventory must not swallow the ordinary file's content update.
+        #expect(fixture.changes.contains(WorkspaceFileChange(fileURL: keep, kind: .changed)))
+        #expect(await gitFinished.waitUntilOpen())
+        #expect(fixture.disk.configurationCount > configured)
+    }
+
+    @Test
+    func metadataArrivingDuringAScanIsConsumedBeforeInventoryPublication() async throws {
+        let root = URL(fileURLWithPath: "/in-memory/inflight-indexing-rules")
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []])
+        defer { fixture.close() }
+        await fixture.load()
+        let scans = fixture.disk.snapshotCount
+        fixture.disk.blockNextListing()
+        let refresh = Task {
+            await fixture.model.rebuild(at: root, rules: .default, refreshGitAfterwards: false, indexingOnly: true, isCurrent: { true })
+        }
+        defer { refresh.cancel(); fixture.disk.releaseListing.open() }
+        #expect(await fixture.disk.listingStarted.waitUntilOpen())
+        let delivered = fixture.expectGitRefresh()
+        let source = try #require(fixture.watcher.source)
+        source.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true, gitMetadataMayHaveChanged: true))
+        #expect(await delivered.waitUntilOpen())
+        fixture.disk.releaseListing.open()
+        _ = await refresh.value
+        #expect(!fixture.disk.listingTimedOut)
+        #expect(fixture.disk.snapshotCount == scans + 2)
+    }
+
+    @Test(arguments: [false, true])
+    func aFailedOlderMarkWriteCannotRollbackNewerPreferences(cancelExclusion: Bool) async {
+        let root = URL(fileURLWithPath: "/in-memory/mark-write-ownership")
+        let store = FailingInventoryMarks()
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []], directoryMarkStore: store)
+        defer { store.release.open(); fixture.close() }
+        await fixture.load()
+        let first = Task { await fixture.model.markDirectory(root.appendingPathComponent("a"), as: .excluded) }
+        defer { first.cancel(); store.release.open() }
+        #expect(await store.started.waitUntilOpen())
+        let second: Task<Void, Never>?
+        if cancelExclusion {
+            second = Task { await fixture.model.markDirectory(root.appendingPathComponent("b"), as: .plain, cancelExclusion: true) }
+            #expect(await store.newSettingsSaved.waitUntilOpen())
+        } else {
+            second = nil
+            await fixture.model.setGitIgnoreIndexing(false)
+        }
+        defer { second?.cancel() }
+        store.release.open()
+        await first.value
+        await second?.value
+        #expect(!store.timedOut)
+        #expect(fixture.model.indexingSettings == store.settings)
+        if cancelExclusion {
+            #expect(fixture.model.indexingSettings.includedDirectories == ["b"])
+            #expect(fixture.model.directoryMarks["b"] == .sources)
+            #expect(fixture.model.directoryMarks == store.marks)
+        } else {
+            #expect(!fixture.model.indexingSettings.gitIgnoreEnabled)
+            #expect(fixture.model.directoryMarks["a"] == nil)
+        }
+    }
+
     @Test
     func moduleReleaseDuringSnapshotCannotAcquireAnotherLeaseOrPublishInventory() async {
         let root = URL(fileURLWithPath: "/in-memory/indexing-release-during-snapshot")
@@ -499,14 +579,15 @@ private final class InventoryFixture {
     var changes: [WorkspaceFileChange] = []
     var publishedFiles: [[URL]] = []
     private var refreshGates: [String: TestGate] = [:]
+    private var gitRefreshGate: TestGate?
 
-    init(root: URL, files: [URL], rows: [String: [FileNode]]) {
+    init(root: URL, files: [URL], rows: [String: [FileNode]], directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore()) {
         self.root = root
         disk = InventoryDisk(files: files, rows: rows)
         model = WorkspaceFeatureModel(
             operations: disk, fileOperations: disk,
             gitWatchContextProvider: InventoryGitContext(), directoryWatcherFactory: watcher,
-            workspaceSessionStore: InventorySessionStore(), observationDelay: { _ in }
+            workspaceSessionStore: InventorySessionStore(), directoryMarkStore: directoryMarkStore, observationDelay: { _ in }
         )
         model.configureProjection(
             documentsProvider: { [] }, activeDocumentProvider: { nil },
@@ -516,7 +597,7 @@ private final class InventoryFixture {
             relocateOpenDocuments: { _, _ in }, closeDocuments: { _ in },
             processExternalChanges: { _ in false },
             notifyWorkspaceFileChanges: { [weak self] in self?.changes.append(contentsOf: $0) },
-            reloadProjectServices: {}, refreshGit: {}, updateHistoryVisibilityRules: { _ in },
+            reloadProjectServices: {}, refreshGit: { [weak self] in self?.gitRefreshGate?.open() }, updateHistoryVisibilityRules: { _ in },
             onSnapshotLoaded: { [weak self] snapshot, _ in self?.publishedFiles.append(snapshot.files) },
             warmSearchIndex: { _, _ in },
             updateSearchIndex: { [weak self] _, paths, _ in
@@ -534,6 +615,12 @@ private final class InventoryFixture {
     func expectRefresh(for url: URL) -> TestGate {
         let gate = TestGate()
         refreshGates[url.path] = gate
+        return gate
+    }
+
+    func expectGitRefresh() -> TestGate {
+        let gate = TestGate()
+        gitRefreshGate = gate
         return gate
     }
 
@@ -696,4 +783,38 @@ private final class InventoryChangeSource: DirectoryChangeSource {
     func start() {}
     func stop() {}
     func emit(_ paths: [String]) { onChange(DirectoryChangeBatch(workspacePaths: paths)) }
+    func emit(_ batch: DirectoryChangeBatch) { onChange(batch) }
+}
+
+private final class FailingInventoryMarks: WorkspaceDirectoryMarkStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var savedSettings: WorkspaceIndexingSettings = {
+        var settings = WorkspaceIndexingSettings()
+        settings.previousRoles = ["b": .sources]
+        return settings
+    }()
+    private var savedMarks: [String: WorkspaceDirectoryMark] = ["b": .excluded]
+    private var writes = 0
+    private var timeout = false
+    let started = TestGate(), release = TestGate(), newSettingsSaved = TestGate()
+    var settings: WorkspaceIndexingSettings { lock.withLock { savedSettings } }
+    var marks: [String: WorkspaceDirectoryMark] { lock.withLock { savedMarks } }
+    var timedOut: Bool { lock.withLock { timeout } }
+    func loadIndexingSettings(for workspaceURL: URL) throws -> WorkspaceIndexingSettings { settings }
+    func loadDirectoryMarks(for workspaceURL: URL) throws -> [String: WorkspaceDirectoryMark] { marks }
+    func saveIndexingSettings(_ settings: WorkspaceIndexingSettings, for workspaceURL: URL) throws {
+        lock.withLock { savedSettings = settings }
+        if settings.includedDirectories.contains("b") { newSettingsSaved.open() }
+    }
+    func saveDirectoryMarks(_ marks: [String: WorkspaceDirectoryMark], for workspaceURL: URL) throws {
+        let first = lock.withLock { writes += 1; return writes == 1 }
+        if first {
+            started.open()
+            // The production persistence queue owns this synchronous protocol call.
+            let released = release.waitSynchronously(timeout: 5)
+            lock.withLock { timeout = !released }
+            throw WorkspaceIndexingFailure.writeFailed
+        }
+        lock.withLock { savedMarks = marks }
+    }
 }

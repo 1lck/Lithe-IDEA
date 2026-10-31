@@ -15,7 +15,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
     package private(set) var workspaceGeneration = 0
     package private(set) var appliedSnapshot: WorkspaceSnapshot?
     @Published package private(set) var rootNode: FileNode?
-    @Published package private(set) var projectFiles: [URL] = []
+    @Published package private(set) var projectFiles: [URL] = [] {
+        didSet { rebuildProjectMembership() }
+    }
+    private var projectFilePaths: Set<String> = []
+    private var projectDirectoryPaths: Set<String> = []
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published private var loadFailure: WorkspaceIndexingFailure?
@@ -57,6 +61,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var workspaceResourcesReleased = false
     private var visibilityRules = FileVisibilityRules.default
     private var directoryMarkRevision = 0
+    private var indexingSettingsRevision = 0
+    private var indexingRulesRevision = 0
     private var watchConfiguration: DirectoryWatchConfiguration?
     private var directoryWatcher: (any DirectoryChangeSource)?
     private var refreshTask: Task<Void, Never>?
@@ -68,7 +74,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var pendingIndexingRuleRefresh = false
     private var pendingFullRescan = false
     private var pendingWatchRootsChanged = false
-    private var isGitRefreshRunning = false
+    private var activeGitRefreshID: UUID?
     private var externalRefreshGeneration = 0
     private var gitRefreshGeneration = 0
     private var workspaceSessionPersistenceTask: Task<Void, Never>?
@@ -212,7 +218,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         pendingIndexingRuleRefresh = false
         pendingFullRescan = false
         pendingWatchRootsChanged = false
-        isGitRefreshRunning = false
+        activeGitRefreshID = nil
         externalRefreshGeneration += 1
         gitRefreshGeneration += 1
         gitOperationFreezeDepth = 0
@@ -252,6 +258,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         invalidateDirectoryListings()
         workspaceGeneration &+= 1
         directoryMarkRevision &+= 1
+        indexingSettingsRevision &+= 1
         if let workspaceURL {
             scheduleSearchIndexInvalidation(at: workspaceURL, rules: visibilityRules)
         }
@@ -268,7 +275,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         pendingIndexingRuleRefresh = false
         pendingFullRescan = false
         pendingWatchRootsChanged = false
-        isGitRefreshRunning = false
+        activeGitRefreshID = nil
         externalRefreshGeneration += 1
         gitRefreshGeneration += 1
         gitOperationFreezeDepth = 0
@@ -304,9 +311,17 @@ package final class WorkspaceFeatureModel: ObservableObject {
         indexingOwnerID = UUID().uuidString
         workspaceResourcesReleased = false
         invalidateDirectoryListings()
+        refreshTask?.cancel()
+        refreshTask = nil
+        gitRefreshTask?.cancel()
+        gitRefreshTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        activeGitRefreshID = nil
         isPerformingProjectItemOperation = false
         workspaceGeneration &+= 1
         directoryMarkRevision &+= 1
+        indexingSettingsRevision &+= 1
         workspaceURL = url.standardizedFileURL
         do {
             directoryMarks = try directoryMarkStore.loadDirectoryMarks(for: url)
@@ -352,24 +367,37 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     /// Flushes accumulated workspace and Git events after the outermost Git operation.
-    package func endGitOperationFreeze() async {
+    package func endGitOperationFreeze(waitForRefresh: Bool = true) async {
         guard gitOperationFreezeDepth > 0 else { return }
         gitOperationFreezeDepth -= 1
         guard gitOperationFreezeDepth == 0, let workspaceURL else { return }
+
+        // Local Git mutations already publish their confirmed status. Project
+        // services and unrelated repository scans must not hold the action open.
+        if !waitForRefresh {
+            if pendingWatchRootsChanged || pendingFullRescan {
+                scheduleRecovery()
+                return
+            }
+            if !pendingExternalPaths.isEmpty { schedulePendingExternalRefresh() }
+            if pendingGitRefresh { scheduleGitRefresh() }
+            return
+        }
 
         if pendingWatchRootsChanged || pendingFullRescan {
             await applyPendingRecovery(at: workspaceURL)
             return
         }
+        let generation = workspaceGeneration
+        if pendingGitRefresh { await drainGitRefreshes() }
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL,
+              workspaceGeneration == generation else { return }
         if !pendingExternalPaths.isEmpty {
             let changedPaths = Array(pendingExternalPaths)
             pendingExternalPaths.removeAll()
             externalRefreshGeneration += 1
             await applyExternalRefresh(changedPaths, at: workspaceURL)
             return
-        }
-        if pendingGitRefresh {
-            await drainGitRefreshes()
         }
     }
 
@@ -452,6 +480,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             }
         }
         while true {
+            let rulesRevision = indexingRulesRevision
             let policy = WorkspaceIndexingPolicy(marks: directoryMarks, settings: indexingSettings)
             do {
                 let status = try await configureCurrentIndexing(at: workspaceURL, policy: policy, refresh: true, isCurrent: isCurrent)
@@ -495,7 +524,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
             // A persisted switch/mark can change while either Core call is in
             // flight. Rescan with the latest policy before publishing inventory.
             guard isCurrent() else { return .stale }
-            if policy == WorkspaceIndexingPolicy(marks: directoryMarks, settings: indexingSettings) { break }
+            if rulesRevision == indexingRulesRevision,
+               policy == WorkspaceIndexingPolicy(marks: directoryMarks, settings: indexingSettings) {
+                pendingIndexingRuleRefresh = false
+                break
+            }
         }
         guard isCurrent() else {
             if isInitialLoad {
@@ -548,13 +581,16 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard isCurrent() else { return .stale }
         await updateWatchConfiguration()
         guard isCurrent() else { return .stale }
+        // Publish Git before slow project preparation, but metadata-only policy
+        // reevaluation must not recursively request another Git refresh.
+        if refreshGitAfterwards { await requestGitRefreshNow() }
+        guard isCurrent() else { return .stale }
         if snapshot.incompleteDirectories.isEmpty {
             await onSnapshotLoaded?(snapshot, isInitialLoad)
         } else {
             indexingIssue = .incompleteScan
         }
         guard isCurrent() else { return .stale }
-        if refreshGitAfterwards { await requestGitRefreshNow() }
         if pendingFullRescan || pendingWatchRootsChanged {
             scheduleRecovery()
         }
@@ -606,21 +642,35 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         guard updatedMarks != previousMarks || previousSettings != indexingSettings else { return }
 
+        let previousMarkRevision = directoryMarkRevision
+        let previousSettingsRevision = indexingSettingsRevision
         directoryMarkRevision &+= 1
+        indexingSettingsRevision &+= 1
         let revision = directoryMarkRevision
+        let settingsRevision = indexingSettingsRevision
         directoryMarks = updatedMarks
 
         do { try directoryMarkStore.saveIndexingSettings(indexingSettings, for: workspaceURL) }
-        catch { indexingSettings = previousSettings; directoryMarks = previousMarks; recordIndexingFailure(error, fallback: .writeFailed); return }
+        catch {
+            indexingSettings = previousSettings; directoryMarks = previousMarks
+            directoryMarkRevision = previousMarkRevision
+            indexingSettingsRevision = previousSettingsRevision
+            recordIndexingFailure(error, fallback: .writeFailed); return
+        }
         let saveError = await directoryMarkPersistence.save(updatedMarks, for: workspaceURL)
         guard self.workspaceURL == workspaceURL,
               self.workspaceGeneration == workspaceGeneration else { return }
-        if let saveError {
-            if directoryMarkRevision == revision {
+        if saveError != nil {
+            let ownsMarks = directoryMarkRevision == revision
+            let ownsSettings = indexingSettingsRevision == settingsRevision
+            guard ownsMarks || ownsSettings else { return }
+            if ownsMarks {
                 directoryMarks = previousMarks
             }
-            indexingSettings = previousSettings
-            try? directoryMarkStore.saveIndexingSettings(previousSettings, for: workspaceURL)
+            if ownsSettings {
+                indexingSettings = previousSettings
+                try? directoryMarkStore.saveIndexingSettings(previousSettings, for: workspaceURL)
+            }
             recordIndexingFailure(WorkspaceIndexingFailure.writeFailed)
             notify?(indexingError ?? "")
             await refreshCurrent()
@@ -630,6 +680,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     package func setGitIgnoreIndexing(_ enabled: Bool) async {
         guard let workspaceURL, indexingStatus.supportsExclusions, !indexingPreferencesFailed else { return }
         let previous = indexingSettings
+        indexingSettingsRevision &+= 1
         indexingSettings.gitIgnoreEnabled = enabled
         do { try directoryMarkStore.saveIndexingSettings(indexingSettings, for: workspaceURL) }
         catch { indexingSettings = previous; recordIndexingFailure(error, fallback: .writeFailed); return }
@@ -1235,7 +1286,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 settings.previousRoles = Self.directoryMarks(settings.previousRoles, removing: source, in: root)
             }
             try directoryMarkStore.saveIndexingSettings(settings, for: root)
-            if workspaceURL == root { indexingSettings = settings }
+            if workspaceURL == root { indexingSettingsRevision &+= 1; indexingSettings = settings }
         } catch {
             recordIndexingFailure(error, fallback: .writeFailed)
             notify?(indexingError ?? "")
@@ -1335,6 +1386,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     private func scheduleDirectoryChange(_ batch: DirectoryChangeBatch) {
         guard !batch.isEmpty else { return }
+        let rulesChanged = batch.gitMetadataMayHaveChanged
+            || (batch.gitStateMayHaveChanged && batch.workspacePaths.isEmpty)
+            || batch.workspacePaths.contains { URL(fileURLWithPath: $0).lastPathComponent == ".gitignore" }
+        if rulesChanged, indexingSettings.gitIgnoreEnabled {
+            indexingRulesRevision &+= 1
+            pendingIndexingRuleRefresh = true
+        }
         if !batch.workspacePaths.isEmpty || batch.watchRootsChanged || batch.requiresFullRescan {
             // Invalidate before debounce: an expansion must not consume pre-event lookahead.
             invalidateDirectoryListings()
@@ -1356,10 +1414,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
 
         if !batch.workspacePaths.isEmpty {
-            if batch.gitStateMayHaveChanged { pendingGitRefresh = true }
             schedulePendingExternalRefresh()
-        } else if batch.gitStateMayHaveChanged {
-            pendingIndexingRuleRefresh = indexingSettings.gitIgnoreEnabled
+        }
+        // These are independent owned debounce lanes: tree/index/project work
+        // must not delay Git or cancel the last chance to publish a file batch.
+        if batch.gitStateMayHaveChanged || batch.gitMetadataMayHaveChanged {
             scheduleGitRefresh()
         }
     }
@@ -1387,6 +1446,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             return
         }
 
+        let generation = workspaceGeneration
         let rootsChanged = pendingWatchRootsChanged
         let fullRescan = pendingFullRescan
         pendingWatchRootsChanged = false
@@ -1394,16 +1454,27 @@ package final class WorkspaceFeatureModel: ObservableObject {
         if rootsChanged {
             await updateWatchConfiguration(forceRebuild: true)
         }
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL,
+              workspaceGeneration == generation else { return }
         if fullRescan {
             await refreshCurrent()
-        } else if !pendingExternalPaths.isEmpty {
-            let changedPaths = Array(pendingExternalPaths)
-            pendingExternalPaths.removeAll()
-            externalRefreshGeneration += 1
-            refreshTask?.cancel()
-            refreshTask = nil
-            await applyExternalRefresh(changedPaths, at: workspaceURL)
+        } else {
+            // Without a snapshot the external batch rebuilds it, including an
+            // early Git refresh. Avoid reading the same recovery batch twice.
+            if hasSnapshot, pendingGitRefresh { await drainGitRefreshes() }
+            guard !Task.isCancelled, self.workspaceURL == workspaceURL,
+                  workspaceGeneration == generation else { return }
+            if !pendingExternalPaths.isEmpty {
+                let changedPaths = Array(pendingExternalPaths)
+                pendingExternalPaths.removeAll()
+                externalRefreshGeneration += 1
+                refreshTask?.cancel()
+                refreshTask = nil
+                await applyExternalRefresh(changedPaths, at: workspaceURL)
+            }
         }
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL,
+              workspaceGeneration == generation else { return }
         if pendingGitRefresh {
             await drainGitRefreshes()
         }
@@ -1441,7 +1512,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private func scheduleGitRefresh() {
         pendingGitRefresh = true
         gitRefreshGeneration += 1
-        guard gitOperationFreezeDepth == 0, !isGitRefreshRunning else { return }
+        guard gitOperationFreezeDepth == 0, activeGitRefreshID == nil else { return }
         let generation = gitRefreshGeneration
         gitRefreshTask?.cancel()
         gitRefreshTask = Task { @MainActor [weak self, observationDelay] in
@@ -1457,37 +1528,40 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private func requestGitRefreshNow() async {
         pendingGitRefresh = true
         gitRefreshGeneration += 1
-        gitRefreshTask?.cancel()
-        gitRefreshTask = nil
+        if activeGitRefreshID == nil {
+            gitRefreshTask?.cancel()
+            gitRefreshTask = nil
+        }
         await drainGitRefreshes()
     }
 
     private func drainGitRefreshes() async {
-        guard gitOperationFreezeDepth == 0, !isGitRefreshRunning else { return }
-        isGitRefreshRunning = true
-        defer { isGitRefreshRunning = false }
-        while pendingGitRefresh, gitOperationFreezeDepth == 0 {
+        guard gitOperationFreezeDepth == 0, activeGitRefreshID == nil, !Task.isCancelled else { return }
+        let refreshID = UUID(), generation = workspaceGeneration
+        activeGitRefreshID = refreshID
+        defer {
+            if activeGitRefreshID == refreshID {
+                activeGitRefreshID = nil
+                if pendingGitRefresh, gitOperationFreezeDepth == 0, workspaceGeneration == generation {
+                    scheduleGitRefresh()
+                }
+            }
+        }
+        while pendingGitRefresh, gitOperationFreezeDepth == 0, !Task.isCancelled,
+              workspaceGeneration == generation, activeGitRefreshID == refreshID {
             pendingGitRefresh = false
             await refreshGit?()
         }
+        guard !Task.isCancelled, workspaceGeneration == generation, activeGitRefreshID == refreshID else { return }
         if pendingIndexingRuleRefresh, !isLoadingWorkspace, !isRefreshingWorkspace {
             pendingIndexingRuleRefresh = false
             await refreshCurrentSnapshot(refreshGitAfterwards: false, indexingOnly: true)
-        }
-        if pendingGitRefresh { scheduleGitRefreshAfterDrain() }
-    }
-
-    private func scheduleGitRefreshAfterDrain() {
-        // A burst arriving during policy evaluation gets its own debounce pass.
-        gitRefreshTask = Task { @MainActor [weak self, observationDelay] in
-            do { try await observationDelay(.milliseconds(350)) } catch { return }
-            guard !Task.isCancelled else { return }
-            await self?.drainGitRefreshes()
         }
     }
 
     private func applyExternalRefresh(_ paths: [String], at workspaceURL: URL) async {
         guard self.workspaceURL == workspaceURL else { return }
+        let generation = workspaceGeneration
         guard gitOperationFreezeDepth == 0 else {
             pendingExternalPaths.formUnion(paths)
             pendingGitRefresh = true
@@ -1500,30 +1574,25 @@ package final class WorkspaceFeatureModel: ObservableObject {
         var changedURLs = paths
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
             .filter { isWorkspaceURL($0) && watchConfiguration?.isIgnored($0) != true }
-            .reduce(into: [URL]()) { values, url in
-                if !values.contains(url) { values.append(url) }
-            }
+            .reduce(into: Set<URL>()) { $0.insert($1) }
             .sorted { $0.path < $1.path }
-        guard !changedURLs.isEmpty else {
-            // Events queued before the watcher learned a path is ignored still
-            // owe any Git refresh they requested.
-            if pendingGitRefresh { await drainGitRefreshes() }
-            return
-        }
+        guard !changedURLs.isEmpty else { return }
         let conflictDetected = processExternalChanges?(changedURLs) ?? false
         if conflictDetected { notify?("External edits conflict with unsaved changes") }
+        let previouslyKnown = Set(changedURLs.filter(isKnownProjectFile).map(\.path))
+        let previousSnapshotID = appliedSnapshot?.id
         if changedURLs.contains(where: { $0.lastPathComponent == ".gitignore" || $0.path.contains("/.git/") }) {
-            await refreshCurrentSnapshot()
-            return
+            await refreshCurrentSnapshot(refreshGitAfterwards: false, indexingOnly: true)
         }
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
         let excludedChanges = changedURLs.filter { isIndexExcluded($0) }
         if !excludedChanges.isEmpty { await refreshExcludedTree(at: workspaceURL) }
-        guard self.workspaceURL == workspaceURL else { return }
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
         changedURLs.removeAll { isIndexExcluded($0) && !$0.path.hasPrefix(workspaceURL.appendingPathComponent(".lithe").path + "/") }
-        guard !changedURLs.isEmpty else { await requestGitRefreshNow(); return }
+        guard !changedURLs.isEmpty else { return }
 
         let fileChanges = changedURLs.compactMap { url -> WorkspaceFileChange? in
-            let wasKnown = isKnownProjectFile(url)
+            let wasKnown = previouslyKnown.contains(url.path)
             if fileOperations.fileExists(at: url) {
                 return WorkspaceFileChange(
                     fileURL: url,
@@ -1536,7 +1605,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             notifyWorkspaceFileChanges?(fileChanges)
         }
 
-        var reloadedProjectServices = false
+        var reloadedProjectServices = appliedSnapshot?.id != previousSnapshotID
         switch incrementalTree(applying: changedURLs, at: workspaceURL) {
         case .unchanged:
             break
@@ -1544,11 +1613,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             await applyIncrementalTree(root: root, files: files, reloadsTree: reloadsTree)
             reloadedProjectServices = true
         case .requiresSnapshot:
-            let generation = workspaceGeneration
-            await refreshCurrentSnapshot()
-            // An unavailable snapshot must not swallow the batch's Git refresh.
-            guard self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
-            if pendingGitRefresh { await drainGitRefreshes() }
+            await refreshCurrentSnapshot(refreshGitAfterwards: false)
             return
         }
         await updateSearchIndex(
@@ -1556,6 +1621,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             changedPaths: changedURLs.map(\.path),
             rules: visibilityRules
         )
+        guard !Task.isCancelled, self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
         let requiresProjectServiceReload = changedURLs.contains { url in
             let name = url.lastPathComponent.lowercased()
             let dependencyIndex = workspaceURL.standardizedFileURL
@@ -1572,7 +1638,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
             return isLitheConfiguration || isBuildManagementFile
         }
         if requiresProjectServiceReload, !reloadedProjectServices { await reloadProjectServices?() }
-        await requestGitRefreshNow()
     }
 
     private func scheduleSearchIndexWarm(at workspaceURL: URL, rules: FileVisibilityRules) {
@@ -1598,10 +1663,25 @@ package final class WorkspaceFeatureModel: ObservableObject {
         case requiresSnapshot
     }
 
+    private func rebuildProjectMembership() {
+        // Rebuild only when the inventory changes, never once per watcher event.
+        // Stop at an indexed ancestor so shared directory chains are visited once.
+        projectFilePaths = Set(projectFiles.map { $0.standardizedFileURL.path })
+        projectDirectoryPaths.removeAll(keepingCapacity: true)
+        for path in projectFilePaths {
+            var parent = (path as NSString).deletingLastPathComponent
+            while !parent.isEmpty, projectDirectoryPaths.insert(parent).inserted {
+                let next = (parent as NSString).deletingLastPathComponent
+                if next == parent { break }
+                parent = next
+            }
+        }
+    }
+
     private func isKnownProjectFile(_ url: URL) -> Bool {
         // Directory listings and watcher events can observe different disk
         // revisions. Membership belongs to the inventory, not the visible tree.
-        projectFiles.contains { $0.standardizedFileURL == url.standardizedFileURL }
+        projectFilePaths.contains(url.path)
     }
 
     /// Whether the inventory already accounts for a directory, so an event on
@@ -1611,8 +1691,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         case .displayed(let node, _)?:
             return node.isDirectory
         case .belowUnloaded?:
-            let prefix = url.path + "/"
-            return projectFiles.contains { $0.path.hasPrefix(prefix) }
+            return projectDirectoryPaths.contains(url.path)
         default:
             return false
         }

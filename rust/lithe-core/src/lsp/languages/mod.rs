@@ -3,6 +3,7 @@
 mod catalog;
 pub(crate) mod indexing;
 pub(crate) mod java_entrypoints;
+pub(crate) mod java_launch;
 pub(crate) mod java_main_methods;
 pub(crate) mod java_navigation_syntax;
 mod java_run_markers;

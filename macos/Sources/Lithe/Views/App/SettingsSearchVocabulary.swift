@@ -45,6 +45,8 @@ enum SettingsSearchVocabulary {
             ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email", "Project Indexing", "Automatically exclude Git-ignored directories", "Excluded", "Cancel Exclusion"]
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates", "Update channel", "Stable (Recommended)", "AutoBuild Rolling"]
+        case .network:
+            ["Network", "Proxy", "Proxy mode", "Proxy type", "Proxy server", "Server address", "Port", "Username", "Password", "Exclusion list", "Test connection", "Follow system proxy", "No proxy", "Custom proxy server", "HTTP", "SOCKS5"]
         case .processTermination:
             ["Process Termination Policy", "Process", "Quit", "Run services", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
         case .diagnostics:

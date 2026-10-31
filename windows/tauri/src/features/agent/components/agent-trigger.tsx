@@ -2,7 +2,7 @@ import { useCommandShortcut } from "@/features/keymaps/hooks/use-command-shortcu
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import { ChatCircleTextIcon } from "@/ui/icons";
+import { AgentIcon } from "@/ui/icons";
 import { cn } from "@/utils/cn";
 import { toggleAgentToolWindow } from "../actions/agent-tool-window-actions";
 
@@ -33,7 +33,7 @@ export function AgentTrigger({ className }: { className?: string }) {
       aria-label={t("agent.title")}
       aria-pressed={isActive}
     >
-      <ChatCircleTextIcon className="size-4.5" />
+      <AgentIcon className="size-4.5" />
     </Button>
   );
 }

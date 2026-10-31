@@ -212,16 +212,26 @@ export async function initializeFileWatcherListener() {
 
     const parentRelative =
       getRelativePath(parentDirectory, workspaceRoot).replace(/\\/g, "/") || ".";
-    const policy = await configureWorkspaceIndexing(workspaceRoot, [parentRelative], false, workspaceId);
-    const excluded = Object.keys(policy.excludedDirectories).some(
-      (directory) =>
-        directory === "." ||
-        parentRelative === directory ||
-        parentRelative.startsWith(directory + "/"),
-    );
+    let excluded: boolean | undefined = false;
+    if (canUseNativeFileSearch(workspaceRoot)) {
+      try {
+        const policy = await configureWorkspaceIndexing(workspaceRoot, [parentRelative], false, workspaceId);
+        excluded = Object.keys(policy.excludedDirectories).some(
+          (directory) =>
+            directory === "." ||
+            parentRelative === directory ||
+            parentRelative.startsWith(directory + "/"),
+        );
+      } catch (error) {
+        // Indexing failures must not suppress tree updates or Maven reload state.
+        // Defer source notifications until the exclusion policy is known.
+        excluded = undefined;
+        console.error("Failed to read workspace indexing policy for file change:", error);
+      }
+    }
     if (mavenPomPath !== null) {
       useMavenStore.getStore(workspaceId).getState().actions.markPomReloadRequired(mavenPomPath);
-    } else if (!excluded) {
+    } else if (excluded === false) {
       scheduleJavaWorkspaceChange(workspaceId, workspaceRoot, {
         path,
         kind:

@@ -21,7 +21,6 @@ export const GitSettings = () => {
       compactGitStatusBadges: state.settings.compactGitStatusBadges,
       confirmBeforeDiscard: state.settings.confirmBeforeDiscard,
       coreFeatures: state.settings.coreFeatures,
-      enableInlineGitBlame: state.settings.enableInlineGitBlame,
       enableGitGutter: state.settings.enableGitGutter,
       gitChangesFolderView: state.settings.gitChangesFolderView,
       gitDefaultDiffView: state.settings.gitDefaultDiffView,
@@ -279,20 +278,6 @@ export const GitSettings = () => {
       </Section>
 
       <Section title={t("settings.git.editor")}>
-        <SettingRow
-          label={t("settings.git.inlineBlame")}
-          description={t("settings.git.inlineBlameDescription")}
-          onReset={() =>
-            updateSetting("enableInlineGitBlame", getDefaultSetting("enableInlineGitBlame"))
-          }
-          canReset={settings.enableInlineGitBlame !== getDefaultSetting("enableInlineGitBlame")}
-        >
-          <Switch
-            checked={settings.enableInlineGitBlame}
-            onChange={(checked) => updateSetting("enableInlineGitBlame", checked)}
-            size="sm"
-          />
-        </SettingRow>
         <SettingRow
           label={t("settings.git.gutter")}
           description={t("settings.git.gutterDescription")}
