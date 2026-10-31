@@ -226,6 +226,12 @@ pub enum CoreCommand {
     HistoryRename,
     /// Deletes one history snapshot (`history.delete`).
     HistoryDelete,
+    /// Validates local-history ignore rules against a sample path (`history.ignorePreview`).
+    HistoryIgnorePreview,
+    /// Reports one project's history storage size (`history.usage`).
+    HistoryUsage,
+    /// Deletes every snapshot of one project (`history.clear`).
+    HistoryClear,
     /// Inspects a declared Maven reactor (`maven.scan`).
     MavenScan,
     /// Produces a deterministic Maven invocation (`maven.launchPlan`).
@@ -641,6 +647,9 @@ impl CoreCommand {
             "history.relocate" => Some(Self::HistoryRelocate),
             "history.rename" => Some(Self::HistoryRename),
             "history.delete" => Some(Self::HistoryDelete),
+            "history.ignorePreview" => Some(Self::HistoryIgnorePreview),
+            "history.usage" => Some(Self::HistoryUsage),
+            "history.clear" => Some(Self::HistoryClear),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
             "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),

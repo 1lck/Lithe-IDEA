@@ -5,6 +5,7 @@ actor LocalHistoryService {
     private var visibilityRules: LocalHistoryVisibilityRules
     private let storageURL: URL
     private let operations: any LocalHistoryOperations
+    private var recordingGeneration = UUID()
 
     init(
         workspaceURL: URL,
@@ -26,6 +27,17 @@ actor LocalHistoryService {
         visibilityRules = rules
     }
 
+    func usage() -> LocalHistoryUsage? {
+        operations.usage(at: storageURL, limitBytes: visibilityRules.storageLimitBytes)
+    }
+
+    func clear() -> Bool {
+        // Actor reentrancy lets clear run between files in a caller-owned batch.
+        // Even batches the feature cannot cancel must stop at this boundary.
+        recordingGeneration = UUID()
+        return operations.clear(at: storageURL)
+    }
+
     func seed(files: [URL]) async {
         for fileURL in files where !Task.isCancelled {
             _ = try? recordFile(at: fileURL, reason: .projectBaseline, pruneExpired: false)
@@ -34,14 +46,19 @@ actor LocalHistoryService {
 
     /// Retention scans the whole history store, so request it only until the
     /// first snapshot is written. Skipped/unchanged files do not run pruning.
-    func recordFiles(_ files: [URL], reason: LocalHistoryReason) async {
+    func recordFiles(
+        _ files: [URL],
+        reason: LocalHistoryReason,
+        yieldBetweenFiles: @Sendable () async -> Void = { await Task.yield() }
+    ) async {
+        let generation = recordingGeneration
         var needsPruning = true
         for fileURL in files {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == recordingGeneration else { return }
             if (try? recordFile(at: fileURL, reason: reason, pruneExpired: needsPruning)) != nil {
                 needsPruning = false
             }
-            await Task.yield()
+            await yieldBetweenFiles()
         }
     }
 
@@ -113,6 +130,7 @@ actor LocalHistoryService {
         content: String?,
         pruneExpired: Bool
     ) throws -> LocalHistoryEntry? {
+        guard !Task.isCancelled else { return nil }
         guard let value = operations.record(
             at: workspaceURL,
             storageURL: storageURL,

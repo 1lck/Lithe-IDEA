@@ -979,7 +979,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.configureIndexing` | Install a process-local, canonical-root indexing policy before workspace consumers run; returns a monotonic revision, effective directory reasons and Git failure state; see `shared/fixtures/workspace/indexing-policy-v1.json` |
 | `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
-| `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
+| `workspace.filterChanges` | Filter an array of workspace-relative paths, or `{ paths, hiddenFilePatterns }` whose `!` entries turn default exclusions off, against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
@@ -994,6 +994,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.relocate` | Move a file's history records after a rename |
 | `history.rename` | Set or clear a user-visible label on a history entry |
 | `history.delete` | Delete one history entry and its snapshot |
+| `history.ignorePreview` | Validate local history ignore rules and report which rule skips a sample path |
+| `history.usage` | Report one project's allocated history size and the storage cap |
+| `history.clear` | Delete every snapshot of one project's history |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
@@ -2022,7 +2025,9 @@ matcher itself, so `**/dist/` covers a root-level `dist` as well as nested ones
 (no client has to add the root form). An entry ending in
 `/*` or `/**` is the same folder rule as one ending in `/`, so `.lithe/*` hides the
 folder and everything below it rather than leaving an empty folder; ordinary file globs
-and plain names (such as `.lithe`) retain their file-only semantics. The macOS file
+and plain names (such as `.lithe`) retain their file-only semantics. macOS hides the
+workspace-root `.lithe` folder by default with the built-in entry `.lithe/**`, like IDEA's
+`.idea`; deleting that line (stored as `!.lithe/**`) shows it again. The macOS file
 watcher is the one place that does not follow the hiding rules for the workspace-root `.lithe`
 folder: hiding it removes it from the tree and listings, but its file events are still
 delivered (except built-in noise such as `.lithe/run/local.json`) because editing its JSON
@@ -3133,6 +3138,32 @@ are ignored. `history.entries` returns Unix-second timestamps and relative
 `history.relocate` updates metadata and storage paths, and `history.rename` and
 `history.delete` validate both the relative file path and entry ID before
 changing stored metadata.
+
+A `hiddenFilePatterns` entry starting with `!` turns a rule off instead of
+adding one: `!**/name/` or `!name` removes that hidden folder (built-in or not),
+and `!pattern` removes an equal file pattern. `!` entries never match a path.
+
+`history.record` also accepts optional `ignoreRules: { pathPatterns, pathRegexes }`
+and an optional `storageLimitBytes` (default
+100 MiB, clamped to 10 MiB–100 GiB); baselines stop at half of that cap.
+Patterns use the hidden-path glob syntax; regexes use Rust `regex` syntax,
+case-insensitive, matched unanchored against the `/`-separated relative path.
+A matching file is not recorded, existing entries stay listed, and an invalid
+or empty regex never matches. Built-in dependency, cache and build output
+folders (such as `node_modules`, `.venv`, `target`) also apply as `**/name/`
+patterns, for baselines and edits alike; a `!**/name/` or `!name` pattern turns
+one off, and saving drops baselines the current rules reject. `history.ignorePreview` accepts the
+same `ignoreRules`, optional `hiddenFilePatterns`, an optional relative
+`path` and an optional `workspaceRoot`, and returns `regexErrors` (`{ index, message }` per rejected regex), the
+built-in patterns as `builtInIgnorePatterns`, and `matched`: `null` or an object tagged by
+`kind` — `hidden`, `pattern` (the matching `pattern`, built-in or the user's) or
+`regex` (`index` into its list), plus `gitIgnored`: whether `git check-ignore` ignores
+`path` under `workspaceRoot`, or `null` without a path, workspace or repository.
+It is informational; local history does not follow Git ignore rules. `history.usage` and `history.clear` accept
+`storageRoot`, and `history.usage` also the optional `storageLimitBytes` it
+reports back as `limitBytes`; usage rescans the disk and returns `{ usedBytes, limitBytes }` in
+allocated bytes, and clear removes every snapshot directory while keeping the
+storage root, returning `{ "cleared": true }`.
 
 `maven.scan` accepts `{ "root": string, "paths"?: string[] }` and returns
 `null` when neither the root nor the supplied visible workspace-relative paths

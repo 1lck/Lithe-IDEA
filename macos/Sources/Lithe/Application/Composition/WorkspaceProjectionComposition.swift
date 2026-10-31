@@ -75,9 +75,10 @@ enum WorkspaceProjectionComposition {
             refreshGit: { [weak model] in
                 await model?.gitFeatureIfActive?.refreshGitFromMetadataChange()
             },
-            updateHistoryVisibilityRules: { [weak model] rules in
-                guard let feature = await model?.activateHistoryModule() else { return }
-                await feature.updateVisibilityRules(rules.localHistoryRules)
+            updateHistoryVisibilityRules: { [weak model] _ in
+                // The ignore rules live beside project visibility, so read both from settings.
+                guard let model, let feature = await model.activateHistoryModule() else { return }
+                await feature.updateVisibilityRules(model.settings.localHistoryRules)
             },
             onSnapshotLoaded: { [weak model] snapshot, isInitialLoad in
                 guard let model else { return }

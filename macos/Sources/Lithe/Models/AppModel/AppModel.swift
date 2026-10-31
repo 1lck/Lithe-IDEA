@@ -164,6 +164,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var searchExclusionsObservation: AnyCancellable?
+    private var localHistoryIgnoreRulesObservation: AnyCancellable?
     private var livePluginObservation: AnyCancellable?
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
@@ -264,7 +265,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         store: moduleCapabilityStore,
         workspace: { [weak self] in self?.workspaceURL },
         settings: { [weak self] in
-            self?.settings.fileVisibilityRules.localHistoryRules
+            self?.settings.localHistoryRules
                 ?? LocalHistoryVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
         },
         files: { [weak self] in self?.projectFiles ?? [] },
@@ -596,6 +597,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
         }
+        localHistoryIgnoreRulesObservation = observeLocalHistoryIgnoreRules()
         searchExclusionsObservation = settings.searchExclusionsChanges.sink { [weak self] in
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
@@ -739,6 +741,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             self.fileVisibilityRulesObserverID = nil
         }
         searchExclusionsObservation = nil
+        localHistoryIgnoreRulesObservation = nil
         livePluginObservation = nil
         await shutdownModuleRuntime()
         moduleSessionCoordinator?.stopObserving()

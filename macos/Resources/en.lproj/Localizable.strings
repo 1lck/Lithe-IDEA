@@ -691,6 +691,7 @@
 "Clear Git console" = "Clear Git console";
 "Clear Logs" = "Clear Logs";
 "Clear Override" = "Clear Override";
+"Clear Project History…" = "Clear Project History…";
 "Clear branch filter" = "Clear branch filter";
 "Clear build output" = "Clear build output";
 "Clear collected logs?" = "Clear collected logs?";
@@ -705,7 +706,9 @@
 "Clear test output" = "Clear test output";
 "Clear the current project's Java index and rebuild it on next use" = "Clear the current project's Java index and rebuild it on next use";
 "Clear the override and inherit" = "Clear the override and inherit";
+"Clear this project's local history?" = "Clear this project's local history?";
 "Clear user filter" = "Clear user filter";
+"Clearing…" = "Clearing…";
 "Click the editor gutter to add a breakpoint" = "Click the editor gutter to add a breakpoint";
 "Click the folded options to expand; right-click for command details." = "Click the folded options to expand; right-click for command details.";
 "Client: %@" = "Client: %@";
@@ -975,6 +978,7 @@
 "Could not apply project indexing exclusions. Try reopening the project." = "Could not apply project indexing exclusions. Try reopening the project.";
 "Could not check for updates" = "Could not check for updates";
 "Could not check for updates." = "Could not check for updates.";
+"Could not clear this project's local history. Check storage permissions and try again." = "Could not clear this project's local history. Check storage permissions and try again.";
 "Could not compare the local adapter with the verified version." = "Could not compare the local adapter with the verified version.";
 "Could not confirm" = "Could not confirm";
 "Could not connect to the Debug Adapter: %@" = "Could not connect to the Debug Adapter: %@";
@@ -1427,6 +1431,7 @@
 "Evaluate expression" = "Evaluate expression";
 "Evaluate expression while paused" = "Evaluate expression while paused";
 "Evaluating…" = "Evaluating…";
+"Every saved version of this project's files is deleted. Open files are not changed." = "Every saved version of this project's files is deleted. Open files are not changed.";
 "Example" = "Example";
 "Exception" = "Exception";
 "Exception Breakpoints" = "Exception Breakpoints";
@@ -1649,6 +1654,8 @@
 "Git version" = "Git version";
 "Git was not found" = "Git was not found";
 "Git work is still active." = "Git work is still active.";
+"Git: ignored" = "Git: ignored";
+"Git: not ignored" = "Git: not ignored";
 "GitHub authorization failed:" = "GitHub authorization failed:";
 "GitHub authorization failed: %@" = "GitHub authorization failed: %@";
 "GitHub authorization was cancelled." = "GitHub authorization was cancelled.";
@@ -1708,6 +1715,7 @@
 "Headers" = "Headers";
 "Heap Memory" = "Heap Memory";
 "Hexadecimal" = "Hexadecimal";
+"Hidden in the project tree, not recorded" = "Hidden in the project tree, not recorded";
 "Hidden paths" = "Hidden paths";
 "Hide %@ tool window" = "Hide %@ tool window";
 "Hide API key" = "Hide API key";
@@ -1773,6 +1781,8 @@
 "If: %@" = "If: %@";
 "Ignore whitespace" = "Ignore whitespace";
 "Ignored" = "Ignored";
+"Ignored by regular expression line %lld" = "Ignored by regular expression line %lld";
+"Ignored by wildcard rule %@" = "Ignored by wildcard rule %@";
 "Ignored entries: %lld" = "Ignored entries: %lld";
 "Image zoom" = "Image zoom";
 "Images can only be pasted into Markdown documents" = "Images can only be pasted into Markdown documents";
@@ -1997,7 +2007,9 @@
 "License" = "License";
 "Lifecycle" = "Lifecycle";
 "Light" = "Light";
+"Limit per project" = "Limit per project";
 "Line" = "Line";
+"Line %lld is not a valid regular expression and is skipped." = "Line %lld is not a valid regular expression and is skipped.";
 "Line Breakpoints" = "Line Breakpoints";
 "Line breakpoint actions" = "Line breakpoint actions";
 "Line numbers" = "Line numbers";
@@ -2111,7 +2123,11 @@
 "Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation." = "Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.";
 "Local development package" = "Local development package";
 "Local edits to these files are lost." = "Local edits to these files are lost.";
+"Local history" = "Local history";
+"Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`. The list starts with built-in dependency, cache and build output folders such as `**/node_modules/`; delete a line to record that folder again.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`." = "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`. The list starts with built-in dependency, cache and build output folders such as `**/node_modules/`; delete a line to record that folder again.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.";
+"Local history limit per project" = "Local history limit per project";
 "Local history work is still active." = "Local history work is still active.";
+"Local history: %@" = "Local history: %@";
 "Location" = "Location";
 "Lock Worktree" = "Lock Worktree";
 "Locked" = "Locked";
@@ -2567,6 +2583,7 @@
 "One file: %@" = "One file: %@";
 "One path per line. Relative paths are resolved from the workspace." = "One path per line. Relative paths are resolved from the workspace.";
 "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply." = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.";
+"One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them." = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.";
 "One pattern per line, for example org.mockito.* or com.example.generated.*" = "One pattern per line, for example org.mockito.* or com.example.generated.*";
 "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.";
 "One sentence focused on the main change" = "One sentence focused on the main change";
@@ -2629,6 +2646,7 @@
 "Open a project to configure its run configurations." = "Open a project to configure its run configurations.";
 "Open a project to let connected agents inspect and control it." = "Open a project to let connected agents inspect and control it.";
 "Open a project to manage its skills." = "Open a project to manage its skills.";
+"Open a project to see how much space its history uses." = "Open a project to see how much space its history uses.";
 "Open a project to see its language service." = "Open a project to see its language service.";
 "Open a project to use Git" = "Open a project to use Git";
 "Open a source file before running Current File." = "Open a source file before running Current File.";
@@ -2985,6 +3003,7 @@
 "Reconnect this Agent to refresh its model list." = "Reconnect this Agent to refresh its model list.";
 "Reconnecting %d/%d…" = "Reconnecting %d/%d…";
 "Reconnecting…" = "Reconnecting…";
+"Recorded" = "Recorded";
 "Recovery reference: %@" = "Recovery reference: %@";
 "Reference changes could not be inspected" = "Reference changes could not be inspected";
 "Reference list truncated; total updated: %lld, deleted: %lld" = "Reference list truncated; total updated: %lld, deleted: %lld";
@@ -3019,6 +3038,8 @@
 "Registration" = "Registration";
 "Registry website" = "Registry website";
 "Regular Expression" = "Regular Expression";
+"Regular expression" = "Regular expression";
+"Regular expression ignore rules" = "Regular expression ignore rules";
 "Reinstall" = "Reinstall";
 "Relative" = "Relative";
 "Release Date" = "Release Date";
@@ -3816,6 +3837,7 @@
 "Test" = "Test";
 "Test Connection" = "Test Connection";
 "Test connection" = "Test connection";
+"Test path" = "Test path";
 "Test process tree · Resident memory" = "Test process tree · Resident memory";
 "Test the connection to see the host's system, resources, and address." = "Test the connection to see the host's system, resources, and address.";
 "Testing" = "Testing";
@@ -4342,6 +4364,7 @@
 "Type" = "Type";
 "Type / to see commands" = "Type / to see commands";
 "Type / to see options" = "Type / to see options";
+"Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history." = "Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history.";
 "Type changed" = "Type changed";
 "Type your task or / for commands" = "Type your task or / for commands";
 "Type your task, / for commands or @ for files" = "Type your task, / for commands or @ for files";
@@ -4497,6 +4520,7 @@
 "Use this when a repository or Git default needs a one-off adjustment." = "Use this when a repository or Git default needs a one-off adjustment.";
 "Use up to 64 lowercase letters, digits and single hyphens for the skill name." = "Use up to 64 lowercase letters, digits and single hyphens for the skill name.";
 "Use your local ChatGPT account. No API key or URL is needed." = "Use your local ChatGPT account. No API key or URL is needed.";
+"Used" = "Used";
 "Used %@" = "Used %@";
 "Used %lld tool" = "Used %lld tool";
 "Used %lld tools" = "Used %lld tools";
@@ -4585,6 +4609,7 @@
 "When quitting Lithe" = "When quitting Lithe";
 "When should this skill be used?" = "When should this skill be used?";
 "When submitting a prompt" = "When submitting a prompt";
+"When the limit is reached, the oldest versions are removed first." = "When the limit is reached, the oldest versions are removed first.";
 "When to run" = "When to run";
 "Where Push goes when you do not choose a target explicitly." = "Where Push goes when you do not choose a target explicitly.";
 "Where should this apply?" = "Where should this apply?";
@@ -4592,6 +4617,8 @@
 "Where would you like to open the project ‘%@’?" = "Where would you like to open the project ‘%@’?";
 "Whitespace comparison" = "Whitespace comparison";
 "Whole Words" = "Whole Words";
+"Wildcard" = "Wildcard";
+"Wildcard ignore rules" = "Wildcard ignore rules";
 "Window" = "Window";
 "Withdrawn" = "Withdrawn";
 "Without Remember in Keychain, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you." = "Without Remember in Keychain, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you.";
@@ -4783,6 +4810,7 @@
 "git.rollback.warning" = "Staged and unstaged changes in the checked files will be rolled back. This cannot be undone by Lithe.";
 "git.status.refreshFailed" = "Could not refresh Git status. Refresh to verify the changes.";
 "git.unifiedView" = "Unified view";
+"history.clearFailed" = "Could not clear this project's local history. Check storage permissions and try again.";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "indexing.autoGit" = "Automatically exclude Git-ignored directories";
 "indexing.cancelExclusion" = "Cancel Exclusion";
@@ -5380,13 +5408,16 @@
 "native.clearLogs" = "Clear Logs";
 "native.clearOverride" = "Clear Override";
 "native.clearPathFilter" = "Clear path filter";
+"native.clearProjectHistory" = "Clear Project History…";
 "native.clearRunOutput" = "Clear run output";
 "native.clearSearch" = "Clear search";
 "native.clearSelection" = "Clear selection";
 "native.clearTestOutput" = "Clear test output";
 "native.clearTheCurrentProjectSJavaIndexAndRebuildItOnNextUse" = "Clear the current project's Java index and rebuild it on next use";
 "native.clearTheOverrideAndInherit" = "Clear the override and inherit";
+"native.clearThisProjectSLocalHistory" = "Clear this project's local history?";
 "native.clearUserFilter" = "Clear user filter";
+"native.clearing" = "Clearing…";
 "native.cliUpdatedTo" = "CLI updated to %1$@";
 "native.clickTheEditorGutterToAddABreakpoint" = "Click the editor gutter to add a breakpoint";
 "native.clickTheFoldedOptionsToExpandRightClickForCommandDetails" = "Click the folded options to expand; right-click for command details.";
@@ -6126,6 +6157,7 @@
 "native.evaluateExpression" = "Evaluate expression";
 "native.evaluateExpressionWhilePaused" = "Evaluate expression while paused";
 "native.evaluating" = "Evaluating…";
+"native.everySavedVersionOfThisProjectSFilesIsDeletedOpenFilesAreNotChanged" = "Every saved version of this project's files is deleted. Open files are not changed.";
 "native.example" = "Example";
 "native.exception" = "Exception";
 "native.exceptionBreakpoints" = "Exception Breakpoints";
@@ -6324,9 +6356,11 @@
 "native.gitExitedWithCodeD" = "Git exited with code %1$d";
 "native.gitFetchRemoveStaleBranches" = "Git Fetch: remove stale branches";
 "native.gitFetchRemoveStaleTags" = "Git Fetch: remove stale tags";
+"native.gitIgnored" = "Git: ignored";
 "native.gitIsPreparingTheSequencer" = "Git is preparing the sequencer.";
 "native.gitIsReady" = "Git is ready";
 "native.gitNotFound" = "Git not found";
+"native.gitNotIgnored" = "Git: not ignored";
 "native.gitOperation" = "Git operation";
 "native.gitOperationFinished" = "Git operation finished";
 "native.gitPhase" = "Git phase: %1$@";
@@ -6391,6 +6425,7 @@
 "native.header" = "Header";
 "native.headers" = "Headers";
 "native.heapMemory" = "Heap Memory";
+"native.hiddenInTheProjectTreeNotRecorded" = "Hidden in the project tree, not recorded";
 "native.hiddenPaths" = "Hidden paths";
 "native.hideAPIKey" = "Hide API key";
 "native.hideBranches" = "Hide Branches";
@@ -6462,6 +6497,8 @@
 "native.ifResetUse" = "If reset, use";
 "native.ignoreWhitespace" = "Ignore whitespace";
 "native.ignored" = "Ignored";
+"native.ignoredByRegularExpressionLineLld" = "Ignored by regular expression line %1$lld";
+"native.ignoredByWildcardRule" = "Ignored by wildcard rule %1$@";
 "native.ignoredEntriesLld" = "Ignored entries: %1$lld";
 "native.imageZoom" = "Image zoom";
 "native.imagesCanOnlyBePastedIntoMarkdownDocuments" = "Images can only be pasted into Markdown documents";
@@ -6757,11 +6794,13 @@
 "native.license" = "License";
 "native.lifecycle" = "Lifecycle";
 "native.light" = "Light";
+"native.limitPerProject" = "Limit per project";
 "native.line" = "Line";
 "native.lineBreakpointActions" = "Line breakpoint actions";
 "native.lineBreakpoints" = "Line Breakpoints";
 "native.lineColumn" = "[Line] [:column]:";
 "native.lineLld" = "%1$@, Line %2$lld, %3$@";
+"native.lineLldIsNotAValidRegularExpressionAndIsSkipped" = "Line %1$lld is not a valid regular expression and is skipped.";
 "native.linear" = "Linear";
 "native.linesAndColumnsStartAtAndARangeMustNotEndBeforeItStarts" = "Lines and columns start at 1, and a range must not end before it starts.";
 "native.linesKeptForScrollingBackInNewTerminalSessions" = "Lines kept for scrolling back in new terminal sessions.";
@@ -6919,7 +6958,11 @@
 "native.localEditsToTheseFilesAreLost" = "Local edits to these files are lost.";
 "native.localHistory" = "Local History";
 "native.localHistory.variant2" = "Local History…";
+"native.localHistory.variant3" = "Local history";
+"native.localHistoryFormat" = "Local history: %1$@";
 "native.localHistoryIsAvailableForTextFiles" = "Local History is available for text files";
+"native.localHistoryKeepsVersionsOfFilesAsYouSaveAndEditThemUpTo100MBPerProjectIgnoreRul16320b202b" = "Local history keeps versions of files as you save and edit them, up to 100 MB per project by default; change the limit next to Used.\nIgnore rules only keep files out of local history; the project tree still shows them. Hidden paths are never recorded.\nWildcard: one pattern per line, using the same syntax as Hidden paths, for example `*.log` or `**/generated/`. The list starts with built-in dependency, cache and build output folders such as `**/node_modules/`; delete a line to record that folder again.\nRegular expression: one per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.";
+"native.localHistoryLimitPerProject" = "Local history limit per project";
 "native.localHistoryWorkIsStillActive" = "Local history work is still active.";
 "native.localJDKHomeOptional" = "Local JDK Home (optional)";
 "native.localPackage" = "Local Package";
@@ -7384,6 +7427,7 @@
 "native.oneFile" = "One file: %1$@";
 "native.oneNAMEValueEntryPerLine" = "One NAME=value entry per line";
 "native.onePathPerLineRelativePathsAreResolvedFromTheWorkspace" = "One path per line. Relative paths are resolved from the workspace.";
+"native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx35941b6a99" = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.";
 "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx4f7ef7b38a" = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.";
 "native.onePatternPerLineForExampleOrgMockito" = "One pattern per line, for example org.mockito.* or com.example.generated.*";
 "native.onePatternPerLineLogCacheOnlyAffectsThisSearchEverywhereWindow" = "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.";
@@ -7423,6 +7467,7 @@
 "native.openAProjectToConfigureMCPAccessForAgents" = "Open a project to configure MCP access for agents.";
 "native.openAProjectToLetConnectedAgentsInspectAndControlIt" = "Open a project to let connected agents inspect and control it.";
 "native.openAProjectToManageItsSkills" = "Open a project to manage its skills.";
+"native.openAProjectToSeeHowMuchSpaceItsHistoryUses" = "Open a project to see how much space its history uses.";
 "native.openAProjectToSeeItsLanguageService" = "Open a project to see its language service.";
 "native.openAProjectToUseGit" = "Open a project to use Git";
 "native.openASourceFileBeforeRunningCurrentFile" = "Open a source file before running Current File.";
@@ -7790,6 +7835,7 @@
 "native.reconnectToApplyLimits" = "Reconnect the Agent to apply these limits.";
 "native.reconnecting" = "Reconnecting…";
 "native.reconnectingDD" = "Reconnecting %1$d/%2$d…";
+"native.recorded" = "Recorded";
 "native.recoveryReference" = "Recovery reference: %1$@";
 "native.referenceChangesCouldNotBeInspected" = "Reference changes could not be inspected";
 "native.referenceListTruncatedTotalUpdatedLldDeletedLld" = "Reference list truncated; total updated: %1$lld, deleted: %2$lld";
@@ -7822,6 +7868,8 @@
 "native.registration" = "Registration";
 "native.registryWebsite" = "Registry website";
 "native.regularExpression" = "Regular Expression";
+"native.regularExpression.variant2" = "Regular expression";
+"native.regularExpressionIgnoreRules" = "Regular expression ignore rules";
 "native.releaseDate" = "Release Date";
 "native.releaseNote" = "Release note";
 "native.releaseNotes" = "Release notes";
@@ -8581,6 +8629,7 @@
 "native.test" = "Test";
 "native.testConnection" = "Test Connection";
 "native.testJava" = "test Java";
+"native.testPath" = "Test path";
 "native.testProcessTreeResidentMemory" = "Test process tree · Resident memory";
 "native.testResources" = "test resources";
 "native.testRunTimedOutAfterSeconds" = "%1$@ test run timed out after %2$@ seconds.";
@@ -9058,6 +9107,7 @@
 "native.turningThisOffStopsEveryAgentProcess" = "Turning this off stops every Agent process.";
 "native.turns" = "Turns";
 "native.type" = "Type";
+"native.typeAPathInsideTheProjectToCheckItAgainstTheRulesAboveAsYouEditThemWhetherLocalH0f31e93916" = "Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history.";
 "native.typeChanged" = "Type changed";
 "native.typeToSeeCommands" = "Type / to see commands";
 "native.typeToSeeOptions" = "Type / to see options";
@@ -9212,6 +9262,7 @@
 "native.useYourLocalChatGPTAccountNoAPIKeyOrURLIsNeeded" = "Use your local ChatGPT account. No API key or URL is needed.";
 "native.used" = "%1$@ · %2$@ used";
 "native.used.variant2" = "Used %1$@";
+"native.used.variant3" = "Used";
 "native.usedBy" = "Used by: %1$@";
 "native.usedForNewTerminalSessions" = "Used for new terminal sessions.";
 "native.usedForOrdinaryFetchInEveryProjectOneTimeChoicesCanOverrideTheseDefaults" = "Used for ordinary Fetch in every project. One-time choices can override these defaults.";
@@ -9310,6 +9361,7 @@
 "native.whenQuittingLithe" = "When quitting Lithe";
 "native.whenShouldThisSkillBeUsed" = "When should this skill be used?";
 "native.whenSubmittingAPrompt" = "When submitting a prompt";
+"native.whenTheLimitIsReachedTheOldestVersionsAreRemovedFirst" = "When the limit is reached, the oldest versions are removed first.";
 "native.whenToRun" = "When to run";
 "native.wherePushGoesWhenYouDoNotChooseATargetExplicitly" = "Where Push goes when you do not choose a target explicitly.";
 "native.whereShouldThisApply" = "Where should this apply?";
@@ -9317,6 +9369,8 @@
 "native.whereWouldYouLikeToOpenTheProject" = "Where would you like to open the project ‘%1$@’?";
 "native.whitespaceComparison" = "Whitespace comparison";
 "native.wholeWords" = "Whole Words";
+"native.wildcard" = "Wildcard";
+"native.wildcardIgnoreRules" = "Wildcard ignore rules";
 "native.window" = "Window";
 "native.wip" = "WIP";
 "native.withdrawn" = "Withdrawn";
