@@ -5,6 +5,16 @@ import LitheModuleAPI
 
 // Note: 独立扩展点与领域契约的边界见 .agents/notes/implemented/architecture/2026-10-31-plugin-capability-and-domain-boundaries.md
 
+/// One total collection budget, below the editor bridge's ten-second deadline.
+enum PluginEditorActionCollectionBudget {
+    static let maximum: Duration = .seconds(8)
+
+    static func remaining(after elapsed: Duration) -> Duration? {
+        let remaining = maximum - elapsed
+        return remaining > .zero ? remaining : nil
+    }
+}
+
 /// A context/session-owned binding, not a language, Build or Run provider.
 struct PluginEditorActionRegistration: Equatable {
     let lease: UUID

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheApplicationKernel
 import LitheCoreContracts
 import LitheModuleAPI
 
@@ -28,6 +29,20 @@ final class MacPluginEditorLanguages: PluginEditorLanguageProviding {
     private var decoded: [String: ToolingJSONValue?] = [:]
 
     var changes: AnyPublisher<Void, Never> { changeSubject.eraseToAnyPublisher() }
+
+    /// The runtime owns this observer; the callback must not own the runtime.
+    @discardableResult
+    static func observeModuleChanges(
+        on runtime: ModuleRuntime,
+        changed: @escaping @MainActor () -> Void,
+        refreshBackends: @escaping @MainActor (ModuleRuntime) -> Void
+    ) -> UUID {
+        runtime.observeEvents { [weak runtime] event in
+            guard event.name == ModuleEvent.stateChangedName, let runtime else { return }
+            changed()
+            refreshBackends(runtime)
+        }
+    }
 
     /// - Parameters:
     ///   - launchRegistered: Plugins in the module graph since launch. Their editor resources follow the grammars module.

@@ -28,7 +28,7 @@ import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/b
 import { Action, Separator, type IAction } from "monaco-editor/esm/vs/base/common/actions.js";
 import { normalizeRunMarkers, runMarkerForLine, runMarkerIcon, type RunMarker, type RunMarkerIcon } from "./run-markers";
 import { attachPluginEditorActions } from "./plugin-editor-actions";
-import { installPluginGrammar } from "./plugin-grammar-tokenizer";
+import { installPluginGrammar, inheritPluginTokenizer } from "./plugin-grammar-tokenizer";
 import { setPluginLanguages, hasPluginLanguage, pluginLanguageForFilename, type PluginLanguage } from "./plugin-languages";
 
 const escapeHTML = (value: string) => value.replace(/[&<>"']/g, character =>
@@ -1059,7 +1059,7 @@ export function mountWorkbench(host: WorkbenchHost) {
         // applying a configuration-only contribution, never after the override.
         await Promise.all(languages.filter(language => !language.grammar)
           .map(language => ensureMonacoLanguageTokenizer(toMonacoLanguageId(language.id))));
-        const result = setPluginLanguages(monaco.languages, languages, installPluginGrammar);
+        const result = setPluginLanguages(monaco.languages, languages, installPluginGrammar, inheritPluginTokenizer);
         // A plugin installed while its files are open: they take its language
         // now, and leave it when the plugin goes.
         const pluginIDs = new Set([...previousPluginLanguageIDs, ...languages.map(language => editorLanguageID(language?.id))]);
@@ -1077,14 +1077,16 @@ export function mountWorkbench(host: WorkbenchHost) {
             if (view.getModel() === entry.model) syncDefinitionNavigation(view);
           }
         }
-        await pluginActions.refresh();
+        void pluginActions.refresh().catch(console.error);
         return result;
       });
       return pluginLanguageUpdates;
     },
     async refreshPluginEditorActions() {
       await activation;
-      await pluginActions.refresh();
+      // Acknowledge scheduling, not plugin completion: optional collectors
+      // must never hold the native save/edit bridge until its fatal deadline.
+      void pluginActions.refresh().catch(console.error);
     },
     async refreshJavaRunMarkers() {
       await activation;

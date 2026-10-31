@@ -5,6 +5,7 @@ import { hasPluginGrammar, pluginLanguageForFilename, setPluginLanguages as repl
 const registered: { id: string }[] = [];
 const live = new Map<string, number>();
 let failCompile = new Set<string>();
+const inherited: [string, string][] = [];
 const provider = (id: string) => {
   live.set(id, (live.get(id) ?? 0) + 1);
   return { dispose: () => live.set(id, (live.get(id) ?? 0) - 1) };
@@ -18,13 +19,16 @@ const install = (id: string) => {
   if (failCompile.has(id)) throw new Error(`cannot compile ${id}`);
   return provider(id);
 };
-const setPluginLanguages = (list: PluginLanguage[]) => replace(monaco, list, install);
+const setPluginLanguages = (list: PluginLanguage[]) => replace(monaco, list, install, (id, alias) => {
+  inherited.push([id, alias]);
+  return provider(id);
+});
 const http: PluginLanguage = {
   id: "http", fileExtensions: ["http", ".rest"],
-  grammar: { kind: "monarch", monarch: { tokenizer: { root: [] } } },
+  grammar: { kind: "monarch", source: '{"tokenizer":{"root":[]}}' },
   configuration: { lineComment: "#", brackets: [["{", "}"]], autoClosingPairs: [["\"", "\""]] },
 };
-beforeEach(() => { setPluginLanguages([]); failCompile = new Set(); });
+beforeEach(() => { setPluginLanguages([]); failCompile = new Set(); inherited.length = 0; });
 
 test("owns providers, matches only active file types and disposes on withdrawal", () => {
   try {
@@ -69,6 +73,22 @@ test("a refused grammar does not prevent another file type from applying", () =>
       .toEqual([{ id: "broken", message: "cannot compile broken" }]);
     expect(hasPluginGrammar("broken")).toBe(false);
     expect(hasPluginGrammar("http")).toBe(true);
+  } finally { setPluginLanguages([]); }
+});
+
+test("configuration-only aliases borrow and withdraw their existing tokenizer", () => {
+  try {
+    setPluginLanguages([{ ...http, id: "properties", fileExtensions: ["properties"], grammar: null },
+      { ...http, id: "bash", fileExtensions: ["sh"], grammar: null },
+      { ...http, id: "systemrdl", fileExtensions: ["rdl"], grammar: null }]);
+    expect(inherited).toEqual([["properties", "ini"], ["bash", "shell"]]);
+    expect(pluginLanguageForFilename("a.properties")).toBe("properties");
+    expect(hasPluginGrammar("properties")).toBe(false);
+    expect(live.get("properties")).toBe(2);
+    expect(live.get("systemrdl")).toBe(1);
+    setPluginLanguages([]);
+    expect(live.get("properties")).toBe(0);
+    expect(live.get("bash")).toBe(0);
   } finally { setPluginLanguages([]); }
 });
 

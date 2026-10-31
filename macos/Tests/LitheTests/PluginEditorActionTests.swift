@@ -6,6 +6,14 @@ import Testing
 @MainActor
 struct PluginEditorActionTests {
     @Test
+    func collectionUsesOneTotalBudgetRatherThanRestartingItForEachRegistration() {
+        #expect(PluginEditorActionCollectionBudget.remaining(after: .zero) == .seconds(8))
+        #expect(PluginEditorActionCollectionBudget.remaining(after: .seconds(6)) == .seconds(2))
+        #expect(PluginEditorActionCollectionBudget.remaining(after: .seconds(8)) == nil)
+        #expect(PluginEditorActionCollectionBudget.remaining(after: .seconds(12)) == nil)
+    }
+
+    @Test
     func registrationsAreIndependentScopedAndDisposable() async throws {
         let fixture = PluginHostFixture()
         defer { fixture.tearDown() }

@@ -26,13 +26,17 @@ export function installPluginGrammarWorker() {
   self.onmessage = ({ data }) => {
     try {
       if (data.type === "init") {
+        // Only the worker parses the source: cases retain package order even
+        // after the host's Rust/Swift dictionary and JSON roundtrips.
+        const grammar = JSON.parse(data.source);
+        grammar.start ??= "root";
         // Monarch's public engine needs configuration/language services even
         // for lexical-only use. Embedded languages remain plain text here.
         tokenizer = new MonarchTokenizer({
           isRegisteredLanguageId: () => false,
           getLanguageIdByLanguageName: () => null, getLanguageIdByMimeType: () => null,
           languageIdCodec: { encodeLanguageId: () => 1 }, requestBasicLanguageFeatures() {},
-        }, {}, data.languageID, compile(data.languageID, data.grammar), {
+        }, {}, data.languageID, compile(data.languageID, grammar), {
           getValue: () => 20_000,
           onDidChangeConfiguration: () => ({ dispose() {} }),
         });

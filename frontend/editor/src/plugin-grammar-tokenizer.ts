@@ -13,8 +13,35 @@ class PlainState implements languages.IState {
 const plain = new PlainState();
 let workerSource: Promise<string> | undefined;
 
+/** Borrow the existing engine without owning or disposing its tokenizer. */
+export function inheritPluginTokenizer(languageID: string, alias: string) {
+  const support = TokenizationRegistry.get(alias);
+  if (!support) throw new Error(`Tokenizer unavailable for language alias ${alias}`);
+  const codec = StandaloneServices.get(ILanguageService).languageIdCodec;
+  const originalID = codec.encodeLanguageId(alias), inheritedID = codec.encodeLanguageId(languageID);
+  const languageMask = 0xff; // Monaco 0.55.1 MetadataConsts.LANGUAGEID_MASK.
+  return TokenizationRegistry.register(languageID, {
+    getInitialState: () => support.getInitialState(),
+    tokenize(line, hasEOL, state) {
+      const result = support.tokenize(line, hasEOL, state);
+      return new TokenizationResult(result.tokens.map((token: Token) =>
+        new Token(token.offset, token.type, token.language === alias ? languageID : token.language)), result.endState);
+    },
+    tokenizeEncoded(line, hasEOL, state) {
+      const result = support.tokenizeEncoded(line, hasEOL, state), tokens = result.tokens.slice();
+      // Monaco reads comment/bracket configuration from token language IDs.
+      // Remap only the base language; genuinely embedded tokens keep theirs.
+      for (let i = 1; i < tokens.length; i += 2) {
+        if ((tokens[i] & languageMask) === originalID) tokens[i] = (tokens[i] & ~languageMask) | inheritedID;
+      }
+      return new EncodedTokenizationResult(tokens, result.endState);
+    },
+    createBackgroundTokenizer() { return undefined; },
+  });
+}
+
 /** Regex execution is isolated behind a terminable worker with a local deadline. */
-export function installPluginGrammar(languageID: string, grammar: languages.IMonarchLanguage) {
+export function installPluginGrammar(languageID: string, source: string) {
   const previous = TokenizationRegistry.get(languageID);
   const theme = StandaloneServices.get(IStandaloneThemeService);
   const encodedID = StandaloneServices.get(ILanguageService).languageIdCodec.encodeLanguageId(languageID);
@@ -81,9 +108,9 @@ export function installPluginGrammar(languageID: string, grammar: languages.IMon
     return response.text();
   });
   watch();
-  void workerSource.then(source => {
+  void workerSource.then(code => {
     if (stopped) return;
-    url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
     worker = new Worker(url);
     worker.onerror = event => stop(event.message);
     worker.onmessage = ({ data }) => {
@@ -111,7 +138,7 @@ export function installPluginGrammar(languageID: string, grammar: languages.IMon
       }
       if ([...bindings.values()].some(binding => binding.pending) && !deadline) watch();
     };
-    worker.postMessage({ type: "pluginGrammar", languageID, grammar });
+    worker.postMessage({ type: "pluginGrammar", languageID, source });
   }).catch(stop);
   const themeChanges = theme.onDidColorThemeChange(() => {
     for (const [id, binding] of bindings) open(id, binding);

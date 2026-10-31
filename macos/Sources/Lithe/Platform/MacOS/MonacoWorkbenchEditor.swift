@@ -324,7 +324,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         let actions: [(key: String, registration: PluginEditorActionRegistration, action: PluginEditorAction)]
     }
     private var pluginActionLists: [String: EditorActionList] = [:]
-    private var pluginActionRequests: [String: (id: UUID, task: Task<Void, Never>)] = [:]
+    private var pluginActionRequests: [String: (id: UUID, task: Task<Void, Never>, deadline: Task<Void, Never>)] = [:]
     private var pluginActionExecutions: [UUID: (documentID: String, registration: PluginEditorActionRegistration, task: Task<Void, Never>)] = [:]
     private var pluginActionsSubscription: AnyCancellable?
     private var pluginLanguagesSubscription: AnyCancellable?
@@ -766,7 +766,10 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     private func cancelPluginActions(for id: String, closing: Bool = false) {
         pluginActionLists[id] = nil
-        pluginActionRequests.removeValue(forKey: id)?.task.cancel()
+        if let request = pluginActionRequests.removeValue(forKey: id) {
+            request.deadline.cancel()
+            request.task.cancel()
+        }
         if closing {
             for (operation, execution) in pluginActionExecutions where execution.documentID == id {
                 execution.task.cancel()
@@ -785,7 +788,13 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 execution.task.cancel()
                 self.pluginActionExecutions[id] = nil
             }
-            if self.ready, !self.failed { self.call("window.lithe.refreshPluginEditorActions()") }
+            if self.ready, !self.failed {
+                self.call("window.lithe.refreshPluginEditorActions()") { result in
+                    if case .failure(let error) = result {
+                        NSLog("Lithe plugin editor action refresh failed: %@", error.localizedDescription)
+                    }
+                }
+            }
         }
     }
 
@@ -1309,13 +1318,20 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 "text": .string(text),
             ])
             let task = Task { @MainActor [weak self, weak document] in
+                defer {
+                    if self?.pluginActionRequests[id]?.id == requestID {
+                        self?.pluginActionRequests.removeValue(forKey: id)?.deadline.cancel()
+                    }
+                }
                 var items: [(key: String, registration: PluginEditorActionRegistration, action: PluginEditorAction)] = []
+                let clock = ContinuousClock(), started = clock.now
                 for registration in registrations {
                     do {
                         try Task.checkCancellation()
+                        guard let remaining = PluginEditorActionCollectionBudget.remaining(after: started.duration(to: clock.now)) else { break }
                         guard service.contains(registration) else { continue }
                         let result = try await backends.invokePluginFunction(registration.functionID, params: input,
-                            ofPlugin: registration.pluginID, context: workspace, timeout: .seconds(10), progress: { _ in })
+                            ofPlugin: registration.pluginID, context: workspace, timeout: remaining, progress: { _ in })
                         try Task.checkCancellation()
                         let actions = try service.decode(result, text: text)
                         guard service.contains(registration), actions.allSatisfy({ service.contains(registration, functionID: $0.invoke.functionID) }) else { continue }
@@ -1331,14 +1347,19 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                       items.allSatisfy({ service.contains($0.registration, functionID: $0.action.invoke.functionID) }) else {
                     reply(["cancelled": true], nil); return
                 }
-                self.pluginActionRequests[id] = nil
+                self.pluginActionRequests.removeValue(forKey: id)?.deadline.cancel()
                 self.pluginActionLists[id] = EditorActionList(context: context, contentVersion: version, batch: batch, actions: items)
                 reply(["batch": batch, "actions": items.map { item in
                     ["id": item.key, "line": item.action.range.start.line, "endLine": item.action.range.end.line,
                      "title": item.action.title, "icon": item.action.icon] as [String: Any]
                 }], nil)
             }
-            pluginActionRequests[id] = (requestID, task)
+            let deadline = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: PluginEditorActionCollectionBudget.maximum) } catch { return }
+                guard self?.pluginActionRequests[id]?.id == requestID else { return }
+                self?.cancelPluginActions(for: id)
+            }
+            pluginActionRequests[id] = (requestID, task, deadline)
         case "pluginEditorAction":
             guard let model, !failed, !isReadOnlyPreview, !self.isReadOnly(document),
                   let revision = body["revision"] as? Int, revision == revisions[id],
@@ -1838,7 +1859,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     private func fail(_ message: String) {
         failed = true
-        pluginActionRequests.values.forEach { $0.task.cancel() }
+        pluginActionRequests.values.forEach { $0.deadline.cancel(); $0.task.cancel() }
         pluginActionExecutions.values.forEach { $0.task.cancel() }
         pluginActionRequests.removeAll(); pluginActionExecutions.removeAll(); pluginActionLists.removeAll()
         contextMenu.dismiss()
@@ -1851,7 +1872,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(error.localizedDescription) }
 
     isolated deinit {
-        pluginActionRequests.values.forEach { $0.task.cancel() }
+        pluginActionRequests.values.forEach { $0.deadline.cancel(); $0.task.cancel() }
         pluginActionExecutions.values.forEach { $0.task.cancel() }
         contextMenu.dismiss()
         gitLoads.values.forEach { $0.cancel() }

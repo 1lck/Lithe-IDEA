@@ -1148,12 +1148,12 @@ final class MacServiceContainer {
         // Static editor resources follow their own enablement; ordinary tool
         // actions register at runtime in the shared backend's host services.
         let editorLanguageModuleChanges = PassthroughSubject<Void, Never>()
-        moduleRuntime.observeEvents { event in
-            guard event.name == ModuleEvent.stateChangedName else { return }
+        MacPluginEditorLanguages.observeModuleChanges(on: moduleRuntime, changed: {
             editorLanguageModuleChanges.send()
+        }) { runtime in
             for package in pluginStartup.registeredPlugins where package.descriptor.declaresBackend && package.descriptor.ui == nil {
                 let id = package.descriptor.id.rawValue
-                if let state = try? moduleRuntime.snapshot(for: .backendExtension(id)),
+                if let state = try? runtime.snapshot(for: .backendExtension(id)),
                    state.state != .disabled, !state.isQuarantined, !state.isSuppressedBySafeMode {
                     pluginBackends.enable(id)
                 } else { pluginBackends.disable(id) }
@@ -1162,8 +1162,8 @@ final class MacServiceContainer {
         services.pluginEditorActions = pluginBackends.editorActions
         services.pluginEditorLanguages = MacPluginEditorLanguages(
             launchRegistered: pluginStartup.registeredPlugins,
-            isModuleUsable: { id in
-                guard let snapshot = try? moduleRuntime.snapshot(for: id) else { return false }
+            isModuleUsable: { [weak moduleRuntime] id in
+                guard let snapshot = try? moduleRuntime?.snapshot(for: id) else { return false }
                 return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
             },
             livePackages: { liveSnapshotBox.snapshot.activePackages },

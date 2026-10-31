@@ -4216,8 +4216,10 @@ pub fn decode_grammar_command(payload: Value) -> Result<Value, CoreError> {
                 .as_ref()
                 .map(|grammar| match grammar.kind {
                     super::grammar::GrammarKind::Monarch => {
+                        // Monarch cases are ordered. Keep the validated source
+                        // opaque across JSON maps and platform dictionaries.
                         super::grammar::decode_monarch(&payload.grammar)
-                            .map(|tokenizer| json!({"kind": grammar.kind, "monarch": tokenizer}))
+                            .map(|_| json!({"kind": grammar.kind, "source": payload.grammar}))
                     }
                 })
                 .transpose()?;

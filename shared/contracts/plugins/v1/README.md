@@ -128,7 +128,9 @@ activation event, and a plugin may consist of grammars alone.
 - `grammar.path` is a package-relative file that stays inside the package.
   Hosts read it read-only from the installed package, pass its text to
   `plugins.declarative.decodeGrammar`, and hand the returned object to the
-  editor unchanged. A grammar Core refuses is `plugin.grammar.invalid` with the
+  editor as validated source text, never through a reconstructed JSON object:
+  Monarch `cases` are evaluated in source order. The worker parses that text and
+  defaults `start` to `root` when absent. A grammar Core refuses is `plugin.grammar.invalid` with the
   failing field (such as `grammar.tokenizer.root[3][1].log`); the language then
   opens as plain text and the rest of the plugin keeps working.
 - A Monarch grammar is the JSON form of a
@@ -2281,6 +2283,9 @@ workspace context:
 - Collection is read-only by contract: no network request or business execution.
   Edits invalidate the old actions immediately and cancel older collection work;
   the host debounces fresh collection and rejects stale or withdrawn results.
+  macOS bounds the whole collection batch to eight seconds, not eight seconds per
+  binding. Refresh acknowledges scheduling without waiting for collectors; a slow
+  or failed collector must not fail editing or the save synchronization barrier.
 - Return `{actions:[{id,range:{start:{line,column},end:{line,column}},title,icon,
   invoke:{functionID,params?}}]}`. Positions are one-based UTF-16, half-open and
   cannot split surrogate pairs. Each range stays in the exact input document.

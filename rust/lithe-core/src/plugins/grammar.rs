@@ -155,7 +155,8 @@ fn grammar_error(field: impl Into<String>, message: impl Into<String>) -> Plugin
 }
 
 /// Validates the text of a Monarch grammar file and returns it as a JSON
-/// object the editor passes to worker-isolated Monaco compilation unchanged.
+/// object for validation. Hosts transport the original text, not this map,
+/// because Monarch case precedence depends on source key order.
 pub(crate) fn decode_monarch(text: &str) -> Validation<Value> {
     if text.len() > MAX_GRAMMAR_BYTES {
         return Err(grammar_error(

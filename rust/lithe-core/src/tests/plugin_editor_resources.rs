@@ -51,15 +51,22 @@ fn a_grammar_file_decodes_to_the_language_the_editor_registers() {
     assert_eq!(language["id"], "http");
     assert_eq!(language["fileExtensions"], json!(["http", "rest"]));
     assert_eq!(language["grammar"]["kind"], "monarch");
-    assert_eq!(
-        language["grammar"]["monarch"],
-        serde_json::from_str::<Value>(HTTP_GRAMMAR).unwrap()
-    );
+    assert_eq!(language["grammar"]["source"], HTTP_GRAMMAR);
     assert_eq!(language["configuration"]["lineComment"], "#");
     assert_eq!(
         language["configuration"]["brackets"],
         json!([["{", "}"], ["[", "]"]])
     );
+}
+
+#[test]
+fn grammar_source_preserves_order_through_sorted_json_roundtrips() {
+    let source = r#"{"tokenizer":{"comment":[[".*","comment"]],"root":[["[A-Z]+",{"cases":{"GET":"keyword","[A-Z]+":"string","@default":"identifier"}}]]}}"#;
+    let outcome = decode_grammar(source);
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let roundtrip: Value = serde_json::from_str(&outcome.to_string()).unwrap();
+    assert_eq!(roundtrip["language"]["grammar"]["source"], source);
+    assert!(roundtrip["language"]["grammar"].get("monarch").is_none());
 }
 
 #[test]

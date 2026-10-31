@@ -3835,8 +3835,10 @@ for the plan's `launch.versionArguments`, and returns
 `plugins.declarative.decodeGrammar` accepts `{ manifest, languageID, grammar }`,
 where `grammar` is the text the host read from the language's `grammar.path`
 inside the installed package, and returns `language: { id, fileExtensions,
-fileNames, grammar: { kind, monarch }, configuration }`. `monarch` is the
-grammar object unchanged, for Monaco compilation only in a terminable worker. A grammar Core
+fileNames, grammar: { kind, source }, configuration }`. `source` is the
+validated original JSON text, kept opaque through host dictionaries so Monarch's
+ordered `cases` retain their precedence. Only the terminable worker parses and
+compiles it, explicitly using `root` when `start` is absent. A grammar Core
 refuses is `plugin.grammar.invalid` with the failing `field`; a language
 without static editor resources is `plugin.grammar.unavailable`. Configuration-only
 languages return `grammar:null` and require no file read. Core reads no files.

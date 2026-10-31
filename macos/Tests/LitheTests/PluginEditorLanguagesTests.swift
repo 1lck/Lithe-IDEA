@@ -14,6 +14,41 @@ struct PluginEditorLanguagesTests {
         .appendingPathComponent("shared/contracts/plugins/v1/fixtures", isDirectory: true)
 
     @Test
+    func pluginModuleObservationDeliversChangesWithoutRetainingItsRuntime() {
+        weak var released: ModuleRuntime?
+        var changes = 0, backendRefreshes = 0
+        do {
+            let runtime = ModuleRuntime()
+            released = runtime
+            MacPluginEditorLanguages.observeModuleChanges(on: runtime, changed: { changes += 1 }) { observed in
+                #expect(observed === released)
+                backendRefreshes += 1
+            }
+            runtime.publish(ModuleEvent(source: .workspace, name: "unrelated"))
+            #expect(changes == 0 && backendRefreshes == 0)
+            runtime.publish(ModuleEvent(source: .workspace, name: ModuleEvent.stateChangedName))
+            #expect(changes == 1 && backendRefreshes == 1)
+        }
+        #expect(released == nil, "The plugin state observer must not own its event source")
+    }
+
+    @Test
+    func orderedGrammarSourceSurvivesCoreAndSwiftDictionaryRoundtrips() throws {
+        let descriptor = try Self.descriptor("language-grammar")
+        let source = #"{"tokenizer":{"comment":[[".*","comment"]],"root":[["[A-Z]+",{"cases":{"GET":"keyword","[A-Z]+":"string","@default":"identifier"}}]]}}"#
+        let decoded = try DeclarativePluginTestSupport.operations.decodeGrammar(
+            manifest: descriptor.normalizedManifest, languageID: "http", grammar: source)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let payload = try JSONDecoder().decode(ToolingJSONValue.self, from: encoder.encode(decoded))
+        guard case .object(let language) = payload, case .object(let grammar)? = language["grammar"] else {
+            Issue.record("missing grammar payload"); return
+        }
+        #expect(grammar["source"] == .string(source))
+        #expect(grammar["monarch"] == nil)
+    }
+
+    @Test
     func aGrammarOnlyPluginActivatesWithoutARestart() throws {
         let descriptor = try Self.descriptor("language-grammar")
         #expect(descriptor.languages.map(\.grammarPath) == ["grammars/http.monarch.json"])
@@ -77,6 +112,8 @@ struct PluginEditorLanguagesTests {
         }
         #expect(language["id"] == .string("http"))
         #expect(grammar["kind"] == .string("monarch"))
+        let source = try String(contentsOf: Self.fixtures.appendingPathComponent("grammars/http.monarch.json"), encoding: .utf8)
+        #expect(grammar["source"] == .string(source))
         live = []
         #expect(languages.current() == PluginEditorLanguageSet())
     }

@@ -1,11 +1,12 @@
 // Static file types and presentation are independent of language-server ownership.
 import type { languages } from "monaco-editor/esm/vs/editor/editor.api.js";
+import { toMonacoLanguageId } from "./language";
 
 export interface PluginLanguage {
   id: string;
   fileExtensions?: string[];
   fileNames?: string[];
-  grammar?: { kind: "monarch"; monarch: languages.IMonarchLanguage } | null;
+  grammar?: { kind: "monarch"; source: string } | null;
   configuration?: {
     lineComment?: string;
     blockComment?: [string, string];
@@ -36,7 +37,8 @@ export type MonacoLanguages = Pick<typeof languages, "getLanguages" | "register"
 
 /** The caller supplies the worker-isolated engine; this pure registry never runs plugin regexes. */
 export function setPluginLanguages(monaco: MonacoLanguages, list: readonly PluginLanguage[],
-  installGrammar: (id: string, grammar: languages.IMonarchLanguage) => { dispose(): void } = () => ({ dispose() {} }),
+  installGrammar: (id: string, source: string) => { dispose(): void } = () => ({ dispose() {} }),
+  inheritTokenizer: (id: string, alias: string) => { dispose(): void } = () => ({ dispose() {} }),
 ): { failed: { id: string; message: string }[]; removed: string[] } {
   const failed: { id: string; message: string }[] = [], removed: string[] = [];
   const next = new Map(list.filter(language => language?.id).map(language => [language.id, language]));
@@ -52,7 +54,11 @@ export function setPluginLanguages(monaco: MonacoLanguages, list: readonly Plugi
     if (!monaco.getLanguages().some(registered => registered.id === id)) monaco.register({ id });
     const providers: { dispose(): void }[] = [];
     try {
-      if (language.grammar) providers.push(installGrammar(id, language.grammar.monarch));
+      if (language.grammar) providers.push(installGrammar(id, language.grammar.source));
+      else {
+        const alias = toMonacoLanguageId(id);
+        if (alias !== id && alias !== "plaintext") providers.push(inheritTokenizer(id, alias));
+      }
       if (language.configuration) providers.push(monaco.setLanguageConfiguration(id, toLanguageConfiguration(language.configuration)));
       owned.set(id, { key, language, providers });
     } catch (error) {

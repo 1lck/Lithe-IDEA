@@ -42,7 +42,7 @@ self.onmessage = async ({ data }) => {
   try {
     if (data.type === "pluginGrammar") {
       installPluginGrammarWorker();
-      self.onmessage!({ data: { type: "init", languageID: data.languageID, grammar: data.grammar } } as MessageEvent);
+      self.onmessage!({ data: { type: "init", languageID: data.languageID, source: data.source } } as MessageEvent);
       return;
     }
     if (data.type === "init") {
