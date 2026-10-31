@@ -231,8 +231,7 @@ struct RunEntryPointTests {
         #expect(runFeature.generationState == .projectNotReady)
         #expect(runFeature.configurationStatus != .ready, "a partial inventory must not be identified")
 
-        operations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: operations, in: model)
 
         let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
@@ -264,8 +263,7 @@ struct RunEntryPointTests {
         let deferred = await awaitLoadDrivenChange(on: model) { model.pendingRunAction?.kind == .run }
         #expect(deferred, "Run must be deferred while the inventory is provisional")
 
-        operations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: operations, in: model)
 
         let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
@@ -318,8 +316,7 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction?.kind == .run)
         #expect(runConfigurations.launchPlanCallCount == 0)
 
-        workspaceOperations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: workspaceOperations, in: model)
 
         // Production clears the deferred action before it re-issues Run, so
         // waiting for the action to clear would pass even if the relaunch were
@@ -376,7 +373,9 @@ struct RunEntryPointTests {
         // The snapshot lands and is fully consumed while that load is suspended.
         // The refresh cannot be awaited here: the load it drives suspends on the
         // inspection this test releases further down.
-        workspaceOperations.publish(workspace.snapshot)
+        try await publishFirstCompleteSnapshot(
+            workspace.snapshot, using: workspaceOperations, in: model, refresh: false
+        )
         let refreshTask = Task { await model.workspaceFeature.refreshCurrent() }
         #expect(
             await runConfigurations.inspectionEntered(2),
@@ -424,8 +423,7 @@ struct RunEntryPointTests {
         #expect(bound, "the Debug entry point never bound the workspace")
         #expect(model.runFeatureIfActive?.isProjectReady(for: workspace.root, snapshotID: model.workspaceSnapshotID) == false)
 
-        operations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: operations, in: model)
 
         let ready = await awaitLoadDrivenChange(on: model) {
             model.runFeatureIfActive?.isProjectReady(
@@ -487,8 +485,7 @@ struct RunEntryPointTests {
             "direct start must not build a launch plan from a provisional inventory"
         )
 
-        workspaceOperations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: workspaceOperations, in: model)
 
         let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred direct start was never actually re-issued")
@@ -510,20 +507,7 @@ struct RunEntryPointTests {
         #expect(model.pendingRunAction?.kind == .startConfigurations(ids.sorted()))
         #expect(runConfigurations.launchPlanCallCount == 0)
 
-        // The batch can defer before the opening scan has returned. A refresh
-        // while that scan is loading is intentionally ignored, so first await
-        // the observable provisional result rather than dropping the test's
-        // only request for the newly published inventory.
-        try #require(await awaitChange(on: model.workspaceFeature, timeout: .seconds(30)) {
-            model.workspaceLoadErrorMessage != nil
-                && !model.workspaceFeature.isLoadingWorkspace
-                && !model.workspaceFeature.isRefreshingWorkspace
-        })
-        let snapshot = workspace.snapshot
-        operations.publish(snapshot)
-        await model.workspaceFeature.refreshCurrent()
-        try #require(model.workspaceSnapshotID == snapshot.id,
-                     "the published inventory must be applied before resuming the batch")
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: operations, in: model)
         #expect(await runConfigurations.launchPlanRequested(2))
         #expect(model.pendingRunAction == nil)
         #expect(runConfigurations.launchPlanCallCount == 2)
@@ -561,8 +545,7 @@ struct RunEntryPointTests {
             "run-all-services must not build a launch plan from a provisional inventory"
         )
 
-        workspaceOperations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: workspaceOperations, in: model)
 
         let relaunched = await runConfigurations.launchPlanRequested(1)
         #expect(relaunched, "the deferred run-all-services was never actually re-issued")
@@ -596,8 +579,7 @@ struct RunEntryPointTests {
         #expect(deferred)
         #expect(runConfigurations.launchPlanCallCount == 0)
 
-        workspaceOperations.publish(workspace.snapshot)
-        await model.workspaceFeature.refreshCurrent()
+        try await publishFirstCompleteSnapshot(workspace.snapshot, using: workspaceOperations, in: model)
         let relaunched = await runConfigurations.launchPlanRequested(2)
         #expect(relaunched)
         #expect(model.pendingRunAction == nil)
@@ -648,7 +630,7 @@ struct RunEntryPointTests {
         // Each refresh is held at its watch-configuration fetch, so it runs as a
         // task the test releases; a refresh must also finish before the next one
         // starts, or the workspace feature would drop it as already refreshing.
-        workspaceOperations.publish(first)
+        try await publishFirstCompleteSnapshot(first, using: workspaceOperations, in: model, refresh: false)
         let firstRefresh = Task { await model.workspaceFeature.refreshCurrent() }
         #expect(await watchContext.entered(1))
         watchContext.release(1)
@@ -982,6 +964,42 @@ private func awaitLoadDrivenChange(
     until isSatisfied: @escaping @MainActor @Sendable () -> Bool
 ) async -> Bool {
     await awaitChange(on: model, timeout: .seconds(30), until: isSatisfied)
+}
+
+/// Releases the first complete inventory only after the opening scan has
+/// reported its provisional result. Publishing while the workspace is idle
+/// ensures any subsequent scan sees the released inventory, even if a watcher
+/// starts before the caller's explicit refresh. Gated service loads keep their
+/// refresh in a caller-owned task instead of awaiting it here.
+@MainActor
+private func publishFirstCompleteSnapshot(
+    _ snapshot: WorkspaceSnapshot,
+    using operations: SequencedWorkspaceOperations,
+    in model: AppModel,
+    refresh: Bool = true
+) async throws {
+    let deadline = DispatchTime.now() + .seconds(30)
+    let openingScanFinished: @MainActor @Sendable () -> Bool = {
+        model.workspaceLoadErrorMessage != nil
+            && !model.workspaceFeature.isLoadingWorkspace
+            && !model.workspaceFeature.isRefreshingWorkspace
+    }
+    // A queued refresh can begin before an observation's continuation resumes.
+    // Recheck on this actor, retaining one deadline across those state changes.
+    while !openingScanFinished() {
+        let now = DispatchTime.now()
+        try #require(now < deadline, "the provisional opening scan did not finish")
+        let remaining = DispatchTimeInterval.nanoseconds(Int(deadline.uptimeNanoseconds - now.uptimeNanoseconds))
+        try #require(await awaitChange(
+            on: model.workspaceFeature, timeout: remaining, until: openingScanFinished
+        ))
+    }
+    operations.publish(snapshot)
+    guard refresh else { return }
+    await model.workspaceFeature.refreshCurrent()
+    try #require(await awaitChange(on: model.workspaceFeature, timeout: .seconds(30)) {
+        model.workspaceSnapshotID == snapshot.id
+    }, "the released inventory must be applied before checking deferred Run")
 }
 
 /// A real workspace on disk holding one Java entry point, so generation runs
