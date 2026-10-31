@@ -20,29 +20,34 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         do {
             return try core.configureIndexing(at: rootURL, policy: policy, refresh: refresh, ownerID: ownerID)
         } catch let error as RustCoreBridge.CoreCallError {
-            switch error.code {
-            case "cancelled": throw CancellationError()
-            case "invalid_request", "parse_failed": throw WorkspaceIndexingFailure.invalidSettings
-            case "workspace_not_found": throw WorkspaceIndexingFailure.workspaceUnavailable
-            case "permission_denied": throw WorkspaceIndexingFailure.permissionDenied
-            default: throw WorkspaceIndexingFailure.configureFailed
-            }
+            throw indexingFailure(error)
         } catch { throw WorkspaceIndexingFailure.configureFailed }
+    }
+
+    private func indexingFailure(_ error: RustCoreBridge.CoreCallError) -> any Error {
+        switch error.code {
+        case "cancelled": CancellationError()
+        case "invalid_request", "parse_failed": WorkspaceIndexingFailure.invalidSettings
+        case "workspace_not_found": WorkspaceIndexingFailure.workspaceUnavailable
+        case "permission_denied": WorkspaceIndexingFailure.permissionDenied
+        default: WorkspaceIndexingFailure.configureFailed
+        }
     }
 
     func snapshot(
         at rootURL: URL,
         visibilityRules: FileVisibilityRules
-    ) -> WorkspaceSnapshot? {
-        if let snapshot = core.snapshot(
-            at: rootURL,
-            hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
-            hiddenFilePatterns: visibilityRules.hiddenFilePatterns
-        )?.makeSnapshot(at: rootURL) {
-            return snapshot
+    ) throws -> WorkspaceSnapshot? {
+        do {
+            return try core.snapshot(
+                at: rootURL,
+                hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
+                hiddenFilePatterns: visibilityRules.hiddenFilePatterns
+            ).makeSnapshot(at: rootURL)
+        } catch let error as RustCoreBridge.CoreCallError {
+            // Preserve cancellation; an unfiltered inventory is never a fallback.
+            throw indexingFailure(error)
         }
-        // A failed policy-aware scan must not fall back to an unfiltered inventory.
-        return nil
     }
 
     func childRows(

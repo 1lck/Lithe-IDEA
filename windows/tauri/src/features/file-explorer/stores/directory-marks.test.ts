@@ -4,7 +4,7 @@ import { LocaleProvider } from "@/i18n/locale-provider";
 import { useFileExplorerContextMenu } from "../hooks/use-file-explorer-context-menu";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { installHappyDom } from "@/test-utils/happy-dom";
-import { indexingSettingsStorageKey, readIndexingSettings, writeIndexingSettings } from "./workspace-indexing";
+import { IndexingSettingsError, indexingSettingsStorageKey, readIndexingSettings, writeIndexingSettings } from "./workspace-indexing";
 import { directoryMarkRoot, markWorkspaceDirectory, migrateWorkspaceDirectoryMarks, migrateDirectoryMarks, readDirectoryMarks } from "./directory-marks";
 
 let restore: () => void;
@@ -13,6 +13,34 @@ beforeEach(() => {
   restore = installHappyDom();
 });
 afterEach(() => restore());
+
+test("cancelling exclusion follows Windows path identity after a case-only rename", () => {
+  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/src", "sources");
+  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/src", "excluded");
+  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/SRC", "plain", true);
+  expect(readDirectoryMarks("C:/workspace")).toEqual({ SRC: "sources" });
+  expect(readIndexingSettings("C:/workspace").previousRoles).toEqual({});
+  expect(readIndexingSettings("C:/workspace").includedDirectories).toEqual(["SRC"]);
+  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/src", "excluded");
+  expect(readDirectoryMarks("C:/workspace")).toEqual({ src: "excluded" });
+  expect(readIndexingSettings("C:/workspace").includedDirectories).toEqual([]);
+  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/SRC/child", "plain", true);
+  expect(readIndexingSettings("C:/workspace").includedDirectories).toEqual([]);
+});
+
+test("directory mark read failures use stable classes and preserve the original data", () => {
+  for (const raw of ["broken", "null", "{}", '{"version":1,"marks":[]}']) {
+    window.localStorage.setItem(storageKey, raw);
+    try { readDirectoryMarks("C:/workspace"); throw new Error("Expected invalid data to fail"); }
+    catch (error) {
+      expect(error).toBeInstanceOf(IndexingSettingsError);
+      expect((error as IndexingSettingsError).code).toBe("invalidSettings");
+    }
+    expect(window.localStorage.getItem(storageKey)).toBe(raw);
+  }
+  const failing = { getItem: () => { throw new Error("storage is unavailable"); } } as unknown as Storage;
+  expect(() => readDirectoryMarks("C:/workspace", failing)).toThrow(IndexingSettingsError);
+});
 
 test("directory marks migrate a renamed subtree and remove a deleted subtree", () => {
   window.localStorage.setItem(

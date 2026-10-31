@@ -67,7 +67,7 @@ fn append_array(value: &mut Value, path: &[&str], additions: Vec<String>, defaul
             .and_then(|object| object.remove(&dotted));
         if let Some(previous) = previous {
             if let Some(slot) = nested_slot(value, &path[..length]) {
-                *slot = previous;
+                merge_dotted_configuration(slot, previous);
             }
         }
     }
@@ -88,6 +88,19 @@ fn append_array(value: &mut Value, path: &[&str], additions: Vec<String>, defaul
     }
 }
 
+// Dotted prefixes override conflicting leaves, with the longest prefix applied
+// last. Unrelated nested provider settings must survive normalization.
+fn merge_dotted_configuration(target: &mut Value, overlay: Value) {
+    match (target, overlay) {
+        (Value::Object(target), Value::Object(overlay)) => {
+            for (key, value) in overlay {
+                merge_dotted_configuration(target.entry(key).or_insert(Value::Null), value);
+            }
+        }
+        (target, overlay) => *target = overlay,
+    }
+}
+
 fn nested_slot<'a>(value: &'a mut Value, path: &[&str]) -> Option<&'a mut Value> {
     let object = value.as_object_mut()?;
     let child = object.entry(path[0]).or_insert(Value::Null);
@@ -103,6 +116,30 @@ fn nested_slot<'a>(value: &'a mut Value, path: &[&str]) -> Option<&'a mut Value>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dotted_native_settings_preserve_nested_siblings_and_override_only_conflicting_leaves() {
+        let base = json!({
+            "rust-analyzer":{"files":{"watcher":"client","exclude":["nested"]},"cargo":{"allFeatures":true}},
+            "rust-analyzer.files":{"exclude":["prefix"],"otherSetting":true},
+            "rust-analyzer.files.exclude":["leaf"]
+        });
+        let original = base.clone();
+        let configured = with_roots("rust", Some(&base), &["vendor".into()]);
+        assert_eq!(
+            configured["rust-analyzer"]["files"],
+            json!({
+                "watcher":"client","exclude":["leaf","vendor"],"otherSetting":true
+            })
+        );
+        assert_eq!(
+            configured["rust-analyzer"]["cargo"],
+            base["rust-analyzer"]["cargo"]
+        );
+        assert_eq!(
+            base, original,
+            "normalization must not mutate stored settings"
+        );
+    }
     #[test]
     fn native_exclusions_preserve_settings_and_restore_them_on_undo() {
         let base = json!({"rust-analyzer":{"files":{"exclude":["existing"]},"cargo":{"allFeatures":true}}});

@@ -1,12 +1,122 @@
 import Combine
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 import LitheWorkspaceModule
 import Testing
 
 @Suite("Lazy project tree inventory")
 @MainActor
 struct LazyProjectTreeInventoryTests {
+    @Test(arguments: [false, true])
+    func aNewSnapshotDuringSessionRestoreDoesNotReplayTheSavedSession(fullRescan: Bool) async throws {
+        let root = URL(fileURLWithPath: "/in-memory/snapshot-during-session-restore")
+        let old = root.appendingPathComponent("Old.java"), new = root.appendingPathComponent("New.java")
+        let fixture = InventoryFixture(root: root, files: [old], rows: [root.path: []])
+        fixture.sessionStore.session = WorkspaceSession(openPaths: [old.path], activePath: old.path, selectedSidebar: "project")
+        let started = TestGate(), release = TestGate()
+        fixture.restoreSessionAction = { started.open(); _ = await release.waitUntilOpen() }
+        fixture.model.beginWorkspace(at: root, visibilityRules: .default)
+        let loading = Task { await fixture.model.rebuild(at: root, rules: .default, refreshGitAfterwards: false, isCurrent: { true }) }
+        defer { release.open(); loading.cancel(); fixture.close() }
+        #expect(await started.waitUntilOpen())
+        fixture.disk.set(files: [new], rows: [root.path: []])
+        if fullRescan {
+            _ = await fixture.model.rebuild(at: root, rules: .default, refreshGitAfterwards: false, isCurrent: { true })
+        } else {
+            let updated = fixture.expectRefresh(for: new)
+            try fixture.emit([old, new])
+            #expect(await updated.waitUntilOpen())
+        }
+        release.open()
+        _ = await loading.value
+        _ = await fixture.model.rebuild(at: root, rules: .default, refreshGitAfterwards: false, isCurrent: { true })
+        #expect(fixture.restoreSessionCount == 1)
+        #expect(fixture.model.projectFiles == [new])
+    }
+
+    @Test(arguments: [false, true])
+    func aNewerSnapshotPublishedDuringGitRefreshCannotBeFollowedByTheOldInventory(incremental: Bool) async throws {
+        let root = URL(fileURLWithPath: "/in-memory/snapshot-publication-order")
+        let old = root.appendingPathComponent("Old.java"), new = root.appendingPathComponent("New.java")
+        let fixture = InventoryFixture(root: root, files: [old], rows: [root.path: []])
+        let gitStarted = TestGate(), releaseGit = TestGate()
+        fixture.gitRefreshAction = { gitStarted.open(); _ = await releaseGit.waitUntilOpen() }
+        fixture.model.beginWorkspace(at: root, visibilityRules: .default)
+        let first = Task { await fixture.model.rebuild(at: root, rules: .default, isCurrent: { true }) }
+        defer { releaseGit.open(); first.cancel(); fixture.close() }
+        #expect(await gitStarted.waitUntilOpen())
+        fixture.disk.set(files: [new], rows: [root.path: []])
+        if incremental {
+            let updated = fixture.expectRefresh(for: new)
+            try fixture.emit([old, new])
+            #expect(await updated.waitUntilOpen())
+        } else {
+            _ = await fixture.model.rebuild(at: root, rules: .default, refreshGitAfterwards: false, indexingOnly: true, isCurrent: { true })
+        }
+        let currentID = fixture.model.appliedSnapshot?.id
+        releaseGit.open()
+        let obsolete = await first.value
+        if case .stale = obsolete {} else { Issue.record("The replaced snapshot was still published") }
+        #expect(fixture.publishedFiles == [[new]])
+        #expect(fixture.publishedInitialFlags == [true])
+        #expect(fixture.model.appliedSnapshot?.id == currentID)
+    }
+
+    @Test(arguments: ["configure", "snapshot", "validate"])
+    func anotherOwnersIndexingRefreshRetriesTheCurrentWorkspaceWithoutRetiringItAgain(phase: String) async {
+        let root = URL(fileURLWithPath: "/in-memory/cross-owner-indexing-refresh")
+        let file = root.appendingPathComponent("Keep.java")
+        let fixture = InventoryFixture(root: root, files: [file], rows: [root.path: []])
+        defer { fixture.close() }
+        if phase == "snapshot" {
+            fixture.disk.failNextSnapshot(CancellationError())
+        } else {
+            fixture.disk.cancelConfiguration(number: phase == "configure" ? 1 : 2)
+        }
+        await fixture.load()
+        #expect(fixture.model.projectFiles == [file])
+        #expect(fixture.model.loadErrorMessage == nil)
+        #expect(fixture.model.indexingError == nil)
+        #expect(!fixture.model.isLoadingWorkspace)
+        #expect(fixture.publishedFiles == [[file]])
+        #expect(fixture.disk.snapshotCount == (phase == "configure" ? 1 : 2))
+        #expect(fixture.disk.configurationRefreshes == (phase == "validate" ? [true, false, false, false] : [true, false, false]))
+    }
+
+    @Test(arguments: [false, true])
+    func aCancelledSnapshotCannotRetryAfterItsWorkspaceOrTaskEnds(closeWorkspace: Bool) async {
+        let root = URL(fileURLWithPath: "/in-memory/cancelled-indexing-snapshot")
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []])
+        fixture.disk.failNextSnapshot(CancellationError(), block: true)
+        fixture.model.beginWorkspace(at: root, visibilityRules: .default)
+        let loading = Task { await fixture.model.rebuild(at: root, rules: .default, isCurrent: { true }) }
+        defer { loading.cancel(); fixture.disk.releaseSnapshot.open(); fixture.close() }
+        #expect(await fixture.disk.snapshotStarted.waitUntilOpen())
+        if closeWorkspace { fixture.model.reset() } else { loading.cancel() }
+        fixture.disk.releaseSnapshot.open()
+        let result = await loading.value
+        if case .stale = result {} else { Issue.record("An obsolete snapshot was retried or published") }
+        #expect(fixture.disk.snapshotCount == 1)
+        #expect(fixture.disk.configurationCount == 1)
+        #expect(!fixture.disk.snapshotTimedOut)
+        #expect(fixture.publishedFiles.isEmpty)
+        #expect(fixture.model.loadErrorMessage == nil)
+    }
+
+    @Test
+    func aSnapshotReadFailureKeepsItsClassificationAndDoesNotRetry() async {
+        let root = URL(fileURLWithPath: "/in-memory/snapshot-permission-error")
+        let fixture = InventoryFixture(root: root, files: [], rows: [root.path: []])
+        defer { fixture.close() }
+        fixture.disk.failNextSnapshot(WorkspaceIndexingFailure.permissionDenied)
+        await fixture.load()
+        #expect(fixture.model.loadErrorMessage == L10n.string("Lithe cannot access the project folder. Check its permissions, then retry."))
+        #expect(fixture.disk.snapshotCount == 1)
+        #expect(fixture.publishedFiles.isEmpty)
+        #expect(!fixture.model.isLoadingWorkspace)
+    }
+
     @Test(arguments: [false, true])
     func mixedRuleChangesStillDeliverOrdinaryFileUpdates(metadata: Bool) async throws {
         let root = URL(fileURLWithPath: "/in-memory/mixed-indexing-rules")
@@ -110,8 +220,8 @@ struct LazyProjectTreeInventoryTests {
         #expect(fixture.publishedFiles.isEmpty)
     }
 
-    @Test
-    func aCompleteIndexingRescanPublishesRecoveryEvenWhenTheFileListIsUnchanged() async {
+    @Test(arguments: [false, true])
+    func aCompleteIndexingRescanPublishesRecoveryEvenWhenTheFileListIsUnchanged(watcherUpdate: Bool) async throws {
         let root = URL(fileURLWithPath: "/in-memory/indexing-complete-recovery")
         let file = root.appendingPathComponent("Keep.java")
         let fixture = InventoryFixture(root: root, files: [file], rows: [root.path: []])
@@ -120,10 +230,27 @@ struct LazyProjectTreeInventoryTests {
         await fixture.load()
         #expect(fixture.publishedFiles.isEmpty)
         #expect(fixture.model.appliedSnapshot?.incompleteDirectories == ["unreadable"])
+        let files: [URL]
+        if watcherUpdate {
+            let added = root.appendingPathComponent("Added.java")
+            files = [file, added]
+            fixture.disk.set(files: files, rows: [root.path: []])
+            // Incomplete inventories use a full rescan. Wait for its applied
+            // tree instead of an incremental-index or unrelated Git callback.
+            let updated = fixture.expectSnapshotRefresh()
+            try fixture.emit([added])
+            #expect(await updated.waitUntilOpen())
+            #expect(Set(fixture.model.projectFiles) == Set(files))
+            #expect(fixture.model.appliedSnapshot?.incompleteDirectories == ["unreadable"])
+            #expect(fixture.publishedFiles.isEmpty)
+        } else { files = [file] }
         fixture.disk.setIncompleteDirectories([])
         _ = await fixture.model.rebuild(at: root, rules: .default, refreshGitAfterwards: false, indexingOnly: true, isCurrent: { true })
-        #expect(fixture.publishedFiles == [[file]])
+        #expect(fixture.publishedFiles.map(Set.init) == [Set(files)])
+        #expect(fixture.publishedInitialFlags == [true])
         #expect(fixture.model.appliedSnapshot?.incompleteDirectories.isEmpty == true)
+        _ = await fixture.model.rebuild(at: root, rules: .default, refreshGitAfterwards: false, isCurrent: { true })
+        #expect(fixture.publishedInitialFlags == [true, false])
     }
 
     @Test
@@ -577,11 +704,17 @@ private final class InventoryFixture {
     let root: URL
     let disk: InventoryDisk
     let watcher = InventoryWatcherFactory()
+    let sessionStore = InventorySessionStore()
     let model: WorkspaceFeatureModel
     var changes: [WorkspaceFileChange] = []
     var publishedFiles: [[URL]] = []
+    var publishedInitialFlags: [Bool] = []
+    var gitRefreshAction: (@MainActor () async -> Void)?
+    var restoreSessionAction: (@MainActor () async -> Void)?
+    var restoreSessionCount = 0
     private var refreshGates: [String: TestGate] = [:]
     private var gitRefreshGate: TestGate?
+    private var refreshObservations: Set<AnyCancellable> = []
 
     init(root: URL, files: [URL], rows: [String: [FileNode]], directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore()) {
         self.root = root
@@ -589,18 +722,27 @@ private final class InventoryFixture {
         model = WorkspaceFeatureModel(
             operations: disk, fileOperations: disk,
             gitWatchContextProvider: InventoryGitContext(), directoryWatcherFactory: watcher,
-            workspaceSessionStore: InventorySessionStore(), directoryMarkStore: directoryMarkStore, observationDelay: { _ in }
+            workspaceSessionStore: sessionStore, directoryMarkStore: directoryMarkStore, observationDelay: { _ in }
         )
         model.configureProjection(
             documentsProvider: { [] }, activeDocumentProvider: { nil },
             selectedSidebarProvider: { "project" }, setSelectedSidebar: { _ in },
-            restoreSession: { _, _ in }, openFile: { _ in }, notify: { _ in },
+            restoreSession: { [weak self] _, _ in
+                self?.restoreSessionCount += 1
+                await self?.restoreSessionAction?()
+            }, openFile: { _ in }, notify: { _ in },
             recordHistory: { _, _ in }, relocateHistory: { _, _ in },
             relocateOpenDocuments: { _, _ in }, closeDocuments: { _ in },
             processExternalChanges: { _ in false },
             notifyWorkspaceFileChanges: { [weak self] in self?.changes.append(contentsOf: $0) },
-            reloadProjectServices: {}, refreshGit: { [weak self] in self?.gitRefreshGate?.open() }, updateHistoryVisibilityRules: { _ in },
-            onSnapshotLoaded: { [weak self] snapshot, _ in self?.publishedFiles.append(snapshot.files) },
+            reloadProjectServices: {}, refreshGit: { [weak self] in
+                self?.gitRefreshGate?.open()
+                await self?.gitRefreshAction?()
+            }, updateHistoryVisibilityRules: { _ in },
+            onSnapshotLoaded: { [weak self] snapshot, initial in
+                self?.publishedFiles.append(snapshot.files)
+                self?.publishedInitialFlags.append(initial)
+            },
             warmSearchIndex: { _, _ in },
             updateSearchIndex: { [weak self] _, paths, _ in
                 for path in paths { self?.refreshGates[path]?.open() }
@@ -626,12 +768,21 @@ private final class InventoryFixture {
         return gate
     }
 
+    func expectSnapshotRefresh() -> TestGate {
+        let gate = TestGate()
+        model.$isRefreshingWorkspace.dropFirst().filter { !$0 }
+            .sink { _ in gate.open() }.store(in: &refreshObservations)
+        return gate
+    }
+
     func emit(_ urls: [URL]) throws {
         let source = try #require(watcher.source)
         source.emit(urls.map(\.path))
     }
 
     func close() {
+        refreshObservations.removeAll()
+        disk.releaseSnapshot.open()
         disk.releaseConfiguration.open()
         disk.releaseListing.open()
         model.reset()
@@ -657,6 +808,19 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
     private var configurationTimeout = false
     private var configurationRevision: UInt64 = 0
     private var configurations = 0
+    private var refreshes: [Bool] = []
+    private var cancelledConfigurations: Set<Int> = []
+    var configurationRefreshes: [Bool] { lock.withLock { refreshes } }
+    func cancelConfiguration(number: Int) { lock.withLock { cancelledConfigurations.insert(number) } }
+    private var snapshotFailure: (any Error)?
+    private var blockSnapshot = false
+    private var snapshotTimeout = false
+    var snapshotTimedOut: Bool { lock.withLock { snapshotTimeout } }
+    let snapshotStarted = TestGate()
+    let releaseSnapshot = TestGate()
+    func failNextSnapshot(_ error: any Error, block: Bool = false) {
+        lock.withLock { snapshotFailure = error; blockSnapshot = block }
+    }
     private var nextConfigurationFinished: TestGate?
     var configurationCount: Int { lock.withLock { configurations } }
     func expectConfiguration() -> TestGate {
@@ -696,12 +860,14 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
     func blockNextListing() { lock.withLock { shouldBlock = true } }
 
     func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String? = nil) throws -> WorkspaceIndexingStatus {
-        let completion = lock.withLock {
+        let (completion, cancelled) = lock.withLock {
             configurations += 1
+            refreshes.append(refresh)
             let gate = nextConfigurationFinished
             nextConfigurationFinished = nil
-            return gate
+            return (gate, cancelledConfigurations.remove(configurations) != nil)
         }
+        if cancelled { throw CancellationError() }
         if let error = lock.withLock({ let error = nextFailure; nextFailure = nil; return error }) { throw error }
         let (blocks, fails) = lock.withLock {
             let blocks = blockConfiguration
@@ -728,9 +894,23 @@ private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations,
         return status
     }
 
-    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
-        lock.withLock {
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceSnapshot? {
+        let (failure, blocks) = lock.withLock {
             scans += 1
+            let failure = snapshotFailure
+            snapshotFailure = nil
+            let blocks = blockSnapshot
+            blockSnapshot = false
+            return (failure, blocks)
+        }
+        if blocks {
+            snapshotStarted.open()
+            // The production snapshot worker owns this synchronous protocol call.
+            let released = releaseSnapshot.waitSynchronously(timeout: 5)
+            lock.withLock { snapshotTimeout = !released }
+        }
+        if let failure { throw failure }
+        return lock.withLock {
             let visible = files.filter { file in
                 let relative = String(file.path.dropFirst(rootURL.path.count + 1))
                 return !(policy?.manualExcludedDirectories.contains(where: { relative == $0 || relative.hasPrefix($0 + "/") }) ?? false)
@@ -778,7 +958,8 @@ private struct InventoryGitContext: GitWatchContextProviding {
 
 @MainActor
 private final class InventorySessionStore: WorkspaceSessionStoring {
-    func load(for workspaceURL: URL) -> WorkspaceSession? { nil }
+    var session: WorkspaceSession?
+    func load(for workspaceURL: URL) -> WorkspaceSession? { session }
     func save(_ session: WorkspaceSession, for workspaceURL: URL) {}
 }
 

@@ -336,10 +336,10 @@ struct RemoteWorkspaceRoutingTests {
         #expect(status.revision > 0)
         #expect(status.excludedDirectories["excluded"] == "manual")
         let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
-        let snapshot = try #require(router.snapshot(at: root, visibilityRules: rules))
+        let snapshot = try #require(try router.snapshot(at: root, visibilityRules: rules))
         #expect(snapshot.files.map(\.lastPathComponent) == ["visible.txt"])
         router.releaseIndexing(at: root, revision: status.revision)
-        #expect(router.snapshot(at: root, visibilityRules: rules) == nil)
+        #expect(throws: CancellationError.self) { try router.snapshot(at: root, visibilityRules: rules) }
     }
 
     private let root = URL(fileURLWithPath: "/tmp/lithe-tests/RemoteWorkspaces/c/h/app", isDirectory: true)
@@ -509,7 +509,7 @@ struct RemoteWorkspaceRoutingTests {
         let (_, tree, transport, _) = routing()
         transport.directories["/srv/app"] = [entry("b.txt", "file"), entry("src", "directory"), entry(".git", "directory"), entry("A.md", "file")]
         let rules = FileVisibilityRules(hiddenDirectoryNames: [".git"], hiddenFilePatterns: [])
-        let snapshot = try #require(tree.snapshot(at: root, visibilityRules: rules))
+        let snapshot = try #require(try tree.snapshot(at: root, visibilityRules: rules))
         #expect(snapshot.root.children?.map(\.url.lastPathComponent) == ["src", "A.md", "b.txt"])
         #expect(snapshot.root.children?.first?.children == nil)
     }

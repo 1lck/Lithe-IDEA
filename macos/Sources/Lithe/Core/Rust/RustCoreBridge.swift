@@ -2541,8 +2541,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         at rootURL: URL,
         hiddenDirectoryNames: [String] = [],
         hiddenFilePatterns: [String] = []
-    ) -> WorkspaceSnapshotPayload? {
-        execute(
+    ) throws -> WorkspaceSnapshotPayload {
+        try executeResult(
             command: "workspace.snapshot",
             payload: SnapshotRequest(
                 root: rootURL.standardizedFileURL.path,
@@ -2550,7 +2550,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 hiddenFilePatterns: hiddenFilePatterns,
                 includeTree: false
             )
-        )
+        ).get()
     }
 
     /// Lists one visible level below each workspace-relative directory.

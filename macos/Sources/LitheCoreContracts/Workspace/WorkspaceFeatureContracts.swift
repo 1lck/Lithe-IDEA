@@ -74,7 +74,9 @@ package protocol WorkspaceOperations: Sendable {
 
     /// Drops package-compaction lookahead after workspace or filesystem changes.
     func invalidateDirectoryListings()
-    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot?
+    /// A retired indexing generation throws CancellationError so a current
+    /// workspace can rescan without reporting a filesystem failure.
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceSnapshot?
     func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules)
     func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: FileVisibilityRules)
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules)

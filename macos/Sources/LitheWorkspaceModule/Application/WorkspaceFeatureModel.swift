@@ -79,6 +79,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var gitRefreshGeneration = 0
     private var workspaceSessionPersistenceTask: Task<Void, Never>?
     private var hasRestoredWorkspaceSession = false
+    private var hasPublishedCompleteSnapshot = false
     private var directoryListingRevision = 0
     private struct DirectoryLoad {
         let id: UUID
@@ -281,6 +282,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         gitOperationFreezeDepth = 0
         workspaceURL = nil
         hasRestoredWorkspaceSession = false
+        hasPublishedCompleteSnapshot = false
         rootNode = nil
         directoryMarks = [:]
         indexingSettings = WorkspaceIndexingSettings()
@@ -338,6 +340,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         self.visibilityRules = visibilityRules
         hasRestoredWorkspaceSession = false
+        hasPublishedCompleteSnapshot = false
         pendingExternalPaths.removeAll()
         pendingGitRefresh = false
         pendingIndexingRuleRefresh = false
@@ -479,17 +482,39 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 return .unavailable
             }
         }
+        var refreshIndexing = true
         while true {
+            if Task.isCancelled {
+                if isCurrent() { isLoadingWorkspace = false; isRefreshingWorkspace = false }
+                return .stale
+            }
             let rulesRevision = indexingRulesRevision
             let policy = WorkspaceIndexingPolicy(marks: directoryMarks, settings: indexingSettings)
             do {
-                let status = try await configureCurrentIndexing(at: workspaceURL, policy: policy, refresh: true, isCurrent: isCurrent)
+                let status = try await configureCurrentIndexing(at: workspaceURL, policy: policy, refresh: refreshIndexing, isCurrent: isCurrent)
                 guard isCurrent() else { return .stale }
                 indexingStatus = status
                 indexingIssue = nil
+                snapshot = try await Task.detached(priority: .userInitiated) {
+                    try operations.snapshot(at: workspaceURL, visibilityRules: rules).map { snapshot in
+                        Self.listingTree(of: snapshot, reloading: previouslyLoaded, operations: operations, rules: rules)
+                    }
+                }.value
+                guard isCurrent() else { return .stale }
+                let validatedStatus = try await configureCurrentIndexing(at: workspaceURL, policy: policy, refresh: false, isCurrent: isCurrent)
+                guard isCurrent() else { return .stale }
+                indexingStatus = validatedStatus
             } catch {
                 guard isCurrent() else { return .stale }
                 if error is CancellationError {
+                    if !Task.isCancelled {
+                        // Another owner refreshed the root. Reuse its current
+                        // generation rather than retiring it again on retry.
+                        refreshIndexing = rulesRevision != indexingRulesRevision
+                            || policy != WorkspaceIndexingPolicy(marks: directoryMarks, settings: indexingSettings)
+                        await Task.yield()
+                        continue
+                    }
                     isLoadingWorkspace = false
                     isRefreshingWorkspace = false
                     return .stale
@@ -500,27 +525,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 isRefreshingWorkspace = false
                 return .unavailable
             }
-            snapshot = await Task.detached(priority: .userInitiated) {
-                operations.snapshot(at: workspaceURL, visibilityRules: rules).map { snapshot in
-                    Self.listingTree(
-                        of: snapshot,
-                        reloading: previouslyLoaded,
-                        operations: operations,
-                        rules: rules
-                    )
-                }
-            }.value
-
-            if isCurrent() {
-                do {
-                    let status = try await configureCurrentIndexing(at: workspaceURL, policy: policy, refresh: false, isCurrent: isCurrent)
-                    guard isCurrent() else { return .stale }
-                    indexingStatus = status
-                } catch {
-                    guard isCurrent() else { return .stale }
-                    if !(error is CancellationError) { recordIndexingFailure(error) }
-                }
-            }
             // A persisted switch/mark can change while either Core call is in
             // flight. Rescan with the latest policy before publishing inventory.
             guard isCurrent() else { return .stale }
@@ -529,6 +533,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 pendingIndexingRuleRefresh = false
                 break
             }
+            refreshIndexing = true
         }
         guard isCurrent() else {
             if isInitialLoad {
@@ -570,31 +575,41 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
 
         if !hasRestoredWorkspaceSession {
+            // Claim restoration before yielding: a concurrent inventory rescan
+            // belongs to the same session and must not start it a second time.
+            hasRestoredWorkspaceSession = true
             if let restoreSession, let session = workspaceSessionStore.load(for: workspaceURL) {
                 let excludedOpenFiles = session.openPaths.map { URL(fileURLWithPath: $0).standardizedFileURL }
                     .filter { isWorkspaceURL($0) && isIndexExcluded($0) && fileOperations.fileExists(at: $0) && !fileOperations.isDirectory(at: $0) }
                 await restoreSession(session, snapshot.files + excludedOpenFiles)
             }
+            // A newer inventory does not undo a completed session restore.
             guard isCurrent() else { return .stale }
-            hasRestoredWorkspaceSession = true
         }
-        guard isCurrent() else { return .stale }
+        guard isCurrent(), appliedSnapshot?.id == snapshot.id else { return .stale }
         await updateWatchConfiguration()
-        guard isCurrent() else { return .stale }
+        guard isCurrent(), appliedSnapshot?.id == snapshot.id else { return .stale }
         // Publish Git before slow project preparation, but metadata-only policy
         // reevaluation must not recursively request another Git refresh.
         if refreshGitAfterwards { await requestGitRefreshNow() }
-        guard isCurrent() else { return .stale }
-        if snapshot.incompleteDirectories.isEmpty {
-            await onSnapshotLoaded?(snapshot, isInitialLoad)
-        } else {
-            indexingIssue = .incompleteScan
-        }
-        guard isCurrent() else { return .stale }
+        guard isCurrent(), appliedSnapshot?.id == snapshot.id else { return .stale }
+        await publishCompleteSnapshot(snapshot)
+        guard isCurrent(), appliedSnapshot?.id == snapshot.id else { return .stale }
         if pendingFullRescan || pendingWatchRootsChanged {
             scheduleRecovery()
         }
         return .loaded(snapshot)
+    }
+
+    private func publishCompleteSnapshot(_ snapshot: WorkspaceSnapshot) async {
+        guard appliedSnapshot?.id == snapshot.id else { return }
+        guard snapshot.incompleteDirectories.isEmpty else {
+            indexingIssue = .incompleteScan
+            return
+        }
+        let isFirstCompleteSnapshot = !hasPublishedCompleteSnapshot
+        hasPublishedCompleteSnapshot = true
+        await onSnapshotLoaded?(snapshot, isFirstCompleteSnapshot)
     }
 
     package func refreshCurrent() async {
@@ -1794,14 +1809,15 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let snapshot = WorkspaceSnapshot(
             root: root,
             files: files,
-            nestedWorktrees: appliedSnapshot?.nestedWorktrees ?? []
+            nestedWorktrees: appliedSnapshot?.nestedWorktrees ?? [],
+            incompleteDirectories: appliedSnapshot?.incompleteDirectories ?? []
         )
         // Commit the inventory before yielding. A later watcher batch must merge
         // into these files even when compact-package rows still need relisting.
         rootNode = root
         projectFiles = files
         appliedSnapshot = snapshot
-        await onSnapshotLoaded?(snapshot, false)
+        await publishCompleteSnapshot(snapshot)
 
         guard reloadsTree, let workspaceURL else { return }
         let operations = self.operations

@@ -4,10 +4,10 @@
   "group": "工作区生命周期",
   "capability": "目录索引排除与 Git 自动排除",
   "owner": "Workspace",
-  "verification": "本地索引策略与目录浏览分离；远程根禁用并保留偏好。2026-10-31 整合preview 0c13ca25后，源码9068703a通过完整Rust门禁及Core1474项逐项计时（1442单元、32集成），索引/LSP聚焦34项、Swift6.4定向98项、macOS/Bun项目树74、文件系统17、LSP68、Java watcher15、工作区生命周期31、快速打开10及Git设置3项通过，TypeScript通过。源码9068703a的macOS App验证损坏配置中文错误与原值保留、修正后重试、不可读取根中英文错误及恢复权限后显式Retry、取消排除搜索与重启持久化、同窗口项目切换、linked worktree外部stage/commit和父仓库观察子模块HEAD。新JDT缓存仅生成visible项目并返回PrintStream.print候选，不当作后台零扫描保证。1419个包文件与9个符号链接未变，测试实例/JDT/辅助进程已关闭，开发偏好恢复，保留用户另一Dev实例。普通目录与即时双向语言切换另有此前构建原生证据。完全缺失最近项目被欢迎页禁用，恢复流程使用真实权限失败验收。固定Xcode26.6完整CI以PR最终SHA报告为准。Windows原生界面仍pending，Bun结果不能替代Windows UI；Java构建系统模块仍可能扫描，Go/Rust仅合并原生配置。 首轮最终SHA 7c5173b5的Windows前端2922项通过；SharedRust与真实JDT同停于冷启动Git排除断言，已确认并修复Windows原生规范路径与协议显示路径混用导致的策略查表缺失，修复后本机完整Core1474项再次计时通过、聚焦34项通过，独立只读复审无发现，后续原生CI以PR最终SHA为准。补查后修复macOS打开代次与投影资源代次混用，以及无Java决策时重复写空值造成的设置根通知；本机Swift6.4.2/Xcode27.2受影响126条和身份消费者116条计时记录全通过，包含完整Git观察、双语设置、立即Run与同根/跨根旧动作隔离，未放宽等待或断言。本机完整套件另见AppKit动画等待，最终固定工具链仍由CI确认。",
+  "verification": "本轮按用户要求保持Draft，不执行Windows/Frontend测试或Windows CI。整合preview a1ed8f4c的源码4e7b8441通过Core1482项、本机Swift6.4.2/Xcode27.2受影响177条及插件512条计时记录；合成工作区关闭/开启Git自动排除的库存为10202/201，目录浏览保持可用，该结果仅证明剪枝而非UI或LSP后台性能。随后独立复审补修跨owner取消分类与重试、快照晚发、首次完整库存及会话恢复、范围分页、点分配置合并、Windows路径身份及目录标记错误本地化；修复后的完整Core1484项计时全部通过，按现有CI分离编译后，当前源码Swift182条计时记录（含完整Git观察28条）、Rust↔Swift桥接与Core边界检查通过，macOS diff指纹在运行前后一致；此前将构建放入计时入口的无输出保护保留，未放宽预算。最新App证据待本轮结束后记录。源码4e7b8441真实App已验证普通角色不写include、Git忽略仍排除、明确取消排除恢复搜索，以及冷JDT仅导入visible；实际补全、重启和错误恢复尚未在该构建完成，CUA窗口故障已记录。旧QA进程已清理、偏好精确恢复，1419包文件/9符号链接及签名不变。9068703a的完整原生错误/Retry、外部Git/子模块、真实JDT补全与EA切换/重启证据保留在Note，不能改标新源码。最新原生与固定Xcode26.6完整CI仍pending；Windows新回归本轮仅书写和静态审查，未执行。Java显式构建模块仍可能扫描，Go/Rust配置送达不等于后台零扫描。",
   "macos": {
     "implementationStatus": "partial",
-    "verificationStatus": "verified",
+    "verificationStatus": "pending",
     "evidence": [
       "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
       "macos/Sources/Lithe/Views/App/WorkspaceIndexingSettingsView.swift",

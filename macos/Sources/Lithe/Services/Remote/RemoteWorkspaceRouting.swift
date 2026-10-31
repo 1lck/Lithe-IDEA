@@ -177,9 +177,9 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
         local.releaseIndexing(at: rootURL, revision: revision, ownerID: ownerID)
     }
 
-    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceSnapshot? {
         guard let binding = registry.binding(forRoot: rootURL) else {
-            return local.snapshot(at: rootURL, visibilityRules: visibilityRules)
+            return try local.snapshot(at: rootURL, visibilityRules: visibilityRules)
         }
         let root = binding.root
         guard let children = try? rows(of: root, at: root, binding: binding, rules: visibilityRules) else {

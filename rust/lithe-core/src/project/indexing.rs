@@ -715,6 +715,64 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn scoped_everywhere_search_filters_each_source_before_limits_and_pagination() {
+        let workspace = Workspace::new();
+        workspace.configure(&[], &[], false);
+        for folder in ["a-outside", "src", "src-other"] {
+            fs::create_dir_all(workspace.0.join(folder)).unwrap();
+            for name in ["NeedleA", "NeedleB"] {
+                fs::write(
+                    workspace.0.join(folder).join(format!("{name}.java")),
+                    format!("class {name} {{\n    void needleMethod() {{}}\n}}\n"),
+                )
+                .unwrap();
+            }
+        }
+        for kind in ["file", "type", "symbol"] {
+            let request = json!({
+                "root":workspace.0,"query":"Needle","scopePaths":["src"],"maxResults":1,
+                "maxFileResults":usize::from(kind == "file"),
+                "maxSymbolResults":usize::from(kind != "file"),"maxContentResults":0
+            });
+            let response =
+                files::search_everywhere(serde_json::from_value(request).unwrap()).unwrap();
+            assert_eq!(response.matches.len(), 1);
+            assert!(response.matches[0].path.starts_with("src/"));
+
+            let mut request = json!({
+                "root":workspace.0,"query":"Needle","scopePaths":["src"],
+                "pageSize":1,"resultKinds":[kind]
+            });
+            let mut paths = std::collections::BTreeSet::new();
+            let mut complete = false;
+            for _ in 0..4 {
+                let page = super::super::search_paging::search_page(
+                    serde_json::from_value(request.clone()).unwrap(),
+                )
+                .unwrap();
+                for item in page["matches"].as_array().unwrap() {
+                    assert_eq!(item["kind"], kind);
+                    let path = item["path"].as_str().unwrap();
+                    assert!(path.starts_with("src/"), "out-of-scope result: {path}");
+                    assert!(paths.insert(path.to_owned()), "duplicate result: {path}");
+                }
+                if page["nextCursor"].is_null() {
+                    complete = true;
+                    break;
+                }
+                request["cursor"] = page["nextCursor"].clone();
+            }
+            assert!(complete, "scoped pagination did not terminate");
+            assert_eq!(
+                paths,
+                ["src/NeedleA.java".to_owned(), "src/NeedleB.java".to_owned()]
+                    .into_iter()
+                    .collect()
+            );
+        }
+    }
+
+    #[test]
     fn java_import_exclusion_matches_the_directory_itself_before_its_descendants() {
         let workspace = Workspace::new();
         workspace.configure(&["ignored"], &[], false);

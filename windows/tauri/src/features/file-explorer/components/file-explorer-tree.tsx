@@ -202,7 +202,6 @@ function FileExplorerTreeComponent({
     [rootFolderPath, workspaceFolders],
   );
   const { markForPath, markDirectory, error: directoryMarksError } = useDirectoryMarks(workspaceRootPaths);
-  useEffect(() => { if (directoryMarksError) toast.error(directoryMarksError); }, [directoryMarksError]);
   const [indexingStatuses, setIndexingStatuses] = useState<Record<string, IndexingStatus>>({});
   useEffect(() => {
     const roots = nativeRootPaths;
@@ -309,6 +308,7 @@ function FileExplorerTreeComponent({
   );
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const { t } = useTranslation();
+  useEffect(() => { if (directoryMarksError) toast.error(t(`indexing.${directoryMarksError}`)); }, [directoryMarksError, t]);
   const cutClipboardEntries = useFileClipboardStore((state) =>
     state.clipboard?.operation === "cut" ? state.clipboard.entries : null,
   );

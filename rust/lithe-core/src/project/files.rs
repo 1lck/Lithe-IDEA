@@ -625,7 +625,9 @@ pub(crate) fn search_everywhere_with_page(
         for id in names.all_file_ids() {
             crate::protocol::cancellation::check()?;
             let Some(file) = names.file(id) else { continue };
-            if !file_mask_allows(&masks, &file.path) {
+            if !scope_allows(&request.scope_paths, &file.path)
+                || !file_mask_allows(&masks, &file.path)
+            {
                 continue;
             }
             let name = file.path.rsplit('/').next().unwrap_or(&file.path);
@@ -699,7 +701,9 @@ pub(crate) fn search_everywhere_with_page(
         for id in index.all_file_ids() {
             crate::protocol::cancellation::check()?;
             let Some(file) = index.file(id) else { continue };
-            if !file_mask_allows(&masks, &file.path) {
+            if !scope_allows(&request.scope_paths, &file.path)
+                || !file_mask_allows(&masks, &file.path)
+            {
                 continue;
             }
             for symbol in index.symbols(id) {
