@@ -322,7 +322,7 @@ classify_path() {
             # shared Core behavior or the isolated plugin test lane.
             macos_release=true
             ;;
-        scripts/plugins/native-workbench-browser.mjs|scripts/plugins/test-windows-native-plugin-ui-browser.mjs)
+        scripts/plugins/native-workbench-browser.mjs|scripts/plugins/test-windows-native-plugin-ui-browser.mjs|scripts/plugins/assemble-windows-java-support.py|scripts/plugins/test-assemble-windows-java-support.py)
             windows=true
             ;;
         scripts/plugins/host-acceptance/*|scripts/plugins/test-windows-declarative-plugin-host.ps1|scripts/plugins/test-windows-plugin-vcs-core.mjs|scripts/plugins/test-plugin-vcs-move-diagnostic.mjs)

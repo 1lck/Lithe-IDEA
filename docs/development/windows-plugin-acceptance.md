@@ -5,6 +5,8 @@
 
 数据核实：2026-10-24（首次）与 2026-10-25（能力声明/矩阵维度复核，并同步 preview `83017afa`），gh API（仓库元数据、release 资产、`Lithe-IDEA/Lithe-store/lithe-plugin-index.json`、`Lithe-IDEA/lithe-plugin-docs`）+ 主仓库基线 commit `1e78b59b6385fca6a881639b42048bf3bc587f4a` 的源码。索引与 release 会持续变化，每次执行验收前必须重新核实并把当时的 tag/版本/SHA-256 写进当次记录，不得沿用本文。
 
+2026-10-31 仓库实现补充：Windows Java 完整包已有独立清单与离线组装器；欢迎页、菜单及项目选择器复用新建项目向导。Java 真实工作流驱动也已准备，但正式签名包、生产 `packageTrust` 准入与可信 JDK/工作区交接证据尚缺，完整链仍 pending。此补充不改变上面的外部渠道核实时点。
+
 ## 1. 通用验收流程（每个真实包逐项执行）
 
 以下链条来自路线图 M10 与 Windows 声明式插件宿主 Note 的既有边界，每个包按适用子流程裁剪，但裁剪必须在记录里写明。
@@ -14,7 +16,7 @@
 | 1 | 前置固定 | 宿主构建 SHA、包 tag/commit、版本、下载 SHA-256、架构、构建配置（Release）全部登记 | 命令与输出 |
 | 2 | 安装 | 市场下载按索引 SHA-256 核对（`plugin.archive.checksumMismatch` 拒绝篡改）；磁盘导入走私有快照；staging→发布事务完成 | 安装来源字段与内容摘要 |
 | 3 | 授权 | installReview 全量审批：权限 + 完整程序声明逐项可展开；社区包明示"未认证发布者"；新增程序（newPrograms）高亮 | 审批界面截图 + 审批记录持久化确认 |
-| 4 | 启用与重启 | 启用后重启应用，启动扫描结果一致；停用状态持久化；bundled 包仍为最高版本 | 扫描前后 catalog 对比 |
+| 4 | 启用与重启 | 启用后重启应用，启动扫描结果一致；停用状态持久化；同 ID 的 installed 来源遮蔽 bundled，disabled/quarantine 不回退，卸载后才恢复 bundled | 扫描前后 catalog 对比 |
 | 5 | 真实工作流 | 打开目标项目 → 语言服务启动/构建模型 → 运行、测试 → 取消一次在途操作；操作在真实 UI 触发，非仅命令调用 | 每步入口（菜单/按钮）、预期/实际 |
 | 6 | 升级失败 | 更新时篡改摘要或中断下载：旧版本与旧安装记录保持可用，本次 staging 被清理，无"新目录配旧记录" | 失败注入方式与恢复证据 |
 | 7 | 回滚 | 回滚到上一版本：先停止读用旧包的会话与页面，再换目录；回滚包按自身审批记录复验 | 页面关闭与进程停止证据 |
@@ -39,10 +41,10 @@
 | io.github.lithe-idea.maven-build | [lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven) tag `v0.1.1`，api3，`requires {buildProviders:1, buildSystems:1, serverProcess:1}`，模型源 provider | Apache-2.0 | Provider 进程（自有 launch）+ Core litheBuild 协商 | JDK（provider 进程与 Maven 工具链） | macOS 可装：宿主能力表声明 `buildProviders:[1]`、`buildSystems:[1,2]`、`serverProcess:[1]`（`PluginTypes.swift:492-503`），Core `SUPPORTED_CAPABILITIES` 同表；矩阵 `build-provider-refresh-and-tool` 记 macOS implemented/验证 pending（`MacBuildProviderSessionsTests` 覆盖会话自动化）——implemented 不等于已验证；Windows `apiUnsupported`（能力未开放）；**windows 工件 pending** | Windows 侧 M5 开放能力 → M10 第一阶段（Provider/函数线）；macOS 侧验证对照随 M10 第一阶段 |
 | io.github.lithe-idea.cargo-build | [lithe-plugin-cargo](https://github.com/Lithe-IDEA/lithe-plugin-cargo) tag `v0.1.1`，api3，`requires {buildProviders:1, buildSystems:2, serverProcess:1, settings:2}`，模型源 provider；0.1.0 为 `{buildSystems:1, buildProviders:1}` | Apache-2.0 | Provider 进程；cargo 工具链 | Rust/Cargo 工具链 | 0.1.1 的 `buildSystems:2` 由 Core（`capabilities.rs` `SUPPORTED_CAPABILITIES`）与 macOS 宿主能力表（`buildSystems:[1,2]`）共同支持，macOS 可装（矩阵 `cargo-build-plugin` 记 macOS implemented/验证 pending）；Windows `apiUnsupported`（buildSystems/buildProviders 未声明）；**windows 工件 pending** | Windows 侧 M4/M5 开放能力（路线图 M4 明确含 `buildSystems:2` 兼容输入解析）→ M10 第一阶段 |
 | io.github.lithe-idea.svn-support | [lithe-plugin-svn](https://github.com/Lithe-IDEA/lithe-plugin-svn) tag `v0.1.0`，api3，`requires {vcsProviders:1, serverProcess:1}`，vcsTool svn | Apache-2.0 | VCS Provider 进程会话 | svn 命令行客户端（用户提供） | macOS 可装：宿主已声明 `vcsProviders:[1]`（`PluginTypes.swift:502`），Core 支持；矩阵 `vcs-subversion-and-plugin-providers` 记 macOS partial/验证 pending（`VcsProviderHostTests` 覆盖根识别、元数据监听与生命周期自动化；svn 解析与错误码由其插件仓库 CI 经 Core 桥接在 file:// 仓库验证）；Windows `apiUnsupported`；**windows 工件 pending** | M9 → M10 第二阶段 |
-| Java Support（dev.lithe.plugin.java-support） | macOS bundled 官方包；JDT LS 上游固定 [v1.61.0](https://github.com/eclipse-jdtls/eclipse.jdt.ls/tree/v1.61.0)；包内含 `LICENSE-EPL-2.0.txt`（组装脚本 `assemble-package.sh` 随包携带） | JDT LS 及 Eclipse 扩展为 EPL-2.0（随包 LICENSE 文件）；icons 目录 Apache-2.0 | Windows 无分发：路线图 M8 明确必须满足其整份 `requires`，不得复用 macOS ZIP（含 macOS 架构 JDK/runtime） | 打包 JDK（packagedRuntime，`${arch}` 路径） | macOS bundled 可用；**Windows 分发 pending（构建/打包决策未做）** | M8（生成器/分发）+ M10 第一阶段（语言链验收） |
+| Java Support（dev.lithe.plugin.java-support） | Windows 自有清单 `Plugins/win/Official/JavaSupport`；离线组装器 `scripts/plugins/assemble-windows-java-support.py` 固定并校验 JDT LS、扩展及 JDK 输入；上游身份与许可随组装 receipt 和包内文件保存 | JDT LS/Eclipse 扩展 EPL-2.0；JDK 与扩展许可随完整包携带 | 独立 Windows x64 候选；保留六项完整 requires，不能复用 macOS ZIP；ARM64 待独立包与实机证据 | 打包 Windows JDK（packagedRuntime，`${arch}` 路径） | 未签名候选可复核；**正式 publisherPackage 签名、生产 packageTrust 准入及完整实机链 pending**；EXE/安装器 Authenticode 不能密封外置 bundled 资源，无有效 host seal 时拒绝 | M8（生成器/分发）+ M10 第一阶段（语言链验收） |
 | 官方可下载插件渠道 | `Plugins/marketplace/index.json` 与 `official-plugins.json` 均为空；发布管线 `release-official-plugins.yml` 存在（macos-26 runner 构建、tag 系列 `<tagPrefix><version>`） | 按未来包而定 | 官方索引当前无条目，无可验收的官方 Windows 包 | — | 渠道就绪但**无条目 → pending**；第一个官方包发布后按 §1 全链验收 | M2（索引/下载）→ M10 第一阶段 |
 | 原生 UI 真实示例（ui:3） | 未选定外部示例仓库与版本 | 待选型 | native schema 树/列表/表单渲染 | 待选型 | **pending 选型**；路线图要求"固定版本的外部示例" | M7 → M10 第二阶段 |
-| 项目生成器真实包（projectGenerators） | 未选定（`project-generator` fixture 仅覆盖 Core 语义；JavaSupport 模板为 macOS 分发） | 待选型 | 新建项目窗口 + files/command/archive 步骤 | 待选型 | **pending 选型** | M8 → M10 第二阶段 |
+| 项目生成器真实包（projectGenerators） | Windows JavaSupport 已包含 plain/Maven/Gradle 模板；受控 fixture 用于验证原生计划、JDK 绑定与工作区交接 | 随 JavaSupport 完整包 | 欢迎页、菜单、项目选择器进入同一向导；files/command/archive 步骤由原 Core/平台执行器处理 | 用户选择经平台发现的 JDK | **正式可信包生成 → 打开 → 语言服务 → 运行全链 pending**；fixture 通过不能替代真实包验收 | M8 → M10 第二阶段 |
 
 补充说明：
 
@@ -80,8 +82,18 @@
 
 - 欢迎页/菜单进入通用新建项目窗口 → 插件生成器字段与步骤 → 目标旁临时 staging → 成功后移动，失败/取消删除 → Git 初始化与 JDK 设置 → 打开后进入语言导入与构建识别。
 - 目标目录已存在或被并发创建时拒绝覆盖；失败无半成品；成功不写安装目录。
+- focused 驱动使用 `test-windows-declarative-plugin-host.ps1 -SkipBuild -ProjectGenerators -ProjectGeneratorsFixtureRoot <inputs>`。可选 `-ProjectGeneratorsJavaHome <jdk>` 必须与平台发现结果一致；省略时由平台发现，不从脚本硬编码工具目录。
+- 核对 UI 审批展示的完整原生计划（含 runtimes）、生成工程的 JDK 设置及工作区 A/B 往返；迟到结果不得打开另一项目，也不得关闭新开的项目选择器。打开失败的重试只打开已创建工程，不再次生成。
 
-### 3.6 VCS Provider（M9 后）
+### 3.6 Plain Java 完整工作流（可信输入后执行）
+
+- 计划使用 `schemaVersion: 1`、`kind: windows-plain-java-workflow`，固定最终源码 commit/inventory、完整独立 publisherPackage ZIP/原始清单 SHA-256、整份 requires、真实 JDK 的 java/javac SHA-256，以及包信任和 JDK/工作区原始证据 receipt。驱动的 `java_workflow_inputs.py` 定义字段与校验；receipt 仅引用原始证据，不能覆盖原生信任拒绝。
+- 先运行 `python -B scripts/plugins/host-acceptance/java_workflow_acceptance.py --plan <plan> --report <fresh-report> --preflight`。退出码 2 表示未执行产品验收；缺 receipt 或能力关闭时记录 blocked。unsigned candidate 不产生 `productionTrusted` receipt，不删 requires，也不为验收开放信任根。
+- 前置齐全后运行 `test-windows-declarative-plugin-host.ps1 -SkipBuild -JavaWorkflow -JavaWorkflowPlan <plan>`。该模式与其它 focused lane 互斥；wrapper 在重置旧运行镜像或证据前检查输入。每次使用新报告路径并保全旧结果。
+- 真实 UI 生成 plain Main 工程 → JDT ready → 编辑/保存与同会话同步 → 唯一 Core `java.prepareLaunch` → 实际 Java 输出 → Stop → 编译错误后取消启动。观察器只透明观察既有 IPC fetch/callback，不改写原生 invoke，也不保存环境变量。
+- 工作 deadline 720 秒、内部 owner 900 秒、此模式的 PS driver 1020 秒；外部 watchdog 至少 1140 秒，为退出与证据清理留余量。最终核对安装资源哈希、Job 零残留及 profile 清理。Maven/Gradle、签名安装器/升级、ARM64、完整 M10 仍分别记录 pending。
+
+### 3.7 VCS Provider（M9 后）
 
 - 根识别 → 状态/提交/更新/回滚入口按协商能力显示 → 关闭项目窗口停止 Provider 会话 → 嵌套根归属最深 → 缺少 svn 客户端、凭据/网络失败按稳定码展示。
 - Git 主流程不回归是并行退出条件。

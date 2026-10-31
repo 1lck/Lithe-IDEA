@@ -15,6 +15,9 @@ param(
     [switch]$TextWindow,
     [switch]$ProjectGenerators,
     [string]$ProjectGeneratorsFixtureRoot = "",
+    [string]$ProjectGeneratorsJavaHome = "",
+    [switch]$JavaWorkflow,
+    [string]$JavaWorkflowPlan = "",
     [string]$MarketplaceFixtureRoot = "",
     [string]$MarketplaceTlsCert = "",
     [string]$MarketplaceTlsKey = "",
@@ -40,8 +43,17 @@ if ($TextWindow -and ($Marketplace -or $LspLifecycle -or $SettingsFunctions)) {
 if ($ProjectGenerators -ne (-not [string]::IsNullOrWhiteSpace($ProjectGeneratorsFixtureRoot))) {
     throw "Use -ProjectGenerators and -ProjectGeneratorsFixtureRoot together."
 }
+if (-not [string]::IsNullOrWhiteSpace($ProjectGeneratorsJavaHome) -and -not $ProjectGenerators) {
+    throw "ProjectGeneratorsJavaHome requires a focused -ProjectGenerators invocation."
+}
 if ($ProjectGenerators -and (-not $SkipBuild -or $Marketplace -or $LspLifecycle -or $SettingsFunctions -or $TextWindow)) {
     throw "Project generators consume an existing source-bound isolated build: use a focused -SkipBuild invocation."
+}
+if ($JavaWorkflow -ne (-not [string]::IsNullOrWhiteSpace($JavaWorkflowPlan))) {
+    throw "Use -JavaWorkflow and -JavaWorkflowPlan together."
+}
+if ($JavaWorkflow -and (-not $SkipBuild -or $Marketplace -or $LspLifecycle -or $SettingsFunctions -or $TextWindow -or $ProjectGenerators)) {
+    throw "Java workflow consumes an existing source-bound isolated build: use a focused -SkipBuild invocation."
 }
 $controlledMarketplaceArguments = @($MarketplaceFixtureRoot, $MarketplaceTlsCert, $MarketplaceTlsKey)
 $providedMarketplaceArguments = @($controlledMarketplaceArguments | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -252,6 +264,27 @@ function Stop-OwnedAcceptanceProcesses {
 
 New-Item -ItemType Directory -Path $artifactParent -Force | Out-Null
 New-Item -ItemType Directory -Path $stabilityRoot -Force | Out-Null
+if ($JavaWorkflow) {
+    $javaReport = Join-Path $stabilityRoot "plugin-java-workflow-acceptance.json"
+    if (Test-Path -LiteralPath $javaReport) {
+        throw "Archive the prior Java workflow report before a fresh run: $javaReport"
+    }
+    # Reject missing production trust/JDK evidence before resetting any prior
+    # image, profile or evidence. Preflight never starts the application.
+    $javaPreflightReport = Join-Path $stabilityRoot ("plugin-java-workflow-preflight-" + [guid]::NewGuid().ToString("N") + ".json")
+    $javaPreflightLog = [IO.Path]::ChangeExtension($javaPreflightReport, ".log")
+    $javaPreflightExit = Invoke-BoundedDriver -Arguments @(
+        "-B", (Join-Path $fixtureRoot "java_workflow_acceptance.py"), "--preflight",
+        "--plan", ([IO.Path]::GetFullPath($JavaWorkflowPlan)), "--report", $javaPreflightReport
+    ) -LogPath $javaPreflightLog -TimeoutSeconds 120
+    if ($javaPreflightExit -ne 2 -or -not (Test-Path -LiteralPath $javaPreflightReport -PathType Leaf)) {
+        throw "Java workflow input validation failed; inspect $javaPreflightLog. No product was started."
+    }
+    $javaPreflight = Get-Content -LiteralPath $javaPreflightReport -Raw | ConvertFrom-Json
+    if ($javaPreflight.runtimeExecuted -ne $false -or $javaPreflight.blocked.Count -gt 0) {
+        throw "Java workflow prerequisites are blocked; inspect $javaPreflightReport. No product was started."
+    }
+}
 if (-not $SkipBuild -and -not $ResumeBuild) {
     Reset-OwnedDirectory -Path $artifactRoot
 } else {
@@ -318,7 +351,10 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     (Join-Path $fixtureRoot "text_window_acceptance_test.py"),
     (Join-Path $fixtureRoot "generator_fixture.py"),
     (Join-Path $fixtureRoot "generator_acceptance.py"),
-    (Join-Path $fixtureRoot "generator_acceptance_test.py")
+    (Join-Path $fixtureRoot "generator_acceptance_test.py"),
+    (Join-Path $fixtureRoot "java_workflow_inputs.py"),
+    (Join-Path $fixtureRoot "java_workflow_acceptance.py"),
+    (Join-Path $fixtureRoot "java_workflow_acceptance_test.py")
 ) -FailureMessage "A plugin host acceptance Python source file has invalid syntax"
 
 & (Join-Path $root ".agents/skills/write-stable-tests/scripts/verify-test-stability.ps1") -Platform windows
@@ -366,6 +402,14 @@ if ($ProjectGenerators) {
         "-B", (Join-Path $fixtureRoot "generator_acceptance_test.py"),
         "--report", (Join-Path $stabilityRoot "plugin-generator-helpers.json")
     ) -FailureMessage "The project-generator fixture and cleanup checks failed"
+}
+if ($JavaWorkflow) {
+    Invoke-NativeChecked -Executable "node" -Arguments @("--check", (Join-Path $fixtureRoot "java_workflow_observer.js")) `
+        -FailureMessage "The Java workflow observer has invalid JavaScript"
+    Invoke-NativeChecked -Executable "python" -Arguments @(
+        "-B", (Join-Path $fixtureRoot "java_workflow_acceptance_test.py"),
+        "--report", (Join-Path $stabilityRoot "plugin-java-workflow-helpers.json")
+    ) -FailureMessage "The Java workflow evidence and cleanup checks failed"
 }
 
 $zsh = Get-Command zsh -ErrorAction SilentlyContinue
@@ -556,6 +600,10 @@ if ($ProjectGenerators) {
     $acceptanceReport = Join-Path $stabilityRoot "plugin-generator-acceptance.json"
     $driverLog = Join-Path $artifactRoot "generator-driver.log"
 }
+if ($JavaWorkflow) {
+    $acceptanceReport = $javaReport
+    $driverLog = Join-Path $artifactRoot "java-workflow-driver.log"
+}
 
 @{
     schemaVersion = 1
@@ -634,8 +682,27 @@ try {
             "--app-roaming-data", $appRoamingData,
             "--webview-data", $webviewData
         )
+        if (-not [string]::IsNullOrWhiteSpace($ProjectGeneratorsJavaHome)) {
+            $driverArguments += @("--java-home", ([IO.Path]::GetFullPath($ProjectGeneratorsJavaHome)))
+        }
     }
-    $driverExit = Invoke-BoundedDriver -LogPath $driverLog -Arguments $driverArguments
+    if ($JavaWorkflow) {
+        $driverArguments = @(
+            "-B", (Join-Path $fixtureRoot "java_workflow_acceptance.py"),
+            "--plan", ([IO.Path]::GetFullPath($JavaWorkflowPlan)),
+            "--host-identity", $identityMarker,
+            "--executable", $stagedExecutable,
+            "--run-image", $runImage,
+            "--artifact-root", (Join-Path $evidenceRoot "java-workflow"),
+            "--report", $acceptanceReport,
+            "--app-local-data", $appLocalData,
+            "--app-roaming-data", $appRoamingData,
+            "--webview-data", $webviewData
+        )
+        $driverExit = Invoke-BoundedDriver -LogPath $driverLog -Arguments $driverArguments -TimeoutSeconds 1020
+    } else {
+        $driverExit = Invoke-BoundedDriver -LogPath $driverLog -Arguments $driverArguments
+    }
 } catch {
     $driverFailure = $_.ToString()
     Write-NormalizedReport -Path $acceptanceReport -Name "native acceptance driver deadline or startup" `

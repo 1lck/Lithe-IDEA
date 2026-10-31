@@ -72,6 +72,8 @@ test('plugin script locations keep their explicit product and infrastructure rou
   const cases = [
     ['scripts/plugins/native-workbench-browser.mjs', false, false, true, false],
     ['scripts/plugins/test-windows-native-plugin-ui-browser.mjs', false, false, true, false],
+    ['scripts/plugins/assemble-windows-java-support.py', false, false, true, false],
+    ['scripts/plugins/test-assemble-windows-java-support.py', false, false, true, false],
     ['scripts/plugins/host-acceptance/build_fixture.py', false, false, true, true],
     ['scripts/plugins/test-windows-declarative-plugin-host.ps1', false, false, true, true],
     ['scripts/plugins/test-windows-plugin-vcs-core.mjs', false, false, true, true],
@@ -448,6 +450,8 @@ test('CI infrastructure reaches only the workflows that read it', () => {
     'scripts/windows/build/install-windows-frontend-dependencies.ps1': ['windows'],
     'scripts/plugins/native-workbench-browser.mjs': ['windows'],
     'scripts/plugins/test-windows-native-plugin-ui-browser.mjs': ['windows'],
+    'scripts/plugins/assemble-windows-java-support.py': ['windows'],
+    'scripts/plugins/test-assemble-windows-java-support.py': ['windows'],
     'scripts/plugins/test-windows-declarative-plugin-host.ps1': ['windows'],
     'scripts/plugins/test-windows-plugin-vcs-core.mjs': ['windows'],
     'scripts/plugins/test-plugin-vcs-move-diagnostic.mjs': ['windows'],
