@@ -114,6 +114,11 @@ export class WindowsBuildProviderWorkspace {
     const model = this.models.get(owner(instance)); return model && structuredClone(model);
   }
   hasCurrentModel(instance: BuildInstance): boolean { return this.modelIsCurrent(instance) && this.models.has(owner(instance)); }
+  /** A cheap opaque lease for UI actions crossing asynchronous persistence. */
+  modelGuard(instance: BuildInstance): () => void {
+    const model = this.models.get(owner(instance));
+    return () => { if (!model || !this.modelIsCurrent(instance) || this.models.get(owner(instance)) !== model) throw this.revoked(); };
+  }
   dependencyResult(instance: BuildInstance, projectID?: string): BuildDependencySnapshot | undefined {
     if (!this.modelIsCurrent(instance)) return undefined;
     const result = this.dependencyResults.get(JSON.stringify([owner(instance), projectID ?? ""]))?.snapshot;

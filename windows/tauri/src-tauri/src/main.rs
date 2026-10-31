@@ -318,6 +318,7 @@ fn main() {
                             plugin_host::build::declarative_plugins_build_detect,
                             plugin_host::build_tools::declarative_plugins_build_tool,
                             plugin_host::build_configuration::declarative_plugins_build_prepare_configuration,
+                            plugin_host::build_configuration::declarative_plugins_build_save_run,
                             plugin_host::build_configuration::declarative_plugins_build_check_configuration,
                             plugin_host::build_configuration::declarative_plugins_build_commit_configuration,
                             plugin_host::build_configuration::declarative_plugins_build_cancel_configuration,

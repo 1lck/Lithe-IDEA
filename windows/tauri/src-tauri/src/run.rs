@@ -41,7 +41,7 @@ const RUN_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const STOPPED_EXIT_CODE: i32 = 1;
 
 const MAX_JAVA_SOURCES: usize = 8_000;
-const LITHE_GITIGNORE_ENTRIES: &[&str] = &[
+pub(crate) const LITHE_GITIGNORE_ENTRIES: &[&str] = &[
     "run/local.json",
     "toolchains/local.json",
     // Pre-launch compile products for standalone Java (javac -d output); a

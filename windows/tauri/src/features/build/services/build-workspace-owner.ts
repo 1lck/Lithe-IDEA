@@ -6,12 +6,12 @@ import type { BuildWorkspaceController } from "./build-workspace-controller";
 export class BuildWorkspaceOwner {
   private readonly workspaces = new Map<string, { path: string; controller: BuildWorkspaceController; closing?: Promise<void>; retired?: boolean }>();
 
-  constructor(private readonly create: (path: string) => BuildWorkspaceController) {}
+  constructor(private readonly create: (path: string, workspaceID: string) => BuildWorkspaceController) {}
 
   get(workspaceID: string, path: string): BuildWorkspaceController | undefined {
     const existing = this.workspaces.get(workspaceID);
     if (existing) return existing.path === path && !existing.retired ? existing.controller : undefined;
-    const controller = this.create(path);
+    const controller = this.create(path, workspaceID);
     this.workspaces.set(workspaceID, { path, controller });
     return controller;
   }

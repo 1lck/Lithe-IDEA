@@ -1,5 +1,5 @@
 import { expect, mock, test } from "bun:test";
-import { createRunStore } from "./run.store";
+import { createRunStore, type RunStoreDependencies } from "./run.store";
 import { mapCoreConfiguration } from "../utils/run-configuration";
 import { EMPTY_GLOBAL_TOOLCHAIN } from "../types/run.types";
 import type { BuildProviderRunRequest } from "../services/build-provider-run-launch";
@@ -8,7 +8,7 @@ function deferred() {
   let resolve!: () => void, reject!: (error: unknown) => void;
   const promise = new Promise<void>((done, failed) => { resolve = done; reject = failed; }); return { promise, resolve, reject };
 }
-function fixture(provider = "build.provider", admitted = false) {
+function fixture(provider = "build.provider", admitted = false, save?: RunStoreDependencies["saveBuildProviderRun"]) {
   const configuration = mapCoreConfiguration({ id: "user:service", name: "Provider service", provider, execution: "service", source: "local",
     extensions: provider === "build.provider" ? { build: { pluginID: "dev.example.build", buildSystemID: "example", root: ".", run: "serve", projectID: "app", targetID: "exact",
       execution: "service", userArguments: ["", "two words"] } } : { maven: { reactorPath: "nested", module: "app" } } });
@@ -16,6 +16,7 @@ function fixture(provider = "build.provider", admitted = false) {
     finishGate?: ReturnType<typeof deferred> }> = [];
   const entered = deferred(), replacementEntered = deferred(), legacy = mock(async () => { throw new Error("legacy planning must not run"); });
   const store = createRunStore("provider-run-store", {
+    saveBuildProviderRun: save,
     isBuildProviderRunAdmitted: async () => admitted,
     inspectRunConfiguration: async () => ({ status: "ready" }),
     resolveConfigurations: async () => ({ configurations: [configuration], diagnostics: [], defaultConfigurationId: null,
@@ -120,4 +121,71 @@ test("project reload cancels pending Provider preparation while a completed nati
     await f.store.getState().actions.loadProject("C:/work"); expect(second.stops).toBe(0);
     expect(f.store.getState().sessions[0]?.isRunning).toBe(true);
   } finally { await f.close(); await Promise.allSettled([pending, running]); }
+}, 5000);
+
+
+test("Build Save and Run uses a cold Run store while pane reload waits for its native acknowledgement", async () => {
+  const saveEntered = deferred(), save = deferred();
+  const writes: unknown[] = [];
+  const f = fixture("build.provider", false, async (root, reference, name) => {
+    writes.push({ root, reference, name }); saveEntered.resolve(); await save.promise; return "user:service";
+  });
+  f.store.setState({ root: null, configurations: [] });
+  const reference = structuredClone(f.configuration.buildProvider!);
+  const running = f.store.getState().actions.runBuildTarget("C:/work", reference, "Service", () => {});
+  let reload: Promise<void> | undefined;
+  try {
+    await saveEntered.promise;
+    reload = f.store.getState().actions.loadProject("C:/work");
+    expect(f.entries).toHaveLength(0);
+    save.resolve(); await f.entered;
+    expect(writes).toEqual([{ root: "C:/work", reference, name: "Service" }]);
+    f.entries[0]!.gate.resolve();
+    expect(await running).toMatchObject({ sessionId: "user:service" }); await reload;
+    expect(f.entries[0]!.stops).toBe(0); expect(f.legacy).not.toHaveBeenCalled();
+  } finally { save.resolve(); await f.close(); await Promise.allSettled([running, reload]); }
+}, 5000);
+
+test("Build Save and Run refuses a changed readback instead of launching another selector", async () => {
+  const f = fixture("build.provider", false, async () => {
+    f.configuration.buildProvider!.targetID = "replacement"; return "user:service";
+  });
+  const reference = structuredClone(f.configuration.buildProvider!);
+  try {
+    await expect(f.store.getState().actions.runBuildTarget("C:/work", reference, "Service", () => {})).rejects.toThrow();
+    expect(f.entries).toHaveLength(0); expect(f.legacy).not.toHaveBeenCalled();
+  } finally { await f.close(); }
+}, 5000);
+
+test("revoking a Build target during save retains the saved intent but never starts its process", async () => {
+  const entered = deferred(), saved = deferred(); let current = true;
+  const f = fixture("build.provider", false, async () => { entered.resolve(); await saved.promise; return "user:service"; });
+  const running = f.store.getState().actions.runBuildTarget("C:/work", f.configuration.buildProvider!, "Service", () => {
+    if (!current) throw new DOMException("Aborted", "AbortError");
+  });
+  try {
+    await entered.promise; current = false; saved.resolve();
+    await expect(running).rejects.toThrow("Aborted"); expect(f.entries).toHaveLength(0);
+  } finally { saved.resolve(); await f.close(); await Promise.allSettled([running]); }
+}, 5000);
+
+test("Stop while a Build reference save ignores cancellation cannot start a late Run", async () => {
+  const entered = deferred(), saved = deferred(), cancel = new AbortController();
+  const f = fixture("build.provider", false, async () => { entered.resolve(); await saved.promise; return "user:service"; });
+  const running = f.store.getState().actions.runBuildTarget("C:/work", f.configuration.buildProvider!, "Service", () => {}, cancel.signal);
+  try {
+    await entered.promise; cancel.abort(); saved.resolve();
+    await expect(running).rejects.toThrow(); expect(f.entries).toHaveLength(0);
+  } finally { saved.resolve(); await f.close(); await Promise.allSettled([running]); }
+}, 5000);
+
+test("Stop after a Build target save cancels the exact Provider preparation", async () => {
+  const cancel = new AbortController(), f = fixture("build.provider", false, async () => "user:service");
+  const running = f.store.getState().actions.runBuildTarget("C:/work", f.configuration.buildProvider!, "Service", () => {}, cancel.signal);
+  try {
+    await f.entered; const entry = f.entries[0]!; cancel.abort();
+    expect(await running).toBeNull(); expect(entry.stops).toBe(1);
+    expect(f.store.getState().sessions[0]).toMatchObject({ isPreparing: false, isRunning: false });
+    expect(f.legacy).not.toHaveBeenCalled();
+  } finally { await f.close(); await Promise.allSettled([running]); }
 }, 5000);

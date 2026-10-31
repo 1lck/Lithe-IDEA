@@ -6,7 +6,7 @@ import { LocaleProvider } from "@/i18n/locale-provider";
 import { createTranslator } from "@/i18n/locale";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useUIState } from "@/features/window/stores/ui-state.store";
-import { BuildWorkspaceController } from "../services/build-workspace-controller";
+import { BuildWorkspaceController, type BuildWorkspaceControllerPorts } from "../services/build-workspace-controller";
 import { WindowsBuildProviderWorkspace, type BuildModel } from "../services/build-provider-workspace";
 import type { WindowsBuildCatalog } from "@/platform/build-provider-platform";
 import type { buildCore } from "@/platform/build-core-api";
@@ -27,7 +27,7 @@ function deferred<T>() {
   const promise = new Promise<T>(complete => { resolve = complete; });
   return { promise, resolve };
 }
-function fixture() {
+function fixture(runTarget?: BuildWorkspaceControllerPorts["runTarget"]) {
   type Ports = ConstructorParameters<typeof WindowsBuildProviderWorkspace>[1];
   type Request = Parameters<Ports["providers"]["send"]>[1];
   const sent: Request[] = [];
@@ -56,7 +56,7 @@ function fixture() {
       return (pending ? await pending : { exitCode: 0, output: "upstream output\n", ...(request.method === "build.testPlan" ? { testResults: { version: 1 } } : {}) }) as T;
     }, stop: async () => {} },
   });
-  const controller = new BuildWorkspaceController("C:/work", { domain, guard: () => () => {}, detect: async () => {
+  const controller = new BuildWorkspaceController("C:/work", { domain, runTarget, guard: () => () => {}, detect: async () => {
     if (failedDetection) throw new Error("Detection rejected");
     return structuredClone(detected);
   } });
@@ -327,4 +327,78 @@ test("streamed output never recopies a completed structured report", async () =>
     result.resolve({ exitCode: 0, output: "released" });
     await act(async () => { await started?.completion.catch(() => {}); await f.controller.dispose(); }); read.mockRestore();
   }
+}, 5000);
+
+
+test("Build targets require explicit Save and Run and preserve each argument", async () => {
+  const saved: unknown[] = [], entered = deferred<void>(), release = deferred<void>();
+  const f = fixture(async (choice, current) => { current(); entered.resolve(); await release.promise; current(); saved.push(choice.reference); });
+  f.manifest({ id: "dev.example.build", buildSystems: [{ id: "example", run: [
+    { id: "module", name: "Run goals", source: "provider", execution: "task", fromTargets: { tags: ["module"] } },
+  ] }] });
+  f.model({ ...model, targets: [{ id: "exact", projectID: "app", name: "App target", path: "app", tags: ["module"], properties: {} }] });
+  const dialog = spyOn(dialogControl, "default").mockImplementation((({ title, children, footer }) => <div role="dialog">{title}{children}{footer}</div>) as typeof dialogControl.default);
+  const input = spyOn(inputControl, "default").mockImplementation((({ value, disabled, onChange, "aria-label": label }) =>
+    <input value={value} disabled={disabled} aria-label={label} onInput={event => onChange?.({ ...event, target: event.currentTarget })} />) as typeof inputControl.default);
+  try {
+    await f.controller.refresh(); await render(f.controller);
+    await act(async () => button("Load project model").click());
+    await act(async () => button("App target · Run goals").click());
+    expect(saved).toEqual([]); expect(container.querySelectorAll("input")).toHaveLength(0);
+    await act(async () => button("Cancel").click()); expect(saved).toEqual([]);
+    await act(async () => button("App target · Run goals").click());
+    for (let index = 0; index < 3; index++) await act(async () => button("Add argument").click());
+    const arguments_ = ["compile", "-Dtitle=two words", ""];
+    await act(async () => {
+      for (const [index, text] of arguments_.entries()) {
+        const node = container.querySelector<HTMLInputElement>(`input[aria-label="Argument ${index + 1}"]`)!;
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(node, text);
+        node.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+    await act(async () => { button("Save and Run").click(); await entered.promise; });
+    expect(saved).toEqual([]);
+    // The save itself notifies Run-document watchers before native handoff.
+    await act(async () => { f.controller.filesChanged("C:/work/.lithe/run/local.json"); release.resolve(); });
+    expect(saved).toEqual([{ pluginID: "dev.example.build", buildSystemID: "example", root: ".", run: "module",
+      projectID: "app", targetID: "exact", execution: "task", userArguments: arguments_ }]);
+    expect(button("App target · Run goals")).toBeUndefined();
+  } finally { release.resolve(); dialog.mockRestore(); input.mockRestore(); await act(async () => { await f.controller.dispose(); }); }
+}, 5000);
+
+for (const reason of ["Stop", "workspace close"] as const) test(`Build target ${reason} during persistence rejects its late handoff`, async () => {
+  const entered = deferred<void>(), release = deferred<void>(); let handoffs = 0;
+  const f = fixture(async (_choice, current) => { entered.resolve(); await release.promise; current(); handoffs++; });
+  f.manifest({ id: "dev.example.build", buildSystems: [{ id: "example", run: [
+    { id: "run", name: "Run", source: "provider", fromTargets: { tags: ["application"] } },
+  ] }] });
+  f.model({ ...model, targets: [{ id: "exact", projectID: "app", name: "App target", path: "app", tags: ["application"], properties: {} }] });
+  const dialog = spyOn(dialogControl, "default").mockImplementation((({ title, children, footer }) => <div role="dialog">{title}{children}{footer}</div>) as typeof dialogControl.default);
+  let closing: Promise<void> | undefined;
+  try {
+    await f.controller.refresh(); await render(f.controller);
+    await act(async () => button("Load project model").click());
+    await act(async () => button("App target · Run").click());
+    await act(async () => { button("Save and Run").click(); await entered.promise; });
+    expect(button("Save and Run").disabled).toBe(true);
+    if (reason === "Stop") await act(async () => button("Stop this operation").click());
+    else await act(async () => { closing = f.controller.dispose(); });
+    await act(async () => { release.resolve(); await closing; });
+    expect(handoffs).toBe(0);
+  } finally { release.resolve(); dialog.mockRestore(); await act(async () => { await f.controller.dispose(); }); await closing; }
+}, 5000);
+
+test("large Build target sets mount only viewport rows", async () => {
+  const f = fixture(async () => {});
+  f.manifest({ id: "dev.example.build", buildSystems: [{ id: "example", run: [{ id: "run", name: "Run", source: "provider", fromTargets: { tags: ["application"] } }] }] });
+  f.model({ ...model, targets: Array.from({ length: 10_000 }, (_, index) => ({ id: `target-${index}`, projectID: "app", name: `Target ${index}`, path: "app", tags: ["application"], properties: {} })) });
+  const virtual = spyOn(virtualization, "useVirtualizer").mockImplementation((() => ({ getTotalSize: () => 300_000,
+    getVirtualItems: () => Array.from({ length: 12 }, (_, index) => ({ index, key: `target-${index}`, start: index * 30, size: 30 })),
+  })) as unknown as typeof virtualization.useVirtualizer);
+  try {
+    await f.controller.refresh(); await render(f.controller);
+    await act(async () => button("Load project model").click());
+    expect(button("Target 0 · Run")).toBeDefined(); expect(button("Target 11 · Run")).toBeDefined();
+    expect(button("Target 12 · Run")).toBeUndefined(); expect(container.querySelectorAll("button").length).toBeLessThan(25);
+  } finally { await act(async () => { await f.controller.dispose(); }); virtual.mockRestore(); }
 }, 5000);

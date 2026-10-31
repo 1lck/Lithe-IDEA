@@ -7,6 +7,7 @@ import { supportsDevToolsUpdate, updateJavaService } from "../services/java-serv
 import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { isWindowsBuildProviderRunAdmitted, startWindowsBuildProviderRun } from "@/platform/build-provider-run";
 import type { BuildProviderRunHandle } from "../services/build-provider-run-launch";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
@@ -28,6 +29,7 @@ import {
   stopRunProcess,
   writeRunDocuments,
   writeRunStdin,
+  saveBuildProviderRun,
 } from "../api/run-host-api";
 import {
   CURRENT_FILE_ID,
@@ -46,6 +48,7 @@ import {
   type RunSaveScope,
   type RunSession,
   type RunProcessInstance,
+  type BuildProviderRunReference,
 } from "../types/run.types";
 import {
   blockingToolchainDiagnosticForConfiguration,
@@ -143,6 +146,7 @@ interface RunState {
   globalToolchain: GlobalToolchain;
   effectiveRuntimeExecutablePaths: Record<string, string>;
   actions: {
+    runBuildTarget: (root: string, reference: BuildProviderRunReference, name: string, assertCurrent: () => void, signal?: AbortSignal) => Promise<RunProcessInstance | null>;
     loadProject: (root: string) => Promise<void>;
     /**
      * Identifies the project's run entries. `automatic` marks identification
@@ -185,6 +189,7 @@ interface RunState {
 }
 
 export interface RunStoreDependencies {
+  saveBuildProviderRun?: typeof saveBuildProviderRun;
   startBuildProviderRun?: typeof startWindowsBuildProviderRun;
   isBuildProviderRunAdmitted?: typeof isWindowsBuildProviderRunAdmitted;
   inspectRunConfiguration?: typeof inspectRunConfiguration;
@@ -457,6 +462,7 @@ export const createRunStore = (
   const presentJavaLaunchDecision = dependencies.presentJavaLaunchDecision ?? openRunDecisionPane;
   const executions = new Map<string, string>();
   const providerRuns = new Map<string, { executionId: string; handle: BuildProviderRunHandle; preparing: boolean }>();
+  const targetRuns = new Map<string, Set<Promise<RunProcessInstance | null>>>();
   const pendingJavaLaunchDecisions = new Map<
     string,
     { decisionId: string; executionId: string; resolve: (proceed: boolean) => void }
@@ -561,7 +567,58 @@ export const createRunStore = (
     globalToolchain: EMPTY_GLOBAL_TOOLCHAIN,
     effectiveRuntimeExecutablePaths: {},
     actions: {
+      runBuildTarget: (root, reference, name, assertCurrent, signal) => {
+        reference = structuredClone(reference);
+        const task = (async () => {
+          const revision = projectLoadRevision;
+          const current = () => {
+            signal?.throwIfAborted();
+            assertCurrent();
+            if (revision !== projectLoadRevision || (get().root !== null && get().root !== root)) throw new DOMException("Aborted", "AbortError");
+          };
+          current();
+          const id = await (dependencies.saveBuildProviderRun ?? saveBuildProviderRun)(root, structuredClone(reference), name);
+          current();
+          // This refresh only reads the saved selectors. It neither regenerates
+          // old Maven entries nor cancels another service's preparation.
+          const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies, false);
+          current();
+          const saved = snapshot.status === "ready" && snapshot.configurations.find(item => item.id === id)?.buildProvider;
+          if (!saved || ["pluginID", "buildSystemID", "root", "run", "projectID", "targetID"].some(key => saved[key as keyof BuildProviderRunReference] !== reference[key as keyof BuildProviderRunReference])
+            || (saved.execution ?? "application") !== (reference.execution ?? "application")
+            || JSON.stringify(saved.userArguments) !== JSON.stringify(reference.userArguments)) {
+            throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("build.errors.inputsChanged"));
+          }
+          set({ root, ...readyRunState(snapshot as Extract<RunProjectSnapshot, { status: "ready" }>, id), saveError: null });
+          const running = get().actions.runConfigurationInstance(id);
+          const sessionID = (reference.execution ?? "application") === "service" ? id : PRIMARY_SESSION_ID;
+          const executionID = executions.get(sessionID);
+          let stopping: Promise<void> | undefined;
+          const cancel = () => {
+            if (executionID) {
+              stopping ??= get().actions.stop(sessionID, executionID);
+              // Keep the rejection observed while native preparation drains;
+              // awaiting the same promise below still reports cleanup failure.
+              void stopping.catch(() => {});
+            }
+          };
+          signal?.addEventListener("abort", cancel, { once: true });
+          if (signal?.aborted) cancel();
+          try { return await running; }
+          finally { signal?.removeEventListener("abort", cancel); await stopping; }
+        })();
+        const pending = targetRuns.get(root) ?? new Set(); targetRuns.set(root, pending); pending.add(task);
+        const release = () => { pending.delete(task); if (!pending.size && targetRuns.get(root) === pending) targetRuns.delete(root); };
+        void task.then(release, release); return task;
+      },
       loadProject: async (root) => {
+        // Opening Run while a Build target is saving must not revoke that very
+        // launch. A different project still supersedes it immediately.
+        const beforeTargets = projectLoadRevision;
+        if (get().root === null || get().root === root) {
+          while (targetRuns.get(root)?.size) await Promise.allSettled([...targetRuns.get(root)!]);
+          if (projectLoadRevision !== beforeTargets) return;
+        }
         cancelEntrypointCheck();
         const sameProject = get().root === root;
         if (sameProject) {

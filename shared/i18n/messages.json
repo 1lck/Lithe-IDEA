@@ -92692,6 +92692,34 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "build.targets.title",
+      "description": "Windows Build Provider target selectors and explicit Run save",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.targets.saveAndRun",
+      "description": "Windows Build Provider target selectors and explicit Run save",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.targets.saveFailed",
+      "description": "Windows Provider Run configuration save failure",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "build.targets.saveConflict",
+      "description": "Windows Provider Run configuration save failure",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

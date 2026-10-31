@@ -2,6 +2,7 @@ import type { WindowsBuildCatalog } from "@/platform/build-provider-platform";
 import type { BuildInstance, WindowsBuildProviderWorkspace } from "./build-provider-workspace";
 import { BuildNativeConfigurationController } from "./build-native-configuration-controller";
 import { buildCatalogMayChange } from "./build-file-inputs";
+import type { BuildTargetChoice } from "./build-target-presentation";
 
 export type BuildEntry = WindowsBuildCatalog["detection"]["instances"][number];
 export interface BuildWorkspaceSnapshot {
@@ -18,6 +19,7 @@ export interface BuildWorkspaceControllerPorts {
   domain: WindowsBuildProviderWorkspace;
   guard: () => (plugin: string) => void;
   scheduleRefresh?: (refresh: () => Promise<void>) => () => void;
+  runTarget?: (choice: BuildTargetChoice, assertCurrent: () => void, signal: AbortSignal) => Promise<void>;
 }
 
 /** Product catalog/model state. High-volume progress remains subscribed by the
@@ -27,6 +29,8 @@ export class BuildWorkspaceController {
   private readonly listeners = new Set<() => void>();
   private readonly pending = new Set<Promise<unknown>>();
   private generation = 0;
+  private targetRevision = 0;
+  private readonly targetPreparations = new Set<AbortController>();
   private detection?: { generation: number; completion: Promise<void> };
   private disposed = false;
   private cancelScheduledRefresh?: () => void;
@@ -115,6 +119,36 @@ export class BuildWorkspaceController {
     void completion.then(finished, finished); return completion;
   }
   select(id: string): void { if (this.state.entries.some(entry => entry.id === id)) this.publish({ selectedID: id, error: undefined }); }
+  get canRunTargets(): boolean { return Boolean(this.ports.runTarget); }
+
+  runTarget(instance: BuildInstance, choice: BuildTargetChoice, userArguments: string[]) {
+    const cancellation = new AbortController();
+    if (!this.ports.runTarget) return { completion: Promise.resolve(), cancel: () => {} };
+    this.targetPreparations.add(cancellation);
+    const modelCurrent = this.domain.modelGuard(instance), revision = ++this.targetRevision, guard = this.ports.guard();
+    const assertCurrent = () => {
+      cancellation.signal.throwIfAborted();
+      guard(instance.pluginID);
+      if (this.disposed) throw new DOMException("Aborted", "AbortError");
+    };
+    const completion = this.own((async () => {
+      try {
+        assertCurrent();
+        modelCurrent();
+        if (!this.state.entries.includes(instance as BuildEntry)) return;
+        this.publish({ error: undefined });
+        // Saving selectors triggers a Run-document watcher event. The launch
+        // path re-detects and loads a fresh private model after that save; the
+        // old UI model lease is needed only before starting persistence.
+        await this.ports.runTarget!({ ...choice, reference: { ...choice.reference, userArguments: [...userArguments] } }, assertCurrent, cancellation.signal);
+      } catch (error) {
+        if (!this.disposed && revision === this.targetRevision && !(error instanceof DOMException && error.name === "AbortError")) {
+          this.publish({ error: error instanceof Error ? error.message : String(error) });
+        }
+      } finally { this.targetPreparations.delete(cancellation); }
+    })());
+    return { completion, cancel: () => cancellation.abort() };
+  }
 
   filesChanged(path: string, rescan = false): void {
     if (this.disposed) return;
@@ -177,6 +211,7 @@ export class BuildWorkspaceController {
 
   async dispose(): Promise<void> {
     this.disposed = true; this.generation++;
+    for (const preparation of this.targetPreparations) preparation.abort();
     this.cancelScheduledRefresh?.(); this.cancelScheduledRefresh = undefined;
     this.unsubscribeFacts();
     for (const editor of this.nativeEditors.values()) editor.dispose();

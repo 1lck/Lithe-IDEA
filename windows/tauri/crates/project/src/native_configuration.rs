@@ -234,7 +234,7 @@ fn read_with_writability(
     String::from_utf8(bytes).map(Some).map_err(|_| Unreadable)
 }
 
-fn validated_target(
+pub(crate) fn validated_target(
     source: &Path,
     immutable_roots: &[PathBuf],
 ) -> Result<PathBuf, NativeConfigurationError> {

@@ -9710,7 +9710,11 @@
     "build.testStatus.skipped": "跳过",
     "build.tests.discover": "发现测试",
     "build.tests.run": "运行测试",
-    "build.tests.title": "测试"
+    "build.tests.title": "测试",
+    "build.targets.title": "运行目标",
+    "build.targets.saveAndRun": "保存并运行",
+    "build.targets.saveFailed": "无法保存运行配置。请重新加载项目后重试。",
+    "build.targets.saveConflict": "运行配置在保存期间发生了变化。请重新加载后重试。"
   },
   "overrides": {
     "macos": {

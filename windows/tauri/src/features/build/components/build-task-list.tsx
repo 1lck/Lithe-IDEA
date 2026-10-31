@@ -2,18 +2,16 @@ import { useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import { PlayIcon, PlusIcon, XIcon } from "@/ui/icons";
-import Dialog from "@/ui/dialog";
-import Input from "@/ui/input";
+import { PlayIcon } from "@/ui/icons";
 import { ScrollArea } from "@/ui/scroll-area";
 import type { BuildInstance, BuildModel } from "../services/build-provider-workspace";
 import type { BuildWorkspaceController } from "../services/build-workspace-controller";
 import { buildTaskChoices, buildTaskRows, type BuildTaskChoice } from "../services/build-task-presentation";
 import { BuildDependenciesTree } from "./build-dependencies-tree";
 import { BuildTestsList } from "./build-tests-list";
+import { BuildArgumentsDialog } from "./build-arguments-dialog";
+import { BuildTargetsList } from "./build-targets-list";
 
-// Match the public build.taskPlan userArguments bound; Core validates again.
-const MAX_TASK_ARGUMENTS = 64;
 
 export function BuildTaskList({ controller, instance, model, manifest, openOutput }: {
   controller: BuildWorkspaceController; instance: BuildInstance; model: BuildModel; manifest?: Record<string, unknown>; openOutput: () => void;
@@ -54,30 +52,11 @@ export function BuildTaskList({ controller, instance, model, manifest, openOutpu
         {virtual.getVirtualItems().map(item => <div key={item.key} className="absolute top-0 w-full" style={{ transform: `translateY(${item.start}px)` }}>{row(item.index)}</div>)}
       </div>}
     </ScrollArea>
+    {controller.canRunTargets ? <BuildTargetsList controller={controller} instance={instance} model={model} manifest={manifest} projectID={projectID} /> : null}
     {dependencies ? <BuildDependenciesTree key={dependencies.revision} result={dependencies} /> : null}
     {system?.test?.source === "provider" && system.test.scopes.includes(projectID ? "project" : "workspace")
       ? <BuildTestsList controller={controller} instance={instance} projectID={projectID || undefined} discovery={system.test.discovery === true}
         disabled={model.truncated} openOutput={openOutput} /> : null}
-    {prompt ? <BuildTaskArguments key={prompt.id} choice={prompt} onCancel={() => setPrompt(undefined)} onRun={args => run(prompt, args)} /> : null}
+    {prompt ? <BuildArgumentsDialog key={prompt.id} title={prompt.title} onCancel={() => setPrompt(undefined)} onRun={args => run(prompt, args)} /> : null}
   </>;
-}
-
-function BuildTaskArguments({ choice, onRun, onCancel }: { choice: BuildTaskChoice; onRun: (arguments_: string[]) => void; onCancel: () => void }) {
-  const { t } = useTranslation();
-  const [arguments_, setArguments] = useState([""]);
-  return <Dialog title={choice.title} onClose={onCancel} footer={<>
-    <Button variant="ghost" onClick={onCancel}>{t("ui.cancel")}</Button>
-    <Button variant="accent" onClick={() => onRun(arguments_)}>{t("build.window.runTask")}</Button>
-  </>}>
-    <div className="flex flex-col gap-2">
-      {arguments_.map((value, index) => <div key={index} className="flex items-center gap-1">
-        <Input value={value} aria-label={t("build.window.argument", { index: index + 1 })} onChange={event => {
-          const text = event.target.value;
-          setArguments(previous => previous.map((value, slot) => slot === index ? text : value));
-        }} />
-        <Button variant="ghost" size="icon-xs" aria-label={t("ui.remove")} onClick={() => setArguments(previous => previous.filter((_, slot) => slot !== index))}><XIcon /></Button>
-      </div>)}
-      <Button variant="ghost" disabled={arguments_.length >= MAX_TASK_ARGUMENTS} onClick={() => setArguments(previous => [...previous, ""])}><PlusIcon />{t("build.window.addArgument")}</Button>
-    </div>
-  </Dialog>;
 }

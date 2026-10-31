@@ -9710,7 +9710,11 @@
     "build.testStatus.skipped": "Skipped",
     "build.tests.discover": "Discover tests",
     "build.tests.run": "Run tests",
-    "build.tests.title": "Tests"
+    "build.tests.title": "Tests",
+    "build.targets.title": "Run targets",
+    "build.targets.saveAndRun": "Save and Run",
+    "build.targets.saveFailed": "The run configuration could not be saved. Reload the project and try again.",
+    "build.targets.saveConflict": "The run configuration changed while saving. Reload and try again."
   },
   "overrides": {
     "windows": {

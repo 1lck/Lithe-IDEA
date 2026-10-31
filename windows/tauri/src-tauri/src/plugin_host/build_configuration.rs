@@ -35,6 +35,51 @@ struct PendingWrites {
 #[derive(Default)]
 pub struct NativeConfigurationWrites(Mutex<PendingWrites>);
 
+/// Save only public selectors through the existing guarded document writer.
+#[tauri::command]
+pub async fn declarative_plugins_build_save_run(
+    app: AppHandle,
+    workspace_path: String,
+    reference: Value,
+    name: String,
+) -> Result<String, Failure> {
+    crate::blocking::run_blocking_result(move || {
+        let plugin = reference["pluginID"].as_str().ok_or_else(invalid)?;
+        let lifecycle = app.state::<LifecycleState>();
+        let _lease = lifecycle.acquire(plugin).map_err(|_| conflict())?;
+        let package = launch::package_by_id(&app, plugin).ok_or_else(conflict)?;
+        let system = reference["buildSystemID"].as_str().ok_or_else(invalid)?;
+        let declaration = reference["run"].as_str().ok_or_else(invalid)?;
+        if !package.manifest["buildSystems"]
+            .as_array()
+            .is_some_and(|systems| {
+                systems.iter().any(|item| {
+                    item["id"] == system
+                        && item["run"].as_array().is_some_and(|runs| {
+                            runs.iter().any(|run| {
+                                run["id"] == declaration
+                                    && run["source"] == "provider"
+                                    && run["execution"].as_str().unwrap_or("application")
+                                        == reference["execution"].as_str().unwrap_or("application")
+                            })
+                        })
+                })
+            })
+        {
+            return Err(invalid());
+        }
+        let _transaction = crate::run::configuration_transaction();
+        let immutable = immutable_roots(&app)?;
+        let root = std::path::Path::new(&workspace_path);
+        let prepared =
+            lithe_project::provider_run_configuration::prepare(root, reference, &name, &immutable)?;
+        prepared
+            .commit(&immutable, crate::run::LITHE_GITIGNORE_ENTRIES)
+            .map_err(Into::into)
+    })
+    .await
+}
+
 #[derive(Debug, Serialize)]
 pub struct Failure {
     code: &'static str,
