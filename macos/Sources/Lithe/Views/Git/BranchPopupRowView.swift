@@ -95,6 +95,10 @@ final class BranchPopupRowControl: NSControl {
     var onPress: (() -> Void)?
     var onSecondaryPress: ((NSPoint) -> Void)?
     var isPresented = false
+    /// Runs a retired expansion's cleanup after a delay; replaced by tests.
+    var scheduleExpansionRetirement: (TimeInterval, DispatchWorkItem) -> Void = { delay, work in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
     private var isHovered = false
     private var reportedHover = false
     private var expansion: NSPanel?
@@ -239,13 +243,39 @@ final class BranchPopupRowControl: NSControl {
     }
 
     private func closeExpansion() {
+        guard let closing = detachExpansion() else { return }
+        Self.dismiss(closing)
+    }
+
+    /// Stops this row owning its expansion without closing the panel.
+    private func detachExpansion() -> NSPanel? {
         if let parentCloseObserver { NotificationCenter.default.removeObserver(parentCloseObserver) }
         parentCloseObserver = nil
         expansionContent = nil
-        guard let closing = expansion else { return }
-        expansion = nil
-        closing.parent?.removeChildWindow(closing)
-        closing.close()
+        defer { expansion = nil }
+        return expansion
+    }
+
+    private static func dismiss(_ panel: NSPanel) {
+        panel.parent?.removeChildWindow(panel)
+        panel.close()
+    }
+
+    /// Trackpad gestures stay bound to the window they began in, so closing the
+    /// expansion on the first event silently dropped the rest of the gesture and
+    /// the list barely moved (issue 1621). Mouse wheel ticks route independently.
+    private func handleExpansionScroll(_ event: NSEvent, in overlay: BranchPopupExpansionView) {
+        // Resting fingers on the trackpad scrolls nothing, so the name stays expanded.
+        if event.phase == .mayBegin || event.phase == .cancelled { scrollWheel(with: event); return }
+        let isGesture = !event.phase.isEmpty || !event.momentumPhase.isEmpty
+        if isGesture, let panel = detachExpansion() {
+            // The panel outlives this row, which a lazy list may drop mid-gesture.
+            overlay.handOffScrollGesture(to: enclosingScrollView ?? nextResponder,
+                                         schedule: scheduleExpansionRetirement) { Self.dismiss(panel) }
+        }
+        isHovered = false
+        refresh()
+        if isGesture { overlay.scrollWheel(with: event) } else { scrollWheel(with: event) }
     }
 
     private func updateExpansion() {
@@ -286,11 +316,9 @@ final class BranchPopupRowControl: NSControl {
             self?.onSecondaryPress?(point)
         }
         overlay.onExit = { [weak self] in self?.isHovered = false; self?.refresh() }
-        overlay.onScroll = { [weak self] event in
-            guard let self else { return }
-            self.isHovered = false
-            self.refresh()
-            self.scrollWheel(with: event)
+        overlay.onScroll = { [weak self, weak overlay] event in
+            guard let self, let overlay else { return }
+            self.handleExpansionScroll(event, in: overlay)
         }
         panel.contentView = overlay
         panel.setFrame(frame, display: false)
@@ -308,10 +336,62 @@ final class BranchPopupRowControl: NSControl {
 
 /// The expansion remains clickable, while its parent popup retains keyboard focus.
 private final class BranchPopupExpansionView: NSView {
+    /// Momentum follows lifted fingers almost immediately, but fingers may rest
+    /// mid-gesture for as long as they like and retiring then loses the gesture.
+    /// The long delay only bounds a gesture whose end never arrives; a click on
+    /// the invisible panel retires it sooner.
+    private enum RetirementDelay {
+        static let afterFingersLift: TimeInterval = 0.15
+        static let whileGestureActive: TimeInterval = 10
+    }
+
+    private struct ScrollGestureHandoff {
+        weak var target: NSResponder?
+        let schedule: (TimeInterval, DispatchWorkItem) -> Void
+        let retire: () -> Void
+    }
+
     var onPress: (() -> Void)?
     var onSecondaryPress: ((NSPoint) -> Void)?
     var onExit: (() -> Void)?
     var onScroll: ((NSEvent) -> Void)?
+    private var handoff: ScrollGestureHandoff?
+    private var pendingRetirement: DispatchWorkItem?
+
+    /// Hides the panel but keeps it receiving the gesture. An alpha 0 window is
+    /// click-through by default, which loses the gesture just like closing it,
+    /// unless it explicitly opts back into mouse events.
+    func handOffScrollGesture(to target: NSResponder?, schedule: @escaping (TimeInterval, DispatchWorkItem) -> Void,
+                              retire: @escaping () -> Void) {
+        onPress = nil
+        onSecondaryPress = nil
+        onExit = nil
+        window?.ignoresMouseEvents = false
+        window?.alphaValue = 0
+        handoff = ScrollGestureHandoff(target: target, schedule: schedule, retire: retire)
+    }
+
+    private func forward(_ event: NSEvent, using handoff: ScrollGestureHandoff) {
+        handoff.target?.scrollWheel(with: event)
+        pendingRetirement?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.retireHandoff() }
+        }
+        pendingRetirement = work
+        let finished: [NSEvent.Phase] = [.ended, .cancelled]
+        let isActive = finished.contains(event.momentumPhase) ? false
+            : !event.momentumPhase.isEmpty || !finished.contains(event.phase)
+        handoff.schedule(isActive ? RetirementDelay.whileGestureActive : RetirementDelay.afterFingersLift, work)
+    }
+
+    private func retireHandoff() {
+        pendingRetirement?.cancel()
+        pendingRetirement = nil
+        let retiring = handoff
+        handoff = nil
+        retiring?.retire()
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -319,12 +399,18 @@ private final class BranchPopupExpansionView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self, userInfo: nil))
     }
-    override func mouseDown(with event: NSEvent) { onPress?() }
+    override func mouseDown(with event: NSEvent) {
+        retireHandoff()
+        onPress?()
+    }
     override func rightMouseDown(with event: NSEvent) {
+        retireHandoff()
         onSecondaryPress?(event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation)
     }
     override func mouseExited(with event: NSEvent) { onExit?() }
-    override func scrollWheel(with event: NSEvent) { onScroll?(event) }
+    override func scrollWheel(with event: NSEvent) {
+        if let handoff { forward(event, using: handoff) } else { onScroll?(event) }
+    }
 }
 
 /// GitIncomingOutgoingUi colors and New UI 12pt assets, Community c7f91397daa3.
