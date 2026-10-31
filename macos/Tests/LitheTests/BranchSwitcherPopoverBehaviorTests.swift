@@ -215,7 +215,7 @@ struct BranchSwitcherPopoverBehaviorTests {
         overlay.scrollWheel(with: try harness.event(momentum: .begin))
         overlay.scrollWheel(with: try harness.event(momentum: .end))
         #expect(harness.scroll.received.count == 6, "Every event of the gesture reaches the list")
-        #expect(scheduled.map(\.delay) == [1, 1, 0.15, 1, 0.15])
+        #expect(scheduled.map(\.delay) == [10, 10, 0.15, 10, 0.15])
         let superseded = scheduled.dropLast().allSatisfy { $0.work.isCancelled }
         #expect(superseded, "A later event supersedes earlier retirements")
         #expect(panel.isVisible)
@@ -223,6 +223,25 @@ struct BranchSwitcherPopoverBehaviorTests {
         try #require(scheduled.last).work.perform()
         #expect(!panel.isVisible)
         #expect(harness.window.childWindows?.contains(panel) != true)
+    }
+
+    @Test
+    @MainActor
+    func clickingTheHiddenExpansionRetiresItImmediately() throws {
+        let harness = try BranchExpansionScrollHarness()
+        defer { harness.close() }
+        var scheduled: [DispatchWorkItem] = []
+        harness.row.scheduleExpansionRetirement = { scheduled.append($1) }
+        let panel = harness.panel
+        let overlay = try #require(panel.contentView)
+        overlay.scrollWheel(with: try harness.event(phase: .began))
+        #expect(panel.isVisible)
+
+        overlay.mouseDown(with: try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber, context: nil,
+            eventNumber: 0, clickCount: 1, pressure: 1)))
+        #expect(!panel.isVisible, "A gesture that never ended must not keep an invisible panel over the list")
+        #expect(scheduled.allSatisfy { $0.isCancelled })
     }
 
     @Test

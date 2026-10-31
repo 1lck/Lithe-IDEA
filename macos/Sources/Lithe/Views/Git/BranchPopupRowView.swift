@@ -336,12 +336,13 @@ final class BranchPopupRowControl: NSControl {
 
 /// The expansion remains clickable, while its parent popup retains keyboard focus.
 private final class BranchPopupExpansionView: NSView {
-    /// The next phase can start this long after the last event: momentum follows
-    /// lifted fingers almost immediately, while resting fingers may pause. Both
-    /// bound how long an invisible panel can remain if a gesture never finishes.
+    /// Momentum follows lifted fingers almost immediately, but fingers may rest
+    /// mid-gesture for as long as they like and retiring then loses the gesture.
+    /// The long delay only bounds a gesture whose end never arrives; a click on
+    /// the invisible panel retires it sooner.
     private enum RetirementDelay {
         static let afterFingersLift: TimeInterval = 0.15
-        static let whileGestureActive: TimeInterval = 1
+        static let whileGestureActive: TimeInterval = 10
     }
 
     private struct ScrollGestureHandoff {
@@ -374,17 +375,21 @@ private final class BranchPopupExpansionView: NSView {
         handoff.target?.scrollWheel(with: event)
         pendingRetirement?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                self?.handoff?.retire()
-                self?.handoff = nil
-                self?.pendingRetirement = nil
-            }
+            MainActor.assumeIsolated { self?.retireHandoff() }
         }
         pendingRetirement = work
         let finished: [NSEvent.Phase] = [.ended, .cancelled]
         let isActive = finished.contains(event.momentumPhase) ? false
             : !event.momentumPhase.isEmpty || !finished.contains(event.phase)
         handoff.schedule(isActive ? RetirementDelay.whileGestureActive : RetirementDelay.afterFingersLift, work)
+    }
+
+    private func retireHandoff() {
+        pendingRetirement?.cancel()
+        pendingRetirement = nil
+        let retiring = handoff
+        handoff = nil
+        retiring?.retire()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
@@ -394,8 +399,12 @@ private final class BranchPopupExpansionView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self, userInfo: nil))
     }
-    override func mouseDown(with event: NSEvent) { onPress?() }
+    override func mouseDown(with event: NSEvent) {
+        retireHandoff()
+        onPress?()
+    }
     override func rightMouseDown(with event: NSEvent) {
+        retireHandoff()
         onSecondaryPress?(event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation)
     }
     override func mouseExited(with event: NSEvent) { onExit?() }
