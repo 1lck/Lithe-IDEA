@@ -33,6 +33,7 @@ function HoverCardContent({
         className="isolate z-10070"
       >
         <HoverCardPrimitive.Popup
+          data-native-web-overlay=""
           data-slot="hover-card-content"
           className={cn(
             "z-10070 w-64 origin-(--transform-origin) rounded-xl border border-border bg-surface/95 p-3 font-sans ui-text-sm text-foreground shadow-(--shadow-popover) outline-none backdrop-blur-sm transition-[opacity,transform,filter] duration-(--app-duration-fast) ease-(--app-ease-smooth) data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0",
