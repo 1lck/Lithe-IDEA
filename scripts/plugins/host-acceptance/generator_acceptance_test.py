@@ -64,13 +64,86 @@ class GeneratorHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "differ"):
             acceptance.assert_runtime_chain(runtime, prepared, changed)
 
-    def test_real_runtime_choice_uses_existing_native_directory_picker(self):
+    def runtime_choice_fixture(self, text, *, visible=True):
         page, driver = MagicMock(), MagicMock()
-        home = Path("real-runtime")
-        acceptance.choose_runtime(page, driver, 81, home)
-        page.locator.assert_called_once_with("#generator-field-jdk")
-        page.locator.return_value.click.assert_called_once_with(timeout=10_000)
+        field, parent, selected, body = MagicMock(), MagicMock(), MagicMock(), MagicMock()
+        page.locator.side_effect = lambda selector: {"#generator-field-jdk": field, "body": body}[selector]
+        field.locator.return_value = parent
+        parent.locator.return_value = selected
+        selected.inner_text.return_value = text
+        selected.is_visible.return_value = visible
+        # The real picker returned a backslash path while the old helper
+        # waited for a full-page forward-slash literal. Keep that failure
+        # observable; the scoped implementation never invokes this locator.
+        page.get_by_text.return_value.wait_for.side_effect = TimeoutError("forward-slash full-page literal not visible")
+        clock = [0]
+        def pump():
+            clock[0] += 1
+            return 1
+        body.count.side_effect = pump
+        return page, driver, field, parent, selected, clock
+
+    def test_real_runtime_choice_uses_native_picker_and_normalizes_visible_field_home(self):
+        home = Path("C:/fixture/JDK")
+        for text in (r"C:\fixture\JDK", "C:/fixture/JDK", "c:/fixture/jdk/"):
+            with self.subTest(text=text):
+                page, driver, field, parent, selected, clock = self.runtime_choice_fixture(text)
+                with patch.object(acceptance.time, "monotonic", side_effect=lambda: clock[0]):
+                    acceptance.choose_runtime(page, driver, 81, home)
+                field.click.assert_called_once_with(timeout=10_000)
+                field.locator.assert_called_once_with("..")
+                parent.locator.assert_called_once_with("span")
+                selected.inner_text.assert_called()
+                self.assertTrue(all(call.kwargs.get("timeout", 0) <= 500 for call in selected.inner_text.call_args_list))
+                driver.select_native_file.assert_called_once_with(81, home)
+                page.get_by_text.assert_not_called()
+
+    def test_runtime_choice_rejects_wrong_or_empty_home_with_actual_text(self):
+        home = Path("C:/fixture/JDK")
+        for text in ("C:/fixture/OtherJDK", "", " "):
+            with self.subTest(text=text):
+                page, driver, _, _, _, clock = self.runtime_choice_fixture(text)
+                with patch.object(acceptance.time, "monotonic", side_effect=lambda: clock[0]):
+                    with self.assertRaises(AssertionError) as raised:
+                        acceptance.choose_runtime(page, driver, 81, home)
+                self.assertIn(repr(text), str(raised.exception))
+                self.assertIn(str(home), str(raised.exception))
+                self.assertEqual(clock[0], 5)
+                driver.select_native_file.assert_called_once_with(81, home)
+                page.get_by_text.assert_not_called()
+
+    def test_runtime_choice_never_accepts_hidden_matching_home(self):
+        home = Path("C:/fixture/JDK")
+        text = r"C:\fixture\JDK"
+        page, driver, _, _, _, clock = self.runtime_choice_fixture(text, visible=False)
+        with patch.object(acceptance.time, "monotonic", side_effect=lambda: clock[0]):
+            with self.assertRaises(AssertionError) as raised:
+                acceptance.choose_runtime(page, driver, 81, home)
+        self.assertIn(repr(text), str(raised.exception))
+        self.assertIn("visible=False", str(raised.exception))
+        self.assertEqual(clock[0], 5)
         driver.select_native_file.assert_called_once_with(81, home)
+
+    def test_runtime_choice_text_timeout_preserves_unavailable_evidence(self):
+        page, driver, _, _, selected, clock = self.runtime_choice_fixture("not read")
+        selected.inner_text.side_effect = TimeoutError("span text deadline")
+        with patch.object(acceptance.time, "monotonic", side_effect=lambda: clock[0]):
+            with self.assertRaises(AssertionError) as raised:
+                acceptance.choose_runtime(page, driver, 81, Path("C:/fixture/JDK"))
+        self.assertIn("actual=None", str(raised.exception))
+        self.assertIsInstance(raised.exception.__cause__, TimeoutError)
+        self.assertIn("span text deadline", str(raised.exception.__cause__))
+        driver.select_native_file.assert_called_once()
+
+    def test_runtime_choice_waits_for_visible_field_update_with_one_local_deadline(self):
+        text = r"C:\fixture\JDK"
+        page, driver, _, _, selected, clock = self.runtime_choice_fixture(text)
+        selected.inner_text.side_effect = ["", text]
+        with patch.object(acceptance.time, "monotonic", side_effect=lambda: clock[0]):
+            acceptance.choose_runtime(page, driver, 81, Path("C:/fixture/JDK"))
+        self.assertEqual(clock[0], 1)
+        self.assertEqual(selected.inner_text.call_count, 2)
+        driver.select_native_file.assert_called_once()
 
     def test_transport_failure_cannot_be_reported_as_native_runtime_rejection(self):
         page = MagicMock()

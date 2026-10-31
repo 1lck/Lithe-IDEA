@@ -69,9 +69,25 @@ def assert_runtime_chain(runtime: dict, prepared: dict, document: dict) -> None:
 
 
 def choose_runtime(page, driver, app_pid: int, home: Path) -> None:
-    page.locator("#generator-field-jdk").click(timeout=10_000)
+    field = page.locator("#generator-field-jdk")
+    field.click(timeout=10_000)
     driver.select_native_file(app_pid, home)
-    page.get_by_text(home.as_posix(), exact=True).wait_for(state="visible", timeout=10_000)
+    selected = field.locator("..").locator("span")
+    actual, visible = None, False
+
+    def selected_home_matches():
+        nonlocal actual, visible
+        visible = selected.is_visible()
+        actual = selected.inner_text(timeout=500)
+        return visible and bool(actual) and same_home(actual, str(home))
+
+    try:
+        wait_for(selected_home_matches, "the visible JDK field to show its selected home",
+                 now=time.monotonic, pump=lambda: page.locator("body").count(), seconds=5)
+    except Exception as error:
+        raise AssertionError(
+            f"the JDK field did not show the selected home: expected={home}; actual={actual!r}; visible={visible}"
+        ) from error
 
 
 def require_native_rejection(page, command: str, arguments: dict, codes: tuple[str, ...]) -> str:
