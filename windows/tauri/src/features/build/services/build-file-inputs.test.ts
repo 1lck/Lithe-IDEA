@@ -20,6 +20,8 @@ test("catalog refresh uses generic declared markers and the team document across
   expect(buildCatalogMayChange(manifests, "C:/work", "c:\\WORK\\nested\\PROJECT.MARKER", false)).toBe(true);
   expect(buildCatalogMayChange(manifests, "C:/work", "C:/work/nested/tools/workspace.config", false)).toBe(true);
   expect(buildCatalogMayChange({}, "C:/work", "C:/work/.LITHE/BUILD/OPTIONS.JSON", false)).toBe(true);
+  expect(buildCatalogMayChange({}, "C:/work", "C:/work/.lithe/run/local.json", false)).toBe(true);
+  expect(buildCatalogMayChange({}, "C:/work", "C:/work/.lithe/toolchains/local.json", false)).toBe(true);
   expect(buildCatalogMayChange(manifests, "C:/work", "C:/work/nested/Test.java", false)).toBe(false);
   expect(buildCatalogMayChange(manifests, "C:/work", "C:/work-other/project.marker", true)).toBe(false);
   expect(buildCatalogMayChange(manifests, "//wsl.localhost/distro/work", "//wsl.localhost/distro/work/PROJECT.MARKER", false)).toBe(false);

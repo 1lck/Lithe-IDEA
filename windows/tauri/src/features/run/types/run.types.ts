@@ -11,6 +11,17 @@ export type RunSaveScope = "local" | "project";
 export type RunConfigurationSource = "generated" | "project" | "local";
 export type RunExecution = "application" | "service" | "task" | "group";
 
+export interface BuildProviderRunReference {
+  pluginID: string; buildSystemID: string; root: string; run: string; projectID: string; targetID: string;
+  execution?: "application" | "service" | "task"; userArguments: string[];
+}
+
+export interface BuildProviderLaunchInputs {
+  buildSystemID: string; provider: string; projectPath: string;
+  launchOptions: import("@/features/build/services/build-provider-types").BuildLaunchOptions;
+  optionOverrides: Record<string, unknown>; reference?: BuildProviderRunReference;
+}
+
 export interface RunDiagnostic {
   id?: string;
   code: string;
@@ -25,6 +36,7 @@ export interface RunConfiguration {
   id: string;
   name: string;
   provider: string;
+  buildProvider?: BuildProviderRunReference;
   kindTitle: string;
   iconKey?: RunIconKey;
   execution: RunExecution;
@@ -208,6 +220,7 @@ export interface CoreResolvedConfiguration {
     adapter?: string;
   };
   extensions?: {
+    build?: BuildProviderRunReference;
     npm?: { manager?: string; framework?: string; server?: string };
     gradle?: { plugin?: string };
     python?: { framework?: string };

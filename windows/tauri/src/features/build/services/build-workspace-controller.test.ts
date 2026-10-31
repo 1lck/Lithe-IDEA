@@ -71,6 +71,22 @@ test("catalog selection preserves Core's explicit empty options without launchin
   } finally { await f.controller.dispose(); }
 }, 5000);
 
+test("parallel Run consumers share detection while a newer file generation starts a fresh read", async () => {
+  const f = fixture(), first = deferred<WindowsBuildCatalog>(); let reads = 0;
+  f.detect(async () => { reads++; return await first.promise; });
+  const a = f.controller.ensureDetected(), b = f.controller.ensureDetected();
+  try {
+    expect(a).toBe(b); expect(reads).toBe(1);
+    f.controller.filesChanged("C:/work/.lithe/build/options.json");
+    f.detect(async () => { reads++; return catalog("dev.current.build"); });
+    await f.controller.ensureDetected(); expect(reads).toBe(2);
+    first.resolve(catalog()); await a;
+    expect(f.controller.snapshot().entries[0]?.pluginID).toBe("dev.current.build");
+    await f.controller.ensureDetected(); expect(reads).toBe(2);
+    expect(f.domain.operations()).toEqual([]);
+  } finally { first.resolve(catalog()); await Promise.allSettled([a, b]); await f.controller.dispose(); }
+}, 5000);
+
 test("an older detection cannot replace a newer catalog or republish a revoked declaration", async () => {
   const f = fixture(), old = deferred<WindowsBuildCatalog>();
   f.detect(() => old.promise);

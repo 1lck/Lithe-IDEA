@@ -3,6 +3,7 @@ import type { buildCore } from "@/platform/build-core-api";
 import type { windowsBuildProviders } from "@/platform/build-provider-sessions";
 import type { CoreBuildProviderTarget } from "@/platform/lsp-core-adapter";
 import type { BuildConfigurationWatch, BuildConfigurationSourceVersion, BuildConfigurationCheck } from "./build-configuration-watch";
+import type { BuildLanguageImport } from "./build-language-import";
 
 export interface BuildProject {
   id: string; name: string; path: string; parentID?: string;
@@ -56,6 +57,23 @@ export interface BuildTestSelection {
   selectorKind?: string; selectors?: string[]; userArguments?: string[];
 }
 
+export interface BuildLaunchOptions {
+  execution: "application" | "service" | "task";
+  runtimeArguments: string[]; arguments: string[]; environment: Record<string, string>;
+  workingDirectory?: string; entrypoint?: string; debug?: { runtime: "jvm"; port: number };
+}
+export interface BuildRunSelection {
+  run: string; projectID: string; targetID: string; userArguments?: string[]; launchOptions?: BuildLaunchOptions;
+}
+export interface BuildRunLaunch {
+  executable: { kind: "command" | "toolchain"; value: string };
+  arguments: string[]; workingDirectory: string; environment: Record<string, string>;
+}
+export interface BuildPreparedRun {
+  launch: BuildRunLaunch; tool: BuildToolContext; languageImport: BuildLanguageImport | null;
+  assertCurrent: () => void; validate: () => Promise<void>;
+}
+
 export interface BuildNativeConfiguration {
   format: "litheBuildConfiguration";
   version: 1;
@@ -85,8 +103,8 @@ export interface WorkspacePorts {
   tools: (target: CoreBuildProviderTarget, root: string, checkVersions: boolean) => Promise<BuildToolContext>;
   guard: typeof pluginPlanGuard;
   translate: (key: string) => string;
+  configurationCheck?: (target: CoreBuildProviderTarget, sources: BuildConfigurationSourceVersion[]) => Promise<BuildConfigurationCheck>;
   configurationFiles?: {
-    check?: (target: CoreBuildProviderTarget, sources: BuildConfigurationSourceVersion[]) => Promise<BuildConfigurationCheck>;
     prepare: (target: CoreBuildProviderTarget, root: string, operationID: string, snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits) => Promise<boolean>;
     commit: (operationID: string) => Promise<void>;
     cancel: (operationID: string) => Promise<void>;

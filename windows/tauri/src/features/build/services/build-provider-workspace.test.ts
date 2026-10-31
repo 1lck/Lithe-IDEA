@@ -50,6 +50,9 @@ function fixture() {
       tests: [{ project: "service", suite: "FailedTest", case: "fails", status: "failed", message: "assertion", invocations: 1 }],
       summary: { total: 1, passed: 0, failed: 1, errors: 0, skipped: 0 }, coverage: [{ project: "service", suite: "FailedTest" }] } };
     if (command === "build.decodeTestDiscovery") return { discovery: { tests: [{ id: "opaque-selector", suite: "A", case: "method" }] } };
+    if (command === "build.decodeRunPreparation") return { launch: { executable: { kind: "toolchain", value: "project-runtime" },
+      arguments: ["upstream-entry", "", "two words"], workingDirectory: "service", environment: { UPSTREAM: "owned" } } };
+    if (command === "build.languageImport") return { languageImport: null };
     if (command === "build.decodeConfiguration") return { configuration: structuredClone(nativeConfiguration) };
     throw new Error(`Unexpected Core command ${command}`);
   }) as typeof buildCore;
@@ -66,8 +69,8 @@ function fixture() {
       },
       stop: async target => { stopped.push(target.pluginId); if (stopFailure) throw new Error("process retained"); },
     },
+    configurationCheck: async () => ({ current: nativeCurrent, paths: ["C:/fixture/settings.xml"] }),
     configurationFiles: {
-      check: async () => ({ current: nativeCurrent, paths: ["C:/fixture/settings.xml"] }),
       prepare: async () => { fileCalls.push("prepare"); entered.prepare.resolve(); return await prepareGate ?? true; },
       commit: async () => {
         fileCalls.push("commit");
@@ -96,6 +99,51 @@ function fixture() {
 }
 
 describe("Windows Build Provider workspace operations", () => {
+  test("Provider run preparation retains typed options, exact model identity and a revalidation receipt", async () => {
+    const f = fixture(), target = { id: "upstream-target", projectID: "service", name: "Application", path: "service", tags: ["application"], properties: {} };
+    f.holdCore("build.decodeModel", Promise.resolve({ model: { ...model, targets: [target] } }));
+    try {
+      await f.workspace.loadModel(instance).completion;
+      const options = { execution: "service" as const, runtimeArguments: ["-Dvalue=two words"], arguments: ["", "字", "C:\\path"], environment: { OPTION: "chosen" }, workingDirectory: "." };
+      const run = f.workspace.prepareRun(instance, { run: "serve", projectID: "service", targetID: target.id, userArguments: ["exact"], launchOptions: options });
+      options.arguments.length = 0;
+      const prepared = await run.completion;
+      expect(f.coreCalls.find(call => call.command === "build.prepareRunPlan")?.request).toMatchObject({
+        project: model.projects[0], target, userArguments: ["exact"], launchOptions: { execution: "service", arguments: ["", "字", "C:\\path"] } });
+      expect(prepared.launch).toMatchObject({ arguments: ["upstream-entry", "", "two words"], environment: { UPSTREAM: "owned" } });
+      prepared.assertCurrent(); await prepared.validate();
+      const count = f.sent.length; f.fingerprint("changed-before-native-start");
+      await expect(prepared.validate()).rejects.toThrow("changed"); expect(f.sent).toHaveLength(count);
+      expect(() => prepared.assertCurrent()).toThrow("changed");
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("a target in a different project cannot be prepared using a matching name or ancestor path", async () => {
+    const f = fixture();
+    f.holdCore("build.decodeModel", Promise.resolve({ model: { ...model,
+      targets: [{ id: "same-name", projectID: "other", name: "Application", path: "service", tags: [], properties: {} }] } }));
+    try {
+      await f.workspace.loadModel(instance).completion;
+      await expect(f.workspace.prepareRun(instance, { run: "serve", projectID: "service", targetID: "same-name" }).completion).rejects.toThrow("project");
+      expect(f.sent).toHaveLength(1);
+    } finally { await f.workspace.dispose(); }
+  }, 5000);
+
+  test("cancelling a decoded launch cannot hand a late result to the native Run owner", async () => {
+    const f = fixture(), decoded = deferred<Record<string, unknown>>();
+    f.holdCore("build.decodeModel", Promise.resolve({ model: { ...model,
+      targets: [{ id: "application", projectID: "service", name: "Application", path: "service", tags: [], properties: {} }] } }));
+    try {
+      await f.workspace.loadModel(instance).completion;
+      f.holdCore("build.decodeRunPreparation", decoded.promise);
+      const run = f.workspace.prepareRun(instance, { run: "run", projectID: "service", targetID: "application" });
+      const completed = run.completion.catch(() => "cancelled"); await f.entered.decode.promise;
+      f.workspace.cancel(run.operationID); expect(await completed).toBe("cancelled");
+      decoded.resolve({ launch: { executable: { kind: "command", value: "old" } } });
+      expect(f.workspace.operationSummary(run.operationID)?.phase).toBe("cancelled");
+    } finally { decoded.resolve({}); await f.workspace.dispose(); }
+  }, 5000);
+
   test("plugin revocation waits for native source retirement before acknowledging cleanup", async () => {
     const f = fixture(), gate = deferred<void>(); let acknowledged = false;
     try {

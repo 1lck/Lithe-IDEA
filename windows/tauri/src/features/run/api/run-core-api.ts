@@ -10,6 +10,7 @@ import type {
   JavaLaunchTarget,
   RunOptions,
   RunSaveScope,
+  BuildProviderLaunchInputs,
 } from "../types/run.types";
 import type { MavenLaunchContext } from "@/features/maven/types/maven.types";
 import { projectScopedPath } from "../utils/run-configuration";
@@ -130,6 +131,12 @@ export function createLaunchPlan(
         }
       : null,
   });
+}
+
+/** Core resolves saved selectors and user choices; the Provider prepares the
+ * process only after the owning workspace validates its current model. */
+export function buildProviderLaunchInputs(root: string, configurationId: string, providerRoot: string) {
+  return runCore<BuildProviderLaunchInputs>("runConfig.providerLaunchInputs", { root, configurationId, providerRoot });
 }
 
 export function saveRunConfigurationEditorChanges(

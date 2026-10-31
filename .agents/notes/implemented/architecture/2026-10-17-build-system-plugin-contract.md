@@ -486,7 +486,14 @@ adapter 只负责有界读取、可写位置及发布，不再分别维护字段
 丢失失效事件。代价是保守撤销正在准备的模型，需要用户再次明确加载，不能自动
 启动项目代码。团队文档变化立即撤销旧目录，合并后的检测只读。
 
-以上仍是 Windows 准入关闭期间的基础设施。外部原生配置文件的独立观察、Run、Java、
-Agent、旧偏好迁移和实机验收尚未完成，不能据此前端测试开放全部 Build 能力。
+原生来源的版本检查只返回一致性与观察路径，复用窗口文档 watcher 观察原路径及
+链接目标；缺失父目录观察现存祖先，不创建用户目录。只读版本检查端口与原生写入
+端口独立，模型加载不需要取得保存权限，也不把 XML 或凭据交给 WebView。
+
+已保存 Provider 引用现在可以通过公共 Core 计划交给现有 Windows Run 进程管理，
+不要求旧 Maven store 提供启动模型；具体所有权与取消规则见
+[任务执行决策](2026-10-26-build-provider-task-execution.md)。以上仍是 Windows 准入
+关闭期间的基础设施。完整 Run/Debug、Java、Agent、旧偏好迁移和实机验收尚未完成，
+不能据此前端测试开放全部 Build 能力。
 `build-provider-workspace.test.ts`、`build-file-inputs.test.ts`、
 `build-workspace-controller.test.ts` 和 `build-pane.test.tsx` 覆盖上述状态与交互。

@@ -7,6 +7,8 @@ import { supportsDevToolsUpdate, updateJavaService } from "../services/java-serv
 import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { startWindowsBuildProviderRun } from "@/platform/build-provider-run";
+import type { BuildProviderRunHandle } from "../services/build-provider-run-launch";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -183,6 +185,7 @@ interface RunState {
 }
 
 export interface RunStoreDependencies {
+  startBuildProviderRun?: typeof startWindowsBuildProviderRun;
   inspectRunConfiguration?: typeof inspectRunConfiguration;
   resolveConfigurations?: typeof resolveConfigurations;
   createLaunchPlan: typeof createLaunchPlan;
@@ -213,6 +216,7 @@ function seedMavenLocalConfiguration(workspaceId: string, settings: Partial<Mave
 }
 
 const defaultRunStoreDependencies: RunStoreDependencies = {
+  startBuildProviderRun: startWindowsBuildProviderRun,
   createLaunchPlan,
   mavenLaunchContextForWorkspace,
   resolveRunLaunch,
@@ -450,6 +454,7 @@ export const createRunStore = (
     dependencies.rebuildJavaIndexForWorkspace ?? rebuildJavaIndexForWorkspace;
   const presentJavaLaunchDecision = dependencies.presentJavaLaunchDecision ?? openRunDecisionPane;
   const executions = new Map<string, string>();
+  const providerRuns = new Map<string, { executionId: string; handle: BuildProviderRunHandle; preparing: boolean }>();
   const pendingJavaLaunchDecisions = new Map<
     string,
     { decisionId: string; executionId: string; resolve: (proceed: boolean) => void }
@@ -577,6 +582,15 @@ export const createRunStore = (
           pendingJavaLaunchDecisions.clear();
         }
         const revision = ++projectLoadRevision;
+        const obsolete = [...providerRuns].filter(([, entry]) => !sameProject || entry.preparing);
+        if (obsolete.length) {
+          const stopped = await Promise.allSettled(obsolete.map(async ([id, entry]) => {
+            await entry.handle.stop(); if (providerRuns.get(id) === entry) providerRuns.delete(id);
+          }));
+          const failed = stopped.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+          if (failed) throw failed.reason;
+        }
+        if (revision !== projectLoadRevision) return;
         set({
           root,
           isLoading: true,
@@ -881,6 +895,11 @@ export const createRunStore = (
         resetOutputStamper(sessionId);
         await dependencies.stopRunProcess(sessionId).catch(() => undefined);
         try {
+          const previousProvider = providerRuns.get(sessionId);
+          if (previousProvider) {
+            await previousProvider.handle.stop();
+            if (providerRuns.get(sessionId) === previousProvider) providerRuns.delete(sessionId);
+          }
           if (!isCurrent()) return null;
           let save = workspaceSaveInFlight.get(workspaceId);
           if (!save) {
@@ -894,6 +913,34 @@ export const createRunStore = (
           }
           await save;
           if (!isCurrent()) return null;
+          if (configuration.buildProvider) {
+            if (sessionId !== PRIMARY_SESSION_ID) set((current) => ({ selectedSessionId: sessionId,
+              sessions: [...current.sessions.filter(session => session.id !== sessionId), { id: sessionId, configurationId: configuration.id,
+                executionId, title: configuration.name, output: "", isRunning: false, isPreparing: true, exitCode: null }] }));
+            const stopPresentation = () => {
+              if (!isCurrent()) return;
+              executions.delete(sessionId);
+              if (sessionId === PRIMARY_SESSION_ID) set({ primaryRunning: false, primaryPreparing: false });
+              else set((current) => ({ sessions: current.sessions.map(session => session.id === sessionId && session.executionId === executionId
+                ? { ...session, isRunning: false, isPreparing: false } : session) }));
+            };
+            const startProvider = dependencies.startBuildProviderRun ?? startWindowsBuildProviderRun;
+            const handle = startProvider({ workspaceId, root, configurationId: configuration.id, name: configuration.name,
+              reference: configuration.buildProvider, sessionId, executionId, debugPort, runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
+              isCurrent, onRevoked: stopPresentation,
+              onOutput: text => { if (isCurrent()) get().actions.appendOutput(sessionId, text); },
+              onReady: launch => {
+                if (!isCurrent()) return;
+                get().actions.appendOutput(sessionId, `$ ${launch.executable.split(/[\\/]/).pop()} ${launch.arguments.join(" ")}\n\n`);
+                if (sessionId === PRIMARY_SESSION_ID) set({ primaryRunning: true, primaryPreparing: false });
+                else set((current) => ({ sessions: current.sessions.map(session => session.id === sessionId && session.executionId === executionId
+                  ? { ...session, isRunning: true, isPreparing: false } : session) }));
+              },
+            });
+            const owned = { executionId, handle, preparing: true }; providerRuns.set(sessionId, owned);
+            try { await handle.completion; } finally { owned.preparing = false; }
+            return isCurrent() ? { sessionId, executionId } : null;
+          }
           const mavenContext = configurationUsesMaven(configuration)
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
             : null;
@@ -1324,6 +1371,11 @@ export const createRunStore = (
         const ownedExecution = executions.get(target);
         const ownsSlot = !executionId || executionId === ownedExecution;
         if (ownsSlot) executions.delete(target);
+        const provider = providerRuns.get(target);
+        if (provider && (!executionId || provider.executionId === executionId)) {
+          await provider.handle.stop();
+          if (providerRuns.get(target) === provider) providerRuns.delete(target);
+        }
         // Native ownership remains authoritative after a workspace store is disposed/recreated.
         await dependencies
           .stopRunProcess(target, executionId ?? ownedExecution)
@@ -1453,6 +1505,8 @@ export const createRunStore = (
       },
 
       finishProcess: (sessionId, exitCode) => {
+        const provider = providerRuns.get(sessionId);
+        if (provider) { provider.handle.finished(); providerRuns.delete(sessionId); }
         if (sessionId === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,

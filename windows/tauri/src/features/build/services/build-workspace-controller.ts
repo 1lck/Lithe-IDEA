@@ -2,6 +2,7 @@ import type { WindowsBuildCatalog } from "@/platform/build-provider-platform";
 import type { BuildInstance, WindowsBuildProviderWorkspace } from "./build-provider-workspace";
 import { BuildNativeConfigurationController } from "./build-native-configuration-controller";
 import { buildCatalogMayChange } from "./build-file-inputs";
+import { BuildModelPreparationOwner } from "./build-model-preparation-owner";
 
 export type BuildEntry = WindowsBuildCatalog["detection"]["instances"][number];
 export interface BuildWorkspaceSnapshot {
@@ -27,14 +28,17 @@ export class BuildWorkspaceController {
   private readonly listeners = new Set<() => void>();
   private readonly pending = new Set<Promise<unknown>>();
   private generation = 0;
+  private detection?: { generation: number; completion: Promise<void> };
   private disposed = false;
   private cancelScheduledRefresh?: () => void;
   private readonly nativeEditors = new Map<string, BuildNativeConfigurationController>();
   readonly domain: WindowsBuildProviderWorkspace;
+  readonly modelPreparation: BuildModelPreparationOwner;
   private readonly unsubscribeFacts: () => void;
 
   constructor(readonly workspacePath: string, private readonly ports: BuildWorkspaceControllerPorts) {
     this.domain = ports.domain;
+    this.modelPreparation = new BuildModelPreparationOwner(this.domain);
     this.unsubscribeFacts = this.domain.subscribeFacts(() => {
       if (!this.disposed) this.publish({ modelRevision: this.state.modelRevision + 1 });
     });
@@ -56,7 +60,7 @@ export class BuildWorkspaceController {
     const generation = ++this.generation, guard = this.ports.guard();
     for (const entry of this.state.entries) this.domain.invalidate(entry);
     this.publish({ status: "loading", error: undefined, entries: [], manifests: {}, modelRevision: this.state.modelRevision + 1 });
-    return this.own((async () => {
+    const completion = this.own((async () => {
       try {
         const catalog = await this.ports.detect(this.workspacePath);
         if (this.disposed || generation !== this.generation) return;
@@ -72,6 +76,13 @@ export class BuildWorkspaceController {
         if (!this.disposed && generation === this.generation) this.publish({ status: "failed", error: error instanceof Error ? error.message : String(error) });
       }
     })());
+    this.detection = { generation, completion };
+    const finished = () => { if (this.detection?.completion === completion) this.detection = undefined; };
+    void completion.then(finished, finished); return completion;
+  }
+  ensureDetected(): Promise<void> {
+    if (this.state.status === "ready" || this.disposed) return Promise.resolve();
+    return this.detection?.generation === this.generation ? this.detection.completion : this.refresh();
   }
   select(id: string): void { if (this.state.entries.some(entry => entry.id === id)) this.publish({ selectedID: id, error: undefined }); }
 
@@ -136,6 +147,7 @@ export class BuildWorkspaceController {
 
   async dispose(): Promise<void> {
     this.disposed = true; this.generation++;
+    this.modelPreparation.dispose();
     this.cancelScheduledRefresh?.(); this.cancelScheduledRefresh = undefined;
     this.unsubscribeFacts();
     for (const editor of this.nativeEditors.values()) editor.dispose();

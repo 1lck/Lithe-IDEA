@@ -258,7 +258,7 @@ pub async fn run_stop_owned_processes(
     });
     let stopping = owned
         .iter()
-        .map(|(key, session)| (key.clone(), session.pid))
+        .map(|(key, session)| (key.clone(), session.pid, session.execution_id.clone()))
         .collect::<Vec<_>>();
     let result =
         tauri::async_runtime::spawn_blocking(move || stop_sessions(owned, RUN_STOP_TIMEOUT))
@@ -270,10 +270,10 @@ pub async fn run_stop_owned_processes(
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         stopping
             .iter()
-            .map(|(key, pid)| current.get(key).is_some_and(|session| session.pid == *pid))
+            .map(|(key, pid, _)| current.get(key).is_some_and(|session| session.pid == *pid))
             .collect::<Vec<_>>()
     };
-    for ((key, _), running) in stopping.into_iter().zip(still_running) {
+    for ((key, _, execution_id), running) in stopping.into_iter().zip(still_running) {
         // A session that did not stop went back into the table; its exit
         // waiter still reports it.
         if running {
@@ -282,7 +282,7 @@ pub async fn run_stop_owned_processes(
         let _ = app.emit_to(
             &key.window_label,
             "run-exit",
-            json!({ "sessionId": key.session_id, "exitCode": STOPPED_EXIT_CODE }),
+            json!({ "sessionId": key.session_id, "executionId": execution_id, "exitCode": STOPPED_EXIT_CODE }),
         );
     }
     result
@@ -2592,7 +2592,7 @@ fn spawn_output_dispatcher(
             let _ = app.emit_to(
                 &window_label,
                 "run-output",
-                json!({ "sessionId": session_id, "chunk": chunk }),
+                json!({ "sessionId": session_id, "executionId": execution_id, "chunk": chunk }),
             );
         }
     })
@@ -2639,15 +2639,16 @@ fn spawn_exit_waiter(
         // Preserve the console contract: the final output batch is observable
         // before the matching exit event marks the session as complete.
         let _ = output_dispatcher.join();
-        let stale = match sessions().lock() {
+        let (stale, execution_id) = match sessions().lock() {
             Ok(mut current) => match current.get(&session_key) {
                 Some(session) if session.pid == pid => {
+                    let execution_id = session.execution_id.clone();
                     current.remove(&session_key);
-                    false
+                    (false, execution_id)
                 }
-                _ => true,
+                _ => (true, None),
             },
-            Err(_) => true,
+            Err(_) => (true, None),
         };
         if stale {
             return;
@@ -2655,7 +2656,7 @@ fn spawn_exit_waiter(
         let _ = app.emit_to(
             &window_label,
             "run-exit",
-            json!({ "sessionId": session_id, "exitCode": exit_code }),
+            json!({ "sessionId": session_id, "executionId": execution_id, "exitCode": exit_code }),
         );
     });
 }

@@ -27,6 +27,7 @@ export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfi
     id: value.id,
     name: value.name,
     provider: value.provider,
+    buildProvider: value.extensions?.build ? structuredClone(value.extensions.build) : undefined,
     kindTitle: presentation.title,
     iconKey: presentation.iconKey,
     execution,

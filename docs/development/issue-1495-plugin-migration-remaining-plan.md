@@ -293,3 +293,22 @@ Windows 验收仍待完成，能力准入继续关闭，阶段 D 不关闭。
 172 Notes、222 矩阵、9711 词条一致性、测试稳定性及 bundle 只读门禁通过。
 来源监听与检查只持有内存租约，关闭/插件撤销后排空，临时比较源码已删除；没有
 新增运行时资源目录、持久状态或跨 worktree 共享项。
+
+Windows 已保存 Provider Run 增量（2026-10-31）：Core 的公共 Run 选项、精确工程/
+目标选择器和准备结果交给既有 Native Run；所选 Maven/JDK 来自公共语言导入与
+工具上下文，不再让这条路径依赖旧 Maven store。默认模型由并发服务共同等待，
+各自取消；准备输出直接追加现有 Run 面板。启动前重查保存选项、工具、工程指纹
+和原生来源版本，插件/工作区所有者等待迟到启动确认并按执行 ID 清理。原生输出/
+退出携带执行 ID，旧事件不能结束替换会话，清理失败保留所有者供重试。
+
+真实 Windows TypeScript→Core→Maven Provider 的集成补上只读来源检查，九项均
+通过，新增模块 Run 规划 137ms；默认模型/选项和开发包文件清单保持不变，后端已
+清理。报告在 `.artifacts/test-stability/stage-d-windows-real-run/`；测试运行于 macOS，
+不代表 Windows 原生启动验收。当前只支持已保存引用的默认模型，目标树 Run/Debug、
+临时 Profiles、旧配置/Java/Agent 迁移与正式发行仍未完成，能力准入继续关闭。
+
+本批 Windows Build/共享进程所有者 100 项、完整 Run 335 项计时通过，覆盖共享模型
+取消、原生启动迟到、失败清理重试、参数编辑后拒绝旧计划和会话替换事件隔离。
+TypeScript、生产 bundle、共享/服务/Windows 边界、172 Notes、222 矩阵、测试稳定性
+和 bundle 只读检查通过。报告为 `stage-d-build-run-final`、`stage-d-windows-run-final`
+及 `stage-d-build-run-*`；Windows host check 仍只含两项既有 macOS 平台 API 错误。

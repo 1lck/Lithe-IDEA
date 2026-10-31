@@ -3,9 +3,10 @@ import type { CoreBuildProviderTarget } from "@/platform/lsp-core-adapter";
 import { BuildResultStore, type BuildDiagnostic, type BuildTestResults, type BuildTestSelector } from "./build-results";
 import { BuildFileInputs } from "./build-file-inputs";
 import type { BuildConfigurationWatch, BuildConfigurationSourceVersion } from "./build-configuration-watch";
+import type { BuildLanguageImport } from "./build-language-import";
 
 import type { BuildProject, BuildDependencies, BuildDependencySnapshot, BuildModel, BuildInstance, BuildOperation,
-  BuildTestSelection, BuildNativeConfiguration, BuildNativeConfigurationEdits, BuildWork, WorkspacePorts } from "./build-provider-types";
+  BuildTestSelection, BuildNativeConfiguration, BuildNativeConfigurationEdits, BuildRunSelection, BuildRunLaunch, BuildPreparedRun, BuildWork, WorkspacePorts } from "./build-provider-types";
 export type * from "./build-provider-types";
 
 const MAX_OUTPUT_CHARACTERS = 500_000;
@@ -47,6 +48,7 @@ export class WindowsBuildProviderWorkspace {
   private readonly pendingTasks = new Set<Promise<unknown>>();
   private readonly controllers = new Map<string, { controller: AbortController; instance: string }>();
   private readonly records = new Map<string, BuildOperation>();
+  private readonly outputOffsets = new Map<string, number>();
   private readonly targets = new Map<string, CoreBuildProviderTarget>();
   private readonly results = new BuildResultStore();
   private readonly fileInputs: BuildFileInputs;
@@ -75,6 +77,10 @@ export class WindowsBuildProviderWorkspace {
   }
   operation(id: string): BuildOperation | undefined {
     const record = this.records.get(id); return record && structuredClone(record);
+  }
+  operationOutput(id: string): { output: string; offset: number } | undefined {
+    const record = this.records.get(id);
+    return record && { output: record.output, offset: this.outputOffsets.get(id) ?? record.output.length };
   }
   operationSummary(id: string): Omit<BuildOperation, "output"> | undefined {
     const record = this.records.get(id);
@@ -106,6 +112,7 @@ export class WindowsBuildProviderWorkspace {
     if (!this.modelIsCurrent(instance)) return undefined;
     const model = this.models.get(owner(instance)); return model && structuredClone(model);
   }
+  hasCurrentModel(instance: BuildInstance): boolean { return this.modelIsCurrent(instance) && this.models.has(owner(instance)); }
   dependencyResult(instance: BuildInstance, projectID?: string): BuildDependencySnapshot | undefined {
     if (!this.modelIsCurrent(instance)) return undefined;
     const result = this.dependencyResults.get(JSON.stringify([owner(instance), projectID ?? ""]))?.snapshot;
@@ -262,7 +269,7 @@ export class WindowsBuildProviderWorkspace {
     }
   }
   private async checkNativeSources(operation: Pick<BuildWork, "record" | "current" | "native">, sources: BuildConfigurationSourceVersion[]): Promise<void> {
-    const check = this.ports.configurationFiles?.check, selected = operation.record.instance;
+    const check = this.ports.configurationCheck, selected = operation.record.instance;
     if (!check) throw new Error(this.message("unsupportedSource"));
     const result = await operation.native(check({ workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID }, sources));
     operation.current();
@@ -306,6 +313,34 @@ export class WindowsBuildProviderWorkspace {
     return this.begin<Record<string, unknown>>(instance, true, async operation => {
       const project = this.project(operation.record.instance, projectID);
       return await this.execution(operation, await operation.perform("build.taskPlan", { task, project, userArguments: argumentsSnapshot }), project);
+    });
+  }
+
+  prepareRun(instance: BuildInstance, selection: BuildRunSelection) {
+    const snapshot = structuredClone(selection);
+    return this.begin<BuildPreparedRun>(instance, true, async operation => {
+      const selected = operation.record.instance, model = this.models.get(owner(selected))!;
+      const target = model.targets.find(target => target.id === snapshot.targetID && target.projectID === snapshot.projectID);
+      const project = this.project(selected, snapshot.projectID);
+      if (!target || !project) throw new Error(this.message("missingProject"));
+      const validate = async () => {
+        operation.current();
+        const target = { workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID };
+        const tool = await operation.native(this.ports.tools(target, selected.root, false));
+        operation.current();
+        if (fingerprint(tool) !== operation.context) { this.invalidate(selected); throw this.revoked(); }
+        const sync = await operation.decode<{ sync: { fingerprint: string } }>("build.syncFingerprint", { projects: model.projects.map(project => project.path) });
+        if (sync.sync.fingerprint !== this.modelInputs.get(owner(selected))?.sync) { this.invalidate(selected); throw this.revoked(); }
+        const sources = this.modelInputs.get(owner(selected))?.nativeSources;
+        if (sources) await this.checkNativeSources(operation, sources);
+        operation.current();
+      };
+      const result = await operation.perform("build.prepareRunPlan", { run: snapshot.run, project, target,
+        workspaceRoot: this.workspacePath, userArguments: snapshot.userArguments ?? [], launchOptions: snapshot.launchOptions });
+      const decoded = await operation.decode<{ launch: BuildRunLaunch }>("build.decodeRunPreparation", { result, launchOptions: snapshot.launchOptions });
+      const imported = await operation.decode<{ languageImport: BuildLanguageImport | null }>("build.languageImport", { executablePath: operation.tool.tool.executable });
+      await validate();
+      return { launch: structuredClone(decoded.launch), tool: structuredClone(operation.tool), languageImport: imported.languageImport, assertCurrent: operation.current, validate };
     });
   }
 
@@ -431,6 +466,7 @@ export class WindowsBuildProviderWorkspace {
               if (!value || typeof value !== "object") return;
               const progress = value as { output?: unknown; message?: unknown };
               const text = typeof progress.output === "string" ? progress.output : typeof progress.message === "string" ? progress.message + "\n" : "";
+              this.outputOffsets.set(id, (this.outputOffsets.get(id) ?? 0) + text.length);
               record.output = (record.output + text).slice(-MAX_OUTPUT_CHARACTERS);
               this.changed();
             } }), controller.signal);
@@ -461,7 +497,7 @@ export class WindowsBuildProviderWorkspace {
       } finally {
         this.controllers.delete(id);
         const completed = [...this.records.values()].filter(record => !this.controllers.has(record.id));
-        for (const old of completed.slice(0, Math.max(0, completed.length - MAX_COMPLETED_OPERATIONS))) this.records.delete(old.id);
+        for (const old of completed.slice(0, Math.max(0, completed.length - MAX_COMPLETED_OPERATIONS))) { this.records.delete(old.id); this.outputOffsets.delete(old.id); }
         this.changed();
       }
     })();

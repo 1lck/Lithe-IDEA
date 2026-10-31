@@ -5,7 +5,8 @@ export function buildCatalogMayChange(manifests: Record<string, Record<string, u
   if (rescan) return true;
   const identity = (value: string) => isCaseInsensitivePath(workspace) ? normalizePath(value).toLowerCase() : normalizePath(value);
   const relative = identity(getRelativePath(path, workspace));
-  if (relative === identity(".lithe/build/options.json")) return true;
+  if ([".lithe/build/options.json", ".lithe/run/local.json", ".lithe/run/configurations.json", ".lithe/toolchains/local.json", ".lithe/project.json"]
+    .some(input => relative === identity(input))) return true;
   return Object.values(manifests).some(manifest => (manifest.buildSystems as Array<{ detection?: { markers?: string[] } }> | undefined)
     ?.some(system => system.detection?.markers?.some(marker => {
       const normalized = identity(marker);

@@ -34,8 +34,8 @@ export function createWindowsBuildProviderWorkspace(workspacePath: string): Wind
     core: buildCore, providers: windowsBuildProviders, guard: pluginPlanGuard,
     translate: key => createTranslator(useSettingsStore.getState().settings.displayLanguage)(key),
     tools: (target, root, checkVersions) => invoke("declarative_plugins_build_tool", { ...target, root, checkVersions }),
+    configurationCheck: check,
     configurationFiles: {
-      check,
       prepare: (target, root, operationId, snapshot, edits) => invoke("declarative_plugins_build_prepare_configuration", { ...target, root, operationId, snapshot, edits }),
       commit: operationId => invoke("declarative_plugins_build_commit_configuration", { operationId }),
       cancel: operationId => invoke("declarative_plugins_build_cancel_configuration", { operationId }),

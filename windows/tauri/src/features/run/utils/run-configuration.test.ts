@@ -15,6 +15,16 @@ import {
 } from "./run-configuration";
 
 describe("run configuration mapping", () => {
+  test("saved Provider references retain their exact selector and execution without inventing process data", () => {
+    const reference = { pluginID: "dev.example.build", buildSystemID: "example", root: "reactor", run: "serve",
+      projectID: "app", targetID: "exact-target", execution: "service" as const, userArguments: ["", "two words"] };
+    const configuration = mapCoreConfiguration({ id: "user:service", name: "Saved service", provider: "build.provider", execution: "service", extensions: { build: reference } });
+    reference.userArguments.length = 0;
+    expect(configuration.buildProvider).toEqual({ ...reference, userArguments: ["", "two words"] });
+    expect(configuration.execution).toBe("service"); expect(configuration.toolchains).toEqual({}); expect(configuration.env).toEqual({});
+    expect(configuration.mainClass).toBeUndefined();
+  }, 5000);
+
   test("maps a Spring Boot service and keeps the main class", () => {
     const configuration = mapCoreConfiguration({
       id: "spring-boot.maven:demo",
