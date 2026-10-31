@@ -15,6 +15,7 @@ import tempfile
 import time
 import traceback
 import zipfile
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = True
@@ -206,6 +207,22 @@ def run_tests(report):
             raises(ValueError, "new child", lambda: ASSEMBLY.assemble(fixture.root, "x86_64", fixture.root / "installed", time.monotonic() + 2))
             raises(TimeoutError, "deadline", lambda: ASSEMBLY.assemble(fixture.root, "x86_64", fixture.output, time.monotonic() - 1))
 
+    def input_changed_during_assembly(source_change=False):
+        with tempfile.TemporaryDirectory(prefix="lithe-java-assembly-test-") as scratch:
+            fixture = Fixture(Path(scratch))
+            original = ASSEMBLY.extract
+
+            def replace_after_extract(archive, destination, deadline):
+                original(archive, destination, deadline)
+                if archive == fixture.runtime_archive:
+                    target = fixture.root / ASSEMBLY.SOURCE / "templates/plain/src/Main.java" if source_change else archive
+                    target.write_bytes(b"changed after input validation")
+
+            with patch.object(ASSEMBLY, "extract", replace_after_extract):
+                raises(ValueError, "changed during assembly", fixture.assemble)
+            assert not fixture.output.exists()
+            assert not list(fixture.output.parent.glob(".assemble-*"))
+
     case("x64 candidate keeps complete requires, fixed inputs, licenses and file inventory", lambda: assembled("x86_64"))
     case("ARM64 fixture selects Windows config and PE data without executing it", lambda: assembled("arm64"))
     case("changed cached archive fails before package publication", tamper)
@@ -214,6 +231,8 @@ def run_tests(report):
     case("package identity and fixed source manifest list cannot be replaced", fixed_identity)
     case("archive traversal, Windows aliases, duplicate files and symlinks fail closed", archive_escape)
     case("output scope and monotonic deadline are enforced", output_and_deadline)
+    case("archive replacement after extraction cannot publish stale provenance", input_changed_during_assembly)
+    case("source template replacement during assembly cannot publish mixed inputs", lambda: input_changed_during_assembly(True))
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps({"runner": "python", "warnMs": 1000, "maxMs": 15000, "tests": tests}, indent=2) + "\n", encoding="utf-8")
     return int(any(test["status"] != "passed" for test in tests))

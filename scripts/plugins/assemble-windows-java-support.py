@@ -121,6 +121,7 @@ def extract(archive, destination, deadline):
 
 
 def copy_tree(source, destination, deadline):
+    check_deadline(deadline)
     info = source.lstat()
     if source.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400:
         raise ValueError(f"Source link/reparse point: {source}")
@@ -153,6 +154,39 @@ def read_json(path):
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def file_inventory(root, deadline):
+    """Hash regular files without following Windows aliases or reparse points."""
+    files, names = {}, set()
+    total = 0
+
+    def visit(directory):
+        nonlocal total
+        check_deadline(deadline)
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise ValueError(f"Expected a plain directory: {directory}")
+        for child in sorted(directory.iterdir()):
+            check_deadline(deadline)
+            name = child.relative_to(root).as_posix()
+            if str(safe_name(name)) != name or name.casefold() in names:
+                raise ValueError(f"Ambiguous Windows package path: {name}")
+            names.add(name.casefold())
+            if len(names) > MAX_ENTRIES:
+                raise ValueError("Package inventory exceeds the entry limit")
+            info = child.lstat()
+            if stat.S_ISDIR(info.st_mode):
+                visit(child)
+            else:
+                plain_file(child)
+                total += info.st_size
+                if total > MAX_EXPANDED_BYTES:
+                    raise ValueError("Package inventory exceeds the byte limit")
+                files[name] = digest(child, deadline)
+
+    visit(root)
+    return files
+
+
 def assemble(root, architecture, output, deadline):
     root, output = root.resolve(), output.absolute()
     allowed = root / ".artifacts/windows-java-support"
@@ -161,6 +195,9 @@ def assemble(root, architecture, output, deadline):
     if output.exists():
         raise ValueError("Output already exists; assembly never overwrites a package")
     source = root / SOURCE
+    source_files = file_inventory(source, deadline)
+    source_manifests = {name: digest(root / name, deadline) for name in
+                        ("third_party/jdtls/manifest.json", "third_party/jdk/manifest.json")}
     manifest = read_json(source / "plugin.json")
     policy = read_json(source / "language-server.json")
     if manifest.get("requires") != REQUIRES or manifest.get("pluginAPIVersion") != 3:
@@ -175,7 +212,7 @@ def assemble(root, architecture, output, deadline):
     jdt = read_json(root / "third_party/jdtls/manifest.json")
     jdk = read_json(root / "third_party/jdk/manifest.json")
     platform = jdk["platforms"][target["jdkPlatform"]]
-    inputs = []
+    inputs, cached_paths = [], []
 
     def cached(cache, name, expected, url):
         path = root / ".artifacts" / cache / name
@@ -184,6 +221,7 @@ def assemble(root, architecture, output, deadline):
         if not url.startswith("https://"):
             raise ValueError("Pinned inputs require HTTPS provenance")
         inputs.append({"name": name, "sha256": expected, "url": url})
+        cached_paths.append((path, expected))
         return path
 
     def safe_version(value):
@@ -272,10 +310,24 @@ def assemble(root, architecture, output, deadline):
         server = manifest["languageServers"][0]
         for declared in (server["launch"]["entry"], server["launch"]["packagedRuntime"].replace("${arch}", architecture), server["hostIntegration"]["resources"]["testRunner"]):
             plain_file(package / declared)
-        files = {path.relative_to(package).as_posix(): digest(path, deadline) for path in sorted(package.rglob("*")) if path.is_file()}
+        files = file_inventory(package, deadline)
+        # The receipt describes one frozen set of inputs, including files read
+        # earlier in the build. Recheck before atomic publication, not at launch.
+        if file_inventory(source, deadline) != source_files or any(
+                digest(root / name, deadline) != expected for name, expected in source_manifests.items()):
+            raise ValueError("Source inputs changed during assembly")
+        if any(digest(path, deadline) != expected for path, expected in cached_paths):
+            raise ValueError("Cached inputs changed during assembly")
+        for name, expected in source_files.items():
+            if name in {"plugin.json", "language-server.json"} or name.startswith("templates/"):
+                if files.get(name) != expected:
+                    raise ValueError("Source copy changed during assembly")
+        if (files["language-server/manifest.json"] != source_manifests["third_party/jdtls/manifest.json"]
+                or files[f"runtime/{architecture}/manifest.json"] != source_manifests["third_party/jdk/manifest.json"]):
+            raise ValueError("Source manifests changed during assembly")
         receipt = {"schemaVersion": 1, "status": "unsigned-candidate", "platform": "windows", "architecture": architecture,
                    "pluginId": manifest["id"], "version": manifest["version"], "requires": manifest["requires"],
-                   "sourceManifests": {name: digest(root / name, deadline) for name in policy["sourceManifests"]},
+                   "sourceManifests": source_manifests,
                    "inputs": inputs, "runtimeImages": [path.relative_to(package).as_posix() for path in native], "files": files}
         (package / "windows-java-inputs.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
         check_deadline(deadline)

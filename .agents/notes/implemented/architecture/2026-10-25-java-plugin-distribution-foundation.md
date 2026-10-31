@@ -75,7 +75,17 @@ Windows 的 `Plugins/win/Official/JavaSupport/` 和 `assemble-windows-java-suppo
 
 发布计划携带清单的真实 API 和 `requires`，组装全部架构后再创建同一个 Release。索引同步从对应 Git tag 读取当时的发布配置和清单，下载所有归档并计算 SHA-256 后一次写入该版本；任一归档缺失或哈希无效都不写部分版本。已发布插件的目录或登记的上游输入发生变化，需要提高插件版本。
 
-### 资源所有权
+### Windows 签名准备复用现有实现
+
+Windows 离线候选交接先调用 `check-windows-java-signing-inputs.py`，由既有组装器从固定缓存重建临时副本，再逐文件比较候选。不能只比较候选和它自己附带的 receipt（组装输入回执），因为两者可以同时被修改。组装器还在原子发布前复核源码、复制结果和缓存哈希，拒绝解压期间输入改变后仍生成带有旧来源说明的包。
+
+签名前报告固定包内全部原文件、回执及现有签名/发布实现；签名后只允许新增签名文档。正确做法是冻结输入后使用现有 `LithePluginPackageSigner` 签名，并对原目录及最终归档的独立解压副本运行它的 `--verify`。不要修改回执为“已签名”，也不要在交接脚本复制 canonical payload（签名消息的固定字节格式）、公钥表或另一套密码学验证。
+
+交接脚本只校验文件准备和前后不变，不判断密钥是否可信。无签名或测试密钥都不能从它获得生产准入；正式签名器和生产宿主才拥有信任判断。报告固定 `productionAdmission: false`，并标明签名验证未执行。收益是 Windows 候选能交给已有签名入口，代价是发布者必须另外完成正式密钥签名、独立归档验证和产品验收，不能把 helper 通过当成发布成功。
+
+Windows 检查所用 `.signing-check-*` 临时副本仍位于已有 `.artifacts/windows-java-support/` 下，结束即删除；它和签名前后报告都由本次验证者持有，不具备跨工作树复用身份。运行时不读取这些交接报告，不写已安装插件或发行目录，不影响宿主代码签名与 Sparkle 增量更新的源基线。当前官方配置仍关闭 Java 发布且仅描述 macOS 资产，不能把 Windows 候选套进现有 workflow 后直接发布。
+
+### 资源目录与生命周期
 
 - `dist/packages/<arch>/` 是发布 job 的组装输出，`dist/verify/<arch>/` 是归档验证副本，ZIP 和校验文件属于同一次发布。job 结束回收，不跨工作树复制。
 - `.artifacts/java-plugin-distribution/` 是本地验证输出，没有可转移的版本与工具链身份，验证者负责删除不用的临时副本；资源复用脚本明确拒绝。
@@ -89,6 +99,7 @@ Windows 的 `Plugins/win/Official/JavaSupport/` 和 `assemble-windows-java-suppo
 - 生成两份不同来源清单：减少清单字段，但会造成同一插件版本有不同清单和能力要求，使用同一声明按来源验证。
 - 为旧宿主新增最低应用版本字段：当前能力协商已能拒绝未知语义，不额外引入另一套版本比较。
 - 索引重试使用最新清单：容易实现，但旧归档会被描述为具有后来新增的能力，改为从不可变标签读取。
+- Windows 交接另写签名算法，或只相信候选自身的回执：前者会与现有信任实现漂移，后者不能发现包和回执同时被替换；选择复用组装器重建，正式认证继续由已有签名器和宿主完成。
 
 ## 后果
 
@@ -107,6 +118,7 @@ Windows 的 `Plugins/win/Official/JavaSupport/` 和 `assemble-windows-java-suppo
 - `node --test scripts/plugins/official-plugin-releases.test.mjs`：双架构索引、部分归档拒绝、历史标签元数据以及上游输入变更约束。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：生成资源拒绝复用、发行目录只读边界。
 - `python scripts/plugins/test-assemble-windows-java-support.py`：合成 Windows x64/ARM64 输入、完整能力要求、固定来源/身份、缓存篡改、PE 架构、恶意归档、输出边界与清理；不执行 JVM，也不证明 ARM64 实机可运行。
+- `python scripts/plugins/test-check-windows-java-signing-inputs.py`：固定上游重建、伪造回执、六项能力和来源降级、签名前后内容/工具变化、无效签名不授予准入及临时副本清理；不执行签名或认证。
 - Windows `signature_trust_tests`、`publisher_bundled_fixture_installs_replaces_and_rechecks_rollback` 和 `lsp_plugin_tests`：使用完整共享 fixture 或 Windows 清单、测试密钥与仅测试能力，验证来源策略、实际安装事务及 Core JDT 计划；正式签名完整包与真实 JDT 生命周期仍待验收。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 和 macOS 计时入口：相关测试必须有单项时长与 HTML/JUnit 结果。
 - `.github/workflows/release-official-plugins.yml` 用 actionlint 校验；本地组装两种架构资源，验证 JDK 原生签名和发布归档的完整性。
@@ -119,6 +131,8 @@ Windows 的 `Plugins/win/Official/JavaSupport/` 和 `assemble-windows-java-suppo
 - `Plugins/win/Official/JavaSupport/`
 - `scripts/plugins/assemble-windows-java-support.py`
 - `scripts/plugins/test-assemble-windows-java-support.py`
+- `scripts/plugins/check-windows-java-signing-inputs.py`
+- `scripts/plugins/test-check-windows-java-signing-inputs.py`
 - `windows/tauri/src-tauri/src/plugin_host/`
 - `windows/tauri/src-tauri/src/lsp.rs`
 - `Plugins/marketplace/official-plugins.json`
