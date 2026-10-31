@@ -760,6 +760,24 @@ fn workspace_snapshot_skips_python_environments_and_bytecode_caches() {
     assert!(crate::project::files::is_workspace_event_relevant(
         "app/main.py"
     ));
+    // A built-in folder turned off with `!` is shown again, and its events kept.
+    let turned_off = crate::project::files::VisibilityRules::new(
+        vec!["venv".into()],
+        vec!["!**/venv/".into(), "!*.pyc".into()],
+    );
+    assert!(!turned_off.is_hidden("venv/lib/site.py", false));
+    assert!(!turned_off.is_hidden("app/a.pyc", false));
+    assert!(turned_off.is_hidden(".venv/lib/site.py", false));
+    assert_eq!(
+        crate::project::filter_workspace_changes(
+            serde_json::from_value(serde_json::json!({
+                "paths": ["venv/lib/site.py", ".venv/lib/site.py", "app/main.py"],
+                "hiddenFilePatterns": ["!**/venv/"]
+            }))
+            .unwrap()
+        ),
+        vec!["venv/lib/site.py".to_string(), "app/main.py".to_string()]
+    );
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
 }
 
