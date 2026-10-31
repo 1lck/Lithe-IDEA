@@ -991,7 +991,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.record` | Store a versioned text snapshot and metadata |
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
-| `history.relocate` | Move a file's history records after a rename |
+| `history.relocate` | Move retained history for a file or directory subtree after a rename or move |
 | `history.rename` | Set or clear a user-visible label on a history entry |
 | `history.delete` | Delete one history entry and its snapshot |
 | `history.ignorePreview` | Validate local history ignore rules and report which rule skips a sample path |
@@ -3135,9 +3135,14 @@ tree, so a hidden path (including folder patterns such as `**/generated/` or
 `.lithe/*`) is neither recorded nor listed. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
 `contentPath` values. `history.content` rejects traversal,
-`history.relocate` updates metadata and storage paths, and `history.rename` and
+`history.relocate` updates metadata and storage paths for the exact `sourcePath`
+and its `/`-delimited descendants, preserving each suffix under `destinationPath`.
+It enumerates retained history metadata independently of workspace indexing and
+current visibility rules; similarly prefixed siblings are unchanged. Equal paths
+are a no-op; overlapping ancestor/descendant paths are rejected. `history.rename` and
 `history.delete` validate both the relative file path and entry ID before
 changing stored metadata.
+File and subtree relocation cases are defined in `shared/fixtures/history/relocation-v1.json`.
 
 A `hiddenFilePatterns` entry starting with `!` turns a rule off instead of
 adding one: `!**/name/` or `!name` removes that hidden folder (built-in or not),

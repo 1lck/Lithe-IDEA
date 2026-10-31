@@ -835,17 +835,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
             destination = request.targetURL.deletingLastPathComponent().appendingPathComponent(name)
         }
 
-        var relocatedHistoryFiles: [(URL, URL)] = []
         if request.kind == .rename {
-            let sourcePath = request.targetURL.standardizedFileURL.path
             await recordHistory?(request.targetURL, .beforeRename)
-            relocatedHistoryFiles = projectFiles
-                .filter { urlContains(request.targetURL, child: $0) }
-                .map { source in
-                    let suffix = String(source.standardizedFileURL.path.dropFirst(sourcePath.count))
-                        .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                    return (source, suffix.isEmpty ? destination : destination.appendingPathComponent(suffix))
-                }
         }
 
         let fileOperations = self.fileOperations
@@ -901,9 +892,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             )
             guard workspaceURL == operationWorkspaceURL,
                   workspaceGeneration == operationWorkspaceGeneration else { return }
-            for (source, destination) in relocatedHistoryFiles {
-                await relocateHistory?(source, destination)
-            }
+            await relocateHistory?(request.targetURL, destination)
             relocateOpenDocuments?(request.targetURL, destination)
             notify?("Renamed to \(name)")
         } else if request.kind == .createFile {
@@ -958,7 +947,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 failure = "Save or discard unsaved files before moving these items"
                 break
             }
-            let historyFiles = projectFiles.filter { urlContains(source, child: $0) }
             let previousMarks = directoryMarks
             var movedByVersionControl = false
             if let moveTrackedItem {
@@ -989,11 +977,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 previousMarks: marks, workspaceURL: workspace, workspaceGeneration: generation
             )
             guard workspaceGeneration == generation, workspaceURL == workspace else { return }
-            for file in historyFiles {
-                guard workspaceGeneration == generation, workspaceURL == workspace else { return }
-                let suffix = String(file.path.dropFirst(source.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                await relocateHistory?(file, suffix.isEmpty ? destination : destination.appendingPathComponent(suffix))
-            }
+            await relocateHistory?(source, destination)
         }
         guard workspaceGeneration == generation, workspaceURL == workspace else { return }
         if let failure {

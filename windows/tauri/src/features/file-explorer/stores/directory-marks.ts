@@ -7,6 +7,8 @@ import {
   IndexingSettingsError,
   type IndexingErrorCode,
 } from "./workspace-indexing";
+import { directoryMarksStorageKey as key, readDirectoryMarks, type DirectoryMark, type DirectoryMarks as Marks } from "./directory-marks-storage";
+export { DIRECTORY_MARKS, readDirectoryMarks, type DirectoryMark } from "./directory-marks-storage";
 import { useCallback, useEffect, useState } from "react";
 import { closestWorkspaceRoot } from "@/features/workspace/types/workspace-root";
 import {
@@ -16,49 +18,12 @@ import {
   pathStartsWithRoot,
 } from "@/utils/path-helpers";
 
-export const DIRECTORY_MARKS = [
-  "plain",
-  "sources",
-  "resources",
-  "excluded",
-  "module",
-  "package",
-] as const;
-export type DirectoryMark = (typeof DIRECTORY_MARKS)[number];
-type Marks = Record<string, DirectoryMark>;
 const eventName = "lithe:directory-marks-changed";
-const key = (root: string) =>
-  `lithe.workspace-directory-marks.${getPathIdentity(root).replace(/\/+$/, "")}`;
 
 const markPathIdentity = (root: string, relativePath: string): string => {
   const normalized = relativePath.replace(/\\/g, "/");
   return isCaseInsensitivePath(root) ? normalized.toLowerCase() : normalized;
 };
-export function readDirectoryMarks(root: string, storage: Storage = window.localStorage): Marks {
-  let raw: string | null;
-  try { raw = storage.getItem(key(root)); }
-  catch (cause) { throw new IndexingSettingsError("readFailed", cause); }
-  if (!raw) return {};
-  let value: { version?: unknown; marks?: unknown } | null;
-  try { value = JSON.parse(raw); }
-  catch (cause) { throw new IndexingSettingsError("invalidSettings", cause); }
-  if (
-    value?.version !== 1 ||
-    !value.marks ||
-    Array.isArray(value.marks) ||
-    typeof value.marks !== "object" ||
-    !Object.entries(value.marks).every(
-      ([path, mark]) =>
-        !path.startsWith("/") &&
-        !path.includes("\\") &&
-        !path.includes(":") &&
-        !path.split("/").includes("..") &&
-        DIRECTORY_MARKS.includes(mark as DirectoryMark),
-    )
-  )
-    throw new IndexingSettingsError("invalidSettings");
-  return value.marks as Marks;
-}
 function writeMarks(root: string, marks: Marks) {
   window.localStorage.setItem(key(root), JSON.stringify({ version: 1, marks }));
   window.dispatchEvent(new window.CustomEvent(eventName, { detail: root }));

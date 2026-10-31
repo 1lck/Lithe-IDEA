@@ -5,6 +5,9 @@ import type { WorkspaceRuntime } from "@/features/workspace/types/workspace-runt
 import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
 import { executeCore } from "@/core/lithe-core-client";
 import { getPathIdentity } from "@/utils/path-helpers";
+import { directoryMarksStorageKey as key, readDirectoryMarks } from "./directory-marks-storage";
+import { IndexingSettingsError } from "./indexing-settings-error";
+export { IndexingSettingsError, type IndexingErrorCode } from "./indexing-settings-error";
 
 export interface IndexingSettings {
   gitIgnoreEnabled: boolean;
@@ -17,24 +20,8 @@ export interface IndexingStatus {
   gitIgnoreFailed: boolean;
 }
 export const indexingEvent = "lithe:workspace-indexing-changed";
-const key = (root: string) =>
-  `lithe.workspace-directory-marks.${getPathIdentity(root).replace(/\/+$/, "")}`;
 export const indexingSettingsStorageKey = (root: string) =>
   `lithe.workspace-indexing.${getPathIdentity(root).replace(/\/+$/, "")}`;
-export type IndexingErrorCode =
-  | "invalidSettings"
-  | "readFailed"
-  | "writeFailed"
-  | "configureFailed";
-export class IndexingSettingsError extends Error {
-  constructor(
-    readonly code: IndexingErrorCode,
-    cause?: unknown,
-  ) {
-    super(code, { cause });
-    this.name = "IndexingSettingsError";
-  }
-}
 
 function readStoredValue(key: string): string | null {
   try {
@@ -224,12 +211,11 @@ export async function configureWorkspaceIndexing(
       if (owner.closed || owner.roots.get(identity) !== lease) throw new IndexingSettingsError("configureFailed");
       const signature = JSON.stringify([readStoredValue(indexingSettingsStorageKey(root)), readStoredValue(key(root))]);
       const settings = readIndexingSettings(root);
-      const raw = readStoredValue(key(root));
-      const marks = raw ? JSON.parse(raw).marks : {};
+      const marks = readDirectoryMarks(root);
       const response = await executeCore<IndexingStatus>({
         id: crypto.randomUUID(), command: "workspace.configureIndexing",
         payload: { root, ownerId: owner.id, ...settings,
-          manualExcludedDirectories: Object.entries(marks ?? {}).filter(([, role]) => role === "excluded").map(([path]) => path), paths, refresh },
+          manualExcludedDirectories: Object.entries(marks).filter(([, role]) => role === "excluded").map(([path]) => path), paths, refresh },
       });
       if (!response.ok) {
         // Another workspace owner can replace the shared scan generation.

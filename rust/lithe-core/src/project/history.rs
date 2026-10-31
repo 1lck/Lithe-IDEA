@@ -4,7 +4,7 @@ use crate::project::files::VisibilityRules;
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{HistoryEntriesResponse, HistoryEntryResponse};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -439,27 +439,53 @@ pub fn content(request: HistoryContentRequest) -> Result<String, CoreError> {
     Ok(String::from_utf8_lossy(&data).into_owned())
 }
 
-/// Moves history metadata between workspace-relative paths.
+/// Moves retained history for a file or subtree, independently of index inventory.
 pub fn relocate(request: HistoryRelocateRequest) -> Result<(), CoreError> {
     let storage = storage_root(&request.storage_root)?;
     let lock = storage_lock(&storage);
     let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let source = safe_relative_path(&request.source_path)?;
     let destination = safe_relative_path(&request.destination_path)?;
-    let source_directory = storage.join(stable_identifier(&source));
+    if source == destination {
+        return Ok(());
+    }
+    let prefix = format!("{source}/");
+    if destination.starts_with(&prefix) || source.starts_with(&format!("{destination}/")) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "History relocation paths must not overlap",
+        ));
+    }
+    // History can outlive indexing or visibility rules. Enumerate its retained
+    // metadata, never the project's index candidates or current filesystem tree.
+    let paths = all_entries(&storage)
+        .into_iter()
+        .filter_map(|entry| safe_relative_path(&entry.relative_path).ok())
+        .filter(|path| path == &source || path.starts_with(&prefix))
+        .collect::<BTreeSet<_>>();
+    invalidate_storage_usage(&storage);
+    for path in paths {
+        let relocated = format!("{destination}{}", &path[source.len()..]);
+        relocate_file_history(&storage, &path, &relocated)?;
+    }
+    Ok(())
+}
+
+fn relocate_file_history(storage: &Path, source: &str, destination: &str) -> Result<(), CoreError> {
+    let source_directory = storage.join(stable_identifier(source));
     if !source_directory.exists() {
         return Ok(());
     }
-    let destination_directory = storage.join(stable_identifier(&destination));
+    let destination_directory = storage.join(stable_identifier(destination));
     fs::create_dir_all(&destination_directory)?;
-    for entry in read_entries(&source_directory, &storage) {
+    for entry in read_entries(&source_directory, storage) {
         let content_name = format!("{}.snapshot", entry.id);
         let metadata_name = format!("{}.json", entry.id);
         let content_path = destination_directory.join(&content_name);
         fs::rename(storage.join(&entry.content_path), &content_path)?;
         let relocated = StoredEntry {
-            relative_path: destination.clone(),
-            content_path: format!("{}/{}", stable_identifier(&destination), content_name),
+            relative_path: destination.to_string(),
+            content_path: format!("{}/{}", stable_identifier(destination), content_name),
             ..entry
         };
         fs::write(
@@ -468,7 +494,6 @@ pub fn relocate(request: HistoryRelocateRequest) -> Result<(), CoreError> {
         )?;
     }
     let _ = fs::remove_dir_all(source_directory);
-    invalidate_storage_usage(&storage);
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { SearchFilesResponse } from "@/features/file-search/lib/file-search-api";
+import type { SearchFilesRequest, SearchFilesResponse } from "@/features/file-search/lib/file-search-api";
 import { installHappyDom } from "@/test-utils/happy-dom";
 
 const restoreDom = installHappyDom();
@@ -37,7 +37,8 @@ const response: SearchFilesResponse = {
   regex_fallback_error: null,
 };
 
-const searchFilesContent = mock(async () => response);
+const searchFilesContent = mock(async (_request: SearchFilesRequest) => response);
+const executeCore = mock(async () => { throw new Error("Unexpected native request"); });
 const fileSystemState = { rootFolderPath: "C:/workspace", workspaceFolders: [] as never[] };
 
 mock.module("use-debounce", () => ({
@@ -48,6 +49,9 @@ mock.module("@/features/file-system/stores/file-system.store", () => ({
     selector: (state: { rootFolderPath: string; workspaceFolders: never[] }) => Value,
   ) => selector(fileSystemState),
 }));
+mock.module("@/core/lithe-core-client", () => ({ executeCore }));
+const { searchFilesContent: realSearchFilesContent } =
+  await import("@/features/file-search/lib/file-search-api");
 mock.module("@/features/file-search/lib/file-search-api", () => ({
   searchFilesContent,
   fffScanStatus: mock(async () => ({
@@ -72,7 +76,7 @@ const { useContentSearch } = await import("./use-content-search");
 const { GlobalSearchState } = await import("../components/global-search-state");
 const { LocaleProvider } = await import("@/i18n/locale-provider");
 const { createTranslator } = await import("@/i18n/locale");
-const { IndexingSettingsError, indexingSettingsStorageKey, readIndexingSettings } =
+const { IndexingSettingsError, indexingSettingsStorageKey, readIndexingSettings, syncWorkspaceIndexingRoots } =
   await import("@/features/file-explorer/stores/workspace-indexing");
 const { workspaceRuntimeRegistry } =
   await import("@/features/workspace/runtime/workspace-runtime-registry");
@@ -127,6 +131,7 @@ function mountSearchProbe(onRender: (search: SearchHook) => void): {
 beforeEach(() => {
   workspaceRuntimeRegistry.resetForTests();
   searchFilesContent.mockReset().mockResolvedValue(response);
+  executeCore.mockClear();
   window.localStorage.clear();
 });
 
@@ -145,6 +150,32 @@ afterAll(() => {
 });
 
 describe("content search lifecycle", () => {
+  test.each(["{", "{}", "null", '{"version":1,"marks":[]}', '{"version":1,"marks":{"../outside":"excluded"}}'])(
+    "real content search rejects corrupt directory marks and localizes the error: %s", async (raw) => {
+      const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
+      const runtime = workspaceRuntimeRegistry.ensureWorkspace({ id: workspaceId, name: "search marks" });
+      syncWorkspaceIndexingRoots(workspaceId, ["C:/workspace"]);
+      const storageKey = "lithe.workspace-directory-marks.c:/workspace";
+      window.localStorage.setItem(storageKey, raw);
+      searchFilesContent.mockImplementation(realSearchFilesContent);
+      let current: SearchHook | undefined;
+      const probe = mountSearchProbe((search) => { current = search; });
+      try {
+        await probe.render();
+        await act(async () => current!.setQuery("retained"));
+        expect(current!.error).toEqual({ kind: "indexing", code: "invalidSettings" });
+        expect(probe.container.textContent).toContain(createTranslator("en-US")("indexing.invalidSettings"));
+        await probe.render("zh-CN");
+        expect(probe.container.textContent).toContain(createTranslator("zh-CN")("indexing.invalidSettings"));
+        expect(searchFilesContent).toHaveBeenCalledTimes(1);
+        expect(executeCore).not.toHaveBeenCalled();
+        expect(window.localStorage.getItem(storageKey)).toBe(raw);
+      } finally {
+        await probe.unmount();
+        await runtime.disposeIndexing?.();
+      }
+    },
+  );
   test("retains completed results without searching again after remount", async () => {
     let currentSearch: SearchHook | null = null;
     const readCurrentSearch = (): SearchHook => {

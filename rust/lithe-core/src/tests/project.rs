@@ -1188,6 +1188,124 @@ fn preserve_case_matches_original_occurrence_shape() {
 }
 
 #[test]
+fn local_history_relocates_excluded_files_and_subtrees_from_retained_metadata() {
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/history/relocation-v1.json"
+    ))
+    .unwrap();
+    for case in cases["cases"].as_array().unwrap() {
+        let root = temporary_root("excluded-history-relocation");
+        struct Cleanup(std::path::PathBuf, Option<u64>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                if let Some(revision) = self.1 {
+                    let _ = execute_json(&serde_json::json!({
+                        "command": "workspace.releaseIndexing",
+                        "payload": {"root": self.0, "revision": revision, "ownerId": "history-relocation-test"}
+                    }).to_string());
+                }
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let mut cleanup = Cleanup(root.clone(), None);
+        let storage = root.join("history-storage");
+        let request = |command: &str, payload: Value| -> Value {
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::json!({"command": command, "payload": payload}).to_string(),
+            ))
+            .unwrap();
+            assert_eq!(response["ok"], true, "{response}");
+            response["data"].clone()
+        };
+        let source = case["source"].as_str().unwrap();
+        let destination = case["destination"].as_str().unwrap();
+        let unaffected = cases["unaffected"].as_str().unwrap();
+        let paths = case["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|path| path.as_str().unwrap())
+            .chain([unaffected])
+            .collect::<Vec<_>>();
+        let mut recorded = Vec::new();
+        for path in &paths {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, path).unwrap();
+            recorded.push(request(
+                "history.record",
+                serde_json::json!({
+                    "workspaceRoot": root, "storageRoot": storage, "path": path,
+                    "reason": "saved", "content": path
+                }),
+            ));
+        }
+        let policy = request(
+            "workspace.configureIndexing",
+            serde_json::json!({
+                "root": root, "ownerId": "history-relocation-test", "gitIgnoreEnabled": false,
+                "manualExcludedDirectories": ["archive"], "includedDirectories": []
+            }),
+        );
+        cleanup.1 = policy["revision"].as_u64();
+        let snapshot = request("workspace.snapshot", serde_json::json!({"root": root}));
+        assert!(!snapshot["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|path| path.as_str().unwrap().starts_with("archive/")));
+        fs::create_dir_all(root.join(destination).parent().unwrap()).unwrap();
+        fs::rename(root.join(source), root.join(destination)).unwrap();
+        request(
+            "history.relocate",
+            serde_json::json!({
+                "storageRoot": storage, "sourcePath": source, "destinationPath": destination
+            }),
+        );
+        request(
+            "history.relocate",
+            serde_json::json!({
+                "storageRoot": storage, "sourcePath": destination, "destinationPath": destination
+            }),
+        );
+        for (path, original) in paths.iter().zip(recorded) {
+            let relocated = if *path == unaffected {
+                path.to_string()
+            } else {
+                format!("{destination}{}", &path[source.len()..])
+            };
+            let entries = request(
+                "history.entries",
+                serde_json::json!({
+                    "workspaceRoot": root, "storageRoot": storage, "path": relocated
+                }),
+            );
+            let entries = entries["entries"].as_array().unwrap();
+            assert_eq!(entries.len(), 1, "{relocated}");
+            for field in ["id", "timestamp", "reason", "byteCount", "label"] {
+                assert_eq!(entries[0][field], original[field], "{relocated}: {field}");
+            }
+            let content = request(
+                "history.content",
+                serde_json::json!({
+                    "storageRoot": storage, "contentPath": entries[0]["contentPath"]
+                }),
+            );
+            assert_eq!(content["text"], *path);
+            if *path != unaffected {
+                let previous = request(
+                    "history.entries",
+                    serde_json::json!({
+                        "workspaceRoot": root, "storageRoot": storage, "path": path
+                    }),
+                );
+                assert!(previous["entries"].as_array().unwrap().is_empty());
+            }
+        }
+    }
+}
+
+#[test]
 fn local_history_records_deduplicates_lists_and_relocates() {
     let root = temporary_root("history");
     fs::create_dir_all(&root).expect("history workspace should be creatable");
