@@ -81,6 +81,7 @@
 "%lld changed files" = "%lld changed files";
 "%lld characters" = "%lld characters";
 "%lld characters total" = "%lld characters total";
+"%lld directories" = "%lld directories";
 "%lld failed" = "%lld failed";
 "%lld file(s) · %@" = "%lld file(s) · %@";
 "%lld files" = "%lld files";
@@ -95,6 +96,7 @@
 "%lld lines" = "%lld lines";
 "%lld model calls" = "%lld model calls";
 "%lld more notifications" = "%lld more notifications";
+"%lld ms" = "%lld ms";
 "%lld non-streaming" = "%lld non-streaming";
 "%lld of %lld" = "%lld of %lld";
 "%lld of %lld services selected" = "%lld of %lld services selected";
@@ -125,6 +127,8 @@
 "%lld turns" = "%lld turns";
 "%lld unchanged lines" = "%lld unchanged lines";
 "%lld usages" = "%lld usages";
+"%lld variables" = "%lld variables";
+"%lld version files" = "%lld version files";
 "%lld worktree records need attention" = "%lld worktree records need attention";
 "%lld worktrees" = "%lld worktrees";
 "%lld/%lld completed" = "%lld/%lld completed";
@@ -180,6 +184,7 @@
 "A terminal session is still running." = "A terminal session is still running.";
 "A test path must stay inside the current workspace." = "A test path must stay inside the current workspace.";
 "A unique filename could not be created for the image" = "A unique filename could not be created for the image";
+"A version saved for this directory on this computer. It applies first, also in the directories below." = "A version saved for this directory on this computer. It applies first, also in the directories below.";
 "A worktree operation is already running, or the repository is unavailable." = "A worktree operation is already running, or the repository is unavailable.";
 "ACP adapter" = "ACP adapter";
 "AI" = "AI";
@@ -399,6 +404,7 @@
 "Asked for access to %@" = "Asked for access to %@";
 "Assignees" = "Assignees";
 "Astro Support" = "Astro Support";
+"At launch Lithe reads your login shell's environment, as a terminal does, and gives it to the terminals, tools and language servers it starts. Only PATH is listed; other variables can hold secrets and are only counted." = "At launch Lithe reads your login shell's environment, as a terminal does, and gives it to the terminals, tools and language servers it starts. Only PATH is listed; other variables can hold secrets and are only counted.";
 "Attach" = "Attach";
 "Attach Request" = "Attach Request";
 "Attach file" = "Attach file";
@@ -422,6 +428,7 @@
 "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users.";
 "AutoBuild — Built at %@" = "AutoBuild — Built at %@";
 "Automatic" = "Automatic";
+"Automatic discovery" = "Automatic discovery";
 "Automatic query ×%lld, identical results" = "Automatic query ×%lld, identical results";
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code.";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "Automatic uses a project mvnw first, then detected Maven, then mvnd.";
@@ -904,6 +911,7 @@
 "Connection timeout" = "Connection timeout";
 "Connections: %lld" = "Connections: %lld";
 "Console" = "Console";
+"Consumers" = "Consumers";
 "Content" = "Content";
 "Content SHA-256" = "Content SHA-256";
 "Context" = "Context";
@@ -1009,6 +1017,7 @@
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "Could not read the selected built-in background." = "Could not read the selected built-in background.";
 "Could not read this file" = "Could not read this file";
+"Could not read toolchain settings." = "Could not read toolchain settings.";
 "Could not refresh Git status. Refresh to verify the changes." = "Could not refresh Git status. Refresh to verify the changes.";
 "Could not register Lithe MCP in %@: %@" = "Could not register Lithe MCP in %@: %@";
 "Could not remove Lithe MCP from %@: %@" = "Could not remove Lithe MCP from %@: %@";
@@ -1128,6 +1137,7 @@
 "Default push behavior" = "Default push behavior";
 "Default shell" = "Default shell";
 "Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set." = "Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set.";
+"Definition" = "Definition";
 "Definition not found" = "Definition not found";
 "Definitions" = "Definitions";
 "Delete" = "Delete";
@@ -1203,6 +1213,7 @@
 "Direct connection" = "Direct connection";
 "Direct retry applies only to public MCP Registry searches on this page. System proxy settings and Agent server connections are unchanged. TLS certificate validation remains enabled." = "Direct retry applies only to public MCP Registry searches on this page. System proxy settings and Agent server connections are unchanged. TLS certificate validation remains enabled.";
 "Directories" = "Directories";
+"Directories in the order tools are looked up. The login shell's directories come first, then any that only the environment Lithe was launched with had." = "Directories in the order tools are looked up. The login shell's directories come first, then any that only the environment Lithe was launched with had.";
 "Directory" = "Directory";
 "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten." = "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten.";
 "Directory or file name" = "Directory or file name";
@@ -1291,6 +1302,7 @@
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "Each row explains the setting, the value Git is actually using, and where that value comes from.";
 "Each submodule is pushed before its parent." = "Each submodule is pushed before its parent.";
+"Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Version managers are not queried yet, so the versions that version files and global defaults ask for are not shown." = "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Version managers are not queried yet, so the versions that version files and global defaults ask for are not shown.";
 "Earlier" = "Earlier";
 "Earlier Git commands were truncated to limit memory use." = "Earlier Git commands were truncated to limit memory use.";
 "Earlier Git output was omitted to limit memory use." = "Earlier Git output was omitted to limit memory use.";
@@ -1459,6 +1471,7 @@
 "Export as PDF…" = "Export as PDF…";
 "Export conversations" = "Export conversations";
 "Export logs" = "Export logs";
+"Exported environment" = "Exported environment";
 "Exporting conversations…" = "Exporting conversations…";
 "Exports the index against HEAD." = "Exports the index against HEAD.";
 "Exports the working tree's net changes against HEAD, including selected untracked files." = "Exports the working tree's net changes against HEAD, including selected untracked files.";
@@ -1528,6 +1541,7 @@
 "File tree row height" = "File tree row height";
 "Files" = "Files";
 "Files added. Save your editor changes before sending so the Agent can read them." = "Files added. Save your editor changes before sending so the Agent can read them.";
+"Files declared by enabled version managers that exist in this directory. A directory without its own uses the nearest parent's." = "Files declared by enabled version managers that exist in this directory. A directory without its own uses the nearest parent's.";
 "Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged." = "Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged.";
 "Files will stay unchanged. Nothing will be staged or committed automatically." = "Files will stay unchanged. Nothing will be staged or committed automatically.";
 "Filter by changed path" = "Filter by changed path";
@@ -1555,8 +1569,12 @@
 "Find references to the selected symbol" = "Find references to the selected symbol";
 "Finished" = "Finished";
 "First %lld locations" = "First %lld locations";
+"First match" = "First match";
 "Fit to Window" = "Fit to Window";
 "Fix the failing checks below before installing." = "Fix the failing checks below before installing.";
+"Fixed" = "Fixed";
+"Fixed in parent" = "Fixed in parent";
+"Fixed versions are saved on this computer in .lithe/toolchains/local.json and also apply to the directories below. This page reads them without changing the file." = "Fixed versions are saved on this computer in .lithe/toolchains/local.json and also apply to the directories below. This page reads them without changing the file.";
 "Fixup" = "Fixup";
 "Floating Point" = "Floating Point";
 "Folder" = "Folder";
@@ -1589,6 +1607,7 @@
 "Frames are not available" = "Frames are not available";
 "Frames rendered per second" = "Frames rendered per second";
 "Free space" = "Free space";
+"From %@" = "From %@";
 "From (UTC ISO 8601)" = "From (UTC ISO 8601)";
 "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left." = "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left.";
 "Full Program Declaration" = "Full Program Declaration";
@@ -1662,6 +1681,7 @@
 "GitHub user %@" = "GitHub user %@";
 "Global Git" = "Global Git";
 "Global Git configuration" = "Global Git configuration";
+"Global defaults" = "Global defaults";
 "Global identity applies to other repositories unless they override it." = "Global identity applies to other repositories unless they override it.";
 "Global instructions" = "Global instructions";
 "Global instructions apply to all projects using this Agent. Each Agent keeps its own native file." = "Global instructions apply to all projects using this Agent. Each Agent keeps its own native file.";
@@ -1982,6 +2002,7 @@
 "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals." = "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals.";
 "Launch" = "Launch";
 "Launch Request" = "Launch Request";
+"Launch environment" = "Launch environment";
 "Launching" = "Launching";
 "Layout" = "Layout";
 "Leave a review" = "Leave a review";
@@ -2011,6 +2032,7 @@
 "Linked this conversation to a pull request" = "Linked this conversation to a pull request";
 "Linked worktree" = "Linked worktree";
 "Listed in" = "Listed in";
+"Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it." = "Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it.";
 "Lithe" = "Lithe";
 "Lithe Agent" = "Lithe Agent";
 "Lithe Fetch Defaults" = "Lithe Fetch Defaults";
@@ -2131,6 +2153,7 @@
 "Log message" = "Log message";
 "Log timeline" = "Log timeline";
 "Log: %@" = "Log: %@";
+"Login shell" = "Login shell";
 "Logs" = "Logs";
 "Logs and Diagnostics" = "Logs and Diagnostics";
 "Look Up Again" = "Look Up Again";
@@ -2426,6 +2449,8 @@
 "No differences were found for this selection." = "No differences were found for this selection.";
 "No earlier conversations" = "No earlier conversations";
 "No effective value configured" = "No effective value configured";
+"No enabled plugin defines tools." = "No enabled plugin defines tools.";
+"No enabled plugin provides a version manager." = "No enabled plugin provides a version manager.";
 "No executable location was found at the cursor" = "No executable location was found at the cursor";
 "No file edits" = "No file edits";
 "No files match the conflict filter" = "No files match the conflict filter";
@@ -2475,6 +2500,7 @@
 "No program to debug was found. Build it first, or choose one in the “%@” setting of %@." = "No program to debug was found. Build it first, or choose one in the “%@” setting of %@.";
 "No program to debug was found. Build it first, or choose one in the “%@” setting of %@. Looked in: %@" = "No program to debug was found. Build it first, or choose one in the “%@” setting of %@. Looked in: %@";
 "No project entry point detected" = "No project entry point detected";
+"No project environment is available." = "No project environment is available.";
 "No project history recorded yet" = "No project history recorded yet";
 "No project is open" = "No project is open";
 "No project is open. Rows backed by Git configuration write to the global Git configuration; commit identity needs a repository." = "No project is open. Rows backed by Git configuration write to the global Git configuration; commit identity needs a repository.";
@@ -2517,6 +2543,7 @@
 "No upstream configured" = "No upstream configured";
 "No usages found" = "No usages found";
 "No verified Homebrew formula is configured for %@." = "No verified Homebrew formula is configured for %@.";
+"No version file" = "No version file";
 "No web browser could be opened." = "No web browser could be opened.";
 "No worktrees" = "No worktrees";
 "Node.js %lld or later" = "Node.js %lld or later";
@@ -2528,6 +2555,7 @@
 "Non-streaming responses" = "Non-streaming responses";
 "None" = "None";
 "None (fastest)" = "None (fastest)";
+"None; uses the parent directory's" = "None; uses the parent directory's";
 "Normal Folder" = "Normal Folder";
 "Not Assigned" = "Not Assigned";
 "Not Supported" = "Not Supported";
@@ -2540,6 +2568,10 @@
 "Not installed" = "Not installed";
 "Not installed · %@" = "Not installed · %@";
 "Not installed. Install it to start using this Agent." = "Not installed. Install it to start using this Agent.";
+"Not pinned" = "Not pinned";
+"Not queried" = "Not queried";
+"Not read yet" = "Not read yet";
+"Not read yet; started with the PATH saved last time" = "Not read yet; started with the PATH saved last time";
 "Not refreshed yet" = "Not refreshed yet";
 "Not run" = "Not run";
 "Not running" = "Not running";
@@ -2548,6 +2580,7 @@
 "Not supported on %@ yet." = "Not supported on %@ yet.";
 "Not tested" = "Not tested";
 "Not used" = "Not used";
+"Not used in this project" = "Not used in this project";
 "Not used yet." = "Not used yet.";
 "Nothing to push" = "Nothing to push";
 "Notifications" = "Notifications";
@@ -2588,6 +2621,7 @@
 "Only the commit message changes. %lld commits will receive new identities. Staged files are not included." = "Only the commit message changes. %lld commits will receive new identities. Staged files are not included.";
 "Only the current branch can be updated" = "Only the current branch can be updated";
 "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included." = "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included.";
+"Only the first %lld directories are shown." = "Only the first %lld directories are shown.";
 "Only the most recent archived conversations are shown." = "Only the most recent archived conversations are shown.";
 "Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved." = "Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved.";
 "Open" = "Open";
@@ -2610,6 +2644,7 @@
 "Open Marketplace" = "Open Marketplace";
 "Open Patch…" = "Open Patch…";
 "Open Plugin Management" = "Open Plugin Management";
+"Open Plugins" = "Open Plugins";
 "Open Project" = "Open Project";
 "Open Projects" = "Open Projects";
 "Open Project…" = "Open Project…";
@@ -2625,6 +2660,7 @@
 "Open a local folder to start working." = "Open a local folder to start working.";
 "Open a local project folder" = "Open a local project folder";
 "Open a project" = "Open a project";
+"Open a project and enable a plugin that defines tools to inspect its environment." = "Open a project and enable a plugin that defines tools to inspect its environment.";
 "Open a project before choosing project paths." = "Open a project before choosing project paths.";
 "Open a project before starting a debug terminal." = "Open a project before starting a debug terminal.";
 "Open a project containing a pom.xml file." = "Open a project containing a pom.xml file.";
@@ -2865,7 +2901,9 @@
 "Project opened" = "Project opened";
 "Project options" = "Project options";
 "Project paths must stay inside the current project." = "Project paths must stay inside the current project.";
+"Project requirements" = "Project requirements";
 "Project root" = "Project root";
+"Project root directory" = "Project root directory";
 "Project run configuration is invalid" = "Project run configuration is invalid";
 "Project run configuration not found" = "Project run configuration not found";
 "Project runtime settings are saved locally for this project." = "Project runtime settings are saved locally for this project.";
@@ -2953,6 +2991,8 @@
 "Read %lld files" = "Read %lld files";
 "Read Memory at Address" = "Read Memory at Address";
 "Read Memory at Value" = "Read Memory at Value";
+"Read again" = "Read again";
+"Read result" = "Read result";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "Read, write and search files only in the directories you allow. Requires Node.js 24 or later.";
 "Read-only" = "Read-only";
 "Read-only file preview" = "Read-only file preview";
@@ -2963,6 +3003,7 @@
 "Reading memory…" = "Reading memory…";
 "Reading project…" = "Reading project…";
 "Reading registered checkouts." = "Reading registered checkouts.";
+"Reading…" = "Reading…";
 "Reads the API URL, model and key from ~/.claude/settings.json and ~/.claude.json. Edit those files to change them, then fetch again." = "Reads the API URL, model and key from ~/.claude/settings.json and ~/.claude.json. Edit those files to change them, then fetch again.";
 "Reads the API URL, model and key from ~/.codex/config.toml and auth.json. Edit those files to change them, then fetch again." = "Reads the API URL, model and key from ~/.codex/config.toml and auth.json. Edit those files to change them, then fetch again.";
 "Ready" = "Ready";
@@ -3307,6 +3348,8 @@
 "Runs on %@ shipped with the plugin" = "Runs on %@ shipped with the plugin";
 "Runs the %@ installed on this Mac through the %@ adapter." = "Runs the %@ installed on this Mac through the %@ adapter.";
 "Runtime" = "Runtime";
+"Runtime Environment" = "Runtime Environment";
+"Runtime Environment — Isolated Preview" = "Runtime Environment — Isolated Preview";
 "Runtime discovery failed" = "Runtime discovery failed";
 "Runtime used by the language server (installed on this Mac)" = "Runtime used by the language server (installed on this Mac)";
 "Rust Core cache-retention planning is unavailable." = "Rust Core cache-retention planning is unavailable.";
@@ -3362,6 +3405,7 @@
 "Saved in Keychain" = "Saved in Keychain";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "Saved to %@" = "Saved to %@";
+"Saved, not verified" = "Saved, not verified";
 "Saves, connects, and opens the remote folder in this window." = "Saves, connects, and opens the remote folder in this window.";
 "Saving build provider run configurations is unavailable." = "Saving build provider run configurations is unavailable.";
 "Saving replaces the current GitHub metadata." = "Saving replaces the current GitHub metadata.";
@@ -3983,6 +4027,7 @@
 "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page." = "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page.";
 "The downloaded update failed its checksum verification." = "The downloaded update failed its checksum verification.";
 "The edit stop changed. Refresh the session before amending." = "The edit stop changed. Refresh the session before amending.";
+"The environment snapshot could not be read. Refresh to try again." = "The environment snapshot could not be read. Refresh to try again.";
 "The expression does not hold an address" = "The expression does not hold an address";
 "The featured MCP catalog could not be loaded." = "The featured MCP catalog could not be loaded.";
 "The field value does not match its declaration or exceeds its size limit." = "The field value does not match its declaration or exceeds its size limit.";
@@ -3998,6 +4043,7 @@
 "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.";
 "The file system that holds the home directory." = "The file system that holds the home directory.";
 "The file will be created when you save." = "The file will be created when you save.";
+"The first executable found through the variables and commands this tool's plugin declares, using the login shell's PATH. Its version is not checked." = "The first executable found through the variables and commands this tool's plugin declares, using the login shell's PATH. Its version is not checked.";
 "The function call was cancelled." = "The function call was cancelled.";
 "The generated message will replace the text currently in the editor." = "The generated message will replace the text currently in the editor.";
 "The generated title or description would replace text you already entered." = "The generated title or description would replace text you already entered.";
@@ -4010,6 +4056,7 @@
 "The host has no bridge method %@." = "The host has no bridge method %@.";
 "The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts." = "The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts.";
 "The image destination is outside the current workspace" = "The image destination is outside the current workspace";
+"The installed toolchain declarations are invalid." = "The installed toolchain declarations are invalid.";
 "The installer reported an error, but the new CLI version was verified." = "The installer reported an error, but the new CLI version was verified.";
 "The instruction directory changed. Reload before saving." = "The instruction directory changed. Reload before saving.";
 "The instruction path must be a regular file, not a symbolic link or directory." = "The instruction path must be a regular file, not a symbolic link or directory.";
@@ -4024,6 +4071,7 @@
 "The local Codex account changed. Reconnect to refresh quota." = "The local Codex account changed. Reconnect to refresh quota.";
 "The local adapter is at or above the verified version." = "The local adapter is at or above the verified version.";
 "The location service did not answer." = "The location service did not answer.";
+"The login shell's PATH has changed. Restart Lithe so that terminals and tools use it." = "The login shell's PATH has changed. Restart Lithe so that terminals and tools use it.";
 "The message text or its buttons are empty, too long, or too many." = "The message text or its buttons are empty, too long, or too many.";
 "The model is too large; some entries are not shown." = "The model is too large; some entries are not shown.";
 "The monitored JVM has exited or changed." = "The monitored JVM has exited or changed.";
@@ -4110,6 +4158,7 @@
 "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\"." = "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\".";
 "The response stopped at the model's token limit." = "The response stopped at the model's token limit.";
 "The saved provider run configuration is unavailable." = "The saved provider run configuration is unavailable.";
+"The saved toolchain settings are invalid." = "The saved toolchain settings are invalid.";
 "The selected AI provider has an invalid API URL or model." = "The selected AI provider has an invalid API URL or model.";
 "The selected AI provider has no API key." = "The selected AI provider has no API key.";
 "The selected background image authorization is invalid." = "The selected background image authorization is invalid.";
@@ -4162,6 +4211,7 @@
 "The value is not in the expected format." = "The value is not in the expected format.";
 "The value is too long." = "The value is too long.";
 "The verification page is open and the code is already on your clipboard." = "The verification page is open and the code is already on your clipboard.";
+"The version a version manager uses outside any project. Version managers are not queried yet." = "The version a version manager uses outside any project. Version managers are not queried yet.";
 "The version control client could not be run. Check that it is installed." = "The version control client could not be run. Check that it is installed.";
 "The version control provider failed to start." = "The version control provider failed to start.";
 "The version control provider stopped before it was ready." = "The version control provider stopped before it was ready.";
@@ -4267,6 +4317,7 @@
 "This removes the tag from the repository and affects collaborators who reference it. You can restore it from the banner afterwards." = "This removes the tag from the repository and affects collaborators who reference it. You can restore it from the banner afterwards.";
 "This repository" = "This repository";
 "This response is sent only to the running Git operation." = "This response is sent only to the running Git operation.";
+"This row comes from the tool definition of an enabled plugin. Lithe has no built-in tools." = "This row comes from the tool definition of an enabled plugin. Lithe has no built-in tools.";
 "This runtime is older than the generator requires." = "This runtime is older than the generator requires.";
 "This sends the current branch to its configured remote." = "This sends the current branch to its configured remote.";
 "This sends the selected local branch to its configured remote." = "This sends the selected local branch to its configured remote.";
@@ -4279,6 +4330,7 @@
 "This value is not allowed." = "This value is not allowed.";
 "This version control provider does not support this action." = "This version control provider does not support this action.";
 "This version is newer than the selected runtime supports." = "This version is newer than the selected runtime supports.";
+"This version manager comes from an enabled plugin. Lithe has no built-in version managers." = "This version manager comes from an enabled plugin. Lithe has no built-in version managers.";
 "This version of Lithe cannot read update manifest schema %@. Open the Release page and update manually." = "This version of Lithe cannot read update manifest schema %@. Open the Release page and update manually.";
 "This will start %lld detected services." = "This will start %lld detected services.";
 "This window" = "This window";
@@ -4322,6 +4374,8 @@
 "Tool definitions" = "Tool definitions";
 "Tool filter" = "Tool filter";
 "Toolbar Actions" = "Toolbar Actions";
+"Toolchain Sources" = "Toolchain Sources";
+"Toolchain settings are not available for remote workspaces yet." = "Toolchain settings are not available for remote workspaces yet.";
 "Tools" = "Tools";
 "Tools sent" = "Tools sent";
 "Total" = "Total";
@@ -4341,6 +4395,7 @@
 "Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request." = "Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request.";
 "Turn usage" = "Turn usage";
 "Turned off auto-merge" = "Turned off auto-merge";
+"Turned off by LITHE_SKIP_SHELL_ENV" = "Turned off by LITHE_SKIP_SHELL_ENV";
 "Turned on auto-merge" = "Turned on auto-merge";
 "Turning this off stops every Agent process." = "Turning this off stops every Agent process.";
 "Turns" = "Turns";
@@ -4517,6 +4572,8 @@
 "Username" = "Username";
 "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks." = "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks.";
 "Uses your local ChatGPT account." = "Uses your local ChatGPT account.";
+"Using the PATH saved last time" = "Using the PATH saved last time";
+"Using the environment Lithe was launched with" = "Using the environment Lithe was launched with";
 "Usually the reversed domain name of your organization, such as com.example." = "Usually the reversed domain name of your organization, such as com.example.";
 "VM arguments" = "VM arguments";
 "VM options" = "VM options";
@@ -4540,6 +4597,14 @@
 "Version Control" = "Version Control";
 "Version control integration" = "Version control integration";
 "Version control provider" = "Version control provider";
+"Version file" = "Version file";
+"Version files" = "Version files";
+"Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet." = "Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet.";
+"Version files were checked in the first %lld directories only." = "Version files were checked in the first %lld directories only.";
+"Version managers" = "Version managers";
+"Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet." = "Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet.";
+"Version not queried" = "Version not queried";
+"Version not verified" = "Version not verified";
 "Version status" = "Version status";
 "Versions & Source" = "Versions & Source";
 "View" = "View";
@@ -4579,6 +4644,7 @@
 "Waiting to quit to complete the update." = "Waiting to quit to complete the update.";
 "Warning" = "Warning";
 "Warnings" = "Warnings";
+"Watched files" = "Watched files";
 "Watches" = "Watches";
 "Watching pull request checks" = "Watching pull request checks";
 "Watching pull request checks and fixing failures" = "Watching pull request checks and fixing failures";
@@ -9050,6 +9116,73 @@
 "native.toolWindow" = "Tool Window";
 "native.toolWindows" = "Tool Windows";
 "native.toolbarActions" = "Toolbar Actions";
+"native.toolchainSettings.automaticDiscovery" = "Automatic discovery";
+"native.toolchainSettings.automaticStepInfo" = "The first executable found through the variables and commands this tool's plugin declares, using the login shell's PATH. Its version is not checked.";
+"native.toolchainSettings.consumers" = "Consumers";
+"native.toolchainSettings.couldNotReadToolchainSettings" = "Could not read toolchain settings.";
+"native.toolchainSettings.definition" = "Definition";
+"native.toolchainSettings.directoryCount" = "%1$lld directories";
+"native.toolchainSettings.directoryTreeInfo" = "Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it.";
+"native.toolchainSettings.exportedEnvironment" = "Exported environment";
+"native.toolchainSettings.firstMatch" = "First match";
+"native.toolchainSettings.fixed" = "Fixed";
+"native.toolchainSettings.fixedInParent" = "Fixed in parent";
+"native.toolchainSettings.fixedInfo" = "Fixed versions are saved on this computer in .lithe/toolchains/local.json and also apply to the directories below. This page reads them without changing the file.";
+"native.toolchainSettings.fromDirectory" = "From %1$@";
+"native.toolchainSettings.globalDefaults" = "Global defaults";
+"native.toolchainSettings.globalStepInfo" = "The version a version manager uses outside any project. Version managers are not queried yet.";
+"native.toolchainSettings.launchEnvironment" = "Launch environment";
+"native.toolchainSettings.loginShell" = "Login shell";
+"native.toolchainSettings.loginShellInfo" = "At launch Lithe reads your login shell's environment, as a terminal does, and gives it to the terminals, tools and language servers it starts. Only PATH is listed; other variables can hold secrets and are only counted.";
+"native.toolchainSettings.noEnabledPluginDefinesTools" = "No enabled plugin defines tools.";
+"native.toolchainSettings.noEnabledPluginProvidesVersionManager" = "No enabled plugin provides a version manager.";
+"native.toolchainSettings.noProjectEnvironmentIsAvailable" = "No project environment is available.";
+"native.toolchainSettings.noVersionFile" = "No version file";
+"native.toolchainSettings.noneUsesParent" = "None; uses the parent directory's";
+"native.toolchainSettings.notPinned" = "Not pinned";
+"native.toolchainSettings.notQueried" = "Not queried";
+"native.toolchainSettings.notReadStartedFromCache" = "Not read yet; started with the PATH saved last time";
+"native.toolchainSettings.notReadYet" = "Not read yet";
+"native.toolchainSettings.notUsedInThisProject" = "Not used in this project";
+"native.toolchainSettings.onlyFirstDirectoriesShown" = "Only the first %1$lld directories are shown.";
+"native.toolchainSettings.openAProjectAndEnableAPluginThatDefinesToolsToInspectItsEnvironment" = "Open a project and enable a plugin that defines tools to inspect its environment.";
+"native.toolchainSettings.openPlugins" = "Open Plugins";
+"native.toolchainSettings.pathChangedRestart" = "The login shell's PATH has changed. Restart Lithe so that terminals and tools use it.";
+"native.toolchainSettings.pathInfo" = "Directories in the order tools are looked up. The login shell's directories come first, then any that only the environment Lithe was launched with had.";
+"native.toolchainSettings.pinnedStepInfo" = "A version saved for this directory on this computer. It applies first, also in the directories below.";
+"native.toolchainSettings.projectRequirements" = "Project requirements";
+"native.toolchainSettings.projectRootDirectory" = "Project root directory";
+"native.toolchainSettings.projectStepInfo" = "Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet.";
+"native.toolchainSettings.queryMilliseconds" = "%1$lld ms";
+"native.toolchainSettings.readAgain" = "Read again";
+"native.toolchainSettings.readResult" = "Read result";
+"native.toolchainSettings.reading" = "Reading…";
+"native.toolchainSettings.remoteUnavailable" = "Toolchain settings are not available for remote workspaces yet.";
+"native.toolchainSettings.runtimeEnvironment" = "Runtime Environment";
+"native.toolchainSettings.runtimeEnvironmentIsolatedPreview" = "Runtime Environment — Isolated Preview";
+"native.toolchainSettings.savedNotVerified" = "Saved, not verified";
+"native.toolchainSettings.theEnvironmentSnapshotCouldNotBeReadRefreshToTryAgain" = "The environment snapshot could not be read. Refresh to try again.";
+"native.toolchainSettings.theInstalledToolchainDeclarationsAreInvalid" = "The installed toolchain declarations are invalid.";
+"native.toolchainSettings.theProjectRoot" = "the project root";
+"native.toolchainSettings.theSavedToolchainSettingsAreInvalid" = "The saved toolchain settings are invalid.";
+"native.toolchainSettings.toolDefinitionInfo" = "This row comes from the tool definition of an enabled plugin. Lithe has no built-in tools.";
+"native.toolchainSettings.toolchainSources" = "Toolchain Sources";
+"native.toolchainSettings.toolsInfo" = "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Version managers are not queried yet, so the versions that version files and global defaults ask for are not shown.";
+"native.toolchainSettings.turnedOffBySkipVariable" = "Turned off by LITHE_SKIP_SHELL_ENV";
+"native.toolchainSettings.usingCachedPath" = "Using the PATH saved last time";
+"native.toolchainSettings.usingLaunchEnvironment" = "Using the environment Lithe was launched with";
+"native.toolchainSettings.variableCount" = "%1$lld variables";
+"native.toolchainSettings.versionFile" = "Version file";
+"native.toolchainSettings.versionFileCount" = "%1$lld version files";
+"native.toolchainSettings.versionFiles" = "Version files";
+"native.toolchainSettings.versionFilesCheckedInFirstDirectories" = "Version files were checked in the first %1$lld directories only.";
+"native.toolchainSettings.versionFilesInfo" = "Files declared by enabled version managers that exist in this directory. A directory without its own uses the nearest parent's.";
+"native.toolchainSettings.versionManagerDefinitionInfo" = "This version manager comes from an enabled plugin. Lithe has no built-in version managers.";
+"native.toolchainSettings.versionManagers" = "Version managers";
+"native.toolchainSettings.versionManagersInfo" = "Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet.";
+"native.toolchainSettings.versionNotQueried" = "Version not queried";
+"native.toolchainSettings.versionNotVerified" = "Version not verified";
+"native.toolchainSettings.watchedFiles" = "Watched files";
 "native.tools" = "Tools";
 "native.toolsSent" = "Tools sent";
 "native.total" = "Total";
@@ -9473,6 +9606,7 @@
 "system Maven" = "system Maven";
 "test Java" = "test Java";
 "test resources" = "test resources";
+"the project root" = "the project root";
 "ui.browse" = "Browse";
 "ui.cancel" = "Cancel";
 "ui.choose" = "Choose";

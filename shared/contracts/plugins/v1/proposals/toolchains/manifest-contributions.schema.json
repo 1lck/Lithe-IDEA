@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/proposals/toolchains/manifest-contributions.schema.json",
+  "title": "PROPOSAL: toolchain contribution projections, not a plugin manifest",
+  "description": "A standalone review envelope for proposed manifest fields. Passing this schema does not make a plugin installable and does not prove signature, registry, filesystem or executable safety. See manifest.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["proposalVersion", "pluginID", "requires", "permissions"],
+  "properties": {
+    "proposalVersion": { "const": 1 },
+    "pluginID": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$", "maxLength": 128 },
+    "requires": {
+      "type": "object", "additionalProperties": false, "minProperties": 1,
+      "properties": {
+        "toolDefinitions": { "const": 1 },
+        "toolchainProviders": { "const": 1 },
+        "toolchainConsumers": { "const": 1 },
+        "executableResolution": { "const": 2 },
+        "backend": { "const": 2 },
+        "serverProcess": { "const": 1 }
+      }
+    },
+    "permissions": {
+      "type": "array", "maxItems": 16, "uniqueItems": true,
+      "items": { "enum": ["toolchains.provide", "backend.launch"] }
+    },
+    "toolDefinitions": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/toolDefinition" } },
+    "toolchainProviders": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/provider" } },
+    "backend": { "$ref": "#/$defs/backend" },
+    "consumers": {
+      "description": "Review projection of fields on existing language/build/run/debug contributions; NOT a proposed top-level manifest field.",
+      "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/consumer" }
+    }
+  },
+  "anyOf": [ { "required": ["toolDefinitions"] }, { "required": ["toolchainProviders"] }, { "required": ["consumers"] } ],
+  "allOf": [
+    {
+      "if": { "required": ["toolDefinitions"] },
+      "then": { "properties": { "requires": { "required": ["toolDefinitions", "executableResolution"] } } }
+    },
+    {
+      "if": { "required": ["toolchainProviders"] },
+      "then": {
+        "required": ["backend"],
+        "properties": {
+          "requires": { "required": ["toolchainProviders", "backend", "serverProcess"] },
+          "permissions": { "allOf": [ { "contains": { "const": "toolchains.provide" } }, { "contains": { "const": "backend.launch" } } ] }
+        }
+      }
+    },
+    {
+      "if": { "required": ["consumers"] },
+      "then": { "properties": { "requires": { "required": ["toolchainConsumers"] } } }
+    }
+  ],
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "toolID": { "type": "string", "pattern": "^(?:[a-z0-9]+(?:[.-][a-z0-9]+)*:)?[a-z][a-z0-9-]{0,63}$", "maxLength": 192 },
+    "label": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "relativePath": {
+      "type": "string", "minLength": 1, "maxLength": 256,
+      "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^/\\\\:*?\\u0000-\\u001f\\u007f]+(?:/[^/\\\\:*?\\u0000-\\u001f\\u007f]+)*$"
+    },
+    "boundedGlob": {
+      "description": "At most eight segments; only single-segment * is supported, never **, ?, character classes, or traversal. Semantic validation also bounds expansion.",
+      "type": "string", "minLength": 1, "maxLength": 256,
+      "pattern": "^(?!/)(?!.*\\*\\*)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^/\\\\:?\\[\\]{}\\u0000-\\u001f\\u007f]+(?:/[^/\\\\:?\\[\\]{}\\u0000-\\u001f\\u007f]+){0,7}$"
+    },
+    "command": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$" },
+    "safeEnvironmentName": { "type": "string", "maxLength": 64, "pattern": "^(?!PATH$)(?!DYLD_)(?!LD_)[A-Z_][A-Z0-9_]*$" },
+    "platforms": { "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": { "enum": ["macos", "windows", "linux"] } },
+    "version": {
+      "type": "object", "additionalProperties": false, "required": ["arguments", "pattern"],
+      "properties": {
+        "arguments": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "string", "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$", "maxLength": 64 } },
+        "pattern": { "description": "Rust-regex-compatible, first capture is a dotted numeric version. Validity, capture count and runtime bounds require semantic checks.", "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "executableLayout": {
+      "type": "object", "additionalProperties": false, "required": ["path"],
+      "properties": { "path": { "$ref": "#/$defs/relativePath" }, "platforms": { "$ref": "#/$defs/platforms" } }
+    },
+    "homeLayout": {
+      "type": "object", "additionalProperties": false, "required": ["match", "home"],
+      "properties": {
+        "match": { "allOf": [ { "$ref": "#/$defs/boundedGlob" }, { "pattern": "^[^/]+$" } ] },
+        "home": { "oneOf": [ { "const": "." }, { "$ref": "#/$defs/relativePath" } ] },
+        "platforms": { "$ref": "#/$defs/platforms" }
+      }
+    },
+    "discovery": {
+      "type": "object", "additionalProperties": false, "required": ["root", "pattern"],
+      "properties": {
+        "root": {
+          "oneOf": [
+            { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "home" } } },
+            { "type": "object", "additionalProperties": false, "required": ["kind", "variable"], "properties": { "kind": { "const": "environment" }, "variable": { "$ref": "#/$defs/safeEnvironmentName" } } },
+            { "type": "object", "additionalProperties": false, "required": ["kind", "path"], "properties": { "kind": { "const": "absolute" }, "path": { "type": "string", "minLength": 2, "maxLength": 256, "pattern": "^(?:/|[A-Za-z]:[\\\\/])[^\\u0000-\\u001f\\u007f]*$" } } }
+          ]
+        },
+        "pattern": { "$ref": "#/$defs/boundedGlob" },
+        "platforms": { "$ref": "#/$defs/platforms" }
+      }
+    },
+    "wrapper": {
+      "type": "object", "additionalProperties": false, "required": ["path"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "requires": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
+        "platforms": { "$ref": "#/$defs/platforms" }
+      }
+    },
+    "candidateMetadata": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "priority": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+        "insertBefore": { "$ref": "#/$defs/identifier" },
+        "insertAfter": { "$ref": "#/$defs/identifier" },
+        "platforms": { "$ref": "#/$defs/platforms" }
+      },
+      "not": { "anyOf": [ { "required": ["priority", "insertBefore"] }, { "required": ["priority", "insertAfter"] }, { "required": ["insertBefore", "insertAfter"] } ] }
+    },
+    "candidate": {
+      "$ref": "#/$defs/candidateMetadata", "unevaluatedProperties": false,
+      "oneOf": [
+        {
+          "required": ["kind", "settingID", "layer"],
+          "properties": { "kind": { "const": "setting" }, "settingID": { "const": "executable" }, "layer": { "enum": ["project", "global"] } }
+        },
+        {
+          "required": ["kind", "scope"],
+          "properties": { "kind": { "const": "toolchain" }, "scope": { "enum": ["project", "global", "installed"] } }
+        },
+        {
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "projectFile" },
+            "path": { "$ref": "#/$defs/relativePath" },
+            "requires": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/relativePath" } },
+            "projectKind": { "enum": ["wrapper", "environment"], "default": "wrapper" },
+            "home": { "oneOf": [ { "const": "." }, { "$ref": "#/$defs/relativePath" } ] }
+          },
+          "allOf": [
+            {
+              "if": { "required": ["projectKind"], "properties": { "projectKind": { "const": "environment" } } },
+              "then": { "required": ["home"] },
+              "else": { "not": { "required": ["home"] } }
+            }
+          ]
+        },
+        {
+          "required": ["kind", "variable", "path"],
+          "properties": { "kind": { "const": "environment" }, "variable": { "$ref": "#/$defs/safeEnvironmentName" }, "path": { "$ref": "#/$defs/relativePath" } }
+        },
+        {
+          "required": ["kind", "command"],
+          "properties": { "kind": { "const": "command" }, "command": { "$ref": "#/$defs/command" } }
+        },
+        {
+          "required": ["kind", "runtime"],
+          "properties": { "kind": { "const": "runtime" }, "runtime": { "$ref": "#/$defs/toolID" } }
+        }
+      ]
+    },
+    "launchTokens": {
+      "type": "array", "minItems": 1, "maxItems": 32,
+      "prefixItems": [ { "const": "${executable}" } ],
+      "items": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?:\\$\\{(?:home|executable|entry|runtimeArguments|arguments)\\}|[^$\\u0000-\\u001f\\u007f]+)$" }
+    },
+    "toolDefinition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "displayName", "executableLayouts", "executables", "version", "commands", "launch"],
+      "properties": {
+        "id": { "$ref": "#/$defs/toolID" },
+        "displayName": { "$ref": "#/$defs/label" },
+        "icon": { "$ref": "../../plugin-manifest.schema.json#/$defs/uiIcon" },
+        "executableLayouts": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/executableLayout" } },
+        "executables": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/candidate" } },
+        "version": { "$ref": "#/$defs/version" },
+        "homeLayouts": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/homeLayout" } },
+        "discovery": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/discovery" } },
+        "homeVariable": { "$ref": "#/$defs/safeEnvironmentName" },
+        "commands": { "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/$defs/command" } },
+        "wrappers": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/wrapper" } },
+        "exports": {
+          "type": "array", "maxItems": 16,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name", "value"],
+            "properties": { "name": { "$ref": "#/$defs/safeEnvironmentName" }, "value": { "enum": ["${home}", "${executable}"] } }
+          }
+        },
+        "pathPrepend": {
+          "type": "array", "maxItems": 8, "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 256, "pattern": "^\\$\\{home\\}(?:/(?!\\.{1,2}(?:/|$))[^/\\\\:$*?\\u0000-\\u001f\\u007f]+)*$" }
+        },
+        "launch": { "$ref": "#/$defs/launchTokens" }
+      }
+    },
+    "provider": {
+      "type": "object", "additionalProperties": false, "required": ["id", "displayName", "tools", "watchFiles"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "displayName": { "$ref": "#/$defs/label" },
+        "tools": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/toolID" } },
+        "watchFiles": {
+          "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["pattern", "reader"],
+            "properties": { "pattern": { "$ref": "#/$defs/boundedGlob" }, "reader": { "enum": ["native", "compatible"] } }
+          }
+        }
+      }
+    },
+    "backend": {
+      "type": "object", "additionalProperties": false, "required": ["launch"],
+      "properties": {
+        "launch": {
+          "oneOf": [
+            {
+              "type": "object", "additionalProperties": false, "required": ["kind", "path"],
+              "properties": { "kind": { "const": "packaged" }, "path": { "$ref": "#/$defs/relativePath" } }
+            },
+            {
+              "type": "object", "additionalProperties": false, "required": ["kind", "tool", "packagedRuntime", "entry"],
+              "properties": {
+                "kind": { "const": "runtime" }, "tool": { "$ref": "#/$defs/toolID" },
+                "packagedRuntime": { "$ref": "#/$defs/relativePath" }, "entry": { "$ref": "#/$defs/relativePath" },
+                "runtimeArguments": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 256, "pattern": "^[^$\\u0000-\\u001f\\u007f]*$" } }
+              }
+            }
+          ]
+        },
+        "arguments": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 256, "pattern": "^[^$\\u0000-\\u001f\\u007f]*$" } }
+      }
+    },
+    "consumer": {
+      "type": "object", "additionalProperties": false, "required": ["id", "requiresTools", "onToolchainChange"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "requiresTools": {
+          "type": "array", "minItems": 1, "maxItems": 16,
+          "items": { "type": "object", "additionalProperties": false, "required": ["tool"], "properties": { "tool": { "$ref": "#/$defs/toolID" }, "minimumVersion": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){0,7}$", "maxLength": 64 } } }
+        },
+        "onToolchainChange": { "enum": ["restart", "resync", "nextRun"] },
+        "launch": {
+          "type": "object", "additionalProperties": false, "required": ["kind", "tool", "entry"],
+          "properties": {
+            "kind": { "const": "runtime" }, "tool": { "$ref": "#/$defs/toolID" }, "entry": { "$ref": "#/$defs/relativePath" },
+            "runtimeArguments": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 256 } }
+          }
+        },
+        "runtimeDependencies": {
+          "type": "array", "maxItems": 16,
+          "items": { "type": "object", "additionalProperties": false, "required": ["tool"], "properties": { "tool": { "$ref": "#/$defs/toolID" } } }
+        }
+      }
+    }
+  }
+}

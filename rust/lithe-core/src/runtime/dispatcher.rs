@@ -276,6 +276,24 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::editor_actions::decode_command,
         ),
+        CoreCommand::ToolchainsRegistry => {
+            plugin_response(id, parsed.payload, crate::toolchain::registry_command)
+        }
+        CoreCommand::ToolchainsDecodeReply => {
+            plugin_response(id, parsed.payload, crate::toolchain::decode_reply_command)
+        }
+        CoreCommand::ToolchainsResolvePins => {
+            plugin_response(id, parsed.payload, crate::toolchain::resolve_pins_command)
+        }
+        CoreCommand::ToolchainsResolve => {
+            plugin_response(id, parsed.payload, crate::toolchain::resolve_command)
+        }
+        CoreCommand::ToolchainsCheckVersion => {
+            plugin_response(id, parsed.payload, crate::toolchain::check_version_command)
+        }
+        CoreCommand::ToolchainsDiscoveryPlan => {
+            plugin_response(id, parsed.payload, crate::toolchain::discovery_plan_command)
+        }
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }

@@ -108,6 +108,18 @@ pub enum CoreCommand {
     PluginsDeclarativeDecodeGrammar,
     /// Validates independent editor action registration or results.
     PluginsEditorActionsDecode,
+    /// Registers plugin-owned tools with verified package provenance.
+    ToolchainsRegistry,
+    /// Validates provider answers using native evidence supplied by the host.
+    ToolchainsDecodeReply,
+    /// Resolves the nearest machine-local directory pin.
+    ToolchainsResolvePins,
+    /// Resolves the four toolchain layers from a captured value snapshot.
+    ToolchainsResolve,
+    /// Checks a plugin-defined version probe without per-tool parsing.
+    ToolchainsCheckVersion,
+    /// Plans system scans solely from enabled tool definitions.
+    ToolchainsDiscoveryPlan,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
@@ -588,6 +600,12 @@ impl CoreCommand {
             }
             "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
             "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
+            "toolchains.registry" => Some(Self::ToolchainsRegistry),
+            "toolchains.decodeReply" => Some(Self::ToolchainsDecodeReply),
+            "toolchains.resolvePins" => Some(Self::ToolchainsResolvePins),
+            "toolchains.resolve" => Some(Self::ToolchainsResolve),
+            "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
+            "toolchains.discoveryPlan" => Some(Self::ToolchainsDiscoveryPlan),
             "build.detect" => Some(Self::BuildDetect),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),

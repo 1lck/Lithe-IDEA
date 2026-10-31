@@ -81,6 +81,7 @@
 "%lld changed files" = "%lld 个文件有更改";
 "%lld characters" = "%lld 个字符";
 "%lld characters total" = "共 %lld 个字符";
+"%lld directories" = "%lld 个目录";
 "%lld failed" = "%lld 个失败";
 "%lld file(s) · %@" = "%lld 个文件 · %@";
 "%lld files" = "%lld 个文件";
@@ -95,6 +96,7 @@
 "%lld lines" = "%lld 行";
 "%lld model calls" = "%lld 次模型调用";
 "%lld more notifications" = "还有 %lld 条通知";
+"%lld ms" = "%lld 毫秒";
 "%lld non-streaming" = "%lld 次非流式";
 "%lld of %lld" = "第 %lld 个，共 %lld 个";
 "%lld of %lld services selected" = "已选择 %2$lld 个服务中的 %1$lld 个";
@@ -125,6 +127,8 @@
 "%lld turns" = "%lld 轮";
 "%lld unchanged lines" = "%lld 行未更改";
 "%lld usages" = "%lld 处使用";
+"%lld variables" = "%lld 个变量";
+"%lld version files" = "%lld 个版本文件";
 "%lld worktree records need attention" = "%lld 个工作树需要修复";
 "%lld worktrees" = "%lld 个工作树";
 "%lld/%lld completed" = "已完成 %lld/%lld";
@@ -180,6 +184,7 @@
 "A terminal session is still running." = "终端会话仍在运行。";
 "A test path must stay inside the current workspace." = "测试路径必须保持在当前工作区内。";
 "A unique filename could not be created for the image" = "无法为图片创建唯一的文件名";
+"A version saved for this directory on this computer. It applies first, also in the directories below." = "在这台电脑上为此目录保存的版本，优先级最高，也作用于其下的子目录。";
 "A worktree operation is already running, or the repository is unavailable." = "已有工作树操作正在运行，或仓库不可用。";
 "ACP adapter" = "ACP 适配器";
 "AI" = "AI";
@@ -399,6 +404,7 @@
 "Asked for access to %@" = "请求访问 %@";
 "Assignees" = "负责人";
 "Astro Support" = "Astro 支持";
+"At launch Lithe reads your login shell's environment, as a terminal does, and gives it to the terminals, tools and language servers it starts. Only PATH is listed; other variables can hold secrets and are only counted." = "Lithe 启动时会像终端一样读取登录 Shell 的环境，并提供给它启动的终端、工具和语言服务器。这里只列出 PATH；其他变量可能包含密钥，只显示数量。";
 "Attach" = "连接";
 "Attach Request" = "附加请求";
 "Attach file" = "附件";
@@ -422,6 +428,7 @@
 "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild 每晚滚动构建，可能包含未完成的功能、严重缺陷或其他异常，普通用户建议使用正式版。";
 "AutoBuild — Built at %@" = "AutoBuild — 构建自 %@";
 "Automatic" = "自动";
+"Automatic discovery" = "自动检测";
 "Automatic query ×%lld, identical results" = "自动查询 %lld 次，结果相同";
 "Automatic tries your SSH agent and keys first, then asks for a password. Lithe asks in a dialog whenever the server needs an answer, such as a password, a passphrase, or a verification code." = "“自动”会先尝试 SSH Agent 和密钥，再询问密码。服务器需要回答时（例如密码、私钥口令或验证码），Lithe 会弹窗询问。";
 "Automatic uses a project mvnw first, then detected Maven, then mvnd." = "自动模式会优先使用项目 mvnw，其次使用检测到的 Maven，最后使用 mvnd。";
@@ -904,6 +911,7 @@
 "Connection timeout" = "连接超时";
 "Connections: %lld" = "连接：%lld";
 "Console" = "控制台";
+"Consumers" = "使用方";
 "Content" = "内容";
 "Content SHA-256" = "内容 SHA-256";
 "Context" = "上下文";
@@ -1009,6 +1017,7 @@
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "Could not read the selected built-in background." = "无法读取所选的内置背景。";
 "Could not read this file" = "无法读取此文件";
+"Could not read toolchain settings." = "无法读取工具链设置。";
 "Could not refresh Git status. Refresh to verify the changes." = "无法刷新 Git 状态。请刷新以确认更改结果。";
 "Could not register Lithe MCP in %@: %@" = "无法在 %@ 中注册 Lithe MCP：%@";
 "Could not remove Lithe MCP from %@: %@" = "无法从 %@ 中移除 Lithe MCP：%@";
@@ -1128,6 +1137,7 @@
 "Default push behavior" = "默认 Push 行为";
 "Default shell" = "默认 Shell";
 "Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set." = "所有项目普通获取的默认值。仓库自身的 Git 配置一旦设置，仍以其为准。";
+"Definition" = "定义";
 "Definition not found" = "没有找到定义";
 "Definitions" = "定义";
 "Delete" = "删除";
@@ -1203,6 +1213,7 @@
 "Direct connection" = "直连";
 "Direct retry applies only to public MCP Registry searches on this page. System proxy settings and Agent server connections are unchanged. TLS certificate validation remains enabled." = "直连仅用于此页面的公开 MCP Registry 查询，不修改系统代理或 Agent 的服务器连接设置，并继续校验 TLS 证书。";
 "Directories" = "目录";
+"Directories in the order tools are looked up. The login shell's directories come first, then any that only the environment Lithe was launched with had." = "按查找工具的顺序排列的目录。登录 Shell 的目录在前，其后是只有 Lithe 启动时环境才有的目录。";
 "Directory" = "目录";
 "Directory imports preserve scripts, templates and other supporting files. Existing skills are never overwritten." = "导入目录会保留脚本、模板等配套文件，不会覆盖已有技能。";
 "Directory or file name" = "目录或文件名";
@@ -1291,6 +1302,7 @@
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "每个仓库会分别提交。某个仓库失败时，已完成的步骤仍会保留。";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "每一行都会说明设置用途、Git 实际采用的值，以及这个值来自哪里。";
 "Each submodule is pushed before its parent." = "先推送子模块，再推送父仓库。";
+"Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Version managers are not queried yet, so the versions that version files and global defaults ask for are not shown." = "每个工具采用第一个有值的来源，依次为固定版本、项目版本文件、全局默认、自动检测。版本管理器暂未接入查询，因此不显示版本文件和全局默认所要求的版本。";
 "Earlier" = "更早";
 "Earlier Git commands were truncated to limit memory use." = "为限制内存占用，较早的 Git 执行记录已截断，无法展开。";
 "Earlier Git output was omitted to limit memory use." = "为限制内存占用，已省略较早的 Git 输出。";
@@ -1459,6 +1471,7 @@
 "Export as PDF…" = "导出为 PDF…";
 "Export conversations" = "导出会话";
 "Export logs" = "导出日志";
+"Exported environment" = "导出环境变量";
 "Exporting conversations…" = "正在导出会话…";
 "Exports the index against HEAD." = "导出暂存区相对 HEAD 的更改。";
 "Exports the working tree's net changes against HEAD, including selected untracked files." = "导出工作树相对 HEAD 的最终更改，包含所选的未跟踪文件。";
@@ -1528,6 +1541,7 @@
 "File tree row height" = "文件树行高";
 "Files" = "文件";
 "Files added. Save your editor changes before sending so the Agent can read them." = "文件已添加。请在发送前保存编辑内容，以便 Agent 读取最新文件。";
+"Files declared by enabled version managers that exist in this directory. A directory without its own uses the nearest parent's." = "已启用的版本管理器所声明、且存在于此目录中的文件。没有自己版本文件的目录沿用最近上级目录的。";
 "Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged." = "文件将回到默认更改列表，可能被全部暂存操作选中。现有 Git 暂存状态保持不变。";
 "Files will stay unchanged. Nothing will be staged or committed automatically." = "文件内容保持不变，不会自动暂存或提交。";
 "Filter by changed path" = "按更改路径筛选";
@@ -1555,8 +1569,12 @@
 "Find references to the selected symbol" = "查找所选符号的引用";
 "Finished" = "已完成";
 "First %lld locations" = "前 %lld 个位置";
+"First match" = "首个命中";
 "Fit to Window" = "适应窗口";
 "Fix the failing checks below before installing." = "请先解决下方未通过的检测项，再进行安装。";
+"Fixed" = "固定";
+"Fixed in parent" = "上级目录固定";
+"Fixed versions are saved on this computer in .lithe/toolchains/local.json and also apply to the directories below. This page reads them without changing the file." = "固定版本只保存在这台电脑的 .lithe/toolchains/local.json 中，并作用于其下的子目录。此页面只读取，不会修改该文件。";
 "Fixup" = "合并并丢弃消息";
 "Floating Point" = "浮点数";
 "Folder" = "分组";
@@ -1589,6 +1607,7 @@
 "Frames are not available" = "当前无可用栈帧";
 "Frames rendered per second" = "每秒渲染帧数";
 "Free space" = "剩余空间";
+"From %@" = "来自 %@";
 "From (UTC ISO 8601)" = "起始时间（UTC ISO 8601）";
 "Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left." = "前端和其他非 Java 根目录沿用工作区的编辑器和终端设置。Java 与 Maven SDK 只作用于左侧列出的后端项目。";
 "Full Program Declaration" = "完整程序声明";
@@ -1662,6 +1681,7 @@
 "GitHub user %@" = "GitHub 用户 %@";
 "Global Git" = "全局 Git";
 "Global Git configuration" = "全局 Git 配置";
+"Global defaults" = "全局默认";
 "Global identity applies to other repositories unless they override it." = "全局身份会用于其他仓库，仓库自身的配置可以覆盖它。";
 "Global instructions" = "全局指令";
 "Global instructions apply to all projects using this Agent. Each Agent keeps its own native file." = "全局指令适用于使用此 Agent 的所有项目。每个 Agent 使用各自的原生文件。";
@@ -1982,6 +2002,7 @@
 "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals." = "最近一轮由 Agent 上报的计数，统计口径由 Agent 决定；开启“模型调用统计”后显示整个会话的合计。";
 "Launch" = "启动方式";
 "Launch Request" = "启动请求";
+"Launch environment" = "启动时环境";
 "Launching" = "启动中";
 "Layout" = "布局";
 "Leave a review" = "提交审查";
@@ -2011,6 +2032,7 @@
 "Linked this conversation to a pull request" = "已将此对话关联到拉取请求";
 "Linked worktree" = "关联工作树";
 "Listed in" = "所在插件仓库";
+"Lists the project root and each directory with its own version file or fixed version. A fixed version also applies to the directories below it." = "列出项目根目录，以及自带版本文件或固定版本的目录。固定版本也作用于其下的子目录。";
 "Lithe" = "Lithe";
 "Lithe Agent" = "Lithe Agent";
 "Lithe Fetch Defaults" = "Lithe 获取默认值";
@@ -2131,6 +2153,7 @@
 "Log message" = "日志消息";
 "Log timeline" = "日志时间线";
 "Log: %@" = "日志：%@";
+"Login shell" = "登录 Shell";
 "Logs" = "日志";
 "Logs and Diagnostics" = "日志与诊断";
 "Look Up Again" = "重新查询";
@@ -2426,6 +2449,8 @@
 "No differences were found for this selection." = "所选内容没有差异。";
 "No earlier conversations" = "没有更早的对话";
 "No effective value configured" = "尚未配置有效值";
+"No enabled plugin defines tools." = "没有已启用的插件定义工具。";
+"No enabled plugin provides a version manager." = "没有已启用的插件提供版本管理器。";
 "No executable location was found at the cursor" = "光标所在位置没有可执行的代码";
 "No file edits" = "暂无文件修改";
 "No files match the conflict filter" = "没有符合冲突筛选条件的文件";
@@ -2475,6 +2500,7 @@
 "No program to debug was found. Build it first, or choose one in the “%@” setting of %@." = "没有找到要调试的程序。请先编译它，或在 %2$@ 的“%1$@”设置中选择程序。";
 "No program to debug was found. Build it first, or choose one in the “%@” setting of %@. Looked in: %@" = "没有找到要调试的程序。请先编译它，或在 %2$@ 的“%1$@”设置中选择程序。已查找：%3$@";
 "No project entry point detected" = "未识别到项目启动入口";
+"No project environment is available." = "没有可用的项目环境。";
 "No project history recorded yet" = "还没有项目历史记录";
 "No project is open" = "未打开项目";
 "No project is open. Rows backed by Git configuration write to the global Git configuration; commit identity needs a repository." = "当前没有打开项目。由 Git 配置支持的选项会写入全局 Git 配置；提交身份需要打开仓库。";
@@ -2517,6 +2543,7 @@
 "No upstream configured" = "未设置上游分支";
 "No usages found" = "没有找到调用位置";
 "No verified Homebrew formula is configured for %@." = "没有为 %@ 配置经过验证的 Homebrew formula。";
+"No version file" = "没有版本文件";
 "No web browser could be opened." = "无法打开网页浏览器。";
 "No worktrees" = "没有工作树";
 "Node.js %lld or later" = "Node.js %lld 或更高版本";
@@ -2528,6 +2555,7 @@
 "Non-streaming responses" = "非流式响应";
 "None" = "无";
 "None (fastest)" = "无（最快）";
+"None; uses the parent directory's" = "无，沿用上级目录";
 "Normal Folder" = "普通文件夹";
 "Not Assigned" = "未分配";
 "Not Supported" = "不支持";
@@ -2540,6 +2568,10 @@
 "Not installed" = "未安装";
 "Not installed · %@" = "未安装 · %@";
 "Not installed. Install it to start using this Agent." = "尚未安装。安装后即可使用该 Agent。";
+"Not pinned" = "未固定";
+"Not queried" = "未查询";
+"Not read yet" = "尚未读取";
+"Not read yet; started with the PATH saved last time" = "尚未读取，启动时使用了上次保存的 PATH";
 "Not refreshed yet" = "尚未刷新";
 "Not run" = "尚未运行";
 "Not running" = "未运行";
@@ -2548,6 +2580,7 @@
 "Not supported on %@ yet." = "暂不支持 %@ 平台";
 "Not tested" = "未测试";
 "Not used" = "不使用";
+"Not used in this project" = "此项目未使用";
 "Not used yet." = "尚未被使用。";
 "Nothing to push" = "没有可推送的内容";
 "Notifications" = "通知";
@@ -2588,6 +2621,7 @@
 "Only the commit message changes. %lld commits will receive new identities. Staged files are not included." = "仅修改提交消息，%lld 笔提交的哈希会改变。不会包含当前暂存的文件。";
 "Only the current branch can be updated" = "只能更新当前分支";
 "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included." = "仅收集下列文件。凭据、令牌和用户目录路径会被自动脱敏；工作区源代码、编辑器缓冲区内容和终端历史绝不会被包含。";
+"Only the first %lld directories are shown." = "只显示前 %lld 个目录。";
 "Only the most recent archived conversations are shown." = "仅显示最近的归档会话。";
 "Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved." = "仅回撤 Agent 上报的修改；有冲突或未保存编辑的文件会保留。";
 "Open" = "打开";
@@ -2610,6 +2644,7 @@
 "Open Marketplace" = "打开插件市场";
 "Open Patch…" = "打开补丁…";
 "Open Plugin Management" = "打开插件管理";
+"Open Plugins" = "打开插件页";
 "Open Project" = "打开项目";
 "Open Projects" = "打开的项目";
 "Open Project…" = "打开项目…";
@@ -2625,6 +2660,7 @@
 "Open a local folder to start working." = "打开本地文件夹开始工作。";
 "Open a local project folder" = "打开本地项目文件夹";
 "Open a project" = "打开项目";
+"Open a project and enable a plugin that defines tools to inspect its environment." = "打开项目并启用定义工具的插件，即可查看环境。";
 "Open a project before choosing project paths." = "请先打开项目，再选择项目路径。";
 "Open a project before starting a debug terminal." = "请先打开项目，再启动调试终端。";
 "Open a project containing a pom.xml file." = "打开一个包含 pom.xml 文件的项目。";
@@ -2865,7 +2901,9 @@
 "Project opened" = "项目已打开";
 "Project options" = "项目选项";
 "Project paths must stay inside the current project." = "项目路径必须位于当前项目内。";
+"Project requirements" = "项目要求";
 "Project root" = "项目根目录";
+"Project root directory" = "项目根目录";
 "Project run configuration is invalid" = "项目运行配置无效";
 "Project run configuration not found" = "未找到项目运行配置";
 "Project runtime settings are saved locally for this project." = "项目运行时设置会保存在本机的项目配置中。";
@@ -2953,6 +2991,8 @@
 "Read %lld files" = "读取了 %lld 个文件";
 "Read Memory at Address" = "读取此地址的内存";
 "Read Memory at Value" = "读取此值指向的内存";
+"Read again" = "重新读取";
+"Read result" = "读取结果";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "读写、搜索你允许的目录中的文件。需要 Node.js 24 或更高版本。";
 "Read-only" = "只读";
 "Read-only file preview" = "只读文件预览";
@@ -2963,6 +3003,7 @@
 "Reading memory…" = "正在读取内存…";
 "Reading project…" = "正在读取项目…";
 "Reading registered checkouts." = "正在读取 Git 中注册的检出目录。";
+"Reading…" = "正在读取…";
 "Reads the API URL, model and key from ~/.claude/settings.json and ~/.claude.json. Edit those files to change them, then fetch again." = "从 ~/.claude/settings.json 和 ~/.claude.json 读取 API 地址、模型和密钥。需要修改时请编辑这些文件，然后重新获取。";
 "Reads the API URL, model and key from ~/.codex/config.toml and auth.json. Edit those files to change them, then fetch again." = "从 ~/.codex/config.toml 和 auth.json 读取 API 地址、模型和密钥。需要修改时请编辑这些文件，然后重新获取。";
 "Ready" = "就绪";
@@ -3307,6 +3348,8 @@
 "Runs on %@ shipped with the plugin" = "使用插件自带的 %@ 运行";
 "Runs the %@ installed on this Mac through the %@ adapter." = "通过 %2$@ 适配器驱动这台 Mac 上已安装的 %1$@。";
 "Runtime" = "运行时长";
+"Runtime Environment" = "运行环境";
+"Runtime Environment — Isolated Preview" = "运行环境 — 隔离预览";
 "Runtime discovery failed" = "运行环境探测失败";
 "Runtime used by the language server (installed on this Mac)" = "语言服务器使用的运行时（本机已安装）";
 "Rust Core cache-retention planning is unavailable." = "Rust Core 的缓存保留规划不可用。";
@@ -3362,6 +3405,7 @@
 "Saved in Keychain" = "已保存在钥匙串中";
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "仅为这台电脑上的此项目保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "Saved to %@" = "已保存到 %@";
+"Saved, not verified" = "已保存，未验证";
 "Saves, connects, and opens the remote folder in this window." = "保存、连接，并在当前窗口打开远程文件夹。";
 "Saving build provider run configurations is unavailable." = "当前无法保存构建提供方运行配置。";
 "Saving replaces the current GitHub metadata." = "保存后将替换当前 GitHub 元数据。";
@@ -3983,6 +4027,7 @@
 "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page." = "下载的更新未通过 SHA-256 校验，请勿安装。请重试或通过 Release 页面下载。";
 "The downloaded update failed its checksum verification." = "下载的更新未通过校验。";
 "The edit stop changed. Refresh the session before amending." = "编辑暂停位置已更改。请刷新会话后再修改提交。";
+"The environment snapshot could not be read. Refresh to try again." = "无法读取环境快照，请刷新重试。";
 "The expression does not hold an address" = "该表达式的值不是地址";
 "The featured MCP catalog could not be loaded." = "无法加载内置 MCP 精选目录。";
 "The field value does not match its declaration or exceeds its size limit." = "字段值不符合声明或超过大小限制。";
@@ -3998,6 +4043,7 @@
 "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "保存期间文件或硬链接发生了变化。编辑内容尚未保存，请检查文件后重新保存。";
 "The file system that holds the home directory." = "主目录所在的文件系统。";
 "The file will be created when you save." = "保存时将创建此文件。";
+"The first executable found through the variables and commands this tool's plugin declares, using the login shell's PATH. Its version is not checked." = "按插件为该工具声明的环境变量和命令，在登录 Shell 的 PATH 中找到的第一个可执行文件，不检查其版本。";
 "The function call was cancelled." = "函数调用已取消。";
 "The generated message will replace the text currently in the editor." = "生成的提交信息将替换编辑器中的当前文本。";
 "The generated title or description would replace text you already entered." = "生成的标题或描述可能会替换你已经输入的内容。";
@@ -4010,6 +4056,7 @@
 "The host has no bridge method %@." = "宿主没有桥接方法 %@。";
 "The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts." = "主机密钥未被接受。如果服务器重装过，请从 ~/.ssh/known_hosts 中删除它的旧记录。";
 "The image destination is outside the current workspace" = "图片目标位置在当前工作区之外";
+"The installed toolchain declarations are invalid." = "已安装插件的工具链声明无效。";
 "The installer reported an error, but the new CLI version was verified." = "安装器报告了错误，但已确认新 CLI 版本可用。";
 "The instruction directory changed. Reload before saving." = "指令目录已变更，请重新加载后再保存。";
 "The instruction path must be a regular file, not a symbolic link or directory." = "指令路径必须为普通文件，不能为符号链接或目录。";
@@ -4024,6 +4071,7 @@
 "The local Codex account changed. Reconnect to refresh quota." = "本机 Codex 账号已变更，请重新连接以刷新额度。";
 "The local adapter is at or above the verified version." = "本地适配器版本等于或高于已核验版本。";
 "The location service did not answer." = "地区查询服务没有响应。";
+"The login shell's PATH has changed. Restart Lithe so that terminals and tools use it." = "登录 Shell 的 PATH 已变化，重启 Lithe 后终端和工具才会使用新值。";
 "The message text or its buttons are empty, too long, or too many." = "消息文本或按钮为空、过长或过多。";
 "The model is too large; some entries are not shown." = "模型过大，部分条目未显示。";
 "The monitored JVM has exited or changed." = "监控的 JVM 已退出或发生变化。";
@@ -4110,6 +4158,7 @@
 "The resource path must be relative, use \"/\" separators, and not contain \".\" or \"..\"." = "资源路径必须是相对路径，使用“/”分隔，且不能包含“.”或“..”。";
 "The response stopped at the model's token limit." = "回复已达到模型的 token 上限，已停止。";
 "The saved provider run configuration is unavailable." = "已保存的提供方运行配置不可用。";
+"The saved toolchain settings are invalid." = "已保存的工具链设置无效。";
 "The selected AI provider has an invalid API URL or model." = "所选 AI 服务商的 API 地址或模型无效。";
 "The selected AI provider has no API key." = "所选 AI 服务商没有 API 密钥。";
 "The selected background image authorization is invalid." = "所选背景图片的授权无效。";
@@ -4162,6 +4211,7 @@
 "The value is not in the expected format." = "格式不正确。";
 "The value is too long." = "内容过长。";
 "The verification page is open and the code is already on your clipboard." = "验证页面已打开，一次性代码也已复制到剪贴板。";
+"The version a version manager uses outside any project. Version managers are not queried yet." = "版本管理器在项目之外使用的版本。版本管理器暂未接入查询。";
 "The version control client could not be run. Check that it is installed." = "无法运行版本控制客户端。请检查它是否已安装。";
 "The version control provider failed to start." = "版本控制 Provider 启动失败。";
 "The version control provider stopped before it was ready." = "版本控制 Provider 在就绪前已停止。";
@@ -4267,6 +4317,7 @@
 "This removes the tag from the repository and affects collaborators who reference it. You can restore it from the banner afterwards." = "这会从仓库中删除标签，并影响引用该标签的协作者。删除后可以通过提示栏恢复。";
 "This repository" = "当前仓库";
 "This response is sent only to the running Git operation." = "此回复仅发送给正在运行的 Git 操作。";
+"This row comes from the tool definition of an enabled plugin. Lithe has no built-in tools." = "这一行来自已启用插件的工具定义，Lithe 不内置任何工具。";
 "This runtime is older than the generator requires." = "此运行时版本低于模板要求。";
 "This sends the current branch to its configured remote." = "这会将当前分支推送到已配置的远程仓库。";
 "This sends the selected local branch to its configured remote." = "这会将选中的本地分支推送到已配置的远程仓库。";
@@ -4279,6 +4330,7 @@
 "This value is not allowed." = "该值不被允许。";
 "This version control provider does not support this action." = "此版本控制 Provider 不支持该操作。";
 "This version is newer than the selected runtime supports." = "该版本高于所选运行时支持的版本。";
+"This version manager comes from an enabled plugin. Lithe has no built-in version managers." = "此版本管理器来自已启用的插件，Lithe 不内置任何版本管理器。";
 "This version of Lithe cannot read update manifest schema %@. Open the Release page and update manually." = "此版本的 Lithe 无法读取版本为 %@ 的更新清单格式。请打开 Release 页面手动更新。";
 "This will start %lld detected services." = "这将启动检测到的 %lld 个服务。";
 "This window" = "此窗口";
@@ -4322,6 +4374,8 @@
 "Tool definitions" = "工具定义";
 "Tool filter" = "工具筛选";
 "Toolbar Actions" = "工具栏操作";
+"Toolchain Sources" = "环境来源";
+"Toolchain settings are not available for remote workspaces yet." = "远程工作区暂不支持工具链设置。";
 "Tools" = "工具";
 "Tools sent" = "发送的工具";
 "Total" = "总计";
@@ -4341,6 +4395,7 @@
 "Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request." = "在 Agent 设置中开启模型调用统计并重新连接后，可查看每次请求携带的 MCP 工具。";
 "Turn usage" = "本轮用量";
 "Turned off auto-merge" = "已关闭自动合并";
+"Turned off by LITHE_SKIP_SHELL_ENV" = "已由 LITHE_SKIP_SHELL_ENV 关闭";
 "Turned on auto-merge" = "已开启自动合并";
 "Turning this off stops every Agent process." = "关闭后会停止所有 Agent 进程。";
 "Turns" = "轮次";
@@ -4517,6 +4572,8 @@
 "Username" = "用户名";
 "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks." = "使用 Claude Code 中登录的 claude.ai 账号；如提示未登录，请在 Claude Code 中用 /login 登录。";
 "Uses your local ChatGPT account." = "使用本机 ChatGPT 账号。";
+"Using the PATH saved last time" = "仍在使用上次保存的 PATH";
+"Using the environment Lithe was launched with" = "仍在使用 Lithe 启动时的环境";
 "Usually the reversed domain name of your organization, such as com.example." = "通常是组织域名的反写，例如 com.example。";
 "VM arguments" = "VM 参数";
 "VM options" = "VM 选项";
@@ -4540,6 +4597,14 @@
 "Version Control" = "版本控制";
 "Version control integration" = "版本控制集成";
 "Version control provider" = "版本控制 Provider";
+"Version file" = "版本文件";
+"Version files" = "版本文件";
+"Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet." = "此目录或上级目录中、由该工具的版本管理器监视的版本文件。其中要求的版本暂未查询。";
+"Version files were checked in the first %lld directories only." = "只在前 %lld 个目录中检查了版本文件。";
+"Version managers" = "版本管理器";
+"Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet." = "版本管理器来自已启用的插件。Lithe 会在此项目中查找它们监视的文件，但暂不运行或查询它们。";
+"Version not queried" = "版本未查询";
+"Version not verified" = "版本未验证";
 "Version status" = "版本状态";
 "Versions & Source" = "版本与来源";
 "View" = "查看";
@@ -4579,6 +4644,7 @@
 "Waiting to quit to complete the update." = "等待退出应用以完成更新。";
 "Warning" = "警告";
 "Warnings" = "警告";
+"Watched files" = "监视的文件";
 "Watches" = "监视";
 "Watching pull request checks" = "正在关注拉取请求检查";
 "Watching pull request checks and fixing failures" = "正在关注拉取请求检查并修复失败项";
@@ -9050,6 +9116,73 @@
 "native.toolWindow" = "工具窗口";
 "native.toolWindows" = "工具窗口";
 "native.toolbarActions" = "工具栏操作";
+"native.toolchainSettings.automaticDiscovery" = "自动检测";
+"native.toolchainSettings.automaticStepInfo" = "按插件为该工具声明的环境变量和命令，在登录 Shell 的 PATH 中找到的第一个可执行文件，不检查其版本。";
+"native.toolchainSettings.consumers" = "使用方";
+"native.toolchainSettings.couldNotReadToolchainSettings" = "无法读取工具链设置。";
+"native.toolchainSettings.definition" = "定义";
+"native.toolchainSettings.directoryCount" = "%1$lld 个目录";
+"native.toolchainSettings.directoryTreeInfo" = "列出项目根目录，以及自带版本文件或固定版本的目录。固定版本也作用于其下的子目录。";
+"native.toolchainSettings.exportedEnvironment" = "导出环境变量";
+"native.toolchainSettings.firstMatch" = "首个命中";
+"native.toolchainSettings.fixed" = "固定";
+"native.toolchainSettings.fixedInParent" = "上级目录固定";
+"native.toolchainSettings.fixedInfo" = "固定版本只保存在这台电脑的 .lithe/toolchains/local.json 中，并作用于其下的子目录。此页面只读取，不会修改该文件。";
+"native.toolchainSettings.fromDirectory" = "来自 %1$@";
+"native.toolchainSettings.globalDefaults" = "全局默认";
+"native.toolchainSettings.globalStepInfo" = "版本管理器在项目之外使用的版本。版本管理器暂未接入查询。";
+"native.toolchainSettings.launchEnvironment" = "启动时环境";
+"native.toolchainSettings.loginShell" = "登录 Shell";
+"native.toolchainSettings.loginShellInfo" = "Lithe 启动时会像终端一样读取登录 Shell 的环境，并提供给它启动的终端、工具和语言服务器。这里只列出 PATH；其他变量可能包含密钥，只显示数量。";
+"native.toolchainSettings.noEnabledPluginDefinesTools" = "没有已启用的插件定义工具。";
+"native.toolchainSettings.noEnabledPluginProvidesVersionManager" = "没有已启用的插件提供版本管理器。";
+"native.toolchainSettings.noProjectEnvironmentIsAvailable" = "没有可用的项目环境。";
+"native.toolchainSettings.noVersionFile" = "没有版本文件";
+"native.toolchainSettings.noneUsesParent" = "无，沿用上级目录";
+"native.toolchainSettings.notPinned" = "未固定";
+"native.toolchainSettings.notQueried" = "未查询";
+"native.toolchainSettings.notReadStartedFromCache" = "尚未读取，启动时使用了上次保存的 PATH";
+"native.toolchainSettings.notReadYet" = "尚未读取";
+"native.toolchainSettings.notUsedInThisProject" = "此项目未使用";
+"native.toolchainSettings.onlyFirstDirectoriesShown" = "只显示前 %1$lld 个目录。";
+"native.toolchainSettings.openAProjectAndEnableAPluginThatDefinesToolsToInspectItsEnvironment" = "打开项目并启用定义工具的插件，即可查看环境。";
+"native.toolchainSettings.openPlugins" = "打开插件页";
+"native.toolchainSettings.pathChangedRestart" = "登录 Shell 的 PATH 已变化，重启 Lithe 后终端和工具才会使用新值。";
+"native.toolchainSettings.pathInfo" = "按查找工具的顺序排列的目录。登录 Shell 的目录在前，其后是只有 Lithe 启动时环境才有的目录。";
+"native.toolchainSettings.pinnedStepInfo" = "在这台电脑上为此目录保存的版本，优先级最高，也作用于其下的子目录。";
+"native.toolchainSettings.projectRequirements" = "项目要求";
+"native.toolchainSettings.projectRootDirectory" = "项目根目录";
+"native.toolchainSettings.projectStepInfo" = "此目录或上级目录中、由该工具的版本管理器监视的版本文件。其中要求的版本暂未查询。";
+"native.toolchainSettings.queryMilliseconds" = "%1$lld 毫秒";
+"native.toolchainSettings.readAgain" = "重新读取";
+"native.toolchainSettings.readResult" = "读取结果";
+"native.toolchainSettings.reading" = "正在读取…";
+"native.toolchainSettings.remoteUnavailable" = "远程工作区暂不支持工具链设置。";
+"native.toolchainSettings.runtimeEnvironment" = "运行环境";
+"native.toolchainSettings.runtimeEnvironmentIsolatedPreview" = "运行环境 — 隔离预览";
+"native.toolchainSettings.savedNotVerified" = "已保存，未验证";
+"native.toolchainSettings.theEnvironmentSnapshotCouldNotBeReadRefreshToTryAgain" = "无法读取环境快照，请刷新重试。";
+"native.toolchainSettings.theInstalledToolchainDeclarationsAreInvalid" = "已安装插件的工具链声明无效。";
+"native.toolchainSettings.theProjectRoot" = "项目根目录";
+"native.toolchainSettings.theSavedToolchainSettingsAreInvalid" = "已保存的工具链设置无效。";
+"native.toolchainSettings.toolDefinitionInfo" = "这一行来自已启用插件的工具定义，Lithe 不内置任何工具。";
+"native.toolchainSettings.toolchainSources" = "环境来源";
+"native.toolchainSettings.toolsInfo" = "每个工具采用第一个有值的来源，依次为固定版本、项目版本文件、全局默认、自动检测。版本管理器暂未接入查询，因此不显示版本文件和全局默认所要求的版本。";
+"native.toolchainSettings.turnedOffBySkipVariable" = "已由 LITHE_SKIP_SHELL_ENV 关闭";
+"native.toolchainSettings.usingCachedPath" = "仍在使用上次保存的 PATH";
+"native.toolchainSettings.usingLaunchEnvironment" = "仍在使用 Lithe 启动时的环境";
+"native.toolchainSettings.variableCount" = "%1$lld 个变量";
+"native.toolchainSettings.versionFile" = "版本文件";
+"native.toolchainSettings.versionFileCount" = "%1$lld 个版本文件";
+"native.toolchainSettings.versionFiles" = "版本文件";
+"native.toolchainSettings.versionFilesCheckedInFirstDirectories" = "只在前 %1$lld 个目录中检查了版本文件。";
+"native.toolchainSettings.versionFilesInfo" = "已启用的版本管理器所声明、且存在于此目录中的文件。没有自己版本文件的目录沿用最近上级目录的。";
+"native.toolchainSettings.versionManagerDefinitionInfo" = "此版本管理器来自已启用的插件，Lithe 不内置任何版本管理器。";
+"native.toolchainSettings.versionManagers" = "版本管理器";
+"native.toolchainSettings.versionManagersInfo" = "版本管理器来自已启用的插件。Lithe 会在此项目中查找它们监视的文件，但暂不运行或查询它们。";
+"native.toolchainSettings.versionNotQueried" = "版本未查询";
+"native.toolchainSettings.versionNotVerified" = "版本未验证";
+"native.toolchainSettings.watchedFiles" = "监视的文件";
 "native.tools" = "工具";
 "native.toolsSent" = "发送的工具";
 "native.total" = "总计";
@@ -9473,6 +9606,7 @@
 "system Maven" = "系统 Maven";
 "test Java" = "测试代码";
 "test resources" = "测试资源";
+"the project root" = "项目根目录";
 "ui.browse" = "浏览";
 "ui.cancel" = "取消";
 "ui.choose" = "选择";

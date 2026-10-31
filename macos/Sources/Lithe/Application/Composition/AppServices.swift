@@ -28,6 +28,12 @@ final class AppServices {
     /// Installed plugins with their enabled state, for the New Project
     /// catalog and the plugins that provide a generator's requirements.
     var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?
+    /// Read-only plugin toolchain projection; absent until platform composition.
+    var toolchainSettingsLoader: (any ToolchainSettingsLoading)?
+    /// Existing workspace tree projection; settings must not start a second filesystem scan.
+    var toolchainSettingsDirectories: (@MainActor () -> [String])?
+    /// The startup login-shell read, for settings; absent on platforms that do not read one.
+    var loginShellEnvironmentInspector: (any LoginShellEnvironmentInspecting)?
     /// Gives build providers that share a language server the language
     /// sessions; `nil` when the platform starts no build providers.
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?

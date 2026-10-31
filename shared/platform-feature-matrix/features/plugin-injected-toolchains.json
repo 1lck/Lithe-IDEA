@@ -1,0 +1,45 @@
+{
+  "id": "plugin-injected-toolchains",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "工具链领域框架：共享 Core 校验插件贡献、来源与四层解析；macOS 提供只读的运行环境和环境来源设置页，目录、工具、版本文件、固定值、自动检测结果、登录 Shell 与版本管理器均来自已启用插件的声明和磁盘上的真实文件。提供方查询、全局默认、保存与运行时消费者仍未接入，不能把只读页面当作已生效配置。",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/toolchain/mod.rs",
+      "rust/lithe-core/src/toolchain/definitions.rs",
+      "rust/lithe-core/src/toolchain/query.rs",
+      "rust/lithe-core/src/toolchain/pins.rs",
+      "rust/lithe-core/src/toolchain/resolution.rs",
+      "rust/lithe-core/src/tests/toolchain_definitions.rs",
+      "rust/lithe-core/src/tests/toolchain_queries.rs",
+      "rust/lithe-core/src/tests/toolchain_pins.rs",
+      "rust/lithe-core/src/tests/toolchain_resolution.rs",
+      "shared/contracts/plugins/v1/toolchains.md",
+      "macos/Sources/Lithe/Core/Ports/ToolchainSettings.swift",
+      "macos/Sources/Lithe/Application/Features/ToolchainSettingsFeatureModel.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Runtime/MacToolchainSettingsLoader.swift",
+      "macos/Sources/Lithe/Views/App/ToolchainEnvironmentSettingsView.swift",
+      "macos/Sources/Lithe/Views/App/ToolchainSourcesSettingsView.swift",
+      "macos/Tests/LitheTests/ToolchainSettingsFeatureTests.swift",
+      "macos/Tests/LitheTests/ToolchainSettingsLoaderTests.swift",
+      "macos/Tests/LitheTests/ToolchainSettingsLayoutTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/toolchain/paths.rs",
+      "rust/lithe-core/src/toolchain/query.rs",
+      "rust/lithe-core/src/toolchain/resolution.rs",
+      "rust/lithe-core/src/tests/toolchain_queries.rs",
+      "shared/contracts/plugins/v1/plugin-manifest.schema.json",
+      "shared/contracts/plugins/v1/toolchains.md"
+    ]
+  },
+  "owner": "Plugin Platform",
+  "verification": "共享 Core：cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain，核对定义独占与官方短 ID、第二种通用工具、旧候选边界、答案身份/代次、Windows 路径大小写、工作区排除、固定值失效不回落、最近项目要求、冲突选择、最低版本、环境隔离和纯声明扫描；按逐项计时工具生成 HTML/JUnit。macOS 与 Windows 原生后续验收均需先实现对应 adapter：启动提供方并协商、取消/超时和过期结果隔离、输入新建/删除后整体重查、目录固定保存/取消/冲突回读、插件停用撤回、真实 Build/LSP/Run 消费者取得同一选择、发行目录哈希不变与子进程清理。未完成原生流程前保持 pending，不以 Core 测试代替实机验证。 原生布局回归 ToolchainSettingsLayoutTests：同一设置宿主按900/1180/1400/900重复缩放，真实分隔条拖动；来源页按500/666/946/500缩放，检查AX控件边界、卡片不重叠、选择和快照不改变。此几何验证不代表提供方查询或保存功能已完成。",
+  "notes": "本条仅记录 #1581 重设计的 Core 基础切片。两端共享同一确定性模型但均未接原生产品，不广告工具链 hostCapabilities；现有 Java/Maven/Node 发现与选择未迁移。Core 不运行 mise/SDKMAN、不解析其文件格式、不下载、不监听或写配置。通用 runtime 消费者、环境/来源界面、项目环境 symlink 完整原生验证及带后端免重启仍未完成；没有新增运行时资源或可复用下载目录。 macOS 设置页只读：运行环境页按目录列出工具，展开后按固定、项目文件、全局、自动四个来源排列并框出首个命中，提供方版本显示未查询、固定值显示已保存未验证；环境来源页显示登录 Shell 的读取状态、变量数（不显示值）、耗时和 PATH 各目录的来源，以及插件声明的版本管理器在本项目找到的版本文件。未实现的添加、切换、保存和查询入口不显示。Debug 隔离预览只有插件清单是样例，工作区文件、固定值和登录 Shell 均真实读取，不启动工具、不写真实配置。Core 独立位于 rust/lithe-core/src/toolchain/，插件只是声明贡献入口。"
+}

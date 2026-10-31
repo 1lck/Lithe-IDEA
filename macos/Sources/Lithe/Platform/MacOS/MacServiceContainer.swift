@@ -1257,6 +1257,22 @@ final class MacServiceContainer {
             }
         )
         let installedPlugins = pluginStartup.registeredPlugins
+        services.loginShellEnvironmentInspector = MacLoginShellEnvironment.shared
+        services.toolchainSettingsLoader = MacToolchainSettingsLoader(
+            sources: { [pluginManager] in
+                let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
+                return installedPlugins.map { plugin in
+                    ToolchainSettingsPluginSource(
+                        pluginID: plugin.descriptor.id.rawValue,
+                        name: plugin.manifest.displayName,
+                        manifest: plugin.descriptor.normalizedManifest,
+                        isEnabled: enabled.contains(plugin.descriptor.id)
+                    )
+                }
+            },
+            directories: { [weak services] _ in services?.toolchainSettingsDirectories?() ?? [] },
+            isRemoteWorkspace: { remoteWorkspaces.contains($0) }
+        )
         services.projectGeneratorSources = { [pluginManager] in
             // Enablement is read on every call, so a plugin enabled from the
             // window shows its entries and satisfies requirements at once.

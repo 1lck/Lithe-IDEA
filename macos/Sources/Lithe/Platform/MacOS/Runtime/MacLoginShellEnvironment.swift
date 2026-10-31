@@ -18,7 +18,7 @@ import Foundation
 /// cached value immediately and refreshes it in the background for the next launch.
 /// The rest of the shell's environment may hold secrets, so it stays in memory and
 /// only fills variables the process does not already define.
-final class MacLoginShellEnvironment: @unchecked Sendable {
+final class MacLoginShellEnvironment: LoginShellEnvironmentInspecting, @unchecked Sendable {
     static let shared = MacLoginShellEnvironment()
 
     /// Opt-out for tests and for users whose rc files must not run unattended.
@@ -39,6 +39,23 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
     private var logging: (any ApplicationLogging)?
     /// Outcomes from before the log writer exists; startup runs ahead of it.
     private var pendingRecords: [(level: String, message: String, fields: [String: String])] = []
+    /// Startup facts and the latest outcome, for the settings page; never variable values.
+    private var launch = Launch()
+    private var lastRead: (date: Date, duration: Duration, variables: Int?)?
+    private var latestLoginPath: [String]?
+    private var isReading = false
+    private var completedReads = 0
+    /// Held for a whole read, so a second request waits for the first shell.
+    private let readLock = NSLock()
+
+    private struct Launch {
+        var shell: String?
+        var cacheURL: URL?
+        var disabled = false
+        var fromCache = false
+        var loginPath: [String] = []
+        var processPath: [String] = []
+    }
 
     init(overlay: [String: String] = [:]) {
         self.overlay = overlay
@@ -75,10 +92,16 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
     private func recordRead(
         _ environment: [String: String]?, shell: String, source: String, started: ContinuousClock.Instant
     ) {
+        let duration = started.duration(to: .now)
+        lock.withLock {
+            lastRead = (Date(), duration, environment?.count)
+            if let path = environment?["PATH"], !path.isEmpty { latestLoginPath = Self.entries(path) }
+            completedReads += 1
+        }
         var fields = [
             "shell": URL(fileURLWithPath: shell).lastPathComponent,
             "source": source,
-            "duration": String(describing: started.duration(to: .now))
+            "duration": String(describing: duration)
         ]
         if let environment {
             fields["variables"] = String(environment.count)
@@ -105,8 +128,9 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
         shellTimeout: TimeInterval? = nil,
         applyPath: (String) -> Void = { setenv("PATH", $0, 1) }
     ) -> (@Sendable () -> Void)? {
-        guard environment[skipVariable] == nil else { return nil }
         let shell = loginShell(environment: environment)
+        shared.prepare(shell: shell, cacheURL: cacheURL, environment: environment)
+        guard environment[skipVariable] == nil else { return nil }
         let cachedPath = (try? String(contentsOf: cacheURL, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let loginPath: String
@@ -122,18 +146,90 @@ final class MacLoginShellEnvironment: @unchecked Sendable {
             writeCache(path, to: cacheURL)
             loginPath = path
         }
-        applyPath(mergedPath(login: loginPath, inherited: environment["PATH"]))
+        let processPath = mergedPath(login: loginPath, inherited: environment["PATH"])
+        applyPath(processPath)
+        shared.lock.withLock {
+            shared.launch.fromCache = cachedPath?.isEmpty == false
+            shared.launch.loginPath = entries(loginPath)
+            shared.launch.processPath = entries(processPath)
+        }
         guard cachedPath?.isEmpty == false else { return nil }
-        return {
+        // Marked before the closure runs, so a settings page opened meanwhile joins this read.
+        shared.lock.withLock { shared.isReading = true }
+        return { shared.refresh(source: "refresh", timeout: shellTimeout ?? refreshTimeout, joining: false) }
+    }
+
+    /// Records the shell and the inherited `PATH` before anything is applied, so an
+    /// inspector can describe a process that skipped or failed the startup read.
+    func prepare(shell: String, cacheURL: URL?, environment: [String: String]) {
+        lock.withLock {
+            launch = Launch(shell: shell, cacheURL: cacheURL, disabled: environment[Self.skipVariable] != nil,
+                            processPath: Self.entries(environment["PATH"] ?? ""))
+        }
+    }
+
+    /// Reads the shell again for children's non-`PATH` variables and the next launch's
+    /// cached `PATH`. This process keeps its `PATH`: `setenv` is unsafe once threads run.
+    func rereadSynchronously(timeout: TimeInterval = MacLoginShellEnvironment.refreshTimeout) -> LoginShellEnvironmentSnapshot {
+        refresh(source: "manual", timeout: timeout, joining: true)
+        return inspect()
+    }
+
+    func reread() async -> LoginShellEnvironmentSnapshot {
+        // The read blocks on a semaphore for up to the timeout; keep it off the cooperative pool.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: self.rereadSynchronously()) }
+        }
+    }
+
+    private func refresh(source: String, timeout: TimeInterval, joining: Bool) {
+        let (shell, cacheURL, disabled, requested) = lock.withLock {
+            (launch.shell, launch.cacheURL, launch.disabled, completedReads)
+        }
+        guard let shell, !disabled else { return }
+        readLock.withLock {
+            // A read that finished while this request waited already answers it.
+            if joining, lock.withLock({ completedReads > requested }) { return }
+            lock.withLock { isReading = true }
+            defer { lock.withLock { isReading = false } }
             let started = ContinuousClock.now
-            let login = read(shell: shell, timeout: shellTimeout ?? refreshTimeout)
-            shared.recordRead(login, shell: shell, source: "refresh", started: started)
+            let login = Self.read(shell: shell, timeout: timeout)
+            recordRead(login, shell: shell, source: source, started: started)
             guard let login else { return }
-            shared.replaceOverlay(login)
-            if let path = login["PATH"], !path.isEmpty {
-                writeCache(path, to: cacheURL)
+            replaceOverlay(login)
+            if let cacheURL, let path = login["PATH"], !path.isEmpty {
+                Self.writeCache(path, to: cacheURL)
             }
         }
+    }
+
+    func inspect() -> LoginShellEnvironmentSnapshot {
+        lock.withLock {
+            var snapshot = LoginShellEnvironmentSnapshot(shell: launch.shell ?? "")
+            if launch.disabled { snapshot.state = .disabled }
+            else if isReading { snapshot.state = .reading }
+            else if let lastRead { snapshot.state = lastRead.variables == nil ? .failed : .read }
+            if let lastRead {
+                snapshot.readAt = lastRead.date
+                snapshot.variableCount = lastRead.variables
+                let (seconds, attoseconds) = lastRead.duration.components
+                snapshot.durationMilliseconds = Int(seconds) * 1_000 + Int(attoseconds / 1_000_000_000_000_000)
+            }
+            snapshot.startedFromCache = launch.fromCache
+            let login = Set(launch.loginPath)
+            snapshot.processPath = launch.processPath.map {
+                .init(path: $0, origin: login.contains($0) ? .loginShell : .inherited)
+            }
+            if let latestLoginPath, !launch.disabled {
+                snapshot.pathChangedSinceLaunch = latestLoginPath != launch.loginPath
+            }
+            return snapshot
+        }
+    }
+
+    private static func entries(_ path: String) -> [String] {
+        var seen = Set<String>()
+        return path.split(separator: ":").map(String.init).filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     /// The login shell's entries first, as in a terminal; then inherited entries it
