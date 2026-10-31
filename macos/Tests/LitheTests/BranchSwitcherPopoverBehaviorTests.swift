@@ -225,23 +225,77 @@ struct BranchSwitcherPopoverBehaviorTests {
         #expect(harness.window.childWindows?.contains(panel) != true)
     }
 
+    @Test(arguments: [false, true])
+    @MainActor
+    func clickingTheHiddenExpansionReachesTheCurrentContent(rightClick: Bool) throws {
+        let harness = try BranchExpansionScrollHarness()
+        defer { harness.close() }
+        var scheduled: [DispatchWorkItem] = []
+        harness.row.scheduleExpansionRetirement = { scheduled.append($1) }
+        harness.row.onPress = { Issue.record("A hidden expansion must not activate its old row") }
+        harness.row.onSecondaryPress = { _ in Issue.record("A hidden expansion must not open its old row's menu") }
+        let panel = harness.panel
+        let overlay = try #require(panel.contentView)
+        overlay.scrollWheel(with: try harness.event(phase: .began))
+
+        // Replace the source row, just as scrolling a lazy list can do.
+        harness.row.removeFromSuperview()
+        let current = BranchExpansionClickRecorder(frame: harness.scroll.bounds)
+        harness.scroll.documentView = current
+        panel.setFrameOrigin(NSPoint(x: panel.frame.minX + 12, y: panel.frame.minY + 3))
+        let point = NSPoint(x: 20, y: 12)
+        let expectedPoint = harness.window.convertPoint(fromScreen: panel.convertPoint(toScreen: point))
+        let types: [NSEvent.EventType] = rightClick
+            ? [.rightMouseDown, .rightMouseDragged, .rightMouseUp]
+            : [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        for type in types {
+            panel.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point,
+                modifierFlags: [.shift], timestamp: 42, windowNumber: panel.windowNumber, context: nil,
+                eventNumber: 7, clickCount: 2, pressure: 0.5)))
+            if type == types.first { #expect(panel.isVisible, "Keep receiving the native mouse sequence until mouse-up") }
+        }
+        #expect(current.events.map(\.type) == types)
+        #expect(current.events.allSatisfy { $0.window === harness.window && $0.locationInWindow == expectedPoint })
+        #expect(current.events.allSatisfy { $0.modifierFlags.contains(.shift) && $0.clickCount == 2 && $0.timestamp == 42 })
+        #expect(!panel.isVisible)
+        #expect(harness.window.childWindows?.contains(panel) != true)
+        #expect(scheduled.allSatisfy { $0.isCancelled })
+    }
+
     @Test
     @MainActor
-    func clickingTheHiddenExpansionRetiresItImmediately() throws {
+    func clickingOutsideTheParentContentOnlyRetiresTheHiddenExpansion() throws {
+        let harness = try BranchExpansionScrollHarness()
+        defer { harness.close() }
+        harness.row.scheduleExpansionRetirement = { _, _ in }
+        let panel = harness.panel
+        try #require(panel.contentView).scrollWheel(with: try harness.event(phase: .began))
+        harness.row.removeFromSuperview()
+        let current = BranchExpansionClickRecorder(frame: harness.scroll.bounds)
+        harness.scroll.documentView = current
+        panel.sendEvent(try #require(NSEvent.mouseEvent(with: .leftMouseDown,
+            location: NSPoint(x: harness.window.frame.width + 20, y: 12), modifierFlags: [], timestamp: 0,
+            windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+        #expect(current.events.isEmpty)
+        #expect(!panel.isVisible && panel.parent == nil)
+    }
+
+    @Test
+    @MainActor
+    func closingTheParentRetiresTheDetachedExpansionWithoutWaitingForItsTimer() throws {
         let harness = try BranchExpansionScrollHarness()
         defer { harness.close() }
         var scheduled: [DispatchWorkItem] = []
         harness.row.scheduleExpansionRetirement = { scheduled.append($1) }
         let panel = harness.panel
-        let overlay = try #require(panel.contentView)
-        overlay.scrollWheel(with: try harness.event(phase: .began))
-        #expect(panel.isVisible)
+        try #require(panel.contentView).scrollWheel(with: try harness.event(phase: .began))
+        harness.row.removeFromSuperview()
 
-        overlay.mouseDown(with: try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero,
-            modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber, context: nil,
-            eventNumber: 0, clickCount: 1, pressure: 1)))
-        #expect(!panel.isVisible, "A gesture that never ended must not keep an invisible panel over the list")
-        #expect(scheduled.allSatisfy { $0.isCancelled })
+        harness.window.close()
+
+        #expect(!panel.isVisible)
+        #expect(panel.parent == nil)
+        #expect(scheduled.count == 1 && scheduled.allSatisfy { $0.isCancelled })
     }
 
     @Test
@@ -692,6 +746,16 @@ private final class BranchExpansionScrollHarness {
         if let momentum { event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum.rawValue)) }
         return try #require(NSEvent(cgEvent: event))
     }
+}
+
+private final class BranchExpansionClickRecorder: NSView {
+    var events: [NSEvent] = []
+    override func mouseDown(with event: NSEvent) { events.append(event) }
+    override func mouseDragged(with event: NSEvent) { events.append(event) }
+    override func mouseUp(with event: NSEvent) { events.append(event) }
+    override func rightMouseDown(with event: NSEvent) { events.append(event) }
+    override func rightMouseDragged(with event: NSEvent) { events.append(event) }
+    override func rightMouseUp(with event: NSEvent) { events.append(event) }
 }
 
 private final class BranchHoverTestWindow: NSWindow {
