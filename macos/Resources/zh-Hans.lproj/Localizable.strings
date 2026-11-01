@@ -4325,7 +4325,6 @@
 "Tools" = "工具";
 "Tools sent" = "发送的工具";
 "Total" = "总计";
-"Total %@" = "总计 %@";
 "Total tokens: %@" = "总 token：%@";
 "Tracking %@" = "跟踪 %@";
 "Tracking Branch" = "跟踪的分支";
@@ -9053,7 +9052,6 @@
 "native.tools" = "工具";
 "native.toolsSent" = "发送的工具";
 "native.total" = "总计";
-"native.total.variant2" = "总计 %1$@";
 "native.totalTokens" = "总 token：%1$@";
 "native.tracking" = "跟踪 %1$@";
 "native.trackingBranch" = "跟踪的分支";

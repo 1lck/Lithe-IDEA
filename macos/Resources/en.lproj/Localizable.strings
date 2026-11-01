@@ -4325,7 +4325,6 @@
 "Tools" = "Tools";
 "Tools sent" = "Tools sent";
 "Total" = "Total";
-"Total %@" = "Total %@";
 "Total tokens: %@" = "Total tokens: %@";
 "Tracking %@" = "Tracking %@";
 "Tracking Branch" = "Tracking Branch";
@@ -9053,7 +9052,6 @@
 "native.tools" = "Tools";
 "native.toolsSent" = "Tools sent";
 "native.total" = "Total";
-"native.total.variant2" = "Total %1$@";
 "native.totalTokens" = "Total tokens: %1$@";
 "native.tracking" = "Tracking %1$@";
 "native.trackingBranch" = "Tracking Branch";

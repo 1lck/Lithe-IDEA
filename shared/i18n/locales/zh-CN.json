@@ -9339,7 +9339,6 @@
     "native.terminalActions": "终端操作",
     "native.close": "关闭 {arg1}",
     "native.startingModule": "正在启动模块…",
-    "native.total.variant2": "总计 {arg1}",
     "native.framesRenderedPerSecond": "每秒渲染帧数",
     "native.lldFramesPerSecond": "每秒 {arg1} 帧",
     "native.discardAndRetry": "放弃并重试",

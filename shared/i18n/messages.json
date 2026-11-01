@@ -88095,22 +88095,6 @@
       }
     },
     {
-      "id": "native.total.variant2",
-      "description": "Native UI: Total %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Total %@",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
       "id": "native.framesRenderedPerSecond",
       "description": "Native UI: Frames rendered per second",
       "platforms": [

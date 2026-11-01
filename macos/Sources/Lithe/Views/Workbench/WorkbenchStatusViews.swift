@@ -21,6 +21,9 @@ struct EditorCaretPositionLabel: View {
     }
 }
 
+/// Icon-only memory indicator: the status bar keeps just the chip so the
+/// figures do not crowd the bar; hover shows the totals and a click opens the
+/// detailed breakdown.
 struct MemoryUsageStatusView: View {
     @EnvironmentObject private var memoryUsageMonitor: MemoryUsageMonitor
     @State private var isMemoryUsagePopoverPresented = false
@@ -29,19 +32,11 @@ struct MemoryUsageStatusView: View {
         Button {
             isMemoryUsagePopoverPresented.toggle()
         } label: {
-            Label {
-                HStack(spacing: 4) {
-                    Text("Total \(memoryUsageMonitor.totalText)")
-                    Text("·")
-                    Text("Lithe \(memoryUsageMonitor.litheText)")
-                }
-                .monospacedDigit()
-            } icon: {
-                Image(systemName: "memorychip")
-            }
+            Image(systemName: "memorychip")
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .litheStatusBarIconButton()
+        .accessibilityLabel(Text("Managed Memory"))
+        .accessibilityValue(Text(memoryUsageMonitor.totalText))
         .help(
             Text(
                 "Total managed memory: \(memoryUsageMonitor.totalText)\n" +
@@ -134,17 +129,14 @@ struct MemoryUsageStatusView: View {
     }
 }
 
+/// Text-only frame rate readout; the "FPS" unit already names the metric.
 struct FrameRateStatusView: View {
     @EnvironmentObject private var frameRateMonitor: FrameRateMonitor
 
     var body: some View {
-        Label {
-            Text(frameRateMonitor.framesPerSecondText)
-                .monospacedDigit()
-        } icon: {
-            Image(systemName: "speedometer")
-        }
-        .help("Frames rendered per second")
-        .accessibilityLabel(Text("\(frameRateMonitor.framesPerSecond) frames per second"))
+        Text(frameRateMonitor.framesPerSecondText)
+            .monospacedDigit()
+            .help("Frames rendered per second")
+            .accessibilityLabel(Text("\(frameRateMonitor.framesPerSecond) frames per second"))
     }
 }

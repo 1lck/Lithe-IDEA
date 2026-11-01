@@ -1825,7 +1825,7 @@ struct WorkbenchView: View {
             } label: {
                 Image(systemName: model.activeDocument?.isReadOnly == true ? "lock.fill" : "lock.open")
             }
-            .litheIconButton()
+            .litheStatusBarIconButton()
             .disabled(model.activeDocument?.isReadOnly == true)
             .help(LocalizedStringKey(
                 model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save"
