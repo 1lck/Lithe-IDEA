@@ -63,7 +63,7 @@
   function highlightCode() {
     if (!window.hljs) return;
     content.querySelectorAll('pre code').forEach(code => {
-      if (code.matches('.language-mermaid, .language-markmap, [data-math-style]')) return;
+      if (code.matches('.language-mermaid, .language-markmap, .language-plantuml, [data-math-style]')) return;
       const languageClass = Array.from(code.classList).find(name => name.startsWith('language-'));
       const language = languageClass?.slice('language-'.length);
       if (language && !window.hljs.getLanguage(language)) {
@@ -114,6 +114,36 @@
 
   function escapedMarkmapSource(source) {
     return source.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  }
+
+  async function renderPlantUML(version, failureMessage) {
+    const bridge = window.webkit?.messageHandlers?.markdownPlantUML;
+    const diagrams = Array.from(content.querySelectorAll('pre > code.language-plantuml'));
+    // One native renderer at a time bounds memory, even in diagram-heavy files.
+    for (const code of diagrams) {
+      if (version !== renderVersion) return;
+      const pre = code.parentElement;
+      try {
+        if (!bridge) throw new Error('diagramRendererUnavailable');
+        const imageURL = await bridge.postMessage({ source: code.textContent || '', dark: document.documentElement.dataset.theme === 'dark' });
+        if (version !== renderVersion) return;
+        const shell = document.createElement('div');
+        shell.className = 'diagram-shell plantuml-shell';
+        const image = document.createElement('img');
+        image.src = imageURL;
+        image.alt = code.textContent || '';
+        shell.append(image);
+        pre.replaceWith(shell);
+        setupImage(image);
+      } catch (_) {
+        if (version !== renderVersion) return;
+        pre.classList.add('diagram-source-fallback');
+        const message = document.createElement('div');
+        message.className = 'diagram-error';
+        message.textContent = failureMessage;
+        pre.before(message);
+      }
+    }
   }
 
   function renderMarkmaps() {
@@ -205,15 +235,13 @@
     fullImage.alt = '';
   }
 
-  function setupImages() {
-    content.querySelectorAll('img').forEach(image => {
-      image.loading = 'lazy';
-      image.addEventListener('click', () => {
-        if (!image.currentSrc && !image.src) return;
-        fullImage.src = image.currentSrc || image.src;
-        fullImage.alt = image.alt || '';
-        viewer.hidden = false;
-      });
+  function setupImage(image) {
+    image.loading = 'lazy';
+    image.addEventListener('click', () => {
+      if (!image.currentSrc && !image.src) return;
+      fullImage.src = image.currentSrc || image.src;
+      fullImage.alt = image.alt || '';
+      viewer.hidden = false;
     });
   }
 
@@ -248,6 +276,8 @@
 
   async function update(payload) {
     const version = ++renderVersion;
+    await window.webkit?.messageHandlers?.markdownPlantUML?.postMessage({ cancel: true });
+    if (version !== renderVersion) return false;
     const initialScrollCommandVersion = scrollCommandVersion;
     const scrollRatio = currentScrollRatio();
     if (tocDocumentURL !== payload?.documentURL) {
@@ -261,8 +291,8 @@
     highlightCode();
     renderMarkmaps();
     buildTOC();
-    setupImages();
-    await renderMermaid(version);
+    content.querySelectorAll('img').forEach(setupImage);
+    await Promise.all([renderMermaid(version), renderPlantUML(version, payload?.plantumlFailure)]);
     if (version !== renderVersion) return false;
     if (initialScrollCommandVersion === scrollCommandVersion) {
       requestAnimationFrame(() => restoreScrollRatio(scrollRatio));

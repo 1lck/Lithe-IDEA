@@ -2764,6 +2764,7 @@
 "Plan before making changes" = "Plan before making changes";
 "Planned Git command — waiting to start" = "Planned Git command — waiting to start";
 "Planned command" = "Planned command";
+"PlantUML could not render this diagram. Showing its source instead." = "PlantUML could not render this diagram. Showing its source instead.";
 "Platforms" = "Platforms";
 "Plugin" = "Plugin";
 "Plugin %@ %@ is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update." = "Plugin %@ %@ is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update.";
@@ -4839,6 +4840,7 @@
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
 "main Java" = "main Java";
 "main resources" = "main resources";
+"markdown.plantumlRenderFailed" = "PlantUML could not render this diagram. Showing its source instead.";
 "matches" = "matches";
 "maven.title" = "Maven";
 "menu.copy" = "Copy";
