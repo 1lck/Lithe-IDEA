@@ -986,6 +986,9 @@ enum LitheTheme {
         static let toolbarHeight: CGFloat = 40
         static let toolWindowHeaderHeight: CGFloat = 41
         static let statusBarHeight: CGFloat = 24
+        // Status bar icon widgets stay inside the 24pt bar so neighbouring
+        // items do not inherit the 28pt tool-window hit box as empty gaps.
+        static let statusBarIconButtonSize: CGFloat = 18
         static let cornerRadius: CGFloat = 5
         static let popupShadowRadius: CGFloat = 30
         static let popupShadowOffsetY: CGFloat = 14
@@ -1047,6 +1050,17 @@ extension View {
     func litheIconButton() -> some View {
         self
             .buttonStyle(LitheIconButtonStyle())
+            .lithePointer()
+    }
+
+    /// Compact icon button for status bar widgets; inherits the bar's
+    /// secondary text color instead of the tool-window foreground.
+    func litheStatusBarIconButton() -> some View {
+        self
+            .buttonStyle(LitheIconButtonStyle(
+                size: LitheTheme.Metrics.statusBarIconButtonSize,
+                foreground: LitheTheme.secondaryText,
+                cornerRadius: 4))
             .lithePointer()
     }
 

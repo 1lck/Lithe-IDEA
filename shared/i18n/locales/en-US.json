@@ -9339,7 +9339,6 @@
     "native.terminalActions": "Terminal actions",
     "native.close": "Close {arg1}",
     "native.startingModule": "Starting module...",
-    "native.total.variant2": "Total {arg1}",
     "native.framesRenderedPerSecond": "Frames rendered per second",
     "native.lldFramesPerSecond": "{arg1} frames per second",
     "native.discardAndRetry": "Discard and Retry",
