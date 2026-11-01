@@ -372,6 +372,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private let executableResolver: any RunExecutableResolving
     private let javaLaunchArgumentPreparer: (any JavaLaunchArgumentPreparing)?
     private var buildLanguageImportProvider: @MainActor (URL, String?) throws -> JavaLanguageImportConfiguration = { _, _ in .init() }
+    private var buildProjectImportProvider: @MainActor (URL, RunBuildProjectReference) throws -> JavaLanguageImportConfiguration = { _, _ in throw CancellationError() }
     private var languageDependencyProvider: @MainActor (String, URL, String) -> LanguageDependencySnapshot? = {
         _, _, _ in nil
     }
@@ -467,6 +468,12 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         _ provider: @escaping @MainActor (URL, String?) throws -> JavaLanguageImportConfiguration
     ) {
         buildLanguageImportProvider = provider
+    }
+
+    package func configureBuildProjectImportProvider(
+        _ provider: @escaping @MainActor (URL, RunBuildProjectReference) throws -> JavaLanguageImportConfiguration
+    ) {
+        buildProjectImportProvider = provider
     }
 
     /// Looks up only an already active plugin capability; opening the tree must
@@ -2698,6 +2705,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     private func mavenContext(for configuration: RunConfiguration) throws -> MavenLaunchContext? {
+        if let projectURL, let project = configuration.buildProject {
+            return try buildProjectImportProvider(projectURL, project).mavenContext
+        }
         guard let projectURL, configuration.mavenReactorPath != nil || configuration.kind.isMavenBacked,
               let context = try buildLanguageImportProvider(projectURL, configuration.mavenReactorPath).mavenContext else { return nil }
         if let reactor = configuration.mavenReactorPath {

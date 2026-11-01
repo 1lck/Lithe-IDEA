@@ -74,7 +74,9 @@ final class MacBuildToolResolver: BuildToolResolving {
                 for choice in choices {
                     var selectedEnvironment = environment.merging(choice.environment) { _, selected in selected }
                     if choice.terminal {
-                        selectedEnvironment["PATH"] = choice.url.deletingLastPathComponent().path + ":" + (environment["PATH"] ?? "")
+                        let directory = choice.url.deletingLastPathComponent().path
+                        let paths = (selectedEnvironment["PATH"] ?? "").split(separator: ":").map(String.init)
+                        selectedEnvironment["PATH"] = ([directory] + paths.filter { $0 != directory }).joined(separator: ":")
                     }
                     if choice.executesProjectCode {
                         return resolved(choice.url, environment: selectedEnvironment, projectCode: true, version: nil)

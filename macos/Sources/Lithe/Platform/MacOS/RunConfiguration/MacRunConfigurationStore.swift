@@ -180,13 +180,14 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     name: value.name,
                     kind: kind,
                     execution: value.execution.flatMap(RunConfigurationExecution.init(rawValue:)),
-                    modulePath: maven?.module == "." ? nil : maven?.module,
-                    mainClass: maven?.mainClass,
+                    modulePath: (maven?.module ?? java?.module) == "." ? nil : (maven?.module ?? java?.module),
+                    mainClass: maven?.mainClass ?? java?.mainClass,
                     sourcePath: java?.source,
                     mavenReactorPath: maven?.reactorPath,
                     debugAdapter: value.debug?.adapter,
                     disabled: value.disabled,
-                    buildProvider: value.extensions?.build
+                    buildProvider: value.extensions?.build,
+                    buildProject: java?.build
                 ),
                 options: RunOptions(
                     javaHomePath: java?.homePath ?? "",

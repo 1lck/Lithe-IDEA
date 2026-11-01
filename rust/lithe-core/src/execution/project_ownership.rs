@@ -2,7 +2,7 @@
 //! This is a projection of upstream models, never a descriptor scanner.
 
 use crate::protocol::{CoreError, ErrorCode, JavaSourceSetResponse};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// One current build-model project and its own Java content roots.
@@ -17,12 +17,29 @@ pub struct RunProjectOwnership {
     /// Compiler language floor published by the upstream execution model.
     #[serde(default)]
     pub minimum_java_version: Option<String>,
-    /// Existing Maven import ownership; absent for other project kinds.
+    /// Exact current build-model owner; no build-system semantics are interpreted.
     #[serde(default)]
-    pub maven_reactor_path: Option<String>,
+    pub build: Option<RunBuildProjectReference>,
     /// Source roles published for this project by the build model.
     #[serde(default)]
     pub content_roots: Vec<RunSourceRoot>,
+}
+
+/// Opaque build-model identity used to route native language preparation.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunBuildProjectReference {
+    /// Enabled package contributing this model.
+    #[serde(rename = "pluginID")]
+    pub plugin_id: String,
+    /// Declaration within the package.
+    #[serde(rename = "buildSystemID")]
+    pub build_system_id: String,
+    /// Workspace-relative instance directory.
+    pub root: String,
+    /// Provider-owned project identity, not a filesystem path.
+    #[serde(rename = "projectID")]
+    pub project_id: String,
 }
 
 /// A source directory and upstream-owned role; paths are workspace-relative.
@@ -69,10 +86,16 @@ pub(super) fn validate(projects: &[RunProjectOwnership]) -> Result<(), CoreError
     for project in projects {
         if !portable(&project.path)
             || !paths.insert(&project.path)
-            || project
-                .maven_reactor_path
-                .as_deref()
-                .is_some_and(|root| !portable(root) || !contains(root, &project.path))
+            || project.build.as_ref().is_some_and(|build| {
+                !crate::plugins::declarative::is_plugin_id(&build.plugin_id)
+                    || !crate::plugins::declarative::is_identifier(&build.build_system_id)
+                    || build.build_system_id.len() > 120
+                    || build.project_id.is_empty()
+                    || build.project_id.len() > 256
+                    || build.project_id.chars().any(char::is_control)
+                    || !portable(&build.root)
+                    || !contains(&build.root, &project.path)
+            })
         {
             return Err(invalid());
         }
@@ -91,9 +114,9 @@ pub(super) fn validate(projects: &[RunProjectOwnership]) -> Result<(), CoreError
         for root in &project.content_roots {
             if !portable(&root.path)
                 || project
-                    .maven_reactor_path
-                    .as_deref()
-                    .is_some_and(|reactor| !contains(reactor, &root.path))
+                    .build
+                    .as_ref()
+                    .is_some_and(|build| !contains(&build.root, &root.path))
                 || !roots.insert((&root.path, &root.kind))
                 || !matches!(
                     root.kind.as_str(),
@@ -158,12 +181,19 @@ pub(super) fn fingerprint(projects: &[RunProjectOwnership]) -> String {
     use sha2::{Digest, Sha256};
     let mut projects = projects.iter().collect::<Vec<_>>();
     projects.sort_by(|left, right| left.path.cmp(&right.path));
-    let canonical = projects.into_iter().map(|project| {
-        let roots = project.content_roots.iter().map(|root| (&root.path, &root.kind)).collect::<BTreeSet<_>>();
-        serde_json::json!({"path":project.path,"name":project.name,"mavenReactorPath":project.maven_reactor_path,
+    let canonical = projects
+        .into_iter()
+        .map(|project| {
+            let roots = project
+                .content_roots
+                .iter()
+                .map(|root| (&root.path, &root.kind))
+                .collect::<BTreeSet<_>>();
+            serde_json::json!({"path":project.path,"name":project.name,"build":project.build,
             "minimumJavaVersion":project.minimum_java_version,
             "contentRoots":roots})
-    }).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
     let bytes =
         serde_json::to_vec(&canonical).expect("Provider ownership contains only JSON-safe values");
     format!("sha256:{:x}", Sha256::digest(bytes))

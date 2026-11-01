@@ -30,6 +30,10 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         run.configureBuildLanguageImportProvider { [weak buildSystems] workspace, root in
             try buildSystems?.languageImport(workspaceURL: workspace, root: root) ?? JavaLanguageImportConfiguration()
         }
+        run.configureBuildProjectImportProvider { [weak buildSystems] workspace, project in
+            guard let buildSystems else { throw CancellationError() }
+            return try buildSystems.languageImport(workspaceURL: workspace, project: project)
+        }
         run.configureBuildProviderRuns(start: { [weak buildSystems] configuration, workspace in
             buildSystems?.runProviderConfiguration(configuration, workspace: workspace)
         }, cancel: { [weak buildSystems] id in buildSystems?.cancelRun(id) })

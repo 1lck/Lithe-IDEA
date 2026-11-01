@@ -506,10 +506,12 @@ impl RunConfiguration {
 
     pub fn main_class(&self) -> Option<String> {
         self.extension_string("maven", "mainClass")
+            .or_else(|| self.extension_string("java", "mainClass"))
     }
 
     pub fn module(&self) -> Option<String> {
         self.extension_string("maven", "module")
+            .or_else(|| self.extension_string("java", "module"))
     }
 }
 
@@ -730,13 +732,10 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     if let Some(projects) = &request.project_ownership {
         super::project_ownership::validate(projects)?;
     }
-    let maven_root = match &request.project_ownership {
-        Some(projects) => projects
-            .iter()
-            .filter_map(|p| p.maven_reactor_path.as_ref())
-            .min_by_key(|path| (path.len(), *path))
-            .map(|path| (root.join(path), path.clone())),
-        None => crate::project::maven_root(&root, &paths)?,
+    let maven_root = if request.project_ownership.is_none() {
+        crate::project::maven_root(&root, &paths)?
+    } else {
+        None
     };
     let maven_relative_path = maven_root
         .as_ref()
@@ -756,7 +755,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let configured_module_paths = request
         .module_paths
         .into_iter()
-        .map(|path| workspace_maven_path(maven_relative_path, &path))
+        .map(|path| workspace_build_path(maven_relative_path, &path))
         .collect();
     // Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
     let (mut java_entrypoints, java_entrypoints_origin) = match request.java_entrypoints {
@@ -786,7 +785,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             .iter()
             .map(|project| project.path.clone())
             .collect(),
-        None => inferred_maven_module_paths(&root, &entry_sources, configured_module_paths),
+        None => inferred_relative_build_projects(&root, &entry_sources, configured_module_paths),
     };
     let scanned = crate::languages::run_configurations_from_entrypoints(
         &root,
@@ -824,10 +823,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             };
             let id = java_configuration_id(&value);
             let owner_key = value.module_path.clone();
+            let build_owner = model_owner.and_then(|owner| owner.build.as_ref());
             let maven_owner = if request.project_ownership.is_some() {
-                model_owner
-                    .and_then(|owner| owner.maven_reactor_path.as_ref())
-                    .map(|path| (root.join(path), path.clone()))
+                None
             } else if let Some(owner) = maven_owners.get(&owner_key) {
                 owner.clone()
             } else {
@@ -839,19 +837,16 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 maven_owners.insert(owner_key, owner.clone());
                 owner
             };
-            let owner_relative_path = maven_owner
-                .as_ref()
-                .map(|(_, relative_path)| relative_path.as_str());
-            let mut maven = serde_json::Map::new();
+            let owner_relative_path = build_owner.map(|owner| owner.root.as_str()).or_else(|| {
+                maven_owner
+                    .as_ref()
+                    .map(|(_, relative_path)| relative_path.as_str())
+            });
             let module_path = value
                 .module_path
                 .as_deref()
-                .map(|path| maven_module_path(owner_relative_path, path))
-                .unwrap_or_else(|| ".".to_string());
-            maven.insert("module".to_string(), json!(module_path));
-            if let Some(main_class) = value.main_class.as_ref() {
-                maven.insert("mainClass".to_string(), json!(main_class));
-            }
+                .map(|path| relative_build_project(owner_relative_path, path))
+                .unwrap_or_else(dot);
             let source_path = value.source_path;
             // Maven ownership is per entry: one workspace can contain standalone
             // Java files or multiple independent reactors in the same request.
@@ -862,11 +857,22 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 toolchains.insert("maven".to_string(), "project-maven".to_string());
             }
             let mut extensions = BTreeMap::new();
-            extensions.insert("maven".to_string(), Value::Object(maven));
-            extensions.insert(
-                "java".to_string(),
-                json!({ "source": source_path, "sourceSet": value.source_set }),
-            );
+            let mut java = json!({ "source": source_path, "sourceSet": value.source_set });
+            if request.project_ownership.is_some() {
+                java["module"] = json!(module_path);
+                java["mainClass"] = json!(value.main_class);
+                if let Some(build) = build_owner {
+                    java["build"] = json!(build);
+                }
+            } else {
+                let mut maven = serde_json::Map::new();
+                maven.insert("module".to_string(), json!(module_path));
+                if let Some(main_class) = value.main_class.as_ref() {
+                    maven.insert("mainClass".to_string(), json!(main_class));
+                }
+                extensions.insert("maven".to_string(), Value::Object(maven));
+            }
+            extensions.insert("java".to_string(), java);
             Ok(RunConfiguration {
                 id,
                 name: value.name,
@@ -946,12 +952,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         );
     }
     if request.project_ownership.is_none() && request.provider_runs.is_none() {
-        retain_confirmed_spring_services(
-            &mut detected,
-            &spring_entrypoints,
-            maven_relative_path,
-            None,
-        );
+        retain_confirmed_spring_services(&mut detected, &spring_entrypoints, maven_relative_path);
     }
     // Counts real entry points, not documents: the always-present "Current File"
     // fallback is excluded so an empty project still reports zero and the UI can
@@ -1174,16 +1175,16 @@ fn disambiguate_configuration_names(configurations: &mut [RunConfiguration]) {
     }
 }
 
-fn workspace_maven_path(maven_root: Option<&str>, path: &str) -> String {
-    match (maven_root, path) {
+fn workspace_build_path(build_root: Option<&str>, path: &str) -> String {
+    match (build_root, path) {
         (Some(root), ".") => root.to_string(),
         (Some(root), path) if root != "." => format!("{root}/{path}"),
         _ => path.to_string(),
     }
 }
 
-fn maven_module_path(maven_root: Option<&str>, path: &str) -> String {
-    let Some(root) = maven_root.filter(|root| *root != ".") else {
+fn relative_build_project(build_root: Option<&str>, path: &str) -> String {
+    let Some(root) = build_root.filter(|root| *root != ".") else {
         return path.to_string();
     };
     if path == root {
@@ -1263,7 +1264,7 @@ fn deduplicate_java_configurations(configurations: Vec<RunConfiguration>) -> Vec
                         // Preserve existing single-reactor IDs, but two independent
                         // reactors can both have a module named `app` and main `Main`.
                         let module = if separate_reactors {
-                            workspace_maven_path(Some(&root), &module)
+                            workspace_build_path(Some(&root), &module)
                         } else {
                             module
                         };
@@ -1298,7 +1299,6 @@ fn retain_confirmed_spring_services(
     configurations: &mut Vec<RunConfiguration>,
     entries: &[crate::protocol::JavaRunConfigurationResponse],
     maven_root: Option<&str>,
-    projects: Option<&[super::project_ownership::RunProjectOwnership]>,
 ) {
     configurations.retain_mut(|configuration| {
         if configuration.provider != "spring-boot.maven" {
@@ -1307,19 +1307,10 @@ fn retain_confirmed_spring_services(
         let Some(module) = configuration.module() else {
             return false;
         };
-        let workspace_module = workspace_maven_path(maven_root, &module);
-        let mut matches = entries.iter().filter(|entry| match projects {
-            Some(projects) => super::project_ownership::owner(projects, &entry.source_path)
-                .is_some_and(|owner| {
-                    owner.maven_reactor_path.as_deref() == Some(configuration.cwd.as_str())
-                        && owner.path == workspace_maven_path(Some(&configuration.cwd), &module)
-                        && owner.source_set(&entry.source_path)
-                            != crate::protocol::JavaSourceSetResponse::Test
-                }),
-            None => {
-                java_module_identity(entry.module_path.as_deref()) == workspace_module
-                    && entry.source_set != crate::protocol::JavaSourceSetResponse::Test
-            }
+        let workspace_module = workspace_build_path(maven_root, &module);
+        let mut matches = entries.iter().filter(|entry| {
+            java_module_identity(entry.module_path.as_deref()) == workspace_module
+                && entry.source_set != crate::protocol::JavaSourceSetResponse::Test
         });
         let Some(entry) = matches.next() else {
             return false;
@@ -1334,11 +1325,7 @@ fn retain_confirmed_spring_services(
         if let Some(object) = maven.as_object_mut() {
             object.insert("mainClass".to_string(), json!(entry.main_class));
         }
-        let source_set = projects
-            .and_then(|projects| super::project_ownership::owner(projects, &entry.source_path))
-            .map_or(entry.source_set, |owner| {
-                owner.source_set(&entry.source_path)
-            });
+        let source_set = entry.source_set;
         configuration.extensions.insert(
             "java".to_string(),
             json!({ "source": entry.source_path, "sourceSet": source_set }),
@@ -1383,7 +1370,7 @@ fn detected_configurations(
         .collect())
 }
 
-fn inferred_maven_module_paths(
+fn inferred_relative_build_projects(
     root: &Path,
     paths: &[String],
     configured: Vec<String>,
@@ -1486,6 +1473,7 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
         }
     }
     apply_maven_reactor_ownership(&mut configurations, &generated);
+    apply_build_project_ownership(&mut configurations, &generated);
     normalize_runtime_consumption(&mut configurations);
     let global_toolchain = local.get("toolchain").cloned();
     if let Some(toolchain) = global_toolchain.as_ref() {
@@ -1529,9 +1517,15 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
             // the module itself must not turn `web` into `web/web`. Entries
             // without detected ownership were validated against the root.
             let reactor = configuration
-                .extension_string("maven", "reactorPath")
+                .extensions
+                .get("java")
+                .and_then(|java| java.get("build"))
+                .and_then(|build| build.get("root"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| configuration.extension_string("maven", "reactorPath"))
                 .unwrap_or_else(dot);
-            let workspace_module = workspace_maven_path(Some(&reactor), &module);
+            let workspace_module = workspace_build_path(Some(&reactor), &module);
             if !project_directory_exists(&root, &workspace_module) {
                 configuration.disabled = true;
                 diagnostics.push(json!({
@@ -1669,6 +1663,43 @@ fn apply_maven_reactor_ownership(configurations: &mut [RunConfiguration], genera
             {
                 extension.insert("reactorPath".to_string(), json!(reactor));
             }
+        }
+    }
+}
+
+/// Build identity is a current model fact, never a user override or inferred cwd.
+fn apply_build_project_ownership(configurations: &mut [RunConfiguration], generated: &Value) {
+    let owners = generated["configurations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|value| {
+            Some((
+                value["id"].as_str()?,
+                value["extensions"]["java"].get("build")?.clone(),
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
+    for configuration in configurations {
+        if let Some(java) = configuration
+            .extensions
+            .get_mut("java")
+            .and_then(Value::as_object_mut)
+        {
+            java.remove("build");
+        }
+        if let Some(owner) = owners.get(configuration.id.as_str()) {
+            // A null or scalar namespace must not revoke a current model owner.
+            let java = configuration
+                .extensions
+                .entry("java".into())
+                .or_insert_with(|| json!({}));
+            if !java.is_object() {
+                *java = json!({});
+            }
+            java.as_object_mut()
+                .expect("normalized namespace")
+                .insert("build".into(), owner.clone());
         }
     }
 }
@@ -3679,7 +3710,14 @@ fn detect_requirements(
                 .any(|candidate| candidate == toolchain)
         })
     };
-    if has_java_ecosystem || consumes("project-jdk") {
+    if has_java_ecosystem
+        || consumes("project-jdk")
+        || projects.is_some_and(|projects| {
+            projects
+                .iter()
+                .any(|project| project.minimum_java_version.is_some())
+        })
+    {
         toolchains.insert("project-jdk".to_string(), jdk);
     }
     if projects.is_none()

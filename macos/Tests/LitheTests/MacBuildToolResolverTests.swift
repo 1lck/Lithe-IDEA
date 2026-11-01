@@ -18,6 +18,7 @@ struct MacBuildToolResolverTests {
         for root in ["a", "b"] {
             let vm = scratch.appendingPathComponent("\(root) vm")
             let tool = scratch.appendingPathComponent("\(root) tool")
+            try files.createDirectory(at: tool.appendingPathComponent("helpers"), withIntermediateDirectories: true)
             for (url, output) in [(vm.appendingPathComponent("bin/vm"), "VM 21"), (tool.appendingPathComponent("bin/worker"), "Fixture 1.0")] {
                 try files.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Data("#!/bin/sh\ntouch '\(marker.path)'\nprintf '%s\\n' '\(output)'\n".utf8).write(to: url)
@@ -33,7 +34,7 @@ struct MacBuildToolResolverTests {
             ["id": id, "displayName": label, "executableLayouts": [["path": "bin/" + executable]],
              "executables": [["id": "pinned", "kind": "setting", "settingID": "executable", "layer": "project"], ["id": "shell", "kind": "command", "command": executable]],
              "version": ["arguments": ["--version"], "pattern": label + #" (\d+(?:\.\d+)*)"#],
-             "commands": [executable], "exports": exports, "pathPrepend": ["${home}/bin"], "launch": ["${executable}", "${arguments}"]]
+             "commands": [executable], "exports": exports, "pathPrepend": id == "compiler" ? ["${home}/bin", "${home}/helpers"] : ["${home}/bin"], "launch": ["${executable}", "${arguments}"]]
         }
         let source = ToolchainSettingsPluginSource(pluginID: "dev.lithe.fixture.build-tools", name: "Fixture",
             manifest: try JSONSerialization.data(withJSONObject: ["schemaVersion": 2, "id": "dev.lithe.fixture.build-tools",
@@ -74,6 +75,8 @@ struct MacBuildToolResolverTests {
             let home = try #require(MacToolchainDiscovery.realpath(scratch.appendingPathComponent("\(root) vm").path))
             #expect(tool.executableURL == URL(fileURLWithPath: executable))
             #expect(tool.environment["JAVA_HOME"] == home)
+            let helpers = try #require(MacToolchainDiscovery.realpath(scratch.appendingPathComponent("\(root) tool/helpers").path))
+            #expect(tool.environment["PATH"]?.split(separator: ":").contains(Substring(helpers)) == true)
             #expect(tool.providerEnvironment["JAVA_HOME"] == tool.environment["JAVA_HOME"])
             #expect(tool.environment["FIXTURE_SECRET"] == "test-only-secret")
             #expect(tool.providerEnvironment["FIXTURE_SECRET"] == nil)
@@ -149,7 +152,8 @@ struct MacBuildToolResolverTests {
             BuildVersionCheck(satisfied: output.contains("fixture 2.0"), version: "2.0")
         }
         #expect(resolved.executableURL == executable)
-        #expect(resolved.environment["PATH"]?.hasPrefix(executable.deletingLastPathComponent().path + ":") == true)
+        #expect(resolved.environment["PATH"]?.split(separator: ":").first.map(String.init)
+            == executable.deletingLastPathComponent().path)
         #expect(resolver.languageImportExecutable(invocation, workspaceURL: root) == executable)
     }
 

@@ -5475,7 +5475,12 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
             .find(|c| c["id"] == expected["id"])
             .unwrap();
         assert_eq!(actual["cwd"], expected["cwd"]);
-        assert_eq!(actual["extensions"]["maven"]["module"], expected["module"]);
+        assert_eq!(actual["extensions"]["java"]["module"], expected["module"]);
+        assert!(actual["extensions"]["maven"].is_null());
+        assert_eq!(
+            actual["extensions"]["java"]["build"]["pluginID"],
+            "dev.example.engine"
+        );
         assert_eq!(
             actual["extensions"]["java"]["sourceSet"],
             expected["sourceSet"]
@@ -5499,10 +5504,29 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         output["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
         fixture["expected"]["minimumJavaVersion"]
     );
+    // A provider's language floor is authoritative even before JDT finds sources.
+    let empty_sources: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id":"provider-floor","command":"runConfig.generate","payload":{
+                "root":root,"paths":[],"javaEntrypoints":{"schemaVersion":1,"entries":[]},
+                "projectOwnership":fixture["projectOwnership"]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(empty_sources["ok"], true, "{empty_sources}");
+    assert_eq!(
+        empty_sources["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]
+            ["minimumVersion"],
+        fixture["expected"]["minimumJavaVersion"]
+    );
     // Build tool versions and wrappers belong to installed definitions/providers,
     // even when exactly one imported reactor exists.
     assert!(output["data"]["toolchainRequirements"]["toolchains"]["project-maven"].is_null());
-    let single = generate(serde_json::json!([{"path":"alpha/app", "mavenReactorPath":"alpha"}]));
+    let single = generate(
+        serde_json::json!([{"path":"alpha/app", "build":{"pluginID":"dev.example.engine","buildSystemID":"engine","root":"alpha","projectID":"app"}}]),
+    );
     assert!(single["data"]["toolchainRequirements"]["toolchains"]["project-maven"].is_null());
     // Same display names do not define identity; selectors belong to their provider.
     assert_eq!(
@@ -5550,6 +5574,10 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
     for (field, value) in [
         ("name", serde_json::json!("renamed")),
         ("minimumJavaVersion", serde_json::json!("23")),
+        (
+            "build",
+            serde_json::json!({"pluginID":"dev.example.changed","buildSystemID":"engine","root":"alpha","projectID":"alpha/app"}),
+        ),
         ("contentRoots", serde_json::json!([])),
     ] {
         let mut changed = original.clone();
@@ -5579,7 +5607,7 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         Some(serde_json::json!([]))
     )));
     let mut moved = original.clone();
-    moved[1]["mavenReactorPath"] = serde_json::json!(".");
+    moved[1]["build"]["root"] = serde_json::json!(".");
     assert!(stale(inspect(Some(moved))));
     assert!(stale(inspect(Some(serde_json::json!([])))));
     assert!(
@@ -5602,6 +5630,68 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
     seed_generated(&root, output["data"]["generated"].to_string());
     let service = &fixture["expected"]["services"][0];
     let local = root.join(".lithe/run/local.json");
+    let java_id = &fixture["expected"]["configurations"][0]["id"];
+    fs::write(&local, serde_json::json!({"version":2,"configurations":[{
+        "id":java_id,"cwd":"alpha/app","extensions":{"java":{"build":{
+            "pluginID":"dev.unrelated.engine","buildSystemID":"unrelated","root":"beta","projectID":"forged"
+        }}}
+    }]}).to_string()).unwrap();
+    let resolved: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id":"resolve-owner","command":"runConfig.resolve","payload":{"root":root}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    let entry = resolved["data"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == *java_id)
+        .unwrap();
+    assert_eq!(
+        entry["extensions"]["java"]["build"],
+        fixture["projectOwnership"][1]["build"]
+    );
+    assert_eq!(
+        entry["cwd"], "alpha/app",
+        "A cwd override cannot replace the current build owner"
+    );
+    // Replacing the complete namespace must not bypass current-model routing.
+    for namespace in [
+        Value::Null,
+        serde_json::json!("invalid-owner"),
+        serde_json::json!({}),
+    ] {
+        fs::write(
+            &local,
+            serde_json::json!({"version":2,"configurations":[{
+                "id":java_id,"extensions":{"java":namespace}
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+        let resolved: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"resolve-null-owner","command":"runConfig.resolve","payload":{"root":root}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(resolved["ok"], true, "{resolved}");
+        let entry = resolved["data"]["configurations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|value| value["id"] == *java_id)
+            .unwrap();
+        assert_eq!(
+            entry["extensions"]["java"]["build"],
+            fixture["projectOwnership"][1]["build"]
+        );
+    }
+    fs::remove_file(&local).unwrap();
     fs::write(
         &local,
         serde_json::json!({"version":2,"configurations":[{
@@ -5682,8 +5772,11 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         serde_json::json!([{"path":"app","mavenMinimumVersion":"3.*"}]),
         serde_json::json!([{"path":"app","mavenReactorPath":"app","mavenWrapper":"other/mvnw"}]),
         serde_json::json!([{"path":"app","mavenRunProvider":"quarkus.maven"}]),
+        serde_json::json!([{"path":"app","build":{"pluginID":"../escape","buildSystemID":"example","root":".","projectID":"app"}}]),
+        serde_json::json!([{"path":"app","build":{"pluginID":"dev.example","buildSystemID":"example","root":".","projectID":""}}]),
+        serde_json::json!([{"path":"app","build":{"pluginID":"dev.example","buildSystemID":"example","root":".","projectID":"app","framework":"invented"}}]),
         serde_json::json!([{"path":"../escape"}]),
-        serde_json::json!([{"path":"app","mavenReactorPath":"other"}]),
+        serde_json::json!([{"path":"app","build":{"pluginID":"dev.example.engine","buildSystemID":"engine","root":"other","projectID":"app"}}]),
         serde_json::json!([{"path":"app"},{"path":"app"}]),
         serde_json::json!([{"path":"app","contentRoots":[{"path":"/outside","kind":"source"}]}]),
         serde_json::json!([{"path":"app","contentRoots":[{"path":"app/src","kind":"guessed"}]}]),

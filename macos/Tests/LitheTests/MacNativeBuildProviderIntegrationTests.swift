@@ -160,7 +160,7 @@ struct MacNativeBuildProviderIntegrationTests {
                     optionOverrides: ["profiles": .array([.string("run-only")])]), instanceRoot: "nested", workspace: workspace,
                     tool: BuildProviderHints(toolExecutable: maven, toolEnvironment: ["JAVA_HOME": java.deletingLastPathComponent().deletingLastPathComponent().path]),
                     isCurrent: { true }, progress: { _ in })
-                #expect(taskPreparation.executable.value == "project-maven")
+                #expect(taskPreparation.executable.value == "io.github.lithe-idea.maven-build:maven")
                 #expect(taskPreparation.arguments.contains("validate"))
                 #expect(taskPreparation.arguments.contains("-Prun-only"))
                 #expect(taskPreparation.workingDirectory == ".")
@@ -198,7 +198,7 @@ struct MacNativeBuildProviderIntegrationTests {
                 #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
                 #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["nested"]?["profiles"] == nil)
                 let ownership = try build.runProjectOwnership()
-                #expect(ownership.first?.mavenReactorPath == "nested")
+                #expect(ownership.first?.build?.root == "nested")
                 #expect(ownership.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
                 let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(defaults: defaults))
                 let runs = try build.providerRunConfigurations()
@@ -258,16 +258,21 @@ struct MacNativeBuildProviderIntegrationTests {
         for (url, name) in [(a, "a"), (b, "b"), (replacement, "replacement")] {
             try Data("<settings><localRepository>\(scratch.appendingPathComponent(name + "-repository").path)</localRepository></settings>".utf8).write(to: url)
         }
-        // The backend itself runs with the test-selected Java. Maven must use
-        // the distinct canonical selection for each reactor, transmitted as
-        // environment rather than inferred from the backend's java.home.
+        // Each reactor has an independent pin. Maven receives its canonical
+        // selection as environment rather than inferring the backend's java.home.
         let javaHome = java.resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
-        var runtimeSettings = ProjectRuntimeSettings()
+        var pins: [String: [String: [String: String]]] = [:]
+        let mavenPath = try #require(MacToolchainDiscovery.realpath(maven.path))
+        let mavenHome = URL(fileURLWithPath: mavenPath).deletingLastPathComponent().deletingLastPathComponent().path
         for root in ["a", "b"] {
             let alias = scratch.appendingPathComponent("runtime-\(root)")
             try files.createSymbolicLink(at: alias, withDestinationURL: javaHome)
-            runtimeSettings.setOverride(path: root, mavenExecutablePath: maven.path, mavenJavaHomePath: alias.path)
+            pins[root] = ["java": ["home": alias.path, "version": "selected", "provider": "host:manual"],
+                          "io.github.lithe-idea.maven-build:maven": ["home": mavenHome, "version": "selected", "provider": "host:manual"]]
         }
+        try files.createDirectory(at: workspace.appendingPathComponent(".lithe/toolchains"), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": pins])
+            .write(to: workspace.appendingPathComponent(".lithe/toolchains/local.json"))
         let bSettings = "<settings><localRepository>\(scratch.appendingPathComponent("b-repository").path)</localRepository><activeProfiles><activeProfile>${env.JAVA_HOME}</activeProfile></activeProfiles></settings>"
         try Data(bSettings.utf8).write(to: b)
         let before = try Self.inventory(package)
@@ -293,13 +298,18 @@ struct MacNativeBuildProviderIntegrationTests {
         try options.setInstanceOptions(["a": ["settingsFile": .string(a.path)], "b": ["settingsFile": .string(b.path)]],
             workspaceURL: workspace, buildSystemID: "maven")
         let storage = MacFileStorage()
-        let preferences = MacUserDefaultsStore(defaults: defaults)
-        let runtimeStore = MacProjectRuntimeSettingsStore(core: core, storage: storage, preferences: preferences)
-        _ = try runtimeStore.save(runtimeSettings, at: workspace, expecting: runtimeStore.load(at: workspace, migrateLegacy: false))
-        let projectRuntime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), settingsStore: runtimeStore)
+        let defined = MacDefinedToolchainResolver()
+        let javaManifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("Plugins/mac/Official/JavaSupport/plugin.json"))
+        let toolSources: [ToolchainSettingsPluginSource] = [
+            .init(pluginID: descriptor.id.rawValue, name: "Maven", manifest: descriptor.normalizedManifest, isEnabled: true),
+            .init(pluginID: "dev.lithe.plugin.java-support", name: "Java", manifest: javaManifest, isEnabled: true, verifiedOfficial: true)
+        ]
+        defined.sources = { toolSources }
+        let projectRuntime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), store: NativeDefinedToolPreferences())
         projectRuntime.openProject(at: workspace)
+        defer { projectRuntime.closeProject() }
         let build = BuildSystemService(planner: planner,
-            tools: MacBuildToolResolver(runtime: projectRuntime, processRunner: MacProcessRunner(), fileStorage: storage), optionsStore: options,
+            tools: MacBuildToolResolver(runtime: projectRuntime, processRunner: MacProcessRunner(), fileStorage: storage, definedTools: defined), optionsStore: options,
             stateLocator: MacBuildSystemStateLocator(directories: directories, fileStorage: storage),
             runner: MacBuildCommandRunner(), providers: sessions,
             nativeConfigurationFiles: MacBuildNativeConfigurationStore(storage: storage, planner: planner,
@@ -315,7 +325,8 @@ struct MacNativeBuildProviderIntegrationTests {
             let userB = try #require(firstB.sources.first { $0.id == "user" })
             #expect(userA.uri == a.absoluteString)
             #expect(userB.uri == b.absoluteString)
-            #expect(userB.fields.first { $0.id == "activeProfiles" }?.effectiveValue == .array([.string(scratch.appendingPathComponent("runtime-b").path)]))
+            #expect(userB.fields.first { $0.id == "activeProfiles" }?.effectiveValue
+                == .array([.string(try #require(MacToolchainDiscovery.realpath(javaHome.path)))]))
             let savedPath = scratch.appendingPathComponent("saved-a-repository").path
             _ = try await build.saveNativeConfiguration("maven:a", snapshot: firstA,
                 edits: BuildNativeConfigurationEdits(sourceID: userA.id, revision: userA.revision,

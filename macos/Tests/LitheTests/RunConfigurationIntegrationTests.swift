@@ -64,7 +64,8 @@ struct RunConfigurationIntegrationTests {
             let actual = try #require(configurations.first { $0["id"] as? String == item["id"] })
             #expect(actual["cwd"] as? String == item["cwd"])
             let extensions = try #require(actual["extensions"] as? [String: [String: Any]])
-            #expect(extensions["maven"]?["module"] as? String == item["module"])
+            #expect(extensions["java"]?["module"] as? String == item["module"])
+            #expect(extensions["maven"] == nil)
             #expect(extensions["java"]?["sourceSet"] as? String == item["sourceSet"])
         }
         for item in try #require(expected["services"] as? [[String: Any]]) {

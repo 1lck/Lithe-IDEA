@@ -41,6 +41,14 @@ struct MacToolchainDiscoveryTests {
               verifiedOfficial: true)
     }
 
+    @Test func installedToolDeclarationsPassTheProductionHostAdmission() throws {
+        // Discovery accepts raw declarations; installation must also admit them
+        // through the capabilities of the host that actually resolves consumers.
+        let operations = RustDeclarativePluginOperations(core: RustCoreBridge())
+        _ = try operations.validate(manifest: Self.manifest())
+        _ = try operations.validate(manifest: Self.providerSource().manifest)
+    }
+
     @Test func scannedHomesAreCheckedProbedAndTheHighestVersionIsSelected() async throws {
         let root = try DiscoveryFixtureRoot()
         defer { root.remove() }

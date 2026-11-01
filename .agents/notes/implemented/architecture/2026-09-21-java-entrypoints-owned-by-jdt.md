@@ -301,3 +301,24 @@ JDT 尚未完成发现时，已有确认入口可沿用上次生成结果；没�
 - 相关笔记：
   `.agents/notes/implemented/feature/2026-09-20-run-configuration-discovery-quality.md`、
   `.agents/notes/implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md`
+
+## 运行生成的通用构建项目引用
+
+阶段 D 后续把归属投影中的 `mavenReactorPath` 改为完整构建项目身份：插件、构建声明、
+实例根和 Provider 项目 ID。Core 只校验身份、路径包含与源码角色，不据此解析 Maven；
+主类和相对模块来自已有 Java 入口事实，写在 `extensions.java`，生成结果没有 Maven
+扩展或 Maven 工具绑定。源码归属指纹包含这份完整身份，改名、换包、目标撤回或模型
+未准备不能复用旧结果。
+
+原生 Run 持有这份引用，Java 准备向当前启用的同一构建模型取导入输入。四个身份任一
+不符、模型过期或重开到另一个工作区都拒绝；不按显示名称、祖先 POM 或工作目录补猜。
+用户修改 cwd 不改变归属，团队/本机层也不能伪造生成项的构建身份。旧 Windows 调用者
+尚未传入归属时继续走已有兼容路径；它的 Maven 业务须随真实消费者切换删除，不能把
+本次通用引用当成整个 Java/Windows 迁移完成。
+
+JDT 暂时没有源码结果时，Provider 已知的 Java 编译版本仍生成 JDK 要求；否则删除
+Maven reactor 字段后，首次导入可能误把当前工程当成不需要 Java。缺失版本仍是未知，
+不能据此重新解析 POM 或从框架名称猜测。
+
+验证使用共享损坏 POM fixture 的 Rust、Swift 生产桥接与 Windows 映射，并检查精确
+导入查询的错误插件、构建声明、根和项目，以及模型撤销后的拒绝。

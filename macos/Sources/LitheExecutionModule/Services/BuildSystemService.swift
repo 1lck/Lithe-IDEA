@@ -666,12 +666,10 @@ package final class BuildSystemService: ObservableObject {
             guard entry.modelState == .loaded, !entry.isReloadRequired, let model = entry.model, !model.truncated else {
                 throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
             }
-            let reactor: String?
-            if case .maven(let context)? = languageImportsByEntryID[entry.id] {
-                reactor = context.reactorPath
-            } else { reactor = nil }
             return model.projects.map { project in
-                return RunProjectOwnership(path: project.path, mavenReactorPath: reactor,
+                return RunProjectOwnership(path: project.path, build: RunBuildProjectReference(
+                    pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
+                    root: entry.instance.root, projectID: project.id),
                     contentRoots: model.contentRoots.filter { $0.projectID == project.id && ["source", "testSource", "generatedSource", "generatedTestSource"].contains($0.kind) }
                         .map { RunProjectOwnership.SourceRoot(path: $0.path, kind: $0.kind) },
                     name: project.name, minimumJavaVersion: project.properties["java.minimumVersion"])
@@ -720,6 +718,25 @@ package final class BuildSystemService: ObservableObject {
         }
         guard let root else { return languageImport }
         return languageImportsByRoot[root] ?? JavaLanguageImportConfiguration()
+    }
+
+    /// Routes only an exact current model identity; names and directory guesses
+    /// cannot select another plugin's language preparation inputs.
+    package func languageImport(workspaceURL: URL, project: RunBuildProjectReference) throws -> JavaLanguageImportConfiguration {
+        guard self.workspaceURL == workspaceURL.standardizedFileURL, languageImportFailure == nil,
+              languageImport != nil else { throw CancellationError() }
+        let current = sources()
+        let matches = entries.filter { entry in
+            entry.instance.pluginID == project.pluginID && entry.instance.buildSystemID == project.buildSystemID
+                && entry.instance.root == project.root && current.contains(entry.source)
+                && entry.modelState == .loaded && !entry.isReloadRequired && entry.model?.truncated == false
+                && entry.model?.projects.contains(where: { $0.id == project.projectID }) == true
+        }
+        guard matches.count == 1, let entry = matches.first, let imported = languageImportsByEntryID[entry.id] else { throw CancellationError() }
+        switch imported {
+        case .maven(let value): return JavaLanguageImportConfiguration(mavenContext: value)
+        case .gradle(let value): return JavaLanguageImportConfiguration(javaGradle: value)
+        }
     }
 
     /// Waits for the current detection, including option normalization. A

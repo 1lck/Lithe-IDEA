@@ -517,6 +517,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 let mavenJavaHomePath: String?
                 let source: String?
                 let sourceSet: String?
+                var module: String? = nil
+                var mainClass: String? = nil
+                var build: RunBuildProjectReference? = nil
             }
             struct Debug: Codable, Sendable {
                 let adapter: String

@@ -28,13 +28,17 @@
   "projectOwnership": [
     {
       "path": "alpha",
-      "mavenReactorPath": "alpha",
       "contentRoots": [],
-      "name": "reactor"
+      "name": "reactor",
+      "build": {
+        "pluginID": "dev.example.engine",
+        "buildSystemID": "engine",
+        "root": "alpha",
+        "projectID": "alpha"
+      }
     },
     {
       "path": "alpha/app",
-      "mavenReactorPath": "alpha",
       "contentRoots": [
         {
           "path": "alpha/app/custom-checks",
@@ -46,11 +50,16 @@
         }
       ],
       "name": "app",
-      "minimumJavaVersion": "17"
+      "minimumJavaVersion": "17",
+      "build": {
+        "pluginID": "dev.example.engine",
+        "buildSystemID": "engine",
+        "root": "alpha",
+        "projectID": "alpha/app"
+      }
     },
     {
       "path": "beta/app",
-      "mavenReactorPath": "beta",
       "contentRoots": [
         {
           "path": "beta/app/sources",
@@ -58,7 +67,13 @@
         }
       ],
       "name": "app",
-      "minimumJavaVersion": "21"
+      "minimumJavaVersion": "21",
+      "build": {
+        "pluginID": "dev.example.engine",
+        "buildSystemID": "engine",
+        "root": "beta",
+        "projectID": "beta/app"
+      }
     }
   ],
   "expected": {

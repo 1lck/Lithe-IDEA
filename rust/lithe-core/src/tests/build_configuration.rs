@@ -32,9 +32,14 @@ fn edit_request() -> Value {
 
 #[test]
 fn native_configuration_requires_capability_seven_and_preserves_option_arguments() {
+    let executable = if cfg!(windows) {
+        "C:/fixture/mvn.cmd"
+    } else {
+        "/fixture/mvn"
+    };
     let plan = call(
         build_configuration_plan_command,
-        json!({"root":".","options":{"offline":true},"tool":{"executable":"/fixture/mvn"}}),
+        json!({"root":".","options":{"offline":true},"tool":{"executable":executable}}),
     );
     assert_eq!(plan["status"], "ok", "{plan}");
     assert_eq!(
@@ -43,7 +48,14 @@ fn native_configuration_requires_capability_seven_and_preserves_option_arguments
     );
     assert_eq!(
         plan["plan"]["provider"]["params"]["tool"]["executable"],
-        "/fixture/mvn"
+        executable
+    );
+    assert_eq!(
+        call(
+            build_configuration_plan_command,
+            json!({"root":".","tool":{"executable":"relative/mvn"}})
+        )["status"],
+        "rejected"
     );
     for version in 1..7 {
         let mut old = manifest();

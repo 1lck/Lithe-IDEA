@@ -20,7 +20,7 @@
 | 通用测试报告 | macOS 改为直接消费 `BuildTestResults`；移除三种 Maven 报告类型和转换。上游摘要、调用次数、耗时、来源位置与不透明重跑引用保持原义；JDT 发现适配器明确关联报告名称，通用 UI 不解析用例名称。Windows 的现有行标记字段保留兼容别名。验证记录见本次计时报告，不替代整机验收。 |
 | 原生配置 v7 | 已移除 XML 绑定和 Core XML 编辑器，新增提供者编辑计划及不含文档的回执。两端暂存/校验/原子发布接线已更新；Node/Java JSON E2E、真实 Maven 编辑/回读、127 项 macOS、71 项 Windows 前端和类型检查通过。Windows 原生 4 个既有 watcher 失败、整机未验收；完整正式组合仍待验证。 |
 | 服务调试 v11 | 已删除本入口的 `runtime: jvm` 与内置 Java attach；协议传递适配器身份、公开配置类型和 `connection` 目标，宿主从当前 Registry 选择并验证配置，跨准备/监听/连接检查包与注册代次。Java Support 自己声明同包 JDT 托管适配器，Maven 仅声明配置类型；真实断点 UI 与发行组合仍待验收。 |
-| 工具选择 | 等 [#1581](https://github.com/1lck/Lithe-IDEA/pull/1581) 合并后接其重写后的 `toolDefinitions` / `toolchainProviders` 与四层选择契约（旧 `toolchainSources` 方案已撤回）；2026-11-01 核实它已 Ready、仍未合并。删除本 PR 新增的 Maven toolchain 注册和按名字选择，不另建版本管理链。 |
+| 工具选择 | 用户已授权先固定 [#1581](https://github.com/1lck/Lithe-IDEA/pull/1581) 的 `b87c7f6` 预集成，仍保持 Draft、不合并发布。macOS Build/Provider Run 已接 `toolDefinitions` / `toolchainProviders` 与四层选择；删除新增的 Maven JDK 注册和 Java 准备按 Maven 名字选工具的分支。旧选择的无损迁移、Windows adapter 和现有 Java 消费者仍待完成。 |
 | Maven 运行配置与准备任务 | 待修改：Core 不增加 Maven profile/reactor/framework 的稳定解析面；提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID。自动运行配置已由声明/目标生成 `build.provider` 选择器，独立于 Java 导入，删除 `mavenRunProvider` 字段与 Core 框架名单；快照指纹、目标撤回和用户通用覆盖已接线。旧 Run v2 中可确认的服务/显式任务已保留 ID 转为通用引用并通过两层预检及冲突保护；v1、旧偏好、自定义工具与隐式模块语义，以及归属中的 reactor/Wrapper/版本字段、工具链和 Windows 旧路径仍待处理。 |
 | SDK 与版本 | 2026-10-31 核实 SDK main 两种实现最高为 6，GitHub 仅有 sdk-node-v0.1.0 发布；7～11 仍在 Draft。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
 
@@ -148,6 +148,38 @@ Windows Cargo 在 macOS 的两处平台 API 失败与既有基线一致，不能
 提供方不可用补充回归通过 34 项（与前述 macOS 回归重叠），另有 1 项条件跳过；SDK 的
 Node/Java/Rust 和 Build/配置/报告/运行选项端到端共 6 项在当前固定宿主源码组合通过。
 汇总报告 `stage-d-pinned-integration-summary.html` 已在浏览器检查，无失败或硬预算超限。
+
+### 通用构建项目身份与原生 Windows 首轮结果
+
+当前继续删除归属投影的最后一个 Maven 字段：`mavenReactorPath` 替换为完整的
+`build={pluginID,buildSystemID,root,projectID}`，用于引用当前模型，而不是改名保存 Maven
+语义。生成 Java 配置只包含 Java 主类/模块/源码角色和此引用，不带 Maven 扩展或工具
+绑定；Core 不再需要 Maven 根来解释这份新输入。普通 Java 的旧引擎与未提供新归属的
+Windows 调用者暂留兼容路径，仍按真实消费者逐项删除。
+
+首轮现有 [Windows CI 41307483413](https://github.com/1lck/Lithe-IDEA/actions/runs/41307483413)
+验证 `138a8aa97`：前端通过；Rust 与真实 JDT lane 都被同一 v7 配置测试阻断，原因是
+Unix 的 `/fixture/mvn` 在 Windows 不是本机绝对路径。修正测试使用各平台有效的虚构
+绝对路径，保留相对路径拒绝，不修改生产路径校验。尚未重跑前不把该轮记为通过；
+后续修改先批量完成本地验证再触发一次现有 CI，避免连续 push 取消 runner。
+
+通用身份不可被团队/本机文档改写，整个 Java 扩展被置空也不能撤销当前模型的归属；
+Java 源码尚未返回时，已知的 Provider 编译版本仍生成对应 JDK 要求，不再依赖 Maven 根
+来推断工程类型。精确导入查询拒绝四个身份任一不符，以及选项变化后尚未恢复的模型。
+
+真实开发包验收补出 macOS 安装准入遗漏：运行前解析器已实现，但能力表未声明
+`toolDefinitions:1` 和 `toolchainProviders:1`，导致生产验证器拒绝 Maven 包。现在能力表
+与实现同步，增加经过生产验证器的声明/提供者回归，不放宽 Core 准入；Windows 未实现的
+能力继续关闭。Build 解析保留定义导出的全部 PATH 目录，并去掉空目录项。
+
+本批本地验证：Core 1,573 项全量、macOS 326 项逐项计时通过（另有 1 项独立开关的
+集成测试跳过）、Windows Run/Build 457 项及类型检查和生产构建通过；真实 Core→Maven
+20 步和 Windows TypeScript→Core→Maven 11 步通过，核对包文件清单与后端清理。
+报告为 `stage-d-generic-owner-core-final.html`、`stage-d-generic-owner-macos-final.html`、
+`stage-d-generic-owner-macos-neighbors.html` 和 `stage-d-generic-owner-windows.html`；真实
+Maven 仓库报告分别在 `stage-d-generic-owner-native-v2/` 和 `stage-d-generic-owner-windows/`。
+首次生产准入失败、旧工具名断言失败及空源码版本要求失败均保留日志，未放宽断言或预算。
+Windows Cargo 在 macOS 检查仍只有两处原生 API 基线错误，不代表原生 Windows 通过。
 
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 

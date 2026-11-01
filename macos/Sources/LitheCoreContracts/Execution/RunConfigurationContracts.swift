@@ -1,6 +1,18 @@
 import LitheModuleAPI
 import Foundation
 
+/// Exact owner of a current build-model project, independent of build semantics.
+package struct RunBuildProjectReference: Codable, Equatable, Hashable, Sendable {
+    package let pluginID: String
+    package let buildSystemID: String
+    package let root: String
+    package let projectID: String
+    package init(pluginID: String, buildSystemID: String, root: String, projectID: String) {
+        self.pluginID = pluginID; self.buildSystemID = buildSystemID
+        self.root = root; self.projectID = projectID
+    }
+}
+
 /// Read-only ownership projected from the current Provider model and import.
 /// Run generation must not reconstruct these facts from build descriptors.
 package struct RunProjectOwnership: Codable, Equatable, Sendable {
@@ -12,12 +24,12 @@ package struct RunProjectOwnership: Codable, Equatable, Sendable {
     package let path: String
     package let name: String?
     package let minimumJavaVersion: String?
-    package let mavenReactorPath: String?
+    package let build: RunBuildProjectReference?
     package let contentRoots: [SourceRoot]
-    package init(path: String, mavenReactorPath: String?, contentRoots: [SourceRoot], name: String? = nil, minimumJavaVersion: String? = nil) {
+    package init(path: String, build: RunBuildProjectReference?, contentRoots: [SourceRoot], name: String? = nil, minimumJavaVersion: String? = nil) {
         self.minimumJavaVersion = minimumJavaVersion
         self.name = name
-        self.path = path; self.mavenReactorPath = mavenReactorPath; self.contentRoots = contentRoots
+        self.path = path; self.build = build; self.contentRoots = contentRoots
     }
 }
 

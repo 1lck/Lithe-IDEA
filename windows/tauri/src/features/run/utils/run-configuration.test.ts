@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import argumentFixture from "../../../../../../shared/fixtures/run-configuration/argument-text.json";
+import ownershipFixture from "../../../../../../shared/fixtures/run-configuration/provider-project-ownership.json";
 import choicesFixture from "../../../../../../shared/fixtures/run-configuration/build-provider-options.json";
 import {
   configurationsForExecution,
@@ -19,6 +20,32 @@ import {
 } from "./run-configuration";
 
 describe("run configuration mapping", () => {
+  test("maps an exact language project owner without Maven extension data", () => {
+    const owner = { pluginID: "dev.example.compiler", buildSystemID: "example", root: "projects", projectID: "opaque-app" };
+    const configuration = mapCoreConfiguration({ id: "java-main:demo.Main", name: "Main", provider: "java.main",
+      toolchains: { java: "project-jdk" }, extensions: { java: {
+        module: "app", mainClass: "demo.Main", source: "projects/app/checks/Main.java", sourceSet: "test", build: owner,
+      } } });
+    expect(configuration.modulePath).toBe("app");
+    expect(configuration.mainClass).toBe("demo.Main");
+    expect(configuration.buildProject).toEqual(owner);
+    owner.projectID = "changed";
+    expect(configuration.buildProject?.projectID).toBe("opaque-app");
+    expect(configuration.mavenReactorPath).toBeUndefined();
+    expect(configuration.toolchains.maven).toBeUndefined();
+    for (const expected of ownershipFixture.expected.configurations) {
+      const id = expected.id;
+      const owner = ownershipFixture.projectOwnership.find(project => id.endsWith(":" + project.path));
+      expect(owner).toBeDefined();
+      const mapped = mapCoreConfiguration({ id, name: "Main", provider: "java.main", cwd: expected.cwd,
+        extensions: { java: { module: expected.module, mainClass: "demo.Main", sourceSet: expected.sourceSet, build: owner!.build } } });
+      expect(mapped.buildProject).toEqual(owner!.build);
+      expect(mapped.mainClass).toBe("demo.Main");
+      expect(mapped.modulePath).toBe(expected.module);
+      expect(mapped.mavenReactorPath).toBeUndefined();
+    }
+  });
+
   test("argument editor text matches the shared argv grammar", () => {
     for (const entry of argumentFixture.cases) expect(joinArguments(entry.values)).toBe(entry.text);
   });

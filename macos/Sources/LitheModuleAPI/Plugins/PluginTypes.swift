@@ -529,6 +529,8 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "projectGenerators": [1],
         "serverProcess": [1],
         "settings": [1, 2],
+        "toolDefinitions": [1],
+        "toolchainProviders": [1],
         "ui": [1, 2, 3, 4],
         "vcsProviders": [1]
     ]

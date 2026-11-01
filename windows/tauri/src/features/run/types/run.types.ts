@@ -16,6 +16,10 @@ export interface BuildProviderRunReference {
   execution?: "application" | "service" | "task"; userArguments: string[];
 }
 
+export interface RunBuildProjectReference {
+  pluginID: string; buildSystemID: string; root: string; projectID: string;
+}
+
 export interface BuildProviderRunOptions {
   runtimeArguments: string[];
   entrypoint: string;
@@ -43,6 +47,7 @@ export interface RunConfiguration {
   name: string;
   provider: string;
   buildProvider?: BuildProviderRunReference;
+  buildProject?: RunBuildProjectReference;
   providerRunOptions?: BuildProviderRunOptions;
   kindTitle: string;
   iconKey?: RunIconKey;
@@ -248,6 +253,9 @@ export interface CoreResolvedConfiguration {
       mavenJavaHomePath?: string;
       source?: string;
       sourceSet?: string;
+      module?: string;
+      mainClass?: string;
+      build?: RunBuildProjectReference;
     };
   };
 }

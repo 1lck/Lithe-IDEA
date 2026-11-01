@@ -324,7 +324,7 @@ struct MacLegacyMavenRunConfigurationMigrationTests {
         let id = "quarkus.maven:nested/app"
         var team: URL { root.appendingPathComponent(".lithe/run/configurations.json") }
         var local: URL { root.appendingPathComponent(".lithe/run/local.json") }
-        let projects = [RunProjectOwnership(path: "nested/app", mavenReactorPath: "nested", contentRoots: [], name: "app")]
+        let projects = [RunProjectOwnership(path: "nested/app", build: .init(pluginID: "io.github.lithe-idea.maven-build", buildSystemID: "maven", root: "nested", projectID: "p"), contentRoots: [], name: "app")]
         var runs: [RunProviderConfiguration] {
             [.init(projectPath: "nested/app", name: "Current service", reference: .init(pluginID: "io.github.lithe-idea.maven-build",
                 buildSystemID: "maven", root: "nested", run: "framework", projectID: "p", targetID: "opaque/service", execution: .service))]

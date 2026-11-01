@@ -64,11 +64,14 @@ extension AppModel {
         let prepared = try await builds.prepareLanguageRun(fileURL: fileURL, workspace: identity.url,
             purpose: "run", optionOverrides: overrides,
             isCurrent: { [weak self] in self?.isCurrentWorkspace(identity) == true })
-        guard case .maven(let context)? = prepared else {
+        guard let prepared else {
             throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration."))
         }
         let current = try javaLanguageImportConfiguration(rootURL: identity.url)
-        return JavaLanguageImportConfiguration(mavenContext: context, javaGradle: current.javaGradle)
+        switch prepared {
+        case .maven(let context): return JavaLanguageImportConfiguration(mavenContext: context, javaGradle: current.javaGradle)
+        case .gradle(let context): return JavaLanguageImportConfiguration(mavenContext: current.mavenContext, javaGradle: context)
+        }
     }
 
 }

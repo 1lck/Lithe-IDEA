@@ -3392,25 +3392,31 @@ never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
 relative `modulePaths`, optional schema-versioned `javaEntrypoints` from the
 current `lsp.request` result, and optional `projectOwnership`. The latter is a
 host projection of current enabled Provider projects: `{ path,
-name?, mavenReactorPath?, minimumJavaVersion?, contentRoots: [{ path, kind }] }`, using workspace-relative
+name?, build?: { pluginID, buildSystemID, root, projectID }, minimumJavaVersion?, contentRoots: [{ path, kind }] }`, using workspace-relative
 paths and the model's `source`/`testSource`/generated-source roles. Core validates
 project/root containment, unique project paths, roles and bounds (2,000 projects,
 10,000 content roots). When supplied, including `[]`, these facts own Java
-module/reactor membership and source sets: `modulePaths` and ancestor POM
-inference do not supplement them. An omitted snapshot retains the current
+project membership and source sets: `modulePaths` and ancestor POM inference
+do not supplement them. `build` is an exact current model identity, not a build
+semantic tag. Generated Java entries store it under `extensions.java.build`,
+with Java-owned `module` and `mainClass`; they contain no Maven extension or
+Maven tool binding. Its root stays independent of editable cwd and document
+layers cannot replace generated build ownership. An omitted snapshot retains the current
 Windows generator's legacy ownership path. A supplied ownership snapshot disables
 legacy Maven framework detection. Framework selection is not an ownership field;
 run discovery uses the independent generic snapshot described below.
 `minimumJavaVersion` is an optional normalized Java feature version (1–999),
-owned by the upstream compiler model. When the snapshot is supplied, Core uses
+owned by the upstream compiler model, including before entrypoint discovery
+returns any sources. When the snapshot is supplied, Core uses
 the highest known project floor and never parses POM compiler properties; a
 platform Java version file can raise but cannot lower that floor. Missing means
 unknown, not permission to infer. Build-tool versions and wrapper paths are not
 ownership fields. With provider ownership Core emits no Maven requirement and
 never reads wrapper properties or scripts to supplement it. Installed tool
-definitions/providers own these choices. The existing Java import reactor field
-remains a temporary input for the Java consumer migration. Legacy Maven launch
-planning still needs migration. See `fixtures/run-configuration/provider-project-ownership.json`.
+definitions/providers own these choices. Native Java preparation routes by the
+exact enabled package, declaration, instance and project identity. Legacy
+consumers that omit provider ownership retain their old Maven launch path until
+they migrate; those fields are not accepted in the new ownership projection. See `fixtures/run-configuration/provider-project-ownership.json`.
 The generated document records optional `generator.providerFingerprint`, a
 SHA-256 identity of the validated projection, with projects and roots sorted.
 It covers project labels, ownership, source roles and requirement

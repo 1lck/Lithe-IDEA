@@ -18,10 +18,22 @@ struct BuildSystemServiceTests {
         harness.service.reset(workspaceURL: Self.workspace)
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
         let ownership = try harness.service.runProjectOwnership()
-        #expect(ownership == [RunProjectOwnership(path: "app", mavenReactorPath: "app",
+        #expect(ownership == [RunProjectOwnership(path: "app", build: .init(pluginID: "dev.example", buildSystemID: "fixture", root: "app", projectID: "p"),
             contentRoots: [.init(path: "app/checks", kind: "testSource")], name: "App", minimumJavaVersion: "21")])
+        let project = try #require(ownership.first?.build)
+        #expect(try harness.service.languageImport(workspaceURL: Self.workspace, project: project)
+                == harness.service.languageImport(workspaceURL: Self.workspace, root: "app"))
+        for wrong in [
+            RunBuildProjectReference(pluginID: "dev.other", buildSystemID: project.buildSystemID, root: project.root, projectID: project.projectID),
+            RunBuildProjectReference(pluginID: project.pluginID, buildSystemID: "other", root: project.root, projectID: project.projectID),
+            RunBuildProjectReference(pluginID: project.pluginID, buildSystemID: project.buildSystemID, root: ".", projectID: project.projectID),
+            RunBuildProjectReference(pluginID: project.pluginID, buildSystemID: project.buildSystemID, root: project.root, projectID: "other")
+        ] {
+            #expect(throws: CancellationError.self) { try harness.service.languageImport(workspaceURL: Self.workspace, project: wrong) }
+        }
         harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
         #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
+        #expect(throws: CancellationError.self) { try harness.service.languageImport(workspaceURL: Self.workspace, project: project) }
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
         #expect(try harness.service.runProjectOwnership() == ownership)
         harness.service.reset(workspaceURL: nil)

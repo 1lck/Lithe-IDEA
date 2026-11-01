@@ -65,6 +65,17 @@
     }
   },
   "$defs": {
+    "buildProjectReference": {
+      "type": "object", "additionalProperties": false,
+      "description": "Read-only current model owner; generated ownership cannot be overridden by document layers.",
+      "required": ["pluginID", "buildSystemID", "root", "projectID"],
+      "properties": {
+        "pluginID": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "buildSystemID": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "root": { "$ref": "#/$defs/relativePath" },
+        "projectID": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
     "relativePath": {
       "type": "string",
       "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).*$"
@@ -182,6 +193,13 @@
         "extensions": {
           "type": "object",
           "propertyNames": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "properties": {
+            "java": { "type": "object", "properties": {
+              "build": { "$ref": "#/$defs/buildProjectReference" },
+              "module": { "type": "string" },
+              "mainClass": { "type": ["string", "null"] }
+            } }
+          },
           "additionalProperties": { "type": "object" }
         },
         "disabled": { "type": "boolean" },

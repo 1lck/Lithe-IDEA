@@ -251,6 +251,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
     package let debugAdapter: String?
     package let disabled: Bool
     package let buildProvider: BuildProviderRunReference?
+    package let buildProject: RunBuildProjectReference?
 
     package var usesCurrentEditorFile: Bool { kind == .currentFile }
 
@@ -265,7 +266,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
 
     /// Only launches backed by a JDT project wait for workspace preparation.
     package var usesJavaProjectPreparation: Bool {
-        (kind == .javaMain || (kind == .springBoot && sourcePath?.lowercased().hasSuffix(".java") == true)) && mavenReactorPath != nil
+        (kind == .javaMain || (kind == .springBoot && sourcePath?.lowercased().hasSuffix(".java") == true)) && (buildProject != nil || mavenReactorPath != nil)
     }
 
     /// Saved provider services may attach through their declared registry type.
@@ -284,7 +285,8 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         mavenReactorPath: String? = nil,
         debugAdapter: String? = nil,
         disabled: Bool = false,
-        buildProvider: BuildProviderRunReference? = nil
+        buildProvider: BuildProviderRunReference? = nil,
+        buildProject: RunBuildProjectReference? = nil
     ) {
         self.id = id
         self.name = name
@@ -297,6 +299,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         self.debugAdapter = debugAdapter
         self.disabled = disabled
         self.buildProvider = buildProvider
+        self.buildProject = buildProject
     }
 
     package var systemImage: String { kind.systemImage }
