@@ -20,7 +20,7 @@ import { useKeyboardNavigation } from "../hooks/use-keyboard-navigation";
 import { buildSearchExcerpts } from "../utils/search-excerpts";
 import { replaceAllInSources, replaceNextInSource } from "../utils/source-replace";
 import { GlobalSearchResults } from "./global-search-results";
-import { GlobalSearchState } from "./global-search-state";
+import { GlobalSearchError, GlobalSearchState } from "./global-search-state";
 import { GlobalSearchToolbar } from "./global-search-toolbar";
 
 const DEFAULT_CONTEXT_LINES = 2;
@@ -525,7 +525,7 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
   useEffect(() => {
     const sentinel = loadMoreRef.current;
     const scrollContainer = scrollContainerRef.current;
-    if (!sentinel || !scrollContainer || !hasMore || showBusy) return;
+    if (!sentinel || !scrollContainer || !hasMore || showBusy || error) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -541,7 +541,7 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, loadMoreResults, scrollContainerRef, showBusy]);
+  }, [error, hasMore, loadMoreResults, scrollContainerRef, showBusy]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -585,6 +585,9 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
             {t("project.clearScope")}
           </button>
         </div>
+      )}
+      {hasResults && !showInitialBusy && error && (
+        <GlobalSearchError error={error} compact onRetry={() => void loadMoreBackendResults()} />
       )}
       <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
         {hasResults && !showInitialBusy ? (

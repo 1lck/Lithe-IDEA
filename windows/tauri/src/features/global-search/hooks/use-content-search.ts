@@ -1,3 +1,8 @@
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import {
+  IndexingSettingsError,
+  useIndexingVersion,
+} from "@/features/file-explorer/stores/workspace-indexing";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDebounce } from "use-debounce";
 import type { FileEntry } from "@/features/file-system/types/app.types";
@@ -16,6 +21,7 @@ import { mergeSearchResults } from "../utils/content-search-results";
 import { createPathFilterPredicate } from "../utils/path-filters";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useGlobalSearchStore } from "../stores/global-search.store";
+import type { ContentSearchFailure } from "../types/global-search.types";
 
 export type { ContentSearchOptions } from "../types/global-search.types";
 
@@ -41,10 +47,11 @@ function getSearchAvailability(rootPath: string | null | undefined): ContentSear
   return "unsupported";
 }
 
-function getErrorMessage(error: unknown): string {
+function getSearchFailure(error: unknown): ContentSearchFailure {
+  if (error instanceof IndexingSettingsError) return { kind: "indexing", code: error.code };
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
-  return "Unknown search error";
+  return { kind: "unknown" };
 }
 
 function hasPathFilters(includeQuery: string, excludeQuery: string): boolean {
@@ -86,12 +93,14 @@ interface ProviderSearchSession {
 }
 
 export const useContentSearch = () => {
+  const workspaceId = useWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
   const nativeRootPaths = useMemo(
     () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
     [rootFolderPath, workspaceFolders],
   );
+  const indexingVersion = useIndexingVersion(nativeRootPaths);
   const searchSession = useGlobalSearchStore((state) => state);
   const {
     query,
@@ -125,6 +134,8 @@ export const useContentSearch = () => {
     () =>
       [
         nativeRootPaths.join("\n") || rootFolderPath || "",
+        indexingVersion,
+        workspaceId,
         debouncedQuery,
         JSON.stringify(scopePaths),
         debouncedIncludeQuery,
@@ -137,7 +148,9 @@ export const useContentSearch = () => {
       debouncedExcludeQuery,
       debouncedIncludeQuery,
       debouncedQuery,
+      indexingVersion,
       nativeRootPaths,
+    workspaceId,
       scopePaths,
       rootFolderPath,
       searchOptions.caseSensitive,
@@ -212,7 +225,9 @@ export const useContentSearch = () => {
       }
 
       return searchFilesContent({
-        root_paths: scopePaths.length ? scopePaths : nativeRootPaths,
+        workspaceId,
+        root_paths: nativeRootPaths,
+        scope_paths: scopePaths,
         query: debouncedQuery,
         case_sensitive: searchOptions.caseSensitive,
         whole_word: searchOptions.wholeWord,
@@ -224,11 +239,13 @@ export const useContentSearch = () => {
     },
     [
       availability,
+      workspaceId,
       debouncedExcludeQuery,
       debouncedIncludeQuery,
       debouncedQuery,
       getProviderFiles,
       nativeRootPaths,
+    workspaceId,
       scopePaths,
       rootFolderPath,
       searchActions,
@@ -314,7 +331,7 @@ export const useContentSearch = () => {
       } catch (searchError) {
         if (!searchActions.isCurrentRequest(currentRequestId)) return;
         console.error("Search error:", searchError);
-        searchActions.failSearch(searchKey, `Search failed: ${getErrorMessage(searchError)}`);
+        searchActions.failSearch(searchKey, getSearchFailure(searchError));
       } finally {
         if (searchActions.isCurrentRequest(currentRequestId)) {
           setIsSearching(false);
@@ -323,6 +340,7 @@ export const useContentSearch = () => {
     },
     [
       availability,
+      workspaceId,
       debouncedQuery,
       requestVisibleSearchPage,
       resultsSearchKey,
@@ -362,7 +380,7 @@ export const useContentSearch = () => {
     } catch (searchError) {
       if (!searchActions.isCurrentRequest(currentRequestId)) return;
       console.error("Search error:", searchError);
-      searchActions.failLoadMore(`Search failed: ${getErrorMessage(searchError)}`);
+      searchActions.failLoadMore(getSearchFailure(searchError));
     } finally {
       if (searchActions.isCurrentRequest(currentRequestId)) {
         setIsLoadingMore(false);
@@ -390,7 +408,7 @@ export const useContentSearch = () => {
 
     const pollScanStatus = async () => {
       try {
-        const status = await fffScanStatus(nativeRootPaths);
+        const status = await fffScanStatus(nativeRootPaths, workspaceId);
         if (disposed || !searchActions.isCurrentRequest(pollingRequestId)) return;
 
         searchActions.setIndexProgress(
@@ -413,7 +431,7 @@ export const useContentSearch = () => {
         if (failureCount >= 3) {
           searchActions.failIndexing(
             searchKey,
-            `Search indexing failed: ${getErrorMessage(statusError)}`,
+            getSearchFailure(statusError),
           );
           return;
         }
@@ -431,6 +449,7 @@ export const useContentSearch = () => {
     debouncedQuery,
     isIndexing,
     nativeRootPaths,
+    workspaceId,
     performSearch,
     requestGeneration,
     rootFolderPath,

@@ -12,7 +12,7 @@ extension AppModel {
     var rootNode: FileNode? { workspaceFeature.rootNode }
     var projectFiles: [URL] { workspaceFeature.projectFiles }
     var projectDirectoryMarks: [String: WorkspaceDirectoryMark] {
-        workspaceFeature.directoryMarks
+        workspaceFeature.indexingStatus.excludedDirectories.keys.reduce(into: workspaceFeature.directoryMarks) { marks, path in marks[path] = .excluded }
     }
     var javaEnvironmentReport: JavaEnvironmentReport? {
         runtimeFeature.javaEnvironmentReport

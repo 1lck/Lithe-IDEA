@@ -5,11 +5,9 @@ import { openTerminalAgent } from "@/features/ai/lib/terminal-agent-terminal";
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
-import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useFileLoader } from "@/features/quick-open/hooks/use-file-loader";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import Command from "@/ui/command";
-
-const EMPTY_PROJECT_FILES: FileEntry[] = [];
 
 interface AgentLaunchInputProps {
   active?: boolean;
@@ -26,9 +24,7 @@ export function AgentLaunchInput({
 }: AgentLaunchInputProps) {
   const buffers = useBufferStore((state) => state.buffers);
   const openAgentBuffer = useBufferStore.use.actions().openAgentBuffer;
-  const allProjectFiles = useFileSystemStore(
-    (state) => state.projectFilesCache?.files ?? EMPTY_PROJECT_FILES,
-  );
+  const { files: allProjectFiles } = useFileLoader(active);
   const selectedAgentId = useAIChatStore((state) => state.selectedAgentId);
   const createNewChat = useAIChatStore((state) => state.actions.createNewChat);
   const setSelectedAgentId = useAIChatStore((state) => state.actions.setSelectedAgentId);

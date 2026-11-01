@@ -27,6 +27,7 @@ final class WorkspaceSessionCoordinator: ObservableObject {
         let runServicesCloseConfirmation: @MainActor () -> (@MainActor () async -> Bool)?
         let restoreDebugBreakpoints: @MainActor (URL) async -> Void
         let visibilityRules: @MainActor () -> FileVisibilityRules
+        var waitForWorkspaceOpenPreparation: @MainActor () async -> Void = {}
     }
 
     @Published private(set) var workspaceURL: URL?
@@ -34,6 +35,8 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     @Published private(set) var recentProjects: [RecentProject]
     @Published private(set) var isActive = true
     private(set) var pendingCloseRequest: CloseRequest?
+    /// One session opening, independent of the resource projection's rebuilds.
+    private(set) var openingGeneration = 0
 
     private let recentProjectsStore: RecentProjectsStore
     private let recentProjectBranchReader: any RecentProjectBranchReading
@@ -42,6 +45,7 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     private var securityScopedWorkspaceURL: URL?
     private var lifecycleHandlers: LifecycleHandlers?
     private var workspaceRebuildTask: Task<Void, Never>?
+    private var workspaceRebuildID = UUID()
 
     init(
         recentProjectsStore: RecentProjectsStore,
@@ -75,18 +79,15 @@ final class WorkspaceSessionCoordinator: ObservableObject {
 
         lifecycleHandlers.prepareForWorkspaceOpen(normalizedURL)
         beginWorkspace(at: normalizedURL)
-        guard let workspaceFeature else {
+        guard workspaceFeature != nil else {
             assertionFailure("Workspace feature is required to open a workspace.")
             return
         }
-        workspaceFeature.beginWorkspace(
-            at: normalizedURL,
-            visibilityRules: lifecycleHandlers.visibilityRules()
-        )
         recordRecentProject(normalizedURL)
         startWorkspaceRebuild(
             at: normalizedURL,
-            generation: workspaceFeature.workspaceGeneration,
+            operationID: workspaceRebuildID,
+            waitForPreparation: lifecycleHandlers.waitForWorkspaceOpenPreparation,
             restoreDebugBreakpoints: lifecycleHandlers.restoreDebugBreakpoints
         )
     }
@@ -131,6 +132,8 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     /// Stops coordinator-owned asynchronous work and releases the native URL
     /// lease. Feature shutdown remains owned by the application's module graph.
     func stopSessionResources() {
+        openingGeneration &+= 1
+        workspaceRebuildID = UUID()
         workspaceRebuildTask?.cancel()
         workspaceRebuildTask = nil
         pendingCloseRequest = nil
@@ -138,6 +141,8 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     }
 
     func beginWorkspace(at url: URL) {
+        openingGeneration &+= 1
+        workspaceRebuildID = UUID()
         stopAccessingWorkspace()
         workspaceURL = url.standardizedFileURL
         standaloneFileURL = nil
@@ -147,12 +152,16 @@ final class WorkspaceSessionCoordinator: ObservableObject {
     }
 
     func beginStandaloneFile(at url: URL) {
+        openingGeneration &+= 1
+        workspaceRebuildID = UUID()
         stopAccessingWorkspace()
         workspaceURL = nil
         standaloneFileURL = url.standardizedFileURL
     }
 
     func clearSession() {
+        openingGeneration &+= 1
+        workspaceRebuildID = UUID()
         workspaceRebuildTask?.cancel()
         workspaceRebuildTask = nil
         pendingCloseRequest = nil
@@ -251,7 +260,8 @@ final class WorkspaceSessionCoordinator: ObservableObject {
 
     private func startWorkspaceRebuild(
         at workspaceURL: URL,
-        generation: Int,
+        operationID: UUID,
+        waitForPreparation: @escaping @MainActor () async -> Void,
         restoreDebugBreakpoints: @escaping @MainActor (URL) async -> Void
     ) {
         guard let workspaceFeature else {
@@ -259,17 +269,24 @@ final class WorkspaceSessionCoordinator: ObservableObject {
             return
         }
         workspaceRebuildTask = Task { @MainActor [weak self, workspaceFeature] in
+            await waitForPreparation()
+            guard let self, !Task.isCancelled, self.workspaceRebuildID == operationID,
+                  self.workspaceURL == workspaceURL.standardizedFileURL else { return }
+            // The old graph may stop this same UI projection. Begin the new
+            // lifetime only after that teardown and its resource rebinding finish.
+            let rules = self.lifecycleHandlers?.visibilityRules() ?? .default
+            workspaceFeature.beginWorkspace(at: workspaceURL, visibilityRules: rules)
+            let generation = workspaceFeature.workspaceGeneration
             await restoreDebugBreakpoints(workspaceURL)
-            guard let self,
+            guard !Task.isCancelled, self.workspaceRebuildID == operationID,
                   self.isCurrentWorkspace(workspaceURL, generation: generation) else {
                 return
             }
-            let rules = self.lifecycleHandlers?.visibilityRules() ?? .default
             _ = await workspaceFeature.rebuild(
                 at: workspaceURL,
                 rules: rules,
                 isCurrent: { [weak self] in
-                    self?.isCurrentWorkspace(workspaceURL, generation: generation) == true
+                    self?.workspaceRebuildID == operationID && self?.isCurrentWorkspace(workspaceURL, generation: generation) == true
                 }
             )
         }
