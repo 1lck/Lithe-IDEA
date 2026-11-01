@@ -1242,12 +1242,32 @@ impl DeclarativePluginManifest {
     }
 
     fn validate_toolchains(&self) -> Validation<()> {
+        let build_toolchains = self.build_systems.iter().any(|system| {
+            system
+                .invocation
+                .executables
+                .iter()
+                .chain(
+                    system
+                        .invocation
+                        .runtime_dependencies
+                        .iter()
+                        .flat_map(|runtime| &runtime.executables),
+                )
+                .any(|candidate| {
+                    matches!(
+                        candidate.source,
+                        super::executables::ExecutableSource::Toolchain { .. }
+                    )
+                })
+        });
         if self.tool_definitions.is_empty()
+            && !build_toolchains
             && self.requires.get(capabilities::EXECUTABLE_RESOLUTION) == Some(&2)
         {
             return Err(invalid(
                 "requires.executableResolution",
-                "Executable resolution 2 is reserved to tool definitions.",
+                "Executable resolution 2 requires tool definitions or build toolchain candidates.",
             ));
         }
         if self.tool_definitions.is_empty() && self.toolchain_providers.is_empty() {

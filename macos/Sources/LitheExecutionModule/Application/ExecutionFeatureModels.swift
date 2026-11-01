@@ -173,10 +173,6 @@ package final class RunFeatureModel: ObservableObject {
         try service.validateProviderGeneration(for: configuration)
     }
 
-    package func buildProviderHints(for configuration: RunConfiguration, toolchain: String, workingDirectory: String) throws -> BuildProviderHints {
-        try service.buildProviderHints(for: configuration, toolchain: toolchain, workingDirectory: workingDirectory)
-    }
-
     package func options(for configuration: RunConfiguration) -> RunOptions {
         service.options(for: configuration)
     }

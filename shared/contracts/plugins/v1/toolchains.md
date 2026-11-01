@@ -8,8 +8,10 @@ reuses each enabled provider's plugin backend, sends `toolchains/query` through
 `lsp.toolchainRequest`, passes every raw reply with native facts to `decodeReply`,
 runs the definition's version probe on executables Core returns from
 `candidates`, and shows the result. Any change to a watched input reloads the
-whole snapshot. Nothing is saved, and no build, run or language-server launch
-uses the result yet. Windows is not connected.
+whole snapshot. Nothing is saved by these pages. The pinned Stage D integration
+adds a separate fresh-resolution adapter for macOS Build and Provider Run;
+settings detections are never used as launch permits. Existing Java and
+language-server consumers still use their previous adapters. Windows is not connected.
 The [broader proposal](proposals/toolchains/README.md) still describes unsupported
 consumer migration, native lifecycle, persistence and manager-plugin work.
 The active shape is [plugin-manifest.schema.json](plugin-manifest.schema.json),
@@ -23,6 +25,9 @@ not the proposal envelopes.
 `backend.launch` / `toolchains.provide`. Capability lists are exact: missing or
 unused capabilities reject the manifest. A definition/provider alone is a valid
 contribution. Old executable candidate sets retain their strict source types.
+Build consumers may also require executableResolution 2 for their existing
+`toolchain` candidate without contributing a definition; they do not gain
+definition-owned candidate fields.
 
 Definitions own IDs, labels/icons, `executableLayouts`, ordered `executables`,
 `version`, `homeLayouts`, `discovery`, `homeVariable`, `commands`, `wrappers`,

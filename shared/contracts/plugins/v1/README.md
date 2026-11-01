@@ -3068,16 +3068,20 @@ without it reject new-style plugins before decoding unknown fields. Published
 See [`build-tool-path.plugin.json`](fixtures/build-tool-path.plugin.json).
 
 With `executableResolution: 2`, a candidate may use
-`{ "kind": "toolchain", "toolchainID": "project-maven" }` (or another registered
-host toolchain ID). Core adds the normalized instance `root`; the native adapter
-uses the existing Run toolchain registry and canonical local project/subproject
-selection. Unavailable selections are terminal, including when a prerequisite
-runtime fails first; they cannot silently fall back to Provider discovery.
+`{ "kind": "toolchain", "toolchainID": "org.example.compiler:compiler" }`.
+Core accepts the same short/qualified ID grammar as tool definitions and adds the
+normalized instance `root`. The macOS adapter resolves installed definitions
+against fresh native evidence and directory pins. Existing host registry IDs
+remain only for their unmigrated consumers. Unavailable selections are terminal,
+including when a prerequisite runtime fails first; they cannot silently fall
+back to Provider discovery.
 Host-managed `java`, `node` or `go` dependencies may select one such candidate,
-while retaining Core's version probe. Maven declares `project-maven-jdk` for its
-Java dependency so the Maven JDK is distinct from the Provider's own runtime.
-Passive import uses a discovery-only registry route and performs no version or
-runtime probes. A toolchain that resolves to a project file remains project code,
+while retaining Core's version probe. Maven declares its namespace-owned tool
+and the official Java definition for its Java prerequisite; no Maven-specific
+JDK registry entry is added. Its backend bootstrap remains a separate consumer.
+Passive import performs no version or runtime probes; a definition that requires
+verification is not reported as an already verified import executable.
+A toolchain that resolves to a project file remains project code,
 including through a symlink, and native configuration requires explicit Read
 before running it. See [`build-toolchains.plugin.json`](fixtures/build-toolchains.plugin.json).
 

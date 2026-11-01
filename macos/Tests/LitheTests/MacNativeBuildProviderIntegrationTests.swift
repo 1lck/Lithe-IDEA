@@ -13,6 +13,54 @@ import Testing
 struct MacNativeBuildProviderIntegrationTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
                    "Requires the stage D Maven package and selected Java/Maven"))
+    func installedDefinitionsResolveTheRealBuildAndRuntimeThroughDirectoryPins() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
+        let javaPath = try #require(environment["LITHE_STAGE_C_JAVA"])
+        let mavenPath = try #require(environment["LITHE_STAGE_C_MAVEN"])
+        let java = try #require(MacToolchainDiscovery.realpath(javaPath))
+        let maven = try #require(MacToolchainDiscovery.realpath(mavenPath))
+        let javaHome = URL(fileURLWithPath: java).deletingLastPathComponent().deletingLastPathComponent().path
+        let mavenHome = URL(fileURLWithPath: maven).deletingLastPathComponent().deletingLastPathComponent().path
+        let files = FileManager.default
+        let workspace = files.temporaryDirectory.appendingPathComponent("lithe-native-defined-tools-\(UUID().uuidString)")
+        try files.createDirectory(at: workspace.appendingPathComponent(".lithe/toolchains"), withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: workspace) }
+        let manifest = try Data(contentsOf: package.appendingPathComponent("plugin.json"))
+        let javaPackage = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("Plugins/mac/Official/JavaSupport")
+        let sources: [ToolchainSettingsPluginSource] = [
+            .init(pluginID: "io.github.lithe-idea.maven-build", name: "Maven", manifest: manifest, isEnabled: true),
+            .init(pluginID: "dev.lithe.plugin.java-support", name: "Java", manifest: try Data(contentsOf: javaPackage.appendingPathComponent("plugin.json")),
+                  isEnabled: true, verifiedOfficial: true)
+        ]
+        let before = try Self.inventory(package), javaBefore = try Self.inventory(javaPackage)
+        try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": [".": [
+            "java": ["home": javaHome, "version": "selected", "provider": "host:manual"],
+            "io.github.lithe-idea.maven-build:maven": ["home": mavenHome, "version": "selected", "provider": "host:manual"]
+        ]]]).write(to: workspace.appendingPathComponent(".lithe/toolchains/local.json"))
+        let defined = MacDefinedToolchainResolver()
+        defined.sources = { sources }
+        let runtime = ProjectRuntimeService(runtimeLocator: MacRuntimeLocator(), store: NativeDefinedToolPreferences())
+        runtime.openProject(at: workspace)
+        defer { runtime.closeProject() }
+        let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage(), definedTools: defined)
+        let core = RustBuildSystemOperations(core: RustCoreBridge())
+        let target = BuildSystemTarget(manifest: manifest, buildSystemID: "maven")
+        let invocation = try core.invocationPlan(target, root: ".", settings: [:])
+        #expect(resolver.languageImportExecutable(invocation, workspaceURL: workspace) == nil)
+        let selected = try await resolver.resolve(invocation, displayName: "Maven", workspaceURL: workspace) { runtime, output in
+            try core.checkToolVersion(target, runtime: runtime, output: output)
+        }
+        #expect(selected.executableURL.path == maven)
+        #expect(selected.environment["JAVA_HOME"] == javaHome)
+        #expect(selected.version != nil && !selected.executesProjectCode)
+        #expect(selected.providerEnvironment["JAVA_HOME"] == javaHome)
+        #expect(try Self.inventory(package) == before)
+        #expect(try Self.inventory(javaPackage) == javaBefore)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D Maven package and selected Java/Maven"))
     func runProfileUsesOneMavenModelAndSavedGenerationTracksDefaultProfileChanges() async throws {
         try await verifyRunConfigurationPreparation(savedTaskOnly: false)
     }
@@ -527,4 +575,13 @@ final class ExplicitProviderRuntime: BuildToolResolving, LanguageToolRuntimePort
     func executableCandidates(_ command: String) -> [RuntimeToolCandidate] { [] }
     func languageToolProcessEnvironment(runtimeTools: [String]) -> [String: String] { environment }
     func missingLanguageToolMessage(_ name: String) -> String { name }
+}
+
+/// This integration never reads or writes the user's saved runtime preferences.
+private struct NativeDefinedToolPreferences: KeyValueStore {
+    func data(forKey key: String) -> Data? { nil }
+    func object(forKey key: String) -> Any? { nil }
+    func string(forKey key: String) -> String? { nil }
+    func stringArray(forKey key: String) -> [String]? { nil }
+    func set(_ value: Any?, forKey key: String) {}
 }

@@ -245,12 +245,15 @@ package struct ResolvedRunExecutable: Sendable {
 
 @MainActor
 package protocol RunExecutableResolving: AnyObject {
+    /// Acquires fresh plugin-defined tools before the synchronous process handoff.
+    func prepare(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) async throws -> ResolvedRunExecutable?
     func resolve(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) throws -> ResolvedRunExecutable
     func refreshCandidates(projectURL: URL) async
     func candidates(projectURL: URL) -> [ProjectToolchainCandidate]
 }
 
 package extension RunExecutableResolving {
+    func prepare(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) async throws -> ResolvedRunExecutable? { nil }
     func refreshCandidates(projectURL _: URL) async {}
     func candidates(projectURL _: URL) -> [ProjectToolchainCandidate] { [] }
 

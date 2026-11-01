@@ -191,6 +191,18 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 - `Plugins/mac/`
 - `Plugins/win/`
 
+## 阶段 D 的固定提交预集成
+
+#1495 在用户授权下先固定本提案的 `b87c7f6` 做集成验证，暂不改变合并与发行顺序。
+Build 和 Provider Run 新增独立的运行前解析，复用这里的扫描、查询和 Core 规则；不读取
+设置页的检测结果来授权进程。用户目录 pin 只读，解析后重新核对原生路径、安装与来源
+文件身份、工作区上下文及插件清单；Wrapper 只在显式执行时允许，不作被动版本探测。
+
+Maven 社区插件使用 `<plugin-id>:maven` 定义，Java Support 的短 ID 仍要求独立官方来源
+证明。`executableResolution: 2` 同时供工具定义和已有 Build toolchain 候选使用，不能把
+后者误判成“没有定义就未使用能力”，也不能放开旧候选的未知字段。Windows 和旧 Java
+消费者的切换尚未完成，原有选择链只可随真实消费者迁移逐项删除。
+
 ## macOS 查询客户端的取舍
 
 - 复用 `MacPluginBackendSessions` 的单插件单进程，不另起进程：查询与页面调用共用同一后端和设置重启规则。协商结果在 Core 会话状态里，未协商的提供方由 Core 拒绝，不写到进程。

@@ -674,9 +674,7 @@ package final class BuildSystemService: ObservableObject {
                 return RunProjectOwnership(path: project.path, mavenReactorPath: reactor,
                     contentRoots: model.contentRoots.filter { $0.projectID == project.id && ["source", "testSource", "generatedSource", "generatedTestSource"].contains($0.kind) }
                         .map { RunProjectOwnership.SourceRoot(path: $0.path, kind: $0.kind) },
-                    name: project.name, minimumJavaVersion: project.properties["java.minimumVersion"],
-                    mavenMinimumVersion: reactor == nil ? nil : project.properties["maven.minimumVersion"],
-                    mavenWrapper: project.properties["maven.wrapper"].flatMap { script in reactor.map { $0 == "." ? script : $0 + "/" + script } })
+                    name: project.name, minimumJavaVersion: project.properties["java.minimumVersion"])
             }
         }
     }
@@ -1117,7 +1115,9 @@ package final class BuildSystemService: ObservableObject {
             }.value
             guard isValid() else { throw CancellationError() }
             guard let launcher = service.runLauncher else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
-            let operationID = try launcher.launchPreparedRun(preparation, workspaceURL: workspaceURL, title: title, configuration: origin)
+            let executable = try await launcher.prepareRunExecutable(preparation, workspaceURL: workspaceURL, configuration: origin)
+            guard isValid() else { throw CancellationError() }
+            let operationID = try launcher.launchPreparedRun(preparation, workspaceURL: workspaceURL, title: title, configuration: origin, resolvedExecutable: executable)
             service.preparedApplication = (entry.source, operationID)
             service.applicationLaunched.send(entryID)
             return 0

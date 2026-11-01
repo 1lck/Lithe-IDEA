@@ -63,7 +63,6 @@ extension AppModel {
         if !options.activeProfiles.isEmpty { overrides["profiles"] = .array(options.activeProfiles.sorted().map(ToolingJSONValue.string)) }
         let prepared = try await builds.prepareLanguageRun(fileURL: fileURL, workspace: identity.url,
             purpose: "run", optionOverrides: overrides,
-            tool: { root in try run.buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: root) },
             isCurrent: { [weak self] in self?.isCurrentWorkspace(identity) == true })
         guard case .maven(let context)? = prepared else {
             throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration."))

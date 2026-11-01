@@ -397,8 +397,9 @@ final class MacServiceContainer {
         // can be connected; nothing starts until a model or dependency load.
         let remotePluginLaunches = MacRemotePluginLaunchPreparer(registry: remoteWorkspaces, packages: remotePluginPackages,
             host: remoteOperations, planner: declarativePluginOperations, resolver: pluginLaunchResolver, core: rustCore)
+        let definedToolchains = MacDefinedToolchainResolver()
         let providerTools = MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage,
-            registry: remoteWorkspaces, remoteFiles: remoteOperations, remoteProcesses: remoteOperations)
+            registry: remoteWorkspaces, remoteFiles: remoteOperations, remoteProcesses: remoteOperations, definedTools: definedToolchains)
         let buildProviderSessions = MacBuildProviderSessions(
             launchResolver: pluginLaunchResolver,
             tools: providerTools,
@@ -462,7 +463,7 @@ final class MacServiceContainer {
                                                             fileStorage: fileStorage, platformUI: platformUI))
             let sessions = MacPluginBackendSessions(
                 launchResolver: pluginLaunchResolver,
-                tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+                tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage, definedTools: definedToolchains),
                 versionChecker: declarativePluginOperations,
                 runtime: runtimeService,
                 core: rustCore,
@@ -631,7 +632,8 @@ final class MacServiceContainer {
                         runtimeService: runtimeService,
                         toolchainRegistry: runToolchainRegistry,
                         metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner),
-                        environmentResolver: rustCore
+                        environmentResolver: rustCore,
+                        definedTools: definedToolchains
                     )
                     let runService = RunService(
                         runtime: runtimeService,
@@ -658,7 +660,8 @@ final class MacServiceContainer {
                             fileStorage: fileStorage,
                             registry: remoteWorkspaces,
                             remoteFiles: remoteOperations,
-                            remoteProcesses: remoteOperations
+                            remoteProcesses: remoteOperations,
+                            definedTools: definedToolchains
                         ),
                         optionsStore: MacBuildOptionsStore(store: store, storage: fileStorage,
                             immutableRoots: [Bundle.main.bundleURL] + pluginPackageStore.runtimeReadOnlyDirectories),
@@ -1237,47 +1240,49 @@ final class MacServiceContainer {
         )
         let installedPlugins = pluginStartup.registeredPlugins
         services.loginShellEnvironmentInspector = MacLoginShellEnvironment.shared
-        services.toolchainSettingsLoader = MacToolchainSettingsLoader(
-            sources: { [pluginManager] in
-                let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
-                return installedPlugins.map { plugin in
-                    ToolchainSettingsPluginSource(
-                        pluginID: plugin.descriptor.id.rawValue,
-                        name: plugin.manifest.displayName,
-                        manifest: plugin.descriptor.normalizedManifest,
-                        isEnabled: enabled.contains(plugin.descriptor.id),
-                        // Short tool IDs need an official catalog entry installed through a verified channel.
-                        verifiedOfficial: OfficialPluginCatalog.entry(for: plugin.descriptor.id) != nil
-                            && [.bundled, .marketplace].contains(plugin.installation.origin)
-                    )
-                }
+        let toolchainSources: @MainActor @Sendable () -> [ToolchainSettingsPluginSource] = { [pluginManager] in
+            let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
+            return installedPlugins.map { plugin in
+                ToolchainSettingsPluginSource(
+                    pluginID: plugin.descriptor.id.rawValue,
+                    name: plugin.manifest.displayName,
+                    manifest: plugin.descriptor.normalizedManifest,
+                    isEnabled: enabled.contains(plugin.descriptor.id),
+                    // Short tool IDs need an official catalog entry installed through a verified channel.
+                    verifiedOfficial: OfficialPluginCatalog.entry(for: plugin.descriptor.id) != nil
+                        && [.bundled, .marketplace].contains(plugin.installation.origin)
+                )
+            }
+        }
+        let rootIDs = PluginWorkspaceRootIDs(
+            secret: MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)))
+        let toolchainDiscovery = MacToolchainDiscovery(
+            queryProvider: { pluginID, providerID, params, timeout in
+                try await pluginBackends.queryToolchainProvider(
+                    providerID, params: params, ofPlugin: pluginID, timeout: timeout)
             },
+            workspaceContext: { workspace, pluginID in
+                await MainActor.run {
+                    let path = workspace.standardizedFileURL.path
+                    for context in PluginWorkspaceContexts.shared.contexts {
+                        guard case .local = context.authority,
+                              let folder = context.folders.first(where: { $0.localURL.standardizedFileURL.path == path })
+                        else { continue }
+                        return MacToolchainDiscovery.WorkspaceContext(
+                            contextID: context.contextID, generation: context.generation,
+                            rootID: rootIDs.rootID(of: folder.location, pluginID: pluginID))
+                    }
+                    return nil
+                }
+            }
+        )
+        definedToolchains.sources = toolchainSources
+        definedToolchains.discovery = toolchainDiscovery
+        services.toolchainSettingsLoader = MacToolchainSettingsLoader(
+            sources: toolchainSources,
             directories: { [weak services] _ in services?.toolchainSettingsDirectories?() ?? [] },
             isRemoteWorkspace: { remoteWorkspaces.contains($0) },
-            discover: { [pluginBackends, fileStorage] request in
-                let rootIDs = PluginWorkspaceRootIDs(
-                    secret: MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)))
-                return await MacToolchainDiscovery(
-                    queryProvider: { pluginID, providerID, params, timeout in
-                        try await pluginBackends.queryToolchainProvider(
-                            providerID, params: params, ofPlugin: pluginID, timeout: timeout)
-                    },
-                    workspaceContext: { workspace, pluginID in
-                        await MainActor.run {
-                            let path = workspace.standardizedFileURL.path
-                            for context in PluginWorkspaceContexts.shared.contexts {
-                                guard case .local = context.authority,
-                                      let folder = context.folders.first(where: { $0.localURL.standardizedFileURL.path == path })
-                                else { continue }
-                                return MacToolchainDiscovery.WorkspaceContext(
-                                    contextID: context.contextID, generation: context.generation,
-                                    rootID: rootIDs.rootID(of: folder.location, pluginID: pluginID))
-                            }
-                            return nil
-                        }
-                    }
-                ).discover(request)
-            }
+            discover: { request in await toolchainDiscovery.discover(request) }
         )
         services.toolchainInputWatcher = MacToolchainInputWatcher()
         services.projectGeneratorSources = { [pluginManager] in

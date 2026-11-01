@@ -19,6 +19,7 @@ final class MacBuildToolResolver: BuildToolResolving {
     private let processRunner: any ProcessRunner
     private let fileStorage: any FileStorage
     private let toolchains: RunToolchainRegistry
+    private let definedTools: (any DefinedToolchainResolving)?
     private let registry: RemoteWorkspaceRegistry?
     private let remoteFiles: (any RemoteBuildFileProbing)?
     private let remoteProcesses: (any RemoteProcessRunning)?
@@ -28,7 +29,7 @@ final class MacBuildToolResolver: BuildToolResolving {
 
     init(runtime: ProjectRuntimeService, processRunner: any ProcessRunner, fileStorage: any FileStorage,
          toolchains: RunToolchainRegistry? = nil, registry: RemoteWorkspaceRegistry? = nil, remoteFiles: (any RemoteBuildFileProbing)? = nil,
-         remoteProcesses: (any RemoteProcessRunning)? = nil) {
+         remoteProcesses: (any RemoteProcessRunning)? = nil, definedTools: (any DefinedToolchainResolving)? = nil) {
         self.runtime = runtime
         self.processRunner = processRunner
         self.fileStorage = fileStorage
@@ -36,6 +37,7 @@ final class MacBuildToolResolver: BuildToolResolving {
         self.remoteFiles = remoteFiles
         self.remoteProcesses = remoteProcesses
         self.toolchains = toolchains ?? .standard()
+        self.definedTools = definedTools
     }
 
     func resolve(
@@ -63,7 +65,7 @@ final class MacBuildToolResolver: BuildToolResolving {
 
         var problems: [String] = []
         let resolver = try await preparedResolver(runtimeExecutables, candidates: invocation.executables,
-                                                  workspaceURL: workspaceURL, environment: environment)
+                                                  workspaceURL: workspaceURL, environment: environment, minimumVersion: invocation.minimumVersion)
         for candidate in invocation.executables {
             switch resolver.resolve(candidate, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {
             case .skip: continue
@@ -128,9 +130,22 @@ final class MacBuildToolResolver: BuildToolResolving {
 
     private func preparedResolver(
         _ runtimes: [String: URL], candidates: [ExecutableCandidate], workspaceURL: URL,
-        environment: [String: String]
+        environment: [String: String], minimumVersion: String? = nil
     ) async throws -> ExecutableCandidateResolver {
-        guard let binding = registry?.resolve(workspaceURL)?.binding else { return candidateResolver(runtimes, workspaceURL: workspaceURL) }
+        var definitions: [String: ExecutableResolution] = [:]
+        for candidate in candidates {
+            guard case .toolchain(let id, let root) = candidate, !toolchains.contains(identifier: id) else { continue }
+            guard registry?.contains(workspaceURL) != true, let definedTools,
+                  let selected = try await definedTools.resolve(tool: id, directory: root, workspace: workspaceURL,
+                      environment: environment, minimumVersion: minimumVersion, projectCodeAllowed: true) else {
+                throw BuildToolResolutionError(L10n.string("The selected toolchain is unavailable."), terminal: true)
+            }
+            definitions[id + "\n" + root] = .resolved([.init(url: selected.executable,
+                executesProjectCode: selected.projectCode, terminal: true, environment: selected.environment)])
+        }
+        guard let binding = registry?.resolve(workspaceURL)?.binding else {
+            return candidateResolver(runtimes, workspaceURL: workspaceURL, definitions: definitions)
+        }
         guard let remoteFiles else { throw CocoaError(.featureUnsupported) }
         var paths = Set<URL>()
         var commands: [String: [URL]] = [:]
@@ -177,11 +192,13 @@ final class MacBuildToolResolver: BuildToolResolving {
             toolchains: candidateResolver(runtimes, workspaceURL: workspaceURL).toolchains)
     }
 
-    private func candidateResolver(_ runtimes: [String: URL], workspaceURL: URL, passive: Bool = false) -> ExecutableCandidateResolver {
+    private func candidateResolver(_ runtimes: [String: URL], workspaceURL: URL, passive: Bool = false,
+                                   definitions: [String: ExecutableResolution] = [:]) -> ExecutableCandidateResolver {
         ExecutableCandidateResolver(fileExists: { [fileStorage] in fileStorage.fileExists(at: $0) },
             isExecutable: { [fileStorage] in fileStorage.metadata(for: $0)?.isDirectory == false && fileStorage.isExecutable(at: $0) },
             commands: { [self] in commandCandidates($0) }, runtimes: { runtimes[$0] },
             toolchains: { [self] id, root in
+                if let selected = definitions[id + "\n" + root] { return selected }
                 guard runtime.reloadSettings() else { return .terminalFailure(runtime.settingsError ?? "") }
                 let options = runtime.settings.overlay(onto: RunOptions(), workspaceRelativePath: root)
                 let project = root == "." ? workspaceURL : workspaceURL.appendingPathComponent(root)
@@ -254,7 +271,7 @@ final class MacBuildToolResolver: BuildToolResolving {
             ? (dependency.id == "java" ? [.runtime("java")] : [.command(dependency.id)])
             : dependency.executables
         let resolver = try await preparedResolver(javaHome.map { ["java": $0.appendingPathComponent("bin/java")] } ?? [:],
-            candidates: sources, workspaceURL: workspaceURL, environment: environment)
+            candidates: sources, workspaceURL: workspaceURL, environment: environment, minimumVersion: dependency.minimumVersion)
         var problems: [String] = []
         for source in sources {
             switch resolver.resolve(source, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {

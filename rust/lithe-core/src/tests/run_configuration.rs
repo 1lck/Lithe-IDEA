@@ -788,9 +788,9 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["wrapper"],
         "./mvnw"
     );
-    assert_eq!(
-        response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"],
-        "3.9.9"
+    assert!(
+        response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"]
+            .is_null()
     );
     assert!(
         response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["version"]
@@ -2505,9 +2505,9 @@ fn run_configuration_generation_detects_declared_toolchain_versions() {
         generated["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["preferredVendor"],
         "temurin"
     );
-    assert_eq!(
-        generated["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"],
-        "3.9.9"
+    assert!(
+        generated["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"]
+            .is_null()
     );
     assert!(
         generated["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["version"]
@@ -5499,21 +5499,11 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         output["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
         fixture["expected"]["minimumJavaVersion"]
     );
-    assert_eq!(
-        output["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["minimumVersion"],
-        fixture["expected"]["minimumMavenVersion"]
-    );
-    assert_eq!(
-        output["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["wrapper"],
-        fixture["expected"]["mavenWrapper"]
-    );
-    let single = generate(
-        serde_json::json!([{"path":"alpha/app", "mavenReactorPath":"alpha", "mavenMinimumVersion":"3.9.9", "mavenWrapper":"alpha/mvnw.cmd"}]),
-    );
-    assert_eq!(
-        single["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["wrapper"],
-        "alpha/mvnw.cmd"
-    );
+    // Build tool versions and wrappers belong to installed definitions/providers,
+    // even when exactly one imported reactor exists.
+    assert!(output["data"]["toolchainRequirements"]["toolchains"]["project-maven"].is_null());
+    let single = generate(serde_json::json!([{"path":"alpha/app", "mavenReactorPath":"alpha"}]));
+    assert!(single["data"]["toolchainRequirements"]["toolchains"]["project-maven"].is_null());
     // Same display names do not define identity; selectors belong to their provider.
     assert_eq!(
         output["data"]["generated"]["configurations"]
@@ -5560,8 +5550,6 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
     for (field, value) in [
         ("name", serde_json::json!("renamed")),
         ("minimumJavaVersion", serde_json::json!("23")),
-        ("mavenMinimumVersion", serde_json::json!("4.0.0")),
-        ("mavenWrapper", serde_json::json!("alpha/mvnw.cmd")),
         ("contentRoots", serde_json::json!([])),
     ] {
         let mut changed = original.clone();

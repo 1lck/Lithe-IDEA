@@ -12,12 +12,9 @@ package struct RunProjectOwnership: Codable, Equatable, Sendable {
     package let path: String
     package let name: String?
     package let minimumJavaVersion: String?
-    package let mavenMinimumVersion: String?
-    package let mavenWrapper: String?
     package let mavenReactorPath: String?
     package let contentRoots: [SourceRoot]
-    package init(path: String, mavenReactorPath: String?, contentRoots: [SourceRoot], name: String? = nil, minimumJavaVersion: String? = nil, mavenMinimumVersion: String? = nil, mavenWrapper: String? = nil) {
-        self.mavenMinimumVersion = mavenMinimumVersion; self.mavenWrapper = mavenWrapper
+    package init(path: String, mavenReactorPath: String?, contentRoots: [SourceRoot], name: String? = nil, minimumJavaVersion: String? = nil) {
         self.minimumJavaVersion = minimumJavaVersion
         self.name = name
         self.path = path; self.mavenReactorPath = mavenReactorPath; self.contentRoots = contentRoots

@@ -19,7 +19,7 @@ struct BuildSystemServiceTests {
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
         let ownership = try harness.service.runProjectOwnership()
         #expect(ownership == [RunProjectOwnership(path: "app", mavenReactorPath: "app",
-            contentRoots: [.init(path: "app/checks", kind: "testSource")], name: "App", minimumJavaVersion: "21", mavenMinimumVersion: "3.9.9", mavenWrapper: "app/mvnw.cmd")])
+            contentRoots: [.init(path: "app/checks", kind: "testSource")], name: "App", minimumJavaVersion: "21")])
         harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
         #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)

@@ -114,6 +114,41 @@ Windows Run/Build 回归和生产 bundle/typecheck 已通过，最终计数随�
 下一步接 toolDefinitions/toolchainProviders，删除宿主专属工具注册和对应旧元数据。
 Windows 实机验证使用现有 Windows CI，避免在无 Parallels 的本机声称原生通过。
 
+### 固定工具链基础的预集成（2026-11-01）
+
+用户已授权先固定 #1581 的 `b87c7f60dd80f851695d7052b5287a5c93c7fa46`，在独立工作树
+合入验证；宿主合入检查点为 `c4c74fb8a`。这不改变三个 PR 保持 Draft、暂不合并和发布
+的限制。该依赖包含的设置页仍只读，不能把页面的探测结果直接当成启动许可。
+
+本轮增加单次操作的原生解析：复用定义扫描和 Provider 查询，重新读取目录 pin、原生
+文件事实与版本证据，交给相同的 Core 四层解析器。构建声明的最低版本参与选择，固定
+路径失效时不回落；工作区 Wrapper 只在明确执行时准许，不在打开工程时探测。工具包、
+应用资源和插件资源均不写入。Maven 插件使用自己的命名空间工具 ID，Java 短 ID 只由
+具有独立官方来源证明的 Java Support 定义，不把社区 ID 伪装成官方贡献。
+
+已删除阶段 D 新增的 `project-maven-jdk` 注册和 Java 准备入口的 Maven 工具名分支；
+原有 `project-maven` 仍由 Java 旧消费者使用，不能在它们完成切换前删除。归属投影中
+新增的 `mavenMinimumVersion`、`mavenWrapper` 以及 Core Wrapper properties 解析已移除；
+Java 导入 reactor 字段暂留，精确删除仍需连同当前 Java/Windows 消费者完成。
+
+Windows 前端在该固定集成上已完成 typecheck、生产构建和 456 项 Run/Build 回归，
+这仍是 macOS 主机验证。原生 Windows 使用现有 CI；当前尚未触发整机作业，也不宣称
+Windows 的工具定义解析器、Registry 调试、旧 Maven 入口替换或阶段 D 已完成。旧工具
+路径的无损转移、原生产品完整验收、正式依赖发布仍在待办中。
+
+本轮固定组合的最终回归：Core 1,573 项、macOS 318 项与真实工具解析 1 项、Windows
+前端 456 项通过；真实 Core→Maven 20 步、Windows TypeScript→Core→Maven 11 步通过。
+真实工具解析使用目录 pin 选择指定 Maven/JDK，耗时 1.116 秒，并比较 Maven 包和 Java
+Support 目录清单不变。运行准备直接返回操作持有的解析值，不留跨 Run 的可消费缓存槽。
+Windows Cargo 在 macOS 的两处平台 API 失败与既有基线一致，不能算原生 Windows 通过。
+报告为 `.artifacts/test-stability/stage-d-defined-core-final.html`、
+`stage-d-defined-tools-macos-final-v2.html`、`stage-d-real-defined-tools-v2.html` 与
+`stage-d-pin-windows.html`；Maven 仓库报告位于其 `stage-d-defined-tools-native-v2/` 和
+`stage-d-defined-windows/`。首次检查的命名空间与规范路径断言失败记录保留，不放宽门槛。
+提供方不可用补充回归通过 34 项（与前述 macOS 回归重叠），另有 1 项条件跳过；SDK 的
+Node/Java/Rust 和 Build/配置/报告/运行选项端到端共 6 项在当前固定宿主源码组合通过。
+汇总报告 `stage-d-pinned-integration-summary.html` 已在浏览器检查，无失败或硬预算超限。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

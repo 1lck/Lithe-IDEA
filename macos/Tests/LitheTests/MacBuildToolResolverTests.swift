@@ -7,38 +7,62 @@ import Testing
 @MainActor
 struct MacBuildToolResolverTests {
     @Test
-    func canonicalToolchainsKeepEachRootAndSendOnlySelectedEnvironment() async throws {
+    func definedToolchainsKeepEachRootAndSendOnlySelectedEnvironment() async throws {
         let files = FileManager.default
-        let scratch = files.temporaryDirectory.appendingPathComponent("lithe-build-toolchains-\(UUID().uuidString)")
+        let scratch = files.temporaryDirectory.appendingPathComponent("lithe-defined-build-tools-\(UUID().uuidString)")
         defer { try? files.removeItem(at: scratch) }
         let workspace = scratch.appendingPathComponent("workspace")
-        try files.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try files.createDirectory(at: workspace.appendingPathComponent(".lithe/toolchains"), withIntermediateDirectories: true)
         let marker = scratch.appendingPathComponent("probe-ran")
-        var settings = ProjectRuntimeSettings()
+        var pins: [String: [String: Any]] = [:]
         for root in ["a", "b"] {
-            let home = scratch.appendingPathComponent("\(root) jdk")
-            let tool = scratch.appendingPathComponent("\(root) tool/mvn")
-            for (url, output) in [(home.appendingPathComponent("bin/java"), "openjdk version 21.0.1"), (tool, "Fixture 1.0")] {
+            let vm = scratch.appendingPathComponent("\(root) vm")
+            let tool = scratch.appendingPathComponent("\(root) tool")
+            for (url, output) in [(vm.appendingPathComponent("bin/vm"), "VM 21"), (tool.appendingPathComponent("bin/worker"), "Fixture 1.0")] {
                 try files.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Data("#!/bin/sh\ntouch '\(marker.path)'\nprintf '%s\\n' '\(output)'\n".utf8).write(to: url)
                 try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
             }
-            settings.setOverride(path: root, javaHomePath: home.path, mavenExecutablePath: tool.path, mavenJavaHomePath: home.path)
+            pins[root] = ["compiler": ["home": tool.path, "version": "1.0", "provider": "host:manual"],
+                          "vm": ["home": vm.path, "version": "21", "provider": "host:manual"]]
         }
-        let preferences = ToolchainPreferenceStore()
-        let store = MacProjectRuntimeSettingsStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
-        let empty = try store.load(at: workspace, migrateLegacy: false)
-        _ = try store.save(settings, at: workspace, expecting: empty)
-        let runtime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), settingsStore: store)
+        let local = workspace.appendingPathComponent(".lithe/toolchains/local.json")
+        try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": pins]).write(to: local)
+        let definitions: [[String: Any]] = [("compiler", "worker", "Fixture", []),
+            ("vm", "vm", "VM", [["name": "JAVA_HOME", "value": "${home}"]])].map { id, executable, label, exports in
+            ["id": id, "displayName": label, "executableLayouts": [["path": "bin/" + executable]],
+             "executables": [["id": "pinned", "kind": "setting", "settingID": "executable", "layer": "project"], ["id": "shell", "kind": "command", "command": executable]],
+             "version": ["arguments": ["--version"], "pattern": label + #" (\d+(?:\.\d+)*)"#],
+             "commands": [executable], "exports": exports, "pathPrepend": ["${home}/bin"], "launch": ["${executable}", "${arguments}"]]
+        }
+        let source = ToolchainSettingsPluginSource(pluginID: "dev.lithe.fixture.build-tools", name: "Fixture",
+            manifest: try JSONSerialization.data(withJSONObject: ["schemaVersion": 2, "id": "dev.lithe.fixture.build-tools",
+                "displayName": "Fixture", "version": "1.0.0", "pluginAPIVersion": 3,
+                "requires": ["toolDefinitions": 1, "executableResolution": 2],
+                "vendor": ["id": "org.example", "displayName": "Fixture", "signatureRequirement": "publisherPackage"],
+                "permissions": [], "toolDefinitions": definitions]), isEnabled: true, verifiedOfficial: true)
+        let defined = MacDefinedToolchainResolver()
+        defined.sources = { [source] }
+        let runtime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), store: ToolchainPreferenceStore())
         runtime.openProject(at: workspace)
-        let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage())
+        let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage(), definedTools: defined)
         let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-toolchains.plugin.json")
-        let target = BuildSystemTarget(manifest: try Data(contentsOf: fixture), buildSystemID: "cargo")
+        let text = try String(contentsOf: fixture, encoding: .utf8)
+            .replacingOccurrences(of: "project-maven-jdk", with: "vm").replacingOccurrences(of: "project-maven", with: "compiler")
+        var manifest = try #require(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        var systems = try #require(manifest["buildSystems"] as? [[String: Any]])
+        var invocationJSON = try #require(systems[0]["invocation"] as? [String: Any])
+        var dependencies = try #require(invocationJSON["runtimeDependencies"] as? [[String: Any]])
+        dependencies[0]["id"] = "vm"
+        dependencies[0]["version"] = ["arguments": ["--version"], "pattern": #"VM (\d+)"#]
+        invocationJSON["runtimeDependencies"] = dependencies
+        systems[0]["invocation"] = invocationJSON
+        manifest["buildSystems"] = systems
+        let target = BuildSystemTarget(manifest: try JSONSerialization.data(withJSONObject: manifest), buildSystemID: "cargo")
         let core = RustBuildSystemOperations(core: RustCoreBridge())
         for root in ["a", "b"] {
             let invocation = try core.invocationPlan(target, root: root, settings: [:])
-            let expected = scratch.appendingPathComponent("\(root) tool/mvn")
-            #expect(resolver.languageImportExecutable(invocation, workspaceURL: workspace) == expected)
+            #expect(resolver.languageImportExecutable(invocation, workspaceURL: workspace) == nil)
             #expect(!files.fileExists(atPath: marker.path))
         }
         for root in ["a", "b"] {
@@ -46,20 +70,18 @@ struct MacBuildToolResolverTests {
             let tool = try await resolver.resolve(invocation, displayName: "Fixture", workspaceURL: workspace) { runtime, output in
                 try core.checkToolVersion(target, runtime: runtime, output: output)
             }
-            let home = scratch.appendingPathComponent("\(root) jdk").path
-            #expect(tool.executableURL == scratch.appendingPathComponent("\(root) tool/mvn"))
+            let executable = try #require(MacToolchainDiscovery.realpath(scratch.appendingPathComponent("\(root) tool/bin/worker").path))
+            let home = try #require(MacToolchainDiscovery.realpath(scratch.appendingPathComponent("\(root) vm").path))
+            #expect(tool.executableURL == URL(fileURLWithPath: executable))
             #expect(tool.environment["JAVA_HOME"] == home)
-            #expect(tool.providerEnvironment["JAVA_HOME"] == home)
+            #expect(tool.providerEnvironment["JAVA_HOME"] == tool.environment["JAVA_HOME"])
             #expect(tool.environment["FIXTURE_SECRET"] == "test-only-secret")
             #expect(tool.providerEnvironment["FIXTURE_SECRET"] == nil)
             #expect(!tool.executesProjectCode)
         }
-        let baseline = try store.load(at: workspace, migrateLegacy: false)
-        var invalid = baseline.settings
-        invalid.setOverride(path: "a", mavenExecutablePath: "/fixture/missing-tool")
-        _ = try store.save(invalid, at: workspace, expecting: baseline)
+        pins["a"]?["compiler"] = ["home": "/fixture/missing-tool", "version": "1", "provider": "host:manual"]
+        try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": pins]).write(to: local)
         let invocation = try core.invocationPlan(target, root: "a", settings: [:])
-        #expect(resolver.languageImportExecutable(invocation, workspaceURL: workspace) == nil)
         await #expect(throws: BuildToolResolutionError.self) {
             try await resolver.resolve(invocation, displayName: "Fixture", workspaceURL: workspace) { runtime, output in
                 try core.checkToolVersion(target, runtime: runtime, output: output)

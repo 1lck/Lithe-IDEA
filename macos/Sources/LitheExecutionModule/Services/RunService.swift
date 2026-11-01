@@ -263,12 +263,14 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: root)
         }.value
         guard valid(), latest == original else { throw CancellationError() }
+        let executable = try await prepareRunExecutable(prepared, workspaceURL: workspace, configuration: configuration)
+        guard valid() else { throw CancellationError() }
         try validateProviderGeneration(for: configuration)
         // Handoff is synchronous. Internal process replacement must not cancel
         // the preparation that has just produced this process.
         providerDebugPreparation = nil
         let operation = try launchPreparedRun(prepared, workspaceURL: workspace, title: configuration.name,
-            configuration: configuration, retainingIdentity: identity)
+            configuration: configuration, retainingIdentity: identity, resolvedExecutable: executable)
         providerDebugOperationID = operation
         transferred = true
         return operation
@@ -331,13 +333,15 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                     try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: providerRoot)
                 }.value
                 guard current(), latest == inputs else { throw CancellationError() }
+                let executable = try await self.prepareRunExecutable(prepared, workspaceURL: workspace, configuration: configuration)
+                guard current() else { throw CancellationError() }
                 try self.validateProviderGeneration(for: configuration)
                 if primary {
                     self.providerPrimaryPreparation = nil
-                    _ = try self.launchPreparedRun(prepared, workspaceURL: workspace, title: configuration.name, configuration: configuration, retainingIdentity: operationID)
+                    _ = try self.launchPreparedRun(prepared, workspaceURL: workspace, title: configuration.name, configuration: configuration, retainingIdentity: operationID, resolvedExecutable: executable)
                 } else {
                     self.providerModulePreparations[configuration.id] = nil
-                    self.startModuleSession(configuration, preparedPlan: prepared.launchPlan, preparationOperationID: operationID)
+                    self.startModuleSession(configuration, preparedPlan: prepared.launchPlan, preparationOperationID: operationID, resolvedExecutable: executable)
                 }
             } catch {
                 guard (primary ? self.primaryExecutionID == operationID : self.moduleOperationIDs[configuration.id] == operationID) else { return }
@@ -1226,29 +1230,35 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         run(configuration: configuration, currentFileURL: currentFileURL, javaLaunch: javaLaunch)
     }
 
-    /// Resolve a one-operation build tool through the same Run selection and
-    /// platform resolver as the application, without saving temporary overrides.
-    package func buildProviderHints(for configuration: RunConfiguration, toolchain: String, workingDirectory: String) throws -> BuildProviderHints {
-        guard let projectURL else { throw CancellationError() }
-        let context = try mavenContext(for: configuration)
-        let options = effectiveOptions(for: configuration, mavenContext: context)
-        let plan = SharedLaunchPlan(executable: .toolchain(toolchain), arguments: [],
-            workingDirectory: workingDirectory, environment: [:])
-        let resolved = try executableResolver.resolve(plan, projectURL: projectURL, options: options)
-        let environment = resolved.environment.filter { key, _ in
-            key == "JAVA_HOME" || key == "PATH" || options.environment[key] != nil
-        }
-        return BuildProviderHints(toolExecutable: resolved.executableURL, toolEnvironment: environment)
-    }
-
     /// A build provider has already prepared and Core has validated the launch.
     /// Reuse the native resolver/process/argument lease without a shadow run configuration.
+    package func prepareRunExecutable(_ preparation: BuildRunPreparation, workspaceURL: URL, configuration: RunConfiguration?) async throws -> ResolvedRunExecutable? {
+        let options: RunOptions
+        if let configuration {
+            options = effectiveOptions(for: configuration, mavenContext: try mavenContext(for: configuration))
+        } else {
+            let inspection = runConfigurationOperations.inspect(at: workspaceURL, checkFingerprint: false, javaEntrypoints: nil)
+            if case .invalid(let message) = inspection.status { throw RunConfigurationOperationFailure(message: message) }
+            let toolchain = inspection.projectToolchain ?? ProjectToolchainSelection()
+            options = RunOptions(javaHomePath: toolchain.javaHomePath, mavenExecutablePath: toolchain.mavenExecutablePath,
+                                 mavenJavaHomePath: toolchain.mavenJavaHomePath)
+        }
+        return try await executableResolver.prepare(preparation.launchPlan, projectURL: workspaceURL, options: options)
+    }
+
     package func launchPreparedRun(_ preparation: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration? = nil) throws -> String {
-        try launchPreparedRun(preparation, workspaceURL: workspaceURL, title: title, configuration: configuration, retainingIdentity: nil)
+        try launchPreparedRun(preparation, workspaceURL: workspaceURL, title: title, configuration: configuration,
+                              resolvedExecutable: nil)
+    }
+
+    package func launchPreparedRun(_ preparation: BuildRunPreparation, workspaceURL: URL, title: String,
+                                   configuration: RunConfiguration?, resolvedExecutable: ResolvedRunExecutable?) throws -> String {
+        try launchPreparedRun(preparation, workspaceURL: workspaceURL, title: title, configuration: configuration,
+                              retainingIdentity: nil, resolvedExecutable: resolvedExecutable)
     }
 
     private func launchPreparedRun(_ preparation: BuildRunPreparation, workspaceURL: URL, title: String,
-                                  configuration: RunConfiguration?, retainingIdentity: String?) throws -> String {
+                                  configuration: RunConfiguration?, retainingIdentity: String?, resolvedExecutable: ResolvedRunExecutable?) throws -> String {
         if retainingIdentity == nil { providerDebugConfigurationID = nil }
         let plan = preparation.launchPlan
         let workspace = workspaceURL.standardizedFileURL
@@ -1266,13 +1276,13 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         }
         let toolchain = inspection.projectToolchain ?? ProjectToolchainSelection()
         let options: RunOptions
-        if let configuration, retainingIdentity != nil {
+        if let configuration {
             options = effectiveOptions(for: configuration, mavenContext: try mavenContext(for: configuration))
         } else {
             options = RunOptions(javaHomePath: toolchain.javaHomePath,
                 mavenExecutablePath: toolchain.mavenExecutablePath, mavenJavaHomePath: toolchain.mavenJavaHomePath)
         }
-        let resolved = try executableResolver.resolve(plan, projectURL: workspace, options: options)
+        let resolved = try resolvedExecutable ?? executableResolver.resolve(plan, projectURL: workspace, options: options)
         let arguments = try prepareJavaLaunch(executablePath: resolved.executableURL.path, arguments: plan.arguments)
         // The preparation is handing off successfully, so Stop must not cancel
         // the provider request that is currently returning this application.
@@ -2225,7 +2235,8 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         _ configuration: RunConfiguration,
         javaLaunch: JavaDebugLaunchTarget? = nil,
         preparedPlan: SharedLaunchPlan? = nil,
-        preparationOperationID: String? = nil
+        preparationOperationID: String? = nil,
+        resolvedExecutable: ResolvedRunExecutable? = nil
     ) {
         guard configurationStatus == .ready,
               let projectURL else { return }
@@ -2320,7 +2331,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         let resolved: ResolvedRunExecutable
         let preparedSteps: [PreparedLaunchStep]
         do {
-            resolved = try executableResolver.resolve(plan, projectURL: projectURL, options: options)
+            resolved = try resolvedExecutable ?? executableResolver.resolve(plan, projectURL: projectURL, options: options)
             preparedSteps = try plan.preLaunchSteps.map { step in
                 let stepResolved = try executableResolver.resolve(
                     step: step, plan: plan, projectURL: projectURL, options: options

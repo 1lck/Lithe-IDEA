@@ -3667,30 +3667,8 @@ fn detect_requirements(
         };
         jdk.preferred_vendor = vendor;
     }
-    if let Some(projects) = projects {
-        maven.minimum_version = highest_version(
-            projects
-                .iter()
-                .filter_map(|project| project.maven_minimum_version.clone())
-                .collect(),
-        );
-        let roots = projects
-            .iter()
-            .filter_map(|project| project.maven_reactor_path.as_deref())
-            .collect::<BTreeSet<_>>();
-        // One global requirement cannot select a Wrapper for two independent
-        // reactors. Their actual executable remains a per-Run platform choice.
-        if roots.len() == 1 {
-            maven.wrapper = projects
-                .iter()
-                .find_map(|project| project.maven_wrapper.clone());
-        }
-    } else {
-        if maven_root.join("mvnw").exists() {
-            maven.wrapper = Some("./mvnw".to_string());
-        }
-        // A distribution version is a floor, not an exact system Maven pin.
-        maven.minimum_version = maven_wrapper_version(maven_root);
+    if projects.is_none() && maven_root.join("mvnw").exists() {
+        maven.wrapper = Some("./mvnw".to_string());
     }
     let mut toolchains = BTreeMap::new();
     let consumes = |toolchain: &str| {
@@ -3704,15 +3682,11 @@ fn detect_requirements(
     if has_java_ecosystem || consumes("project-jdk") {
         toolchains.insert("project-jdk".to_string(), jdk);
     }
-    if projects.map_or_else(
-        || maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file(),
-        |projects| {
-            projects
-                .iter()
-                .any(|project| project.maven_reactor_path.is_some())
-                || consumes("project-maven")
-        },
-    ) {
+    if projects.is_none()
+        && (maven_root.join("pom.xml").is_file()
+            || maven_root.join("mvnw").is_file()
+            || consumes("project-maven"))
+    {
         toolchains.insert("project-maven".to_string(), maven);
     }
     if consumes("project-node") {
@@ -4142,20 +4116,6 @@ fn vendor_from_version(value: &str) -> Option<String> {
     } else {
         None
     }
-}
-
-fn maven_wrapper_version(root: &Path) -> Option<String> {
-    let text = fs::read_to_string(
-        root.join(".mvn")
-            .join("wrapper")
-            .join("maven-wrapper.properties"),
-    )
-    .ok()?;
-    regex::Regex::new(r"apache-maven-([0-9]+(?:\.[0-9]+)+)-bin\.(?:zip|tar\.gz)")
-        .ok()?
-        .captures(&text)
-        .and_then(|capture| capture.get(1))
-        .map(|value| value.as_str().to_string())
 }
 
 fn existing_root(value: &str) -> Result<PathBuf, CoreError> {

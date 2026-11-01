@@ -148,7 +148,6 @@ final class RunToolchainRegistry {
     static func standardProviders() -> [any RunToolchainProvider] {
         [
             JavaRunToolchainProvider(),
-            BuildJavaRunToolchainProvider(),
             MavenRunToolchainProvider(),
             GradleRunToolchainProvider(),
             PathRunToolchainProvider(
@@ -224,23 +223,6 @@ private final class JavaRunToolchainProvider: RunToolchainProvider {
                 javaHomeOverride: options.javaHomePath
             )
         )
-    }
-}
-
-@MainActor
-private final class BuildJavaRunToolchainProvider: RunToolchainProvider {
-    let identifiers: Set<String> = ["project-maven-jdk"]
-    let toolchainType = "java"
-    let languageProviderID: String? = "java"
-    let discoverable = false
-    func resolve(projectURL: URL, options: RunOptions, runtimeService: ProjectRuntimeService) throws -> ResolvedRunToolchain {
-        let selection = options.mavenJavaHomePath.isEmpty ? options.javaHomePath : options.mavenJavaHomePath
-        guard let home = runtimeService.mavenJavaHomeURL(overridePath: selection),
-              let executable = runtimeService.javaExecutableURL(overridePath: home.path) else {
-            throw RunExecutableResolutionError(message: L10n.string("No Java runtime was found. Set JAVA_HOME or install a JDK."))
-        }
-        return ResolvedRunToolchain(executableURL: executable,
-            environment: runtimeService.environment(for: .maven, javaHomeOverride: home.path))
     }
 }
 

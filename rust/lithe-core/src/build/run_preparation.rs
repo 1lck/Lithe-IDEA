@@ -310,9 +310,8 @@ pub(crate) fn decode(
     let executable = value.get("executable").ok_or_else(invalid)?;
     let kind = executable["kind"].as_str().ok_or_else(invalid)?;
     let name = executable["value"].as_str().ok_or_else(invalid)?;
-    if name.len() > 120
-        || !(kind == "command" && is_bare_command(name)
-            || kind == "toolchain" && is_identifier(name))
+    if !(kind == "command" && name.len() <= 120 && is_bare_command(name)
+        || kind == "toolchain" && crate::toolchain::definitions::tool_id(name))
     {
         return Err(invalid());
     }

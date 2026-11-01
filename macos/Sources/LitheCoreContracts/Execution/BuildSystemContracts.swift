@@ -854,8 +854,18 @@ package struct BuildDebugPreparation: Decodable, Equatable, Sendable {
 
 @MainActor
 package protocol BuildRunLaunching: AnyObject {
+    func prepareRunExecutable(_ plan: BuildRunPreparation, workspaceURL: URL, configuration: RunConfiguration?) async throws -> ResolvedRunExecutable?
     func launchPreparedRun(_ plan: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration?) throws -> String
+    func launchPreparedRun(_ plan: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration?, resolvedExecutable: ResolvedRunExecutable?) throws -> String
     func stopPreparedRun(_ operationID: String)
+}
+
+package extension BuildRunLaunching {
+    func launchPreparedRun(_ plan: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration?, resolvedExecutable: ResolvedRunExecutable?) throws -> String {
+        try launchPreparedRun(plan, workspaceURL: workspaceURL, title: title, configuration: configuration)
+    }
+
+    func prepareRunExecutable(_ plan: BuildRunPreparation, workspaceURL: URL, configuration: RunConfiguration?) async throws -> ResolvedRunExecutable? { nil }
 }
 
 package struct BuildTestRequest: Equatable, Sendable {

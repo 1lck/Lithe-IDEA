@@ -219,6 +219,26 @@ fn a_definition_plugin_may_provide_installations_of_its_own_tool() {
 }
 
 #[test]
+fn build_toolchain_consumers_keep_resolution_two_without_owning_definitions() {
+    let mut plugin: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/contracts/plugins/v1/fixtures/build-toolchains.plugin.json"
+    )))
+    .unwrap();
+    assert!(validate_manifest_value(plugin.clone()).is_ok());
+    plugin["buildSystems"][0]["invocation"]["executables"][0]["toolchainID"] =
+        json!("dev.lithe.fixture.compiler:compiler");
+    assert!(validate_manifest_value(plugin.clone()).is_ok());
+    plugin["buildSystems"][0]["invocation"]["executables"][0]["toolchainID"] =
+        json!("dev.lithe.fixture.compiler:../compiler");
+    assert!(validate_manifest_value(plugin.clone()).is_err());
+    plugin["buildSystems"][0]["invocation"]["executables"][0]["toolchainID"] =
+        json!("dev.lithe.fixture.compiler:compiler");
+    plugin["requires"]["executableResolution"] = json!(1);
+    assert!(validate_manifest_value(plugin).is_err());
+}
+
+#[test]
 fn executable_resolution_two_does_not_enable_toolchain_fields_in_legacy_build_sets() {
     let mut plugin: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

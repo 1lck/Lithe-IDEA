@@ -220,11 +220,135 @@ struct MacToolchainDiscoveryTests {
     }
     #endif
 
+    @Test func consumerResolvesAnUnscannedFixedHomeBeforeNewerInstallations() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let manual = try root.installation("manual")
+        let automatic = try root.installation("home/Kits/newer.kit/Contents/Home")
+        let probes = DiscoveryProbes(outputs: [manual + "/bin/compiler": "compiler 17", automatic + "/bin/compiler": "compiler 23"])
+        let local = try #require(ToolingJSONValue.fromFoundation([
+            "version": 1, "toolchains": [:], "pins": [".": ["compiler": ["home": manual, "version": "17", "provider": "host:manual"]]]
+        ]))
+        let selected = try await discovery(root: root, probes: probes).resolve(
+            .init(workspace: root.url("workspace"), sources: [Self.source()], environment: ["PATH": "/fixture/path"]),
+            tool: "compiler", directory: ".", minimumVersion: "11", local: local, projectCodeAllowed: true)
+        #expect(selected?.executable.path == manual + "/bin/compiler")
+        #expect(selected?.version == "17" && selected?.projectCode == false)
+        #expect(selected?.environment["PATH"] == manual + "/bin:/fixture/path")
+    }
+
+    @Test func consumerNeverFallsBackFromAnInvalidFixedHome() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let automatic = try root.installation("home/Kits/newer.kit/Contents/Home")
+        let probes = DiscoveryProbes(outputs: [automatic + "/bin/compiler": "compiler 23"])
+        let local = try #require(ToolingJSONValue.fromFoundation([
+            "version": 1, "toolchains": [:], "pins": [".": ["compiler": ["home": root.path + "/missing", "version": "17", "provider": "host:manual"]]]
+        ]))
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await discovery(root: root, probes: probes).resolve(
+                .init(workspace: root.url("workspace"), sources: [Self.source()], environment: [:]),
+                tool: "compiler", directory: ".", minimumVersion: nil, local: local, projectCodeAllowed: true)
+        }
+    }
+
+    @Test func consumerWrapperRequiresAnExplicitActionAndIsNeverPassivelyProbed() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let wrapper = root.url("workspace/compilerw")
+        try Data("#!/bin/sh\n".utf8).write(to: wrapper)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapper.path)
+        var manifest = try #require(JSONSerialization.jsonObject(with: Self.manifest()) as? [String: Any])
+        var definitions = try #require(manifest["toolDefinitions"] as? [[String: Any]])
+        var candidates = try #require(definitions[0]["executables"] as? [[String: Any]])
+        candidates.insert(["id": "wrapper", "kind": "projectFile", "path": "compilerw"], at: 0)
+        definitions[0]["executables"] = candidates
+        definitions[0]["wrappers"] = [["path": "compilerw"]]
+        manifest["toolDefinitions"] = definitions
+        let source = ToolchainSettingsPluginSource(pluginID: Self.pluginID, name: "Fixture",
+            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
+        let probes = DiscoveryProbes(outputs: [:])
+        let discovery = discovery(root: root, probes: probes)
+        let request = MacToolchainDiscovery.Request(workspace: root.url("workspace"), sources: [source], environment: [:])
+        let local: ToolingJSONValue = .object(["version": .number(1), "toolchains": .object([:])])
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await discovery.resolve(request, tool: "compiler", directory: ".", minimumVersion: nil,
+                                        local: local, projectCodeAllowed: false)
+        }
+        let selected = try await discovery.resolve(request, tool: "compiler", directory: ".", minimumVersion: nil,
+                                                   local: local, projectCodeAllowed: true)
+        #expect(selected?.executable == wrapper && selected?.projectCode == true)
+        #expect(probes.calls.isEmpty)
+    }
+
+    @Test func consumerQueriesCurrentWorkspaceProviderWithMatchingResolutionIdentity() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let home = try root.installation("manager/current")
+        let source = root.url("workspace/.compiler-version")
+        try Data("21\n".utf8).write(to: source)
+        let queries = ProviderQueries { _ in [
+            "installations": [["tool": "compiler", "version": "21", "home": home]],
+            "statements": [["tool": "compiler", "scope": "project", "source": source.path, "request": "21",
+                             "installation": home, "kind": "declaration", "reader": "native"]],
+            "watch": [source.path]
+        ] }
+        var discovery = discovery(root: root, probes: DiscoveryProbes(outputs: [home + "/bin/compiler": "compiler 21"]))
+        discovery.queryProvider = { plugin, provider, params, _ in try queries.answer(pluginID: plugin, providerID: provider, params: params) }
+        discovery.workspaceContext = { _, _ in .init(contextID: "context-1", generation: 3, rootID: "root-1") }
+        let result = try await discovery.resolve(
+            .init(workspace: root.url("workspace"), sources: [try Self.providerSource()], environment: [:]),
+            tool: "compiler", directory: ".", minimumVersion: nil,
+            local: .object(["version": .number(1), "toolchains": .object([:])]), projectCodeAllowed: true)
+        #expect(result?.executable.path == home + "/bin/compiler")
+        #expect(queries.sent.count == 1)
+        let workspace = try #require(queries.sent.first?["workspace"] as? [String: Any])
+        #expect(workspace["directory"] as? String == "." && workspace["rootID"] as? String == "root-1")
+    }
+
+    @Test func consumerRetainsShellFallbackForACheckedUnavailableProvider() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let home = try root.installation("shell-home")
+        var discovery = discovery(root: root, probes: DiscoveryProbes(outputs: [home + "/bin/compiler": "compiler 21"]))
+        discovery.queryProvider = { _, _, params, _ in
+            let object = try #require(params.foundationObject as? [String: Any])
+            return try #require(ToolingJSONValue.fromFoundation(["id": 1, "response": ["jsonrpc": "2.0", "id": 1,
+                "error": ["code": -32073, "message": "Fixture unavailable", "data": [
+                    "code": "plugin.toolchain.providerUnavailable", "operationID": object["operationID"]!, "providerID": object["providerID"]!
+                ]]]]))
+        }
+        discovery.workspaceContext = { _, _ in .init(contextID: "context-1", generation: 3, rootID: "root-1") }
+        let selected = try await discovery.resolve(
+            .init(workspace: root.url("workspace"), sources: [try Self.providerSource()], environment: ["FIXTURE_HOME": home]),
+            tool: "compiler", directory: ".", minimumVersion: nil,
+            local: .object(["version": .number(1), "toolchains": .object([:])]), projectCodeAllowed: true)
+        #expect(selected?.executable.path == home + "/bin/compiler")
+    }
+
+    @Test func consumerRejectsNativeEvidenceChangedDuringProbe() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let home = try root.installation("home/Kits/newer.kit/Contents/Home")
+        var discovery = discovery(root: root, probes: DiscoveryProbes(outputs: [:]))
+        discovery.consumerProbe = { executable, _, _ in
+            try? FileManager.default.removeItem(atPath: executable)
+            return "compiler 23"
+        }
+        await #expect(throws: CancellationError.self) {
+            try await discovery.resolve(.init(workspace: root.url("workspace"), sources: [Self.source()], environment: [:]),
+                tool: "compiler", directory: ".", minimumVersion: nil,
+                local: .object(["version": .number(1), "toolchains": .object([:])]), projectCodeAllowed: true)
+        }
+        #expect(!FileManager.default.fileExists(atPath: home + "/bin/compiler"))
+    }
+
     private func discovery(root: DiscoveryFixtureRoot, probes: DiscoveryProbes) -> MacToolchainDiscovery {
         var discovery = MacToolchainDiscovery()
         let home = root.url("home").path
         discovery.homeDirectory = { home }
         discovery.probe = { probes.run($0, $1) }
+        discovery.consumerProbe = { executable, arguments, _ in probes.run(executable, arguments) }
         return discovery
     }
 }

@@ -46,9 +46,7 @@
         }
       ],
       "name": "app",
-      "minimumJavaVersion": "17",
-      "mavenMinimumVersion": "3.9.9",
-      "mavenWrapper": "alpha/mvnw"
+      "minimumJavaVersion": "17"
     },
     {
       "path": "beta/app",
@@ -60,9 +58,7 @@
         }
       ],
       "name": "app",
-      "minimumJavaVersion": "21",
-      "mavenMinimumVersion": "3.6.3",
-      "mavenWrapper": "beta/mvnw.cmd"
+      "minimumJavaVersion": "21"
     }
   ],
   "expected": {
@@ -110,9 +106,7 @@
         }
       }
     ],
-    "minimumJavaVersion": "21",
-    "minimumMavenVersion": "3.9.9",
-    "mavenWrapper": null
+    "minimumJavaVersion": "21"
   },
   "providerRuns": [
     {

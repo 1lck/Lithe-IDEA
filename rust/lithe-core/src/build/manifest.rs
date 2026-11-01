@@ -2407,7 +2407,7 @@ fn check_candidate(
             }
         }
         ExecutableSource::Toolchain { toolchain_id } => {
-            if !is_entry_identifier(toolchain_id) {
+            if !crate::toolchain::definitions::tool_id(toolchain_id) {
                 return Err(invalid(
                     format!("{field}.toolchainID"),
                     "Invalid toolchain ID.",

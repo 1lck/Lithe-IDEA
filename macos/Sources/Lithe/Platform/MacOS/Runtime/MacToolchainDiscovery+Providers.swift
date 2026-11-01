@@ -9,7 +9,7 @@ import LitheModuleAPI
 /// Every reply passes `toolchains.decodeReply` with native facts read here, so a provider
 /// never decides what a path is. Providers are only asked; nothing here installs or trusts.
 extension MacToolchainDiscovery {
-    private struct Provider {
+    struct Provider {
         let pluginID: String
         let id: String
         let tools: [String]
@@ -41,7 +41,9 @@ extension MacToolchainDiscovery {
                                    caseSensitive: caseSensitive) {
                 case .failure(let message):
                     failure = failure ?? message
-                case .success(let snapshot):
+                case .unavailable(let message, _):
+                    failure = failure ?? message
+                case .success(let snapshot, _):
                     for row in snapshot["installations"] as? [[String: Any]] ?? [] {
                         guard let tool = row["tool"] as? String, let home = row["home"] as? String else { continue }
                         installations["\(tool)\n\(home)"] = ["tool": tool, "home": home, "provider": provider.qualified]
@@ -73,18 +75,20 @@ extension MacToolchainDiscovery {
         return installations.keys.sorted().compactMap { installations[$0] }
     }
 
-    private enum Outcome {
-        case success([String: Any])
+    enum Outcome {
+        case success([String: Any], validation: [String: Any])
+        /// A checked protocol failure may leave lower layers usable.
+        case unavailable(String, validation: [String: Any])
         case failure(String)
     }
 
     /// One query and its validation. `scope` is `nil` for a global-only query.
-    private func query(
+    func query(
         _ provider: Provider, scope: (directory: String, context: WorkspaceContext)?, registry: [String: Any],
-        tools: [[String: Any]], root: String, caseSensitive: Bool
+        tools: [[String: Any]], root: String, caseSensitive: Bool, generation suppliedGeneration: UInt64? = nil
     ) async -> Outcome {
         guard let queryProvider else { return .failure("") }
-        let generation = Self.generations.withLock { value -> UInt64 in
+        let generation = suppliedGeneration ?? Self.generations.withLock { value -> UInt64 in
             value += 1
             return value
         }
@@ -114,16 +118,21 @@ extension MacToolchainDiscovery {
         facts.add(root)
         if let directory = scope?.directory, directory != "." { facts.add(root + "/" + directory) }
         Self.addFacts(of: reply["response"] as? [String: Any] ?? [:], tools: tools, to: &facts)
-        let outcome = decodeReply([
+        let validation: [String: Any] = [
             "registry": registry, "pluginID": provider.pluginID,
             "request": ["jsonrpc": "2.0", "id": reply["id"]!, "method": "toolchains/query", "params": params],
             "response": reply["response"]!, "currentGeneration": generation, "filesystem": facts.values,
             "platform": "macos", "filesystemCaseSensitive": caseSensitive, "workspaceRoots": [root],
-        ])
+        ]
+        let outcome = decodeReply(validation)
         if outcome?["status"] as? String == "ok", let snapshot = outcome?["snapshot"] as? [String: Any] {
-            return .success(snapshot)
+            return .success(snapshot, validation: validation)
         }
         let error = outcome?["error"] as? [String: Any]
+        if let code = error?["code"] as? String,
+           ["plugin.toolchain.timeout", "plugin.toolchain.providerUnavailable"].contains(code) {
+            return .unavailable(error?["message"] as? String ?? L10n.string("The reply could not be read."), validation: validation)
+        }
         return .failure(error?["message"] as? String ?? L10n.string("The reply could not be read."))
     }
 
@@ -164,10 +173,11 @@ extension MacToolchainDiscovery {
         for row in result["statements"] as? [[String: Any]] ?? [] {
             if let source = row["source"] as? String { facts.add(source) }
         }
+        for path in result["watch"] as? [String] ?? [] { facts.add(path) }
     }
 
     /// Providers of enabled definitions, each with the sorted tools it may be asked about.
-    private static func providers(of tools: [[String: Any]]) -> [Provider] {
+    static func providers(of tools: [[String: Any]]) -> [Provider] {
         var byProvider: [String: Set<String>] = [:]
         for tool in tools {
             guard let id = tool["tool"] as? String else { continue }

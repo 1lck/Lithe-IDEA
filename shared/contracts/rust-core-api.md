@@ -3392,7 +3392,7 @@ never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
 relative `modulePaths`, optional schema-versioned `javaEntrypoints` from the
 current `lsp.request` result, and optional `projectOwnership`. The latter is a
 host projection of current enabled Provider projects: `{ path,
-name?, mavenReactorPath?, minimumJavaVersion?, mavenMinimumVersion?, mavenWrapper?, contentRoots: [{ path, kind }] }`, using workspace-relative
+name?, mavenReactorPath?, minimumJavaVersion?, contentRoots: [{ path, kind }] }`, using workspace-relative
 paths and the model's `source`/`testSource`/generated-source roles. Core validates
 project/root containment, unique project paths, roles and bounds (2,000 projects,
 10,000 content roots). When supplied, including `[]`, these facts own Java
@@ -3405,11 +3405,11 @@ run discovery uses the independent generic snapshot described below.
 owned by the upstream compiler model. When the snapshot is supplied, Core uses
 the highest known project floor and never parses POM compiler properties; a
 platform Java version file can raise but cannot lower that floor. Missing means
-unknown, not permission to infer. `mavenMinimumVersion` is a bounded numeric distribution floor and `mavenWrapper`
-is a workspace-relative script inside that project's reactor. With provider
-ownership, Core never reads Wrapper properties or checks scripts to fill these
-fields. Multiple reactor roots do not select one global Wrapper. The platform
-continues to resolve each Run's actual tool independently. Legacy Maven launch
+unknown, not permission to infer. Build-tool versions and wrapper paths are not
+ownership fields. With provider ownership Core emits no Maven requirement and
+never reads wrapper properties or scripts to supplement it. Installed tool
+definitions/providers own these choices. The existing Java import reactor field
+remains a temporary input for the Java consumer migration. Legacy Maven launch
 planning still needs migration. See `fixtures/run-configuration/provider-project-ownership.json`.
 The generated document records optional `generator.providerFingerprint`, a
 SHA-256 identity of the validated projection, with projects and roots sorted.

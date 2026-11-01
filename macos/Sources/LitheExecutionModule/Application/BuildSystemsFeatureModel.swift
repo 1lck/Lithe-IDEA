@@ -105,7 +105,7 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     @discardableResult
     package func prepareLanguageRun(fileURL: URL, workspace: URL, purpose: String,
                                     optionOverrides: [String: ToolingJSONValue] = [:],
-                                    tool: @MainActor (String) throws -> BuildProviderHints?,
+                                    tool: @MainActor (String) throws -> BuildProviderHints? = { _ in nil },
                                     isCurrent: @escaping @MainActor () -> Bool) async throws -> BuildLanguageImport? {
         try await service.prepareLanguageRun(fileURL: fileURL, workspace: workspace, purpose: purpose, optionOverrides: optionOverrides, tool: tool, isCurrent: isCurrent)
     }
