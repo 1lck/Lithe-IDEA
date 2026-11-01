@@ -611,6 +611,15 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   不下载、不写回、不产生持久化渲染缓存，不影响签名和 Sparkle delta。生成 bundle 没有可靠的
   跨 worktree identity stamp，`excludedResources.markdown-preview-assets` 走资源脚本的
   通用拒绝路由，任何复制阶段都不得从其他工作树或安装 app 复用这些资源。
+- macOS Markdown PlantUML：Git 中的 `MarkdownPreview/vendor/plantuml/`、
+  `plantuml.html` 与 `plantuml-renderer.js` 随当前 checkout 打包，来源为固定的
+  MIT `@plantuml/core` 1.2026.9，归档 SHA-512、引擎 SHA-256 和上游 revision 见
+  `THIRD_PARTY_NOTICES.md`。使用内置 Smetana，不另下载 Java、Graphviz 或 WASM。
+  输入与平台架构、工具链无关；生成 bundle 没有跨 worktree identity stamp。
+  运行时一项请求拥有一个非持久 WebView，源码、回调和 SVG 图片只在内存存活，
+  完成、取消、八秒超时或关闭预览后释放；不下载、不写发行目录、不改签名及 Sparkle 基线。
+  `excludedResources.markdown-plantuml-assets` 走资源脚本通用拒绝路由，所有复制阶段都禁止
+  复用其他工作树的 bundle 或运行态。
 - AutoBuild 应用发布校验 staging：
   `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{baselines,verification}/`。
   源码 SHA、应用 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；

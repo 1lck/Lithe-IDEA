@@ -44,6 +44,18 @@
       "reason": "Check out source via Git and copy this checkout's resources at build time before signing. Never copy another worktree's generated bundle or download/patch preview libraries at runtime. All rendering is in memory and the packaged files stay read-only, preserving code signatures and Sparkle delta baselines. Every reuse copy stage rejects this resource."
     },
     {
+      "id": "markdown-plantuml-assets",
+      "reusable": false,
+      "locations": [
+        "macos/Sources/Lithe/Resources/MarkdownPreview/vendor/plantuml/",
+        "macos/Sources/Lithe/Resources/MarkdownPreview/plantuml.html",
+        "macos/Sources/Lithe/Resources/MarkdownPreview/plantuml-renderer.js",
+        "<app-bundle>/Contents/Resources/Lithe_Lithe.bundle/MarkdownPreview/"
+      ],
+      "identity": "Git-tracked @plantuml/core 1.2026.9 MIT JavaScript engine with built-in Smetana layout, fixed archive SHA-512, extracted SHA-256 and source revision in THIRD_PARTY_NOTICES.md. No Graphviz/Viz, external include loader or architecture/toolchain-specific runtime. Generated bundle copies and live render requests have no reusable identity stamp.",
+      "reason": "Check out immutable inputs via Git and package this checkout's renderer before signing. Never copy another worktree's generated bundle or render state. Each request owns a nonpersistent WebView with an eight-second deadline; source, callbacks and passive SVG image live only in memory and are released on completion, cancellation or preview teardown. No runtime download, persistent cache or installation-directory write is allowed; signatures and Sparkle delta baselines stay unchanged. Every reuse stage rejects this resource."
+    },
+    {
       "id": "swiftpm-build-state",
       "reusable": false,
       "locations": [

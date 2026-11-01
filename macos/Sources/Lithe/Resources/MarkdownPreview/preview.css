@@ -266,6 +266,7 @@ audio { width: min(100%, 520px); }
 }
 
 .diagram-shell svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.plantuml-shell img { margin: 0 auto; }
 .diagram-shell.markmap-shell { height: clamp(340px, 55vh, 560px); padding: 0; }
 .diagram-shell.markmap-shell svg { width: 100%; height: 100%; max-width: none; }
 .diagram-error { margin: 0 0 0.75em; color: var(--alert-caution); font-size: 0.84em; }

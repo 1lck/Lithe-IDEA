@@ -93381,6 +93381,17 @@
         "key": "Try another search or provider filter.",
         "arguments": []
       }
+    },
+    {
+      "id": "markdown.plantumlRenderFailed",
+      "description": "macOS offline Markdown PlantUML fallback",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "PlantUML could not render this diagram. Showing its source instead.",
+        "arguments": []
+      }
     }
   ]
 }

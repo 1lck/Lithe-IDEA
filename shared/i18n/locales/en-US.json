@@ -9750,7 +9750,8 @@
     "agent.history.provider": "Conversation provider",
     "agent.history.allProviders": "All providers",
     "agent.history.unknownProvider": "Unknown provider",
-    "agent.history.providerHint": "Try another search or provider filter."
+    "agent.history.providerHint": "Try another search or provider filter.",
+    "markdown.plantumlRenderFailed": "PlantUML could not render this diagram. Showing its source instead."
   },
   "overrides": {
     "windows": {
