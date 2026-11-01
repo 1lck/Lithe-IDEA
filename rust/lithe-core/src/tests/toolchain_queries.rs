@@ -353,6 +353,7 @@ fn toolchain_queries_apply_windows_drive_unc_and_case_rules_without_host_paths()
         &["C:/Workspace".to_owned()],
         "windows",
         false,
+        None,
     )
     .unwrap();
     assert_eq!(selected["executable"], "C:/Tools/Jdk/bin/java.exe");

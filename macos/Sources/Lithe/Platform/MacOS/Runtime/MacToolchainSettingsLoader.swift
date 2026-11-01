@@ -141,10 +141,12 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
             }
             var providerIDs: Set<String> = []
             for provider in try contribution(manifest, key: "toolchainProviders", maximum: 8) {
+                // An installation-only provider omits `watchFiles`; a present non-array is still invalid.
+                let declaredWatches = provider["watchFiles"].map { $0 as? [[String: Any]] } ?? []
                 guard let id = text(provider["id"], maximum: 64), providerIDs.insert(id).inserted,
                       let title = text(provider["displayName"], maximum: 128),
                       let tools = provider["tools"] as? [String], tools.count <= 64,
-                      let watches = provider["watchFiles"] as? [[String: Any]], watches.count <= 32
+                      let watches = declaredWatches, watches.count <= 32
                 else { throw ToolchainSettingsLoadError.invalidDeclarations }
                 let patterns = try watches.map { watch in
                     guard let pattern = text(watch["pattern"], maximum: 256) else {

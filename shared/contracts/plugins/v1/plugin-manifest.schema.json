@@ -3465,8 +3465,7 @@
       "required": [
         "id",
         "displayName",
-        "tools",
-        "watchFiles"
+        "tools"
       ],
       "properties": {
         "id": {

@@ -15,7 +15,9 @@ references a tool ID. The host supplies query orchestration and one resolver;
 it never parses a manager's version files, aliases or requested-version syntax.
 There are no built-in tool definitions, short-name aliases or tool-name
 branches. The generic system scanner is a host provider whose entire scan plan
-comes from enabled definitions' `discovery` contributions.
+comes from enabled definitions' `discovery` contributions. Plugin providers
+cover installation shapes those frozen scan primitives cannot express; both
+routes feed one automatic candidate set, and one canonical home counts once.
 
 The logical **and wire** method is `toolchains/query`. This independent typed
 extension reuses the existing LSP base JSON-RPC transport and ServerProcess

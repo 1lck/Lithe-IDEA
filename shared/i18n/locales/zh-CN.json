@@ -9793,6 +9793,7 @@
     "native.toolchainSettings.versionManagersInfo": "版本管理器来自已启用的插件。Lithe 会在此项目中查找它们监视的文件，但暂不运行或查询它们。",
     "native.toolchainSettings.noEnabledPluginProvidesVersionManager": "没有已启用的插件提供版本管理器。",
     "native.toolchainSettings.notUsedInThisProject": "此项目未使用",
+    "native.toolchainSettings.reportsInstalledVersionsOnly": "只报告已安装的版本",
     "native.toolchainSettings.versionFileCount": "{arg1} 个版本文件",
     "native.toolchainSettings.watchedFiles": "监视的文件",
     "native.toolchainSettings.versionManagerDefinitionInfo": "此版本管理器来自已启用的插件，Lithe 不内置任何版本管理器。",

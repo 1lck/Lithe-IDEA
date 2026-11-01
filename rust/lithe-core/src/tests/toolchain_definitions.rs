@@ -188,6 +188,37 @@ fn providers_use_existing_packaged_backend_and_new_query_trigger_only() {
 }
 
 #[test]
+fn providers_without_watch_files_report_installations_only() {
+    let plugin = json!({"schemaVersion":2,"id":"dev.lithe.fixture.provider","displayName":"Provider","version":"1.0.0",
+        "pluginAPIVersion":3,"requires":{"toolchainProviders":1,"backend":2,"serverProcess":1},
+        "vendor":{"id":"org.example","displayName":"Fixture","signatureRequirement":"publisherPackage"},
+        "permissions":["backend.launch","toolchains.provide"],
+        "toolchainProviders":[{"id":"installs","displayName":"Installs","tools":["compiler"]}],
+        "backend":{"launch":{"kind":"packaged","path":"bin/provider"}}});
+    assert!(validate_manifest_value(plugin.clone()).is_ok());
+    let mut changed = plugin;
+    changed["toolchainProviders"][0]["watchFiles"] = json!([]);
+    assert!(validate_manifest_value(changed).is_err());
+}
+
+#[test]
+fn a_definition_plugin_may_provide_installations_of_its_own_tool() {
+    let id = "dev.lithe.fixture.compiler";
+    let mut plugin = manifest(id, definition(&format!("{id}:compiler")));
+    plugin["requires"] = json!({"toolDefinitions":1,"executableResolution":2,
+        "toolchainProviders":1,"backend":2,"serverProcess":1});
+    plugin["permissions"] = json!(["backend.launch", "toolchains.provide"]);
+    plugin["toolchainProviders"] =
+        json!([{"id":"installs","displayName":"Installs","tools":[format!("{id}:compiler")]}]);
+    plugin["backend"] = json!({"launch":{"kind":"packaged","path":"bin/provider"}});
+    assert!(validate_manifest_value(plugin.clone()).is_ok());
+    let result =
+        registry(&json!({"plugins":[{"manifest":plugin,"verifiedOfficial":false}]})).unwrap();
+    assert_eq!(result["definitions"][0]["pluginID"], id);
+    assert_eq!(result["providers"][0]["pluginID"], id);
+}
+
+#[test]
 fn executable_resolution_two_does_not_enable_toolchain_fields_in_legacy_build_sets() {
     let mut plugin: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

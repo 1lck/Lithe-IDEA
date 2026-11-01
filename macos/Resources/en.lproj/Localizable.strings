@@ -3175,6 +3175,7 @@
 "Replay the current branch onto %@. Conflicts may require terminal resolution." = "Replay the current branch onto %@. Conflicts may require terminal resolution.";
 "Replays every commit onto the base branch without a merge commit." = "Replays every commit onto the base branch without a merge commit.";
 "Reported change" = "Reported change";
+"Reports installed versions only" = "Reports installed versions only";
 "Repository" = "Repository";
 "Repository Diff" = "Repository Diff";
 "Repository Diff: %@" = "Repository Diff: %@";
@@ -9158,6 +9159,7 @@
 "native.toolchainSettings.readResult" = "Read result";
 "native.toolchainSettings.reading" = "Reading…";
 "native.toolchainSettings.remoteUnavailable" = "Toolchain settings are not available for remote workspaces yet.";
+"native.toolchainSettings.reportsInstalledVersionsOnly" = "Reports installed versions only";
 "native.toolchainSettings.runtimeEnvironment" = "Runtime Environment";
 "native.toolchainSettings.runtimeEnvironmentIsolatedPreview" = "Runtime Environment — Isolated Preview";
 "native.toolchainSettings.savedNotVerified" = "Saved, not verified";

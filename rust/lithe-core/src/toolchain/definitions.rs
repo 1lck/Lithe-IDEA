@@ -643,11 +643,13 @@ fn definition(plugin_id: &str, value: &Value) -> Validation<()> {
     Ok(())
 }
 
+/// Without `watchFiles` a provider can report installations only; the decoder then
+/// rejects every requirement statement because no declared reader can anchor it.
 fn provider(value: &Value) -> Validation<()> {
     object(
         value,
         &["id", "displayName", "tools", "watchFiles"],
-        &["id", "displayName", "tools", "watchFiles"],
+        &["id", "displayName", "tools"],
         "toolchainProviders",
     )?;
     let id = text(&value["id"], 64, "toolchainProviders.id")?;
@@ -660,7 +662,11 @@ fn provider(value: &Value) -> Validation<()> {
     text(&value["displayName"], 64, "toolchainProviders.displayName")?;
     strings(&value["tools"], 1, 32, "toolchainProviders.tools", tool_id)?;
     let mut patterns = BTreeSet::new();
-    for watch in list(&value["watchFiles"], 1, 32, "watchFiles")? {
+    let watches = match value.get("watchFiles") {
+        Some(watches) => list(watches, 1, 32, "watchFiles")?,
+        None => &[],
+    };
+    for watch in watches {
         object(
             watch,
             &["pattern", "reader"],

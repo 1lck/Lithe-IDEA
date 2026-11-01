@@ -9793,6 +9793,7 @@
     "native.toolchainSettings.versionManagersInfo": "Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet.",
     "native.toolchainSettings.noEnabledPluginProvidesVersionManager": "No enabled plugin provides a version manager.",
     "native.toolchainSettings.notUsedInThisProject": "Not used in this project",
+    "native.toolchainSettings.reportsInstalledVersionsOnly": "Reports installed versions only",
     "native.toolchainSettings.versionFileCount": "{arg1} version files",
     "native.toolchainSettings.watchedFiles": "Watched files",
     "native.toolchainSettings.versionManagerDefinitionInfo": "This version manager comes from an enabled plugin. Lithe has no built-in version managers.",

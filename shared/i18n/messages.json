@@ -93866,6 +93866,17 @@
       }
     },
     {
+      "id": "native.toolchainSettings.reportsInstalledVersionsOnly",
+      "description": "A version manager that declares no watched files and only reports installed versions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reports installed versions only",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.toolchainSettings.versionFileCount",
       "description": "Number of version files of a version manager found in this project",
       "platforms": [

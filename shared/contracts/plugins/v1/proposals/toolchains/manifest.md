@@ -74,7 +74,7 @@ independently official installation context; the fixture itself is not signed.
 | `executables` | 1-32 **resolver candidates**, not executable filenames; see below |
 | `version` | 1-8 flag-shaped literal probe arguments and a Rust-regex-compatible expression of at most 512 bytes; first capture yields the normalized version |
 | `homeLayouts` | At most 8 ordered, single-component name matches mapping a selected installation directory to `.` or a relative home suffix; for example `*.jdk` maps to `Contents/Home` |
-| `discovery` | At most 16 bounded scans with root `home`, named `environment`, or an absolute system directory; the host executes data, not a tool-specific scanner |
+| `discovery` | At most 16 bounded scans with root `home`, named `environment`, or an absolute system directory; the host executes data, not a tool-specific scanner. This primitive set is frozen; shapes it cannot express use a provider |
 | `homeVariable`, `commands` | Metadata identifying the login-shell input and 1-8 bare commands belonging to this tool |
 | `wrappers` | At most 8 exact project-relative wrapper paths, required marker files, and platform filters |
 | `exports` | At most 16 unique environment names, each assigned exactly `${home}` or `${executable}` |
@@ -180,9 +180,10 @@ The normalized candidate list must preserve these four barriers:
 3. Global: Lithe default > unambiguous provider global > login shell. Conflicting
    provider globals require a user choice; until then, skip them with a conflict
    reason and use login-shell candidates. No hidden provider-ID precedence.
-4. Automatic: eligible installations reported by providers, including the generic
-   system scanner driven only by `discovery`; select the highest valid normalized
-   version satisfying the consumer minimum, excluding manually added pin-only homes.
+4. Automatic: eligible installations from both routes, provider answers and the
+   generic system scanner driven only by `discovery`; one canonical home counts
+   once. Select the highest valid normalized version satisfying the consumer
+   minimum, excluding manually added pin-only homes.
 
 Array order is the default source order inside these barriers. Ordering metadata
 must not move candidates across a barrier or reverse project specificity/reader
@@ -194,7 +195,10 @@ query results and reason shapes; no current `skip` consumer changes in this stag
 ## Providers, file watching, and bootstrap
 
 The [mise projection](fixtures/mise-provider.json) declares `id`, `displayName`,
-`tools`, and `watchFiles`. Provider IDs are local to the plugin/session; registry
+`tools`, and `watchFiles`. `watchFiles` is optional: without it a provider reports
+installations only and any returned statement is rejected. That shape lets the
+plugin defining a tool answer for its own installations when declarative
+`discovery` cannot express them. Provider IDs are local to the plugin/session; registry
 identity is the pair `(verified pluginID, provider id)`. There are at most eight
 providers, each naming 1-32 tool IDs. The query set is the intersection of requested
 and declared IDs; this may include dormant IDs solely for requirement diagnostics.
@@ -248,7 +252,8 @@ The backend is either `launch.kind: "packaged"` (a signed/package-checked native
 executable), or `launch.kind: "runtime"` with mandatory `packagedRuntime`. The
 latter starts exactly that packaged executable and uses the referenced active
 tool definition's argv launch template; it never calls the resolver for its own
-runtime. The launch definition must be registered independently of provider
+runtime. This also holds when a plugin provides installations of a tool it
+defines: the backend never runs on the tool it is discovering. The launch definition must be registered independently of provider
 queries and must be available before backend start. Missing definitions or
 dependency cycles fail admission/start explicitly. A packaged runtime is not a
 host fallback if a definition is disabled. Native packaged executables are the

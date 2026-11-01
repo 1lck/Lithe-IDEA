@@ -20,8 +20,11 @@ IDs in their own plugin namespace and may provide installations for any enabled
 definition, including official short IDs. Verified package identity, not a
 manifest assertion or ID prefix, establishes official status.
 
-A **toolchain provider** reports installed tools and the project's or user's
-requirements. Version-manager configuration, version aliases, and file precedence
+A **toolchain provider** reports installed tools and, when it declares watched
+files, the project's or user's requirements. It covers installation shapes the
+frozen declarative `discovery` primitives cannot express; a plugin may provide
+installations of a tool it defines. Both routes feed one automatic candidate set.
+Version-manager configuration, version aliases, and file precedence
 remain upstream/provider-owned. The host never interprets opaque version
 requests such as `lts`. A **consumer** references a defined tool and declares
 whether a changed selection needs a restart, resynchronization, or the next run.

@@ -343,6 +343,10 @@ fn toolchain_resolution_discovery_comes_only_from_enabled_definition_data() {
         discovery_plan_command(json!({"registry":value["registry"],"platform":"macos"})).unwrap();
     assert_eq!(result["status"], "ok", "{result}");
     assert_eq!(result["plan"]["tools"][0]["scans"], json!([scans[0]]));
+    assert_eq!(
+        result["plan"]["tools"][0]["providers"],
+        json!(["dev.lithe.fixture.mise:mise"])
+    );
     value["registry"]["plugins"]
         .as_array_mut()
         .unwrap()
@@ -350,6 +354,169 @@ fn toolchain_resolution_discovery_comes_only_from_enabled_definition_data() {
     let result =
         discovery_plan_command(json!({"registry":value["registry"],"platform":"macos"})).unwrap();
     assert_eq!(result["plan"]["tools"], json!([]));
+}
+
+/// Turns the definition plugin into its own installation-only provider, without scans.
+fn self_provided(input: &mut Value) {
+    let manifest = &mut input["registry"]["plugins"][0]["manifest"];
+    manifest["toolDefinitions"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("discovery");
+    manifest["requires"] = json!({"toolDefinitions":1,"executableResolution":2,
+        "toolchainProviders":1,"backend":2,"serverProcess":1});
+    manifest["permissions"] = json!(["backend.launch", "toolchains.provide"]);
+    manifest["toolchainProviders"] =
+        json!([{"id":"installs","displayName":"Installed releases","tools":["java"]}]);
+    manifest["backend"] = json!({"launch":{"kind":"packaged","path":"bin/installs"}});
+    input["registry"]["plugins"]
+        .as_array_mut()
+        .unwrap()
+        .truncate(1);
+}
+
+/// Captures an installation-only answer from the self-provider for `homes`.
+fn installs_query(input: &Value, homes: &[(&str, &str)]) -> Value {
+    let mut value = query(input);
+    value["pluginID"] = json!("dev.lithe.fixture.java-support");
+    value["request"]["params"]["providerID"] = json!("installs");
+    let result = &mut value["response"]["result"];
+    result["providerID"] = json!("installs");
+    result["installations"] = json!(homes
+        .iter()
+        .map(|(home, version)| json!({"tool":"java","version":version,"home":home}))
+        .collect::<Vec<_>>());
+    result["statements"] = json!([]);
+    result["watch"] = json!([]);
+    value
+}
+
+#[test]
+fn toolchain_resolution_definition_plugin_can_be_its_own_installation_provider() {
+    let mut value = input();
+    self_provided(&mut value);
+    installation(&mut value, HOME, "21.0.4");
+    let plan =
+        discovery_plan_command(json!({"registry":value["registry"],"platform":"macos"})).unwrap();
+    assert_eq!(plan["plan"]["tools"][0]["scans"], json!([]));
+    assert_eq!(
+        plan["plan"]["tools"][0]["providers"],
+        json!(["dev.lithe.fixture.java-support:installs"])
+    );
+    value["queries"] = json!([installs_query(&value, &[(HOME, "21.0.4")])]);
+    let result = resolve(&value);
+    assert_eq!(result["outcome"]["selection"]["home"], HOME);
+    assert_eq!(result["outcome"]["selection"]["layer"], "automatic");
+    assert_eq!(
+        result["outcome"]["selection"]["provider"],
+        "dev.lithe.fixture.java-support:installs"
+    );
+    // Without watched files no reader can anchor a requirement statement.
+    value["filesystem"].as_array_mut().unwrap().push(fact(
+        &format!("{WORKSPACE}/mise.toml"),
+        "file",
+        false,
+    ));
+    value["queries"][0]["filesystem"] = value["filesystem"].clone();
+    value["queries"][0]["response"]["result"]["statements"] =
+        query(&value)["response"]["result"]["statements"].clone();
+    let rejected = resolve_command(value).unwrap();
+    assert_eq!(rejected["status"], "rejected");
+    assert_eq!(rejected["error"]["code"], "plugin.toolchain.invalidReply");
+    assert_eq!(
+        rejected["error"]["field"],
+        "response.result.statements.reader"
+    );
+}
+
+#[test]
+fn toolchain_resolution_scan_and_provider_routes_merge_by_canonical_home() {
+    let mut value = input();
+    self_provided(&mut value);
+    installation(&mut value, HOME, "21.0.4");
+    installation(&mut value, OLD, "21.0.4");
+    value["queries"] = json!([installs_query(&value, &[(HOME, "21.0.4")])]);
+    value["systemInstallations"] = json!([{"tool":"java","home":HOME}]);
+    let result = resolve(&value);
+    assert_eq!(result["outcome"]["selection"]["home"], HOME);
+    assert_eq!(
+        result["outcome"]["selection"]["provider"],
+        "dev.lithe.fixture.java-support:installs"
+    );
+    assert_eq!(result["conflicts"], json!([]));
+    value["systemInstallations"] = json!([{"tool":"java","home":OLD},{"tool":"java","home":HOME}]);
+    let result = resolve(&value);
+    assert_eq!(result["outcome"]["kind"], "skip");
+    assert_eq!(
+        result["conflicts"][0]["providers"],
+        json!(["dev.lithe.fixture.java-support:installs", "host:system"])
+    );
+    value["providerChoices"]["automatic"] = json!(OLD);
+    let chosen = resolve(&value);
+    assert_eq!(chosen["outcome"]["selection"]["home"], OLD);
+    assert_eq!(chosen["outcome"]["selection"]["provider"], "host:system");
+}
+
+#[test]
+fn toolchain_resolution_linked_provider_home_resolves_against_the_same_snapshot() {
+    let mut value = input();
+    self_provided(&mut value);
+    let link = "/opt/lithe-fixtures/installs/java/latest";
+    let alias = |path: &str, target: &str, kind: &str, executable: bool| json!({"path":path,"canonicalPath":target,"kind":kind,"executable":executable});
+    // Only the link spellings are observed; the resolved target has no fact of its own.
+    value["filesystem"].as_array_mut().unwrap().extend([
+        alias(link, HOME, "directory", false),
+        alias(
+            &format!("{link}/bin"),
+            &format!("{HOME}/bin"),
+            "directory",
+            false,
+        ),
+        alias(
+            &format!("{link}/bin/java"),
+            &format!("{HOME}/bin/java"),
+            "file",
+            true,
+        ),
+    ]);
+    value["probes"] = json!([{"executable":format!("{HOME}/bin/java"),"output":"openjdk version \"21.0.4\"","exitCode":0}]);
+    value["queries"] = json!([installs_query(&value, &[(link, "21.0.4")])]);
+    let result = resolve(&value);
+    let selection = &result["outcome"]["selection"];
+    assert_eq!(selection["home"], HOME);
+    assert_eq!(selection["executable"], format!("{HOME}/bin/java"));
+    assert_eq!(selection["pathPrepend"], json!([format!("{HOME}/bin")]));
+    // Facts that disagree about the resolved target are not reconciled.
+    value["filesystem"]
+        .as_array_mut()
+        .unwrap()
+        .push(fact(HOME, "file", false));
+    value["queries"][0]["filesystem"] = value["filesystem"].clone();
+    assert_eq!(resolve_command(value).unwrap()["status"], "rejected");
+}
+
+#[test]
+fn toolchain_resolution_environment_candidate_uses_its_declared_layout() {
+    let mut value = input();
+    let definition = &mut value["registry"]["plugins"][0]["manifest"]["toolDefinitions"][0];
+    definition["executableLayouts"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"path":"alt/bin/java","platforms":["macos","linux"]}));
+    definition["executables"][4]["path"] = json!("alt/bin/java");
+    installation(&mut value, HOME, "21.0.4");
+    value["filesystem"].as_array_mut().unwrap().extend([
+        fact(&format!("{HOME}/alt"), "directory", false),
+        fact(&format!("{HOME}/alt/bin"), "directory", false),
+        fact(&format!("{HOME}/alt/bin/java"), "file", true),
+    ]);
+    value["probes"].as_array_mut().unwrap().push(json!({"executable":format!("{HOME}/alt/bin/java"),"output":"openjdk version \"17.0.12\"","exitCode":0}));
+    value["environment"]["JAVA_HOME"] = json!(HOME);
+    let result = resolve(&value);
+    let selection = &result["outcome"]["selection"];
+    assert_eq!(selection["provider"], "host:shell");
+    assert_eq!(selection["executable"], format!("{HOME}/alt/bin/java"));
+    assert_eq!(selection["version"], "17.0.12");
 }
 
 #[test]

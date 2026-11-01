@@ -117,7 +117,8 @@ pub(crate) fn check_version(input: &Value) -> Validation<Value> {
     capture(definition, output, minimum)
 }
 
-/// Exposes bounded discovery data while leaving expansion and native checks to hosts.
+/// Exposes both installation routes per tool: definition-owned scans the host expands,
+/// and enabled providers the host queries. Native expansion and checks stay in hosts.
 pub(crate) fn discovery_plan(input: &Value) -> Validation<Value> {
     fields(input, &["registry", "platform"])?;
     let registry = definitions::registry(&input["registry"])?;
@@ -140,12 +141,40 @@ pub(crate) fn discovery_plan(input: &Value) -> Validation<Value> {
                 .filter(|scan| applicable(scan, platform))
                 .cloned()
                 .collect();
-            json!({"tool":definition["id"],"pluginID":entry["pluginID"],"scans":scans,
+            let providers: Vec<_> = registry["providers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|provider| {
+                    provider["provider"]["tools"]
+                        .as_array()
+                        .is_some_and(|tools| tools.contains(&definition["id"]))
+                })
+                .map(|provider| {
+                    format!(
+                        "{}:{}",
+                        provider["pluginID"].as_str().unwrap_or(""),
+                        provider["provider"]["id"].as_str().unwrap_or("")
+                    )
+                })
+                .collect();
+            json!({"tool":definition["id"],"pluginID":entry["pluginID"],"scans":scans,"providers":providers,
             "homeLayouts":definition.get("homeLayouts").cloned().unwrap_or(json!([])),
             "executableLayouts":definition["executableLayouts"],"version":definition["version"]})
         })
         .collect::<Vec<_>>();
     Ok(json!({"tools":tools,"limits":{"roots":256,"entries":4096,"ancestors":64}}))
+}
+
+/// Provenance of homes found by expanding definition-owned `discovery` scans.
+const SYSTEM_PROVIDER: &str = "host:system";
+
+/// One canonical home reported by several routes stays one installation. A provider
+/// answer outranks the host scan, then qualified provider IDs give a stable label;
+/// the label never decides between different homes.
+fn attribution(selection: &Value) -> (bool, &str) {
+    let provider = selection["provider"].as_str().unwrap_or("");
+    (provider == SYSTEM_PROVIDER, provider)
 }
 
 fn applicable(value: &Value, platform: &str) -> bool {
@@ -164,6 +193,8 @@ struct Snapshot<'a> {
     case_sensitive: bool,
     roots: Vec<String>,
     facts: &'a [Value],
+    /// Resolved targets implied by link facts; canonical selections are looked up here.
+    targets: Vec<Value>,
     probes: BTreeMap<String, Probe>,
     minimum: Option<&'a str>,
 }
@@ -177,6 +208,7 @@ impl Snapshot<'_> {
         let key = self.key(path)?;
         self.facts
             .iter()
+            .chain(&self.targets)
             .find(|fact| {
                 fact["path"]
                     .as_str()
@@ -217,7 +249,7 @@ impl Snapshot<'_> {
         Ok(())
     }
 
-    fn checked(&self, home: &str) -> Validation<Value> {
+    fn checked(&self, home: &str, layout: Option<&str>) -> Validation<Value> {
         query::validate_installation(
             home,
             self.definition,
@@ -225,6 +257,7 @@ impl Snapshot<'_> {
             &self.roots,
             self.platform,
             self.case_sensitive,
+            layout,
         )
     }
 
@@ -246,7 +279,18 @@ impl Snapshot<'_> {
     }
 
     fn selection(&self, home: &str, provider: &str, layer: &str) -> Result<Value, &'static str> {
-        let checked = self.checked(home).map_err(|_| "unsafePath")?;
+        self.layout_selection(home, None, provider, layer)
+    }
+
+    /// Selects `home` through one declared executable layout, or the first present one.
+    fn layout_selection(
+        &self,
+        home: &str,
+        layout: Option<&str>,
+        provider: &str,
+        layer: &str,
+    ) -> Result<Value, &'static str> {
+        let checked = self.checked(home, layout).map_err(|_| "unsafePath")?;
         let executable = checked["executable"].as_str().ok_or("unsafePath")?;
         let version = self.version(executable)?;
         self.environment_selection(
@@ -537,17 +581,20 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
             return Err(reject("probes"));
         }
     }
-    let snapshot = Snapshot {
+    let mut snapshot = Snapshot {
         input,
         definition,
         platform,
         case_sensitive,
         roots,
         facts,
+        targets: Vec::new(),
         probes,
         minimum,
     };
     snapshot.validate_facts()?;
+    snapshot.targets = query::implied_targets(facts, platform, case_sensitive)
+        .map_err(|_| reject("filesystem"))?;
     if snapshot.key(
         snapshot.fact(&root, "directory")?["canonicalPath"]
             .as_str()
@@ -699,7 +746,7 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
             let home = value["home"]
                 .as_str()
                 .ok_or_else(|| reject("systemInstallations"))?;
-            installations.push(json!({"tool":tool,"home":home,"provider":"host:system"}));
+            installations.push(json!({"tool":tool,"home":home,"provider":SYSTEM_PROVIDER}));
         }
     }
     let candidates: Vec<_> = definition["executables"]
@@ -1020,9 +1067,12 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
                             layer,
                         ) {
                             Ok(value) => {
-                                eligible
-                                    .entry(snapshot.key(value["home"].as_str().unwrap_or(""))?)
-                                    .or_insert(value);
+                                let key = snapshot.key(value["home"].as_str().unwrap_or(""))?;
+                                if eligible.get(&key).is_none_or(|kept: &Value| {
+                                    attribution(&value) < attribution(kept)
+                                }) {
+                                    eligible.insert(key, value);
+                                }
                             }
                             Err(code) => failure = Some(reason(code, tool)),
                         }
@@ -1068,7 +1118,12 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
                     .and_then(|name| input["environment"][name].as_str())
                     .filter(|value| !value.is_empty())
                 {
-                    match snapshot.selection(home, "host:shell", layer) {
+                    match snapshot.layout_selection(
+                        home,
+                        candidate["path"].as_str(),
+                        "host:shell",
+                        layer,
+                    ) {
                         Ok(value) => selected = Some(value),
                         Err(code) => failure = Some(reason(code, tool)),
                     }

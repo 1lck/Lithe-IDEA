@@ -194,7 +194,11 @@ struct ToolchainSourcesSettingsView: View {
                     .accessibilityValue(isExpanded ? Text("Expanded") : Text("Collapsed"))
                     ForEach(toolNames(provider), id: \.self) { ToolchainSettingsTag(verbatim: $0) }
                 }
-                if hasWorkspace {
+                if provider.watchFiles.isEmpty {
+                    Text("Reports installed versions only")
+                        .font(LitheTheme.uiFont(size: 11.5))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                } else if hasWorkspace {
                     if found.isEmpty {
                         Text("Not used in this project")
                             .font(LitheTheme.uiFont(size: 11.5))
@@ -215,7 +219,7 @@ struct ToolchainSourcesSettingsView: View {
                         }
                         ForEach(provider.watchFiles, id: \.self) { ToolchainSettingsTag(verbatim: $0, kind: .value) }
                     }
-                    if hasWorkspace {
+                    if hasWorkspace, !provider.watchFiles.isEmpty {
                         ToolchainSettingsMetaLine("This project") {
                             if found.isEmpty {
                                 Text("None").foregroundStyle(LitheTheme.tertiaryText)

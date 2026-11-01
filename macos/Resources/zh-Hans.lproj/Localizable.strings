@@ -3175,6 +3175,7 @@
 "Replay the current branch onto %@. Conflicts may require terminal resolution." = "将当前分支的提交重放到 %@ 之上。如有冲突，可能需要在终端中解决。";
 "Replays every commit onto the base branch without a merge commit." = "将所有提交重放到目标分支，不创建合并提交。";
 "Reported change" = "上报的修改";
+"Reports installed versions only" = "只报告已安装的版本";
 "Repository" = "仓库";
 "Repository Diff" = "仓库差异";
 "Repository Diff: %@" = "仓库差异: %@";
@@ -9158,6 +9159,7 @@
 "native.toolchainSettings.readResult" = "读取结果";
 "native.toolchainSettings.reading" = "正在读取…";
 "native.toolchainSettings.remoteUnavailable" = "远程工作区暂不支持工具链设置。";
+"native.toolchainSettings.reportsInstalledVersionsOnly" = "只报告已安装的版本";
 "native.toolchainSettings.runtimeEnvironment" = "运行环境";
 "native.toolchainSettings.runtimeEnvironmentIsolatedPreview" = "运行环境 — 隔离预览";
 "native.toolchainSettings.savedNotVerified" = "已保存，未验证";

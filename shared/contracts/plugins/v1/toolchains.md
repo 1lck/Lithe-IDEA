@@ -25,8 +25,10 @@ fields fail closed. Candidate graph ordering reuses the existing shared graph
 validator and cannot cross layer barriers. This slice does not support a
 definition candidate of `kind: runtime`, or `toolchainConsumers`.
 
-Provider entries contain `{id, displayName, tools, watchFiles}`; each watch entry
-is `{pattern, reader: "native" | "compatible"}`. Providers share the plugin's
+Provider entries contain `{id, displayName, tools, watchFiles?}`; each watch entry
+is `{pattern, reader: "native" | "compatible"}`. A present `watchFiles` lists 1-32
+unique patterns; an absent one makes an installation-only provider, whose
+replies may not contain statements. Providers share the plugin's
 backend; admission permits a host-query trigger without a page or startup event.
 This is not implemented native activation. Bootstrap must be `packaged`, or
 `runtime` with `packagedRuntime`, without discovered runtime dependencies. Existing
@@ -37,6 +39,34 @@ not grant arbitrary command replacement, installation, network or workspace-code
 execution. Short definition IDs require independently verified official origin;
 community definitions use `<own-plugin-id>:<local-id>`. Community providers may
 answer short IDs. No host-owned tool table, name alias or manager parser is added.
+
+## Two installation routes
+
+A definition receives installations through either route, or both. Neither is
+required: a tool may rely only on pins, project files, global defaults and
+login-shell commands.
+
+| Route | Declared by | Fits | Runs |
+| --- | --- | --- | --- |
+| Declarative discovery | The definition's `discovery`, `homeLayouts`, `homeVariable`, `commands` and `version` | Installations with a fixed directory shape: a single-component glob under the user home, an environment variable or an absolute system directory, an optional home suffix, and a version expression over a probe | The host expands `discoveryPlan` scans; no plugin code runs |
+| Provider query | `toolchainProviders[]` answering `toolchains/query` | Locations those primitives cannot express: registries, property lists, manager databases, command output, manager-specific version files | The provider's packaged backend |
+
+The declarative primitives are frozen: root kinds stay `home`, `environment`
+and `absolute`, and patterns stay single-component `*` globs. A new installation
+shape is answered by a provider, not by a new root kind or a host parser. The
+plugin that defines a tool may also declare a provider for it; omit
+`watchFiles` when it only reports installations. A provider backend never runs
+on a tool it discovers: the bootstrap rules above apply to a defining plugin's own
+provider as well.
+
+`discoveryPlan` lists both routes per tool. The host expands `scans` into
+`systemInstallations`, recorded with provenance `host:system`, and queries every
+qualified provider in `providers`. In the automatic layer both routes form one
+candidate set. One canonical home counts once: a provider answer labels it
+before the host scan, and among providers the smaller qualified ID labels it.
+This label is display provenance and never chooses between different homes;
+equal highest versions in different homes remain an `automatic` conflict that
+names every route.
 
 ## Commands and envelopes
 
@@ -91,6 +121,9 @@ Each native filesystem fact is `{path,canonicalPath,kind,executable?}` with kind
 the provider. Core checks unique paths, actual-kind evidence, definition-owned
 executable layouts, canonical home containment and exclusion of all workspace
 roots. Provider homes are final tool homes; `homeLayouts` is not reapplied.
+A non-missing fact also attests its canonical target with the same kind and mode,
+so canonical results found through a link are checked against the same snapshot;
+facts that disagree about one canonical path reject it.
 Inactive/unknown tools lose installation authority; bounded requirement facts
 remain diagnostic only. Lists normalize deterministically; sort order never
 chooses between conflicting requirements. A reply is bounded to 1 MiB, 512
@@ -118,9 +151,11 @@ platform,workspaceRoot,filesystem}` and accepts `workspaceRoots`,
 `filesystemCaseSensitive`, `local`, `minimumVersion`, `probes`, `queries`,
 `systemInstallations`, `globalDefault`, `environment`, `commandHomes`,
 `projectCodeAllowed` and `providerChoices`. `local` defaults to an empty v1
-document. Probes are host observations `{executable,output,exitCode}`; system
-installations are `{tool,home}`. Shell environment home variables and
-`commandHomes` come from the native login-shell adapter, not command-name guessing.
+document. Probes are host observations `{executable,output,exitCode}` keyed by the
+canonical executable a selection reports; system installations are `{tool,home}`.
+Shell environment home variables and `commandHomes` come from the native login-shell
+adapter, not command-name guessing. An environment candidate selects only through
+its declared `path` layout.
 
 Each query is a complete `decodeReply` input, bound to the resolver's registry,
 generation/context, root/directory, case policy, roots and filesystem snapshot.
@@ -160,8 +195,9 @@ environment, so rejected exports cannot leak into its successor.
 capture. Numeric dotted components (at most eight unsigned 32-bit parts, 64 bytes)
 compare with trailing zeros ignored; aliases and tool-specific version syntax are
 not interpreted. No match gives `version:null,satisfied:false`. `discoveryPlan`
-returns `{tools,limits}` with platform-filtered scans and definition-owned layouts
-and probes. It neither scans nor executes them; limits are 256 roots, 4096 entries
+returns `{tools,limits}`. Each tool carries platform-filtered `scans`, the sorted
+qualified `providers` that declare it, and definition-owned layouts and probes.
+It neither scans, queries nor executes them; limits are 256 roots, 4096 entries
 and 64 ancestors for the eventual host adapter.
 
 Production-shape examples are [tool-definition.plugin.json](fixtures/tool-definition.plugin.json)

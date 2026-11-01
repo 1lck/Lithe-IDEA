@@ -356,6 +356,17 @@ fn file_values(input: &Value) -> Validation<&[Value]> {
 }
 
 fn read_facts(file_values: &[Value], platform: &str, case_sensitive: bool) -> Validation<Facts> {
+    let mut facts = explicit_facts(file_values, platform, case_sensitive)?;
+    let targets = link_targets(&facts)?;
+    facts.values.extend(targets);
+    Ok(facts)
+}
+
+fn explicit_facts(
+    file_values: &[Value],
+    platform: &str,
+    case_sensitive: bool,
+) -> Validation<Facts> {
     let mut facts = Facts {
         values: BTreeMap::new(),
         platform: platform.to_owned(),
@@ -391,11 +402,66 @@ fn read_facts(file_values: &[Value], platform: &str, case_sensitive: bool) -> Va
     Ok(facts)
 }
 
+/// A link fact also attests its resolved target, so a canonical result found through
+/// an alias can be checked again against the same snapshot. Returns only targets
+/// without their own fact; facts that disagree about one target reject the snapshot.
+fn link_targets(facts: &Facts) -> Validation<BTreeMap<String, FileFact>> {
+    let mut targets: BTreeMap<String, FileFact> = BTreeMap::new();
+    for fact in facts.values.values().filter(|fact| fact.kind != "missing") {
+        let target = FileFact {
+            path: fact.canonical_path.clone(),
+            canonical_path: fact.canonical_path.clone(),
+            kind: fact.kind.clone(),
+            executable: fact.executable,
+        };
+        let key = facts.key(&target.path)?;
+        let known = facts.values.get(&key).or_else(|| targets.get(&key));
+        if known.is_some_and(|known| !same_target(known, &target, facts)) {
+            return Err(reject(
+                UNSAFE,
+                "filesystem.canonicalPath",
+                "Native filesystem facts disagree about one canonical path.",
+            ));
+        }
+        if known.is_none() {
+            targets.insert(key, target);
+        }
+    }
+    Ok(targets)
+}
+
+/// Lists the resolved targets implied by link facts, for resolvers that look facts up
+/// by path after decoding has already canonicalized a provider home.
+pub(crate) fn implied_targets(
+    filesystem: &[Value],
+    platform: &str,
+    case_sensitive: bool,
+) -> Validation<Vec<Value>> {
+    let facts = explicit_facts(filesystem, platform, case_sensitive)?;
+    Ok(link_targets(&facts)?
+        .into_values()
+        .map(|fact| {
+            json!({"path":fact.path,"canonicalPath":fact.canonical_path,"kind":fact.kind,
+                "executable":fact.executable})
+        })
+        .collect())
+}
+
+/// Two facts describe one resolved target only if identity, type and mode agree.
+fn same_target(known: &FileFact, target: &FileFact, facts: &Facts) -> bool {
+    facts.key(&known.canonical_path).ok() == facts.key(&target.canonical_path).ok()
+        && known.kind == target.kind
+        && known.executable == target.executable
+}
+
+/// `layout_path` limits the search to one declared executable layout, as an environment
+/// candidate names; otherwise the first present platform layout is selected.
 fn checked_installation(
     home: &str,
     definition: &Value,
     facts: &Facts,
     roots: &[String],
+    layout_path: Option<&str>,
 ) -> Validation<Value> {
     let canonical_home = facts.canonical(home, Some("directory"))?;
     if roots.iter().any(|root| facts.within(&canonical_home, root)) {
@@ -414,7 +480,8 @@ fn checked_installation(
             !platforms
                 .as_array()
                 .is_some_and(|platforms| platforms.iter().any(|value| value == &facts.platform))
-        }) {
+        }) || layout_path.is_some_and(|wanted| layout["path"] != wanted)
+        {
             continue;
         }
         let path = paths::join(home, layout["path"].as_str().unwrap_or(""), &facts.platform)
@@ -454,6 +521,7 @@ pub(crate) fn validate_installation(
     workspace_roots: &[String],
     platform: &str,
     case_sensitive: bool,
+    layout_path: Option<&str>,
 ) -> Validation<Value> {
     if !matches!(platform, "macos" | "windows" | "linux") {
         return Err(reject(
@@ -467,7 +535,7 @@ pub(crate) fn validate_installation(
         .iter()
         .map(|root| facts.canonical(root, Some("directory")))
         .collect::<Validation<Vec<_>>>()?;
-    checked_installation(home, definition, &facts, &roots)
+    checked_installation(home, definition, &facts, &roots, layout_path)
 }
 
 /// Decodes one provider reply using only verified registry and native facts.
@@ -759,7 +827,7 @@ pub(crate) fn decode(input: &Value) -> Validation<Value> {
         else {
             continue;
         };
-        let checked = checked_installation(&installation.home, definition, &facts, &roots)?;
+        let checked = checked_installation(&installation.home, definition, &facts, &roots, None)?;
         let home = checked["home"]
             .as_str()
             .expect("checked home is a string")

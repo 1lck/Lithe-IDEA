@@ -10,15 +10,16 @@ struct ToolchainSettingsLoaderTests {
 
     private func source(
         pluginID: String = "dev.lithe.fixture.tools", enabled: Bool = true,
-        executables: [[String: Any]] = [], watchFiles: [String] = [".fixture-version"]
+        executables: [[String: Any]] = [], watchFiles: [String]? = [".fixture-version"]
     ) throws -> ToolchainSettingsPluginSource {
+        var provider: [String: Any] = ["id": "manager", "displayName": "Fixture manager", "tools": ["compiler", "disabled-tool"]]
+        if let watchFiles { provider["watchFiles"] = watchFiles.map { ["pattern": $0, "reader": "native"] } }
         let manifest: [String: Any] = [
             "schemaVersion": 2, "id": pluginID, "displayName": "Fixture support",
             "version": "1.0.0", "pluginAPIVersion": 3,
             "toolDefinitions": [["id": "compiler", "displayName": "Fixture compiler", "icon": ["host": "plugin"],
                                  "executables": executables]],
-            "toolchainProviders": [["id": "manager", "displayName": "Fixture manager", "tools": ["compiler", "disabled-tool"],
-                "watchFiles": watchFiles.map { ["pattern": $0, "reader": "native"] }]]
+            "toolchainProviders": [provider]
         ]
         return .init(pluginID: pluginID, name: "Fixture support",
                      manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: enabled)
@@ -175,6 +176,26 @@ struct ToolchainSettingsLoaderTests {
             await #expect(throws: ToolchainSettingsLoadError.invalidDeclarations) {
                 try await loader(sources: { sources }).load(workspace: nil)
             }
+        }
+    }
+
+    @Test func installationOnlyProvidersAreListedWithoutCheckingVersionFiles() async throws {
+        let source = try source(watchFiles: nil)
+        let files = ToolchainLoaderFiles()
+        let snapshot = try await loader(files: files, sources: { [source] },
+            directories: { _ in ["apps"] }).load(workspace: workspace)
+        #expect(snapshot.providers.map(\.id) == ["dev.lithe.fixture.tools:manager"])
+        #expect(snapshot.providers.first?.watchFiles == [])
+        #expect(snapshot.tools.allSatisfy { $0.versionFiles.isEmpty })
+        #expect(files.checkedPaths.isEmpty)
+        // Omitting `watchFiles` is allowed; declaring something other than a list is not.
+        var manifest = try #require(try JSONSerialization.jsonObject(with: source.manifest) as? [String: Any])
+        manifest["toolchainProviders"] = [["id": "manager", "displayName": "Fixture manager",
+                                           "tools": ["compiler"], "watchFiles": ".fixture-version"]]
+        let malformed = ToolchainSettingsPluginSource(pluginID: source.pluginID, name: source.name,
+            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true)
+        await #expect(throws: ToolchainSettingsLoadError.invalidDeclarations) {
+            try await loader(sources: { [malformed] }).load(workspace: nil)
         }
     }
 

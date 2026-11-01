@@ -198,7 +198,7 @@
       }
     },
     "provider": {
-      "type": "object", "additionalProperties": false, "required": ["id", "displayName", "tools", "watchFiles"],
+      "type": "object", "additionalProperties": false, "required": ["id", "displayName", "tools"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
         "displayName": { "$ref": "#/$defs/label" },
