@@ -7,7 +7,7 @@
 use gpui_kit::component::{Theme, ThemeColor, ThemeMode};
 use gpui_kit::{App, Global, px, white};
 
-use crate::fonts::{MONO_FONT_FAMILY, UI_FONT_FAMILY};
+use crate::fonts::{mono_font_family, ui_font_family};
 use crate::{LitheMetrics, LitheThemeKind, LitheTokens};
 
 /// 记住当前安装的主题族与明暗，`toggle_dark` / `current_tokens` 需要它。
@@ -41,8 +41,8 @@ pub fn install_theme(cx: &mut App, kind: LitheThemeKind, dark: bool) {
 
     Theme::update(cx, |theme| {
         theme.colors = theme_color(&tokens);
-        theme.font_family = UI_FONT_FAMILY.into();
-        theme.mono_font_family = MONO_FONT_FAMILY.into();
+        theme.font_family = ui_font_family().into();
+        theme.mono_font_family = mono_font_family().into();
         theme.font_size = px(LitheMetrics::UI_FONT_SIZE);
         theme.mono_font_size = px(LitheMetrics::CODE_FONT_SIZE);
         theme.radius = px(LitheMetrics::CONTROL_RADIUS);

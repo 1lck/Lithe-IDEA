@@ -26,7 +26,9 @@ pub mod i18n;
 pub mod shortcut;
 
 pub use assets::{APP_LOGO_PATH, LitheAssets};
-pub use fonts::{MONO_FONT_FAMILY, UI_FONT_FAMILY, install_fonts};
+pub use fonts::{
+    MONO_FONT_FAMILY, UI_FONT_FAMILY, install_fonts, mono_font_family, ui_font_family,
+};
 pub use i18n::{language, set_language, tr};
 pub use icons::{LitheIcon, icon};
 pub use metrics::LitheMetrics;

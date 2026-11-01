@@ -414,6 +414,15 @@ fn resolve_launch(
                 .collect()
         })
         .unwrap_or_default();
+    // Maven 默认只在终端输出颜色；面板自己渲染 SGR，所以显式要求彩色。
+    // 依赖树等命令已经带 `-Dstyle.color=never`（结果写文件），不覆盖它。
+    let mut arguments = arguments;
+    if !arguments
+        .iter()
+        .any(|argument| argument.starts_with("-Dstyle.color="))
+    {
+        arguments.insert(0, "-Dstyle.color=always".to_string());
+    }
     let working_directory_text = plan
         .get("workingDirectory")
         .and_then(Value::as_str)

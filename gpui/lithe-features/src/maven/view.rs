@@ -19,10 +19,11 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Disableable as _, Sizable as _, Size, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, AppContext as _, ClickEvent, Context, DismissEvent, Div, Entity, EventEmitter,
-    Focusable as _, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, Stateful, StatefulInteractiveElement as _, Styled, Subscription, Window,
-    anchored, deferred, div, px, white,
+    AnimationExt as _, AnimationPhase, AnyElement, App, AppContext as _, ClickEvent, Context,
+    DismissEvent, Div, Entity, EventEmitter, Focusable as _, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement, Render, SharedString, SpringAnimation, SpringConfig, Stateful,
+    StatefulInteractiveElement as _, Styled, Subscription, Window, anchored, deferred, div, px,
+    white,
 };
 use lithe_core_client::CoreClient;
 use lithe_git_host::ProcessTree;
@@ -1999,10 +2000,13 @@ impl MavenPanel {
         let run_module = module_path.clone();
         let menu_module = module_path.clone();
         let menu_phase = phase;
+        let row_id = SharedString::from(format!("lithe-maven:phase:{phase}:{module_path}"));
+        let animation_id =
+            SharedString::from(format!("lithe-maven:phase-select:{phase}:{module_path}"));
+        let selection_animation =
+            SpringAnimation::new(SpringConfig::new(520.0, 46.0, 1.0)).to(selected);
         h_flex()
-            .id(SharedString::from(format!(
-                "lithe-maven:phase:{phase}:{module_path}"
-            )))
+            .id(row_id)
             .h(px(TREE_ROW_HEIGHT))
             .w_full()
             .flex_shrink_0()
@@ -2010,7 +2014,6 @@ impl MavenPanel {
             .gap(px(6.0))
             .px(px(8.0))
             .rounded(px(4.0))
-            .when(selected, |this| this.bg(tokens.selection))
             .when(!selected, |this| this.hover(|style| style.bg(tokens.hover)))
             .cursor_pointer()
             .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
@@ -2068,6 +2071,19 @@ impl MavenPanel {
                         tokens.secondary_text
                     })
                     .child(phase),
+            )
+            // 选中背景用弹簧插值，单击切换时不再瞬间硬切。
+            .with_spring(
+                animation_id,
+                selection_animation,
+                move |this, phase: AnimationPhase| {
+                    let progress = phase.clamp(0.0..=1.0).0;
+                    if progress <= 0.001 {
+                        this
+                    } else {
+                        this.bg(tokens.selection.opacity(progress))
+                    }
+                },
             )
             .into_any_element()
     }

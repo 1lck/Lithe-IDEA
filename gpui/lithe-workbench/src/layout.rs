@@ -62,8 +62,14 @@ pub(crate) const BOTTOM_PANEL_INITIAL_HEIGHT: Pixels = px(260.);
 /// 底部 dock 最小高度：再窄就放不下工具窗标题和一行结果。
 pub(crate) const BOTTOM_PANEL_MIN_HEIGHT: Pixels = px(120.);
 
-/// 底部 dock 最大高度，避免把主编辑区挤到无法阅读。
-pub(crate) const BOTTOM_PANEL_MAX_HEIGHT: Pixels = px(500.);
+/// 底部 dock 最大高度。
+///
+/// 对齐 Tauri 设置归一化的 2000 上限；实际拖动和渲染时还会按当前窗口高度
+/// 收缩（见 `bottom_panel_max_height`），保证编辑区仍可阅读。
+pub(crate) const BOTTOM_PANEL_MAX_HEIGHT: Pixels = px(2000.);
+
+/// 底部 dock 展开时给编辑区保留的最小高度。
+pub(crate) const BOTTOM_PANEL_MIN_EDITOR_HEIGHT: Pixels = px(180.);
 
 /// 命令面板宽度。比设置面板窄，保持“快速跳转”的轻量感。
 pub(crate) const COMMAND_PALETTE_WIDTH: Pixels = px(560.);

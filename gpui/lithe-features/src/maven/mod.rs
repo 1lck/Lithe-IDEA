@@ -26,6 +26,7 @@
 pub mod configuration;
 use std::path::{Path, PathBuf};
 
+mod ansi;
 mod model;
 mod output;
 mod session;

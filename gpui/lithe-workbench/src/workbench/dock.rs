@@ -450,14 +450,23 @@ impl Workbench {
         self.bottom_resize_origin = Some((pointer_y, self.bottom_height));
     }
 
-    /// 跟随指针更新底部工具窗高度，并夹在 `layout` 的最小/最大尺寸之间。
-    fn update_bottom_resize(&mut self, pointer_y: Pixels, cx: &mut Context<Self>) {
+    /// 当前窗口允许的底部工具窗最大高度：给编辑区保留最小高度。
+    fn bottom_panel_max_height(window: &Window) -> Pixels {
+        (window.viewport_size().height - layout::BOTTOM_PANEL_MIN_EDITOR_HEIGHT).clamp(
+            layout::BOTTOM_PANEL_MIN_HEIGHT,
+            layout::BOTTOM_PANEL_MAX_HEIGHT,
+        )
+    }
+
+    /// 跟随指针更新底部工具窗高度，并夹在最小尺寸与窗口可容纳的上限之间。
+    fn update_bottom_resize(&mut self, pointer_y: Pixels, window: &Window, cx: &mut Context<Self>) {
         let Some((origin_y, origin_height)) = self.bottom_resize_origin else {
             return;
         };
+        let max_height = Self::bottom_panel_max_height(window);
         let height = (origin_height + (origin_y - pointer_y).as_f32()).clamp(
             layout::BOTTOM_PANEL_MIN_HEIGHT.as_f32(),
-            layout::BOTTOM_PANEL_MAX_HEIGHT.as_f32(),
+            max_height.as_f32(),
         );
         if (self.bottom_height - height).abs() < 0.5 {
             return;
@@ -481,10 +490,10 @@ impl Workbench {
     fn on_bottom_resize_drag(
         &mut self,
         event: &DragMoveEvent<BottomResizeDrag>,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.update_bottom_resize(event.event.position.y, cx);
+        self.update_bottom_resize(event.event.position.y, window, cx);
     }
 
     /// 底部工具窗上沿的 6px 拖动间隙。
@@ -905,11 +914,12 @@ impl Workbench {
 
         if self.bottom_visible {
             if let Some(tool) = self.active_bottom {
+                let max_height = Self::bottom_panel_max_height(window);
                 column = column.child(self.render_bottom_resize_gutter(cx)).child(
                     div()
-                        .h(px(self.bottom_height))
+                        .h(px(self.bottom_height.min(max_height.as_f32())))
                         .min_h(layout::BOTTOM_PANEL_MIN_HEIGHT)
-                        .max_h(layout::BOTTOM_PANEL_MAX_HEIGHT)
+                        .max_h(max_height)
                         .child(self.render_dock_panel(tool, window, cx)),
                 );
             }
