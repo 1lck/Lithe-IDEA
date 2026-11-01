@@ -604,6 +604,13 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 以下目录不应直接复制或跨工作树共享：
 
+- Markdown 离线预览的模板、脚本、样式、字体和许可来自 Git 跟踪的
+  `macos/Sources/Lithe/Resources/MarkdownPreview/`。KaTeX 0.16.0 的 mhchem 扩展与现有
+  KaTeX 版本匹配，npm 归档完整性及文件 SHA-256 固定在 `THIRD_PARTY_NOTICES.md`。
+  输入与平台架构、工具链无关；构建时从当前 checkout 复制进 bundle 后签名，运行时仅只读加载，
+  不下载、不写回、不产生持久化渲染缓存，不影响签名和 Sparkle delta。生成 bundle 没有可靠的
+  跨 worktree identity stamp，`excludedResources.markdown-preview-assets` 走资源脚本的
+  通用拒绝路由，任何复制阶段都不得从其他工作树或安装 app 复用这些资源。
 - AutoBuild 应用发布校验 staging：
   `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{baselines,verification}/`。
   源码 SHA、应用 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；

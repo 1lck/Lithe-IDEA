@@ -64,6 +64,17 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("offline Markdown preview assets come from Git, never another bundle", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "markdown-preview-assets");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("macos/Sources/Lithe/Resources/MarkdownPreview/"));
+    assert.match(resource.identity, /SHA-256/);
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /markdown-preview-assets is isolated.*cannot be reused/);
+  });
+
   await test("remote host resources and session snapshots cannot cross worktrees", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const listed = run(process.execPath, [reuseScript, "--list"]);

@@ -89,6 +89,8 @@ async function readRegistry() {
   // not reusable build inputs, even without plugin mirror staging.
   // Plugin host secrets and workspace state also take this rejection route,
   // never a download/cache validator: their identity belongs to the installation.
+  // Offline Markdown libraries are Git inputs, not reusable generated bundles.
+  // Rebuild the target checkout's template/vendor resources before signing.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

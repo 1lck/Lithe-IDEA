@@ -2,11 +2,15 @@
   "id": "markdown-rendering",
   "area": "编辑器",
   "group": "Markdown",
-  "capability": "Markdown 预览与富文本渲染",
+  "capability": "Markdown 预览与富文本渲染；macOS 离线数学公式、mhchem 化学方程式与物理单位、Mermaid、脚注及上下标",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift",
-      "macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift"
+      "macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift",
+      "macos/Sources/Lithe/Resources/MarkdownPreview/index.html",
+      "macos/Tests/LitheTests/MarkdownPreviewRichContentTests.swift",
+      "rust/lithe-core/src/project/markdown.rs",
+      "shared/fixtures/editor/markdown-rich-content-v1.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -20,6 +24,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Editor",
-  "verification": "使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。",
-  "notes": "Windows 预览中屏幕外的段落、标题、列表和代码块使用 content-visibility: auto 跳过排版（表格除外，避免溢出被裁切）；8.6 万行文档打开预览的最长主线程任务由约 10 秒降到约 1.3 秒，滚动最长任务由约 3.8 秒降到约 0.23 秒。"
+  "verification": "使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。macOS 在深浅主题运行 markdown-rich-content-v1.json：行内数学、块级化学反应、物理单位均生成可访问 MathML，没有 katex-error；Mermaid 生成真实 SVG，脚注链接及回链存在；H~2~O 与 x^2^ 正确，双波浪线仍是删除线，代码内语法保持原文。运行前后逐文件比较预览资源哈希，确认无网络脚本和远程资源请求、bundle 不变。",
+  "notes": "Windows 预览中屏幕外的段落、标题、列表和代码块使用 content-visibility: auto 跳过排版（表格除外，避免溢出被裁切）；8.6 万行文档打开预览的最长主线程任务由约 10 秒降到约 1.3 秒，滚动最长任务由约 3.8 秒降到约 0.23 秒。2026-11-01 #706 增强第一批：macOS 加载与 KaTeX 0.16.0 匹配的离线 mhchem 3.3.0 扩展，Core 开启 Comrak 下标，并增加真实 WKWebView 的数学、化学、Mermaid、脚注和上下标回归。Windows 仍使用独立简化解析器，未在本批迁移；PlantUML 暂不渲染，不能宣称 #706 已整体完成。完整产品和 Windows 真机验收保持 pending。"
 }
