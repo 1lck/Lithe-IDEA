@@ -13,7 +13,7 @@
 
 [2026-10-30 的 review](https://github.com/1lck/Lithe-IDEA/pull/1558#pullrequestreview-5715250513)
 改变了下文已接通代码的验收条件。历史通过数只证明当时的实现，不能用来认定被驳回的
-架构可以合入。三个 PR 继续保持 Draft；协议 8～10 保留，协议 7 已改为提供者编辑，协议 11 正改为注册表连接目标；完整迁移仍有下列待办。
+架构可以合入。三个 PR 继续保持 Draft；协议 8～10 保留，协议 7 已改为提供者编辑，协议 11 已改为注册表连接目标；完整迁移仍有下列待办。
 
 | 修正项 | 当前状态与退出条件 |
 | --- | --- |
@@ -21,8 +21,26 @@
 | 原生配置 v7 | 已移除 XML 绑定和 Core XML 编辑器，新增提供者编辑计划及不含文档的回执。两端暂存/校验/原子发布接线已更新；Node/Java JSON E2E、真实 Maven 编辑/回读、127 项 macOS、71 项 Windows 前端和类型检查通过。Windows 原生 4 个既有 watcher 失败、整机未验收；完整正式组合仍待验证。 |
 | 服务调试 v11 | 已删除本入口的 `runtime: jvm` 与内置 Java attach；协议传递适配器身份、公开配置类型和 `connection` 目标，宿主从当前 Registry 选择并验证配置，跨准备/监听/连接检查包与注册代次。Java Support 自己声明同包 JDT 托管适配器，Maven 仅声明配置类型；真实断点 UI 与发行组合仍待验收。 |
 | 工具选择 | 等 [#1581](https://github.com/1lck/Lithe-IDEA/pull/1581) 合并后接其重写后的 `toolDefinitions` / `toolchainProviders` 与四层选择契约（旧 `toolchainSources` 方案已撤回）；2026-11-01 核实它已 Ready、仍未合并。删除本 PR 新增的 Maven toolchain 注册和按名字选择，不另建版本管理链。 |
-| Maven 运行配置与准备任务 | 待修改：Core 不增加 Maven profile/reactor/framework 的稳定解析面；提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID；Maven 运行配置语义迁移仍待处理。 |
+| Maven 运行配置与准备任务 | 待修改：Core 不增加 Maven profile/reactor/framework 的稳定解析面；提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID。自动运行配置已由声明/目标生成 `build.provider` 选择器，独立于 Java 导入，删除 `mavenRunProvider` 字段与 Core 框架名单；快照指纹、目标撤回和用户通用覆盖已接线。旧配置 ID/领域选项的一次性迁移、归属中的 reactor/Wrapper/版本字段、工具链和 Windows 旧路径仍待处理。 |
 | SDK 与版本 | 2026-10-31 核实 SDK main 两种实现最高为 6，GitHub 仅有 sdk-node-v0.1.0 发布；7～11 仍在 Draft。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
+
+### 通用运行配置生成（2026-11-01）
+
+macOS 自动配置改为当前公开运行声明与目标的通用选择器，Core 删除 `mavenRunProvider`
+及服务默认项的框架名单。Java 导入独立提供源码归属；没有语言导入的插件也能生成运行项。
+名称与执行类型变化保留选择器 ID；重排保持生成顺序，撤回目标不从缓存复活，用户层保持原样。
+参数、环境和目录覆盖在准备前重新读回；旧 application 选择器保留协议 4 的不透明参数含义。
+宿主提前限制声明与目标组合的数量，避免在主线程展开超限清单。
+
+本轮 Core 1437 项全量通过；最后的生成顺序和显式目录覆盖补充了三项定向计时。
+macOS 280 项通过，其中真实 Maven 模型→生产 Run bridge→通用配置→Profile 失效/恢复
+为 11.215 秒，包含插件包清单及会话释放检查。报告分别为
+`.artifacts/test-stability/stage-d-generic-run-generation-core-final.html`、
+`stage-d-generic-run-ordering.html` 和 `stage-d-generic-run-generation-macos-final.html`。
+Windows Rust 消费者检查与既有基线一致，仍有两处 macOS 无法编译的 Windows API；未运行 Windows 产品。
+
+本段没有迁移旧框架 ID 与领域选项，也没有删除归属中的 reactor、Wrapper 或版本字段；
+这些仍属于上表待办，不把新的自动配置当成阶段 D 整体完成。
 
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 

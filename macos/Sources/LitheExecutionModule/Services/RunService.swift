@@ -125,6 +125,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private var projectFiles: [URL] = []
     private var buildModels: () -> [BuildModel] = { [] }
     private var buildProjectOwnership: () throws -> [RunProjectOwnership]? = { nil }
+    private var providerRunConfigurations: () throws -> [RunProviderConfiguration]? = { nil }
     private var dependencyWorkspaceURL: URL?
     private var dependencyConfiguration = WorkspaceDependencyConfiguration()
     private var dependencyIndexes = WorkspaceDependencyIndexes()
@@ -513,6 +514,10 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         buildModels = models
     }
 
+    package func configureProviderRunConfigurations(_ configurations: @escaping () throws -> [RunProviderConfiguration]?) {
+        providerRunConfigurations = configurations
+    }
+
     package func configureBuildProjectOwnership(_ ownership: @escaping () throws -> [RunProjectOwnership]?) {
         buildProjectOwnership = ownership
     }
@@ -545,10 +550,13 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         providerInspectionRevision &+= 1
         let ticket = providerInspectionRevision
         guard configurationStatus == .ready, let projectURL,
-              configurations.contains(where: { $0.requiresProviderGeneration }) else { return }
+              configurations.contains(where: { $0.requiresProviderGeneration || $0.buildProvider != nil }) else { return }
         let loadID = projectLoadID, revision = generationRevision
         let ownership: [RunProjectOwnership]
-        do { guard let current = try buildProjectOwnership() else { return }; ownership = current }
+        let providerRuns: [RunProviderConfiguration]?
+        do { guard let current = try buildProjectOwnership() else { return }; ownership = current
+            providerRuns = try providerRunConfigurations()
+        }
         catch {
             publishProviderDiagnostics([RunConfigurationDiagnostic(configurationID: nil, code: "providerModelNotReady",
                 message: L10n.string("Load the current build model and enable its provider before running this configuration."))])
@@ -557,7 +565,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         let operations = runConfigurationOperations
         let inspection = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                continuation.resume(returning: operations.inspectProviderGeneration(at: projectURL, projectOwnership: ownership))
+                let result = providerRuns.map { operations.inspectProviderGeneration(at: projectURL, projectOwnership: ownership, providerRuns: $0) }
+                    ?? operations.inspectProviderGeneration(at: projectURL, projectOwnership: ownership)
+                continuation.resume(returning: result)
             }
         }
         guard !Task.isCancelled, providerInspectionRevision == ticket, projectLoadID == loadID,
@@ -580,7 +590,10 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         guard let projectURL else { throw CancellationError() }
         do {
             guard let ownership = try buildProjectOwnership() else { return }
-            let inspection = runConfigurationOperations.inspectProviderGeneration(at: projectURL, projectOwnership: ownership)
+            let inspection: ProjectRunConfigurationInspection
+            if let runs = try providerRunConfigurations() {
+                inspection = runConfigurationOperations.inspectProviderGeneration(at: projectURL, projectOwnership: ownership, providerRuns: runs)
+            } else { inspection = runConfigurationOperations.inspectProviderGeneration(at: projectURL, projectOwnership: ownership) }
             if case .invalid(let message) = inspection.status {
                 throw RunConfigurationOperationFailure(message: message)
             }
@@ -954,12 +967,17 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         let files = projectFiles
         let modulePaths = Array(Set(buildModels().flatMap { $0.projects.map(\.path) })).sorted()
         let projectOwnership: [RunProjectOwnership]?
-        do { projectOwnership = try buildProjectOwnership() }
+        let providerRuns: [RunProviderConfiguration]?
+        do { projectOwnership = try buildProjectOwnership(); providerRuns = try providerRunConfigurations() }
         catch { generationState = .failed(error.localizedDescription); return }
         let result = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 continuation.resume(returning: Result {
-                    try operations.generate(
+                    if let providerRuns {
+                        return try operations.generate(at: projectURL, files: files, modulePaths: modulePaths,
+                            javaEntrypoints: javaDiscovery.entrypoints, projectOwnership: projectOwnership, providerRuns: providerRuns)
+                    }
+                    return try operations.generate(
                         at: projectURL,
                         files: files,
                         modulePaths: modulePaths,
@@ -1018,6 +1036,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                     preferredConfigurationID: selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
                         ?? resolution.defaultConfigurationID
                 )
+                await refreshProviderGeneration()
             } catch {
                 configurationStatus = .invalid(error.localizedDescription)
                 recoveryAction = .editConfiguration

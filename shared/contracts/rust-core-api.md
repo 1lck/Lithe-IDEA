@@ -3274,18 +3274,16 @@ never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
 relative `modulePaths`, optional schema-versioned `javaEntrypoints` from the
 current `lsp.request` result, and optional `projectOwnership`. The latter is a
 host projection of current enabled Provider projects: `{ path,
-name?, mavenReactorPath?, mavenRunProvider?, minimumJavaVersion?, mavenMinimumVersion?, mavenWrapper?, contentRoots: [{ path, kind }] }`, using workspace-relative
+name?, mavenReactorPath?, minimumJavaVersion?, mavenMinimumVersion?, mavenWrapper?, contentRoots: [{ path, kind }] }`, using workspace-relative
 paths and the model's `source`/`testSource`/generated-source roles. Core validates
 project/root containment, unique project paths, roles and bounds (2,000 projects,
 10,000 content roots). When supplied, including `[]`, these facts own Java
 module/reactor membership and source sets: `modulePaths` and ancestor POM
 inference do not supplement them. An omitted snapshot retains the current
-Windows generator's legacy ownership path. `mavenRunProvider` is the Maven
-backend's effective framework selection (`spring-boot.maven`, `quarkus.maven`,
-`micronaut.maven`), requiring `name` and reactor ownership. Core projects existing
-service IDs and toolchain bindings without scanning POMs; duplicate labels use
-module paths within each reactor. This authoritative snapshot also disables the
-legacy Maven framework detector. `minimumJavaVersion` is an optional normalized Java feature version (1–999),
+Windows generator's legacy ownership path. A supplied ownership snapshot disables
+legacy Maven framework detection. Framework selection is not an ownership field;
+run discovery uses the independent generic snapshot described below.
+`minimumJavaVersion` is an optional normalized Java feature version (1–999),
 owned by the upstream compiler model. When the snapshot is supplied, Core uses
 the highest known project floor and never parses POM compiler properties; a
 platform Java version file can raise but cannot lower that floor. Missing means
@@ -3297,7 +3295,7 @@ continues to resolve each Run's actual tool independently. Legacy Maven launch
 planning still needs migration. See `fixtures/run-configuration/provider-project-ownership.json`.
 The generated document records optional `generator.providerFingerprint`, a
 SHA-256 identity of the validated projection, with projects and roots sorted.
-It covers project labels, ownership, source roles, frameworks and requirement
+It covers project labels, ownership, source roles and requirement
 facts, but never environment values or native configuration secrets.
 `runConfig.inspect` accepts the same optional `projectOwnership` and emits
 `staleProviderModel` when current facts differ or a legacy generated document
@@ -3306,6 +3304,24 @@ this model comparison remains active. Explicit `[]` represents disabled/missing
 providers, while omission preserves existing Windows callers. A return to the
 same semantic facts matches again; asynchronous host publication still needs
 its independent monotonic operation revision to reject ABA replies.
+
+`runConfig.generate` and `runConfig.inspect` also accept optional `providerRuns`:
+a complete list of `{projectPath,name,reference}`. The native host matches current
+model targets against enabled public run declarations; `reference` has exactly the
+`extensions.build` selector shape below, with empty model `userArguments`. This
+snapshot is independent of Java entrypoints and language imports. Core validates
+at most 10,000 unique selectors, provider-root/project containment and bounded labels,
+then creates `build.provider` entries without interpreting target IDs, tool names,
+frameworks, commands or debug adapters. An explicit `[]` withdraws generated runs;
+omission preserves older callers. It also disables the legacy framework detector.
+IDs hash plugin/build/root/run/project/target identity, so changed labels or execution
+kind retain user overrides. Current declarations still validate the execution kind
+before preparation. `generator.providerRunFingerprint` hashes the complete sorted
+snapshot; changed or missing metadata yields `staleProviderModel`, including when
+file fingerprinting is disabled. Withdrawn entries cannot be restored from cached
+configurations; unmatched overrides stay in their user-owned layer and are diagnosed.
+See `fixtures/run-configuration/provider-project-ownership.json`. macOS supplies this
+snapshot; Windows retains its existing generator until its Provider host is migrated.
 
 Java configurations with the same class and module name in independent reactors
 remain distinct; a common reactor retains its existing configuration IDs.
@@ -3340,7 +3356,7 @@ configurations by stable ID using this precedence:
 `local.json > configurations.json > detected layer`. Scalars and arrays are
 replaced by the higher layer, while toolchain maps merge by key. It returns
 effective configurations, their source, the default (the team default from
-`.lithe/project.json`, else the first detected framework service, else the first
+`.lithe/project.json`, else the first detected service, else the first
 detected entry other than Current File), structured
 diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
 states, the effective global `toolchain`, and the machine-local
@@ -3410,8 +3426,11 @@ reference by selector identity and retains its `user:` ID, unrelated configurati
 and project toolchain defaults. `extensions.build` in Run v2 holds the typed
 reference; optional execution is application/service/task and must match the current
 declaration before preparing (omitted older references mean application). The saved
-configuration retains that execution kind when reopened. Process commands, top-level args/environment/toolchains/debug are
-refused for `build.provider`. Current model membership is revalidated by the
+configuration retains that execution kind when reopened. Process commands, toolchain
+bindings and cached debug adapters are refused for `build.provider`. Generic args,
+environment and cwd overrides are user choices forwarded through typed launch options;
+explicit args replace older reference userArguments, including an empty array.
+An implicit selector-root cwd remains omitted from launch options for v4 compatibility. Current model membership is revalidated by the
 native build workflow before every preparation. No generated document is needed:
 `runConfig.inspect` recognizes explicit saved local references and `runConfig.resolve`
 merges them against an empty generated layer. A workspace without generated data

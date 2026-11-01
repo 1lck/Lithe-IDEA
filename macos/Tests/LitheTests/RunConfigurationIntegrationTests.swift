@@ -25,13 +25,15 @@ struct RunConfigurationIntegrationTests {
         let ownershipObject = try #require(fixture["projectOwnership"])
         let ownershipData = try JSONSerialization.data(withJSONObject: ownershipObject)
         let ownership = try decoder.decode([LitheCoreContracts.RunProjectOwnership].self, from: ownershipData)
+        let runsData = try JSONSerialization.data(withJSONObject: try #require(fixture["providerRuns"]))
+        let runs = try decoder.decode([RunProviderConfiguration].self, from: runsData)
         let entryObject = try #require(fixture["javaEntrypoints"])
         let entryData = try JSONSerialization.data(withJSONObject: entryObject)
         let entries = try decoder.decode(JavaEntrypoints.self, from: entryData)
         let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore())
         _ = try store.generate(at: root, files: files.keys.map { root.appendingPathComponent($0) }, modulePaths: ["wrong-legacy-path"],
-            javaEntrypoints: entries, projectOwnership: ownership)
-        let inspected = try RustCoreBridge().inspectRunConfiguration(at: root, checkFingerprint: false, projectOwnership: ownership).get()
+            javaEntrypoints: entries, projectOwnership: ownership, providerRuns: runs)
+        let inspected = try RustCoreBridge().inspectRunConfiguration(at: root, checkFingerprint: false, projectOwnership: ownership, providerRuns: runs).get()
         let generated = try #require(inspected.generated)
         let generatedData = try JSONEncoder().encode(generated)
         let document = try #require(JSONSerialization.jsonObject(with: generatedData) as? [String: Any])
@@ -45,8 +47,19 @@ struct RunConfigurationIntegrationTests {
             #expect(extensions["maven"]?["module"] as? String == item["module"])
             #expect(extensions["java"]?["sourceSet"] as? String == item["sourceSet"])
         }
+        for item in try #require(expected["services"] as? [[String: Any]]) {
+            let id = try #require(item["id"] as? String)
+            let actual = try #require(configurations.first { $0["id"] as? String == id })
+            #expect(actual["provider"] as? String == "build.provider")
+            #expect(actual["execution"] as? String == "service")
+            let extensions = try #require(actual["extensions"] as? [String: Any])
+            #expect(extensions["maven"] == nil)
+        }
         let metadata = try #require(document["generator"] as? [String: Any])
         #expect((metadata["providerFingerprint"] as? String)?.hasPrefix("sha256:") == true)
+        #expect((metadata["providerRunFingerprint"] as? String)?.hasPrefix("sha256:") == true)
+        #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership, providerRuns: runs.reversed()).diagnostics.contains { $0.code == "staleProviderModel" })
+        #expect(store.inspectProviderGeneration(at: root, projectOwnership: ownership, providerRuns: []).diagnostics.contains { $0.code == "staleProviderModel" })
         #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
         #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership.reversed()).diagnostics.contains { $0.code == "staleProviderModel" })
         #expect(store.inspectProviderGeneration(at: root, projectOwnership: []).diagnostics.contains { $0.code == "staleProviderModel" })
@@ -58,13 +71,7 @@ struct RunConfigurationIntegrationTests {
         #expect(tools["project-jdk"]?["minimumVersion"] as? String == expected["minimumJavaVersion"] as? String)
         #expect(tools["project-maven"]?["minimumVersion"] as? String == expected["minimumMavenVersion"] as? String)
         #expect(tools["project-maven"]?["wrapper"] == nil)
-        for item in try #require(expected["services"] as? [[String: String]]) {
-            let actual = try #require(configurations.first { $0["id"] as? String == item["id"] })
-            #expect(actual["cwd"] as? String == item["cwd"])
-            #expect(actual["execution"] as? String == "service")
-            let extensions = try #require(actual["extensions"] as? [String: [String: Any]])
-            #expect(extensions["maven"]?["module"] as? String == item["module"])
-        }
+
     }
 
     @Test(arguments: [BuildExecution.application, .service, .task])

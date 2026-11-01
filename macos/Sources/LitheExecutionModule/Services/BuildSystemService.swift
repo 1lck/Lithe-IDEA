@@ -670,21 +670,47 @@ package final class BuildSystemService: ObservableObject {
             if case .maven(let context)? = languageImportsByEntryID[entry.id] {
                 reactor = context.reactorPath
             } else { reactor = nil }
-            return try model.projects.map { project in
-                if reactor != nil && project.properties["run.modelVersion"] != "1" {
-                    throw BuildSystemServiceError(L10n.string("Update the Maven Build plugin before generating Run configurations."))
-                }
+            return model.projects.map { project in
                 return RunProjectOwnership(path: project.path, mavenReactorPath: reactor,
                     contentRoots: model.contentRoots.filter { $0.projectID == project.id && ["source", "testSource", "generatedSource", "generatedTestSource"].contains($0.kind) }
                         .map { RunProjectOwnership.SourceRoot(path: $0.path, kind: $0.kind) },
-                    name: project.name, mavenRunProvider: reactor == nil ? nil : project.properties["run.provider"],
-                    minimumJavaVersion: project.properties["java.minimumVersion"],
+                    name: project.name, minimumJavaVersion: project.properties["java.minimumVersion"],
                     mavenMinimumVersion: reactor == nil ? nil : project.properties["maven.minimumVersion"],
                     mavenWrapper: project.properties["maven.wrapper"].flatMap { script in reactor.map { $0 == "." ? script : $0 + "/" + script } })
             }
         }
     }
 
+    /// Run discovery is language-neutral and never reads provider-specific properties.
+    package func providerRunConfigurations() throws -> [RunProviderConfiguration] {
+        guard workspaceURL != nil else { throw CancellationError() }
+        let enabled = sources()
+        var configurations: [RunProviderConfiguration] = []
+        for entry in entries where !entry.declaration.providerRuns.isEmpty {
+            guard enabled.contains(entry.source), entry.modelState == .loaded, !entry.isReloadRequired,
+                  let model = entry.model, !model.truncated else {
+                throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
+            }
+            let targetsByProject = Dictionary(grouping: model.targets, by: \.projectID)
+            for project in model.projects {
+                for run in entry.declaration.providerRuns {
+                    let tags = Set(run.targetTags)
+                    let targets = (targetsByProject[project.id] ?? []).filter { tags.isEmpty || !tags.isDisjoint(with: $0.tags) }
+                    for target in targets {
+                        // Match Core's snapshot budget before expanding a large declaration/model product.
+                        guard configurations.count < 10_000 else {
+                            throw BuildSystemServiceError(L10n.string("The field value does not match its declaration or exceeds its size limit."))
+                        }
+                        let name = targets.count > 1 ? "\(project.name) · \(run.displayName) · \(target.name)" : "\(project.name) · \(run.displayName)"
+                        configurations.append(RunProviderConfiguration(projectPath: project.path, name: name,
+                            reference: BuildProviderRunReference(pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
+                                root: entry.instance.root, run: run.id, projectID: project.id, targetID: target.id, execution: run.execution)))
+                    }
+                }
+            }
+        }
+        return configurations
+    }
 
     /// Run preparation uses the same accepted options as Java import, scoped to
     /// its recorded build root. Pending detection must never reuse an old root.

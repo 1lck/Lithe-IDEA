@@ -5004,6 +5004,108 @@ fn build_provider_configurations_persist_before_generation_and_reuse_identity() 
     );
 }
 
+/// A non-Java provider owns discovery; regenerating labels must retain user choices,
+/// while withdrawing a target must not resurrect it from the previous detected layer.
+#[test]
+fn generic_provider_runs_regenerate_without_language_facts_and_keep_stable_overrides() {
+    let root = temporary_root("generic-provider-generation");
+    fs::create_dir_all(root.join("app")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let call = |command: &str, payload: Value| -> Value {
+        let result: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"generic","command":command,"payload":payload}).to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["ok"], true, "{result}");
+        result["data"].clone()
+    };
+    let generate = |runs: Value| {
+        call(
+            "runConfig.generate",
+            serde_json::json!({
+                "root":root,"paths":[],"projectOwnership":[],"providerRuns":runs
+            }),
+        )
+    };
+    let reference = serde_json::json!({"pluginID":"dev.example.engine","buildSystemID":"engine","root":"app",
+        "run":"serve","projectID":"project/opaque:1","targetID":"target/opaque:2","execution":"service","userArguments":[]});
+    let mut runs =
+        serde_json::json!([{"projectPath":"app","name":"Initial label","reference":reference}]);
+    let first = generate(runs.clone());
+    let configuration = &first["generated"]["configurations"][0];
+    let id = configuration["id"].clone();
+    assert_eq!(configuration["provider"], "build.provider");
+    assert!(configuration["toolchains"].as_object().unwrap().is_empty());
+    assert!(configuration["extensions"].get("maven").is_none());
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        serde_json::json!({"version":2,"configurations":[
+            {"id":id,"env":{"EXAMPLE":"preserved"},"args":["user choice"],"cwd":"app"}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    let resolved = call("runConfig.resolve", serde_json::json!({"root":root}));
+    assert_eq!(resolved["defaultRunConfiguration"], id);
+    runs[0]["name"] = serde_json::json!("Renamed upstream label");
+    runs[0]["reference"]["execution"] = serde_json::json!("task");
+    let renamed = generate(runs.clone());
+    assert_eq!(renamed["generated"]["configurations"][0]["id"], id);
+    assert_ne!(
+        renamed["generated"]["generator"]["providerRunFingerprint"],
+        first["generated"]["generator"]["providerRunFingerprint"]
+    );
+    let inputs = call(
+        "runConfig.providerLaunchInputs",
+        serde_json::json!({"root":root,"configurationId":id,"providerRoot":"app"}),
+    );
+    assert_eq!(inputs["launchOptions"]["execution"], "task");
+    assert_eq!(inputs["launchOptions"]["workingDirectory"], "app");
+    assert_eq!(
+        inputs["launchOptions"]["arguments"],
+        serde_json::json!(["user choice"])
+    );
+    assert_eq!(
+        inputs["launchOptions"]["environment"],
+        serde_json::json!({"EXAMPLE":"preserved"})
+    );
+    let withdrawn = generate(serde_json::json!([]));
+    assert!(!withdrawn["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["id"] == id));
+    let resolved = call("runConfig.resolve", serde_json::json!({"root":root}));
+    assert!(resolved["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["code"] == "orphanedOverride" && item["id"] == id));
+    assert!(!resolved["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["id"] == id));
+    let restored = generate(runs);
+    assert_eq!(restored["generated"]["configurations"][0]["id"], id);
+    let inputs = call(
+        "runConfig.providerLaunchInputs",
+        serde_json::json!({"root":root,"configurationId":id,"providerRoot":"app"}),
+    );
+    assert_eq!(
+        inputs["launchOptions"]["arguments"],
+        serde_json::json!(["user choice"])
+    );
+    assert!(!root.join(".lithe/run/generated.json").exists());
+}
+
 #[test]
 fn provider_project_ownership_controls_java_modules_and_source_roles_without_parsing_poms() {
     let fixture: Value = serde_json::from_str(include_str!(
@@ -5023,15 +5125,17 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, contents.as_str().unwrap()).unwrap();
     }
-    let generate = |ownership: Value| -> Value {
+    let generate_with_runs = |ownership: Value, runs: Value| -> Value {
         serde_json::from_str(&execute_json(&serde_json::json!({
             "id":"generate", "command":"runConfig.generate", "payload": {
                 "root":root,"paths":fixture["files"].as_object().unwrap().keys().collect::<Vec<_>>(),
                 "modulePaths":["incorrect-legacy-module"], "javaEntrypoints":fixture["javaEntrypoints"],
-                "projectOwnership":ownership
+                "projectOwnership":ownership, "providerRuns":runs
             }
         }).to_string())).unwrap()
     };
+    let generate =
+        |ownership: Value| generate_with_runs(ownership, fixture["providerRuns"].clone());
     let output = generate(fixture["projectOwnership"].clone());
     assert_eq!(output["ok"], true, "{output}");
     for expected in fixture["expected"]["configurations"].as_array().unwrap() {
@@ -5057,7 +5161,10 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
             .unwrap();
         assert_eq!(actual["cwd"], expected["cwd"]);
         assert_eq!(actual["execution"], "service");
-        assert_eq!(actual["extensions"]["maven"]["module"], expected["module"]);
+        assert_eq!(actual["provider"], "build.provider");
+        assert_eq!(actual["extensions"]["build"], expected["reference"]);
+        assert!(actual["extensions"]["maven"].is_null());
+        assert_eq!(actual["toolchains"], serde_json::json!({}));
     }
     assert_eq!(
         output["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
@@ -5078,28 +5185,33 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         single["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["wrapper"],
         "alpha/mvnw.cmd"
     );
-    // Duplicate labels in one reactor keep both services by module path.
-    let duplicate = generate(serde_json::json!([
-        {"path":"alpha/a","name":"same","mavenReactorPath":"alpha","mavenRunProvider":"quarkus.maven"},
-        {"path":"alpha/b","name":"same","mavenReactorPath":"alpha","mavenRunProvider":"quarkus.maven"}
-    ]));
-    for id in ["quarkus.maven:alpha/a", "quarkus.maven:alpha/b"] {
-        assert!(duplicate["data"]["generated"]["configurations"]
+    // Same display names do not define identity; selectors belong to their provider.
+    assert_eq!(
+        output["data"]["generated"]["configurations"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|c| c["id"] == id));
-    }
+            .filter(|c| c["provider"] == "build.provider")
+            .count(),
+        2
+    );
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     seed_generated(&root, output["data"]["generated"].to_string());
-    let inspect = |projects: Option<Value>| -> Value {
+    let inspect_with_runs = |projects: Option<Value>, runs: Option<Value>| -> Value {
         let mut payload = serde_json::json!({"root":root,"checkFingerprint":false});
         if let Some(projects) = projects {
             payload["projectOwnership"] = projects;
         }
+        if let Some(runs) = runs {
+            payload["providerRuns"] = runs;
+        }
         let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"inspect-provider", "command":"runConfig.inspect", "payload":payload}).to_string())).unwrap();
         assert_eq!(response["ok"], true, "{response}");
         response["data"]["diagnostics"].clone()
+    };
+    let inspect = |projects: Option<Value>| {
+        let runs = projects.as_ref().map(|_| fixture["providerRuns"].clone());
+        inspect_with_runs(projects, runs)
     };
     let stale = |diagnostics: Value| {
         diagnostics
@@ -5118,7 +5230,6 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
     assert!(!stale(inspect(Some(serde_json::json!(reordered)))));
     for (field, value) in [
         ("name", serde_json::json!("renamed")),
-        ("mavenRunProvider", Value::Null),
         ("minimumJavaVersion", serde_json::json!("23")),
         ("mavenMinimumVersion", serde_json::json!("4.0.0")),
         ("mavenWrapper", serde_json::json!("alpha/mvnw.cmd")),
@@ -5128,6 +5239,28 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         changed[1][field] = value;
         assert!(stale(inspect(Some(changed))), "{field}");
     }
+    let mut runs_reordered = fixture["providerRuns"].as_array().unwrap().clone();
+    runs_reordered.reverse();
+    let reordered_generation =
+        generate_with_runs(original.clone(), serde_json::json!(runs_reordered));
+    assert_eq!(
+        reordered_generation["data"]["generated"]["configurations"],
+        output["data"]["generated"]["configurations"]
+    );
+    assert!(!stale(inspect_with_runs(
+        Some(original.clone()),
+        Some(serde_json::json!(runs_reordered))
+    )));
+    let mut target_changed = fixture["providerRuns"].clone();
+    target_changed[0]["reference"]["targetID"] = serde_json::json!("new/opaque-target");
+    assert!(stale(inspect_with_runs(
+        Some(original.clone()),
+        Some(target_changed)
+    )));
+    assert!(stale(inspect_with_runs(
+        Some(original.clone()),
+        Some(serde_json::json!([]))
+    )));
     let mut moved = original.clone();
     moved[1]["mavenReactorPath"] = serde_json::json!(".");
     assert!(stale(inspect(Some(moved))));
@@ -5142,11 +5275,45 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         .unwrap()
         .remove("providerFingerprint");
     seed_generated(&root, legacy.to_string());
-    assert!(stale(inspect(Some(original))));
+    assert!(stale(inspect(Some(original.clone()))));
     assert!(
         !stale(inspect(None)),
         "Legacy consumers that omit provider facts remain compatible"
     );
+    // Generic document overrides stay separate from the opaque selector and
+    // need no Maven namespace, tool binding or framework parser.
+    seed_generated(&root, output["data"]["generated"].to_string());
+    let service = &fixture["expected"]["services"][0];
+    let local = root.join(".lithe/run/local.json");
+    fs::write(
+        &local,
+        serde_json::json!({"version":2,"configurations":[{
+            "id":service["id"],"args":["serve","雪"],"env":{"EXAMPLE":"value"},"cwd":"alpha/app"
+        }]})
+        .to_string(),
+    )
+    .unwrap();
+    let choices: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({"id":"choices","command":"runConfig.providerLaunchInputs",
+        "payload":{"root":root,"configurationId":service["id"],"providerRoot":"alpha"}})
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(choices["ok"], true, "{choices}");
+    assert_eq!(choices["data"]["reference"], service["reference"]);
+    assert_eq!(
+        choices["data"]["launchOptions"]["arguments"],
+        serde_json::json!(["serve", "雪"])
+    );
+    assert_eq!(
+        choices["data"]["launchOptions"]["environment"],
+        serde_json::json!({"EXAMPLE":"value"})
+    );
+    assert_eq!(
+        choices["data"]["launchOptions"]["workingDirectory"],
+        "alpha/app"
+    );
+    fs::remove_file(local).unwrap();
     let first_cmd = output["data"]["generated"]["generator"]["inputs"]["alpha/mvnw.cmd"].clone();
     assert!(first_cmd
         .as_str()
@@ -5161,7 +5328,7 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
         changed["data"]["generated"]["generator"]["fingerprint"],
         output["data"]["generated"]["generator"]["fingerprint"]
     );
-    let empty = generate(serde_json::json!([]));
+    let empty = generate_with_runs(serde_json::json!([]), serde_json::json!([]));
     assert_eq!(empty["ok"], true, "{empty}");
     for configuration in empty["data"]["generated"]["configurations"]
         .as_array()
@@ -5172,12 +5339,31 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
             "An empty Provider snapshot must not revive POM-based Java ownership: {configuration}"
         );
     }
+    let mut duplicate_reference = fixture["providerRuns"].as_array().unwrap().clone();
+    duplicate_reference.push(duplicate_reference[0].clone());
+    assert_eq!(
+        generate_with_runs(original.clone(), serde_json::json!(duplicate_reference))["ok"],
+        false
+    );
+    for (path, value) in [
+        ("root", serde_json::json!("outside")),
+        ("projectID", serde_json::json!("")),
+        ("execution", serde_json::json!("group")),
+        ("userArguments", serde_json::json!(["not-a-model-fact"])),
+    ] {
+        let mut invalid = fixture["providerRuns"].clone();
+        invalid[0]["reference"][path] = value;
+        assert_eq!(
+            generate_with_runs(original.clone(), invalid)["ok"],
+            false,
+            "{path}"
+        );
+    }
     for invalid in [
         serde_json::json!([{"path":"app","minimumJavaVersion":"1.8"}]),
         serde_json::json!([{"path":"app","minimumJavaVersion":"0"}]),
         serde_json::json!([{"path":"app","mavenMinimumVersion":"3.*"}]),
         serde_json::json!([{"path":"app","mavenReactorPath":"app","mavenWrapper":"other/mvnw"}]),
-        serde_json::json!([{"path":"app","name":"app","mavenReactorPath":".","mavenRunProvider":"invented.maven"}]),
         serde_json::json!([{"path":"app","mavenRunProvider":"quarkus.maven"}]),
         serde_json::json!([{"path":"../escape"}]),
         serde_json::json!([{"path":"app","mavenReactorPath":"other"}]),

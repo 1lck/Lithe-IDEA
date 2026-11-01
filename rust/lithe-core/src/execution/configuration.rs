@@ -17,7 +17,7 @@ use std::path::{Component, Path, PathBuf};
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when the detected layer changes; stale cached facts must regenerate.
-const GENERATOR_REVISION: &str = "18";
+const GENERATOR_REVISION: &str = "19";
 
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
@@ -48,6 +48,9 @@ pub struct InspectRequest {
     /// Current enabled Provider facts; omission leaves legacy clients unchanged.
     #[serde(default)]
     pub project_ownership: Option<Vec<super::project_ownership::RunProjectOwnership>>,
+    /// Complete generic run selectors; omission preserves older callers.
+    #[serde(default)]
+    pub provider_runs: Option<Vec<super::provider_runs::ProviderRunConfiguration>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +66,9 @@ pub struct GenerateRequest {
     /// Omitted retains compatibility for the existing Windows generator.
     #[serde(default)]
     pub project_ownership: Option<Vec<super::project_ownership::RunProjectOwnership>>,
+    /// Complete generic run selectors; omission preserves older callers.
+    #[serde(default)]
+    pub provider_runs: Option<Vec<super::provider_runs::ProviderRunConfiguration>>,
     /// Launchable classes from the Java language service (`lsp.request`
     /// operation `javaEntrypoints`). Absent while that service is not ready:
     /// the previous generation's Java entries are carried forward instead of
@@ -271,8 +277,23 @@ pub struct BuildProviderRunReference {
 }
 
 impl BuildProviderRunReference {
+    /// Stable generated identity excludes mutable display names, execution kind and arguments.
+    pub(super) fn generated_id(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let selector = json!([
+            self.plugin_id,
+            self.build_system_id,
+            self.root,
+            self.run,
+            self.project_id,
+            self.target_id
+        ]);
+        let bytes = serde_json::to_vec(&selector).expect("selector contains only strings");
+        format!("build.provider:{:x}", Sha256::digest(bytes))
+    }
+
     /// Persistence validates identities only; current model membership is checked at launch.
-    fn validate(&self) -> Result<(), CoreError> {
+    pub(super) fn validate(&self) -> Result<(), CoreError> {
         let identifier = |value: &str| {
             !value.is_empty()
                 && value.len() <= 200
@@ -400,6 +421,9 @@ pub struct GeneratorMetadata {
     /// Identity of the Provider facts that generated this document.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_fingerprint: Option<String>,
+    /// Identity of generic run declarations and opaque targets, separate from Java facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_run_fingerprint: Option<String>,
     /// Unreadable inputs retained as unknown; a partial baseline cannot prove freshness.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub unreadable_paths: BTreeSet<String>,
@@ -599,6 +623,23 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
                 .as_ref()
                 .and_then(|metadata| metadata.provider_fingerprint.as_deref())
                 != Some(expected.as_str())
+            {
+                diagnostics.push(json!({"code":"staleProviderModel", "message":"Build provider model changed; regenerate Run configurations"}));
+            }
+        }
+    }
+    if let Some(runs) = &request.provider_runs {
+        super::provider_runs::validate(runs)?;
+        if let Some(document) = generated {
+            let expected = super::provider_runs::fingerprint(runs);
+            if !diagnostics
+                .iter()
+                .any(|item| item["code"] == "staleProviderModel")
+                && document
+                    .generator
+                    .as_ref()
+                    .and_then(|metadata| metadata.provider_run_fingerprint.as_deref())
+                    != Some(expected.as_str())
             {
                 diagnostics.push(json!({"code":"staleProviderModel", "message":"Build provider model changed; regenerate Run configurations"}));
             }
@@ -880,26 +921,27 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .collect::<BTreeSet<_>>();
     let mut detected = detected_configurations(
         &root,
-        request
-            .project_ownership
-            .is_none()
+        (request.project_ownership.is_none() && request.provider_runs.is_none())
             .then(|| maven_root.as_ref().map(|(path, _)| path.as_path()))
             .flatten(),
         &claimed,
     )?;
-    if let Some(projects) = &request.project_ownership {
+    if let Some(runs) = &request.provider_runs {
+        super::provider_runs::validate(runs)?;
         detected.extend(
-            super::project_ownership::services(projects)
+            super::provider_runs::configurations(runs)
                 .into_iter()
                 .filter(|item| !claimed.contains(&item.id)),
         );
     }
-    retain_confirmed_spring_services(
-        &mut detected,
-        &spring_entrypoints,
-        maven_relative_path,
-        request.project_ownership.as_deref(),
-    );
+    if request.project_ownership.is_none() && request.provider_runs.is_none() {
+        retain_confirmed_spring_services(
+            &mut detected,
+            &spring_entrypoints,
+            maven_relative_path,
+            None,
+        );
+    }
     // Counts real entry points, not documents: the always-present "Current File"
     // fallback is excluded so an empty project still reports zero and the UI can
     // say so, while a detected npm service correctly reports one.
@@ -907,15 +949,10 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let mut snapshot = project_inputs(&root, &java_entry_sources(&configurations))?;
     // Unknown subtrees cannot delete known configurations or baseline inputs.
     // Invalid required documents still fail instead of being silently overwritten.
-    let authoritative_service_ids = request.project_ownership.as_ref().map(|_| {
+    let authoritative_service_ids = request.provider_runs.as_ref().map(|_| {
         configurations
             .iter()
-            .filter(|item| {
-                matches!(
-                    item.provider.as_str(),
-                    "spring-boot.maven" | "quarkus.maven" | "micronaut.maven"
-                )
-            })
+            .filter(|item| item.provider == "build.provider")
             .map(|item| item.id.clone())
             .collect::<BTreeSet<_>>()
     });
@@ -926,12 +963,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         }
     }
     if let Some(ids) = authoritative_service_ids {
-        configurations.retain(|item| {
-            !matches!(
-                item.provider.as_str(),
-                "spring-boot.maven" | "quarkus.maven" | "micronaut.maven"
-            ) || ids.contains(&item.id)
-        });
+        configurations.retain(|item| item.provider != "build.provider" || ids.contains(&item.id));
     }
     disambiguate_configuration_names(&mut configurations);
     let entry_count = configurations
@@ -952,6 +984,10 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 .project_ownership
                 .as_deref()
                 .map(super::project_ownership::fingerprint),
+            provider_run_fingerprint: request
+                .provider_runs
+                .as_deref()
+                .map(super::provider_runs::fingerprint),
             fingerprint: fingerprint_from_inputs(&snapshot.inputs),
             inputs: snapshot.inputs,
             unreadable_paths: snapshot.unreadable_paths,
@@ -1543,15 +1579,12 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     }))
 }
 
-/// Configuration to select when the project names no default: a framework
-/// service is what the user most likely starts first, whichever framework the
-/// project uses; otherwise the first detected entry that is not Current File.
+/// Prefer a detected service when the project names no default, otherwise
+/// select the first available entry other than Current File.
 fn detected_default(
     generated: &RunConfigurationDocument,
     available: &[RunConfiguration],
 ) -> Option<String> {
-    const FRAMEWORK_PROVIDERS: [&str; 3] =
-        ["spring-boot.maven", "quarkus.maven", "micronaut.maven"];
     let detected = generated
         .configurations
         .iter()
@@ -1559,7 +1592,7 @@ fn detected_default(
         .filter(|configuration| available.iter().any(|item| item.id == configuration.id));
     detected
         .clone()
-        .find(|configuration| FRAMEWORK_PROVIDERS.contains(&configuration.provider.as_str()))
+        .find(|configuration| configuration.execution == Execution::Service)
         .or_else(|| detected.clone().next())
         .map(|configuration| configuration.id.clone())
 }
@@ -2199,6 +2232,12 @@ pub fn provider_launch_inputs(request: ProviderLaunchInputsRequest) -> Result<Va
         &request.configuration_id,
         "cwd",
     )?;
+    let explicit_arguments = configuration_override_has_key(
+        &root,
+        request.local_document.as_ref(),
+        &request.configuration_id,
+        "args",
+    )?;
     let resolved = resolve(ResolveRequest {
         root: request.root,
         toolchain_candidates: Vec::new(),
@@ -2232,10 +2271,24 @@ pub fn provider_launch_inputs(request: ProviderLaunchInputsRequest) -> Result<Va
                 "Run configuration belongs to a different provider instance or is disabled.",
             ));
         }
+        let arguments = if explicit_arguments {
+            config["args"].clone()
+        } else {
+            json!(reference.user_arguments)
+        };
+        let mut options = json!({"execution":reference.execution.unwrap_or_default(),"runtimeArguments":[],
+            "arguments":arguments,"environment":config["env"]});
+        // Saving an older selector materializes its root as cwd. Keep that
+        // default opaque for v4 applications; only an actual override is v10.
+        if explicit_cwd
+            && (config["cwd"] != reference.root
+                || request.configuration_id == reference.generated_id())
+        {
+            options["workingDirectory"] = config["cwd"].clone();
+        }
         return Ok(
             json!({"buildSystemID":reference.build_system_id,"provider":reference.run,"projectPath":reference.root,
-            "launchOptions":{"execution":reference.execution.unwrap_or_default(),"runtimeArguments":[],"arguments":reference.user_arguments,"environment":{}},
-            "optionOverrides":{},"reference":reference}),
+            "launchOptions":options,"optionOverrides":{},"reference":reference}),
         );
     }
     let maven = &config["extensions"]["maven"];
@@ -3192,15 +3245,13 @@ fn validate_configuration(configuration: &RunConfiguration) -> Result<(), CoreEr
         })?;
         reference.validate()?;
         if configuration.command.is_some()
-            || !configuration.args.is_empty()
-            || !configuration.env.is_empty()
             || !configuration.toolchains.is_empty()
             || configuration.debug.is_some()
             || configuration.execution != reference.execution.unwrap_or_default()
         {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
-                "Build provider configurations store selectors, not process launch data",
+                "Build provider configurations cannot store commands, tool bindings or debug adapters",
             ));
         }
     }

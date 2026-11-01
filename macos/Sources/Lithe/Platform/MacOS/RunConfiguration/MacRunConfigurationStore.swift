@@ -53,13 +53,17 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil, projectOwnership: projectOwnership)
     }
 
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil, projectOwnership: projectOwnership, providerRuns: providerRuns)
+    }
+
     private func inspect(at projectURL: URL, checkFingerprint: Bool, javaEntrypoints: JavaEntrypoints?,
-                         projectOwnership: [RunProjectOwnership]?) -> ProjectRunConfigurationInspection {
+                         projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]? = nil) -> ProjectRunConfigurationInspection {
         switch core.inspectRunConfiguration(
             at: projectURL,
             checkFingerprint: checkFingerprint,
             javaEntrypoints: javaEntrypoints,
-            projectOwnership: projectOwnership
+            projectOwnership: projectOwnership, providerRuns: providerRuns
         ) {
         case .success(let payload):
             return ProjectRunConfigurationInspection(
@@ -88,6 +92,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
     }
 
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]) throws -> RunConfigurationGenerationResult {
+        try generateCurrent(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: providerRuns)
+    }
+
     /// Identifies the project's run entries. Core keeps the result in memory
     /// and in the application cache; nothing is written into the workspace.
     func generate(
@@ -97,6 +107,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         javaEntrypoints: JavaEntrypoints?,
         projectOwnership: [RunProjectOwnership]? = nil
     ) throws -> RunConfigurationGenerationResult {
+        try generateCurrent(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: nil)
+    }
+
+    private func generateCurrent(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                                 projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]?) throws -> RunConfigurationGenerationResult {
         let root = projectURL.standardizedFileURL
         guard storage.metadata(for: root)?.isDirectory == true else { throw MacRunConfigurationStoreError.invalidProject }
         let paths = files.compactMap { file -> String? in
@@ -109,7 +125,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             paths: paths,
             modulePaths: modulePaths,
             javaEntrypoints: javaEntrypoints,
-            projectOwnership: projectOwnership,
+            projectOwnership: projectOwnership, providerRuns: providerRuns,
             cacheDirectoryURL: storage.cacheDirectory()
 
         ).get()

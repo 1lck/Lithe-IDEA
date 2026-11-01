@@ -12,6 +12,7 @@
       "properties": {
         "fingerprint": { "type": "string", "pattern": "^sha256:" },
         "providerFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "providerRunFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "unreadablePaths": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "inputs": {
           "type": "object",
@@ -166,8 +167,6 @@
           "properties": {
             "execution": { "enum": ["application", "service", "task"] },
             "command": false,
-            "args": { "maxItems": 0 },
-            "env": { "maxProperties": 0 },
             "toolchains": { "maxProperties": 0 },
             "debug": false,
             "extensions": {

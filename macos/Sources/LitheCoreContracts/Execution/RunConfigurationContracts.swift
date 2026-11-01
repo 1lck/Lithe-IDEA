@@ -11,17 +11,26 @@ package struct RunProjectOwnership: Codable, Equatable, Sendable {
     }
     package let path: String
     package let name: String?
-    package let mavenRunProvider: String?
     package let minimumJavaVersion: String?
     package let mavenMinimumVersion: String?
     package let mavenWrapper: String?
     package let mavenReactorPath: String?
     package let contentRoots: [SourceRoot]
-    package init(path: String, mavenReactorPath: String?, contentRoots: [SourceRoot], name: String? = nil, mavenRunProvider: String? = nil, minimumJavaVersion: String? = nil, mavenMinimumVersion: String? = nil, mavenWrapper: String? = nil) {
+    package init(path: String, mavenReactorPath: String?, contentRoots: [SourceRoot], name: String? = nil, minimumJavaVersion: String? = nil, mavenMinimumVersion: String? = nil, mavenWrapper: String? = nil) {
         self.mavenMinimumVersion = mavenMinimumVersion; self.mavenWrapper = mavenWrapper
         self.minimumJavaVersion = minimumJavaVersion
-        self.name = name; self.mavenRunProvider = mavenRunProvider
+        self.name = name
         self.path = path; self.mavenReactorPath = mavenReactorPath; self.contentRoots = contentRoots
+    }
+}
+
+/// A current model target matched to a public run declaration; no tool semantics.
+package struct RunProviderConfiguration: Codable, Equatable, Sendable {
+    package let projectPath: String
+    package let name: String
+    package let reference: BuildProviderRunReference
+    package init(projectPath: String, name: String, reference: BuildProviderRunReference) {
+        self.projectPath = projectPath; self.name = name; self.reference = reference
     }
 }
 
@@ -392,6 +401,9 @@ package protocol RunConfigurationOperations: Sendable {
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
     /// Checks generated facts against the current Provider snapshot without hashing source files.
     func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]) throws -> RunConfigurationGenerationResult
     /// `checkFingerprint: false` validates the documents without reading project
     /// inputs. `javaEntrypoints`, JDT's current answer, additionally reports
     /// whether the generated Java entries still match it.
@@ -449,6 +461,18 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection {
+        guard providerRuns.isEmpty else {
+            return .init(status: .invalid(L10n.string("Load the current build model and enable its provider before running this configuration.")), diagnostics: [])
+        }
+        return inspectProviderGeneration(at: projectURL, projectOwnership: projectOwnership)
+    }
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]) throws -> RunConfigurationGenerationResult {
+        guard providerRuns.isEmpty else { throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration.")) }
+        return try generate(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints, projectOwnership: projectOwnership)
+    }
+
     func providerLaunchInputs(at projectURL: URL, configurationID: String, providerRoot: String) throws -> ProviderLaunchInputs {
         throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration."))
     }

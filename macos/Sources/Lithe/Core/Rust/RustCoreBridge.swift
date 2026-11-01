@@ -457,6 +457,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         struct Generator: Codable, Sendable {
             let fingerprint: String
             let providerFingerprint: String?
+            let providerRunFingerprint: String?
             let unreadablePaths: [String]?
             let inputs: [String: String]?
         }
@@ -1919,6 +1920,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         /// JDT's current answer; omitted while the Java service is not ready.
         let javaEntrypoints: JavaEntrypoints?
         let projectOwnership: [RunProjectOwnership]?
+        let providerRuns: [RunProviderConfiguration]?
     }
     private struct RunConfigurationGenerateRequest: Encodable {
         let root: String
@@ -1928,6 +1930,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         /// generation's Java entries.
         let javaEntrypoints: JavaEntrypoints?
         let projectOwnership: [RunProjectOwnership]?
+        let providerRuns: [RunProviderConfiguration]?
         /// Application cache root where Core keeps the last detection for the
         /// next session; the workspace is never written.
         let cacheDirectory: String?
@@ -2525,7 +2528,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         at rootURL: URL,
         checkFingerprint: Bool? = nil,
         javaEntrypoints: JavaEntrypoints? = nil,
-        projectOwnership: [RunProjectOwnership]? = nil
+        projectOwnership: [RunProjectOwnership]? = nil,
+        providerRuns: [RunProviderConfiguration]? = nil
     ) -> Result<RunConfigurationInspectPayload, CoreCallError> {
         executeResult(
             command: "runConfig.inspect",
@@ -2533,7 +2537,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 root: rootURL.standardizedFileURL.path,
                 checkFingerprint: checkFingerprint,
                 javaEntrypoints: javaEntrypoints,
-                projectOwnership: projectOwnership
+                projectOwnership: projectOwnership, providerRuns: providerRuns
             )
         )
     }
@@ -2544,6 +2548,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         modulePaths: [String],
         javaEntrypoints: JavaEntrypoints? = nil,
         projectOwnership: [RunProjectOwnership]? = nil,
+        providerRuns: [RunProviderConfiguration]? = nil,
         cacheDirectoryURL: URL? = nil
 
     ) -> Result<RunConfigurationGeneratePayload, CoreCallError> {
@@ -2554,7 +2559,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 paths: paths,
                 modulePaths: modulePaths,
                 javaEntrypoints: javaEntrypoints,
-                projectOwnership: projectOwnership,
+                projectOwnership: projectOwnership, providerRuns: providerRuns,
                 cacheDirectory: cacheDirectoryURL?.path
 
             )

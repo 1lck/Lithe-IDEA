@@ -218,6 +218,35 @@ struct ExecutionModuleTests {
         #expect(created == 0)
     }
 
+    @Test
+    func genericProviderOnlyInventoryRefreshesTheIndependentRunSnapshot() async throws {
+        let operations = FreshnessRecordingRunConfigurationOperations()
+        let reference = BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "engine", root: ".",
+            run: "serve", projectID: "opaque/project", targetID: "opaque/target", execution: .service)
+        operations.providerConfiguration = RunConfiguration(id: "build.provider:generated", name: "Service", kind: .process(provider: "build.provider"),
+            execution: .service, modulePath: nil, mainClass: nil, buildProvider: reference)
+        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback))
+        defer { service.reset() }
+        service.configureBuildProjectOwnership { [] }
+        var runs = [RunProviderConfiguration(projectPath: ".", name: "Service", reference: reference)]
+        service.configureProviderRunConfigurations { runs }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
+        #expect(operations.runInspections.last == runs)
+        operations.staleProviderModel = true
+        runs = []
+        await service.refreshProviderGeneration()
+        #expect(operations.runInspections.last == [])
+        #expect(service.configurationDiagnostics.contains { $0.code == "staleProviderModel" })
+        operations.staleProviderModel = false
+        runs = [RunProviderConfiguration(projectPath: ".", name: "Service", reference: reference)]
+        await service.refreshProviderGeneration()
+        #expect(!service.configurationDiagnostics.contains { $0.code == "staleProviderModel" })
+    }
+
     @Test(arguments: ["inputs", "workspace", "reset"])
     func lateProviderInspectionCannotReplaceNewerInputWorkspaceOrReset(change: String) async throws {
         let operations = FreshnessRecordingRunConfigurationOperations()
@@ -2154,6 +2183,12 @@ private final class FreshnessRecordingRunConfigurationOperations: RunConfigurati
     var staleProviderModel = false
     var providerInspectionGate: InventoryInspectionGate?
     private(set) var providerInspections: [[RunProjectOwnership]] = []
+    var providerConfiguration: RunConfiguration?
+    private(set) var runInspections: [[RunProviderConfiguration]] = []
+    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection {
+        runInspections.append(providerRuns)
+        return inspectProviderGeneration(at: projectURL, projectOwnership: projectOwnership)
+    }
     func inspectProviderGeneration(at _: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
         providerInspections.append(projectOwnership)
         let stale = staleProviderModel
@@ -2209,7 +2244,7 @@ private final class FreshnessRecordingRunConfigurationOperations: RunConfigurati
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(
-            configurations: [.currentFile, custom].map {
+            configurations: [.currentFile, providerConfiguration ?? custom].map {
                 EffectiveRunConfiguration(configuration: $0, options: RunOptions())
             },
             diagnostics: [],

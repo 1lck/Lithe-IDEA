@@ -880,3 +880,9 @@ queries keep one execution identity. Stop targets the owned preparation ID befor
 launch and the owned native process ID afterward. Missing or stale references fail without a CLI or old domain fallback.
 A Provider application's native output remains visible even without generated
 Run configurations. See `../fixtures/run-configuration/build-provider.json`.
+
+Automatic Provider run discovery uses the current public declaration/target pairs,
+independently of language imports. The host projects generic selectors and upstream
+labels; Core owns stable Run IDs, layering and snapshot freshness. Neither layer
+interprets framework IDs or reconstructs commands/toolchains from those selectors.
+The existing Java ownership projection remains separate during the remaining migration.

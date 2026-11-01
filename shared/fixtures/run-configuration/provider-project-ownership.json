@@ -46,7 +46,6 @@
         }
       ],
       "name": "app",
-      "mavenRunProvider": "quarkus.maven",
       "minimumJavaVersion": "17",
       "mavenMinimumVersion": "3.9.9",
       "mavenWrapper": "alpha/mvnw"
@@ -61,7 +60,6 @@
         }
       ],
       "name": "app",
-      "mavenRunProvider": "spring-boot.maven",
       "minimumJavaVersion": "21",
       "mavenMinimumVersion": "3.6.3",
       "mavenWrapper": "beta/mvnw.cmd"
@@ -84,18 +82,66 @@
     ],
     "services": [
       {
-        "id": "quarkus.maven:alpha/app",
+        "id": "build.provider:41b56f3f0d9046e60aad2d801b216bcc301a0e515dcf749413fbabff07b0ece1",
         "cwd": "alpha",
-        "module": "app"
+        "reference": {
+          "pluginID": "dev.example.engine",
+          "buildSystemID": "engine",
+          "root": "alpha",
+          "run": "serve",
+          "projectID": "opaque-project-1",
+          "targetID": "http/opaque:1",
+          "execution": "service",
+          "userArguments": []
+        }
       },
       {
-        "id": "spring-boot.maven:beta/app",
+        "id": "build.provider:0d63f34f97ab396280a2b2b3226ad1a539db4d4cc35232c79a6ec4acba568ac2",
         "cwd": "beta",
-        "module": "app"
+        "reference": {
+          "pluginID": "dev.example.engine",
+          "buildSystemID": "engine",
+          "root": "beta",
+          "run": "serve",
+          "projectID": "opaque-project-2",
+          "targetID": "http/opaque:2",
+          "execution": "service",
+          "userArguments": []
+        }
       }
     ],
     "minimumJavaVersion": "21",
     "minimumMavenVersion": "3.9.9",
     "mavenWrapper": null
-  }
+  },
+  "providerRuns": [
+    {
+      "name": "Application service",
+      "reference": {
+        "pluginID": "dev.example.engine",
+        "buildSystemID": "engine",
+        "root": "alpha",
+        "run": "serve",
+        "projectID": "opaque-project-1",
+        "targetID": "http/opaque:1",
+        "execution": "service",
+        "userArguments": []
+      },
+      "projectPath": "alpha/app"
+    },
+    {
+      "name": "Application service",
+      "reference": {
+        "pluginID": "dev.example.engine",
+        "buildSystemID": "engine",
+        "root": "beta",
+        "run": "serve",
+        "projectID": "opaque-project-2",
+        "targetID": "http/opaque:2",
+        "execution": "service",
+        "userArguments": []
+      },
+      "projectPath": "beta/app"
+    }
+  ]
 }

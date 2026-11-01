@@ -19,7 +19,7 @@ struct BuildSystemServiceTests {
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
         let ownership = try harness.service.runProjectOwnership()
         #expect(ownership == [RunProjectOwnership(path: "app", mavenReactorPath: "app",
-            contentRoots: [.init(path: "app/checks", kind: "testSource")], name: "App", mavenRunProvider: "quarkus.maven", minimumJavaVersion: "21", mavenMinimumVersion: "3.9.9", mavenWrapper: "app/mvnw.cmd")])
+            contentRoots: [.init(path: "app/checks", kind: "testSource")], name: "App", minimumJavaVersion: "21", mavenMinimumVersion: "3.9.9", mavenWrapper: "app/mvnw.cmd")])
         harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
         #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
@@ -29,16 +29,45 @@ struct BuildSystemServiceTests {
     }
 
     @Test
-    func runGenerationRejectsMavenModelsWithoutBackendRunMetadata() async throws {
+    func runGenerationUsesDeclaredTargetsWithoutLanguageImportOrToolProperties() async throws {
         let planner = FakeBuildPlanner()
-        planner.importEnabled = true; planner.dynamicOptions = true
+        planner.dynamicOptions = true
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
-            #"{"projects":[{"id":"p","path":"app","name":"App"}]}"#)])
-        let harness = Harness(planner: planner)
+            #"{"projects":[{"id":"p","path":"app","name":"App"},{"id":"q","path":"app/library","name":"Library"}],"targets":[{"id":"http/opaque:1","projectID":"p","name":"Application","path":"app","tags":["endpoint"]},{"id":"check/opaque:2","projectID":"p","name":"Checks","path":"app","tags":["checks"]},{"id":"foreign","projectID":"q","name":"Other","path":"app/library","tags":["other"]}]}"#)])
+        let source = fixtureSource(providerRuns: [
+            .init(id: "custom-serve", displayName: "Serve", targetTags: ["endpoint"], execution: .service),
+            .init(id: "custom-check", displayName: "Check", targetTags: ["checks"], execution: .task),
+            .init(id: "any-target", displayName: "Any", targetTags: [], execution: .application)])
+        let harness = Harness(planner: planner, sources: [source])
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
+        #expect(try harness.service.runProjectOwnership().isEmpty)
+        let runs = try harness.service.providerRunConfigurations()
+        #expect(runs.prefix(2).map(\.reference) == [
+            .init(pluginID: "dev.example", buildSystemID: "fixture", root: "app", run: "custom-serve", projectID: "p", targetID: "http/opaque:1", execution: .service),
+            .init(pluginID: "dev.example", buildSystemID: "fixture", root: "app", run: "custom-check", projectID: "p", targetID: "check/opaque:2", execution: .task)])
+        let wildcard = runs.filter { $0.reference.run == "any-target" }
+        #expect(Set(wildcard.map { $0.reference.targetID }) == ["http/opaque:1", "check/opaque:2", "foreign"])
+        #expect(Set(wildcard.map(\.projectPath)) == ["app", "app/library"])
+        #expect(Set(wildcard.map(\.name)).count == 3)
+        harness.service.reset(workspaceURL: nil)
+        #expect(throws: (any Error).self) { try harness.service.providerRunConfigurations() }
+    }
+
+    @Test
+    func runGenerationRejectsAnOversizedDeclarationTargetProduct() async throws {
+        let planner = FakeBuildPlanner()
+        let targets = (0..<400).map { ["id": "target-\($0)", "projectID": "p", "name": "Target \($0)", "path": "app"] }
+        let data = try JSONSerialization.data(withJSONObject: ["projects": [["id": "p", "path": "app", "name": "App"]], "targets": targets])
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model: String(decoding: data, as: UTF8.self))])
+        let runs = (0..<32).map { DeclarativeBuildSystem.ProviderRun(id: "run-\($0)", displayName: "Run", targetTags: [], execution: .task) }
+        let harness = Harness(planner: planner, sources: [fixtureSource(providerRuns: runs)])
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        #expect(harness.service.entries.first?.model?.targets.count == 400)
+        #expect(throws: (any Error).self) { try harness.service.providerRunConfigurations() }
     }
 
     @Test(arguments: ["success", "failed", "cancel", "configuration", "workspace"])

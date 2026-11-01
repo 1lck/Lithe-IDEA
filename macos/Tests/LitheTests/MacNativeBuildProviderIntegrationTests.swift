@@ -114,9 +114,14 @@ struct MacNativeBuildProviderIntegrationTests {
                 #expect(ownership.first?.mavenReactorPath == "nested")
                 #expect(ownership.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "source" } == true)
                 let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(defaults: defaults))
+                let runs = try build.providerRunConfigurations()
+                #expect(runs.contains { $0.reference.run == "module" && $0.reference.execution == .task })
                 _ = try store.generate(at: workspace, files: [workspace.appendingPathComponent("nested/checks/Main.java")], modulePaths: [],
-                    javaEntrypoints: JavaEntrypoints(entries: [JavaEntrypoint(sourcePath: "nested/checks/Main.java", mainClass: "Main")]), projectOwnership: ownership)
-                #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
+                    javaEntrypoints: JavaEntrypoints(entries: [JavaEntrypoint(sourcePath: "nested/checks/Main.java", mainClass: "Main")]),
+                    projectOwnership: ownership, providerRuns: runs)
+                let resolvedRuns = try store.resolve(at: workspace, toolchainCandidates: []).configurations.compactMap { $0.configuration.buildProvider }
+                #expect(Set(resolvedRuns.map(\.targetID)) == Set(runs.map { $0.reference.targetID }))
+                #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: ownership, providerRuns: runs).diagnostics.contains { $0.code == "staleProviderModel" })
                 let entryID = try #require(build.entries.first?.id)
                 func currentOwnership() async throws -> [LitheCoreContracts.RunProjectOwnership] {
                     _ = try await build.prepareLanguageImport(workspaceURL: workspace)
@@ -129,11 +134,11 @@ struct MacNativeBuildProviderIntegrationTests {
                 build.setOption(entryID, optionID: "profiles", value: .array([.string("run-only")]))
                 let changed = try await currentOwnership()
                 #expect(changed.first?.contentRoots.contains { $0.path == "nested/checks" && $0.kind == "testSource" } == true)
-                #expect(store.inspectProviderGeneration(at: workspace, projectOwnership: changed).diagnostics.contains { $0.code == "staleProviderModel" })
+                #expect(store.inspectProviderGeneration(at: workspace, projectOwnership: changed, providerRuns: try build.providerRunConfigurations()).diagnostics.contains { $0.code == "staleProviderModel" })
                 build.setOption(entryID, optionID: "profiles", value: .array([]))
                 let restored = try await currentOwnership()
                 #expect(restored == ownership)
-                #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: restored).diagnostics.contains { $0.code == "staleProviderModel" })
+                #expect(!store.inspectProviderGeneration(at: workspace, projectOwnership: restored, providerRuns: try build.providerRunConfigurations()).diagnostics.contains { $0.code == "staleProviderModel" })
             }
             outcome = .success(())
         } catch { outcome = .failure(error) }
