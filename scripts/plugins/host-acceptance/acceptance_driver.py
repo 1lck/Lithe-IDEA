@@ -74,48 +74,90 @@ kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
 kernel32.TerminateProcess.restype = wintypes.BOOL
 
 
+def process_error_details(error: Exception) -> dict:
+    # Exception text can contain command lines or private paths. Keep native
+    # codes and types; the diagnostic's stage supplies the missing context.
+    return {"type": type(error).__name__, "winerror": getattr(error, "winerror", None),
+            "errno": getattr(error, "errno", None)}
+
+
+def process_image_details(executable: str) -> dict:
+    return {"name": Path(executable).name[:260],
+            "pathSha256": hashlib.sha256(os.path.normcase(executable).encode("utf-8")).hexdigest()}
+
+
+class ProcessInspectionError(RuntimeError):
+    def __init__(self, diagnostic: dict):
+        self.diagnostic = diagnostic
+        super().__init__("could not inspect the process identity: " + json.dumps(diagnostic, sort_keys=True))
+
+
 class OwnedProcess:
     """A retained handle, rather than a reusable PID, authorizes termination."""
+    # Note: .agents/notes/implemented/testing/2026-11-01-windows-acceptance-process-identity-diagnostics.md
 
-    def __init__(self, pid: int, handle, creation_time: int, executable: str):
+    def __init__(self, pid: int, handle, creation_time: int, executable: str, *, query_only: bool = False):
         self.pid = pid
         self.handle = handle
         self.creation_time = creation_time
         self.executable = executable
+        self.query_only = query_only
         # Keep kernel-object ownership from earlier successful inspections even
         # if a later query fails or the root exits before cleanup.
         self.descendants: list[OwnedProcess] = []
 
     @classmethod
-    def capture(cls, pid: int, expected: dict | None = None):
-        handle = kernel32.OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, False, pid
-        )
+    def capture(cls, pid: int, expected: dict | None = None, *, query_only: bool = False,
+                diagnostic: dict | None = None):
+        # This is still the sole handle owner. Metadata inspection needs query
+        # and wait rights; only an explicit cleanup capture requests termination.
+        details = diagnostic if diagnostic is not None else {}
+        access = PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
+        if not query_only:
+            access |= PROCESS_TERMINATE
+        details.update({"pid": pid, "accessMask": access, "queryOnly": query_only,
+                        "stage": "OpenProcess", "outcome": "failed"})
+        handle = kernel32.OpenProcess(access, False, pid)
         if not handle:
+            details["winerror"] = int(kernel32.GetLastError())
             return None
         try:
+            details["stage"] = "GetProcessTimes"
             created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
             if not kernel32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)):
+                details["winerror"] = int(kernel32.GetLastError())
                 return None
             creation_time = (created.dwHighDateTime << 32) | created.dwLowDateTime
+            details["creationTime"] = creation_time
+            details["stage"] = "QueryFullProcessImageNameW"
             image = ctypes.create_unicode_buffer(32768)
             length = wintypes.DWORD(len(image))
             if not kernel32.QueryFullProcessImageNameW(handle, 0, image, ctypes.byref(length)):
+                details["winerror"] = int(kernel32.GetLastError())
                 return None
+            details["executable"] = process_image_details(image.value)
             if expected is not None:
+                details["stage"] = "compareCreationTime"
+                details["expectedCreationTime"] = int(expected.get("CreationTime", -1))
                 # Both sides retain native FILETIME ticks, without float loss.
                 if creation_time != int(expected.get("CreationTime", -1)):
+                    details["outcome"] = "rejected"
                     return None
                 expected_image = expected.get("ExecutablePath") or ""
+                details["stage"] = "compareExecutable"
+                details["expectedExecutable"] = process_image_details(expected_image)
                 if os.path.normcase(image.value) != os.path.normcase(expected_image):
                     # An inspector can preserve a runtime-manager junction
                     # while the handle reports the executable's physical path.
                     try:
                         if not os.path.samefile(image.value, expected_image):
+                            details["outcome"] = "rejected"
                             return None
-                    except OSError:
+                    except OSError as error:
+                        details["comparisonError"] = process_error_details(error)
                         return None
-            result = cls(pid, handle, creation_time, image.value)
+            result = cls(pid, handle, creation_time, image.value, query_only=query_only)
+            details.update({"stage": "retained", "outcome": "captured"})
             handle = None
             return result
         finally:
@@ -127,10 +169,17 @@ class OwnedProcess:
             return False
         state = kernel32.WaitForSingleObject(self.handle, 0)
         if state not in (0, WAIT_TIMEOUT):
-            raise ctypes.WinError(kernel32.GetLastError())
+            code = int(kernel32.GetLastError())
+            error = ctypes.WinError(code)
+            error.diagnostic = {"schemaVersion": 1, "pid": self.pid, "stage": "WaitForSingleObject",
+                                "winerror": code, "waitResult": int(state), "outcome": "unknown",
+                                "creationTime": self.creation_time, "executable": process_image_details(self.executable)}
+            raise error
         return state == WAIT_TIMEOUT
 
     def terminate(self) -> None:
+        if self.query_only:
+            raise RuntimeError(f"query-only process handle cannot authorize termination for {self.pid}")
         if self.running() and not kernel32.TerminateProcess(self.handle, 1):
             if self.running():
                 raise RuntimeError(f"could not terminate the owned process handle for {self.pid}")
@@ -170,16 +219,9 @@ def owned_process_running(pid: int, expected: dict | None = None) -> bool:
 def process_exists(pid: int) -> bool:
     if pid <= 0:
         return False
-    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    if not handle:
-        return False
-    exit_code = wintypes.DWORD()
-    try:
-        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-            return False
-        return exit_code.value == 259  # STILL_ACTIVE
-    finally:
-        kernel32.CloseHandle(handle)
+    # Reuse the same positive-exit proof. A denied query or failed wait cannot
+    # authorize dropping an unowned PID from cleanup evidence.
+    return not process_exit_proven(pid)
 
 
 def terminate_process_tree(pid: int, timeout_seconds: float = 10, inspect_descendants: bool = True) -> None:
@@ -189,9 +231,10 @@ def terminate_process_tree(pid: int, timeout_seconds: float = 10, inspect_descen
             raise RuntimeError(f"refusing to terminate PID {pid} without a retained ownership handle")
         return
     inspection_error = None
-    if inspect_descendants and owner.running():
+    if inspect_descendants:
         try:
-            capture_owned_tree(owner)
+            if owner.running():
+                capture_owned_tree(owner)
         except Exception as error:  # noqa: BLE001 - cleanup must still use retained handles.
             inspection_error = error
     targets = list(dict.fromkeys([owner] + (owner.descendants if inspect_descendants else [])))
@@ -203,15 +246,29 @@ def terminate_process_tree(pid: int, timeout_seconds: float = 10, inspect_descen
             process.terminate()
         except Exception as error:  # noqa: BLE001 - another owned handle still needs cleanup.
             termination_errors.append((process, str(error)))
+    wait_errors = []
+    def remaining_handles():
+        remaining = []
+        for process in targets:
+            try:
+                if process.running():
+                    remaining.append(process)
+            except Exception as error:  # noqa: BLE001 - unknown state is never exit proof.
+                wait_errors.append(f"owned process {process.pid} exit state unknown: {error}")
+                remaining.append(process)
+        return remaining
+
     deadline = time.monotonic() + timeout_seconds
-    while any(process.running() for process in targets) and time.monotonic() < deadline:
+    surviving_handles = remaining_handles()
+    while surviving_handles and not wait_errors and time.monotonic() < deadline:
         time.sleep(0.05)
-    surviving_handles = [process for process in targets if process.running()]
+        surviving_handles = remaining_handles()
     survivors = [process.pid for process in surviving_handles]
     # Windows can deny TerminateProcess while a console/process is already
     # exiting. The retained object becoming signaled within this same bounded
     # cleanup is proof that it exited; preserve errors only for survivors.
     cleanup_errors = [message for process, message in termination_errors if process in surviving_handles]
+    cleanup_errors.extend(wait_errors)
     if survivors:
         cleanup_errors.append(f"owned process handles survived cleanup: {survivors}")
     if inspection_error is not None:
@@ -326,25 +383,35 @@ def process_tree_ids(root_pid: int) -> list[int]:
     return result
 
 
-def process_exit_proven(pid: int) -> bool:
+def process_exit_proven(pid: int, *, diagnostic: dict | None = None) -> bool:
     """A signaled kernel object or ERROR_INVALID_PARAMETER proves exit.
 
     Access denied and failed waits are inspection failures, never absence.
     This query-only handle does not authorize termination or adopt a reused PID.
     """
+    details = diagnostic if diagnostic is not None else {}
+    details.update({"stage": "OpenProcess", "accessMask": SYNCHRONIZE, "outcome": "unknown"})
     handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
     if not handle:
         error = kernel32.GetLastError()
+        details["winerror"] = int(error)
         if error == 87:  # ERROR_INVALID_PARAMETER: PID no longer exists.
+            details["outcome"] = "exited"
             return True
         raise ctypes.WinError(error)
     try:
+        details["stage"] = "WaitForSingleObject"
         state = kernel32.WaitForSingleObject(handle, 0)
+        error = kernel32.GetLastError() if state not in (0, WAIT_TIMEOUT) else None
+        details["waitResult"] = int(state)
         if state == 0:  # WAIT_OBJECT_0, including exit status STILL_ACTIVE (259).
+            details["outcome"] = "exited"
             return True
         if state == WAIT_TIMEOUT:
+            details["outcome"] = "not-signaled"
             return False
-        raise ctypes.WinError(kernel32.GetLastError())
+        details["winerror"] = int(error)
+        raise ctypes.WinError(error)
     finally:
         kernel32.CloseHandle(handle)
 
@@ -357,32 +424,74 @@ def process_record(pid: int) -> dict | None:
     handles used to authorize cleanup. Do not round FILETIME through a float.
     """
     identity = None
+    diagnostic = {"schemaVersion": 1, "pid": pid, "stage": "psutil.Process"}
     try:
         process = psutil.Process(pid)
+        diagnostic["stage"] = "psutil.create_time"
         process.create_time()  # Freeze psutil's original process identity.
-        identity = OwnedProcess.capture(pid)
+        diagnostic["stage"] = "capture"
+        diagnostic["capture"] = {}
+        identity = OwnedProcess.capture(pid, query_only=True, diagnostic=diagnostic["capture"])
         if identity is None:
-            if not process.is_running() or process_exit_proven(pid):
+            # Preserve the capture failure before any further query can change
+            # GetLastError. Each supplemental upstream query runs at most once.
+            for name, query in (("parentPid", process.ppid), ("name", process.name)):
+                try:
+                    value = query()
+                    diagnostic[name] = str(value)[:260] if name == "name" else value
+                except (OSError, psutil.Error) as error:
+                    diagnostic[name + "Error"] = process_error_details(error)
+            try:
+                if not process.is_running():
+                    return None  # psutil proved original exit/PID replacement.
+                diagnostic["exitProof"] = {}
+                exited = process_exit_proven(pid, diagnostic=diagnostic["exitProof"])
+                diagnostic["exitProof"]["outcome"] = "exited" if exited else "not-signaled"
+            except (OSError, psutil.Error) as error:
+                diagnostic.setdefault("exitProof", {"stage": "psutil.is_running"})["error"] = process_error_details(error)
+                raise ProcessInspectionError(diagnostic) from error
+            if exited:
                 return None
-            raise RuntimeError(f"could not inspect the process identity for {pid}")
-        record = {
-            "ProcessId": pid,
-            "ParentProcessId": process.ppid(),
-            "Name": process.name(),
-            "ExecutablePath": identity.executable,
-            "CommandLine": subprocess.list2cmdline(process.cmdline()),
-            "CreationTime": identity.creation_time,
-        }
+            failure = ProcessInspectionError(diagnostic)
+            code = diagnostic["capture"].get("winerror")
+            if code is not None:
+                raise failure from ctypes.WinError(code)
+            raise failure
+        diagnostic["stage"] = "psutil.ppid"
+        parent_pid = process.ppid()
+        diagnostic["parentPid"] = parent_pid
+        diagnostic["stage"] = "psutil.name"
+        name = process.name()
+        diagnostic["name"] = name[:260]
+        diagnostic["stage"] = "psutil.cmdline"
+        command_line = subprocess.list2cmdline(process.cmdline())
+        record = {"ProcessId": pid, "ParentProcessId": parent_pid, "Name": name,
+                  "ExecutablePath": identity.executable, "CommandLine": command_line,
+                  "CreationTime": identity.creation_time}
+        diagnostic["stage"] = "identityRecheck"
         if not process.is_running() or not identity.running():
             return None
         return record
     except psutil.NoSuchProcess:
         return None
-    except psutil.AccessDenied:
+    except psutil.AccessDenied as error:
         # psutil can query after the short-lived process has exited. Recheck
         # with a non-terminating handle; a live/uninspectable owner still fails.
-        if (identity is not None and not identity.running()) or process_exit_proven(pid):
-            return None
+        diagnostic["error"] = process_error_details(error)
+        try:
+            diagnostic["exitProof"] = {}
+            if (identity is not None and not identity.running()) or process_exit_proven(pid, diagnostic=diagnostic["exitProof"]):
+                return None
+        except OSError as proof_error:
+            diagnostic["exitProof"]["error"] = process_error_details(proof_error)
+            raise ProcessInspectionError(diagnostic) from error
+        error.diagnostic = diagnostic
+        raise
+    except OSError as error:
+        if getattr(error, "diagnostic", None) is not None:
+            diagnostic["retainedWait"] = error.diagnostic
+        diagnostic["error"] = process_error_details(error)
+        error.diagnostic = diagnostic
         raise
     finally:
         if identity is not None:
@@ -755,8 +864,11 @@ class AppSession:
                     "attempts": list(self.stop_attempts)}
         except Exception as error:
             attempt["error"] = f"{type(error).__name__}: {error}"
-            if self.root_owner is not None and (self.root_owner.running()
-                    or any(item.running() for item in self.owned_tree)):
+            if getattr(error, "diagnostic", None) is not None:
+                attempt["processInspection"] = error.diagnostic
+            # A second failed wait must not replace the first inspection error
+            # or prevent an attempt to clean already-retained descendants.
+            if self.root_owner is not None:
                 attempt["forced"] = True
                 try:
                     terminate_process_tree(self.process.pid)

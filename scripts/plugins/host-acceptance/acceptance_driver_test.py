@@ -54,6 +54,39 @@ def run_case(name, action, tests, max_ms=10_000):
 
 
 @contextlib.contextmanager
+def native_identity_fixture():
+    """Control native failure -> last-error read -> cleanup in that order."""
+    ticks = 134000000000000001
+    last_error = [5]
+    def times(_handle, created, *_):
+        value = ctypes.cast(created, ctypes.POINTER(driver.wintypes.FILETIME)).contents
+        value.dwLowDateTime, value.dwHighDateTime = ticks & 0xFFFFFFFF, ticks >> 32
+        return 1
+
+    def image(_handle, _flags, buffer, _length):
+        buffer.value = "C:\\private-user\\secret-workspace\\fixture.exe"
+        return 1
+
+    def close(_handle):
+        last_error[0] = 999  # Must never replace the original failing API code.
+        return 1
+
+    with contextlib.ExitStack() as patches:
+        api = {}
+        for name, keyword in (
+            ("OpenProcess", {"return_value": 456}),
+            ("GetProcessTimes", {"side_effect": times}),
+            ("QueryFullProcessImageNameW", {"side_effect": image}),
+            ("GetLastError", {"side_effect": lambda: last_error[0]}),
+            ("CloseHandle", {"side_effect": close}),
+            ("WaitForSingleObject", {"return_value": driver.WAIT_TIMEOUT}),
+            ("TerminateProcess", {"return_value": 1}),
+        ):
+            api[name] = patches.enter_context(patch.object(driver.kernel32, name, **keyword))
+        yield api, ticks
+
+
+@contextlib.contextmanager
 def native_picker_fixture(*, folder: bool):
     """Reproduce the native folder picker shape without opening a window."""
     app_pid, dialog, edit, combo, confirm = 101, 201, 202, 203, 204
@@ -406,9 +439,194 @@ def main() -> int:
                 else:
                     raise AssertionError("inspection failure was accepted as an empty tree")
 
+    def capture_native_failure_preserves_api_and_code(stage):
+        with native_identity_fixture() as (api, ticks):
+            api[stage].side_effect = None
+            api[stage].return_value = 0
+            diagnostic = {}
+            assert OwnedProcess.capture(123, diagnostic=diagnostic) is None
+            assert diagnostic["stage"] == stage
+            assert diagnostic["winerror"] == 5
+            assert diagnostic["outcome"] == "failed"
+            assert diagnostic["accessMask"] == driver.PROCESS_QUERY_LIMITED_INFORMATION | driver.PROCESS_TERMINATE | driver.SYNCHRONIZE
+            if stage == "OpenProcess":
+                api["CloseHandle"].assert_not_called()
+                api["GetProcessTimes"].assert_not_called()
+            else:
+                api["CloseHandle"].assert_called_once_with(456)
+            if stage == "QueryFullProcessImageNameW":
+                assert diagnostic["creationTime"] == ticks
+
+    def capture_identity_rejection_is_distinct_from_native_failure(reason):
+        with native_identity_fixture() as (api, ticks):
+            expected = {"CreationTime": ticks, "ExecutablePath": "C:/private-other/fixture.exe"}
+            if reason == "creation-time":
+                expected["CreationTime"] -= 1
+            diagnostic = {}
+            comparison = OSError(2, "C:/private-other/secret-file") if reason == "comparison-error" else False
+            with patch.object(driver.os.path, "samefile", side_effect=comparison if isinstance(comparison, Exception) else None,
+                              return_value=False) as samefile:
+                assert OwnedProcess.capture(123, expected, diagnostic=diagnostic) is None
+            assert "winerror" not in diagnostic
+            assert diagnostic["creationTime"] == ticks
+            assert diagnostic["stage"] == ("compareCreationTime" if reason == "creation-time" else "compareExecutable")
+            assert diagnostic["outcome"] == ("failed" if reason == "comparison-error" else "rejected")
+            if reason == "creation-time":
+                samefile.assert_not_called()
+            if reason == "comparison-error":
+                assert diagnostic["comparisonError"]["errno"] == 2
+            serialized = json.dumps(diagnostic)
+            assert "private-" not in serialized and "secret-" not in serialized
+            api["CloseHandle"].assert_called_once_with(456)
+
+    def metadata_capture_never_requests_or_grants_termination():
+        with native_identity_fixture() as (api, ticks):
+            diagnostic = {}
+            owner = OwnedProcess.capture(123, query_only=True, diagnostic=diagnostic)
+            assert owner is not None
+            try:
+                assert owner.creation_time == ticks
+                assert diagnostic["outcome"] == "captured"
+                api["OpenProcess"].assert_called_once_with(driver.PROCESS_QUERY_LIMITED_INFORMATION | driver.SYNCHRONIZE, False, 123)
+                try:
+                    owner.terminate()
+                except RuntimeError as error:
+                    assert "query-only" in str(error)
+                else:
+                    raise AssertionError("metadata handle authorized termination")
+                api["TerminateProcess"].assert_not_called()
+            finally:
+                owner.close()
+            api["CloseHandle"].assert_called_once_with(456)
+
+    def live_capture_failure_has_bounded_redacted_context():
+        process = MagicMock()
+        process.is_running.return_value = True
+        process.ppid.return_value = 100
+        process.name.return_value = "fixture.exe"
+        with native_identity_fixture() as (api, ticks):
+            api["QueryFullProcessImageNameW"].side_effect = None
+            api["QueryFullProcessImageNameW"].return_value = 0
+            with patch.object(driver.psutil, "Process", return_value=process):
+                try:
+                    driver.process_record(123)
+                except RuntimeError as error:
+                    assert getattr(error, "diagnostic", None) is not None, "identity failure omitted structured evidence"
+                    diagnostic = error.diagnostic
+                    assert error.__cause__.winerror == 5
+                else:
+                    raise AssertionError("live identity failure was swallowed")
+            assert diagnostic["capture"]["winerror"] == 5  # CloseHandle changed last-error to 999.
+            assert diagnostic["capture"]["creationTime"] == ticks
+            assert diagnostic["parentPid"] == 100 and diagnostic["name"] == "fixture.exe"
+            assert diagnostic["exitProof"]["outcome"] == "not-signaled"
+            assert diagnostic["exitProof"]["waitResult"] == driver.WAIT_TIMEOUT
+            assert len(api["OpenProcess"].call_args_list) == 2  # Capture + one exit proof, no retries.
+            assert all(not call.args[0] & driver.PROCESS_TERMINATE for call in api["OpenProcess"].call_args_list)
+            process.ppid.assert_called_once()
+            process.name.assert_called_once()
+            process.cmdline.assert_not_called()
+            assert len(json.dumps(diagnostic)) < 2000
+
+    def failed_exit_probe_keeps_both_errors(stage):
+        process = MagicMock()
+        process.is_running.return_value = True
+        process.ppid.side_effect = driver.psutil.AccessDenied(123)
+        process.name.side_effect = driver.psutil.NoSuchProcess(123)
+        with native_identity_fixture() as (api, _ticks):
+            api["GetProcessTimes"].side_effect = None
+            api["GetProcessTimes"].return_value = 0
+            api["GetLastError"].side_effect = [6, 5]
+            if stage == "OpenProcess":
+                api["OpenProcess"].side_effect = [456, 0]
+            else:
+                api["WaitForSingleObject"].return_value = 0xFFFFFFFF
+            with patch.object(driver.psutil, "Process", return_value=process):
+                try:
+                    driver.process_record(123)
+                except (RuntimeError, OSError) as error:
+                    assert getattr(error, "diagnostic", None) is not None, "exit proof failure omitted structured evidence"
+                    diagnostic = error.diagnostic
+                    assert error.__cause__.winerror == 5
+                else:
+                    raise AssertionError("unknown exit probe was accepted as exit")
+            assert diagnostic["capture"]["stage"] == "GetProcessTimes"
+            assert diagnostic["capture"]["winerror"] == 6
+            assert diagnostic["exitProof"]["stage"] == stage
+            assert diagnostic["exitProof"]["winerror"] == 5
+            assert diagnostic["exitProof"]["outcome"] == "unknown"
+            assert diagnostic["parentPidError"]["type"] == "AccessDenied"
+            assert diagnostic["nameError"]["type"] == "NoSuchProcess"
+            assert api["CloseHandle"].call_count == (1 if stage == "OpenProcess" else 2)
+
+    def upstream_access_denial_retains_stage_and_exit_proof():
+        failure = driver.psutil.AccessDenied(123)
+        with patch.object(driver.psutil, "Process", side_effect=failure), native_identity_fixture():
+            try:
+                driver.process_record(123)
+            except driver.psutil.AccessDenied as error:
+                assert error is failure
+                assert error.diagnostic["stage"] == "psutil.Process"
+                assert error.diagnostic["exitProof"]["outcome"] == "not-signaled"
+            else:
+                raise AssertionError("upstream access denial was swallowed")
+
+    def failed_retained_wait_is_unknown_and_redacted():
+        owner = OwnedProcess(123, 456, 134000000000000001, "C:/private-user/secret-workspace/fixture.exe")
+        with native_identity_fixture() as (api, ticks):
+            api["WaitForSingleObject"].return_value = 0xFFFFFFFF
+            try:
+                owner.running()
+            except OSError as error:
+                assert error.winerror == 5
+                assert error.diagnostic["stage"] == "WaitForSingleObject"
+                assert error.diagnostic["outcome"] == "unknown"
+                assert error.diagnostic["creationTime"] == ticks
+                assert error.diagnostic["executable"]["name"] == "fixture.exe"
+                serialized = json.dumps(error.diagnostic)
+                assert "private-user" not in serialized and "secret-workspace" not in serialized
+            else:
+                raise AssertionError("failed wait was reported as exit")
+            api["OpenProcess"].assert_not_called()
+            api["TerminateProcess"].assert_not_called()
+
+    def existence_check_never_interprets_unknown_as_absent():
+        with patch.object(driver, "process_exit_proven", side_effect=ctypes.WinError(5)):
+            try:
+                driver.process_exists(123)
+            except OSError as error:
+                assert error.winerror == 5
+            else:
+                raise AssertionError("unknown process state was accepted as absence")
+        for exited in (True, False):
+            with patch.object(driver, "process_exit_proven", return_value=exited) as proof:
+                assert driver.process_exists(123) is not exited
+                proof.assert_called_once_with(123)
+
+    def metadata_failure_preserves_partial_identity_and_closes_handle():
+        process = MagicMock()
+        process.ppid.return_value = 100
+        process.name.return_value = "fixture.exe"
+        failure = driver.psutil.AccessDenied(123)
+        process.cmdline.side_effect = failure
+        with native_identity_fixture() as (api, ticks), patch.object(driver.psutil, "Process", return_value=process):
+            try:
+                driver.process_record(123)
+            except driver.psutil.AccessDenied as error:
+                assert error is failure
+                assert error.diagnostic["stage"] == "psutil.cmdline"
+                assert error.diagnostic["capture"]["creationTime"] == ticks
+                assert error.diagnostic["name"] == "fixture.exe" and error.diagnostic["parentPid"] == 100
+                assert "secret-workspace" not in json.dumps(error.diagnostic)
+            else:
+                raise AssertionError("live metadata denial was swallowed")
+            assert api["CloseHandle"].call_count == 2
+
     def exited_identity_race_requires_positive_proof():
         process = MagicMock()
         process.is_running.return_value = True
+        process.ppid.return_value = 100
+        process.name.return_value = "fixture.exe"
         with patch.object(driver.psutil, "Process", return_value=process), patch.object(OwnedProcess, "capture", return_value=None):
             with patch.object(driver, "process_exit_proven", return_value=True):
                 assert driver.process_record(123) is None
@@ -637,6 +855,26 @@ def main() -> int:
                 assert "owned process handles survived cleanup: [123]" in str(error)
             else:
                 raise AssertionError("a surviving retained handle was accepted as clean")
+
+    def failed_root_wait_still_cleans_known_descendants_without_retry():
+        root, child, unrelated = MagicMock(pid=101), MagicMock(pid=102), MagicMock(pid=103)
+        root.descendants = [child]
+        root.running.side_effect = ctypes.WinError(6)
+        root.terminate.side_effect = ctypes.WinError(6)
+        child.running.return_value = False
+        with patch.dict(driver.owned_processes, {101: root, 102: child, 103: unrelated}, clear=True):
+            with patch.object(driver.time, "sleep", side_effect=AssertionError("unknown state triggered wait retry")):
+                try:
+                    driver.terminate_process_tree(101, timeout_seconds=0)
+                except RuntimeError as error:
+                    assert isinstance(error.__cause__, OSError) and error.__cause__.winerror == 6
+                    assert "exit state unknown" in str(error)
+                    assert "uninspected descendants may remain" in str(error)
+                else:
+                    raise AssertionError("unknown retained owner was accepted as exited")
+        root.terminate.assert_called_once()
+        child.terminate.assert_called_once()
+        unrelated.terminate.assert_not_called()
 
     def timeout_query_failure_keeps_error_and_reaps_root():
         real_popen = driver.subprocess.Popen
@@ -947,7 +1185,49 @@ def main() -> int:
             assert recorded[0]["forced"] is True
             assert recorded[0]["error"] == "RuntimeError: identity inspection failed"
 
+    def session_persists_primary_diagnostic_even_if_cleanup_wait_fails():
+        diagnostic = {"schemaVersion": 1, "pid": 102, "capture": {"stage": "OpenProcess", "winerror": 5}}
+        primary = RuntimeError("controlled native inspection failed")
+        primary.diagnostic = diagnostic
+        with tempfile.TemporaryDirectory(prefix="lithe-session-diagnostic-") as directory:
+            root = Path(directory)
+            session = driver.AppSession(None, root / "app.exe", root, root / "webview", root / "logs", 1)
+            owner = MagicMock(pid=101)
+            # First wait admits inspection; another wait would obscure the
+            # primary error. The exception handler must enter cleanup directly.
+            owner.running.side_effect = [True, ctypes.WinError(6)]
+            session.root_owner = owner
+            session.process = MagicMock(pid=101)
+            session.process.poll.return_value = None
+            with patch.object(driver, "process_tree", side_effect=primary), patch.object(driver, "terminate_process_tree", side_effect=ctypes.WinError(6)) as cleanup:
+                try:
+                    session.stop()
+                except RuntimeError as error:
+                    assert error is primary
+                else:
+                    raise AssertionError("inspection failure was accepted as graceful shutdown")
+                cleanup.assert_called_once_with(101)
+            owner.running.assert_called_once()
+            recorded = json.loads((root / "logs/app-1.stop.json").read_text(encoding="utf-8"))[0]
+            assert recorded["processInspection"] == diagnostic
+            assert recorded["quitRequest"] is None and recorded["forced"] is True
+            assert "cleanupError" in recorded and recorded["rootReturnCode"] is None
+
     try:
+        for stage in ("OpenProcess", "GetProcessTimes", "QueryFullProcessImageNameW"):
+            run_case("capture preserves failing API and Win32 code: " + stage, lambda stage=stage: capture_native_failure_preserves_api_and_code(stage), tests)
+        for reason in ("creation-time", "executable", "comparison-error"):
+            run_case("capture identity rejection preserves redacted evidence: " + reason, lambda reason=reason: capture_identity_rejection_is_distinct_from_native_failure(reason), tests)
+        run_case("metadata capture cannot request or authorize termination", metadata_capture_never_requests_or_grants_termination, tests)
+        run_case("live capture failure preserves exact identity context without retry or command line", live_capture_failure_has_bounded_redacted_context, tests)
+        for stage in ("OpenProcess", "WaitForSingleObject"):
+            run_case("failed exit proof retains primary and secondary errors: " + stage, lambda stage=stage: failed_exit_probe_keeps_both_errors(stage), tests)
+        run_case("session persists primary diagnostic when cleanup wait also fails", session_persists_primary_diagnostic_even_if_cleanup_wait_fails, tests)
+        run_case("upstream access denial preserves original error and structured exit proof", upstream_access_denial_retains_stage_and_exit_proof, tests)
+        run_case("failed retained wait preserves redacted exact identity and unknown state", failed_retained_wait_is_unknown_and_redacted, tests)
+        run_case("failed root wait still cleans retained descendants and never retries unknown state", failed_root_wait_still_cleans_known_descendants_without_retry, tests)
+        run_case("existence checks cannot turn unknown process state into absence", existence_check_never_interprets_unknown_as_absent, tests)
+        run_case("metadata denial retains partial redacted identity and closes handles", metadata_failure_preserves_partial_identity_and_closes_handle, tests)
         run_case("native folder picker uses its standard direct Edit 1152", lambda: native_picker_standard_controls(folder=True), tests)
         run_case("native file picker retains its filename combo 1148", lambda: native_picker_standard_controls(folder=False), tests)
         for reason in ("arbitrary Edit", "foreign parent", "ambiguous Edit"):
