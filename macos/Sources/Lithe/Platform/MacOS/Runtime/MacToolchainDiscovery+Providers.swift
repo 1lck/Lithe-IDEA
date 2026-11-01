@@ -16,32 +16,77 @@ extension MacToolchainDiscovery {
         var qualified: String { "\(pluginID):\(id)" }
     }
 
-    /// Returns accepted installations, each `{tool, home, provider}`.
+    /// The host context a workspace query carries; equal for every plugin of one window.
+    struct RoundContext: Equatable {
+        let id: String
+        let generation: Int
+        var json: [String: Any] { ["contextID": id, "generation": generation] }
+    }
+
+    /// One directory's query round. Every provider is asked with the round's generation, as
+    /// the protocol requires, so `toolchains.resolve` can check their replies together.
+    struct Round {
+        let generation: UInt64
+        /// The context of the first provider that had one; a reply under another is left out.
+        var context: RoundContext?
+        /// Complete `decodeReply` inputs without `filesystem`: resolve gives them one shared snapshot.
+        var queries: [[String: Any]] = []
+        /// Native paths the queries named, read again into that snapshot.
+        var paths: [String] = []
+    }
+
+    struct Answers {
+        /// Accepted installations, each `{tool, home, provider}`.
+        var installations: [[String: Any]] = []
+        /// Rounds by workspace-relative directory; global-only queries are not a round.
+        var rounds: [String: Round] = [:]
+    }
+
+    /// The directories asked and resolved: the request's within the budget, always with the root.
+    static func queriedDirectories(_ request: Request) -> [String] {
+        var directories = Array(request.directories.prefix(queryDirectoryBudget))
+        if !directories.contains(".") { directories.insert(".", at: 0) }
+        return directories
+    }
+
     func queryProviders(
         _ request: Request, registry: [String: Any], tools: [[String: Any]], root: String, caseSensitive: Bool,
         into result: inout Result
-    ) async -> [[String: Any]] {
-        guard queryProvider != nil else { return [] }
+    ) async -> Answers {
+        var answers = Answers()
+        guard queryProvider != nil else { return answers }
         let providers = Self.providers(of: tools)
-        var directories = Array(request.directories.prefix(Self.queryDirectoryBudget))
-        if request.directories.count > directories.count, !providers.isEmpty {
+        let directories = Self.queriedDirectories(request)
+        if request.directories.count > Self.queryDirectoryBudget, !providers.isEmpty {
             result.diagnostics.append(L10n.string("Only the first \(Self.queryDirectoryBudget) directories were queried."))
         }
-        if !directories.contains(".") { directories.insert(".", at: 0) }
+        let global = Self.nextGeneration()
+        for directory in directories { answers.rounds[directory] = Round(generation: Self.nextGeneration()) }
         var installations: [String: [String: Any]] = [:]
         var watch: Set<String> = []
-        for provider in providers {
+        for (index, provider) in providers.enumerated() {
             let context = await workspaceContext(request.workspace, provider.pluginID)
             var failure: String?
             let started = ContinuousClock.now
             for directory in [nil] + directories.map(Optional.some) where directory == nil || context != nil {
-                if Task.isCancelled { return [] }
+                if Task.isCancelled { return Answers() }
                 let scope = directory.flatMap { directory in context.map { (directory, $0) } }
-                switch await query(provider, scope: scope, registry: registry, tools: tools, root: root,
+                let generation = directory.flatMap { answers.rounds[$0]?.generation } ?? global
+                switch await query(provider, operation: "toolchain-\(generation)-\(index)", generation: generation,
+                                   scope: scope, registry: registry, tools: tools, root: root,
                                    caseSensitive: caseSensitive) {
                 case .failure(let message):
                     failure = failure ?? message
-                case .success(let snapshot):
+                case .success(let snapshot, let input, let paths):
+                    if let directory, let context, var round = answers.rounds[directory] {
+                        let joined = RoundContext(id: context.contextID, generation: context.generation)
+                        if round.context == nil { round.context = joined }
+                        if round.context == joined {
+                            round.queries.append(input)
+                            round.paths += paths
+                            answers.rounds[directory] = round
+                        }
+                    }
                     for row in snapshot["installations"] as? [[String: Any]] ?? [] {
                         guard let tool = row["tool"] as? String, let home = row["home"] as? String else { continue }
                         installations["\(tool)\n\(home)"] = ["tool": tool, "home": home, "provider": provider.qualified]
@@ -70,26 +115,33 @@ extension MacToolchainDiscovery {
             if let failure { result.diagnostics.append(L10n.string("\(provider.id) did not answer: \(failure)")) }
         }
         result.watch = watch.sorted()
-        return installations.keys.sorted().compactMap { installations[$0] }
+        answers.installations = installations.keys.sorted().compactMap { installations[$0] }
+        return answers
+    }
+
+    /// A monotonic round generation, unique in this process.
+    static func nextGeneration() -> UInt64 {
+        generations.withLock { value -> UInt64 in
+            value += 1
+            return value
+        }
     }
 
     private enum Outcome {
-        case success([String: Any])
+        /// The decoded snapshot, its `decodeReply` input without `filesystem`, and the paths read for it.
+        case success([String: Any], input: [String: Any], paths: [String])
         case failure(String)
     }
 
     /// One query and its validation. `scope` is `nil` for a global-only query.
     private func query(
-        _ provider: Provider, scope: (directory: String, context: WorkspaceContext)?, registry: [String: Any],
+        _ provider: Provider, operation: String, generation: UInt64,
+        scope: (directory: String, context: WorkspaceContext)?, registry: [String: Any],
         tools: [[String: Any]], root: String, caseSensitive: Bool
     ) async -> Outcome {
         guard let queryProvider else { return .failure("") }
-        let generation = Self.generations.withLock { value -> UInt64 in
-            value += 1
-            return value
-        }
         let params: [String: Any] = [
-            "operationID": "toolchain-\(generation)", "generation": generation, "providerID": provider.id,
+            "operationID": operation, "generation": generation, "providerID": provider.id,
             "authority": ["kind": "local"],
             "context": scope.map { ["contextID": $0.context.contextID, "generation": $0.context.generation] as [String: Any] }
                 ?? NSNull(),
@@ -114,14 +166,15 @@ extension MacToolchainDiscovery {
         facts.add(root)
         if let directory = scope?.directory, directory != "." { facts.add(root + "/" + directory) }
         Self.addFacts(of: reply["response"] as? [String: Any] ?? [:], tools: tools, to: &facts)
-        let outcome = decodeReply([
+        let input: [String: Any] = [
             "registry": registry, "pluginID": provider.pluginID,
             "request": ["jsonrpc": "2.0", "id": reply["id"]!, "method": "toolchains/query", "params": params],
-            "response": reply["response"]!, "currentGeneration": generation, "filesystem": facts.values,
+            "response": reply["response"]!, "currentGeneration": generation,
             "platform": "macos", "filesystemCaseSensitive": caseSensitive, "workspaceRoots": [root],
-        ])
+        ]
+        let outcome = decodeReply(input.merging(["filesystem": facts.values]) { $1 })
         if outcome?["status"] as? String == "ok", let snapshot = outcome?["snapshot"] as? [String: Any] {
-            return .success(snapshot)
+            return .success(snapshot, input: input, paths: facts.paths)
         }
         let error = outcome?["error"] as? [String: Any]
         return .failure(error?["message"] as? String ?? L10n.string("The reply could not be read."))
@@ -130,6 +183,7 @@ extension MacToolchainDiscovery {
     private struct FactList {
         let caseSensitive: Bool
         var values: [[String: Any]] = []
+        var paths: [String] = []
         private var keys: Set<String> = []
 
         init(caseSensitive: Bool) { self.caseSensitive = caseSensitive }
@@ -138,6 +192,7 @@ extension MacToolchainDiscovery {
             guard path.hasPrefix("/"), path.utf8.count <= 4_096, values.count < MacToolchainDiscovery.factBudget,
                   keys.insert(caseSensitive ? path : path.lowercased()).inserted
             else { return }
+            paths.append(path)
             values.append(MacToolchainDiscovery.fact(of: path))
         }
     }

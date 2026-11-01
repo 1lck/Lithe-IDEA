@@ -29,7 +29,32 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         var version: String? = nil
     }
 
-    /// A machine-local saved choice, validated by Core but never probed.
+    /// What Core's `toolchains.resolve` picks for one directory from the same facts the page
+    /// shows, so the page never orders the sources itself. It is a reading, not a launch permit.
+    struct Resolution: Equatable, Sendable {
+        enum Layer: String, Equatable, Sendable {
+            case pinned, project, global, automatic
+        }
+
+        enum Outcome: Equatable, Sendable {
+            /// `home` is `nil` for a home-less wrapper; `version` when the version command answered.
+            case resolved(home: String?, executable: String, version: String?, provider: String)
+            /// No source has a usable value; Core's code says why.
+            case skipped(reason: String)
+            /// A fixed value or default that cannot be used; lower sources are not tried.
+            case failed(reason: String)
+        }
+
+        /// The layer that decided: the selection's, or the one that failed terminally.
+        var layer: Layer?
+        var outcome: Outcome
+        /// Requests no installation satisfies, in the manager's own syntax; lower sources were tried.
+        var unmet: [String] = []
+        /// Layers whose providers disagree and need an explicit choice.
+        var conflicts: [Layer] = []
+    }
+
+    /// A machine-local saved choice, validated by Core and checked like any other home.
     struct Pin: Equatable, Sendable {
         let version: String
         let home: String
@@ -99,6 +124,8 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         var candidate: Candidate? = nil
         /// `nil` when discovery did not run or could not check this tool.
         var detection: Detection? = nil
+        /// `nil` when Core could not resolve this directory.
+        var resolution: Resolution? = nil
 
         var identity: String { "\(directoryID):\(id)" }
     }

@@ -94475,6 +94475,76 @@
         "key": "The reply could not be read.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.toolchainSettings.resolutionUnavailable",
+      "description": "Core could not resolve which installation of a tool a directory uses",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Which %@ to use could not be determined.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstPinsChecked",
+      "description": "Fixed-version checks stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "count": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld fixed versions were checked.",
+        "arguments": [
+          "count"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.providerConflict",
+      "description": "Version managers in one source report different versions, so a choice is needed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version managers report different versions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.resolutionUndetermined",
+      "description": "Tool row summary when Core could not resolve the directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not be determined",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.requestedNotInstalled",
+      "description": "Tool row summary: the version a project or global setting requests is not installed",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Requested %@ is not installed",
+        "arguments": [
+          "arg1"
+        ]
+      }
     }
   ]
 }

@@ -159,6 +159,34 @@ struct ToolchainSettingsLoaderTests {
         #expect(snapshot.diagnostics == [L10n.string("Installations of \("Fixture compiler") could not be checked.")])
     }
 
+    /// A row shows what Core resolved for the directory that decides it: a saved pin's own
+    /// directory, otherwise the nearest one with a version file of its own.
+    @Test func rowsShowCoreResolutionOfTheirPinOrNearestQueriedDirectory() async throws {
+        let source = try source()
+        let document = try local(["apps/web": ["compiler": pin("2")]])
+        let files = ToolchainLoaderFiles(contents: [localPath: document],
+                                         existing: [workspace.appendingPathComponent("apps/.fixture-version").path])
+        typealias Resolution = ToolchainSettingsSnapshot.Resolution
+        let root = Resolution(layer: .automatic, outcome: .resolved(home: "/fixture/installed/1", executable:
+            "/fixture/installed/1/bin/fixturec", version: "1", provider: "host:system"))
+        let apps = Resolution(layer: .project, outcome: .skipped(reason: "requestedNotInstalled"), unmet: ["3"])
+        let web = Resolution(layer: .pinned, outcome: .failed(reason: "probeFailed"))
+        let requests = ToolchainDiscoveryRequests()
+        let snapshot = try await loader(files: files, sources: { [source] }, directories: { _ in ["apps", "apps/web"] },
+            discover: { request in
+                requests.record(request)
+                return .init(resolutions: [".": ["compiler": root], "apps": ["compiler": apps],
+                                           "apps/web": ["compiler": web]],
+                             unresolved: ["compiler"])
+            }).load(workspace: workspace)
+        let request = try #require(requests.values.first)
+        #expect(request.directories == [".", "apps"])
+        #expect(request.local == document)
+        #expect(snapshot.tools.map(\.directoryID) == [".", "apps", "apps/web"])
+        #expect(snapshot.tools.map(\.resolution) == [root, apps, web])
+        #expect(snapshot.diagnostics == [L10n.string("Which \("Fixture compiler") to use could not be determined.")])
+    }
+
     @Test func discoveryDoesNotRunWithoutAWorkspaceOrDefinitions() async throws {
         let requests = ToolchainDiscoveryRequests()
         let discover: @Sendable (MacToolchainDiscovery.Request) async -> MacToolchainDiscovery.Result = { request in

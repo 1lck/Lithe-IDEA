@@ -9842,7 +9842,12 @@
     "native.toolchainSettings.providerDidNotAnswer": "{provider} did not answer: {message}",
     "native.toolchainSettings.firstDirectoriesQueried": "Only the first {count} directories were queried.",
     "native.toolchainSettings.queryNotBuilt": "The toolchain query could not be built.",
-    "native.toolchainSettings.replyUnreadable": "The reply could not be read."
+    "native.toolchainSettings.replyUnreadable": "The reply could not be read.",
+    "native.toolchainSettings.resolutionUnavailable": "Which {arg1} to use could not be determined.",
+    "native.toolchainSettings.onlyFirstPinsChecked": "Only the first {count} fixed versions were checked.",
+    "native.toolchainSettings.providerConflict": "Version managers report different versions",
+    "native.toolchainSettings.resolutionUndetermined": "Could not be determined",
+    "native.toolchainSettings.requestedNotInstalled": "Requested {arg1} is not installed"
   },
   "overrides": {
     "windows": {

@@ -33,8 +33,8 @@ enum ToolchainSettingsLoadError: LocalizedError, Equatable {
 }
 
 /// Reads inert declarations, saved pins and filesystem facts. The injected discovery
-/// expands definition scans, queries providers and probes versions Core asks for; this
-/// loader never writes a file or selects a runtime for a launch.
+/// expands definition scans, queries providers, probes versions Core asks for and shows
+/// Core's resolution; this loader never writes a file or selects a runtime for a launch.
 struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
     /// Bounds the existence checks for version files; the tree projection can hold 1,024 directories.
     static let versionFileCheckBudget = 16_384
@@ -212,11 +212,15 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         let candidates = definitions.map { candidate(for: $0, environment: environment, isExecutable: io.isExecutable) }
         let discovered = definitions.isEmpty ? MacToolchainDiscovery.Result()
             : await io.discover(.init(workspace: workspace, sources: enabled, environment: environment,
-                                      directories: ["."] + found.keys.filter { $0 != "." }.sorted(by: treeOrder)))
+                                      directories: ["."] + found.keys.filter { $0 != "." }.sorted(by: treeOrder),
+                                      local: document))
         try Task.checkCancellation()
         diagnostics += discovered.diagnostics
         for definition in definitions where discovered.unchecked.contains(definition.id) {
             diagnostics.append(L10n.string("Installations of \(definition.name) could not be checked."))
+        }
+        for definition in definitions where discovered.unresolved.contains(definition.id) {
+            diagnostics.append(L10n.string("Which \(definition.name) to use could not be determined."))
         }
         var rows: [ToolchainSettingsSnapshot.Tool] = []
         for directory in directories {
@@ -234,12 +238,15 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
                 // A directory without its own version file answers as its nearest queried ancestor.
                 var queried = directory.id
                 while queried != ".", found[queried] == nil { queried = parent(queried) }
+                // A fixed version decides alone, so the directory that saved it was resolved for it.
+                let resolved = saved?.directory ?? queried
                 rows.append(.init(id: definition.id, directoryID: directory.id, displayName: definition.name,
                     pluginID: definition.pluginID, pluginName: definition.pluginName, iconName: definition.icon,
                     pin: saved.map { .init(version: $0.version, home: $0.home, directory: $0.directory) },
                     versionFiles: files, requirements: discovered.requirements[queried]?[definition.id] ?? [],
                     globalRequirements: discovered.globalRequirements[definition.id] ?? [],
-                    candidate: candidate, detection: discovered.detections[definition.id]))
+                    candidate: candidate, detection: discovered.detections[definition.id],
+                    resolution: discovered.resolutions[resolved]?[definition.id]))
             }
         }
         let queried = providers.map { provider in

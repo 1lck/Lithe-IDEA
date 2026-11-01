@@ -5,8 +5,9 @@ import os
 import LitheModuleAPI
 
 /// Expands definition-owned discovery scans and runs declared version probes for the
-/// settings pages. Core plans the scans and checks every home; this adapter only reads
-/// native metadata and runs a probe on an executable Core returned after those checks.
+/// settings pages, then lets Core resolve each directory from those same facts. Core plans
+/// the scans, checks every home and orders the sources; this adapter only reads native
+/// metadata and runs a probe on an executable Core returned after those checks.
 /// Nothing is written: probe outputs stay in a process-local cache keyed by file identity.
 struct MacToolchainDiscovery: Sendable {
     struct Request: Sendable {
@@ -16,8 +17,11 @@ struct MacToolchainDiscovery: Sendable {
         let sources: [ToolchainSettingsPluginSource]
         /// The login-shell environment children receive; only declared variables reach Core.
         let environment: [String: String]
-        /// Directories to ask providers about: the root and those with their own version file.
+        /// Directories to ask providers about and resolve: the root and those with their own
+        /// version file. Directories of fixed versions are resolved from `local` as well.
         var directories: [String] = ["."]
+        /// `.lithe/toolchains/local.json` as read; Core validates it and finds the nearest pin.
+        var local: Data? = nil
     }
 
     /// The identities a workspace `toolchains/query` carries; `nil` when no context is open.
@@ -39,6 +43,10 @@ struct MacToolchainDiscovery: Sendable {
         var providerStates: [String: ToolchainSettingsSnapshot.Provider.QueryState] = [:]
         /// Native inputs providers named; a change revokes the whole snapshot.
         var watch: [String] = []
+        /// Core's `toolchains.resolve` outcome, by resolved directory then tool.
+        var resolutions: [String: [String: ToolchainSettingsSnapshot.Resolution]] = [:]
+        /// Tools whose resolution Core refused in some directory.
+        var unresolved: [String] = []
     }
 
     /// `discoveryPlan` bounds for scan roots and expanded directory entries.
@@ -52,6 +60,9 @@ struct MacToolchainDiscovery: Sendable {
     /// Probes block their thread until the five-second process deadline.
     static let probeWidth = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
     static let probeTimeBudget: Duration = .seconds(20)
+
+    /// Fixed versions checked and resolved; each is one `toolchains.resolve` call.
+    static let pinBudget = 256
 
     /// One provider query, as `queryProvider` replies must be bounded.
     static let queryTimeout: TimeInterval = 15
@@ -98,10 +109,19 @@ struct MacToolchainDiscovery: Sendable {
         let answers = await queryProviders(
             request, registry: registry, tools: tools, root: root, caseSensitive: caseSensitive, into: &result)
         if Task.isCancelled { return result }
+        var pins = Self.pins(request.local)
+        if pins.count > Self.pinBudget {
+            pins = Array(pins.prefix(Self.pinBudget))
+            result.diagnostics.append(L10n.string("Only the first \(Self.pinBudget) fixed versions were checked."))
+        }
         var inputs: [Input] = []
         for tool in tools {
             guard let id = tool["tool"] as? String else { continue }
-            inputs.append(scanner.input(tool: id, plan: tool, reported: answers.filter { $0["tool"] as? String == id }))
+            var homes: [String] = []
+            for pin in pins where pin.tool == id && !homes.contains(pin.home) { homes.append(pin.home) }
+            inputs.append(scanner.input(tool: id, plan: tool,
+                                        reported: answers.installations.filter { $0["tool"] as? String == id },
+                                        pinned: homes))
         }
         result.diagnostics += scanner.diagnostics
 
@@ -116,25 +136,127 @@ struct MacToolchainDiscovery: Sendable {
             }
             checked[input.tool] = value
             targets += Self.probeTargets(value).map { Target(tool: input.tool, executable: $0, arguments: input.arguments) }
+            // Core checks saved homes like scanned ones and names their executables. These rows
+            // only choose what to probe, so a pin never becomes an automatic candidate.
+            if !input.pinned.isEmpty,
+               let saved = candidates(input, registry: registry, root: root, caseSensitive: caseSensitive, probes: [],
+                                      savedOnly: true) {
+                targets += Self.probeTargets(saved).map { Target(tool: input.tool, executable: $0, arguments: input.arguments) }
+            }
         }
+        var distinct: Set<Target> = []
+        targets = targets.filter { distinct.insert($0).inserted }
         if targets.count > Self.probeBudget {
             targets = Array(targets.prefix(Self.probeBudget))
             result.diagnostics.append(L10n.string("Only the first \(Self.probeBudget) installation versions were checked."))
         }
         let (outputs, expired) = await probe(targets)
         if expired { result.diagnostics.append(L10n.string("Some installation versions were not checked in time.")) }
+        var probed: [String: [[String: Any]]] = [:]
         for input in inputs {
             if Task.isCancelled { return result }
             let probes = outputs.filter { $0.key.tool == input.tool }
                 .map { ["executable": $0.key.executable, "output": $0.value, "exitCode": 0] as [String: Any] }
+            probed[input.tool] = probes
             if !probes.isEmpty {
                 checked[input.tool] = candidates(input, registry: registry, root: root, caseSensitive: caseSensitive,
                                                  probes: probes)
-                if checked[input.tool] == nil { result.unchecked.append(input.tool) }
+                if checked[input.tool] == nil, !result.unchecked.contains(input.tool) { result.unchecked.append(input.tool) }
             }
             if let value = checked[input.tool] { result.detections[input.tool] = Self.detection(value, locations: input.locations) }
         }
+        // Every queried directory resolves every tool. A fixed version decides alone, so its
+        // own directory resolves only the tool it fixes and needs no provider round.
+        let queried = Self.queriedDirectories(request)
+        var jobs = queried.flatMap { directory in inputs.map { (directory, $0) } }
+        for pin in pins where !queried.contains(pin.directory) {
+            guard let input = inputs.first(where: { $0.tool == pin.tool }),
+                  !jobs.contains(where: { $0.0 == pin.directory && $0.1.tool == pin.tool })
+            else { continue }
+            jobs.append((pin.directory, input))
+        }
+        let local = request.local.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        for (index, (directory, input)) in jobs.enumerated() {
+            if Task.isCancelled { return result }
+            let round = answers.rounds[directory]
+            let generation = round?.generation ?? Self.nextGeneration()
+            // The queries and the resolver must see one identical snapshot.
+            var facts = FactSet(caseSensitive: caseSensitive)
+            for fact in input.facts { facts.add(fact) }
+            for path in round?.paths ?? [] { facts.add(scanner.fact(path)) }
+            let filesystem = facts.values
+            var payload: [String: Any] = [
+                "registry": registry, "tool": input.tool, "directory": directory,
+                "operationID": "toolchain-settings-\(generation)-\(index)", "generation": generation,
+                "context": round?.context?.json ?? NSNull(), "platform": "macos",
+                "filesystemCaseSensitive": caseSensitive, "workspaceRoot": root, "workspaceRoots": [root],
+                "filesystem": filesystem, "probes": probed[input.tool] ?? [],
+                "queries": (round?.queries ?? []).map { $0.merging(["filesystem": filesystem]) { $1 } },
+                "systemInstallations": input.installations, "environment": input.environment,
+            ]
+            if let local { payload["local"] = local }
+            if let value = core("toolchains.resolve", payload)?["resolution"] as? [String: Any],
+               let resolution = Self.resolution(value) {
+                result.resolutions[directory, default: [:]][input.tool] = resolution
+            } else if !result.unresolved.contains(input.tool) {
+                result.unresolved.append(input.tool)
+            }
+        }
         return result
+    }
+
+    /// Saved pins in a stable order, read only to collect their facts and choose what to
+    /// resolve; Core validates the document and decides which pin applies.
+    private static func pins(_ local: Data?) -> [(directory: String, tool: String, home: String)] {
+        guard let local, let document = try? JSONSerialization.jsonObject(with: local) as? [String: Any],
+              let pins = document["pins"] as? [String: Any]
+        else { return [] }
+        return pins.keys.sorted().flatMap { directory in
+            (pins[directory] as? [String: Any] ?? [:]).keys.sorted().compactMap { tool in
+                guard let home = ((pins[directory] as? [String: Any])?[tool] as? [String: Any])?["home"] as? String,
+                      home.hasPrefix("/")
+                else { return nil }
+                return (directory, tool, home)
+            }
+        }
+    }
+
+    /// Reads Core's outcome; the layer that failed terminally is the one its trace names.
+    private static func resolution(_ value: [String: Any]) -> ToolchainSettingsSnapshot.Resolution? {
+        typealias Resolution = ToolchainSettingsSnapshot.Resolution
+        guard let outcome = value["outcome"] as? [String: Any] else { return nil }
+        let reason = (outcome["reason"] as? [String: Any])?["code"] as? String ?? ""
+        var resolution: Resolution
+        switch outcome["kind"] as? String {
+        case "resolved":
+            guard let selection = outcome["selection"] as? [String: Any],
+                  let executable = selection["executable"] as? String, let provider = selection["provider"] as? String
+            else { return nil }
+            resolution = .init(layer: (selection["layer"] as? String).flatMap(Resolution.Layer.init(rawValue:)),
+                               outcome: .resolved(home: selection["home"] as? String, executable: executable,
+                                                  version: selection["version"] as? String, provider: provider))
+        case "terminalFailure":
+            let failed = (value["trace"] as? [[String: Any]] ?? []).last { $0["state"] as? String == "terminalFailure" }
+            resolution = .init(layer: (failed?["layer"] as? String).flatMap(Resolution.Layer.init(rawValue:)),
+                               outcome: .failed(reason: reason))
+        case "skip":
+            resolution = .init(layer: nil, outcome: .skipped(reason: reason))
+        default:
+            return nil
+        }
+        for row in value["unmet"] as? [[String: Any]] ?? [] {
+            guard row["code"] as? String == "requestedNotInstalled", let request = row["request"] as? String,
+                  !resolution.unmet.contains(request)
+            else { continue }
+            resolution.unmet.append(request)
+        }
+        for row in value["conflicts"] as? [[String: Any]] ?? [] {
+            guard let layer = (row["scope"] as? String).flatMap(Resolution.Layer.init(rawValue:)),
+                  !resolution.conflicts.contains(layer)
+            else { continue }
+            resolution.conflicts.append(layer)
+        }
+        return resolution
     }
 
     /// Native evidence for one tool: its scanned homes, the declared login-shell variables
@@ -145,6 +267,8 @@ struct MacToolchainDiscovery: Sendable {
         let installations: [[String: Any]]
         /// Homes `toolchains.decodeReply` accepted, with their qualified provider.
         let reported: [[String: Any]]
+        /// Saved homes, `{tool, home}`; checked only to probe them, never listed as installations.
+        let pinned: [[String: Any]]
         let environment: [String: String]
         let facts: [[String: Any]]
         /// Canonical scanned entry by the canonical home Core reports, for homes below their entry.
@@ -157,13 +281,17 @@ struct MacToolchainDiscovery: Sendable {
         let arguments: [String]
     }
 
+    /// `savedOnly` checks the saved homes alone, without the shell or other installations.
     private func candidates(
-        _ input: Input, registry: [String: Any], root: String, caseSensitive: Bool, probes: [[String: Any]]
+        _ input: Input, registry: [String: Any], root: String, caseSensitive: Bool, probes: [[String: Any]],
+        savedOnly: Bool = false
     ) -> [String: Any]? {
         let payload: [String: Any] = [
             "registry": registry, "tool": input.tool, "platform": "macos", "filesystemCaseSensitive": caseSensitive,
-            "workspaceRoot": root, "filesystem": input.facts, "systemInstallations": input.installations,
-            "providerInstallations": input.reported, "environment": input.environment, "probes": probes
+            "workspaceRoot": root, "filesystem": input.facts,
+            "systemInstallations": savedOnly ? input.pinned : input.installations,
+            "providerInstallations": savedOnly ? [] : input.reported,
+            "environment": savedOnly ? [:] : input.environment, "probes": probes
         ]
         return core("toolchains.candidates", payload)?["candidates"] as? [String: Any]
     }
@@ -247,7 +375,7 @@ struct MacToolchainDiscovery: Sendable {
             self.caseSensitive = caseSensitive
         }
 
-        mutating func input(tool: String, plan: [String: Any], reported: [[String: Any]]) -> Input {
+        mutating func input(tool: String, plan: [String: Any], reported: [[String: Any]], pinned: [String] = []) -> Input {
             var facts = FactSet(caseSensitive: caseSensitive)
             facts.add(fact(workspace))
             let layouts = (plan["executableLayouts"] as? [[String: Any]] ?? []).filter(MacToolchainDiscovery.applies)
@@ -281,7 +409,7 @@ struct MacToolchainDiscovery: Sendable {
                 variables[variable] = value
             }
             let reportedHomes = reported.compactMap { $0["home"] as? String }
-            for home in homes + reportedHomes + variables.values.map(Self.normalized) {
+            for home in homes + reportedHomes + pinned.map(Self.normalized) + variables.values.map(Self.normalized) {
                 let found = fact(home)
                 facts.add(found)
                 let canonical = found["kind"] as? String == "directory" ? found["canonicalPath"] as? String : nil
@@ -300,6 +428,7 @@ struct MacToolchainDiscovery: Sendable {
             return Input(tool: tool, arguments: version?["arguments"] as? [String] ?? [],
                          installations: homes.map { ["tool": tool, "home": $0] },
                          reported: reported.map { ["tool": tool, "home": $0["home"] ?? "", "provider": $0["provider"] ?? ""] },
+                         pinned: pinned.map { ["tool": tool, "home": $0] },
                          environment: variables,
                          facts: facts.values, locations: locations)
         }
@@ -360,7 +489,8 @@ struct MacToolchainDiscovery: Sendable {
         }
 
         /// Metadata of the object a path resolves to, as `execve` and Core's canonical form see it.
-        private mutating func fact(_ path: String) -> [String: Any] {
+        /// Each path is read once, so every snapshot built from this scanner agrees.
+        mutating func fact(_ path: String) -> [String: Any] {
             if let fact = known[path] { return fact }
             let fact = MacToolchainDiscovery.fact(of: path)
             known[path] = fact

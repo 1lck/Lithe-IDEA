@@ -988,6 +988,7 @@
 "Copy session ID" = "Copy session ID";
 "Copy table" = "Copy table";
 "Copy worktree path" = "Copy worktree path";
+"Could not be determined" = "Could not be determined";
 "Could not check for updates" = "Could not check for updates";
 "Could not check for updates." = "Could not check for updates.";
 "Could not clear this project's local history. Check storage permissions and try again." = "Could not clear this project's local history. Check storage permissions and try again.";
@@ -2645,6 +2646,7 @@
 "Only the first %lld directories were queried." = "Only the first %lld directories were queried.";
 "Only the first %lld discovered entries were checked." = "Only the first %lld discovered entries were checked.";
 "Only the first %lld discovery locations were scanned." = "Only the first %lld discovery locations were scanned.";
+"Only the first %lld fixed versions were checked." = "Only the first %lld fixed versions were checked.";
 "Only the first %lld installation versions were checked." = "Only the first %lld installation versions were checked.";
 "Only the first %lld installations of a tool were checked." = "Only the first %lld installations of a tool were checked.";
 "Only the most recent archived conversations are shown." = "Only the most recent archived conversations are shown.";
@@ -3212,6 +3214,7 @@
 "Repository needs attention" = "Repository needs attention";
 "Request" = "Request";
 "Request changes" = "Request changes";
+"Requested %@ is not installed" = "Requested %@ is not installed";
 "Requested by the plugin “%@”." = "Requested by the plugin “%@”.";
 "Required fields are marked with *" = "Required fields are marked with *";
 "Required plugin %@ cannot be disabled." = "Required plugin %@ cannot be disabled.";
@@ -4646,6 +4649,7 @@
 "Version files were checked in the first %lld directories only." = "Version files were checked in the first %lld directories only.";
 "Version managers" = "Version managers";
 "Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you." = "Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you.";
+"Version managers report different versions" = "Version managers report different versions";
 "Version not queried" = "Version not queried";
 "Version not verified" = "Version not verified";
 "Version status" = "Version status";
@@ -4709,6 +4713,7 @@
 "Where should this apply?" = "Where should this apply?";
 "Where the rows below that are backed by Git configuration are written." = "Where the rows below that are backed by Git configuration are written.";
 "Where would you like to open the project ‘%@’?" = "Where would you like to open the project ‘%@’?";
+"Which %@ to use could not be determined." = "Which %@ to use could not be determined.";
 "Whitespace comparison" = "Whitespace comparison";
 "Whole Words" = "Whole Words";
 "Wildcard" = "Wildcard";
@@ -9224,6 +9229,7 @@
 "native.toolchainSettings.onlyFirstEntriesChecked" = "Only the first %1$lld discovered entries were checked.";
 "native.toolchainSettings.onlyFirstInstallationsChecked" = "Only the first %1$lld installations of a tool were checked.";
 "native.toolchainSettings.onlyFirstLocationsScanned" = "Only the first %1$lld discovery locations were scanned.";
+"native.toolchainSettings.onlyFirstPinsChecked" = "Only the first %1$lld fixed versions were checked.";
 "native.toolchainSettings.onlyFirstVersionsChecked" = "Only the first %1$lld installation versions were checked.";
 "native.toolchainSettings.openAProjectAndEnableAPluginThatDefinesToolsToInspectItsEnvironment" = "Open a project and enable a plugin that defines tools to inspect its environment.";
 "native.toolchainSettings.openPlugins" = "Open Plugins";
@@ -9233,6 +9239,7 @@
 "native.toolchainSettings.projectRequirements" = "Project requirements";
 "native.toolchainSettings.projectRootDirectory" = "Project root directory";
 "native.toolchainSettings.projectStepInfo" = "Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them.";
+"native.toolchainSettings.providerConflict" = "Version managers report different versions";
 "native.toolchainSettings.providerDidNotAnswer" = "%1$@ did not answer: %2$@";
 "native.toolchainSettings.query" = "Query";
 "native.toolchainSettings.queryMilliseconds" = "%1$lld ms";
@@ -9243,6 +9250,9 @@
 "native.toolchainSettings.remoteUnavailable" = "Toolchain settings are not available for remote workspaces yet.";
 "native.toolchainSettings.replyUnreadable" = "The reply could not be read.";
 "native.toolchainSettings.reportsInstalledVersionsOnly" = "Reports installed versions only";
+"native.toolchainSettings.requestedNotInstalled" = "Requested %1$@ is not installed";
+"native.toolchainSettings.resolutionUnavailable" = "Which %1$@ to use could not be determined.";
+"native.toolchainSettings.resolutionUndetermined" = "Could not be determined";
 "native.toolchainSettings.runtimeEnvironment" = "Runtime Environment";
 "native.toolchainSettings.runtimeEnvironmentIsolatedPreview" = "Runtime Environment — Isolated Preview";
 "native.toolchainSettings.sameVersionConflict" = "Several installations have the same version";

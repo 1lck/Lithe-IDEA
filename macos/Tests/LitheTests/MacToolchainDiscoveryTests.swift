@@ -106,9 +106,15 @@ struct MacToolchainDiscoveryTests {
         #expect(probes.calls.isEmpty)
     }
 
-    /// The definition plugin as its own provider, as a version-manager plugin declares one.
+    /// The definition plugin as its own provider, as a version-manager plugin declares one. Its
+    /// definition gains the project and global layers, where provider statements decide.
     private static func providerSource() throws -> ToolchainSettingsPluginSource {
         var manifest = try #require(try JSONSerialization.jsonObject(with: manifest()) as? [String: Any])
+        var definitions = try #require(manifest["toolDefinitions"] as? [[String: Any]])
+        let executables = try #require(definitions.first?["executables"] as? [[String: Any]])
+        definitions[0]["executables"] = [["id": "project", "kind": "toolchain", "scope": "project"],
+                                         ["id": "global", "kind": "toolchain", "scope": "global"]] + executables
+        manifest["toolDefinitions"] = definitions
         manifest["requires"] = ["toolDefinitions": 1, "executableResolution": 2, "toolchainProviders": 1,
                                 "backend": 2, "serverProcess": 1]
         manifest["permissions"] = ["backend.launch", "toolchains.provide"]
@@ -163,13 +169,78 @@ struct MacToolchainDiscoveryTests {
             Issue.record("the provider should have answered")
             return
         }
-        // A global query, then one per directory, each with its own operation and generation.
+        // Core resolves the same replies: the project requirement decides, not the page.
+        #expect(result.unresolved.isEmpty)
+        #expect(result.resolutions["."]?["compiler"] == .init(layer: .project, outcome: .resolved(
+            home: installed, executable: installed + "/bin/compiler", version: "21.0.1", provider: provider)))
+        // A global query, then one round per directory. Every provider in a round shares its
+        // generation, and every request has its own operation.
         let sent = queries.sent
         #expect(sent.count == 2)
         #expect(sent.first?["workspace"] is NSNull && sent.first?["context"] is NSNull)
         let workspace = try #require(sent.last?["workspace"] as? [String: Any])
         #expect(workspace["rootID"] as? String == "root-1" && workspace["directory"] as? String == ".")
         #expect(Set(sent.compactMap { $0["operationID"] as? String }).count == 2)
+        #expect(Set(sent.compactMap { $0["generation"] as? Int }).count == 2)
+    }
+
+    /// A requirement nothing installs is reported and the next layer decides.
+    @Test func anUninstalledRequirementIsUnmetAndTheNextLayerDecides() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let installed = try root.installation("manager/installs/compiler/21.0.1")
+        let versionFile = root.path + "/workspace/.compiler-version"
+        try Data("22\n".utf8).write(to: URL(fileURLWithPath: versionFile))
+        let queries = ProviderQueries { params in
+            let project = params["workspace"] is [String: Any]
+            return ["installations": [["tool": "compiler", "version": "21.0.1", "home": installed]],
+                    "statements": project ? [["tool": "compiler", "scope": "project", "source": versionFile,
+                                              "request": "22", "installation": NSNull(), "kind": "declaration",
+                                              "reader": "native"]] : [],
+                    "watch": []]
+        }
+        let probes = DiscoveryProbes(outputs: [installed + "/bin/compiler": "compiler 21.0.1"])
+        var discovery = discovery(root: root, probes: probes)
+        discovery.queryProvider = { plugin, provider, params, _ in try queries.answer(pluginID: plugin, providerID: provider, params: params) }
+        discovery.workspaceContext = { _, _ in .init(contextID: "context-1", generation: 3, rootID: "root-1") }
+        let result = await discovery.discover(.init(
+            workspace: root.url("workspace"), sources: [try Self.providerSource()], environment: [:]))
+
+        let provider = Self.pluginID + ":kits"
+        #expect(result.requirements["."]?["compiler"] == [.init(request: "22", source: versionFile, providerID: provider)])
+        #expect(result.resolutions["."]?["compiler"] == .init(layer: .automatic, outcome: .resolved(
+            home: installed, executable: installed + "/bin/compiler", version: "21.0.1", provider: provider),
+            unmet: ["22"]))
+    }
+
+    /// A saved pin decides alone in its directory, even one no provider was asked about. Its home
+    /// is checked and probed like a scanned one, yet never listed as an installation.
+    @Test func pinsDecideTheirDirectoryAndAnUnusableOneFails() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let pinned = try root.installation("pinned/compiler-17")
+        try FileManager.default.createDirectory(at: root.url("workspace/apps"), withIntermediateDirectories: true)
+        let missing = root.path + "/pinned/removed"
+        let local: [String: Any] = ["version": 1, "toolchains": [:], "pins": [
+            ".": ["compiler": ["home": pinned, "version": "17.0.2", "provider": "host:manual"]],
+            "apps": ["compiler": ["home": missing, "version": "18", "provider": "host:manual"]]
+        ]]
+        let probes = DiscoveryProbes(outputs: [pinned + "/bin/compiler": "compiler 17.0.2"])
+        let result = await discovery(root: root, probes: probes).discover(.init(
+            workspace: root.url("workspace"), sources: [Self.source()], environment: [:],
+            local: try JSONSerialization.data(withJSONObject: local)))
+
+        #expect(result.unresolved.isEmpty)
+        #expect(result.detections["compiler"]?.installations.isEmpty == true)
+        #expect(probes.calls.map(\.executable) == [pinned + "/bin/compiler"])
+        #expect(result.resolutions["."]?["compiler"] == .init(layer: .pinned, outcome: .resolved(
+            home: pinned, executable: pinned + "/bin/compiler", version: "17.0.2", provider: "host:manual")))
+        let failed = try #require(result.resolutions["apps"]?["compiler"])
+        #expect(failed.layer == .pinned)
+        guard case .failed = failed.outcome else {
+            Issue.record("an unusable pin must fail instead of falling through: \(failed.outcome)")
+            return
+        }
     }
 
     /// A refused reply names the failure and contributes nothing, not even its valid parts.

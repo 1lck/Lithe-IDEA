@@ -234,8 +234,8 @@ struct ToolchainEnvironmentSettingsView: View {
     }
 }
 
-/// One tool in the selected directory: the first source with a value on one line,
-/// all four sources and the definition when expanded.
+/// One tool in the selected directory: Core's resolution on one line, all four sources
+/// and the definition when expanded.
 private struct ToolchainToolRow: View {
     let tool: ToolchainSettingsSnapshot.Tool
     /// Providers that declare this tool.
@@ -313,71 +313,94 @@ private struct ToolchainToolRow: View {
         .accessibilityValue(isExpanded ? Text("Expanded") : Text("Collapsed"))
     }
 
-    /// The highest-priority fact, in the order the steps below list them.
+    /// What Core resolves this directory to, or why nothing is used. Core orders the sources;
+    /// this row only reads its outcome.
     @ViewBuilder private var summary: some View {
-        if let pin = tool.pin {
+        switch tool.resolution?.outcome {
+        case .resolved(let home, let executable, let version, _):
             HStack(spacing: 6) {
-                LitheSettingsPill(verbatim: pin.version, kind: .value)
-                monospaced(ToolchainSettingsText.abbreviated(pin.home), size: 11, color: LitheTheme.tertiaryText)
+                if let version { LitheSettingsPill(verbatim: version, kind: .value) }
+                monospaced(ToolchainSettingsText.abbreviated(home ?? executable), size: 11, color: LitheTheme.tertiaryText)
             }
-        } else if let file = tool.versionFiles.first {
-            // "Version not queried" stays in the expanded step, so a narrow row only truncates the path.
-            monospaced(file.path, size: 11.5, color: LitheTheme.primaryText)
-        } else if let shell = verifiedShell, let version = shell.version {
-            versioned(version, home: shell.home)
-        } else if let selected = selectedInstallation {
-            versioned(selected.version, home: selected.home)
-        } else if let candidate = tool.candidate {
-            monospaced(ToolchainSettingsText.abbreviated(candidate.executable), size: 11.5, color: LitheTheme.secondaryText)
-        } else if detection?.conflict == true {
-            Text("Several installations have the same version")
-                .font(LitheTheme.uiFont(size: 12))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .lineLimit(1)
-        } else {
-            Text("Not found")
-                .font(LitheTheme.uiFont(size: 12))
-                .foregroundStyle(LitheTheme.tertiaryText)
+        case .failed(let reason):
+            note(verbatim: ToolchainSettingsText.skipReason(reason), color: LitheTheme.settingsEffectPillText)
+        case .skipped:
+            if let conflict = tool.resolution?.conflicts.first {
+                note(verbatim: ToolchainSettingsText.conflict(conflict), color: LitheTheme.settingsEffectPillText)
+            } else if let request = tool.resolution?.unmet.first {
+                note(verbatim: L10n.string("Requested \(request) is not installed"), color: LitheTheme.secondaryText)
+            } else if let candidate = tool.candidate {
+                // Core does not run a command found on `PATH`, so it is shown without a version.
+                monospaced(ToolchainSettingsText.abbreviated(candidate.executable), size: 11.5, color: LitheTheme.secondaryText)
+            } else {
+                note(verbatim: L10n.string("Not found"), color: LitheTheme.tertiaryText)
+            }
+        case nil:
+            note(verbatim: L10n.string("Could not be determined"), color: LitheTheme.tertiaryText)
         }
     }
 
     @ViewBuilder private var badge: some View {
-        if let pin = tool.pin {
-            if pin.directory == tool.directoryID {
+        switch tool.resolution?.layer {
+        case .pinned:
+            if (tool.pin?.directory ?? tool.directoryID) == tool.directoryID {
                 LitheSettingsPill("Fixed", kind: .project)
             } else {
                 LitheSettingsPill("Fixed in parent")
             }
-        } else if !tool.versionFiles.isEmpty {
+        case .project:
             LitheSettingsPill("Version file", kind: .project)
-        } else if let shell = verifiedShell {
-            LitheSettingsPill(verbatim: ToolchainSettingsText.variable(shell.variable))
-        } else if selectedInstallation != nil {
+        case .global:
+            if let source = globalSource {
+                LitheSettingsPill(verbatim: source)
+            } else {
+                LitheSettingsPill("Global defaults")
+            }
+        case .automatic:
             LitheSettingsPill("Discovered")
-        } else if tool.candidate != nil {
-            LitheSettingsPill(verbatim: "PATH")
+        case nil:
+            if tool.candidate != nil, case .skipped? = tool.resolution?.outcome {
+                LitheSettingsPill(verbatim: "PATH")
+            }
         }
     }
 
     private var detection: ToolchainSettingsSnapshot.Detection? { tool.detection }
 
-    /// A login-shell home whose version Core established; it outranks discovered installations.
-    private var verifiedShell: ToolchainSettingsSnapshot.Detection.Shell? {
-        detection?.shell.first { $0.version != nil }
+    /// The global source Core selected: the home variable that names it, or the version manager.
+    private var globalSource: String? {
+        guard case .resolved(let home, _, _, let provider)? = tool.resolution?.outcome else { return nil }
+        if let title = providers.first(where: { $0.id == provider })?.title { return title }
+        let shell = detection?.shell.first { $0.home == home } ?? detection?.shell.first { $0.version != nil }
+        return shell.map { ToolchainSettingsText.variable($0.variable) }
     }
 
-    private var selectedInstallation: ToolchainSettingsSnapshot.Detection.Installation? {
-        detection.flatMap { detection in detection.installations.first { $0.home == detection.selected } }
-    }
-
-    /// An unverified `PATH` match is shown last: without a version it cannot outrank an installation.
+    /// The step Core's resolution decided in; nothing is outlined when no source has a value.
     private var firstMatch: Int? {
-        if tool.pin != nil { return 1 }
-        if !tool.versionFiles.isEmpty { return 2 }
-        if verifiedShell != nil { return 3 }
-        if selectedInstallation != nil { return 4 }
-        if tool.candidate != nil { return 3 }
-        return nil
+        switch tool.resolution?.layer {
+        case .pinned: 1
+        case .project: 2
+        case .global: 3
+        case .automatic: 4
+        case nil: nil
+        }
+    }
+
+    private func note(verbatim text: String, color: Color) -> some View {
+        Text(verbatim: text)
+            .font(LitheTheme.uiFont(size: 12))
+            .foregroundStyle(color)
+            .lineLimit(1)
+    }
+
+    /// A conflict Core reported for one layer: the outcome needs an explicit choice there.
+    @ViewBuilder
+    private func conflictNote(_ layer: ToolchainSettingsSnapshot.Resolution.Layer) -> some View {
+        if tool.resolution?.conflicts.contains(layer) == true {
+            Text(verbatim: ToolchainSettingsText.conflict(layer))
+                .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.settingsEffectPillText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var pinnedStep: some View {
@@ -394,7 +417,15 @@ private struct ToolchainToolRow: View {
                     Text("From \(ToolchainSettingsText.directory(pin.directory))")
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
-                Text("Saved, not verified").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                switch (tool.resolution?.layer, tool.resolution?.outcome) {
+                case (.pinned?, .resolved?):
+                    EmptyView()
+                case (.pinned?, .failed(let reason)?):
+                    Text(verbatim: ToolchainSettingsText.skipReason(reason))
+                        .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.settingsEffectPillText)
+                default:
+                    Text("Saved, not verified").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                }
             } else {
                 Text("None").foregroundStyle(LitheTheme.tertiaryText)
             }
@@ -425,6 +456,7 @@ private struct ToolchainToolRow: View {
                 }
             }
             requirementRows(tool.requirements)
+            conflictNote(.project)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("toolchain-step:" + tool.id + ":project")
@@ -460,6 +492,7 @@ private struct ToolchainToolRow: View {
             isFirstMatch: firstMatch == 3, hasFact: !shell.isEmpty || tool.candidate != nil || !tool.globalRequirements.isEmpty
         ) {
             requirementRows(tool.globalRequirements)
+            conflictNote(.global)
             ForEach(shell, id: \.variable) { row in
                 // A long variable name leaves no room for the version beside it in a narrow card.
                 ViewThatFits(in: .horizontal) {
@@ -557,13 +590,6 @@ private struct ToolchainToolRow: View {
             .textSelection(.enabled)
     }
 
-    private func versioned(_ version: String, home: String) -> some View {
-        HStack(spacing: 6) {
-            LitheSettingsPill(verbatim: version, kind: .value)
-            monospaced(ToolchainSettingsText.abbreviated(home), size: 11, color: LitheTheme.tertiaryText)
-        }
-    }
-
     /// Step cards are narrow, so they cut from the front to keep the file or executable name.
     private func monospaced(_ text: String, size: CGFloat, color: Color, truncation: Text.TruncationMode = .middle,
                             help: String? = nil) -> some View {
@@ -577,8 +603,8 @@ private struct ToolchainToolRow: View {
     }
 }
 
-/// One source in the order a tool is resolved. The first source with a value is outlined;
-/// sources without one are dimmed rather than hidden, so the order stays readable.
+/// One source in the order a tool is resolved. The source Core resolved from is outlined;
+/// sources without a value are dimmed rather than hidden, so the order stays readable.
 private struct ToolchainResolutionStep<Content: View>: View {
     let number: Int
     let title: LocalizedStringKey
@@ -843,9 +869,19 @@ enum ToolchainSettingsText {
         switch code {
         case "probeFailed": L10n.string("Version check failed")
         case "versionUnsatisfied": L10n.string("Version too old")
-        case "unsafePath": L10n.string("Not a valid installation")
+        case "unsafePath", "notExecutable": L10n.string("Not a valid installation")
+        case "requestedNotInstalled": L10n.string("Not installed")
+        case "providerConflict": L10n.string("Version managers report different versions")
+        case "ambiguousInstallation": L10n.string("Several installations have the same version")
+        case "notFound": L10n.string("Not found")
         default: L10n.string("Not usable")
         }
+    }
+
+    /// A layer whose sources disagree, as Core reports it.
+    static func conflict(_ layer: ToolchainSettingsSnapshot.Resolution.Layer) -> String {
+        layer == .automatic ? L10n.string("Several installations have the same version")
+            : L10n.string("Version managers report different versions")
     }
 }
 

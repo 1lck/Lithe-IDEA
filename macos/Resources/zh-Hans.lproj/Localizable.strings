@@ -988,6 +988,7 @@
 "Copy session ID" = "复制会话 ID";
 "Copy table" = "复制表格";
 "Copy worktree path" = "复制工作树路径";
+"Could not be determined" = "无法确定";
 "Could not check for updates" = "无法检查更新";
 "Could not check for updates." = "无法检查更新。";
 "Could not clear this project's local history. Check storage permissions and try again." = "无法清空此项目的本地历史。请检查存储目录权限后重试。";
@@ -2645,6 +2646,7 @@
 "Only the first %lld directories were queried." = "只查询了前 %lld 个目录。";
 "Only the first %lld discovered entries were checked." = "只检查了前 %lld 个发现的条目。";
 "Only the first %lld discovery locations were scanned." = "只扫描了前 %lld 个检测位置。";
+"Only the first %lld fixed versions were checked." = "只检查了前 %lld 个固定版本。";
 "Only the first %lld installation versions were checked." = "只检查了前 %lld 个安装的版本。";
 "Only the first %lld installations of a tool were checked." = "每个工具只检查了前 %lld 个安装。";
 "Only the most recent archived conversations are shown." = "仅显示最近的归档会话。";
@@ -3212,6 +3214,7 @@
 "Repository needs attention" = "仓库需要处理";
 "Request" = "请求";
 "Request changes" = "请求修改";
+"Requested %@ is not installed" = "请求的 %@ 未安装";
 "Requested by the plugin “%@”." = "由插件“%@”请求。";
 "Required fields are marked with *" = "带 * 的字段为必填项";
 "Required plugin %@ cannot be disabled." = "必需的插件 %@ 不能被停用。";
@@ -4646,6 +4649,7 @@
 "Version files were checked in the first %lld directories only." = "只在前 %lld 个目录中检查了版本文件。";
 "Version managers" = "版本管理器";
 "Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you." = "版本管理器来自已启用的插件。Lithe 会询问它们已安装的版本和此项目的要求；它们不会替你安装或信任任何内容。";
+"Version managers report different versions" = "版本管理器给出的版本不一致";
 "Version not queried" = "版本未查询";
 "Version not verified" = "版本未验证";
 "Version status" = "版本状态";
@@ -4709,6 +4713,7 @@
 "Where should this apply?" = "应用范围";
 "Where the rows below that are backed by Git configuration are written." = "下方由 Git 配置支持的选项写入的位置。";
 "Where would you like to open the project ‘%@’?" = "你想在哪里打开项目“%@”？";
+"Which %@ to use could not be determined." = "无法确定要使用哪个 %@。";
 "Whitespace comparison" = "空白字符比较";
 "Whole Words" = "全字匹配";
 "Wildcard" = "通配符";
@@ -9224,6 +9229,7 @@
 "native.toolchainSettings.onlyFirstEntriesChecked" = "只检查了前 %1$lld 个发现的条目。";
 "native.toolchainSettings.onlyFirstInstallationsChecked" = "每个工具只检查了前 %1$lld 个安装。";
 "native.toolchainSettings.onlyFirstLocationsScanned" = "只扫描了前 %1$lld 个检测位置。";
+"native.toolchainSettings.onlyFirstPinsChecked" = "只检查了前 %1$lld 个固定版本。";
 "native.toolchainSettings.onlyFirstVersionsChecked" = "只检查了前 %1$lld 个安装的版本。";
 "native.toolchainSettings.openAProjectAndEnableAPluginThatDefinesToolsToInspectItsEnvironment" = "打开项目并启用定义工具的插件，即可查看环境。";
 "native.toolchainSettings.openPlugins" = "打开插件页";
@@ -9233,6 +9239,7 @@
 "native.toolchainSettings.projectRequirements" = "项目要求";
 "native.toolchainSettings.projectRootDirectory" = "项目根目录";
 "native.toolchainSettings.projectStepInfo" = "此目录或上级目录中、由该工具的版本管理器监视的版本文件，以及版本管理器报告的版本。";
+"native.toolchainSettings.providerConflict" = "版本管理器给出的版本不一致";
 "native.toolchainSettings.providerDidNotAnswer" = "%1$@ 未回答：%2$@";
 "native.toolchainSettings.query" = "查询";
 "native.toolchainSettings.queryMilliseconds" = "%1$lld 毫秒";
@@ -9243,6 +9250,9 @@
 "native.toolchainSettings.remoteUnavailable" = "远程工作区暂不支持工具链设置。";
 "native.toolchainSettings.replyUnreadable" = "无法读取答复。";
 "native.toolchainSettings.reportsInstalledVersionsOnly" = "只报告已安装的版本";
+"native.toolchainSettings.requestedNotInstalled" = "请求的 %1$@ 未安装";
+"native.toolchainSettings.resolutionUnavailable" = "无法确定要使用哪个 %1$@。";
+"native.toolchainSettings.resolutionUndetermined" = "无法确定";
 "native.toolchainSettings.runtimeEnvironment" = "运行环境";
 "native.toolchainSettings.runtimeEnvironmentIsolatedPreview" = "运行环境 — 隔离预览";
 "native.toolchainSettings.sameVersionConflict" = "多个安装的版本相同";
