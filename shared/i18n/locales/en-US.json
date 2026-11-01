@@ -9751,7 +9751,8 @@
     "agent.history.allProviders": "All providers",
     "agent.history.unknownProvider": "Unknown provider",
     "agent.history.providerHint": "Try another search or provider filter.",
-    "markdown.plantumlRenderFailed": "PlantUML could not render this diagram. Showing its source instead."
+    "markdown.plantumlRenderFailed": "PlantUML could not render this diagram. Showing its source instead.",
+    "lsp.projectJdkInvalid": "The project JDK is invalid or its version could not be read. Check JDK Home in Project settings."
   },
   "overrides": {
     "windows": {

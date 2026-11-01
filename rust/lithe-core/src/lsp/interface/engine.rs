@@ -196,6 +196,9 @@ pub struct JdtlsLaunchResources {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 /// A JDK installation the platform discovered for the Java language service.
 pub struct JavaRuntimeCandidate {
+    /// The platform-selected project JDK, independent of the server JVM.
+    #[serde(default)]
+    pub is_default: bool,
     /// JDK home directory.
     pub home_path: String,
     /// Version reported by `java -version`, such as `25.0.4` or `1.8.0_402`.

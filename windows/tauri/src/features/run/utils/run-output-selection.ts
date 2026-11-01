@@ -8,6 +8,7 @@ export function selectRunOutput(
     configurationId: string | null;
     output: string;
     isRunning: boolean;
+    isPreparing?: boolean;
     exitCode: number | null;
   },
 ) {
@@ -19,6 +20,7 @@ export function selectRunOutput(
     hasOutputOwner: Boolean(session) || ownsPrimary,
     output: session ? session.output : ownsPrimary ? primary.output : "",
     isRunning: session ? session.isRunning : ownsPrimary && primary.isRunning,
+    isPreparing: session ? Boolean(session.isPreparing) : ownsPrimary && Boolean(primary.isPreparing),
     exitCode: session ? session.exitCode : ownsPrimary ? primary.exitCode : null,
   };
 }

@@ -602,8 +602,10 @@ pub(crate) fn search_everywhere_with_page(
     );
     // Publish names before content parsing or symbol extraction starts.
     // Zero source caps are execution boundaries, not just post-scan truncation.
-    let shared_index = if symbol_limit > 0 || content_limit > 0 {
+    let shared_index = if symbol_limit > 0 {
         Some(search_index::get_or_build(&root, &rules)?)
+    } else if content_limit > 0 {
+        Some(search_index::get_for_text(&root, &rules)?)
     } else {
         None
     };

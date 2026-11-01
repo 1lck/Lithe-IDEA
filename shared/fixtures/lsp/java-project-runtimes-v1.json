@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "selected-custom-major-wins",
+      "candidates": [
+        {
+          "homePath": "/bundled/jdk21",
+          "version": "21"
+        },
+        {
+          "homePath": "/jdks/jdk25",
+          "version": "25"
+        },
+        {
+          "homePath": "/custom/jdk25",
+          "version": "25.0.1",
+          "isDefault": true
+        },
+        {
+          "homePath": "/jdks/jdk17",
+          "version": "17",
+          "isDefault": true
+        }
+      ],
+      "expected": [
+        {
+          "name": "JavaSE-17",
+          "path": "/jdks/jdk17"
+        },
+        {
+          "name": "JavaSE-21",
+          "path": "/bundled/jdk21"
+        },
+        {
+          "name": "JavaSE-25",
+          "path": "/custom/jdk25",
+          "default": true
+        }
+      ]
+    },
+    {
+      "name": "legacy-without-default",
+      "candidates": [
+        {
+          "homePath": "/jdks/jdk21",
+          "version": "21"
+        }
+      ],
+      "expected": [
+        {
+          "name": "JavaSE-21",
+          "path": "/jdks/jdk21"
+        }
+      ]
+    },
+    {
+      "name": "invalid-default-is-ignored",
+      "candidates": [
+        {
+          "homePath": "",
+          "version": "25",
+          "isDefault": true
+        },
+        {
+          "homePath": "/jdks/jdk21",
+          "version": "21"
+        }
+      ],
+      "expected": [
+        {
+          "name": "JavaSE-21",
+          "path": "/jdks/jdk21"
+        }
+      ]
+    }
+  ]
+}

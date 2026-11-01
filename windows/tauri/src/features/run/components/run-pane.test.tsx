@@ -170,3 +170,19 @@ test("toolbar stops the visible service slot when another service takes store fo
   expect(store.getState().primaryRunning).toBe(true);
   expect(store.getState().sessions.map((session) => session.isRunning)).toEqual([false, true]);
 });
+
+test("toolbar cancels the visible preparing application without stopping a background service", async () => {
+  store.setState({
+    primaryRunning: false,
+    selectedSessionId: "slot-B",
+    sessions: [
+      { ...service("A"), isRunning: false, isPreparing: true, executionId: "preparing-A" },
+      service("B"),
+    ],
+  });
+  render();
+  await stopVisibleOutput();
+  expect(stopped).toEqual(["slot-A"]);
+  expect(store.getState().sessions[0].isPreparing).toBe(false);
+  expect(store.getState().sessions[1].isRunning).toBe(true);
+});

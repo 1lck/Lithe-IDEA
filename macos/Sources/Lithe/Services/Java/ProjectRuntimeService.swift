@@ -222,6 +222,20 @@ final class ProjectRuntimeService: ObservableObject {
         return runtimes
     }
 
+    /// Reuses the launch selection, including explicit JDKs outside discovery roots.
+    func javaLanguageServiceRuntimes() -> [JavaLanguageServiceRuntime] {
+        var runtimes = javaRuntimesForLaunch()
+        let selected = javaHomeURL()
+        if let selected, !runtimes.contains(where: { $0.homePath == selected.path }),
+           let runtime = runtimeLocator.javaRuntime(at: selected) {
+            runtimes.insert(runtime, at: 0)
+        }
+        return runtimes.map {
+            JavaLanguageServiceRuntime(homePath: $0.homePath, version: $0.version,
+                isDefault: $0.homePath == selected?.path)
+        }
+    }
+
     func javaHomeURL(overridePath: String? = nil) -> URL? {
         chooseJavaHome(overridePath: overridePath) { self.javaRuntimesForLaunch() }?.url
     }

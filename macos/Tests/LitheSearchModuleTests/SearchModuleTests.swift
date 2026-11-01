@@ -55,6 +55,30 @@ struct SearchModuleTests {
     }
 
     @Test
+    func searchCompletesWhileSpeculativeWarmupIsStillBlocked() async throws {
+        let operations = BlockingIndexOperations()
+        defer { operations.finishWarmIndex(); operations.finishInvalidation() }
+        let feature = SearchFeatureModel(operations: operations)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/test-workspace")
+        let rules = SearchVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
+        feature.warmIndex(at: root, visibilityRules: rules)
+        try #require(await operations.waitForWarmIndexStart())
+        let done = AsyncTestSignal()
+        let request = Task {
+            await feature.searchEverywhere(at: root, query: "name", options: .default,
+                visibilityRules: rules, kinds: [.file], isCurrent: { true })
+            done.signal()
+        }
+        defer { request.cancel() }
+        #expect(await done.waitUntilSignaled(timeout: .seconds(1)))
+        #expect(operations.completedOperations.isEmpty, "Search must finish before content warming")
+        operations.finishWarmIndex()
+        await request.value
+        try #require(await waitUntil { !feature.hasActiveModuleWork })
+    }
+
+    @Test
     func replacingIndexWorkKeepsTheNewestTaskActiveUntilItFinishes() async throws {
         let operations = BlockingIndexOperations()
         defer {
