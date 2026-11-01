@@ -402,6 +402,21 @@ macOS 使用最新构建的可执行及 Swift 资源，组装独立 QA bundle，
 `cgWindowNotFound` / `noWindowsAvailable`，第二方向菜单和重启后的界面检查未完成，
 这部分不以 fixture 或历史 UI 结果代替。QA 包的来源身份与运行前后清单单独记录。
 
+
+2026-11-01，源码 `18841d18` 的 Windows CI 已通过前端、共享 Core 和真实 JDT，
+宿主测试在 `completed_write_keeps_success_when_a_watcher_invalidates_its_root`
+失败。原因是测试把请求中的 `C:/…` 直接作为刷新表键；生产边界已将路径转为
+规范化身份，Windows 的规范化路径与该原始字符串不同。相邻租约和刷新测试也
+有同样假设，不能只把首个 `unwrap` 改成忽略缺失状态。
+
+宿主测试改用独立真实临时目录，请求刻意携带 `/.` 别名，表内检查使用独立
+`std::fs::canonicalize` 得到的期望身份，保留在途失效、拒绝旧结果和已完成写入
+仍成功的断言。新增别名与规范化路径共用刷新状态、最后一个租约释放才回收的
+回归；夹具在断言失败时也释放表内所有权和临时目录。生产查找仍要求调用者先
+规范化，不在仅查内存的 getter 里重复文件系统操作。没有改变生产逻辑、等待
+预算或 CI 跳过规则；按用户要求不在本机运行 Windows 测试，执行证据由修复
+提交的 Windows CI 提供，不能沿用 `18841d18` 的部分成功结果。
+
 ## 适用范围
 
 - `rust/lithe-core/src/project/indexing.rs`

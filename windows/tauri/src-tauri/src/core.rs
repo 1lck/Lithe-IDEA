@@ -443,12 +443,65 @@ mod indexing_tests {
     use super::*;
     use serde_json::{json, Value};
     use std::cell::RefCell;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+    struct IndexingFixture {
+        owner: String,
+        directory: PathBuf,
+    }
+
+    impl IndexingFixture {
+        fn new(label: &str) -> Self {
+            let owner = format!(
+                "lithe-indexing-{label}-{}-{}",
+                std::process::id(),
+                NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
+            );
+            let directory = std::env::temp_dir().join(&owner);
+            std::fs::create_dir(&directory).expect("create indexing fixture directory");
+            Self { owner, directory }
+        }
+
+        fn request_root(&self) -> String {
+            // A lexical alias forces the test to distinguish a request path from its
+            // registry identity on every platform, including Windows verbatim paths.
+            format!("{}/.", self.directory.display())
+        }
+
+        fn canonical_root(&self) -> String {
+            std::fs::canonicalize(&self.directory)
+                .expect("canonicalize indexing fixture directory")
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+
+    impl Drop for IndexingFixture {
+        fn drop(&mut self) {
+            {
+                let mut owners = indexing_owners()
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                owners.closed.remove(&self.owner);
+                owners.leases.remove(&self.owner);
+                prune_refreshes(&mut owners);
+            }
+            if let Err(error) = std::fs::remove_dir_all(&self.directory) {
+                eprintln!("Could not remove indexing fixture directory: {error}");
+            }
+        }
+    }
 
     #[test]
     fn native_destruction_reclaims_an_installation_that_finishes_after_close() {
-        let owner = "indexing-close-during-install";
+        let fixture = IndexingFixture::new("close-during-install");
+        let owner = fixture.owner.as_str();
+        let root = fixture.request_root();
         let calls = RefCell::new(Vec::<Value>::new());
-        let response = execute_for_window(owner, &json!({"id":"late", "command":"workspace.configureIndexing", "payload":{"root":"C:/fixture", "ownerId":"workspace-one"}}).to_string(), |request| {
+        let response = execute_for_window(owner, &json!({"id":"late", "command":"workspace.configureIndexing", "payload":{"root":root, "ownerId":"workspace-one"}}).to_string(), |request| {
             let value: Value = serde_json::from_str(request).unwrap();
             calls.borrow_mut().push(value.clone());
             if value["command"] == "workspace.configureIndexing" {
@@ -466,16 +519,16 @@ mod indexing_tests {
         );
         assert_eq!(calls[1]["command"], "workspace.releaseIndexing");
         assert_eq!(calls[1]["payload"]["revision"], 7);
-        let mut owners = indexing_owners().lock().unwrap();
-        owners.closed.remove(owner);
-        owners.leases.remove(owner);
+        assert!(root_refresh(&fixture.canonical_root()).is_none());
     }
 
     #[test]
     fn late_release_keeps_the_new_native_cleanup_token() {
-        let owner = "indexing-late-release";
+        let fixture = IndexingFixture::new("late-release");
+        let owner = fixture.owner.as_str();
+        let root = fixture.request_root();
         let request = |command: &str, revision: u64| {
-            json!({"command":command,"payload":{"root":"C:/fixture","ownerId":"workspace-one","revision":revision}}).to_string()
+            json!({"command":command,"payload":{"root":root,"ownerId":"workspace-one","revision":revision}}).to_string()
         };
         for revision in [1, 2] {
             execute_for_window(owner, &request("workspace.configureIndexing", 0), |_| {
@@ -485,24 +538,25 @@ mod indexing_tests {
         execute_for_window(owner, &request("workspace.releaseIndexing", 1), |_| {
             json!({"ok":true,"data":{"released":false}}).to_string()
         });
-        let mut owners = indexing_owners().lock().unwrap();
+        let owners = indexing_owners().lock().unwrap();
         assert_eq!(
-            owners.leases[owner][&("C:/fixture".into(), format!("{owner}/workspace-one"))],
+            owners.leases[owner][&(fixture.canonical_root(), format!("{owner}/workspace-one"))],
             2
         );
-        owners.leases.remove(owner);
     }
 
     #[test]
     fn events_during_first_configuration_refresh_before_returning_without_new_tokens() {
-        let owner = "first-configuration-event";
-        let root = "C:/first-configuration-event";
+        let fixture = IndexingFixture::new("first-configuration-event");
+        let owner = fixture.owner.as_str();
+        let root = fixture.request_root();
+        let canonical_root = fixture.canonical_root();
         let calls = RefCell::new(Vec::new());
         let response = execute_for_window(owner, &json!({"id":"configure", "command":"workspace.configureIndexing", "payload":{"root":root,"ownerId":"runtime"}}).to_string(), |request| {
             let request: Value = serde_json::from_str(request).unwrap();
             let command = request["command"].as_str().unwrap().to_owned();
             calls.borrow_mut().push(command.clone());
-            if calls.borrow().len() == 1 { root_refresh(root).unwrap().invalidate(); }
+            if calls.borrow().len() == 1 { root_refresh(&canonical_root).expect("canonical root must be registered").invalidate(); }
             json!({"ok":true,"data":{"revision":7,"excludedDirectories":{"archive":"git"},"gitIgnoreFailed":false}}).to_string()
         });
         assert_eq!(
@@ -518,20 +572,24 @@ mod indexing_tests {
             ]
         );
         execute_for_window(owner, &json!({"command":"workspace.releaseIndexing","payload":{"root":root,"ownerId":"runtime","revision":7}}).to_string(), |_| json!({"ok":true,"data":{"released":true}}).to_string());
-        assert!(root_refresh(root).is_none());
+        assert!(root_refresh(&canonical_root).is_none());
     }
 
     #[test]
     fn query_cannot_publish_a_result_superseded_by_an_event() {
-        let owner = "query-event";
-        let root = "C:/query-event";
+        let fixture = IndexingFixture::new("query-event");
+        let owner = fixture.owner.as_str();
+        let root = fixture.request_root();
+        let canonical_root = fixture.canonical_root();
         execute_for_window(owner, &json!({"command":"workspace.configureIndexing","payload":{"root":root,"ownerId":"runtime"}}).to_string(), |_| json!({"ok":true,"data":{"revision":4}}).to_string());
         let result = execute_for_window(
             owner,
             &json!({"id":"query","command":"workspace.snapshot","payload":{"root":root}})
                 .to_string(),
             |_| {
-                root_refresh(root).unwrap().invalidate();
+                root_refresh(&canonical_root)
+                    .expect("canonical root must be registered")
+                    .invalidate();
                 json!({"ok":true,"data":{"files":["stale"]}}).to_string()
             },
         );
@@ -544,8 +602,10 @@ mod indexing_tests {
 
     #[test]
     fn completed_write_keeps_success_when_a_watcher_invalidates_its_root() {
-        let owner = "write-event";
-        let root = "C:/write-event";
+        let fixture = IndexingFixture::new("write-event");
+        let owner = fixture.owner.as_str();
+        let root = fixture.request_root();
+        let canonical_root = fixture.canonical_root();
         execute_for_window(owner, &json!({"command":"workspace.configureIndexing","payload":{"root":root,"ownerId":"runtime"}}).to_string(), |_| json!({"ok":true,"data":{"revision":5}}).to_string());
         let expected = json!({"id":"write","ok":true,"data":{"saved":true}}).to_string();
         let response = execute_for_window(
@@ -553,11 +613,71 @@ mod indexing_tests {
             &json!({"id":"write","command":"runConfig.saveEditorChanges","payload":{"root":root}})
                 .to_string(),
             |_| {
-                root_refresh(root).unwrap().invalidate();
+                root_refresh(&canonical_root)
+                    .expect("canonical root must be registered")
+                    .invalidate();
                 expected.clone()
             },
         );
         assert_eq!(response, expected);
         execute_for_window(owner, &json!({"command":"workspace.releaseIndexing","payload":{"root":root,"ownerId":"runtime","revision":5}}).to_string(), |_| json!({"ok":true,"data":{"released":true}}).to_string());
+    }
+
+    #[test]
+    fn request_path_aliases_share_refresh_state_until_the_last_lease_is_released() {
+        let fixture = IndexingFixture::new("path-aliases");
+        let owner = fixture.owner.as_str();
+        let alias = fixture.request_root();
+        let canonical = fixture.canonical_root();
+        assert_ne!(alias, canonical);
+        let configure = |root: &str, runtime: &str, revision: u64| {
+            execute_for_window(
+                owner,
+                &json!({"command":"workspace.configureIndexing",
+                "payload":{"root":root,"ownerId":runtime}})
+                .to_string(),
+                |request| {
+                    let request: Value = serde_json::from_str(request).unwrap();
+                    assert_eq!(request["payload"]["root"], canonical);
+                    json!({"ok":true,"data":{"revision":revision}}).to_string()
+                },
+            )
+        };
+        assert_eq!(
+            serde_json::from_str::<Value>(&configure(&alias, "first", 11)).unwrap()["ok"],
+            true
+        );
+        let state = root_refresh(&canonical).expect("first holder registers the canonical root");
+        assert_eq!(
+            serde_json::from_str::<Value>(&configure(&canonical, "second", 12)).unwrap()["ok"],
+            true
+        );
+        assert!(Arc::ptr_eq(&state, &root_refresh(&canonical).unwrap()));
+        assert!(
+            root_refresh(&alias).is_none(),
+            "the registry must not create a second lexical-path entry"
+        );
+
+        for (root, runtime, revision) in [(&alias, "first", 11), (&canonical, "second", 12)] {
+            let response = execute_for_window(
+                owner,
+                &json!({"command":"workspace.releaseIndexing",
+                "payload":{"root":root,"ownerId":runtime,"revision":revision}})
+                .to_string(),
+                |request| {
+                    let request: Value = serde_json::from_str(request).unwrap();
+                    assert_eq!(request["payload"]["root"], canonical);
+                    json!({"ok":true,"data":{"released":true}}).to_string()
+                },
+            );
+            assert_eq!(
+                serde_json::from_str::<Value>(&response).unwrap()["data"]["released"],
+                true
+            );
+            if runtime == "first" {
+                assert!(Arc::ptr_eq(&state, &root_refresh(&canonical).unwrap()));
+            }
+        }
+        assert!(root_refresh(&canonical).is_none());
     }
 }
