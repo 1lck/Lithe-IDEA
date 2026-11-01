@@ -9,6 +9,111 @@ import LitheCoreContracts
 @MainActor
 struct AgentHistoryTests {
     @Test
+    func providerFilterCombinesWithSearchMarksAndUnknownMetadata() {
+        let sessions = [
+            AgentSessionSummary(id: "a", title: "Review", modelProvider: "native-provider"),
+            AgentSessionSummary(id: "b", title: "Review", modelProvider: "previous-provider"),
+            AgentSessionSummary(id: "removed", title: "Review", modelProvider: "native-provider"),
+            AgentSessionSummary(id: "unknown", title: "Review"),
+            AgentSessionSummary(id: "blank", title: "Review", modelProvider: " \n ")
+        ]
+        let metadata = ["a": AgentHistoryMetadata(isFavorite: true),
+                        "removed": AgentHistoryMetadata(isHidden: true)]
+        func ids(_ provider: AgentHistoryProviderFilter, _ filter: AgentHistoryFilter = .all,
+                 _ query: String = "") -> [String] {
+            AgentHistoryPresentation.sessions(sessions, metadata: metadata, query: query,
+                filter: filter, provider: provider).map(\.id)
+        }
+        #expect(Set(ids(.all)) == ["a", "b", "unknown", "blank"])
+        #expect(ids(.provider("native-provider"), .favorites, "Review") == ["a"])
+        #expect(ids(.provider("native-provider"), .removed) == ["removed"])
+        #expect(ids(.provider("previous-provider"), .all, "b") == ["b"])
+        #expect(Set(ids(.unknown)) == ["unknown", "blank"])
+        #expect(ids(.provider("missing")).isEmpty)
+        #expect(AgentHistoryProviderFilter.options(sessions) == [
+            .all, .provider("native-provider"), .provider("previous-provider"), .unknown
+        ])
+        #expect(AgentHistoryPresentation.emptyState(isRefreshing: false, query: "",
+            isArchivedHistoryComplete: true, hasProviderFilter: true) == .noMatches)
+        #expect(AgentHistoryPresentation.emptyState(isRefreshing: false, query: "",
+            isArchivedHistoryComplete: false, hasProviderFilter: true) == .incomplete)
+    }
+
+    @Test
+    func providerFilterKeepsUnlistedDraftsUnknownAndDoesNotChangeUpstreamRows() {
+        let sessions = [AgentSessionSummary(id: "saved", title: "Saved", modelProvider: "native-provider")]
+        let rows = AgentHistoryPresentation.managementSessions(sessions, openSessionIDs: ["saved", "draft"],
+            conversations: [:], metadata: [:], query: "", filter: .all,
+            provider: .provider("native-provider"))
+        #expect(rows.map(\.id) == ["saved"])
+        #expect(sessions.first?.modelProvider == "native-provider")
+        let drafts = AgentHistoryPresentation.managementSessions(sessions, openSessionIDs: ["saved", "draft"],
+            conversations: [:], metadata: [:], query: "", filter: .all, provider: .unknown)
+        #expect(drafts.map(\.id) == ["draft"])
+    }
+
+    @Test(arguments: [ColorScheme.light, .dark])
+    func providerSubmenuUsesNativeKeyboardSelectionAndRetainsUnavailableSelection(scheme: ColorScheme) async throws {
+        let sessions = [AgentSessionSummary(id: "a", title: "Known", modelProvider: "native-provider"),
+                        AgentSessionSummary(id: "b", title: "Unknown")]
+        var selection = AgentHistoryProviderFilter.all
+        let items = AgentHistoryProviderFilter.menuItems(sessions, selected: .provider("temporarily-absent")) { selection = $0 }
+        #expect(items.map(\.title).contains("temporarily-absent"))
+        #expect(items.last?.isChecked == true)
+        let host = NSHostingView(rootView: Color.clear.environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        let presenter = LitheContextMenuPresenter()
+        defer { presenter.dismiss(); window.contentView = nil; window.close() }
+        host.frame.size = NSSize(width: 620, height: 400)
+        window.orderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        presenter.show(items: [.submenu("Conversation provider", items: items)],
+            at: NSPoint(x: 200, y: 400), appearance: NSAppearance(named: scheme == .dark ? .darkAqua : .aqua),
+            locale: Locale(identifier: "en"), parentWindow: window)
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NSPanel }.first { $0.isVisible })
+        func key(_ code: UInt16) throws {
+            panel.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: panel.windowNumber, context: nil, characters: "\r",
+                charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: code)))
+            panel.contentView?.layoutSubtreeIfNeeded()
+        }
+        try key(125)
+        try key(124)
+        try key(125)
+        try key(36)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while selection == .all && clock.now < deadline {
+            await Task.yield()
+        }
+        #expect(selection == .provider("native-provider"))
+        #expect(AgentHistoryPresentation.sessions(sessions, metadata: [:], query: "", filter: .all,
+            provider: selection).map(\.id) == ["a"])
+    }
+
+    @Test
+    func historyEventsKeepProviderIdentityThroughPagesAndArchives() async throws {
+        try await HistoryFixture().run(archived: true) { fixture in
+            fixture.feature.refreshSessions()
+            let activeToken = try #require(fixture.transport.connection.commands.last { $0["kind"] as? String == "listSessions" }?["token"])
+            let archiveToken = try #require(fixture.transport.connection.commands.last { $0["kind"] as? String == "listArchivedSessions" }?["token"])
+            let row: [String: Any] = ["sessionId": "source-a", "title": "Known", "modelProvider": "native-provider"]
+            try fixture.emit(["kind": "sessionsPage", "token": activeToken, "sessions": [row]])
+            #expect(fixture.feature.sessions.first { $0.id == "source-a" }?.modelProvider == "native-provider")
+            try fixture.emit(["kind": "sessions", "token": activeToken, "sessions": [row]])
+            try fixture.emit(["kind": "archivedSessions", "token": archiveToken, "complete": true,
+                "sessions": [["sessionId": "archived-source", "modelProvider": "previous-provider"],
+                             ["sessionId": "unknown-source"]]])
+            #expect(fixture.feature.archivedSessions.map(\.modelProvider) == ["previous-provider", nil])
+            let options = AgentHistoryProviderFilter.options(fixture.feature.sessions + fixture.feature.archivedSessions)
+            #expect(options == [.all, .provider("native-provider"), .provider("previous-provider"), .unknown])
+        }
+    }
+
+    @Test
     func viewingAndAnnotatingHistoryPreserveActivityUntilANewTurn() async throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

@@ -18,7 +18,7 @@ import { SearchField } from "@/ui/search";
 import { Spinner } from "@/ui/spinner";
 import { tryWriteClipboardText } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
-import { agentHistoryRows, historyMessageCount } from "../services/agent-history-view";
+import { agentHistoryRows, historyMessageCount, historyProviderOptions, type AgentHistoryProviderFilter } from "../services/agent-history-view";
 import type { AgentConversation, AgentSessionSummary } from "../types/agent.types";
 import type { AgentHistoryFilter, AgentHistoryMetadataMap } from "../types/agent-history.types";
 import { AgentArchivedHistory, type AgentArchiveHistoryProps } from "./agent-archived-history";
@@ -71,14 +71,18 @@ export function AgentHistoryList({
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<AgentHistoryFilter>("all");
+  const [provider, setProvider] = useState<AgentHistoryProviderFilter>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
   const [copiedID, setCopiedID] = useState<string | null>(null);
 
   const rows = useMemo(
-    () => agentHistoryRows(sessions, metadata, query, filter),
-    [sessions, metadata, query, filter],
+    () => agentHistoryRows(sessions, metadata, query, filter, provider),
+    [sessions, metadata, query, filter, provider],
   );
+  const archivedRows = agentHistoryRows(archive?.sessions ?? [], metadata, query, filter, provider);
+  const providers = historyProviderOptions([...sessions, ...(archive?.sessions ?? [])]);
+  if (provider !== null && !providers.includes(provider)) providers.push(provider);
   const visibleIDs = useMemo(() => rows.map((row) => row.session.id), [rows]);
   const selected = visibleIDs.filter((id) => selectedIDs.includes(id));
   const allSelected = visibleIDs.length > 0 && selected.length === visibleIDs.length;
@@ -122,10 +126,10 @@ export function AgentHistoryList({
     setSelectedIDs((current) => current.filter((id) => !sessionIDs.includes(id)));
   };
 
-  const emptyMessage = isRefreshing
+  const emptyMessage = isRefreshing || archive?.loading === true
     ? t("agent.history.loading")
-    : query.trim().length > 0
-      ? `${t("agent.history.noMatch")} ${t("agent.history.noMatchHint")}`
+    : query.trim().length > 0 || provider !== null
+      ? `${t("agent.history.noMatch")} ${t("agent.history.providerHint")}`
       : t("agent.history.empty");
 
   return (
@@ -134,7 +138,7 @@ export function AgentHistoryList({
         <span className="min-w-0 flex-1 truncate text-subtle-foreground ui-text-caption">
           {isSelecting
             ? t("agent.history.selectedCount", { count: selected.length })
-            : t("agent.history.conversations", { count: sessions.length })}
+            : t("agent.history.conversations", { count: rows.length + archivedRows.length })}
         </span>
         <Button
           type="button"
@@ -175,14 +179,25 @@ export function AgentHistoryList({
         </Button>
       </div>
 
-      <div className="px-2 pb-1">
+      <div className="flex flex-wrap items-center gap-1 px-2 pb-1">
         <SearchField
           value={query}
           onChange={setQuery}
           placeholder={t("agent.history.search")}
           aria-label={t("agent.history.search")}
-          className="h-6 ui-text-caption"
+          className="h-6 min-w-0 flex-1 ui-text-caption"
         />
+        <NativeSelect size="sm" value={provider === null ? "all" : JSON.stringify(provider)}
+          aria-label={t("agent.history.provider")} title={t("agent.history.provider")}
+          onChange={(event) => {
+            setProvider(event.target.value === "all" ? null : JSON.parse(event.target.value) as string);
+            setSelectedIDs([]);
+          }}>
+          <NativeSelectOption value="all">{t("agent.history.allProviders")}</NativeSelectOption>
+          {providers.map((id) => <NativeSelectOption key={id} value={JSON.stringify(id)}>
+            {id || t("agent.history.unknownProvider")}
+          </NativeSelectOption>)}
+        </NativeSelect>
       </div>
 
       {error === null ? null : (
@@ -254,8 +269,9 @@ export function AgentHistoryList({
         </div>
       ) : null}
 
-      {rows.length === 0 && (archive === undefined || agentHistoryRows(archive.sessions, metadata, query, filter).length === 0) ? (
-        <div className="px-2 pb-1.5 text-subtle-foreground ui-text-caption">{emptyMessage}</div>
+      {rows.length === 0 && archivedRows.length === 0 ? (
+        archive?.complete === false ? null :
+          <div className="px-2 pb-1.5 text-subtle-foreground ui-text-caption">{emptyMessage}</div>
       ) : (
         <div className="max-h-56 overflow-auto pb-1">
           {rows.map((row) => {
@@ -385,7 +401,7 @@ export function AgentHistoryList({
           })}
         </div>
       )}
-      {archive === undefined ? null : <AgentArchivedHistory archive={archive} query={query} filter={filter} metadata={metadata}
+      {archive === undefined ? null : <AgentArchivedHistory archive={archive} query={query} filter={filter} provider={provider} metadata={metadata}
         onSelect={onSelect} onSetHidden={onSetHidden} onSetFavorite={onSetFavorite} />}
     </div>
   );

@@ -273,6 +273,7 @@ try {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "codex-retry-relay");
     assert.match(resource.identity, /context reports.*per-load tickets/);
+    assert.match(resource.identity, /explicit provider admission route/);
     const refused = reuse(["--resource", "codex-retry-relay"]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /codex-retry-relay.*lithe-codex-retry.*cannot be reused/);
