@@ -78,6 +78,9 @@ extension MacToolchainDiscovery {
                 case .failure(let message):
                     failure = failure ?? message
                 case .success(let snapshot, let input, let paths):
+                    // A reply under another context stays out of its round, so Core never
+                    // resolves it; its project requirements are not shown either.
+                    var inRound = false
                     if let directory, let context, var round = answers.rounds[directory] {
                         let joined = RoundContext(id: context.contextID, generation: context.generation)
                         if round.context == nil { round.context = joined }
@@ -85,6 +88,7 @@ extension MacToolchainDiscovery {
                             round.queries.append(input)
                             round.paths += paths
                             answers.rounds[directory] = round
+                            inRound = true
                         }
                     }
                     for row in snapshot["installations"] as? [[String: Any]] ?? [] {
@@ -99,7 +103,7 @@ extension MacToolchainDiscovery {
                             if !(result.globalRequirements[tool] ?? []).contains(requirement) {
                                 result.globalRequirements[tool, default: []].append(requirement)
                             }
-                        } else if let directory {
+                        } else if let directory, inRound {
                             result.requirements[directory, default: [:]][tool, default: []].append(requirement)
                         }
                     }

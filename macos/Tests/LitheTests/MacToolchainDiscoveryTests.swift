@@ -108,7 +108,7 @@ struct MacToolchainDiscoveryTests {
 
     /// The definition plugin as its own provider, as a version-manager plugin declares one. Its
     /// definition gains the project and global layers, where provider statements decide.
-    private static func providerSource() throws -> ToolchainSettingsPluginSource {
+    private static func providerSource(providers: [String] = ["kits"]) throws -> ToolchainSettingsPluginSource {
         var manifest = try #require(try JSONSerialization.jsonObject(with: manifest()) as? [String: Any])
         var definitions = try #require(manifest["toolDefinitions"] as? [[String: Any]])
         let executables = try #require(definitions.first?["executables"] as? [[String: Any]])
@@ -118,8 +118,10 @@ struct MacToolchainDiscoveryTests {
         manifest["requires"] = ["toolDefinitions": 1, "executableResolution": 2, "toolchainProviders": 1,
                                 "backend": 2, "serverProcess": 1]
         manifest["permissions"] = ["backend.launch", "toolchains.provide"]
-        manifest["toolchainProviders"] = [["id": "kits", "displayName": "Kits", "tools": ["compiler"],
-                                           "watchFiles": [["pattern": ".compiler-version", "reader": "native"]]]]
+        manifest["toolchainProviders"] = providers.map { id in
+            ["id": id, "displayName": id.capitalized, "tools": ["compiler"],
+             "watchFiles": [["pattern": ".compiler-version", "reader": "native"]]] as [String: Any]
+        }
         manifest["backend"] = ["launch": ["kind": "packaged", "path": "bin/kits"]]
         return .init(pluginID: pluginID, name: "Discovery fixture",
                      manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
@@ -211,6 +213,40 @@ struct MacToolchainDiscoveryTests {
         #expect(result.resolutions["."]?["compiler"] == .init(layer: .automatic, outcome: .resolved(
             home: installed, executable: installed + "/bin/compiler", version: "21.0.1", provider: provider),
             unmet: ["22"]))
+    }
+
+    /// The window's context changed during one load: the round keeps the context it opened
+    /// with, and a reply under the newer one is neither resolved nor shown for that directory.
+    @Test func aReplyUnderAChangedContextIsLeftOutOfItsDirectory() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let installed = try root.installation("manager/installs/compiler/21.0.1")
+        let versionFile = root.path + "/workspace/.compiler-version"
+        try Data("21\n".utf8).write(to: URL(fileURLWithPath: versionFile))
+        let queries = ProviderQueries { params in
+            let project = params["workspace"] is [String: Any]
+            return ["installations": [["tool": "compiler", "version": "21.0.1", "home": installed]],
+                    "statements": project ? [["tool": "compiler", "scope": "project", "source": versionFile,
+                                              "request": "21", "installation": installed, "kind": "declaration",
+                                              "reader": "native"]] : [],
+                    "watch": []]
+        }
+        let contexts = ContextGenerations(first: 3)
+        let probes = DiscoveryProbes(outputs: [installed + "/bin/compiler": "compiler 21.0.1"])
+        var discovery = discovery(root: root, probes: probes)
+        discovery.queryProvider = { plugin, provider, params, _ in try queries.answer(pluginID: plugin, providerID: provider, params: params) }
+        discovery.workspaceContext = { _, _ in .init(contextID: "context-1", generation: contexts.next(), rootID: "root-1") }
+        let result = await discovery.discover(.init(
+            workspace: root.url("workspace"), sources: [try Self.providerSource(providers: ["kits", "other"])],
+            environment: [:]))
+
+        // Providers are asked in name order, so `kits` opened the round and `other` came under generation 4.
+        let kits = Self.pluginID + ":kits"
+        #expect(queries.sent.contains { ($0["context"] as? [String: Any])?["generation"] as? Int == 4 })
+        #expect(result.requirements["."]?["compiler"] == [.init(request: "21", source: versionFile, providerID: kits,
+                                                                 home: installed, version: "21.0.1")])
+        #expect(result.resolutions["."]?["compiler"] == .init(layer: .project, outcome: .resolved(
+            home: installed, executable: installed + "/bin/compiler", version: "21.0.1", provider: kits)))
     }
 
     /// A saved pin decides alone in its directory, even one no provider was asked about. Its home
@@ -348,6 +384,21 @@ private final class DiscoveryProbes: @unchecked Sendable {
         lock.withLock {
             recorded.append(.init(executable: executable, arguments: arguments))
             return outputs[executable]
+        }
+    }
+}
+
+/// A window context whose generation advances on every lookup, as one changing mid-load would.
+private final class ContextGenerations: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Int
+
+    init(first: Int) { value = first }
+
+    func next() -> Int {
+        lock.withLock { () -> Int in
+            defer { value += 1 }
+            return value
         }
     }
 }
