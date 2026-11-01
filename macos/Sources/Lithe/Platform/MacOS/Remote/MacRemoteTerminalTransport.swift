@@ -69,7 +69,7 @@ final class MacRemoteTerminalTransport: TerminalTransport {
     }
 
     func startShell(workingDirectory: String, shellPath: String, environment: [String: String]) async throws {
-        let size = renderer.view.getWindowSize()
+        let size = renderer.view.currentWindowSize()
         let request = RemoteTerminalRequest(
             argv: shellPath == defaultShellPath() ? nil : [shellPath] + MacTerminalShellDiscovery.startupArguments(for: shellPath),
             cwd: try remoteDirectory(workingDirectory, allowsHostPath: false),
@@ -79,7 +79,7 @@ final class MacRemoteTerminalTransport: TerminalTransport {
     }
 
     func startProcessAsync(_ launch: TerminalProcessLaunch, environment: [String: String]) async throws -> Int32 {
-        let size = renderer.view.getWindowSize()
+        let size = renderer.view.currentWindowSize()
         let request = RemoteTerminalRequest(
             argv: [remotePath(forLocalPath: launch.executablePath)] + launch.arguments,
             cwd: try remoteDirectory(launch.workingDirectory, allowsHostPath: true),
@@ -158,9 +158,9 @@ final class MacRemoteTerminalTransport: TerminalTransport {
             let continuation = launch
             launch = nil
             continuation?.resume()
-            let size = renderer.view.getWindowSize()
+            let size = renderer.view.currentWindowSize()
             resize(columns: Int(size.ws_col), rows: Int(size.ws_row))
-        case .output(let data): renderer.view.dataReceived(slice: Array(data)[...])
+        case .output(let data): renderer.view.feed(byteArray: Array(data)[...])
         case .exited(let code):
             guard isRunning else { return }
             isRunning = false

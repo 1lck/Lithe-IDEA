@@ -25,7 +25,7 @@ struct RemoteTerminalTransportTests {
             workingDirectory: root.appendingPathComponent("module").path)
         let pid = try await transport.startProcessAsync(launch, environment: ["TERM": "xterm-256color"])
         #expect(pid == 321)
-        #expect(renderer.view.process?.running != true)
+        #expect(!renderer.isRunning)
         #expect(renderer.view.hasRemoteProcess)
         #expect(host.requests.first?.session == "host-one")
         #expect(host.requests.first?.request.cwd == "/host/project/module")
