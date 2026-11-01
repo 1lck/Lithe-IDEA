@@ -99,6 +99,53 @@ struct EditorTabOrderFeatureModelTests {
         #expect(feature.groupLayout.groups.count == 1)
     }
 
+    @Test func insertingAnExternalTabCanSplitOrJoinAGroup() throws {
+        let feature = EditorTabOrderFeatureModel()
+        let document = EditorTabItem.document(UUID())
+        feature.moveToEnd(document)
+        let group = try #require(feature.groupLayout.groups.first)
+        let terminal = EditorTabItem.terminal(UUID())
+
+        #expect(feature.insert(terminal, into: group, side: .bottom))
+        let terminalGroup = try #require(feature.group(containing: terminal))
+        #expect(terminalGroup != group)
+        #expect(feature.groupLayout.groups.count == 2)
+        #expect(feature.items(in: group) == [document])
+        #expect(feature.items(in: terminalGroup) == [terminal])
+        #expect(feature.focusedItem == terminal)
+
+        let second = EditorTabItem.terminal(UUID())
+        #expect(feature.insert(second, into: group, side: .center))
+        #expect(feature.items(in: group) == [document, second])
+        #expect(!feature.insert(second, into: group, side: .center))
+
+        let third = EditorTabItem.terminal(UUID())
+        #expect(feature.insert(third, into: nil, side: .right))
+        #expect(feature.group(containing: third) == feature.group(containing: second))
+    }
+
+    @Test func terminalWorkspaceDropResolvesPaneEdgesAndKeepsTabStripsAsCenter() {
+        let drag = EditorGroupDragState()
+        let first = UUID(), second = UUID()
+        drag.frames = [
+            first: CGRect(x: 0, y: 0, width: 400, height: 300),
+            second: CGRect(x: 400, y: 0, width: 400, height: 300)
+        ]
+        drag.tabFrames = [
+            first: CGRect(x: 0, y: 0, width: 400, height: 36),
+            second: CGRect(x: 400, y: 0, width: 400, height: 36)
+        ]
+        drag.begin()
+
+        #expect(drag.destination(at: CGPoint(x: 5, y: 150), sourceGroup: nil)?.side == .left)
+        #expect(drag.destination(at: CGPoint(x: 200, y: 295), sourceGroup: nil)?.side == .bottom)
+        #expect(drag.destination(at: CGPoint(x: 600, y: 150), sourceGroup: nil)?.side == .center)
+        #expect(drag.destination(at: CGPoint(x: 200, y: 20), sourceGroup: nil)?.side == .center)
+        #expect(drag.destination(at: CGPoint(x: 200, y: 150), sourceGroup: first) == nil)
+        #expect(drag.destination(at: CGPoint(x: 600, y: 150), sourceGroup: first)?.side == .center)
+        #expect(drag.destination(at: CGPoint(x: 405, y: 150), sourceGroup: first)?.side == .left)
+    }
+
     @Test func agentTabsPresentOneSessionEachAndForgetClosedTabs() {
         let feature = EditorTabOrderFeatureModel()
         let first = UUID(), second = UUID()

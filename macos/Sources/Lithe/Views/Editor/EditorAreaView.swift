@@ -596,20 +596,11 @@ struct EditorAreaView: View {
             .padding(.leading, 8)
             .frame(height: 28)
             .contentShape(Rectangle())
-            .onTapGesture {
-                model.selectEditorTerminalSession(session)
-                session.focus()
-            }
-            // Terminal sessions retain their native cross-container transfer.
-            .onDrag {
-                TerminalTabDragPayload.provider(for: session.id)
-            } preview: {
-                Image(systemName: "terminal")
-                    .font(LitheTheme.uiFont(size: 10, weight: .medium))
-                    .foregroundStyle(LitheTheme.accent)
-                    .frame(width: 20, height: 20)
-                    .background(LitheTheme.activeTabBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay {
+                TerminalTabInteraction(sessionID: session.id, title: model.terminalTitle(for: session)) {
+                    model.selectEditorTerminalSession(session)
+                    session.focus()
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(model.terminalTitle(for: session))
@@ -1358,6 +1349,7 @@ struct EditorAreaView: View {
             .offset(y: geometry.size.height * 0.375 - LitheTheme.uiNSFont(size: 16).ascender)
         }
         .clipped()
+        .overlay { TerminalEmptyEditorDropOverlay(model: model) }
     }
 
     @ViewBuilder

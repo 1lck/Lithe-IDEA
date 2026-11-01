@@ -5,24 +5,20 @@ enum TerminalTabDragPayload {
     static let type = UTType(exportedAs: "com.lithe.terminal-tab")
     static let pasteboardType = NSPasteboard.PasteboardType(type.identifier)
     private static let activeDrag = ActiveTerminalTabDrag()
+    private static let dragState = TerminalTabDragState()
 
     static var activeSessionID: UUID? { activeDrag.sessionID }
+    static var isDragging: Bool { dragState.isDragging }
 
-    static func provider(for sessionID: UUID) -> NSItemProvider {
+    /// AppKit drags own the session for the gesture; drops read the pasteboard and fall back here.
+    static func beginDrag(_ sessionID: UUID) {
         activeDrag.store(sessionID)
-        let data = Data(sessionID.uuidString.utf8)
-        // AppKit needs a concrete standard representation to establish the
-        // native drag session; the private representation identifies terminal
-        // tabs to the receiving workbench.
-        let provider = NSItemProvider(object: "Terminal" as NSString)
-        provider.registerDataRepresentation(
-            forTypeIdentifier: type.identifier,
-            visibility: .ownProcess
-        ) { completion in
-            completion(data, nil)
-            return nil
-        }
-        return provider
+        dragState.set(true)
+    }
+
+    static func endDrag() {
+        dragState.set(false)
+        activeDrag.clear()
     }
 
     static func sessionID(from data: Data) -> UUID? {
@@ -30,6 +26,10 @@ enum TerminalTabDragPayload {
     }
 
     static func sessionID(from pasteboard: NSPasteboard) -> UUID? {
+        if let value = pasteboard.string(forType: pasteboardType),
+           let sessionID = UUID(uuidString: value) {
+            return sessionID
+        }
         if let data = pasteboard.data(forType: pasteboardType),
            let sessionID = sessionID(from: data) {
             return sessionID
@@ -68,6 +68,23 @@ enum TerminalTabDragPayload {
     }
 }
 
+private final class TerminalTabDragState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var dragging = false
+
+    var isDragging: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return dragging
+    }
+
+    func set(_ value: Bool) {
+        lock.lock()
+        dragging = value
+        lock.unlock()
+    }
+}
+
 private final class ActiveTerminalTabDrag: @unchecked Sendable {
     private let lock = NSLock()
     private var storedSessionID: UUID?
@@ -81,6 +98,12 @@ private final class ActiveTerminalTabDrag: @unchecked Sendable {
     func store(_ sessionID: UUID) {
         lock.lock()
         storedSessionID = sessionID
+        lock.unlock()
+    }
+
+    func clear() {
+        lock.lock()
+        storedSessionID = nil
         lock.unlock()
     }
 }

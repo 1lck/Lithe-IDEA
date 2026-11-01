@@ -525,6 +525,56 @@ struct TerminalPlacementFeatureModelTests {
         return (model, session, transport)
     }
 
+    @Test func droppingAToolWindowTerminalIntoAnEditorEdgeCreatesASplitWithoutRestartingTheProcess() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        do {
+            let url = URL(string: "lithe-test://terminal-split/A.swift")!
+            model.documentFeature.openVirtualDocument(url, text: "A", displayPath: nil)
+            model.moveTerminalToTool(context.session.id)
+            let group = try #require(model.editorTabOrderFeature.groupLayout.groups.first)
+            let nativeViewID = ObjectIdentifier(context.session.nativeView)
+
+            #expect(model.moveTerminalToEditor(context.session.id, into: group, side: .bottom))
+
+            let terminalItem = EditorTabItem.terminal(context.session.id)
+            let terminalGroup = try #require(model.editorTabOrderFeature.group(containing: terminalItem))
+            #expect(terminalGroup != group)
+            #expect(model.editorTabOrderFeature.groupLayout.groups.count == 2)
+            #expect(model.editorTabOrderFeature.items(in: terminalGroup) == [terminalItem])
+            #expect(model.editorTerminalSessions.contains { $0.id == context.session.id })
+            #expect(model.toolTerminalSessions.isEmpty)
+            #expect(context.transport.startCount == 1)
+            #expect(context.transport.stopCount == 0)
+            #expect(ObjectIdentifier(context.session.nativeView) == nativeViewID)
+        } catch {
+            await model.shutdownProjectSession()
+            throw error
+        }
+        await model.shutdownProjectSession()
+    }
+
+    @Test
+    func terminalDragPasteboardKeepsTheSessionPrivateAndTracksTheGesture() {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("lithe-terminal-drag-\(UUID())"))
+        pasteboard.clearContents()
+        let sessionID = UUID()
+        let item = NSPasteboardItem()
+        item.setString(sessionID.uuidString, forType: TerminalTabDragPayload.pasteboardType)
+        #expect(pasteboard.writeObjects([item]))
+        #expect(TerminalTabDragPayload.sessionID(from: pasteboard) == sessionID)
+        // A text representation would be inserted by the embedded editor.
+        #expect(pasteboard.string(forType: .string) == nil)
+
+        #expect(!TerminalTabDragPayload.isDragging)
+        TerminalTabDragPayload.beginDrag(sessionID)
+        #expect(TerminalTabDragPayload.isDragging)
+        #expect(TerminalTabDragPayload.activeSessionID == sessionID)
+        TerminalTabDragPayload.endDrag()
+        #expect(!TerminalTabDragPayload.isDragging)
+        #expect(TerminalTabDragPayload.activeSessionID == nil)
+    }
+
     @Test
     func movingPresentationNeverStopsOrRecreatesTheTerminalTransport() {
         let transport = PlacementTestTerminalTransport()
