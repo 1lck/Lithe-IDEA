@@ -30,6 +30,9 @@ final class LanguageToolingFeatureModel: ObservableObject {
     private var preparationCancellations: [String: @MainActor () -> Void] = [:]
     private var activationEpoch = UUID()
     private var activationGenerations: [String: UUID] = [:]
+    private var restartTasks: [String: Task<Void, Never>] = [:]
+
+    deinit { restartTasks.values.forEach { $0.cancel() } }
 
     struct ActivationToken: Equatable {
         let epoch: UUID
@@ -45,6 +48,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     private func prepareToStop(providerID: String) {
+        restartTasks.removeValue(forKey: providerID)?.cancel()
         activationGenerations[providerID] = UUID()
         preparationCancellations[providerID]?()
     }
@@ -89,12 +93,21 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func resetWorkspaceState() {
+        restartTasks.values.forEach { $0.cancel() }
+        restartTasks.removeAll()
         activationEpoch = UUID()
         activationGenerations.removeAll()
         logs.reset()
         serverRuntimeSnapshot = LanguageServerRuntimeSnapshot()
         projectPreparation = nil
         startupFailures.removeAll()
+    }
+
+    /// Index rebuild is local to one provider. Keep other sessions' projection,
+    /// log selection and observations intact instead of clearing deduplicated data.
+    func resetProviderState(providerID: String) {
+        prepareToStop(providerID: providerID)
+        startupFailures[providerID] = nil
     }
 
     func projectUsageRequest(workspaceURL: URL?, snapshotID: UUID?) -> LSPProjectUsageRequest {
@@ -193,16 +206,28 @@ final class LanguageToolingFeatureModel: ObservableObject {
               let descriptor = catalog.descriptors.first(where: {
                   $0.id == providerID && $0.capabilities.contains(.languageServer)
               }), let sessions = sessionsProvider() else { return }
-        stop(providerID: providerID)
+        prepareToStop(providerID: providerID)
         startupFailures[providerID] = nil
-        let documents = (documentsProvider?() ?? []).filter { catalog.provider(for: $0.url)?.id == providerID }
-        if documents.isEmpty {
-            // A prewarmed server can outlive its last editor tab. Restart that
-            // same provider instead of silently turning Restart into Stop.
-            do { try sessions.startLanguageServer(providerID: providerID, rootURL: workspaceURL) }
-            catch { markActivationFailed(providerID: providerID, descriptor: descriptor, error: error) }
-        } else {
-            for document in documents { _ = activateDocument?(document) }
+        let token = activationToken(providerID: providerID)
+        restartTasks[providerID] = Task { @MainActor [weak self] in
+            guard !Task.isCancelled, self?.activationToken(providerID: providerID) == token else { return }
+            let ended = await sessions.stopLanguageServerAndWait(providerID: providerID)
+            guard let self, !Task.isCancelled,
+                  self.activationToken(providerID: providerID) == token,
+                  self.workspaceURL == workspaceURL, !self.isDisabled(providerID),
+                  self.sessionsProvider() === sessions else { return }
+            defer { self.restartTasks[providerID] = nil }
+            guard ended else {
+                self.notify?(L10n.string("The language server is still stopping. Try again after it has stopped."))
+                return
+            }
+            let documents = (self.documentsProvider?() ?? []).filter { self.catalog.provider(for: $0.url)?.id == providerID }
+            if documents.isEmpty {
+                do { try sessions.startLanguageServer(providerID: providerID, rootURL: workspaceURL) }
+                catch { self.markActivationFailed(providerID: providerID, descriptor: descriptor, error: error) }
+            } else {
+                for document in documents { _ = self.activateDocument?(document) }
+            }
         }
     }
 

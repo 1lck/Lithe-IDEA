@@ -9745,7 +9745,8 @@
     "native.noMatchingLanguageServerLogs": "No matching language server logs",
     "native.logInfoLevel": "Info",
     "native.lspNotStarted": "Not started",
-    "native.noRegisteredLanguageServers": "No registered language servers"
+    "native.noRegisteredLanguageServers": "No registered language servers",
+    "native.languageServerStillStopping": "The language server is still stopping. Try again after it has stopped."
   },
   "overrides": {
     "windows": {

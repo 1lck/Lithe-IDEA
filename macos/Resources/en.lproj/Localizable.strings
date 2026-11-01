@@ -4033,6 +4033,7 @@
 "The interface language changes immediately. English is the default." = "The interface language changes immediately. English is the default.";
 "The item can be recovered from the macOS Trash." = "The item can be recovered from the macOS Trash.";
 "The language server could not apply this setting. Restart it to use the new value." = "The language server could not apply this setting. Restart it to use the new value.";
+"The language server is still stopping. Try again after it has stopped." = "The language server is still stopping. Try again after it has stopped.";
 "The language server this build system uses is not available. Open a file of the language and try again." = "The language server this build system uses is not available. Open a file of the language and try again.";
 "The language service that hosts the debug adapter is unavailable." = "The language service that hosts the debug adapter is unavailable.";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
@@ -6748,6 +6749,7 @@
 "native.languageServerReturnedOverlappingTextEdits" = "Language server returned overlapping text edits.";
 "native.languageServerSessionStoppedBeforeTheRequestCompleted" = "Language server session stopped before the request completed.";
 "native.languageServerSettingsAction" = "Language Server Settings...";
+"native.languageServerStillStopping" = "The language server is still stopping. Try again after it has stopped.";
 "native.languageServerToolConfigurationChanged" = "Language server tool configuration changed";
 "native.languageServers" = "Language servers";
 "native.languageService" = "Language Service";

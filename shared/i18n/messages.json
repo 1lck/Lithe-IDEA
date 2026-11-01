@@ -93322,6 +93322,17 @@
         "key": "No registered language servers",
         "arguments": []
       }
+    },
+    {
+      "id": "native.languageServerStillStopping",
+      "description": "Restart refuses to overlap an old language-server process that has not released its resources",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server is still stopping. Try again after it has stopped.",
+        "arguments": []
+      }
     }
   ]
 }

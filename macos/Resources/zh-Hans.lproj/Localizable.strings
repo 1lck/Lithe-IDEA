@@ -4033,6 +4033,7 @@
 "The interface language changes immediately. English is the default." = "界面语言会立即生效。默认语言为英文。";
 "The item can be recovered from the macOS Trash." = "可以从 macOS 废纸篓中恢复此项目。";
 "The language server could not apply this setting. Restart it to use the new value." = "语言服务器无法应用此设置。请重启它以使用新值。";
+"The language server is still stopping. Try again after it has stopped." = "语言服务器仍在停止。请在停止完成后重试。";
 "The language server this build system uses is not available. Open a file of the language and try again." = "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。";
 "The language service that hosts the debug adapter is unavailable." = "承载调试适配器的语言服务不可用。";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "将全量下载最新正式版，在你确认安装后替换当前 AutoBuild。项目和设置会保留，但 AutoBuild 专有的设置可能无法在正式版中使用。";
@@ -6748,6 +6749,7 @@
 "native.languageServerReturnedOverlappingTextEdits" = "语言服务器返回了重叠的文本编辑。";
 "native.languageServerSessionStoppedBeforeTheRequestCompleted" = "语言服务器会话在请求完成前已停止。";
 "native.languageServerSettingsAction" = "语言服务器设置...";
+"native.languageServerStillStopping" = "语言服务器仍在停止。请在停止完成后重试。";
 "native.languageServerToolConfigurationChanged" = "语言服务器工具配置已更改";
 "native.languageServers" = "语言服务器";
 "native.languageService" = "语言服务";

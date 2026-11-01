@@ -76,38 +76,114 @@ struct LanguageServerStatusTests {
         #expect(menu.first { $0.title == "Stop All Servers" }?.isEnabled == false)
     }
 
-    @Test func restartStopsBeforeReopeningOnlyMatchingDocumentsAndPreservesPreferences() throws {
+    @Test func restartStopsBeforeReopeningOnlyMatchingDocumentsAndPreservesPreferences() async throws {
         let harness = Harness()
         defer { harness.sessions.stopAllLanguageServers() }
         let matching = EditorDocument(url: harness.workspace.appendingPathComponent("a.example"), text: "", modificationDate: nil)
         let other = EditorDocument(url: harness.workspace.appendingPathComponent("README.txt"), text: "", modificationDate: nil)
         var activated: [URL] = []
+        let reopened = TestGate()
         harness.feature.configure(documentsProvider: { [other, matching] }, activateDocument: { document in
             #expect(harness.session.stopCount == 1)
             activated.append(document.url)
+            reopened.open()
             return true
         }, notify: { _ in })
         try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
         let preferences = harness.store.values
         let token = harness.feature.activationToken(providerID: "example")
         harness.feature.restart(providerID: "example")
+        try #require(await reopened.waitUntilOpen())
         #expect(activated == [matching.url])
         #expect(harness.feature.activationToken(providerID: "example") != token)
         #expect(harness.store.values.keys.sorted() == preferences.keys.sorted())
         #expect(!harness.feature.isDisabled("example"))
     }
 
-    @Test func restartWithoutDocumentsRestartsTheSameProviderAndDisabledRestartDoesNothing() throws {
+    @Test func restartWithoutDocumentsRestartsTheSameProviderAndDisabledRestartDoesNothing() async throws {
         let harness = Harness()
         defer { harness.sessions.stopAllLanguageServers() }
         try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
+        let restarted = TestGate()
+        harness.session.onStart = { restarted.open() }
         harness.feature.restart(providerID: "example")
+        try #require(await restarted.waitUntilOpen())
         #expect(harness.session.startCount == 2)
         #expect(harness.session.stopCount == 1)
         harness.feature.setEnabled(false, providerID: "example")
         harness.feature.restart(providerID: "example")
         #expect(harness.session.startCount == 2)
         #expect(harness.feature.isDisabled("example"))
+    }
+
+    @Test func restartWaitsForDelayedShutdownAndKeepsStoppingUntilTheSlotIsReleased() async throws {
+        let harness = Harness()
+        let released = TestGate(), restarted = TestGate()
+        harness.session.releaseStop = released
+        defer { released.open(); harness.feature.stop(providerID: "example") }
+        try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
+        harness.feature.bindProjectPreparation(harness.sessions)
+        harness.session.onStart = { restarted.open() }
+        harness.feature.restart(providerID: "example")
+        try #require(await harness.session.stopRequested.waitUntilOpen())
+        #expect(harness.session.startCount == 1)
+        #expect(harness.feature.serverRuntimeSnapshot.states["example"] == .stopping)
+        #expect(throws: (any Error).self) {
+            try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
+        }
+        released.open()
+        try #require(await restarted.waitUntilOpen())
+        #expect(harness.session.startCount == 2)
+    }
+
+    @Test func stoppingWhileRestartWaitsCannotResurrectTheServer() async throws {
+        let harness = Harness()
+        let released = TestGate()
+        harness.session.releaseStop = released
+        defer { released.open(); harness.sessions.stopAllLanguageServers() }
+        try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
+        harness.feature.restart(providerID: "example")
+        try #require(await harness.session.stopRequested.waitUntilOpen())
+        harness.feature.stop(providerID: "example")
+        released.open()
+        #expect(await harness.sessions.stopLanguageServerAndWait(providerID: "example"))
+        #expect(harness.session.startCount == 1)
+    }
+
+    @Test func aFailedShutdownKeepsItsSlotUntilAnExplicitRetryConfirmsRelease() async throws {
+        let harness = Harness()
+        defer { harness.sessions.stopAllLanguageServers() }
+        try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
+        harness.session.stopCompletes = false
+        #expect(await harness.sessions.stopLanguageServerAndWait(providerID: "example") == false)
+        #expect(throws: (any Error).self) {
+            try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
+        }
+        harness.session.stopCompletes = true
+        #expect(await harness.sessions.stopLanguageServerAndWait(providerID: "example"))
+        try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
+        #expect(harness.session.startCount == 2)
+    }
+
+    @Test func providerResetPreservesOtherLiveServersAndLogSelection() throws {
+        let harness = Harness(includesJava: true)
+        defer { harness.sessions.stopAllLanguageServers() }
+        harness.feature.bindProjectPreparation(harness.sessions)
+        try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
+        try harness.sessions.startLanguageServer(providerID: "java", rootURL: harness.workspace)
+        harness.feature.logs.providerID = "example"
+        harness.sessions.recordLanguageServerLog(providerID: "example", level: .info, message: "retained output")
+        let before = harness.feature.serverRuntimeSnapshot
+        let logs = harness.feature.logs.entries
+        try harness.sessions.rebuildWorkspaceState(providerID: "java", rootURL: harness.workspace)
+        harness.feature.resetProviderState(providerID: "java")
+        #expect(harness.feature.serverRuntimeSnapshot.states["example"] == .ready)
+        #expect(harness.feature.serverRuntimeSnapshot.states["java"] == .stopped)
+        #expect(harness.feature.logs.providerID == "example")
+        #expect(harness.feature.logs.entries.filter { $0.providerID == "example" }
+            == logs.filter { $0.providerID == "example" })
+        harness.sessions.recordLanguageServerLog(providerID: "example", level: .info, message: "later output")
+        #expect(harness.feature.serverRuntimeSnapshot.states["example"] == before.states["example"])
     }
 
     @Test func stopInvalidatesPendingActivationAndCallsRegisteredPreparationOwner() {
@@ -288,12 +364,16 @@ private final class Harness {
     let sessions: LanguageToolingSessionManager
     let feature: LanguageToolingFeatureModel
 
-    init() {
+    init(includesJava: Bool = false) {
         let descriptor = LanguageProviderDescriptor(id: "example", displayName: "Example", fileExtensions: ["example"],
             capabilities: .languageServer, activationPolicy: .onDemand)
-        let source = StatusTestCatalog(catalog: LanguageProviderCatalog(descriptors: [descriptor]))
+        let java = LanguageProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"],
+            capabilities: .languageServer, activationPolicy: .onDemand)
+        let source = StatusTestCatalog(catalog: LanguageProviderCatalog(descriptors: includesJava ? [descriptor, java] : [descriptor]))
+        var runtimes: [any LanguageProviderRuntime] = [StatusTestRuntime(descriptor: descriptor, session: session)]
+        if includesJava { runtimes.append(StatusTestRuntime(descriptor: java, session: StatusTestSession())) }
         let sessions = LanguageToolingSessionManager(catalog: source.catalog,
-            runtimes: [StatusTestRuntime(descriptor: descriptor, session: session)])
+            runtimes: runtimes, workspaceStateResetter: { _, _, _ in })
         self.sessions = sessions
         feature = LanguageToolingFeatureModel(catalogSource: source, catalogSnapshot: source.load(workspaceURL: nil),
             preferences: MacWorkspaceLanguageServerPreferencesStore(store: store), sessionsProvider: { sessions })
@@ -337,12 +417,26 @@ private final class StatusTestSession: LanguageServerSession {
     var onStateChange: ((LanguageServerSessionState) -> Void)?
     var startCount = 0
     var stopCount = 0
+    var releaseStop: TestGate?
+    var stopCompletes = true
+    let stopRequested = TestGate()
+    var onStart: (() -> Void)?
     func start(rootURL: URL, workspaceFingerprint: String?) throws {
         isRunning = true
         startCount += 1
         onStateChange?(.ready)
+        onStart?()
     }
     func stop() { isRunning = false; stopCount += 1 }
+    func stopAndWait() async -> Bool {
+        stopRequested.open()
+        guard stopCompletes else { return false }
+        if let releaseStop {
+            guard await releaseStop.waitUntilOpen() else { return false }
+        }
+        stop()
+        return true
+    }
     func synchronize(fileURL: URL, text: String, languageID: String) throws {}
     func closeDocument(_ fileURL: URL) {}
     func completions(fileURL: URL, position: LanguageServerPosition, completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void) throws { completion(.success([])) }
