@@ -139,17 +139,19 @@ struct ProjectRuntimeSettingsTests {
     }
 
     @Test
-    func settingsCategoryPlacesProjectAndRunBetweenKeymapAndTerminal() {
-        // Run configurations sit next to the project environment they inherit.
-        let titles = SettingsCategory.allCases.map(\.rawValue)
-        let keymap = titles.firstIndex(of: "Keymap")
-        let project = titles.firstIndex(of: "Project")
-        let run = titles.firstIndex(of: "Run configurations")
-        let terminal = titles.firstIndex(of: "Terminal")
-        #expect(keymap != nil && project != nil && run != nil && terminal != nil)
-        #expect(project == keymap.map { $0 + 1 })
-        #expect(run == project.map { $0 + 1 })
-        #expect(terminal == run.map { $0 + 1 })
+    func settingsCategoryPlacesBuildPagesBetweenKeymapAndTerminal() {
+        // The build group (toolchain pages, project environment, run configurations)
+        // stays contiguous in declaration order, so search results list the pages in
+        // the same order as the sidebar and run configurations still follow the
+        // project environment they inherit.
+        let cases = SettingsCategory.allCases
+        guard let keymap = cases.firstIndex(of: .keymap),
+              let terminal = cases.firstIndex(of: .terminal) else {
+            Issue.record("Keymap and Terminal must both be settings pages")
+            return
+        }
+        #expect(Array(cases[(keymap + 1)..<terminal]) == SettingsGroup.build.categories)
+        #expect(SettingsGroup.build.categories.suffix(2) == [.project, .run])
     }
 
     @Test
