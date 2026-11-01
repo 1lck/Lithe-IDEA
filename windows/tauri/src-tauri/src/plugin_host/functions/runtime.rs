@@ -157,7 +157,7 @@ impl Operation {
     pub fn set_params(&self, params: Value) {
         *self.params.lock().expect("function parameters") = params;
     }
-    fn params(&self) -> Value {
+    pub(super) fn params(&self) -> Value {
         self.params.lock().expect("function parameters").clone()
     }
     pub(super) fn bind_registry(
@@ -246,7 +246,7 @@ async fn call(entry: &Arc<Operation>, command: &'static str, payload: Value) -> 
     .map_err(|_| Error::new("plugin.function.workerFailed"))?
 }
 
-async fn verify(app: &AppHandle, entry: &Arc<Operation>) -> Reply<()> {
+pub(super) async fn verify(app: &AppHandle, entry: &Arc<Operation>) -> Reply<()> {
     let app = app.clone();
     let entry = entry.clone();
     tokio::time::timeout(
@@ -300,12 +300,12 @@ async fn cleanup_inner(entry: &Arc<Operation>, budget: Duration) -> Reply<()> {
                 let operation = entry.review.context.operation_id.clone();
                 let owner = entry.clone();
                 *job = Some(tauri::async_runtime::spawn_blocking(move || {
-                    let _ = core.execute(
-                        "lsp.cancelOperation",
-                        json!({"sessionId":session,"operationId":operation}),
+                    let result = stop_and_destroy(
+                        core.as_ref(),
+                        &session,
+                        &operation,
+                        Duration::from_secs(8),
                     );
-                    core.execute("lsp.stopServer", json!({"sessionId":session}))?;
-                    let result = core.execute("lsp.destroyServer", json!({"sessionId":session}));
                     if result.is_ok() {
                         // Store success before the timed-out waiter can lose
                         // this non-idempotent Core session's completion proof.
@@ -339,12 +339,56 @@ async fn cleanup_inner(entry: &Arc<Operation>, budget: Duration) -> Reply<()> {
             continue;
         }
         if finished {
+            if let Some(call) = entry.native.lock().expect("native function call").as_mut() {
+                call.discard_provider_review();
+            }
             entry.lease.lock().expect("function lease").take();
             return Ok(());
         }
         tokio::time::timeout_at(deadline, &mut changed)
             .await
             .map_err(|_| Error::new("plugin.function.cleanupFailed"))?;
+    }
+}
+
+fn stop_and_destroy(
+    core: &dyn Core,
+    session: &str,
+    operation: &str,
+    budget: Duration,
+) -> Reply<Value> {
+    let _ = core.execute(
+        "lsp.cancelOperation",
+        json!({"sessionId":session,"operationId":operation}),
+    );
+    core.execute("lsp.stopServer", json!({"sessionId":session}))?;
+    // stopServer starts graceful shutdown; destroyServer rejects a session
+    // until Core observes its terminal state. This isolated owner may drain
+    // events here; retained Provider sessions keep their separate event pump.
+    let deadline = std::time::Instant::now() + budget;
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(Error::new("plugin.function.cleanupFailed"));
+        }
+        let events = core.execute(
+            "lsp.waitEvents",
+            json!({"sessionId":session,"timeoutMilliseconds":remaining.as_millis().min(250)}),
+        );
+        match events {
+            Ok(value)
+                if !value["events"].as_array().is_some_and(|events| {
+                    events.iter().any(|event| {
+                        event["sessionId"] == session
+                            && event["type"] == "stateChanged"
+                            && matches!(event["state"].as_str(), Some("stopped" | "failed"))
+                    })
+                }) => {}
+            // A concurrent invoke may already have drained the terminal event.
+            // An event error alone proves nothing: Core's successful destroy
+            // remains the required process-disposal receipt.
+            _ => return core.execute("lsp.destroyServer", json!({"sessionId":session})),
+        }
     }
 }
 
@@ -363,6 +407,10 @@ fn launch_payload(entry: &Operation) -> Reply<Value> {
 }
 
 pub(super) async fn run(app: AppHandle, entry: Arc<Operation>) {
+    if entry.native.lock().expect("native function call").is_some() {
+        run_native(app, entry).await;
+        return;
+    }
     let worker = entry.clone();
     let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -422,6 +470,54 @@ pub(super) async fn run(app: AppHandle, entry: Arc<Operation>) {
             }
         }
     }
+}
+
+async fn run_native(app: AppHandle, entry: Arc<Operation>) {
+    // The invocation owns a cancellable borrow; the existing Provider registry
+    // retains its process/lease through model use and workspace/plugin teardown.
+    let result = tokio::time::timeout(Duration::from_secs(180), async {
+        let invocation = super::native::invoke_provider(&app, &entry);
+        tokio::pin!(invocation);
+        loop {
+            let changed = entry.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if entry.cancelled() {
+                return Err(Error::new("plugin.function.cancelled"));
+            }
+            tokio::select! {
+                result = &mut invocation => return result,
+                _ = &mut changed => {},
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| Err(Error::new("plugin.function.timeout")));
+    {
+        let mut status = entry.status.lock().expect("function state");
+        status.launch_finished = true;
+        status.progress = None;
+        if entry.cancelled() {
+            status.phase = Phase::Cancelled;
+        } else {
+            match result {
+                Ok(value) => {
+                    status.result = Some(value);
+                    status.phase = Phase::Succeeded;
+                }
+                Err(error) => {
+                    status.error = Some(error);
+                    status.phase = Phase::Failed;
+                }
+            }
+        }
+    }
+    if let Some(call) = entry.native.lock().expect("native function call").as_mut() {
+        call.discard_provider_review();
+    }
+    entry.lease.lock().expect("function lease").take();
+    entry.changed.notify_waiters();
+    entry.retire_clean();
 }
 
 async fn invoke(app: &AppHandle, entry: &Arc<Operation>) -> Reply<Value> {

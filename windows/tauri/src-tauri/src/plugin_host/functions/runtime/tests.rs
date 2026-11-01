@@ -12,10 +12,26 @@ struct ScriptedCore {
     release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
     start_entered: Mutex<Option<oneshot::Sender<()>>>,
     start_release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    shutdown_events: Mutex<std::collections::VecDeque<Reply<Value>>>,
+    stop_entered: Mutex<Option<oneshot::Sender<()>>>,
+    stop_release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
 }
 impl Core for ScriptedCore {
     fn execute(&self, command: &str, payload: Value) -> Reply<Value> {
         self.calls.lock().unwrap().push((command.into(), payload));
+        if command == "lsp.waitEvents" {
+            if let Some(entered) = self.stop_entered.lock().unwrap().take() {
+                let _ = entered.send(());
+            }
+            if let Some(release) = self.stop_release.lock().unwrap().take() {
+                release
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("test releases its bounded shutdown gate");
+            }
+            return self.shutdown_events.lock().unwrap().pop_front().unwrap_or_else(|| {
+                Ok(json!({"events":[{"type":"stateChanged","sessionId":"owned-session","state":"stopped"}]}))
+            });
+        }
         if command == "lsp.destroyServer" {
             self.destroy_calls.fetch_add(1, Ordering::SeqCst);
             if self.panic_destroy.load(Ordering::SeqCst) {
@@ -100,6 +116,75 @@ impl Drop for ReleaseOnDrop {
             let _ = sender.send(());
         }
     }
+}
+
+#[tokio::test]
+async fn graceful_shutdown_must_finish_before_destroy_and_lease_release() {
+    let core = Arc::new(ScriptedCore::default());
+    core.shutdown_events
+        .lock()
+        .unwrap()
+        .push_back(Ok(json!({"events":[
+            {"type":"stateChanged","sessionId":"owned-session","state":"stopping"},
+            {"type":"stateChanged","sessionId":"other-session","state":"stopped"}
+        ]})));
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    *core.stop_entered.lock().unwrap() = Some(entered_tx);
+    *core.stop_release.lock().unwrap() = Some(release_rx);
+    let mut release = ReleaseOnDrop(Some(release_tx));
+    let entry = fixture(core.clone());
+    entry.status.lock().unwrap().session = Some("owned-session".into());
+    let worker = entry.clone();
+    let cleaning = tauri::async_runtime::spawn(async move { cleanup(&worker).await });
+    tokio::time::timeout(Duration::from_secs(1), entered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(core.destroy_calls.load(Ordering::SeqCst), 0);
+    assert!(entry.lease.lock().unwrap().is_some());
+    release.0.take().unwrap().send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(2), cleaning)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(entry.clean());
+    assert!(entry.lease.lock().unwrap().is_none());
+    let calls = core.calls.lock().unwrap();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(command, _)| command == "lsp.waitEvents")
+            .count(),
+        2
+    );
+    assert_eq!(calls.last().unwrap().0, "lsp.destroyServer");
+}
+
+#[test]
+fn shutdown_deadline_never_claims_process_disposal() {
+    let core = ScriptedCore::default();
+    assert!(stop_and_destroy(&core, "owned-session", "operation-one", Duration::ZERO).is_err());
+    assert_eq!(core.destroy_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn drained_terminal_events_still_require_a_successful_destroy_receipt() {
+    let core = Arc::new(ScriptedCore::default());
+    core.shutdown_events
+        .lock()
+        .unwrap()
+        .push_back(Err(Error::new("fixture.sessionStopped")));
+    core.fail_destroy.store(true, Ordering::SeqCst);
+    let entry = fixture(core.clone());
+    entry.status.lock().unwrap().session = Some("owned-session".into());
+    assert!(cleanup(&entry).await.is_err());
+    assert!(!entry.clean());
+    assert!(entry.lease.lock().unwrap().is_some());
+    core.fail_destroy.store(false, Ordering::SeqCst);
+    cleanup(&entry).await.unwrap();
+    assert!(entry.clean());
 }
 
 fn publish(entry: &Arc<Operation>) -> super::super::FunctionsState {

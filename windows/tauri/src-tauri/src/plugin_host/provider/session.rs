@@ -85,6 +85,8 @@ pub(super) struct Status {
     pub features_received: bool,
     pub failure: Option<ProviderError>,
     pub(super) pending: HashMap<String, oneshot::Sender<Reply>>,
+    pub functions: Option<Value>,
+    pub function_progress: HashMap<String, tokio::sync::watch::Sender<Value>>,
 }
 
 pub(super) struct Transport {
@@ -127,6 +129,17 @@ impl Transport {
             return;
         }
         match event["type"].as_str() {
+            Some("functionsChanged") => {
+                status.functions = Some(event["result"]["functions"].clone());
+            }
+            Some("requestProgress") => {
+                if let Some(sender) = event["operationId"]
+                    .as_str()
+                    .and_then(|id| status.function_progress.get(id))
+                {
+                    sender.send_replace(event["result"].clone());
+                }
+            }
             Some("featuresChanged") => {
                 status.features_received = true;
                 status.negotiated = event["capabilities"]

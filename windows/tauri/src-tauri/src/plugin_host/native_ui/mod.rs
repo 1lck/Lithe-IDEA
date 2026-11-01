@@ -17,13 +17,10 @@ pub(crate) fn catalog(app: &AppHandle) -> Result<Vec<Value>, String> {
         if candidate.entry.status != "accepted" || !candidate.entry.enabled {
             continue;
         }
-        let declarations: Vec<_> = candidate.manifest["ui"]["toolWindows"]
+        if !candidate.manifest["ui"]["toolWindows"]
             .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|window| window.get("native").is_some())
-            .collect();
-        if declarations.is_empty() {
+            .is_some_and(|windows| windows.iter().any(|window| window.get("native").is_some()))
+        {
             continue;
         }
         let _lease = app
@@ -39,6 +36,10 @@ pub(crate) fn catalog(app: &AppHandle) -> Result<Vec<Value>, String> {
         if !details.enabled {
             continue;
         }
+        // Function bindings read Core-normalized settings snapshots. Use the
+        // same representation from verified bytes so omitted defaults cannot
+        // make a current declaration appear stale.
+        let declarations = declarations(&package.manifest, super::host_capabilities())?;
         let digest = super::signature::content_digest(&package.root)
             .map_err(|error| error.message().to_string())?;
         let package_identity = format!(
@@ -65,4 +66,51 @@ pub(crate) fn catalog(app: &AppHandle) -> Result<Vec<Value>, String> {
         )
     });
     Ok(windows)
+}
+
+fn declarations(manifest: &Value, capabilities: Value) -> Result<Vec<Value>, String> {
+    let manifest = super::scan::validate_manifest_with(manifest, Some(capabilities))
+        .map_err(|error| error.message)?;
+    Ok(manifest["ui"]["toolWindows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|window| window.get("native").is_some())
+        .cloned()
+        .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omitted_native_defaults_match_snapshot_without_losing_declaration_changes() {
+        let raw: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../shared/contracts/plugins/v1/fixtures/native-panel.plugin.json"
+        )))
+        .unwrap();
+        let capabilities =
+            json!({"buildProviders":[1],"buildSystems":[1],"serverProcess":[1],"ui":[3]});
+        let catalog = declarations(&raw, capabilities.clone()).unwrap();
+        let snapshot = super::super::scan::validate_manifest_with(&raw, None).unwrap();
+        assert_eq!(
+            catalog[0]["native"],
+            snapshot["ui"]["toolWindows"][0]["native"]
+        );
+        assert_eq!(
+            catalog[0]["native"]["actions"][0]["icon"]["mode"],
+            "template"
+        );
+        assert_ne!(catalog[0]["native"], raw["ui"]["toolWindows"][0]["native"]);
+
+        let mut changed = raw.clone();
+        changed["ui"]["toolWindows"][0]["native"]["actions"][1]["title"] = json!("Changed action");
+        assert_ne!(
+            declarations(&changed, capabilities).unwrap()[0]["native"],
+            catalog[0]["native"]
+        );
+        assert!(declarations(&raw, json!({"ui":[1,2]})).is_err());
+    }
 }

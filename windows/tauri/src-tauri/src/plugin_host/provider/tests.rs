@@ -77,6 +77,60 @@ fn plan() -> Value {
 }
 
 #[test]
+fn native_function_registry_and_progress_stay_on_the_exact_provider_session() {
+    let transport = entry(Arc::new(ScriptedCore::default()));
+    transport.observe(&json!({"type":"functionsChanged","sessionId":"foreign",
+        "result":{"functions":["foreign.call"]}}));
+    assert!(transport.status.lock().unwrap().functions.is_none());
+    transport.observe(&json!({"type":"functionsChanged","sessionId":"session-1",
+        "result":{"functions":["tree.nodes","tree.rename"]}}));
+    assert_eq!(
+        transport.status.lock().unwrap().functions,
+        Some(json!(["tree.nodes", "tree.rename"]))
+    );
+    let (sender, mut updates) = tokio::sync::watch::channel(Value::Null);
+    transport
+        .status
+        .lock()
+        .unwrap()
+        .function_progress
+        .insert("invoke-one".into(), sender);
+    for (session, operation) in [("foreign", "invoke-one"), ("session-1", "other")] {
+        transport.observe(&json!({"type":"requestProgress","sessionId":session,
+            "operationId":operation,"result":{"message":"foreign"}}));
+        assert!(!updates.has_changed().unwrap());
+    }
+    for percentage in [10, 20, 30] {
+        transport.observe(&json!({"type":"requestProgress","sessionId":"session-1",
+            "operationId":"invoke-one","result":{"percentage":percentage}}));
+    }
+    assert_eq!(*updates.borrow_and_update(), json!({"percentage":30}));
+}
+
+#[test]
+fn completing_native_action_keeps_provider_and_its_following_refresh_alive() {
+    let core = Arc::new(ScriptedCore::default());
+    let transport = entry(core.clone());
+    let mut action = transport.queue("rename").unwrap();
+    transport.observe(&json!({"type":"requestCompleted","sessionId":"session-1",
+        "operationId":"rename","result":{"value":{"message":"renamed"}}}));
+    assert_eq!(
+        action.try_recv().unwrap().unwrap(),
+        json!({"message":"renamed"})
+    );
+    let mut refresh = transport.queue("refresh").unwrap();
+    transport.observe(&json!({"type":"requestCompleted","sessionId":"session-1",
+        "operationId":"refresh","result":{"value":{"nodes":[{"id":"stable","label":"Renamed"}]}}}));
+    assert_eq!(
+        refresh.try_recv().unwrap().unwrap()["nodes"][0]["label"],
+        "Renamed"
+    );
+    let status = transport.status.lock().unwrap();
+    assert!(status.ready && !status.revoked && !status.disposed);
+    assert!(core.calls.lock().unwrap().is_empty());
+}
+
+#[test]
 fn identity_rejects_cross_instance_and_build_system_before_request() {
     let transport = entry(Arc::new(ScriptedCore::default()));
     let binding = ProviderBinding {
@@ -410,6 +464,15 @@ fn cancelling_one_initialization_waiter_preserves_the_other_waiter() {
 
 #[tokio::test]
 async fn cancelling_one_dispatched_request_does_not_cancel_a_shared_waiter() {
+    cancelled_request_preserves_shared_owner("lsp.buildRequest").await;
+}
+
+#[tokio::test]
+async fn cancelling_native_function_does_not_cancel_build_or_stop_provider() {
+    cancelled_request_preserves_shared_owner("lsp.functionRequest").await;
+}
+
+async fn cancelled_request_preserves_shared_owner(command: &'static str) {
     #[derive(Default)]
     struct Commands {
         values: Mutex<Vec<(String, Value)>>,
@@ -445,11 +508,12 @@ async fn cancelling_one_dispatched_request_does_not_cancel_a_shared_waiter() {
     let core = Arc::new(Commands::default());
     let mut transport = entry(Arc::new(ScriptedCore::default()));
     Arc::get_mut(&mut transport).unwrap().core = core.clone();
-    let mut first = Box::pin(super::runtime::dispatch_request(
+    let mut first = Box::pin(super::runtime::dispatch_core_request(
         &transport,
         "first".into(),
         json!({"operationId":"first"}),
         5000,
+        command,
     ));
     let mut second = Box::pin(super::runtime::dispatch_request(
         &transport,
@@ -468,6 +532,24 @@ async fn cancelling_one_dispatched_request_does_not_cancel_a_shared_waiter() {
     core.until(3).await;
     {
         let values = core.values.lock().unwrap();
+        // Concurrent dispatch has no ordering contract. Match each request's
+        // identity while keeping cancellation ordered after both dispatches.
+        assert_eq!(
+            values[..2]
+                .iter()
+                .find(|(_, payload)| payload["operationId"] == "first")
+                .unwrap()
+                .0,
+            command
+        );
+        assert_eq!(
+            values[..2]
+                .iter()
+                .find(|(_, payload)| payload["operationId"] == "second")
+                .unwrap()
+                .0,
+            "lsp.buildRequest"
+        );
         assert_eq!(values[2].0, "lsp.cancelOperation");
         assert_eq!(values[2].1["operationId"], "first");
     }

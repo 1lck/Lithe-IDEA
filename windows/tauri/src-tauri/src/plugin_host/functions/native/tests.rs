@@ -122,6 +122,27 @@ fn three_real_native_fixtures_keep_declarations_and_current_form_values_in_core(
 }
 
 #[test]
+fn normalized_button_only_forms_accept_only_an_empty_values_map() {
+    let mut manifest = fixtures().remove(2);
+    manifest["ui"]["toolWindows"][0]["native"]["controls"] = json!([]);
+    let manifest = super::super::super::scan::validate_manifest_with(&manifest, None).unwrap();
+    let ui = &manifest["ui"]["toolWindows"][0]["native"];
+    assert!(ui.get("controls").is_none());
+    assert_eq!(
+        parameters(ui, None, None, Some(Map::new())).unwrap().1,
+        json!({"values":{}})
+    );
+    assert!(parameters(ui, None, None, None).is_err());
+    assert!(parameters(
+        ui,
+        None,
+        None,
+        Some(Map::from_iter([("undeclared".into(), json!(true))]))
+    )
+    .is_err());
+}
+
+#[test]
 fn full_form_validation_rejects_unknown_missing_wrong_type_and_uncommitted_illegal_values() {
     let manifest = fixtures().remove(2);
     let ui = manifest["ui"]["toolWindows"][0]["native"].clone();
@@ -241,6 +262,7 @@ fn source_results_have_the_shared_core_node_rules_and_one_mib_budget() {
         },
         action: None,
         params: json!({}),
+        provider: None,
     };
     assert!(validate_result(&call, json!({"nodes":[{"id":"a","label":"Valid"}]})).is_ok());
     assert!(validate_result(

@@ -265,6 +265,69 @@ impl Drop for RequestGuard {
 }
 
 impl ProviderBinding {
+    /// Native panels borrow the existing workspace Provider. The sole pump
+    /// continues to own Core events; each invocation owns only its waiter.
+    pub(crate) async fn function_request(
+        &self,
+        app: &tauri::AppHandle,
+        window: &tauri::WebviewWindow,
+        operation: String,
+        function: String,
+        params: Value,
+        progress: impl Fn(Value),
+    ) -> Reply {
+        super::host::validate_binding_async(app, window.label(), self).await?;
+        let session = self.transport.session_id()?;
+        {
+            let status = self.transport.status.lock().expect("provider session");
+            if !status.functions.as_ref().is_some_and(|ids| {
+                ids.as_array()
+                    .is_some_and(|ids| ids.iter().any(|id| id == &function))
+            }) {
+                return Err(ProviderError::new("provider.functionUnavailable", function));
+            }
+        }
+        let (sender, mut updates) = tokio::sync::watch::channel(Value::Null);
+        self.transport
+            .status
+            .lock()
+            .expect("provider session")
+            .function_progress
+            .insert(operation.clone(), sender);
+        struct ProgressOwner(Arc<Transport>, String);
+        impl Drop for ProgressOwner {
+            fn drop(&mut self) {
+                self.0
+                    .status
+                    .lock()
+                    .expect("provider session")
+                    .function_progress
+                    .remove(&self.1);
+            }
+        }
+        let _owner = ProgressOwner(self.transport.clone(), operation.clone());
+        let request = dispatch_core_request(
+            &self.transport,
+            operation.clone(),
+            json!({"sessionId":session,"operationId":operation,
+                "function":{"pluginID":self.context.plugin_id,"functionID":function},
+                "params":params,"timeoutMilliseconds":120000}),
+            120000,
+            "lsp.functionRequest",
+        );
+        tokio::pin!(request);
+        let result = loop {
+            tokio::select! {
+                result = &mut request => break result?,
+                changed = updates.changed() => {
+                    if changed.is_ok() { progress(updates.borrow_and_update().clone()); }
+                }
+            }
+        };
+        super::host::validate_binding_async(app, window.label(), self).await?;
+        Ok(result)
+    }
+
     /// `plan` comes unchanged from build.modelPlan/dependencyPlan. No domain
     /// result parsing happens here. The async caller's cancellation drops a
     /// guard that resolves the waiter and cancels Core's operation.
@@ -293,6 +356,23 @@ pub(super) async fn dispatch_request(
     payload: Value,
     timeout_ms: u64,
 ) -> Reply {
+    dispatch_core_request(
+        transport,
+        operation,
+        payload,
+        timeout_ms,
+        "lsp.buildRequest",
+    )
+    .await
+}
+
+pub(super) async fn dispatch_core_request(
+    transport: &Arc<Transport>,
+    operation: String,
+    payload: Value,
+    timeout_ms: u64,
+    command: &'static str,
+) -> Reply {
     let receiver = transport.queue(&operation)?;
     let dispatch = Arc::new(Dispatch::default());
     let guard = RequestGuard(transport.clone(), operation.clone(), dispatch.clone());
@@ -307,7 +387,7 @@ pub(super) async fn dispatch_request(
                 "Request closed before dispatch",
             ));
         }
-        worker.core.execute("lsp.buildRequest", payload)
+        worker.core.execute(command, payload)
     });
     tokio::time::timeout(Duration::from_secs(5), sent)
         .await

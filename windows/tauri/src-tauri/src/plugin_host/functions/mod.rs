@@ -1,6 +1,6 @@
-//! Consent-bound settings actions. Core owns negotiation, JSON-RPC, function
-//! references, progress and cancellation. Every action has an isolated Core
-//! process owner, never an editor/build binding that another consumer owns.
+//! Consent-bound function actions. Core owns negotiation, JSON-RPC, references,
+//! progress and cancellation. Settings/web actions own isolated processes;
+//! native panels borrow the workspace Provider through its request guards.
 pub mod native;
 mod runtime;
 #[cfg(test)]
@@ -402,7 +402,7 @@ async fn prepare_owned(
     workspace_path: String,
     expected_identity: String,
     operation_id: String,
-    native: Option<native::Call>,
+    mut native: Option<native::Call>,
 ) -> Reply<Review> {
     if operation_id.len() > 128
         || operation_id.is_empty()
@@ -483,6 +483,9 @@ async fn prepare_owned(
             launch_plan: plan,
             program,
         };
+        if let Some(call) = &mut native {
+            call.prepare_provider(&app, &window, &review)?;
+        }
         let mut operation = Operation::new(review.clone(), directory, lease, owner);
         operation.scope_revision = scope_revision;
         let entry = Arc::new(operation);
