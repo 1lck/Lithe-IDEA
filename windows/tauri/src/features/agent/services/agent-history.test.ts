@@ -12,7 +12,7 @@ import {
   parseAgentHistoryMetadata,
   renameAgentHistoryEntry,
 } from "./agent-history-annotations";
-import { agentHistoryRows, historyDate, historyMessageCount } from "./agent-history-view";
+import { agentHistoryRows, historyDate, historyMessageCount, historyProviderOptions } from "./agent-history-view";
 import { historyMarkdown } from "./agent-history-export";
 
 function session(id: string, title: string | null, updatedAt: string | null): AgentSessionSummary {
@@ -92,6 +92,30 @@ describe("History metadata", () => {
 });
 
 describe("History rows", () => {
+  test("provider filtering composes with search and annotations without guessing missing sources", () => {
+    const rows: AgentSessionSummary[] = [
+      { ...session("a", "Review", null), modelProvider: "native-provider" },
+      { ...session("b", "Review", null), modelProvider: "previous-provider" },
+      { ...session("removed", "Review", null), modelProvider: "native-provider" },
+      session("unknown", "Review", null),
+      { ...session("blank", "Review", null), modelProvider: " \n " },
+    ];
+    const metadata: AgentHistoryMetadataMap = {
+      a: { title: null, isFavorite: true, isHidden: false },
+      removed: { title: null, isFavorite: false, isHidden: true },
+    };
+    const ids = (provider: string | null, filter: "all" | "favorites" | "removed" = "all", query = "") =>
+      agentHistoryRows(rows, metadata, query, filter, provider).map((row) => row.session.id);
+    expect(ids(null).sort()).toEqual(["a", "b", "blank", "unknown"]);
+    expect(ids("native-provider", "favorites", "Review")).toEqual(["a"]);
+    expect(ids("native-provider", "removed")).toEqual(["removed"]);
+    expect(ids("previous-provider", "all", "b")).toEqual(["b"]);
+    expect(ids("").sort()).toEqual(["blank", "unknown"]);
+    expect(ids("missing")).toEqual([]);
+    expect(historyProviderOptions(rows)).toEqual(["native-provider", "previous-provider", ""]);
+    expect(rows[0]?.modelProvider).toBe("native-provider");
+  });
+
   test("sorts newest first and keeps undated sessions last", () => {
     expect(agentHistoryRows(sessions, {}, "", "all").map((row) => row.session.id)).toEqual([
       "session-new",

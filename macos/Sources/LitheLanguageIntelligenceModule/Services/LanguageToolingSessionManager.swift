@@ -70,6 +70,9 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private var extensionLifecycles: [String: WeakLanguageServerExtensionLifecycle] = [:]
     private let runtimeFactory: (any LanguageProviderRuntimeFactory)?
     private var languageServers: [String: any LanguageServerSession] = [:]
+    /// Explicit restarts retain the old process's slot through shutdown and
+    /// resource release. A timed-out close must not admit an overlapping start.
+    private var stoppingServers: [String: (id: UUID, session: any LanguageServerSession, task: Task<Bool, Never>)] = [:]
     private var languageServerRoots: [String: URL] = [:]
     private static let maximumStartupAttempts = 3
     private var languageServerStartupAttempts: [String: (root: URL, count: Int)] = [:]
@@ -1088,6 +1091,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func stopLanguageServer(providerID: String) {
+        guard stoppingServers[providerID] == nil else { return }
+        removeLanguageServer(providerID: providerID, stopSession: true)
+    }
+
+    private func removeLanguageServer(providerID: String, stopSession: Bool) {
         languageServerStartupAttempts[providerID] = nil
         if providerID == "java" { projectPreparation = nil }
         if providerID == "java" {
@@ -1116,22 +1124,24 @@ package final class LanguageToolingSessionManager: ObservableObject,
         clearDiagnostics(providerID: providerID)
         if providerID == "java" { mavenProfileProjectResults.removeAll() }
         languageServerSessionIdentities[providerID] = nil
-        languageServers.removeValue(forKey: providerID)?.stop()
+        let removed = languageServers.removeValue(forKey: providerID)
+        if stopSession { removed?.stop() }
         languageServerRoots[providerID] = nil
         languageServerMavenContexts[providerID] = nil
         languageServerWorkspaceFingerprints[providerID] = nil
         languageServerFeatures[providerID] = nil
         languageServerInfos[providerID] = nil
         languageServerFeatureProviders[providerID] = nil
-        languageServerStates[providerID] = .stopped
+        let state: LanguageServerSessionState = stopSession ? .stopped : .stopping
+        languageServerStates[providerID] = state
         resumeLanguageServerReadyWaiters(
             providerID: providerID,
-            state: .stopped,
+            state: state,
             rootURL: nil
         )
         onLanguageServerStateChange?(
             providerID,
-            .stopped,
+            state,
             operationID
         )
         languageServerOperationIDs[providerID] = nil
@@ -1153,6 +1163,44 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerStates = [:]
         languageServerStartupAttempts = [:]
         languageServerOperationIDs = [:]
+    }
+
+    /// The ordinary stop API initiates shutdown. Restart callers additionally
+    /// wait for the old process and its package/workspace resources to release.
+    package func stopLanguageServerAndWait(providerID: String) async -> Bool {
+        let retiring: any LanguageServerSession
+        if let stopping = stoppingServers[providerID] {
+            if await stopping.task.value { return true }
+            guard !Task.isCancelled else { return false }
+            // A previous wait can time out before the process finally exits.
+            // An explicit retry waits on that same process, never starts over.
+            retiring = stopping.session
+        } else {
+            guard let session = languageServers[providerID] else {
+                stopLanguageServer(providerID: providerID)
+                return true
+            }
+            retiring = session
+        }
+        let id = UUID()
+        let task = Task { @MainActor [weak self] in
+            let ended = await retiring.stopAndWait()
+            guard let self, self.stoppingServers[providerID]?.id == id else { return ended }
+            if ended { self.stoppingServers[providerID] = nil }
+            // Full workspace teardown may already have cleared the projection.
+            if self.languageServerStates[providerID] == .stopping {
+                let state: LanguageServerSessionState = ended ? .stopped : .failed(.init(
+                    code: "shutdownTimeout", stage: "shutdown",
+                    message: L10n.string("The language server is still stopping. Try again after it has stopped.")
+                ))
+                self.languageServerStates[providerID] = state
+                self.onLanguageServerStateChange?(providerID, state, nil)
+            }
+            return ended
+        }
+        stoppingServers[providerID] = (id, retiring, task)
+        removeLanguageServer(providerID: providerID, stopSession: false)
+        return await task.value
     }
 
     /// Stops one provider and removes only its current workspace-state directory.
@@ -1580,6 +1628,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         rootURL: URL,
         operationID requestedOperationID: UUID?
     ) throws -> any LanguageServerSession {
+        guard stoppingServers[descriptor.id] == nil else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                L10n.string("The language server is still stopping. Try again after it has stopped.")
+            )
+        }
         // All entry points, including Maven reload, testing, and debugging, must
         // recheck the current workspace preference before creating or reusing a session.
         guard isLanguageServerEnabled(descriptor.id, rootURL) else {

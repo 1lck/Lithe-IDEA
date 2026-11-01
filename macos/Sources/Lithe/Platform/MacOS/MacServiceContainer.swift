@@ -1314,6 +1314,9 @@ final class MacServiceContainer {
                 )
             }
         }
+        services.languageServerRegistrations = { [pluginManager] catalog in
+            pluginManager.languageServerRegistrations(catalog: catalog)
+        }
         moduleLifecycleCoordinator.start()
         Task {
             do {

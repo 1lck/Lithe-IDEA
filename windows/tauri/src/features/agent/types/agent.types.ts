@@ -135,6 +135,8 @@ export interface AgentSessionSummary {
   id: string;
   title: string | null;
   updatedAt: string | null;
+  /** Upstream history identity, not the current provider; absent means unknown. */
+  modelProvider?: string | null;
 }
 
 /** Display state of one conversation session. */

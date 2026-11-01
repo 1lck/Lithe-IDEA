@@ -151,6 +151,7 @@ extension AppModel {
     func selectEditorTab(_ item: EditorTabItem) {
         editorTabOrderFeature.focus(item)
         switch item {
+        case .languageLogs: selectLanguageServerLogsTab()
         case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
         case .repositoryDiff(let id):
             selectRepositoryDiffTab(id)

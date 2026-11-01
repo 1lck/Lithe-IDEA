@@ -18,7 +18,7 @@ extension AppModel {
                 let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
                 try sessions.rebuildWorkspaceState(providerID: "java", rootURL: identity.url)
                 cancelJavaLanguageServerPreparation()
-                languageIntelligenceModuleCoordinator.resetWorkspaceState(languageToolingFeature)
+                languageToolingFeature.resetProviderState(providerID: "java")
                 showNotification(
                     settings.language.localizedString("native.inline.javaIndexClearedReopenAJavaFileToRebuild")
                 )

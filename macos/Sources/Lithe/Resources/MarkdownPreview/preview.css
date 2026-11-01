@@ -247,8 +247,10 @@ details { margin: 1em 0; padding: 0.75em 0.9em; border: 1px solid var(--border);
 summary { cursor: pointer; font-weight: 600; }
 details > :last-child { margin-bottom: 0; }
 
-img, video { display: block; max-width: 100%; height: auto; margin: 1.25em auto; border-radius: 4px; }
-img { cursor: zoom-in; }
+/* Images participate in their paragraph's inline flow: README badges should
+   wrap only when space runs out, and inherit their container's alignment. */
+img { display: inline-block; max-width: 100%; height: auto; margin: 0; border-radius: 4px; vertical-align: middle; cursor: zoom-in; }
+video { display: block; max-width: 100%; height: auto; margin: 1.25em auto; border-radius: 4px; }
 audio { width: min(100%, 520px); }
 
 .diagram-shell {
@@ -264,6 +266,7 @@ audio { width: min(100%, 520px); }
 }
 
 .diagram-shell svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.plantuml-shell img { margin: 0 auto; }
 .diagram-shell.markmap-shell { height: clamp(340px, 55vh, 560px); padding: 0; }
 .diagram-shell.markmap-shell svg { width: 100%; height: 100%; max-width: none; }
 .diagram-error { margin: 0 0 0.75em; color: var(--alert-caution); font-size: 0.84em; }
