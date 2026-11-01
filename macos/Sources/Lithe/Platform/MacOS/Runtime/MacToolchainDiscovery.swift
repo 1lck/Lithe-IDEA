@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import LitheCoreContracts
+import os
 import LitheModuleAPI
 
 /// Expands definition-owned discovery scans and runs declared version probes for the
@@ -15,6 +16,15 @@ struct MacToolchainDiscovery: Sendable {
         let sources: [ToolchainSettingsPluginSource]
         /// The login-shell environment children receive; only declared variables reach Core.
         let environment: [String: String]
+        /// Directories to ask providers about: the root and those with their own version file.
+        var directories: [String] = ["."]
+    }
+
+    /// The identities a workspace `toolchains/query` carries; `nil` when no context is open.
+    struct WorkspaceContext: Sendable {
+        let contextID: String
+        let generation: Int
+        let rootID: String
     }
 
     struct Result: Equatable, Sendable {
@@ -22,6 +32,13 @@ struct MacToolchainDiscovery: Sendable {
         /// Tools whose candidate check Core refused, so their rows show no detection.
         var unchecked: [String] = []
         var diagnostics: [String] = []
+        /// What providers require for a tool, by queried directory then tool.
+        var requirements: [String: [String: [ToolchainSettingsSnapshot.Requirement]]] = [:]
+        var globalRequirements: [String: [ToolchainSettingsSnapshot.Requirement]] = [:]
+        /// Outcome of the latest queries, by qualified provider ID.
+        var providerStates: [String: ToolchainSettingsSnapshot.Provider.QueryState] = [:]
+        /// Native inputs providers named; a change revokes the whole snapshot.
+        var watch: [String] = []
     }
 
     /// `discoveryPlan` bounds for scan roots and expanded directory entries.
@@ -36,13 +53,25 @@ struct MacToolchainDiscovery: Sendable {
     static let probeWidth = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
     static let probeTimeBudget: Duration = .seconds(20)
 
+    /// One provider query, as `queryProvider` replies must be bounded.
+    static let queryTimeout: TimeInterval = 15
+    /// Directories asked per provider; each is one upstream run.
+    static let queryDirectoryBudget = 32
+
     private static let probeCache = MacRuntimeProbeCache()
+    static let generations = OSAllocatedUnfairLock(initialState: UInt64(0))
 
     var homeDirectory: @Sendable () -> String = { NSHomeDirectory() }
     /// One `toolchains.*` command; `nil` when Core refuses the input.
     var core: @Sendable (String, [String: Any]) -> [String: Any]? = Self.callCore
     /// The output of a successful probe; failures are not cached and Core reports them.
     var probe: @Sendable (_ executable: String, _ arguments: [String]) -> String? = Self.runProbe
+    /// Asks a plugin's provider and returns `{ id, response }`; `nil` leaves providers unqueried.
+    var queryProvider: (@Sendable (_ pluginID: String, _ providerID: String, _ params: ToolingJSONValue,
+                                   _ timeout: TimeInterval) async throws -> ToolingJSONValue)? = nil
+    var workspaceContext: @Sendable (_ workspace: URL, _ pluginID: String) async -> WorkspaceContext? = { _, _ in nil }
+    /// `toolchains.decodeReply`, keeping a refusal's code and message.
+    var decodeReply: @Sendable ([String: Any]) -> [String: Any]? = Self.callDecodeReply
 
     func discover(_ request: Request) async -> Result {
         var result = Result()
@@ -66,10 +95,13 @@ struct MacToolchainDiscovery: Sendable {
             .volumeSupportsCaseSensitiveNames ?? false
         var scanner = Scanner(home: homeDirectory(), environment: request.environment, workspace: root,
                               caseSensitive: caseSensitive)
+        let answers = await queryProviders(
+            request, registry: registry, tools: tools, root: root, caseSensitive: caseSensitive, into: &result)
+        if Task.isCancelled { return result }
         var inputs: [Input] = []
         for tool in tools {
             guard let id = tool["tool"] as? String else { continue }
-            inputs.append(scanner.input(tool: id, plan: tool))
+            inputs.append(scanner.input(tool: id, plan: tool, reported: answers.filter { $0["tool"] as? String == id }))
         }
         result.diagnostics += scanner.diagnostics
 
@@ -111,6 +143,8 @@ struct MacToolchainDiscovery: Sendable {
         let tool: String
         let arguments: [String]
         let installations: [[String: Any]]
+        /// Homes `toolchains.decodeReply` accepted, with their qualified provider.
+        let reported: [[String: Any]]
         let environment: [String: String]
         let facts: [[String: Any]]
         /// Canonical scanned entry by the canonical home Core reports, for homes below their entry.
@@ -129,7 +163,7 @@ struct MacToolchainDiscovery: Sendable {
         let payload: [String: Any] = [
             "registry": registry, "tool": input.tool, "platform": "macos", "filesystemCaseSensitive": caseSensitive,
             "workspaceRoot": root, "filesystem": input.facts, "systemInstallations": input.installations,
-            "environment": input.environment, "probes": probes
+            "providerInstallations": input.reported, "environment": input.environment, "probes": probes
         ]
         return core("toolchains.candidates", payload)?["candidates"] as? [String: Any]
     }
@@ -213,7 +247,7 @@ struct MacToolchainDiscovery: Sendable {
             self.caseSensitive = caseSensitive
         }
 
-        mutating func input(tool: String, plan: [String: Any]) -> Input {
+        mutating func input(tool: String, plan: [String: Any], reported: [[String: Any]]) -> Input {
             var facts = FactSet(caseSensitive: caseSensitive)
             facts.add(fact(workspace))
             let layouts = (plan["executableLayouts"] as? [[String: Any]] ?? []).filter(MacToolchainDiscovery.applies)
@@ -246,7 +280,8 @@ struct MacToolchainDiscovery: Sendable {
                 else { continue }
                 variables[variable] = value
             }
-            for home in homes + variables.values.map(Self.normalized) {
+            let reportedHomes = reported.compactMap { $0["home"] as? String }
+            for home in homes + reportedHomes + variables.values.map(Self.normalized) {
                 let found = fact(home)
                 facts.add(found)
                 let canonical = found["kind"] as? String == "directory" ? found["canonicalPath"] as? String : nil
@@ -263,7 +298,9 @@ struct MacToolchainDiscovery: Sendable {
             }
             let version = plan["version"] as? [String: Any]
             return Input(tool: tool, arguments: version?["arguments"] as? [String] ?? [],
-                         installations: homes.map { ["tool": tool, "home": $0] }, environment: variables,
+                         installations: homes.map { ["tool": tool, "home": $0] },
+                         reported: reported.map { ["tool": tool, "home": $0["home"] ?? "", "provider": $0["provider"] ?? ""] },
+                         environment: variables,
                          facts: facts.values, locations: locations)
         }
 
@@ -325,16 +362,7 @@ struct MacToolchainDiscovery: Sendable {
         /// Metadata of the object a path resolves to, as `execve` and Core's canonical form see it.
         private mutating func fact(_ path: String) -> [String: Any] {
             if let fact = known[path] { return fact }
-            var status = stat()
-            let fact: [String: Any]
-            if stat(path, &status) == 0, let canonical = MacToolchainDiscovery.realpath(path) {
-                fact = status.st_mode & S_IFMT == S_IFDIR
-                    ? ["path": path, "canonicalPath": canonical, "kind": "directory"]
-                    : ["path": path, "canonicalPath": canonical, "kind": "file",
-                       "executable": status.st_mode & S_IFMT == S_IFREG && access(path, X_OK) == 0]
-            } else {
-                fact = ["path": path, "canonicalPath": path, "kind": "missing"]
-            }
+            let fact = MacToolchainDiscovery.fact(of: path)
             known[path] = fact
             return fact
         }
@@ -364,6 +392,18 @@ struct MacToolchainDiscovery: Sendable {
         }
     }
 
+    /// Metadata of the object a path resolves to, as `execve` and Core's canonical form see it.
+    static func fact(of path: String) -> [String: Any] {
+        var status = stat()
+        guard stat(path, &status) == 0, let canonical = realpath(path) else {
+            return ["path": path, "canonicalPath": path, "kind": "missing"]
+        }
+        return status.st_mode & S_IFMT == S_IFDIR
+            ? ["path": path, "canonicalPath": canonical, "kind": "directory"]
+            : ["path": path, "canonicalPath": canonical, "kind": "file",
+               "executable": status.st_mode & S_IFMT == S_IFREG && access(path, X_OK) == 0]
+    }
+
     /// Facts sent to Core: one per path under the platform's case policy, within its limit.
     private struct FactSet {
         let caseSensitive: Bool
@@ -385,7 +425,7 @@ struct MacToolchainDiscovery: Sendable {
         }
     }
 
-    private static func applies(_ value: [String: Any]) -> Bool {
+    static func applies(_ value: [String: Any]) -> Bool {
         (value["platforms"] as? [String]).map { $0.contains("macos") } ?? true
     }
 
@@ -422,6 +462,14 @@ struct MacToolchainDiscovery: Sendable {
               object["status"] as? String == "ok"
         else { return nil }
         return object
+    }
+
+    @Sendable static func callDecodeReply(_ payload: [String: Any]) -> [String: Any]? {
+        guard let value = ToolingJSONValue.fromFoundation(payload) else { return nil }
+        let outcome: Swift.Result<ToolingJSONValue, RustCoreBridge.CoreCallError> = RustCoreBridge()
+            .executeResult(command: "toolchains.decodeReply", payload: value)
+        guard case let .success(data) = outcome else { return nil }
+        return data.foundationObject as? [String: Any]
     }
 
     /// Runs the definition's version arguments without a shell, outside the workspace, with

@@ -189,7 +189,7 @@ struct ToolchainEnvironmentSettingsView: View {
     private func toolsGroup(_ snapshot: ToolchainSettingsSnapshot) -> some View {
         let tools = feature.tools
         return ToolchainSettingsGroup(Text("Tools"), accessory: {
-            LitheInfoTip("Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Version managers are not queried yet, so the versions that version files ask for are not shown.")
+            LitheInfoTip("Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for.")
             Spacer(minLength: 8)
             Button(action: refresh) {
                 HStack(spacing: 4) {
@@ -406,10 +406,10 @@ private struct ToolchainToolRow: View {
     private var projectStep: some View {
         ToolchainResolutionStep(
             number: 2, title: "Project requirements",
-            info: "Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet.",
-            isFirstMatch: firstMatch == 2, hasFact: !tool.versionFiles.isEmpty
+            info: "Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them.",
+            isFirstMatch: firstMatch == 2, hasFact: !tool.versionFiles.isEmpty || !tool.requirements.isEmpty
         ) {
-            if tool.versionFiles.isEmpty {
+            if tool.versionFiles.isEmpty && tool.requirements.isEmpty {
                 Text("No version file").foregroundStyle(LitheTheme.tertiaryText)
             } else {
                 ForEach(tool.versionFiles, id: \.path) { file in
@@ -420,20 +420,46 @@ private struct ToolchainToolRow: View {
                         monospaced(file.path, size: 11, color: LitheTheme.primaryText, truncation: .head)
                     }
                 }
-                Text("Version not queried").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                if tool.requirements.isEmpty {
+                    Text("Version not queried").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                }
             }
+            requirementRows(tool.requirements)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("toolchain-step:" + tool.id + ":project")
+    }
+
+    /// A provider's answer: the manager's own request text and what it resolves to.
+    @ViewBuilder
+    private func requirementRows(_ requirements: [ToolchainSettingsSnapshot.Requirement]) -> some View {
+        ForEach(requirements, id: \.source) { requirement in
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    if let title = providers.first(where: { $0.id == requirement.providerID })?.title {
+                        ToolchainSettingsTag(verbatim: title)
+                    }
+                    monospaced(requirement.request, size: 11, color: LitheTheme.primaryText, truncation: .tail)
+                    if let version = requirement.version {
+                        Text(verbatim: version).font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
+                    } else if requirement.home == nil {
+                        Text("Not installed").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                    }
+                }
+                monospaced(ToolchainSettingsText.abbreviated(requirement.source), size: 10.5,
+                           color: LitheTheme.tertiaryText, truncation: .head)
+            }
+        }
     }
 
     private var globalStep: some View {
         let shell = detection?.shell ?? []
         return ToolchainResolutionStep(
             number: 3, title: "Global defaults",
-            info: "The home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run. Version managers' global versions are not queried yet.",
-            isFirstMatch: firstMatch == 3, hasFact: !shell.isEmpty || tool.candidate != nil
+            info: "What version managers report as global, then the home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run.",
+            isFirstMatch: firstMatch == 3, hasFact: !shell.isEmpty || tool.candidate != nil || !tool.globalRequirements.isEmpty
         ) {
+            requirementRows(tool.globalRequirements)
             ForEach(shell, id: \.variable) { row in
                 // A long variable name leaves no room for the version beside it in a narrow card.
                 ViewThatFits(in: .horizontal) {

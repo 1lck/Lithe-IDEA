@@ -16,6 +16,7 @@
 "%@ build files changed" = "%@ build files changed";
 "%@ could not be reached. Check your internet, proxy, or VPN connection and try again." = "%@ could not be reached. Check your internet, proxy, or VPN connection and try again.";
 "%@ debug adapter is unavailable." = "%@ debug adapter is unavailable.";
+"%@ did not answer: %@" = "%@ did not answer: %@";
 "%@ did not finish within %lld seconds." = "%@ did not finish within %lld seconds.";
 "%@ did not report a version; %@ or newer is required." = "%@ did not report a version; %@ or newer is required.";
 "%@ disabled" = "%@ disabled";
@@ -350,6 +351,7 @@
 "Another Hook update is running. Try again." = "Another Hook update is running. Try again.";
 "Another global entry uses this name with a different definition." = "Another global entry uses this name with a different definition.";
 "Another instruction save is running. Try again." = "Another instruction save is running. Try again.";
+"Answered in %lld ms" = "Answered in %lld ms";
 "Any Time" = "Any Time";
 "Appearance" = "Appearance";
 "Appearance & Behavior" = "Appearance & Behavior";
@@ -1304,7 +1306,7 @@
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "Each row explains the setting, the value Git is actually using, and where that value comes from.";
 "Each submodule is pushed before its parent." = "Each submodule is pushed before its parent.";
-"Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Version managers are not queried yet, so the versions that version files ask for are not shown." = "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Version managers are not queried yet, so the versions that version files ask for are not shown.";
+"Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for." = "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for.";
 "Earlier" = "Earlier";
 "Earlier Git commands were truncated to limit memory use." = "Earlier Git commands were truncated to limit memory use.";
 "Earlier Git output was omitted to limit memory use." = "Earlier Git output was omitted to limit memory use.";
@@ -2629,6 +2631,7 @@
 "Only the current branch can be updated" = "Only the current branch can be updated";
 "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included." = "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included.";
 "Only the first %lld directories are shown." = "Only the first %lld directories are shown.";
+"Only the first %lld directories were queried." = "Only the first %lld directories were queried.";
 "Only the first %lld discovered entries were checked." = "Only the first %lld discovered entries were checked.";
 "Only the first %lld discovery locations were scanned." = "Only the first %lld discovery locations were scanned.";
 "Only the first %lld installation versions were checked." = "Only the first %lld installation versions were checked.";
@@ -2985,6 +2988,7 @@
 "Push to %@" = "Push to %@";
 "Push…" = "Push…";
 "Python Support" = "Python Support";
+"Query" = "Query";
 "Quick Information" = "Quick Information";
 "Quick responses with basic reasoning" = "Quick responses with basic reasoning";
 "Quit" = "Quit";
@@ -4061,7 +4065,6 @@
 "The generated message will replace the text currently in the editor." = "The generated message will replace the text currently in the editor.";
 "The generated title or description would replace text you already entered." = "The generated title or description would replace text you already entered.";
 "The global instruction file must use UTF-8 encoding." = "The global instruction file must use UTF-8 encoding.";
-"The home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run. Version managers' global versions are not queried yet." = "The home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run. Version managers' global versions are not queried yet.";
 "The host cannot provide an execution session for %@." = "The host cannot provide an execution session for %@.";
 "The host could not be reached. Check the host name, the port, and your network." = "The host could not be reached. Check the host name, the port, and your network.";
 "The host could not create the plugin's workspace state directory." = "The host could not create the plugin's workspace state directory.";
@@ -4103,6 +4106,7 @@
 "The patch changes the base commit's tree into the target commit's tree." = "The patch changes the base commit's tree into the target commit's tree.";
 "The plugin archive expands beyond the allowed size: %@" = "The plugin archive expands beyond the allowed size: %@";
 "The plugin archive is larger than %@ MB." = "The plugin archive is larger than %@ MB.";
+"The plugin backend did not offer this version manager." = "The plugin backend did not offer this version manager.";
 "The plugin backend failed to start." = "The plugin backend failed to start.";
 "The plugin backend is no longer running." = "The plugin backend is no longer running.";
 "The plugin backend stopped before it was ready." = "The plugin backend stopped before it was ready.";
@@ -4158,6 +4162,7 @@
 "The remote terminal closed before it started." = "The remote terminal closed before it started.";
 "The remote terminal is busy. Wait before sending more input." = "The remote terminal is busy. Wait before sending more input.";
 "The remote terminal must be started asynchronously." = "The remote terminal must be started asynchronously.";
+"The reply could not be read." = "The reply could not be read.";
 "The reported file changes have been updated. Review them again before rolling back." = "The reported file changes have been updated. Review them again before rolling back.";
 "The repository changed or another Git operation is running. Preview the patch again." = "The repository changed or another Git operation is running. Preview the patch again.";
 "The repository changed or another Git operation is running. Refresh before retrying." = "The repository changed or another Git operation is running. Refresh before retrying.";
@@ -4211,6 +4216,7 @@
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.";
 "The terminal directory is outside the remote workspace." = "The terminal directory is outside the remote workspace.";
 "The test file is outside the current workspace: %@" = "The test file is outside the current workspace: %@";
+"The toolchain query could not be built." = "The toolchain query could not be built.";
 "The update could not be installed. Download the release manually and try again." = "The update could not be installed. Download the release manually and try again.";
 "The update package could not be downloaded. Check your internet connection and try again." = "The update package could not be downloaded. Check your internet connection and try again.";
 "The update package could not be downloaded. Check your internet, proxy, or VPN connection and try again." = "The update package could not be downloaded. Check your internet, proxy, or VPN connection and try again.";
@@ -4349,6 +4355,7 @@
 "This window" = "This window";
 "This working copy format is not supported. Upgrade it with the command-line client." = "This working copy format is not supported. Upgrade it with the command-line client.";
 "This working copy is no longer available. Refresh and try again." = "This working copy is no longer available. Refresh and try again.";
+"This workspace is not open in a window, so only global versions were read." = "This workspace is not open in a window, so only global versions were read.";
 "This worktree has a detached HEAD. Publish it as a branch before creating a pull request." = "This worktree has a detached HEAD. Publish it as a branch before creating a pull request.";
 "This worktree has no uncommitted changes." = "This worktree has no uncommitted changes.";
 "Threads" = "Threads";
@@ -4614,10 +4621,10 @@
 "Version control provider" = "Version control provider";
 "Version file" = "Version file";
 "Version files" = "Version files";
-"Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet." = "Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet.";
+"Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them." = "Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them.";
 "Version files were checked in the first %lld directories only." = "Version files were checked in the first %lld directories only.";
 "Version managers" = "Version managers";
-"Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet." = "Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet.";
+"Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you." = "Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you.";
 "Version not queried" = "Version not queried";
 "Version not verified" = "Version not verified";
 "Version status" = "Version status";
@@ -4669,6 +4676,7 @@
 "What Fetch removes or downloads before you start working." = "What Fetch removes or downloads before you start working.";
 "What Fetch will do" = "What Fetch will do";
 "What does this pull request change?" = "What does this pull request change?";
+"What version managers report as global, then the home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run." = "What version managers report as global, then the home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run.";
 "When a session starts" = "When a session starts";
 "When a turn ends" = "When a turn ends";
 "When quitting Lithe" = "When quitting Lithe";
@@ -9132,8 +9140,10 @@
 "native.toolWindow" = "Tool Window";
 "native.toolWindows" = "Tool Windows";
 "native.toolbarActions" = "Toolbar Actions";
+"native.toolchainSettings.answeredIn" = "Answered in %1$lld ms";
 "native.toolchainSettings.automaticDiscovery" = "Automatic discovery";
 "native.toolchainSettings.automaticStepInfo" = "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run.";
+"native.toolchainSettings.backendDidNotOfferProvider" = "The plugin backend did not offer this version manager.";
 "native.toolchainSettings.consumers" = "Consumers";
 "native.toolchainSettings.couldNotReadToolchainSettings" = "Could not read toolchain settings.";
 "native.toolchainSettings.definition" = "Definition";
@@ -9142,13 +9152,14 @@
 "native.toolchainSettings.discovered" = "Discovered";
 "native.toolchainSettings.discoveryDeclarationsUnchecked" = "Installed toolchain declarations could not be checked for discovery.";
 "native.toolchainSettings.exportedEnvironment" = "Exported environment";
+"native.toolchainSettings.firstDirectoriesQueried" = "Only the first %1$lld directories were queried.";
 "native.toolchainSettings.firstMatch" = "First match";
 "native.toolchainSettings.fixed" = "Fixed";
 "native.toolchainSettings.fixedInParent" = "Fixed in parent";
 "native.toolchainSettings.fixedInfo" = "Fixed versions are saved on this computer in .lithe/toolchains/local.json and also apply to the directories below. This page reads them without changing the file.";
 "native.toolchainSettings.fromDirectory" = "From %1$@";
 "native.toolchainSettings.globalDefaults" = "Global defaults";
-"native.toolchainSettings.globalStepInfo" = "The home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run. Version managers' global versions are not queried yet.";
+"native.toolchainSettings.globalStepInfo" = "What version managers report as global, then the home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run.";
 "native.toolchainSettings.installationsCouldNotBeChecked" = "Installations of %1$@ could not be checked.";
 "native.toolchainSettings.launchEnvironment" = "Launch environment";
 "native.toolchainSettings.loginShell" = "Login shell";
@@ -9178,12 +9189,16 @@
 "native.toolchainSettings.pinnedStepInfo" = "A version saved for this directory on this computer. It applies first, also in the directories below.";
 "native.toolchainSettings.projectRequirements" = "Project requirements";
 "native.toolchainSettings.projectRootDirectory" = "Project root directory";
-"native.toolchainSettings.projectStepInfo" = "Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet.";
+"native.toolchainSettings.projectStepInfo" = "Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them.";
+"native.toolchainSettings.providerDidNotAnswer" = "%1$@ did not answer: %2$@";
+"native.toolchainSettings.query" = "Query";
 "native.toolchainSettings.queryMilliseconds" = "%1$lld ms";
+"native.toolchainSettings.queryNotBuilt" = "The toolchain query could not be built.";
 "native.toolchainSettings.readAgain" = "Read again";
 "native.toolchainSettings.readResult" = "Read result";
 "native.toolchainSettings.reading" = "Reading…";
 "native.toolchainSettings.remoteUnavailable" = "Toolchain settings are not available for remote workspaces yet.";
+"native.toolchainSettings.replyUnreadable" = "The reply could not be read.";
 "native.toolchainSettings.reportsInstalledVersionsOnly" = "Reports installed versions only";
 "native.toolchainSettings.runtimeEnvironment" = "Runtime Environment";
 "native.toolchainSettings.runtimeEnvironmentIsolatedPreview" = "Runtime Environment — Isolated Preview";
@@ -9196,7 +9211,7 @@
 "native.toolchainSettings.tooManyFilesForOneTool" = "Too many files to check for one tool; some installations were skipped.";
 "native.toolchainSettings.toolDefinitionInfo" = "This row comes from the tool definition of an enabled plugin. Lithe has no built-in tools.";
 "native.toolchainSettings.toolchainSources" = "Toolchain Sources";
-"native.toolchainSettings.toolsInfo" = "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Version managers are not queried yet, so the versions that version files ask for are not shown.";
+"native.toolchainSettings.toolsInfo" = "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for.";
 "native.toolchainSettings.turnedOffBySkipVariable" = "Turned off by LITHE_SKIP_SHELL_ENV";
 "native.toolchainSettings.usingCachedPath" = "Using the PATH saved last time";
 "native.toolchainSettings.usingLaunchEnvironment" = "Using the environment Lithe was launched with";
@@ -9209,12 +9224,13 @@
 "native.toolchainSettings.versionFilesInfo" = "Files declared by enabled version managers that exist in this directory. A directory without its own uses the nearest parent's.";
 "native.toolchainSettings.versionManagerDefinitionInfo" = "This version manager comes from an enabled plugin. Lithe has no built-in version managers.";
 "native.toolchainSettings.versionManagers" = "Version managers";
-"native.toolchainSettings.versionManagersInfo" = "Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet.";
+"native.toolchainSettings.versionManagersInfo" = "Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you.";
 "native.toolchainSettings.versionNotQueried" = "Version not queried";
 "native.toolchainSettings.versionNotVerified" = "Version not verified";
 "native.toolchainSettings.versionTooOld" = "Version too old";
 "native.toolchainSettings.versionsNotCheckedInTime" = "Some installation versions were not checked in time.";
 "native.toolchainSettings.watchedFiles" = "Watched files";
+"native.toolchainSettings.workspaceNotOpenGlobalOnly" = "This workspace is not open in a window, so only global versions were read.";
 "native.tools" = "Tools";
 "native.toolsSent" = "Tools sent";
 "native.total" = "Total";

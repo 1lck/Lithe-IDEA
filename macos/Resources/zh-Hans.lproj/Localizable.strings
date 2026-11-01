@@ -16,6 +16,7 @@
 "%@ build files changed" = "%@ 构建文件已更改";
 "%@ could not be reached. Check your internet, proxy, or VPN connection and try again." = "无法连接 %@。请检查网络、代理或 VPN 后重试。";
 "%@ debug adapter is unavailable." = "%@ 调试适配器不可用。";
+"%@ did not answer: %@" = "%@ 未回答：%@";
 "%@ did not finish within %lld seconds." = "%1$@ 未在 %2$lld 秒内完成。";
 "%@ did not report a version; %@ or newer is required." = "%1$@ 没有报告版本，需要 %2$@ 或更高版本。";
 "%@ disabled" = "%@ 已停用";
@@ -350,6 +351,7 @@
 "Another Hook update is running. Try again." = "另一个 Hook 更新正在进行，请稍后重试。";
 "Another global entry uses this name with a different definition." = "另一个全局条目使用了相同名称但定义不同。";
 "Another instruction save is running. Try again." = "另一项指令保存正在进行，请重试。";
+"Answered in %lld ms" = "%lld 毫秒内已回答";
 "Any Time" = "不限时间";
 "Appearance" = "外观";
 "Appearance & Behavior" = "外观与行为";
@@ -1304,7 +1306,7 @@
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "每个仓库会分别提交。某个仓库失败时，已完成的步骤仍会保留。";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "每一行都会说明设置用途、Git 实际采用的值，以及这个值来自哪里。";
 "Each submodule is pushed before its parent." = "先推送子模块，再推送父仓库。";
-"Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Version managers are not queried yet, so the versions that version files ask for are not shown." = "每个工具采用第一个有值的来源，依次为固定版本、项目版本文件、全局默认、自动检测。已安装的版本通过运行该工具自己的版本命令来检查。版本管理器暂未接入查询，因此不显示版本文件所要求的版本。";
+"Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for." = "每个工具采用第一个有值的来源，依次为固定版本、项目版本文件、全局默认、自动检测。已安装的版本通过运行该工具自己的版本命令来检查。已启用的版本管理器会报告版本文件所要求的版本。";
 "Earlier" = "更早";
 "Earlier Git commands were truncated to limit memory use." = "为限制内存占用，较早的 Git 执行记录已截断，无法展开。";
 "Earlier Git output was omitted to limit memory use." = "为限制内存占用，已省略较早的 Git 输出。";
@@ -2629,6 +2631,7 @@
 "Only the current branch can be updated" = "只能更新当前分支";
 "Only the files below are collected. Credentials, tokens, and home-directory paths are redacted automatically; workspace source, editor buffers, and terminal history are never included." = "仅收集下列文件。凭据、令牌和用户目录路径会被自动脱敏；工作区源代码、编辑器缓冲区内容和终端历史绝不会被包含。";
 "Only the first %lld directories are shown." = "只显示前 %lld 个目录。";
+"Only the first %lld directories were queried." = "只查询了前 %lld 个目录。";
 "Only the first %lld discovered entries were checked." = "只检查了前 %lld 个发现的条目。";
 "Only the first %lld discovery locations were scanned." = "只扫描了前 %lld 个检测位置。";
 "Only the first %lld installation versions were checked." = "只检查了前 %lld 个安装的版本。";
@@ -2985,6 +2988,7 @@
 "Push to %@" = "推送到 %@";
 "Push…" = "推送…";
 "Python Support" = "Python 支持";
+"Query" = "查询";
 "Quick Information" = "快速信息";
 "Quick responses with basic reasoning" = "快速响应，基础推理";
 "Quit" = "退出";
@@ -4061,7 +4065,6 @@
 "The generated message will replace the text currently in the editor." = "生成的提交信息将替换编辑器中的当前文本。";
 "The generated title or description would replace text you already entered." = "生成的标题或描述可能会替换你已经输入的内容。";
 "The global instruction file must use UTF-8 encoding." = "全局指令文件必须使用 UTF-8 编码。";
-"The home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run. Version managers' global versions are not queried yet." = "插件为该工具声明的主目录变量和命令，从登录 Shell 中读取。主目录的版本来自该工具自己的版本命令；在 PATH 中找到的命令不会运行。版本管理器的全局版本暂未接入查询。";
 "The host cannot provide an execution session for %@." = "宿主无法为 %@ 提供执行会话。";
 "The host could not be reached. Check the host name, the port, and your network." = "无法连接到主机，请检查主机名、端口和网络。";
 "The host could not create the plugin's workspace state directory." = "宿主无法创建插件的工作区状态目录。";
@@ -4103,6 +4106,7 @@
 "The patch changes the base commit's tree into the target commit's tree." = "补丁将基准提交的文件内容变为目标提交的文件内容。";
 "The plugin archive expands beyond the allowed size: %@" = "插件压缩包解压后超出允许的大小：%@";
 "The plugin archive is larger than %@ MB." = "插件压缩包超过 %@ MB。";
+"The plugin backend did not offer this version manager." = "插件后端没有提供此版本管理器。";
 "The plugin backend failed to start." = "插件后端启动失败。";
 "The plugin backend is no longer running." = "插件后端已不在运行。";
 "The plugin backend stopped before it was ready." = "插件后端在就绪前已停止。";
@@ -4158,6 +4162,7 @@
 "The remote terminal closed before it started." = "远程终端在启动完成前已关闭。";
 "The remote terminal is busy. Wait before sending more input." = "远程终端正忙，请稍后再发送输入。";
 "The remote terminal must be started asynchronously." = "远程终端需要异步启动。";
+"The reply could not be read." = "无法读取答复。";
 "The reported file changes have been updated. Review them again before rolling back." = "Agent 上报的文件修改已更新，请重新确认后再回撤。";
 "The repository changed or another Git operation is running. Preview the patch again." = "仓库已更改或有其他 Git 操作正在运行。请重新预览补丁。";
 "The repository changed or another Git operation is running. Refresh before retrying." = "仓库已更改或有其他 Git 操作正在运行。请刷新后重试。";
@@ -4211,6 +4216,7 @@
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "开关控制是否使用 Lithe 共享区块，不会停用 Agent 或它的自有指令。请先保存共享修改再操作开关。点击行可编辑完整原生文件。";
 "The terminal directory is outside the remote workspace." = "终端目录不在远程工作区内。";
 "The test file is outside the current workspace: %@" = "测试文件在当前工作区之外：%@";
+"The toolchain query could not be built." = "无法构建工具链查询。";
 "The update could not be installed. Download the release manually and try again." = "无法安装更新，请手动下载版本后重试。";
 "The update package could not be downloaded. Check your internet connection and try again." = "无法下载更新包，请检查网络连接后重试。";
 "The update package could not be downloaded. Check your internet, proxy, or VPN connection and try again." = "无法下载更新包。请检查网络、代理或 VPN 连接后重试。";
@@ -4349,6 +4355,7 @@
 "This window" = "此窗口";
 "This working copy format is not supported. Upgrade it with the command-line client." = "不支持此工作副本格式。请用命令行客户端升级。";
 "This working copy is no longer available. Refresh and try again." = "此工作副本已不可用。请刷新后重试。";
+"This workspace is not open in a window, so only global versions were read." = "此工作区未在窗口中打开，因此只读取了全局版本。";
 "This worktree has a detached HEAD. Publish it as a branch before creating a pull request." = "当前工作树处于分离 HEAD 状态。请先将它发布为分支，再创建拉取请求。";
 "This worktree has no uncommitted changes." = "此工作树没有未提交的更改。";
 "Threads" = "线程";
@@ -4614,10 +4621,10 @@
 "Version control provider" = "版本控制 Provider";
 "Version file" = "版本文件";
 "Version files" = "版本文件";
-"Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet." = "此目录或上级目录中、由该工具的版本管理器监视的版本文件。其中要求的版本暂未查询。";
+"Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them." = "此目录或上级目录中、由该工具的版本管理器监视的版本文件，以及版本管理器报告的版本。";
 "Version files were checked in the first %lld directories only." = "只在前 %lld 个目录中检查了版本文件。";
 "Version managers" = "版本管理器";
-"Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet." = "版本管理器来自已启用的插件。Lithe 会在此项目中查找它们监视的文件，但暂不运行或查询它们。";
+"Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you." = "版本管理器来自已启用的插件。Lithe 会询问它们已安装的版本和此项目的要求；它们不会替你安装或信任任何内容。";
 "Version not queried" = "版本未查询";
 "Version not verified" = "版本未验证";
 "Version status" = "版本状态";
@@ -4669,6 +4676,7 @@
 "What Fetch removes or downloads before you start working." = "开始工作前，Fetch 会清理或下载什么。";
 "What Fetch will do" = "Fetch 会做什么";
 "What does this pull request change?" = "这个拉取请求更改了什么？";
+"What version managers report as global, then the home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run." = "版本管理器报告的全局版本，以及插件为该工具声明的主目录变量和命令（从登录 Shell 中读取）。主目录的版本来自该工具自己的版本命令；在 PATH 中找到的命令不会运行。";
 "When a session starts" = "会话开始时";
 "When a turn ends" = "一轮结束时";
 "When quitting Lithe" = "退出 Lithe 时";
@@ -9132,8 +9140,10 @@
 "native.toolWindow" = "工具窗口";
 "native.toolWindows" = "工具窗口";
 "native.toolbarActions" = "工具栏操作";
+"native.toolchainSettings.answeredIn" = "%1$lld 毫秒内已回答";
 "native.toolchainSettings.automaticDiscovery" = "自动检测";
 "native.toolchainSettings.automaticStepInfo" = "在插件为该工具声明的位置中找到的安装。每个版本来自该工具自己的版本命令，使用其中最高的版本。项目内的安装永远不会运行。";
+"native.toolchainSettings.backendDidNotOfferProvider" = "插件后端没有提供此版本管理器。";
 "native.toolchainSettings.consumers" = "使用方";
 "native.toolchainSettings.couldNotReadToolchainSettings" = "无法读取工具链设置。";
 "native.toolchainSettings.definition" = "定义";
@@ -9142,13 +9152,14 @@
 "native.toolchainSettings.discovered" = "自动发现";
 "native.toolchainSettings.discoveryDeclarationsUnchecked" = "无法检查已安装的工具链声明，未进行自动检测。";
 "native.toolchainSettings.exportedEnvironment" = "导出环境变量";
+"native.toolchainSettings.firstDirectoriesQueried" = "只查询了前 %1$lld 个目录。";
 "native.toolchainSettings.firstMatch" = "首个命中";
 "native.toolchainSettings.fixed" = "固定";
 "native.toolchainSettings.fixedInParent" = "上级目录固定";
 "native.toolchainSettings.fixedInfo" = "固定版本只保存在这台电脑的 .lithe/toolchains/local.json 中，并作用于其下的子目录。此页面只读取，不会修改该文件。";
 "native.toolchainSettings.fromDirectory" = "来自 %1$@";
 "native.toolchainSettings.globalDefaults" = "全局默认";
-"native.toolchainSettings.globalStepInfo" = "插件为该工具声明的主目录变量和命令，从登录 Shell 中读取。主目录的版本来自该工具自己的版本命令；在 PATH 中找到的命令不会运行。版本管理器的全局版本暂未接入查询。";
+"native.toolchainSettings.globalStepInfo" = "版本管理器报告的全局版本，以及插件为该工具声明的主目录变量和命令（从登录 Shell 中读取）。主目录的版本来自该工具自己的版本命令；在 PATH 中找到的命令不会运行。";
 "native.toolchainSettings.installationsCouldNotBeChecked" = "无法检查 %1$@ 的安装。";
 "native.toolchainSettings.launchEnvironment" = "启动时环境";
 "native.toolchainSettings.loginShell" = "登录 Shell";
@@ -9178,12 +9189,16 @@
 "native.toolchainSettings.pinnedStepInfo" = "在这台电脑上为此目录保存的版本，优先级最高，也作用于其下的子目录。";
 "native.toolchainSettings.projectRequirements" = "项目要求";
 "native.toolchainSettings.projectRootDirectory" = "项目根目录";
-"native.toolchainSettings.projectStepInfo" = "此目录或上级目录中、由该工具的版本管理器监视的版本文件。其中要求的版本暂未查询。";
+"native.toolchainSettings.projectStepInfo" = "此目录或上级目录中、由该工具的版本管理器监视的版本文件，以及版本管理器报告的版本。";
+"native.toolchainSettings.providerDidNotAnswer" = "%1$@ 未回答：%2$@";
+"native.toolchainSettings.query" = "查询";
 "native.toolchainSettings.queryMilliseconds" = "%1$lld 毫秒";
+"native.toolchainSettings.queryNotBuilt" = "无法构建工具链查询。";
 "native.toolchainSettings.readAgain" = "重新读取";
 "native.toolchainSettings.readResult" = "读取结果";
 "native.toolchainSettings.reading" = "正在读取…";
 "native.toolchainSettings.remoteUnavailable" = "远程工作区暂不支持工具链设置。";
+"native.toolchainSettings.replyUnreadable" = "无法读取答复。";
 "native.toolchainSettings.reportsInstalledVersionsOnly" = "只报告已安装的版本";
 "native.toolchainSettings.runtimeEnvironment" = "运行环境";
 "native.toolchainSettings.runtimeEnvironmentIsolatedPreview" = "运行环境 — 隔离预览";
@@ -9196,7 +9211,7 @@
 "native.toolchainSettings.tooManyFilesForOneTool" = "单个工具需要检查的文件过多，已跳过部分安装。";
 "native.toolchainSettings.toolDefinitionInfo" = "这一行来自已启用插件的工具定义，Lithe 不内置任何工具。";
 "native.toolchainSettings.toolchainSources" = "环境来源";
-"native.toolchainSettings.toolsInfo" = "每个工具采用第一个有值的来源，依次为固定版本、项目版本文件、全局默认、自动检测。已安装的版本通过运行该工具自己的版本命令来检查。版本管理器暂未接入查询，因此不显示版本文件所要求的版本。";
+"native.toolchainSettings.toolsInfo" = "每个工具采用第一个有值的来源，依次为固定版本、项目版本文件、全局默认、自动检测。已安装的版本通过运行该工具自己的版本命令来检查。已启用的版本管理器会报告版本文件所要求的版本。";
 "native.toolchainSettings.turnedOffBySkipVariable" = "已由 LITHE_SKIP_SHELL_ENV 关闭";
 "native.toolchainSettings.usingCachedPath" = "仍在使用上次保存的 PATH";
 "native.toolchainSettings.usingLaunchEnvironment" = "仍在使用 Lithe 启动时的环境";
@@ -9209,12 +9224,13 @@
 "native.toolchainSettings.versionFilesInfo" = "已启用的版本管理器所声明、且存在于此目录中的文件。没有自己版本文件的目录沿用最近上级目录的。";
 "native.toolchainSettings.versionManagerDefinitionInfo" = "此版本管理器来自已启用的插件，Lithe 不内置任何版本管理器。";
 "native.toolchainSettings.versionManagers" = "版本管理器";
-"native.toolchainSettings.versionManagersInfo" = "版本管理器来自已启用的插件。Lithe 会在此项目中查找它们监视的文件，但暂不运行或查询它们。";
+"native.toolchainSettings.versionManagersInfo" = "版本管理器来自已启用的插件。Lithe 会询问它们已安装的版本和此项目的要求；它们不会替你安装或信任任何内容。";
 "native.toolchainSettings.versionNotQueried" = "版本未查询";
 "native.toolchainSettings.versionNotVerified" = "版本未验证";
 "native.toolchainSettings.versionTooOld" = "版本过低";
 "native.toolchainSettings.versionsNotCheckedInTime" = "部分安装的版本未能及时检查。";
 "native.toolchainSettings.watchedFiles" = "监视的文件";
+"native.toolchainSettings.workspaceNotOpenGlobalOnly" = "此工作区未在窗口中打开，因此只读取了全局版本。";
 "native.tools" = "工具";
 "native.toolsSent" = "发送的工具";
 "native.total" = "总计";

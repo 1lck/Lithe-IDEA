@@ -321,6 +321,49 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         }.mapError(Self.runtimeFailure)
     }
 
+    func requestToolchainProvider(
+        sessionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspToolchainRequest(sessionID: sessionID, params: params, timeout: timeout)
+            .map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+            .mapError(Self.runtimeFailure)
+    }
+
+    func startPluginToolchainBackend(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        toolchainProviders: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        lspStartServer(
+            providerID: providerID,
+            pluginID: pluginID,
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            rootURL: rootURL,
+            workingDirectoryURL: rootURL,
+            initializationOptions: initializationOptions,
+            hostServices: hostServices,
+            toolchainProviders: toolchainProviders,
+            initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout
+        ).map {
+            LanguageServerRuntimeStart(sessionID: $0.sessionId, state: $0.state, processID: $0.processId)
+        }.mapError(Self.runtimeFailure)
+    }
+
     func startPluginLanguageServer(
         pluginID: String,
         providerID: String,

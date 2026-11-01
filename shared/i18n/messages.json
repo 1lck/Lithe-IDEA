@@ -93554,7 +93554,7 @@
         "macos"
       ],
       "macos": {
-        "key": "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Version managers are not queried yet, so the versions that version files ask for are not shown.",
+        "key": "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for.",
         "arguments": []
       }
     },
@@ -93631,7 +93631,7 @@
         "macos"
       ],
       "macos": {
-        "key": "Version files in this directory or its parents, watched by the version managers of this tool. The versions they ask for are not queried yet.",
+        "key": "Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them.",
         "arguments": []
       }
     },
@@ -93653,7 +93653,7 @@
         "macos"
       ],
       "macos": {
-        "key": "The home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run. Version managers' global versions are not queried yet.",
+        "key": "What version managers report as global, then the home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run.",
         "arguments": []
       }
     },
@@ -93839,7 +93839,7 @@
         "macos"
       ],
       "macos": {
-        "key": "Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet.",
+        "key": "Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you.",
         "arguments": []
       }
     },
@@ -94139,6 +94139,111 @@
         "arguments": [
           "arg1"
         ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.query",
+      "description": "Toolchain provider query: Query",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Query",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.answeredIn",
+      "description": "Toolchain provider query: Answered in %lld ms",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Answered in %lld ms",
+        "arguments": [
+          "milliseconds"
+        ]
+      },
+      "parameters": {
+        "milliseconds": "integer"
+      }
+    },
+    {
+      "id": "native.toolchainSettings.backendDidNotOfferProvider",
+      "description": "Toolchain provider query: The plugin backend did not offer this version manager.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin backend did not offer this version manager.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.workspaceNotOpenGlobalOnly",
+      "description": "Toolchain provider query: This workspace is not open in a window, so only global versions were read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This workspace is not open in a window, so only global versions were read.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.providerDidNotAnswer",
+      "description": "Toolchain provider query: %@ did not answer: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ did not answer: %@",
+        "arguments": [
+          "provider",
+          "message"
+        ]
+      },
+      "parameters": {
+        "provider": "string",
+        "message": "string"
+      }
+    },
+    {
+      "id": "native.toolchainSettings.firstDirectoriesQueried",
+      "description": "Toolchain provider query: Only the first %lld directories were queried.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Only the first %lld directories were queried.",
+        "arguments": [
+          "count"
+        ]
+      },
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "native.toolchainSettings.queryNotBuilt",
+      "description": "Toolchain provider query: The toolchain query could not be built.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The toolchain query could not be built.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.replyUnreadable",
+      "description": "Toolchain provider query: The reply could not be read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The reply could not be read.",
+        "arguments": []
       }
     }
   ]

@@ -365,6 +365,8 @@ pub enum CoreCommand {
     LspBuildRequest,
     /// Queues one VCS-provider request (`lsp.vcsRequest`).
     LspVcsRequest,
+    /// Queues one toolchain-provider query (`lsp.toolchainRequest`).
+    LspToolchainRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
     /// Answers a plugin backend's host-service request (`lsp.hostResponse`).
@@ -728,6 +730,7 @@ impl CoreCommand {
             "lsp.request" => Some(Self::LspRequest),
             "lsp.buildRequest" => Some(Self::LspBuildRequest),
             "lsp.vcsRequest" => Some(Self::LspVcsRequest),
+            "lsp.toolchainRequest" => Some(Self::LspToolchainRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
             "lsp.hostResponse" => Some(Self::LspHostResponse),
             "lsp.hostNotify" => Some(Self::LspHostNotify),
@@ -844,6 +847,7 @@ mod tests {
             "lsp.request",
             "lsp.buildRequest",
             "lsp.vcsRequest",
+            "lsp.toolchainRequest",
             "lsp.functionRequest",
             "lsp.hostResponse",
             "lsp.hostNotify",

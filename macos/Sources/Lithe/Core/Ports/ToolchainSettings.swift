@@ -18,6 +18,17 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         var versionFiles: [VersionFile] = []
     }
 
+    /// What a provider says one source asks for. `request` stays the manager's own syntax.
+    struct Requirement: Equatable, Sendable {
+        let request: String
+        /// The absolute file that states it.
+        let source: String
+        let providerID: String
+        /// The installation it resolves to; `nil` means the manager has none installed.
+        var home: String? = nil
+        var version: String? = nil
+    }
+
     /// A machine-local saved choice, validated by Core but never probed.
     struct Pin: Equatable, Sendable {
         let version: String
@@ -82,6 +93,9 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         var pin: Pin? = nil
         /// Version files watched by providers of this tool, nearest directory first.
         var versionFiles: [VersionFile] = []
+        /// Provider answers for this directory, from the nearest queried one.
+        var requirements: [Requirement] = []
+        var globalRequirements: [Requirement] = []
         var candidate: Candidate? = nil
         /// `nil` when discovery did not run or could not check this tool.
         var detection: Detection? = nil
@@ -90,12 +104,20 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
     }
 
     struct Provider: Identifiable, Equatable, Sendable {
+        enum QueryState: Equatable, Sendable {
+            case notQueried
+            case answered(milliseconds: Int)
+            /// The provider's own message, shown unmodified.
+            case failed(String)
+        }
+
         let id: String
         let title: String
         let pluginID: String
         let pluginName: String
         var tools: [String] = []
         var watchFiles: [String] = []
+        var queryState: QueryState = .notQueried
     }
 
     var workspaceURL: URL? = nil
@@ -103,11 +125,19 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
     var tools: [Tool] = []
     var providers: [Provider] = []
     var diagnostics: [String] = []
+    /// Native inputs providers named; any change revokes this snapshot.
+    var watch: [String] = []
 }
 
 /// A platform-owned, cancellable read operation; the application model owns stale-result rejection.
 protocol ToolchainSettingsLoading: Sendable {
     func load(workspace: URL?) async throws -> ToolchainSettingsSnapshot
+}
+
+/// Reports changes to provider inputs outside the workspace, such as global configuration
+/// and installation roots. Dropping the returned object ends the observation.
+protocol ToolchainInputWatching: Sendable {
+    func watch(paths: [String], onChange: @escaping @Sendable () -> Void) -> AnyObject?
 }
 
 /// What the settings pages may show about the login-shell read. Only `PATH`'s

@@ -487,6 +487,29 @@ package protocol LanguageServerRuntimeCore: Sendable {
         arguments: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends one `toolchains/query`. Its completion is a `requestCompleted`
+    /// event whose `result.value` is `{ id, response }`, the raw reply the
+    /// caller passes to `toolchains.decodeReply` with the same JSON-RPC ID.
+    func requestToolchainProvider(
+        sessionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Starts a plugin backend and offers it the manifest's toolchain providers.
+    func startPluginToolchainBackend(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        toolchainProviders: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
     /// Starts a process a plugin owns. Only such a session negotiates plugin
     /// functions, and Core lets it serve that plugin's functions alone.
     func startPluginLanguageServer(
@@ -726,6 +749,41 @@ package extension LanguageServerRuntimeCore {
             code: "not_supported",
             message: "VCS-provider requests are not supported by this runtime."
         ))
+    }
+
+    func requestToolchainProvider(
+        sessionID _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Toolchain-provider requests are not supported by this runtime."
+        ))
+    }
+
+    /// Runtimes without the protocol start the backend without the offer, so
+    /// it negotiates no provider and receives no query.
+    func startPluginToolchainBackend(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        toolchainProviders _: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startPluginLanguageServer(
+            pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
+            environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            hostServices: hostServices,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
     }
 
     /// Runtimes without plugin ownership start a host-owned session, which

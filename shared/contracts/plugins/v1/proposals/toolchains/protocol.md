@@ -1,6 +1,6 @@
 # Proposed toolchain query, resolution and local pins
 
-**Status: broader proposal; native querying and SDK support are not implemented.**
+**Status: broader proposal; the macOS settings pages query providers read-only, and SDK support is not implemented.**
 The Core-only validation/resolution subset is specified by
 [the active contract](../../toolchains.md). These files remain review vectors,
 not an advertised native capability or an SDK guide. The existing local-toolchain

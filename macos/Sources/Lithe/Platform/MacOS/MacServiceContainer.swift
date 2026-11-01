@@ -1274,8 +1274,33 @@ final class MacServiceContainer {
                 }
             },
             directories: { [weak services] _ in services?.toolchainSettingsDirectories?() ?? [] },
-            isRemoteWorkspace: { remoteWorkspaces.contains($0) }
+            isRemoteWorkspace: { remoteWorkspaces.contains($0) },
+            discover: { [pluginBackends, fileStorage] request in
+                let rootIDs = PluginWorkspaceRootIDs(
+                    secret: MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)))
+                return await MacToolchainDiscovery(
+                    queryProvider: { pluginID, providerID, params, timeout in
+                        try await pluginBackends.queryToolchainProvider(
+                            providerID, params: params, ofPlugin: pluginID, timeout: timeout)
+                    },
+                    workspaceContext: { workspace, pluginID in
+                        await MainActor.run {
+                            let path = workspace.standardizedFileURL.path
+                            for context in PluginWorkspaceContexts.shared.contexts {
+                                guard case .local = context.authority,
+                                      let folder = context.folders.first(where: { $0.localURL.standardizedFileURL.path == path })
+                                else { continue }
+                                return MacToolchainDiscovery.WorkspaceContext(
+                                    contextID: context.contextID, generation: context.generation,
+                                    rootID: rootIDs.rootID(of: folder.location, pluginID: pluginID))
+                            }
+                            return nil
+                        }
+                    }
+                ).discover(request)
+            }
         )
+        services.toolchainInputWatcher = MacToolchainInputWatcher()
         services.projectGeneratorSources = { [pluginManager] in
             // Enablement is read on every call, so a plugin enabled from the
             // window shows its entries and satisfies requirements at once.

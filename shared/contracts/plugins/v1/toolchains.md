@@ -1,12 +1,15 @@
 # Plugin-owned toolchains: Core foundation
 
-**Status: shared Core implemented; the macOS settings pages run the declarative
-route read-only.** Core validates data and resolves captured facts; it does not
-launch providers, probe programs, parse manager files, watch paths, write pins,
-or download tools. The macOS settings host expands `discoveryPlan` scans, runs the
-definition's version probe on executables Core returns from `candidates`, and
-shows the result. No provider is queried, nothing is watched or saved, and no
-build, run or language-server launch uses the result yet. Windows is not connected.
+**Status: shared Core implemented; the macOS settings pages run both routes
+read-only.** Core validates data and resolves captured facts; it does not launch
+providers, probe programs, parse manager files, watch paths, write pins, or
+download tools. The macOS settings host expands `discoveryPlan` scans, starts or
+reuses each enabled provider's plugin backend, sends `toolchains/query` through
+`lsp.toolchainRequest`, passes every raw reply with native facts to `decodeReply`,
+runs the definition's version probe on executables Core returns from
+`candidates`, and shows the result. Any change to a watched input reloads the
+whole snapshot. Nothing is saved, and no build, run or language-server launch
+uses the result yet. Windows is not connected.
 The [broader proposal](proposals/toolchains/README.md) still describes unsupported
 consumer migration, native lifecycle, persistence and manager-plugin work.
 The active shape is [plugin-manifest.schema.json](plugin-manifest.schema.json),
@@ -33,8 +36,8 @@ Provider entries contain `{id, displayName, tools, watchFiles?}`; each watch ent
 is `{pattern, reader: "native" | "compatible"}`. A present `watchFiles` lists 1-32
 unique patterns; an absent one makes an installation-only provider, whose
 replies may not contain statements. Providers share the plugin's
-backend; admission permits a host-query trigger without a page or startup event.
-This is not implemented native activation. Bootstrap must be `packaged`, or
+backend; admission permits a host-query trigger without a page or startup event,
+and the macOS host starts the backend on the first query. Bootstrap must be `packaged`, or
 `runtime` with `packagedRuntime`, without discovered runtime dependencies. Existing
 runtime launch tool restrictions remain; generic consumer launches are not added.
 
@@ -212,8 +215,12 @@ are 256 roots, 4096 entries and 64 ancestors for the host adapter.
 `candidates` reports what a settings page shows for one tool's global and
 automatic layers without resolving a directory. It requires `{registry,tool,
 platform,workspaceRoot,filesystem}` and accepts `workspaceRoots`,
-`filesystemCaseSensitive`, `minimumVersion`, `probes`, `systemInstallations` and
-`environment`, with the same meaning and checks as in `resolve`. The output is
+`filesystemCaseSensitive`, `minimumVersion`, `probes`, `systemInstallations`,
+`providerInstallations` and `environment`, with the same meaning and checks as in
+`resolve`. `providerInstallations` (at most 512) are `{tool,home,provider}` rows a
+host copies from `decodeReply` snapshots; `provider` must name a registry provider
+`pluginID:providerID` declaring the tool, and the row keeps that attribution when
+a scan reports the same canonical home. The output is
 `{tool,shell,installations,skipped,selected,conflicts}`:
 
 - `shell` lists each declared home variable present in `environment` as
