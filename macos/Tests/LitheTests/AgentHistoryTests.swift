@@ -52,6 +52,28 @@ struct AgentHistoryTests {
         #expect(drafts.map(\.id) == ["draft"])
     }
 
+    @Test(arguments: [AgentHistoryProviderFilter.provider("native-provider"), .unknown])
+    func providerFilteredArchiveCollapsesOnFirstPressAndReopens(provider: AgentHistoryProviderFilter) {
+        var explicitExpansion: Bool?
+        func expanded() -> Bool {
+            AgentHistoryPresentation.isArchiveExpanded(explicit: explicitExpansion,
+                isSearching: false, provider: provider, hasMatches: true)
+        }
+        #expect(expanded(), "Provider matches default to expanded without a search")
+        explicitExpansion = !expanded()
+        #expect(!expanded(), "The first toggle collapses the actual displayed state")
+        explicitExpansion = !expanded()
+        #expect(expanded(), "The next toggle reopens the archive")
+        explicitExpansion = false
+        #expect(!expanded(), "An explicit collapse wins over automatic expansion")
+        explicitExpansion = nil
+        #expect(expanded(), "Changing search/provider resets the explicit choice")
+        #expect(!AgentHistoryPresentation.isArchiveExpanded(explicit: nil,
+            isSearching: false, provider: .all, hasMatches: true))
+        #expect(!AgentHistoryPresentation.isArchiveExpanded(explicit: nil,
+            isSearching: false, provider: provider, hasMatches: false))
+    }
+
     @Test(arguments: [ColorScheme.light, .dark])
     func providerSubmenuUsesNativeKeyboardSelectionAndRetainsUnavailableSelection(scheme: ColorScheme) async throws {
         let sessions = [AgentSessionSummary(id: "a", title: "Known", modelProvider: "native-provider"),

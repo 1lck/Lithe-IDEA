@@ -401,7 +401,7 @@ export function AgentHistoryList({
           })}
         </div>
       )}
-      {archive === undefined ? null : <AgentArchivedHistory archive={archive} query={query} filter={filter} provider={provider} metadata={metadata}
+      {archive === undefined ? null : <AgentArchivedHistory key={JSON.stringify([query, provider])} archive={archive} query={query} filter={filter} provider={provider} metadata={metadata}
         onSelect={onSelect} onSetHidden={onSetHidden} onSetFavorite={onSetFavorite} />}
     </div>
   );

@@ -33,9 +33,9 @@ export function AgentArchivedHistory({ archive, query, filter, provider = null, 
   onSetFavorite: (ids: string[], favorite: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<boolean | null>(null);
   const rows = agentHistoryRows(archive.sessions, metadata, query, filter, provider);
-  const isExpanded = expanded || ((query.trim().length > 0 || provider !== null) && rows.length > 0);
+  const isExpanded = expanded ?? ((query.trim().length > 0 || provider !== null) && rows.length > 0);
   const restore = async (sessionID: string) => {
     if (filter === "removed") {
       onSetHidden([sessionID], false);

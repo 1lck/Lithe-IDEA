@@ -111,6 +111,12 @@ enum AgentHistoryListItem: Identifiable, Equatable {
 enum AgentHistoryPresentation {
     enum EmptyState { case loading, incomplete, noMatches, noHistory }
 
+    /// Automatic expansion is only a default; the user's disclosure choice wins.
+    static func isArchiveExpanded(explicit: Bool?, isSearching: Bool,
+                                  provider: AgentHistoryProviderFilter, hasMatches: Bool) -> Bool {
+        explicit ?? ((isSearching || provider != .all) && hasMatches)
+    }
+
     /// A partial upstream scan cannot establish that history or a search is empty.
     static func emptyState(isRefreshing: Bool, query: String, isArchivedHistoryComplete: Bool,
                            hasProviderFilter: Bool = false) -> EmptyState {
@@ -410,6 +416,10 @@ struct AgentHistoryView: View {
             query: query, filter: filter, provider: providerFilter)
     }
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isArchivedExpanded: Bool {
+        AgentHistoryPresentation.isArchiveExpanded(explicit: archivedExpansion,
+            isSearching: isSearching, provider: providerFilter, hasMatches: !archived.isEmpty)
+    }
 
     var body: some View {
         // Sorting and filtering run once per evaluation, not once per use.
@@ -662,7 +672,7 @@ struct AgentHistoryView: View {
         }
         return AgentHistoryList(
                 items: built.items, archived: built.archived, revision: built.revision,
-                isArchivedExpanded: archivedExpansion ?? ((isSearching || providerFilter != .all) && !archivedRows.isEmpty),
+                isArchivedExpanded: isArchivedExpanded,
                 isArchivedBusy: feature.isRefreshingArchivedSessions || feature.unarchivingSessionID != nil,
                 isRemovedFilter: filter == .removed, isSelecting: isSelecting, selectedIDs: selectedIDs,
                 editingID: editingID, editingText: editingTitle, editingTitle: $editingTitle,
@@ -721,7 +731,7 @@ struct AgentHistoryView: View {
                 else { pendingRemovalIDs = [id] }
             },
             restoreArchived: { history.setHidden([$0], false) },
-            toggleArchived: { archivedExpansion = !(archivedExpansion ?? (isSearching && !archived.isEmpty)) })
+            toggleArchived: { archivedExpansion = !isArchivedExpanded })
     }
 
     private var divider: some View { Rectangle().fill(AgentPanelStyle.border).frame(height: 1) }

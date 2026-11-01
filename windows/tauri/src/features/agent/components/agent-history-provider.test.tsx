@@ -41,6 +41,7 @@ function render() {
     ]}
     archive={{ supported: true, sessions: [
       { id: "archive", title: "Archived native chat", updatedAt: null, modelProvider: "archive-only-provider" },
+      { id: "archive-unknown", title: "Archived unknown chat", updatedAt: null },
     ], loading: false, complete: true, error: null, restoringIDs: [], canRefresh: true,
     onRefresh() {}, onRestore: async () => true }}
     metadata={{}} conversations={{}} isRefreshing={false} error={null} canRefresh
@@ -67,7 +68,7 @@ function selectProvider(value: string | null) {
 
 test("provider selector includes archive-only and unknown sources, and restores all without routing changes", () => {
   render();
-  expect(container.textContent).toContain("4 conversations");
+  expect(container.textContent).toContain("5 conversations");
   const select = container.querySelector<HTMLSelectElement>('select[aria-label="Conversation provider"]')!;
   expect([...select.options].map((entry) => entry.text)).toEqual([
     "All providers", "archive-only-provider", "native-provider", "previous-provider", "Unknown provider",
@@ -84,9 +85,29 @@ test("provider selector includes archive-only and unknown sources, and restores 
   expect(container.textContent).toContain("Unknown chat");
   expect(container.textContent).not.toContain("Native chat");
   selectProvider(null);
-  expect(container.textContent).toContain("4 conversations");
+  expect(container.textContent).toContain("5 conversations");
   expect(container.textContent).toContain("Other chat");
 });
+
+for (const [provider, title] of [["archive-only-provider", "Archived native chat"], ["", "Archived unknown chat"]] as const) {
+  test(`matching provider archives can collapse on the first click and reopen (${provider || "unknown"})`, () => {
+    render();
+    selectProvider(provider);
+    const header = () => container.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    expect(header().getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(title);
+    act(() => header().click());
+    expect(header().getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(title);
+    act(() => header().click());
+    expect(header().getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(title);
+    act(() => header().click());
+    // New provider/search scopes get a fresh automatic default, not the old override.
+    selectProvider(provider === "" ? "archive-only-provider" : "");
+    expect(header().getAttribute("aria-expanded")).toBe("true");
+  });
+}
 
 test("changing provider clears bulk selection and select-all affects only visible active rows", () => {
   render();
