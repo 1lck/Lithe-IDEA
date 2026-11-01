@@ -11,6 +11,7 @@ export interface JdtlsLaunchResources {
 
 export interface JavaLspLaunch {
   providerId: string;
+  pluginId?: string | null;
   languageId: string;
   executablePath: string;
   arguments: string[];
@@ -36,6 +37,8 @@ export interface JavaLspRuntime {
 export interface JavaLspGradle {
   /** The workspace root ships `gradle/wrapper/gradle-wrapper.properties`. */
   wrapperPresent: boolean;
+  offline?: boolean;
+  userHome?: string;
 }
 
 export function resolveJavaLspLaunch(workspacePath: string) {

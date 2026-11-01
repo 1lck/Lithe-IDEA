@@ -1,19 +1,77 @@
 #[tauri::command]
-pub async fn core_execute(request: String) -> String {
-    tauri::async_runtime::spawn_blocking(move || lithe_core::execute_json(&request))
-        .await
-        .unwrap_or_else(|error| {
-            serde_json::json!({
-                "id": null,
-                "ok": false,
-                "error": {
-                    "code": "unknown",
-                    "message": "The shared core operation could not complete",
-                    "details": error.to_string()
+pub async fn core_execute(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    request: String,
+) -> String {
+    let window_label = window.label().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let parsed = serde_json::from_str::<serde_json::Value>(&request).ok();
+        if let Some(parsed) = &parsed {
+            if crate::plugin_host::vcs::private_core_request(&app, parsed["command"].as_str().unwrap_or_default(), &parsed["payload"]) {
+                return serde_json::json!({"id":parsed["id"],"ok":false,"error":{
+                    "code":"invalid_request","message":"VCS request requires its native owner","details":"vcs.provider.unavailable"
+                }}).to_string();
+            }
+            if let Some(result) = crate::plugin_host::provider::core_preflight(
+                &app,
+                &window_label,
+                parsed["command"].as_str().unwrap_or_default(),
+                &parsed["payload"],
+            ) {
+                return match result {
+                    Ok(data) => {
+                        serde_json::json!({"id":parsed["id"],"ok":true,"data":data}).to_string()
+                    }
+                    Err(error) => serde_json::json!({"id":parsed["id"],"ok":false,"error":{
+                        "code":"invalid_request","message":error.detail,"details":error.code,
+                    }})
+                    .to_string(),
+                };
+            }
+            if parsed["command"] == "lsp.startServer" {
+                if let Some(result) = crate::plugin_host::provider::language_start(
+                    &app,
+                    &window_label,
+                    &parsed["payload"],
+                ) {
+                    return match result {
+                        Ok(data) => {
+                            serde_json::json!({"id":parsed["id"],"ok":true,"data":data}).to_string()
+                        }
+                        Err(error) => serde_json::json!({"id":parsed["id"],"ok":false,"error":{
+                            "code":"process_failed","message":error.detail,"details":error.code,
+                        }})
+                        .to_string(),
+                    };
                 }
-            })
-            .to_string()
+            }
+        }
+        let response = lithe_core::execute_json(&request);
+        if let (Some(parsed), Ok(response_value)) = (parsed, serde_json::from_str(&response)) {
+            crate::plugin_host::provider::observe_core(
+                &app,
+                &window_label,
+                parsed["command"].as_str().unwrap_or_default(),
+                &parsed["payload"],
+                &response_value,
+            );
+        }
+        response
+    })
+    .await
+    .unwrap_or_else(|error| {
+        serde_json::json!({
+            "id": null,
+            "ok": false,
+            "error": {
+                "code": "unknown",
+                "message": "The shared core operation could not complete",
+                "details": error.to_string()
+            }
         })
+        .to_string()
+    })
 }
 
 #[tauri::command]

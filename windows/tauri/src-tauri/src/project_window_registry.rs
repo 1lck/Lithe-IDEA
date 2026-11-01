@@ -16,6 +16,8 @@ pub struct ProjectWindowOwner {
 #[derive(Default)]
 pub struct ProjectWindowRegistry {
     owners: HashMap<Handle, ProjectWindowOwner>,
+    registrations: HashMap<(String, String), u64>,
+    next_registration: u64,
 }
 
 impl ProjectWindowRegistry {
@@ -61,7 +63,34 @@ impl ProjectWindowRegistry {
         if owner.label == label && owner.workspace_id.is_none() {
             owner.workspace_id = workspace_id.map(str::to_owned);
         }
+        if let Some(id) = &owner.workspace_id {
+            let key = (owner.label.clone(), id.clone());
+            if !self.registrations.contains_key(&key) {
+                self.next_registration = self.next_registration.saturating_add(1);
+                self.registrations.insert(key, self.next_registration);
+            }
+        }
         owner.clone()
+    }
+
+    /// Read-only binding for feature snapshots. The directory identity,
+    /// window and workspace must all match; release/reclaim changes the ID.
+    pub fn registration(&self, identity: &Handle, label: &str, workspace_id: &str) -> Option<u64> {
+        let owner = self.owners.get(identity)?;
+        if owner.label != label || owner.workspace_id.as_deref() != Some(workspace_id) {
+            return None;
+        }
+        self.registrations
+            .get(&(label.into(), workspace_id.into()))
+            .copied()
+    }
+
+    fn retain_registrations(&mut self) {
+        self.registrations.retain(|(label, id), _| {
+            self.owners.values().any(|owner| {
+                owner.label == *label && owner.workspace_id.as_deref() == Some(id.as_str())
+            })
+        });
     }
 
     pub fn release(&mut self, label: &str, workspace_id: Option<&str>) {
@@ -69,6 +98,7 @@ impl ProjectWindowRegistry {
             owner.label != label
                 || workspace_id.is_some_and(|id| owner.workspace_id.as_deref() != Some(id))
         });
+        self.retain_registrations();
     }
 
     pub fn release_pending(&mut self, label: &str) {
@@ -78,6 +108,7 @@ impl ProjectWindowRegistry {
 
     pub fn retain_windows(&mut self, exists: impl Fn(&str) -> bool) {
         self.owners.retain(|_, owner| exists(&owner.label));
+        self.retain_registrations();
     }
 }
 
@@ -137,6 +168,40 @@ mod tests {
         assert_eq!(
             registry.claim(root.identity(), "main", Some("alias")),
             opened
+        );
+    }
+
+    #[test]
+    fn passive_registration_requires_the_claimed_directory_window_and_workspace() {
+        let root = TestDirectory::new();
+        let other = TestDirectory::new();
+        let mut registry = ProjectWindowRegistry::default();
+        registry.claim(root.identity(), "main", Some("workspace-a"));
+        let first = registry
+            .registration(&root.identity(), "main", "workspace-a")
+            .unwrap();
+        assert!(registry
+            .registration(&other.identity(), "main", "workspace-a")
+            .is_none());
+        assert!(registry
+            .registration(&root.identity(), "workspace-other", "workspace-a")
+            .is_none());
+        assert!(registry
+            .registration(&root.identity(), "main", "workspace-other")
+            .is_none());
+        registry.claim(root.identity(), "main", Some("workspace-a"));
+        assert_eq!(
+            registry.registration(&root.identity(), "main", "workspace-a"),
+            Some(first)
+        );
+        registry.release("main", Some("workspace-a"));
+        assert!(registry
+            .registration(&root.identity(), "main", "workspace-a")
+            .is_none());
+        registry.claim(root.identity(), "main", Some("workspace-a"));
+        assert_ne!(
+            registry.registration(&root.identity(), "main", "workspace-a"),
+            Some(first)
         );
     }
 

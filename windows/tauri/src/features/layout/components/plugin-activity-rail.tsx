@@ -1,5 +1,8 @@
+import { useBuildSystemsCatalogStore } from "@/features/build-systems/build-systems-service";
+import { toggleBuildSystemWindow } from "@/features/build-systems/actions/build-system-tool-window-actions";
 import { useDeclarativePluginUI } from "@/features/plugins/declarative-plugin-ui";
-import { openDeclarativeWebWindow } from "@/features/plugins/declarative-plugin-launch";
+import { NativeContributionButton } from "@/features/plugins/native-ui/native-contribution-button";
+import type { NativeContribution } from "@/features/plugins/native-ui/native-ui.types";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { AgentTrigger } from "@/features/agent/components/agent-trigger";
 import {
@@ -12,6 +15,8 @@ import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { NotificationsTrigger } from "@/features/notifications/components/notifications-trigger";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { buildSystemViewId } from "@/features/build-systems/build-systems-store";
+import type { BuildCatalogEntry } from "@/features/build-systems/build-systems-types";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { PuzzlePieceIcon, TerminalWindowIcon } from "@/ui/icons";
@@ -19,10 +24,12 @@ import { useTerminalDock } from "./terminal-dock-layout";
 
 // IntelliJ Islands stripe button: 30px highlight, 12px arc (6px radius), 20px icon.
 const STRIPE_BUTTON_CLASS_NAME = "size-[30px] rounded-[6px]";
+const NO_NATIVE_WINDOWS: NativeContribution[] = [];
 
 export function PluginActivityRail() {
   const { t } = useTranslation();
   const pluginWindows = useDeclarativePluginUI((state) => state.windows);
+  const nativeWindows = useDeclarativePluginUI((state) => state.nativeWindows ?? NO_NATIVE_WINDOWS);
   const terminalDock = useTerminalDock();
   const terminalEnabled = useSettingsStore((state) => state.settings.coreFeatures.terminal);
   const terminalHidden = useSettingsStore((state) =>
@@ -53,6 +60,7 @@ export function PluginActivityRail() {
   const isMavenAvailable = useMavenStore(
     (state) => Boolean(state.project) || state.projectStatus === "failed",
   );
+  const buildSystemEntries = useBuildSystemsCatalogStore((state) => state.entries);
   const isMavenActive = useUIState(
     (state) => state.isRightSidebarVisible && state.activeRightSidebarView === "maven",
   );
@@ -80,13 +88,20 @@ export function PluginActivityRail() {
         <PuzzlePieceIcon className="size-5" />
       </Button>
       {pluginWindows.map((window) => (
-        <Button key={`${window.pluginId}:${window.windowId}`} variant="ghost" size="icon-sm"
-          className={STRIPE_BUTTON_CLASS_NAME} tooltip={window.title} aria-label={window.title}
-          onClick={() => { void openDeclarativeWebWindow(window.pluginId, window.windowId).catch(console.error); }}>
-          <PuzzlePieceIcon className="size-5" />
-        </Button>
+        <NativeContributionButton
+          key={`${window.pluginId}:${window.windowId}`}
+          className={STRIPE_BUTTON_CLASS_NAME}
+          entry={window}
+        />
       ))}
       <NotificationsTrigger className={STRIPE_BUTTON_CLASS_NAME} />
+      {nativeWindows.map((entry) => (
+        <NativeContributionButton
+          key={`${entry.pluginId}:${entry.windowId}`}
+          className={STRIPE_BUTTON_CLASS_NAME}
+          entry={entry}
+        />
+      ))}
       <AgentTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       {isMavenAvailable ? (
         <Button
@@ -104,6 +119,9 @@ export function PluginActivityRail() {
           <MavenIcon className="size-5" />
         </Button>
       ) : null}
+      {buildSystemEntries.map((entry) => (
+        <BuildSystemRailButton key={`${entry.pluginId}:${entry.buildSystemId}`} entry={entry} />
+      ))}
       {terminalDock?.activitySide === "right" &&
       terminalEnabled &&
       !terminalHidden &&
@@ -130,5 +148,32 @@ export function PluginActivityRail() {
         </div>
       ) : null}
     </aside>
+  );
+}
+
+function BuildSystemRailButton({ entry }: { entry: BuildCatalogEntry }) {
+  const { t } = useTranslation();
+  const viewId = buildSystemViewId(entry.pluginId, entry.buildSystemId);
+  const isActive = useUIState(
+    (state) => state.isRightSidebarVisible && state.activeRightSidebarView === viewId,
+  );
+  const label =
+    entry.buildSystemDisplayName || t("buildSystems.railLabel", { name: entry.pluginDisplayName });
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      active={isActive}
+      tooltip={label}
+      tooltipSide="left"
+      aria-label={label}
+      aria-pressed={isActive}
+      className={STRIPE_BUTTON_CLASS_NAME}
+      onClick={() => toggleBuildSystemWindow(entry)}
+    >
+      <PuzzlePieceIcon className="size-5" />
+    </Button>
   );
 }

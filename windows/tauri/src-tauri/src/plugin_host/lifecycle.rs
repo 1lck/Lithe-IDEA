@@ -121,6 +121,10 @@ impl Drop for Mutation {
     }
 }
 impl Mutation {
+    pub(crate) fn plugin_id(&self) -> &str {
+        &self.plugin_id
+    }
+
     pub fn complete(self, active: bool) {
         self.app
             .state::<LifecycleState>()
@@ -160,8 +164,6 @@ pub async fn begin(app: &AppHandle, plugin_id: &str) -> Result<Mutation, String>
         operation_id: operation_id.clone(),
     };
     state.revoke(plugin_id);
-    state.wait_native(plugin_id).await?;
-    super::web::close_plugin_windows(app, plugin_id)?;
     let mut senders = HashMap::new();
     let mut receivers = Vec::new();
     for label in app
@@ -189,6 +191,19 @@ pub async fn begin(app: &AppHandle, plugin_id: &str) -> Result<Mutation, String>
         )
         .map_err(|error| error.to_string())?;
     }
+    // Tell UI owners to cancel first: their in-flight native operations also
+    // hold leases. Waiting for those leases before dispatching cancellation
+    // deadlocks a reload behind work that only the owner can cancel.
+    super::project_generators::close_plugin(app, plugin_id)
+        .await
+        .map_err(|error| error.code)?;
+    super::vcs::plugin_changing(app, plugin_id).await?;
+    super::functions::close_plugin(app, plugin_id).await?;
+    super::provider::close_plugin(app, plugin_id)
+        .await
+        .map_err(|error| error.detail)?;
+    super::web::close_plugin_windows(app, plugin_id)?;
+    state.wait_native(plugin_id).await?;
     await_drained(receivers, std::time::Duration::from_secs(45)).await?;
     Ok(mutation)
 }
@@ -264,6 +279,36 @@ mod tests {
         }
         drop(probe);
         waiting.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_global_stop_retains_the_old_lease_and_retry_does_not_revoke_other_plugins() {
+        let state = LifecycleState::default();
+        let old_owner = state.acquire("target.plugin").unwrap();
+        let other_owner = state.acquire("other.plugin").unwrap();
+        state.revoke("target.plugin");
+        let (failed, failed_result) = oneshot::channel();
+        failed.send(Err("process still running".into())).unwrap();
+        assert!(await_drained(
+            vec![("first".into(), failed_result)],
+            std::time::Duration::from_secs(1)
+        )
+        .await
+        .is_err());
+        assert!(state.blocked("target.plugin"));
+        assert!(state.acquire("target.plugin").is_err());
+        assert!(state.acquire("other.plugin").is_ok());
+        let retry = state.wait_native("target.plugin");
+        tokio::pin!(retry);
+        tokio::select! { biased;
+            result = &mut retry => panic!("failed stop discarded its old lease: {result:?}"),
+            _ = std::future::ready(()) => {},
+        }
+        drop(old_owner);
+        // The unrelated owner's lease cannot hold up the target retry.
+        retry.await.unwrap();
+        assert!(state.blocked("target.plugin"));
+        drop(other_owner);
     }
 
     #[tokio::test]
