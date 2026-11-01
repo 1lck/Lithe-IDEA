@@ -35,6 +35,10 @@
 
 每个生成器只声明：展示（`displayName`、`section`、`icon`、`order`）、字段（`fields`）、需要的语言或构建系统（`requirements`）、步骤（`steps`）、创建后打开的文件（`openFiles`）。字段类型沿用插件设置的命名（`text`、`enum`、`boolean`、`multiSelect`），另加 `runtime`（宿主发现的 JDK）。字段只能读在它之前声明的字段，所以默认值一次求完，显示条件不会成环。跨字段的版本约束也按这个顺序声明：`text`、`enum` 字段的 `maximumVersion` 是读取前面字段的模板，Spring Boot 的目标 Java 写 `${field.jdk.major}`，Core 在表单和计划阶段都拒绝高于所选 JDK 的组合（`versionTooHigh`），宿主不用为生成器写分支。
 
+没有插件字段的生成器仍使用宿主的名称、位置和 Git 表单。Core 序列化目录时会省略空的
+`fields`，Windows 类型与渲染必须把缺失字段视为空列表；不能直接调用 `.map()`，否则选择
+纯归档等无字段条目会导致整个工作台渲染失败。组件回归同时覆盖缺失字段和显式空数组。
+
 步骤三种，按顺序在临时目录里执行：
 
 - `files`：复制包内模板目录。
@@ -120,9 +124,69 @@
 - 收益：设置窗口、克隆窗口和向导共用侧栏行、字段控件和文件夹选择器，样式不会各自漂移。
 - 代价：Spring Boot 的版本和依赖列表写在插件里，会随时间过时，要靠插件发版更新；动态列表要等 Provider 能力。
 - 代价：Java Support 的 `requires` 多了 `projectGenerators: 1`，不支持生成器的宿主装不了这一版；停用 Java Support 时模板一起停用。
-- 暂不支持：JavaFX、Quarkus、Micronaut、Jakarta EE 等其他 Java 生成器；Windows 宿主（不声明 `projectGenerators`，需要它的插件在 Windows 市场中隐藏）。
+- 暂不支持：JavaFX、Quarkus、Micronaut、Jakarta EE 等其他 Java 生成器；Windows 完整 Java Support 分发与生成后语言服务/构建运行链；Windows 现已单独接入 `projectGenerators:1`，其他完整 `requires` 仍必须满足。
 
 ## 验证
+
+### Windows 受控创建链的证据边界
+
+Windows 的专用验收入口复用真实磁盘安装审查、`AppSession`、通用新建项目向导和
+原生生成事务，不通过写安装记录或伪造 IPC 回包绕过准入。受控社区包只声明
+`projectGenerators:1` 与 `project.generate`，包含文件模板、命令产物收集及 HTTPS
+归档；它不是官方发布或签名完整包。固定 HTTPS 上游归档另带仓库、提交、许可、
+ZIP 摘要与完整文件核对，只用作本次联网集成输入，不执行下载内容。
+
+整个产品驱动放进已有的 Windows Job（系统持有的进程组）：可信启动器先归属再
+释放工作进程，600 秒期限覆盖产品与所有子进程。驱动将前 480 秒用于工作流，
+预留退出、资源核对和配置清理；失败也复用原有保留句柄清理，未知存活状态保留
+隔离目录。取消与关闭共用 10 秒观察，必须早于命令的 120 秒正常期限和 180 秒
+子进程保险；过旧的命令不能作为取消成功证据。关闭还须证明真实向导已卸载。
+标记文件里的 PID（进程编号）只用于观察，只有当前宿主后代的保留身份才授权清理。
+
+正确做法是用同一源码清单和隔离程序完成安装、创建、打开、失败清理与资源字节
+比较，再分别记录已完成的受控子流程。不要把 helper 测试通过、预检成功、
+子进程自然失败或无关静态目录不变写成产品通过。快照必须覆盖实际启动的运行
+镜像，原完整 ZIP 和仍安装的插件包也要保持不变。
+
+夹具、固定归档参考、项目输出和报告都属于本次验收，使用既有
+`plugin-host-acceptance-state` 排除路由，不能跨工作树复用，不写发行资源。
+生成项目放在隔离应用本地配置的 `generator-projects/`，采集文件与打开状态证据后随
+原有配置清理路径回收。不要把需要初始化 Git 的项目放进源码工作树的 `.artifacts/`：
+Core 会把它识别为已有仓库的一部分并拒绝嵌套初始化，验收不能绕过该保护。
+R29 的当前候选源码仅开放 `projectGenerators:1`，使独立生成器包经过正常审批后进入
+既有创建链；受控 x64 产品验收仍须完成才保留该准入。真实固定生成器包、所选 JDK、欢迎页实机、
+工作区切换、生成后的语言服务与构建运行、签名 Windows 包和 ARM64 尚待验证。
+因此受控创建链有独立的成功标记，完整 M8/M10 继续保持 `partial/pending`。
+
+Windows 欢迎页的「New Project」使用已有 `new-project` 模式，继续进入
+`ProjectPicker → NewProjectContent → ProjectGeneratorWizard`，图标与文案使用公共
+`PlusIcon` 和 `welcome.newProject`。不要另建只服务欢迎页的生成对话框，否则项目菜单
+与欢迎页会出现不同的创建与清理行为。审批详情展示原生返回的完整计划，包括所选
+运行时的路径与版本；它仍由 Core 计算，宿主不重新推导 JDK 版本或文件内容。
+
+向导只拥有打开它的源工作区。普通工作区切换会关闭原生创建会话并使迟到结果失效；
+点击「创建」后由向导主动打开新工程是一次明确交接，可以继续完成新工程的文件打开。
+交接中的 `openFiles` 必须使用新工程固定的工作区 store（保存该工程状态的对象），
+不能在 `await` 后读取当前活动工程。例如 A 创建 B、B 还在打开时用户切回 A，
+文件仍只能交给 B。B 激活时同步关闭源 A 的旧选择器，完成回调不再关闭选择器，
+否则 A 重新打开的新选择器也会被旧操作误关。若 B 初始化失败并回滚到 A，仍挂载的
+向导保留行内错误和打开按钮；旧向导已关闭时，通过已有错误提示保留「打开已创建的项目」
+动作，用户点击后只重新打开 B 与它的文件，不再次生成，也不调用旧选择器的关闭回调。
+受控回归先证明旧实现会把 B 的文件交给 A、误关 A 的新选择器、丢失打开失败后的
+重试入口，以及在普通切换后打开迟到结果，再验证上述边界；无需为此重写创建会话状态机。
+
+真实 JDK 验收复用平台工具链发现与原生目录选择器，用独立的 `runtime-success`
+条目创建 `src/Main.java`，与 `minimumVersion=999` 的失败条目并存。驱动对照
+探测结果、界面选择、审批计划和 `.lithe/run/local.json`，并在项目 A/B 往返后检查
+编辑器标签与项目 JDK。错误版本必须被原生重新探测拒绝；替换测试只在隔离配置的
+`generator-runtime/` JDK 副本内暂时移走 `bin/java.exe`，通过 `finally` 恢复，再随
+原有配置 owner 整体清理。该副本只属于本次运行，禁止作为跨工作树资源复用，
+不会写入已发布镜像、已安装插件、代码签名或增量更新基线。
+
+正确做法是保存实际探测版本、PE 架构、程序摘要、完整审批计划和创建后的本地配置，
+再记录同一固定源码程序的实机结果。不要修改冻结的 IPC 传输对象来观察调用，也不要
+把离线一致性断言当成真实 JDK、欢迎页或工作区交接已通过。新增驱动仍需专用产品
+执行证据，完整 Java Support 准入、生成后语言服务与构建运行继续独立验收。
 
 ```bash
 cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
@@ -131,6 +195,27 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 ./scripts/plugins/verify-official-plugins.sh
 ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
+
+Maven/Gradle 验收输入按变体绑定源码、Java 包、独立构建包、JDK 和实际生成文件。
+前置检查在材料不全或不匹配时于产品启动前阻断。运行驱动复用同一产品的安装审批、
+通用向导、真实编辑保存、Java 语言服务器（JDT）会话、构建注册表和 Run 窗口，
+不直接运行 Maven/Gradle。命令或 Provider 模型先拒绝一次审批并确认原 operation 清理，
+再批准一个新 operation；静态和 hostIntegration 模型由注册表被动提供，任务仍须审批。
+任务 ID 和作用域来自固定独立包，项目、目标和模型任务来自上游返回值，不另建工程模型。
+
+Java 运行准备不再以 Maven reactor 字段作为准入条件。`java.main` 通过已有 owner 等待
+JDT；Core 在收到 `javaLaunch` 时保留其类路径与模块路径，只有 Maven 项目追加原有资源
+处理步骤。没有 JDT 结果的既有单文件计划保持原行为。项目选定运行时的读取复用 Core
+Run 配置，Java home 到可执行文件的兼容转换留在 Java/Run adapter；通用 build 接线由
+对应 owner 集成，驱动会拒绝未冻结选定 JDK 的准备请求。它不能靠环境中的默认 Java
+掩盖产品接线缺失。
+
+正确做法是分别保存 plain、Maven、Gradle 的完整 UI、模型/任务、准备运行、输出、Stop、
+编译拒绝、停用卸载、退出和哈希证据。`workflowPassed` 要求该变体的所有必需项通过，
+`buildPluginPassed` 还要求独立 build 包与注册表执行及清理；plain 永不拥有 build 成功标记。
+不要把辅助收据、单个 JDT ready、默认 Java 或旧程序身份改标为完整成功。
+源码存在不等于实机通过：正式包签名、生产能力准入、通用接线集成和固定源码产品验收
+继续保持 pending，不得删减 requires 或用测试信任开放能力。
 
 ## 适用范围
 
@@ -145,3 +230,14 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 - `macos/Sources/Lithe/Platform/MacOS/ProjectGeneration/`
 - `macos/Sources/Lithe/Views/Components/LitheSidebarList.swift`
 - `macos/Sources/Lithe/Views/Components/PluginFieldControls.swift`
+- `windows/tauri/src/features/layout/components/welcome-screen.tsx`
+- `windows/tauri/src/features/project-generators/`
+- `windows/tauri/src-tauri/src/plugin_host/project_generators/`
+- `scripts/plugins/host-acceptance/generator_acceptance.py`
+- `scripts/plugins/host-acceptance/generator_fixture.py`
+
+- `scripts/plugins/host-acceptance/java_workflow_inputs.py`
+- `scripts/plugins/host-acceptance/java_workflow_acceptance.py`
+- `scripts/plugins/host-acceptance/java_workflow_build.py`
+- `scripts/plugins/host-acceptance/java_workflow_observer.js`
+- `windows/tauri/src/features/run/services/build-runtime-selection.ts`

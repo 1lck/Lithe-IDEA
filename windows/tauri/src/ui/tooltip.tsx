@@ -48,6 +48,7 @@ export default function Tooltip({
           className="z-99999"
         >
           <TooltipPrimitive.Popup
+            data-native-web-overlay=""
             className={cn(
               tooltipContentVariants(),
               shortcut && "flex items-center gap-2",

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createElement, type ElementType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as AppIcons from "./icons";
+import { PluginHostIcon } from "./plugin-host-icon";
 
 const intentionalHelpIcons = new Set(["Icon"]);
 
@@ -14,6 +15,10 @@ function renderIcon(IconComponent: ElementType) {
 }
 
 describe("application icon mappings", () => {
+  test("plugin host icons reject unknown IDs, object prototype names and package paths", () => {
+    for (const host of ["unknown", "toString", "__proto__", "icons/custom.svg", "../run.svg"])
+      expect(renderToStaticMarkup(<PluginHostIcon host={host} />)).toBe("");
+  });
   test("exports the complete icon inventory", () => {
     expect(iconEntries).toHaveLength(217);
   });

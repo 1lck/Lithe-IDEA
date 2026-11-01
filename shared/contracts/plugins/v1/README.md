@@ -13,6 +13,7 @@ This directory is the cross-platform source of truth:
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
 | `fixtures/*.plugin.json` | Valid example manifests, named after the capability they exercise rather than a published plugin: `language-*` (packaged, system-command, and host-integration language servers; `node-runtime` for a discovered runtime), `hello-lithe` and `web-panel` (UI), `settings-v2`, and `build-*` (level 3 build systems and the two forms of a build provider) |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
+| `fixtures/signature-vectors.json` | Public cross-platform vectors for the package publisher signature: the RFC 8032 test key, a fixed package with non-ASCII file names, its canonical payload, deterministic signature, and content digest. Both platform verifiers must reproduce the same answers |
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
 | `fixtures/build-plans.json` | Golden build-system plans and decoded outputs |
