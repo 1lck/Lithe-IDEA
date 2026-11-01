@@ -19,51 +19,22 @@ final class BackgroundResourceSelectionView: NSView {
         checkboxWithTitle: L10n.string("Remember my choice for these kinds of services"),
         target: nil, action: nil
     )
-    private var checkboxes: [NSButton] = []
-
-    var selectedIDs: Set<String> {
-        Set(zip(resources, checkboxes).filter { $0.1.state == .on }.map(\.0.id))
-    }
+    private(set) var selectedIDs: Set<String>
+    private let document: ResourceListDocument
 
     init(resources: [BackgroundResourceCandidate]) {
         self.resources = resources
+        selectedIDs = Set(resources.map(\.id))
+        document = ResourceListDocument(resources: resources, width: Self.contentWidth - 24)
         super.init(frame: .zero)
-        let document = ResourceListDocument(frame: .zero)
-        let rowWidth = Self.contentWidth - 24
-        var y: CGFloat = 8
-        for resource in resources {
-            let checkbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(selectionChanged))
-            checkbox.state = .on
-            checkbox.setAccessibilityLabel(resource.name)
-            checkbox.frame = NSRect(x: 8, y: y, width: 20, height: 20)
-            document.addSubview(checkbox)
-            checkboxes.append(checkbox)
-            let textWidth = rowWidth - 36
-            let title = Self.label(resource.name, width: textWidth, font: LitheTheme.uiNSFont(size: 12.5, weight: .semibold))
-            title.frame.origin = NSPoint(x: 36, y: y)
-            document.addSubview(title)
-            var height = max(20, title.frame.height)
-            if !resource.detail.isEmpty && resource.detail != resource.name {
-                let detail = Self.label(resource.detail, width: textWidth, font: LitheTheme.editorFont(size: 12))
-                detail.frame.origin = NSPoint(x: 36, y: y + height + 4)
-                document.addSubview(detail)
-                height += 4 + detail.frame.height
-            }
-            var metadata = resource.listeningPorts.isEmpty ? [] : [String(format: L10n.string("ports %@"), resource.listeningPorts.map(String.init).joined(separator: ", "))]
-            if resource.processIDs.count > 1 {
-                metadata.append(String(format: L10n.string("%lld processes"), resource.processIDs.count))
-            }
-            if !metadata.isEmpty {
-                let label = Self.label(metadata.joined(separator: " · "), width: textWidth, font: LitheTheme.uiNSFont(size: 11))
-                label.textColor = .secondaryLabelColor
-                label.frame.origin = NSPoint(x: 36, y: y + height + 4)
-                document.addSubview(label)
-                height += 4 + label.frame.height
-            }
-            y += height + 12
+        document.isSelected = { [weak self] in self?.selectedIDs.contains($0) == true }
+        document.onToggle = { [weak self] id, selected in
+            guard let self else { return }
+            if selected { self.selectedIDs.insert(id) } else { self.selectedIDs.remove(id) }
+            self.selectionChanged()
         }
-        document.frame = NSRect(x: 0, y: 0, width: rowWidth, height: y)
-        scrollView.frame = NSRect(x: 0, y: 0, width: Self.contentWidth, height: min(y, Self.maximumListHeight))
+        scrollView.frame = NSRect(x: 0, y: 0, width: Self.contentWidth,
+                                  height: min(document.frame.height, Self.maximumListHeight))
         scrollView.scrollerStyle = .overlay
         scrollView.verticalScroller = LitheScrollViewChrome.CompactScroller()
         scrollView.hasVerticalScroller = true
@@ -103,37 +74,194 @@ final class BackgroundResourceSelectionView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    private static func label(_ text: String, width: CGFloat, font: NSFont) -> NSTextField {
-        let field = NSTextField(wrappingLabelWithString: text)
-        field.font = font
-        field.isSelectable = true
-        field.lineBreakMode = .byCharWrapping
-        field.maximumNumberOfLines = 0
-        field.preferredMaxLayoutWidth = width
-        field.frame = NSRect(x: 0, y: 0, width: width, height: 0)
-        let height = field.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height ?? 20
-        field.frame.size.height = ceil(height)
-        return field
-    }
-
-    @objc private func selectionChanged() {
+    private func selectionChanged() {
         let selected = selectedIDs.count
         selectionLabel.stringValue = String(format: L10n.string("%lld of %lld services selected"), selected, resources.count)
         selectAllButton.isEnabled = selected < resources.count
         deselectAllButton.isEnabled = selected > 0
+        document.updateVisibleCheckboxes()
     }
 
     @objc private func selectAllResources() {
-        checkboxes.forEach { $0.state = .on }
+        selectedIDs = Set(resources.map(\.id))
         selectionChanged()
     }
 
     @objc private func deselectAllResources() {
-        checkboxes.forEach { $0.state = .off }
+        selectedIDs.removeAll()
         selectionChanged()
     }
 }
 
-private final class ResourceListDocument: NSView {
-    override var isFlipped: Bool { true }
+/// TextKit caches the fixed-width layout and draws only visible glyphs, even
+/// when one command spans many screens. Only visible checkbox anchors own views.
+@MainActor
+private final class ResourceListDocument: NSTextView {
+    private struct Anchor {
+        let id: String
+        let name: String
+        let y: CGFloat
+    }
+
+    var isSelected: (String) -> Bool = { _ in false }
+    var onToggle: (String, Bool) -> Void = { _, _ in }
+    private var anchors: [Anchor] = []
+    private var checkboxes: [Int: ResourceCheckbox] = [:]
+    private var scrollObservation: NSObjectProtocol?
+
+    init(resources: [BackgroundResourceCandidate], width: CGFloat) {
+        let storage = NSTextStorage()
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: width - 36, height: .greatestFiniteMagnitude))
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 16), textContainer: container)
+        isEditable = false
+        isSelectable = true
+        drawsBackground = false
+        isHorizontallyResizable = false
+        isVerticallyResizable = false
+        textContainerInset = NSSize(width: 36, height: 8)
+        container.lineFragmentPadding = 0
+        container.widthTracksTextView = false
+        container.heightTracksTextView = false
+        setAccessibilityLabel(L10n.string("Background Services"))
+
+        let text = NSMutableAttributedString()
+        var starts: [Int] = []
+        for resource in resources {
+            starts.append(text.length)
+            var paragraphs: [(String, NSFont, NSColor)] = [
+                (resource.name, LitheTheme.uiNSFont(size: 12.5, weight: .semibold), .labelColor)
+            ]
+            if !resource.detail.isEmpty && resource.detail != resource.name {
+                paragraphs.append((resource.detail, LitheTheme.editorFont(size: 12), .labelColor))
+            }
+            var metadata = resource.listeningPorts.isEmpty ? [] : [String(format: L10n.string("ports %@"), resource.listeningPorts.map(String.init).joined(separator: ", "))]
+            if resource.processIDs.count > 1 {
+                metadata.append(String(format: L10n.string("%lld processes"), resource.processIDs.count))
+            }
+            if !metadata.isEmpty {
+                paragraphs.append((metadata.joined(separator: " · "), LitheTheme.uiNSFont(size: 11), .secondaryLabelColor))
+            }
+            for (index, paragraph) in paragraphs.enumerated() {
+                let style = NSMutableParagraphStyle()
+                style.lineBreakMode = .byCharWrapping
+                style.paragraphSpacing = index == paragraphs.count - 1 ? 12 : 4
+                text.append(NSAttributedString(string: paragraph.0 + "\n", attributes: [
+                    .font: paragraph.1, .foregroundColor: paragraph.2, .paragraphStyle: style
+                ]))
+            }
+        }
+        storage.setAttributedString(text)
+        // Prepare once before showing the alert; scrolling must not measure
+        // commands or rebuild text storage to discover row positions.
+        manager.ensureLayout(for: container)
+        anchors = zip(resources, starts).map { resource, start in
+            let glyph = manager.glyphIndexForCharacter(at: start)
+            let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            return Anchor(id: resource.id, name: resource.name, y: line.minY + textContainerInset.height)
+        }
+        frame.size.height = max(16, ceil(manager.usedRect(for: container).maxY) + 16)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    deinit {
+        if let scrollObservation { NotificationCenter.default.removeObserver(scrollObservation) }
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if let scrollObservation { NotificationCenter.default.removeObserver(scrollObservation) }
+        scrollObservation = nil
+        if let clip = enclosingScrollView?.contentView {
+            clip.postsBoundsChangedNotifications = true
+            scrollObservation = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification, object: clip, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.updateVisibleCheckboxes() } }
+        }
+        updateVisibleCheckboxes()
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        let children = (super.accessibilityChildren() ?? []).filter { !($0 is ResourceCheckbox) }
+        return children + anchors.enumerated().map { index, anchor in
+            let element = ResourceCheckboxAccessibilityElement()
+            element.setAccessibilityParent(self)
+            element.setAccessibilityRole(.checkBox)
+            element.setAccessibilityLabel(anchor.name)
+            element.setAccessibilityValue(isSelected(anchor.id) ? 1 : 0)
+            element.setAccessibilityFrameInParentSpace(NSRect(x: 8, y: anchor.y, width: 20, height: 20))
+            element.onPress = { [weak self] in
+                guard let self else { return }
+                self.scrollToVisible(NSRect(x: 0, y: self.anchors[index].y, width: 20, height: 20))
+                self.onToggle(anchor.id, !self.isSelected(anchor.id))
+            }
+            return element
+        }
+    }
+
+    private func focusCheckbox(at index: Int) -> Bool {
+        guard anchors.indices.contains(index), let window else { return false }
+        scrollToVisible(NSRect(x: 0, y: anchors[index].y, width: 20, height: 20))
+        updateVisibleCheckboxes()
+        guard let checkbox = checkboxes[index] else { return false }
+        return window.makeFirstResponder(checkbox)
+    }
+
+    func updateVisibleCheckboxes() {
+        let viewport = visibleRect.insetBy(dx: 0, dy: -20)
+        var low = 0, high = anchors.count
+        while low < high {
+            let mid = (low + high) / 2
+            if anchors[mid].y + 20 < viewport.minY { low = mid + 1 } else { high = mid }
+        }
+        let first = low
+        while low < anchors.count, anchors[low].y <= viewport.maxY { low += 1 }
+        let visible = first..<low
+        for index in Array(checkboxes.keys) where !visible.contains(index) {
+            checkboxes.removeValue(forKey: index)?.removeFromSuperview()
+        }
+        for index in visible {
+            let anchor = anchors[index]
+            let checkbox: ResourceCheckbox
+            if let existing = checkboxes[index] {
+                checkbox = existing
+            } else {
+                checkbox = ResourceCheckbox(checkboxWithTitle: "", target: self, action: #selector(toggleResource))
+                checkbox.tag = index
+                checkbox.frame = NSRect(x: 8, y: anchor.y, width: 20, height: 20)
+                checkbox.setAccessibilityLabel(anchor.name)
+                checkbox.onMove = { [weak self] offset in self?.focusCheckbox(at: index + offset) == true }
+                addSubview(checkbox)
+                checkboxes[index] = checkbox
+            }
+            checkbox.state = isSelected(anchor.id) ? .on : .off
+        }
+    }
+
+    @objc private func toggleResource(_ sender: NSButton) {
+        onToggle(anchors[sender.tag].id, sender.state == .on)
+    }
+}
+
+private final class ResourceCheckbox: NSButton {
+    var onMove: ((Int) -> Bool)?
+
+    override func keyDown(with event: NSEvent) {
+        let offset: Int
+        switch event.keyCode {
+        case 48: offset = event.modifierFlags.contains(.shift) ? -1 : 1
+        case 125: offset = 1
+        case 126: offset = -1
+        default: super.keyDown(with: event); return
+        }
+        if onMove?(offset) != true { super.keyDown(with: event) }
+    }
+}
+
+private final class ResourceCheckboxAccessibilityElement: NSAccessibilityElement {
+    var onPress: (() -> Void)?
+    override func accessibilityPerformPress() -> Bool { onPress?(); return onPress != nil }
 }
