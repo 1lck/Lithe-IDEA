@@ -35,7 +35,9 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.manifest = {"id": inputs.PLUGIN_ID, "version": "1.1.0", "requires": inputs.REQUIRES,
                          "vendor": {"signatureRequirement": "publisherPackage"},
-                         "projectGenerators": [{"id": "java"}],
+                         "projectGenerators": [{"id": "java", "fields": [{"id": "buildSystem", "options": [{"value": "maven"}, {"value": "gradle"}]}],
+                                                "requirements": [{"buildSystemID": variant, "when": {"field": "buildSystem", "equals": variant}}
+                                                                 for variant in ("maven", "gradle")]}],
                          "languageServers": [{"languageID": "java", "hostIntegration": {"id": "jdt"}}]}
         jdk = self.root / "jdk"
         (jdk / "bin").mkdir(parents=True)
@@ -53,6 +55,8 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         archive = self.root / "java.zip"
         with zipfile.ZipFile(archive, "w") as output:
             output.writestr("plugin.json", raw)
+            for entry in ("templates/standard/Main.java", "templates/maven/pom.xml", "templates/gradle/build.gradle", "templates/gradle/settings.gradle"):
+                output.writestr(entry, "helper-only template, never generated or executed")
         self.plan["package"] = {"archive": {"path": str(archive), "sha256": inputs.sha256(archive)},
                                 "requires": copy.deepcopy(self.manifest["requires"]), "manifestSha256": hashlib.sha256(raw).hexdigest()}
 
@@ -225,6 +229,219 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         for value in ({"calls": [], "dropped": 1, "errors": []}, {"calls": [], "dropped": 0, "errors": ["decode"]}):
             with self.assertRaisesRegex(AssertionError, "dropped"):
                 inputs.assert_observer(value)
+
+    def test_variant_inputs_do_not_relabel_plain_receipts_or_source(self):
+        self.plan.update(packageEvidence={"plain": True}, workspaceEvidence={"plain": True})
+        for variant in ("maven", "gradle"):
+            plan = inputs.variant_plan(self.plan, variant)
+            self.assertEqual(plan["variant"], variant)
+            self.assertEqual(plan["project"]["mainClass"], "org.example.acceptance.Main")
+            self.assertEqual(plan["project"]["sourcePath"], "src/main/java/org/example/acceptance/Main.java")
+            self.assertNotIn("workspaceEvidence", plan)
+            self.assertNotIn("packageEvidence", plan)
+            self.assertNotEqual(plan["project"]["name"], self.plan["project"]["name"])
+        self.assertIn("workspaceEvidence", self.plan)
+
+    def test_plain_project_cannot_be_relabelled_as_maven_or_gradle(self):
+        for variant in ("maven", "gradle"):
+            plan = {**self.plan, "schemaVersion": 2, "kind": "windows-java-workflow", "variant": variant}
+            with self.assertRaisesRegex(ValueError, "variant project"):
+                inputs.validate_plan(plan)
+
+    def test_missing_variant_material_is_blocked_before_any_product_or_worker(self):
+        for variant in ("maven", "gradle"):
+            plan = inputs.variant_plan(self.plan, variant)
+            result = acceptance.preflight(plan, {})
+            self.assertEqual(result["variant"], variant)
+            self.assertFalse(result["runtimeExecuted"])
+            self.assertFalse(result["workflowPassed"])
+            self.assertFalse(result["buildPluginPassed"])
+            self.assertIn("buildPackage missing", result["blocked"])
+            driver = MagicMock()
+            with self.assertRaisesRegex(ValueError, "prerequisites blocked"):
+                acceptance.run(SimpleNamespace(), driver, MagicMock(), plan)
+            driver.AppSession.assert_not_called()
+            driver.sync_playwright.assert_not_called()
+
+    def test_missing_real_jdk_is_a_preflight_blocker_not_an_unreported_crash(self):
+        plan = inputs.variant_plan(self.plan, "maven")
+        del plan["jdk"]
+        result = acceptance.preflight(plan, {})
+        self.assertTrue(result["blocked"])
+        self.assertFalse(result["runtimeExecuted"])
+
+    def test_packaged_main_source_and_launch_are_variant_bound(self):
+        source = inputs.java_source("MAVEN_ONLY", package_name="org.example.acceptance")
+        self.assertTrue(source.startswith("package org.example.acceptance;\n"))
+        target = {"classPaths": ["C:/example/target/classes"]}
+        launch = {"executable": "C:/jdk/bin/java.exe", "workingDirectory": "C:/example",
+                  "arguments": ["-cp", target["classPaths"][0], "org.example.acceptance.Main"]}
+        inputs.assert_actual_launch(launch, target, Path("C:/example"), Path("C:/jdk"), "org.example.acceptance.Main")
+        launch["arguments"][-1] = "Main"
+        with self.assertRaisesRegex(AssertionError, "selected project"):
+            inputs.assert_actual_launch(launch, target, Path("C:/example"), Path("C:/jdk"), "org.example.acceptance.Main")
+
+    def build_package(self, plan, *, variant=None, provider=False):
+        variant = variant or plan["variant"]
+        required = {"buildSystems": 1, "packageTrust": 1}
+        system = {"id": variant, "model": {"source": "command"}}
+        if provider:
+            system["provider"] = {"languageServer": "java"}
+            required["buildProviders"] = 1
+        manifest = {"id": "org.example." + variant, "requires": required,
+                    "vendor": {"signatureRequirement": "publisherPackage"}, "buildSystems": [system]}
+        archive = self.root / (variant + ".zip")
+        raw = inputs.json_bytes(manifest)
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("plugin.json", raw)
+        plan["buildPackage"] = {"pluginId": manifest["id"], "buildSystemId": variant,
+                                "requires": required, "manifestSha256": hashlib.sha256(raw).hexdigest(),
+                                "archive": {"path": str(archive), "sha256": inputs.sha256(archive)}}
+        return manifest
+
+    def receipt(self, plan, key, **values):
+        evidence = self.root / (key + "-original.json")
+        evidence.write_text("helper-only original; no product validation claim", encoding="utf-8")
+        document = {"status": "passed", "productionTrusted": True, "variant": plan["variant"],
+                    "sourceCommit": plan["sourceCommit"], "evidence": [{"path": str(evidence), "sha256": inputs.sha256(evidence)}], **values}
+        path = self.root / (key + ".json")
+        path.write_bytes(inputs.json_bytes(document))
+        plan[key] = {"path": str(path), "sha256": inputs.sha256(path)}
+        return document
+
+    def test_build_variant_package_and_requires_must_match_actual_archive(self):
+        plan = inputs.variant_plan(self.plan, "maven")
+        self.build_package(plan, variant="gradle")
+        with self.assertRaisesRegex(ValueError, "independent complete"):
+            inputs.validate_plan(plan)
+        self.build_package(plan)
+        plan["buildPackage"]["requires"] = {"buildSystems": 1}
+        with self.assertRaisesRegex(ValueError, "requires identity"):
+            inputs.validate_plan(plan)
+
+    def test_old_or_candidate_build_receipt_never_admits_variant(self):
+        plan = inputs.variant_plan(self.plan, "gradle")
+        self.build_package(plan)
+        package = plan["buildPackage"]
+        values = {"pluginId": package["pluginId"], "buildSystemId": "gradle", "packageSha256": package["archive"]["sha256"],
+                  "manifestSha256": package["manifestSha256"]}
+        for changed in ({"variant": "maven"}, {"sourceCommit": "b" * 40}, {"productionTrusted": False}, {"packageSha256": "b" * 64}):
+            self.receipt(plan, "buildPackageEvidence", **{**values, **changed})
+            self.assertTrue(any("buildPackageEvidence is candidate/incomplete" in item for item in inputs.validate_plan(plan)[1]))
+
+    def test_closed_build_provider_capability_is_reported_independently(self):
+        plan = inputs.variant_plan(self.plan, "maven")
+        self.build_package(plan, provider=True)
+        caps = {key: [value] for key, value in inputs.REQUIRES.items()}
+        caps["buildSystems"] = [1]
+        result = acceptance.preflight(plan, caps)
+        self.assertIn("closed build capability buildProviders:1", result["blocked"])
+        self.assertIn(inputs.VARIANT_RUNTIME_GAP, result["blocked"])
+
+    def workspace_receipt(self, plan):
+        project = plan["project"]
+        workspace = self.root / "generated"
+        files = {}
+        for relative in (*inputs.DESCRIPTORS[plan["variant"]], project["sourcePath"], ".lithe/run/local.json"):
+            path = workspace / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(inputs.json_bytes({"toolchain": {"javaHomePath": plan["jdk"]["home"]}}) if relative.endswith(".json") else b"generated-only")
+            files[relative] = {"path": str(path), "sha256": inputs.sha256(path)}
+        values = {"javaHome": plan["jdk"]["home"], "javaVersion": plan["jdk"]["version"],
+                  "javaSha256": plan["jdk"]["javaSha256"], "javacSha256": plan["jdk"]["javacSha256"],
+                  "packageSha256": plan["package"]["archive"]["sha256"], "project": project, "generatorId": "java",
+                  "workspaceRoot": str(workspace), "generatedFiles": files}
+        self.receipt(plan, "workspaceEvidence", **values)
+        return values
+
+    def test_workspace_receipt_binds_generated_files_jdk_variant_and_source(self):
+        plan = inputs.variant_plan(self.plan, "maven")
+        values = self.workspace_receipt(plan)
+        self.assertFalse(any("workspaceEvidence" in item for item in inputs.validate_plan(plan)[1]))
+        self.receipt(plan, "workspaceEvidence", **{**values, "variant": "gradle"})
+        self.assertTrue(any("workspaceEvidence is candidate/incomplete" in item for item in inputs.validate_plan(plan)[1]))
+        self.receipt(plan, "workspaceEvidence", **values)
+        (Path(values["workspaceRoot"]) / "pom.xml").write_bytes(b"changed after generation")
+        with self.assertRaisesRegex(ValueError, "input bytes changed"):
+            inputs.validate_plan(plan)
+
+    def test_workspace_receipt_cannot_omit_a_descriptor_or_substitute_external_file(self):
+        plan = inputs.variant_plan(self.plan, "gradle")
+        values = self.workspace_receipt(plan)
+        missing = copy.deepcopy(values)
+        del missing["generatedFiles"]["settings.gradle"]
+        self.receipt(plan, "workspaceEvidence", **missing)
+        self.assertIn("workspaceEvidence missing generated file settings.gradle", inputs.validate_plan(plan)[1])
+        external = self.root / "another-build.gradle"
+        external.write_bytes(b"another workspace")
+        values["generatedFiles"]["build.gradle"] = {"path": str(external), "sha256": inputs.sha256(external)}
+        self.receipt(plan, "workspaceEvidence", **values)
+        self.assertIn("workspaceEvidence generated file belongs to another workspace", inputs.validate_plan(plan)[1])
+
+    def test_plain_package_receipt_cannot_establish_variant_trust(self):
+        plan = inputs.variant_plan(self.plan, "maven")
+        package = plan["package"]
+        self.receipt(plan, "packageEvidence", variant="plain", packageSha256=package["archive"]["sha256"], manifestSha256=package["manifestSha256"])
+        self.assertTrue(any("packageEvidence is candidate/incomplete" in item for item in inputs.validate_plan(plan)[1]))
+
+    def test_even_all_capabilities_and_helper_receipts_never_establish_variant_runtime(self):
+        # These local fake receipts deliberately satisfy byte bindings only.
+        # Production admission and the unimplemented build UI driver stay gates.
+        for variant in ("maven", "gradle"):
+            with self.subTest(variant=variant):
+                plan = inputs.variant_plan(self.plan, variant)
+                self.build_package(plan)
+                package = plan["package"]
+                self.receipt(plan, "packageEvidence", packageSha256=package["archive"]["sha256"], manifestSha256=package["manifestSha256"])
+                package = plan["buildPackage"]
+                self.receipt(plan, "buildPackageEvidence", pluginId=package["pluginId"], buildSystemId=variant,
+                             packageSha256=package["archive"]["sha256"], manifestSha256=package["manifestSha256"])
+                self.workspace_receipt(plan)
+                self.assertEqual(inputs.validate_plan(plan)[1], [])
+                caps = {key: [value] for key, value in {**inputs.REQUIRES, "buildSystems": 1}.items()}
+                report = acceptance.preflight(plan, caps)
+                self.assertEqual(report["blocked"], [inputs.VARIANT_RUNTIME_GAP])
+                self.assertTrue(all(row["name"].startswith(variant + "-java /") for row in report["tests"][:len(inputs.CASES) + 2]))
+                self.assertFalse(report["buildPluginPassed"])
+                driver = MagicMock()
+                with patch.object(acceptance, "source_capabilities", return_value=caps):
+                    with self.assertRaisesRegex(ValueError, "prerequisites blocked"):
+                        acceptance.run(SimpleNamespace(), driver, MagicMock(), plan)
+                driver.AppSession.assert_not_called()
+
+    def test_generator_archive_without_variant_templates_cannot_be_relabelled(self):
+        plan = inputs.variant_plan(self.plan, "maven")
+        raw = inputs.json_bytes(self.manifest)
+        with zipfile.ZipFile(self.plan["package"]["archive"]["path"], "w") as output:
+            output.writestr("plugin.json", raw)
+        plan["package"]["archive"]["sha256"] = inputs.sha256(Path(plan["package"]["archive"]["path"]))
+        with self.assertRaisesRegex(ValueError, "variant generator requirements/templates"):
+            inputs.validate_plan(plan)
+
+    def test_variant_input_cli_preserves_previous_plan_bytes(self):
+        base = self.root / "base.json"
+        base.write_bytes(inputs.json_bytes(self.plan))
+        output = self.root / "maven-plan.json"
+        arguments = ["java_workflow_inputs.py", "--base-plan", str(base), "--variant", "maven", "--output", str(output)]
+        with patch.object(sys, "argv", arguments):
+            inputs.main()
+            before = output.read_bytes()
+            with self.assertRaises(FileExistsError):
+                inputs.main()
+        self.assertEqual(output.read_bytes(), before)
+        self.assertEqual(json.loads(before)["variant"], "maven")
+
+    def test_blocked_runtime_cli_writes_report_without_starting_suite_owner(self):
+        plan = inputs.variant_plan(self.plan, "gradle")
+        path = self.root / "plan.json"
+        path.write_bytes(inputs.json_bytes(plan))
+        report = self.root / "blocked.json"
+        with patch.object(sys, "argv", ["java_workflow_acceptance.py", "--plan", str(path), "--report", str(report)]):
+            self.assertEqual(acceptance.main(), 2)
+        result = json.loads(report.read_text(encoding="utf-8"))
+        self.assertFalse(result["runtimeExecuted"])
+        self.assertFalse(report.with_suffix(".worker.log").exists())
+        self.assertTrue(all(row["status"] == "skipped" for row in result["tests"]))
 
     def test_actual_launch_must_consume_selected_jdk_workspace_and_jdt_paths(self):
         launch = {"executable": "C:/jdk/bin/java.exe", "workingDirectory": "C:/example",

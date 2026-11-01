@@ -15,7 +15,8 @@
         const body = JSON.parse(options.body);
         const command = nativeCommand === 'platform_invoke' ? body.command : nativeCommand;
         if (command === 'core_execute' || command === 'save_document_file' ||
-            command.startsWith('run_') || command.startsWith('declarative_plugins_generator_')) {
+            command.startsWith('run_') || command.startsWith('declarative_plugins_generator_') ||
+            command.startsWith('declarative_plugins_build_')) {
           const args = nativeCommand === 'platform_invoke' ? body.args : body;
           call = { sequence: state.calls.length + state.dropped, command,
             args: command === 'core_execute' ? {} : keep(args), settled: false };

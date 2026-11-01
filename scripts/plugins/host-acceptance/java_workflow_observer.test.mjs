@@ -80,3 +80,48 @@ test('deadline restores unresolved native callbacks and forwards a late real rep
   assert.equal(owner.received[0], late);
   assert.equal(stopped.calls[0].settled, false);
 });
+
+test('records actual build preparation and approved execution separately without inventing JDT build evidence', { timeout: 2000 }, async () => {
+  const owner = observer();
+  try {
+    await owner.dispatch('platform_invoke', { command: 'declarative_plugins_build_prepare_model', args: {
+      workspaceRoot: 'C:/generated/maven', pluginId: 'org.example.maven', buildSystemId: 'maven',
+      environment: { SECRET: 'never record' },
+    } }, 30);
+    const prepared = { operationId: 'actual-model', executesProjectCode: true, mayUseNetwork: true };
+    assert.equal(owner.callbacks.get(30)(prepared), 'original-callback-result');
+    await owner.dispatch('declarative_plugins_build_load_model', { operationId: 'actual-model' }, 32);
+    const loaded = { generation: 4, workspaceRoot: 'C:/generated/maven', instances: [] };
+    owner.callbacks.get(32)(loaded);
+    await owner.dispatch('declarative_plugins_build_authorize_provider_language', { operationId: 'actual-provider' }, 34);
+    const failure = { code: 'plugin.build.staleContext' };
+    owner.callbacks.get(35)(failure);
+    const calls = owner.window.__litheJavaWorkflow.snapshot().calls;
+    assert.deepEqual(Array.from(calls, call => call.command), [
+      'declarative_plugins_build_prepare_model', 'declarative_plugins_build_load_model', 'declarative_plugins_build_authorize_provider_language',
+    ]);
+    assert.equal(calls[1].args.operationId, calls[0].value.operationId);
+    assert.equal(calls[2].settled, true);
+    assert.equal(owner.received[0], prepared);
+    assert.equal(owner.received[1], loaded);
+    assert.equal(owner.received[2], failure);
+    assert.equal(JSON.stringify(calls).includes('SECRET'), false);
+    assert.equal(calls.some(call => call.core?.command === 'java.prepareLaunch'), false);
+    assert.equal(owner.forwarded.length, 3);
+  } finally {
+    assert.equal((await owner.window.__litheJavaWorkflow.stop()).originalInvokeRestored, true);
+  }
+});
+
+test('restores unresolved build callbacks without replacing a later owner handler', { timeout: 2000 }, async () => {
+  const owner = observer({ settleDeadline: true });
+  await owner.dispatch('declarative_plugins_build_execute_run', { operationId: 'actual-run' }, 40);
+  const laterOwner = () => 'later-owner';
+  owner.callbacks.set(40, laterOwner);
+  const stopped = await owner.window.__litheJavaWorkflow.stop();
+  assert.equal(stopped.pending, 1);
+  assert.equal(stopped.calls[0].settled, false);
+  assert.equal(stopped.callbackWrappersRetained, 0);
+  assert.equal(owner.callbacks.get(40), laterOwner);
+  assert.equal(owner.window.fetch, owner.fetch);
+});

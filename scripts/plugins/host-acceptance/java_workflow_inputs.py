@@ -7,6 +7,8 @@ runtime discovery, Java project facts, compilation, and execution.
 """
 from __future__ import annotations
 
+import argparse
+import copy
 import hashlib
 import json
 import re
@@ -27,8 +29,116 @@ PENDING = {
     "maven-gradle": "Not executed: requires each complete production-trusted build package and its own workflow evidence; existing JDT integration does not establish declarative build-plugin acceptance.",
     "signed-installer-upgrade": "Not executed: signed installer, installed-directory immutability and upgrade require independent channel evidence.",
     "windows-arm64": "Not executed: this driver is x64 only; ARM64 needs a fixed native EXE, package, JDK and environment.",
-    "complete-M10": "Pending: this plain Java subset cannot establish all M8/M10 capabilities.",
+    "complete-M10": "Pending: Java workflow helpers/preflight and the plain runtime subset cannot establish all M8/M10 capabilities.",
 }
+VARIANTS = ("plain", "maven", "gradle")
+# These are generated-input expectations, never project/classpath/build models.
+DESCRIPTORS = {"plain": (), "maven": ("pom.xml",), "gradle": ("build.gradle", "settings.gradle")}
+VARIANT_RUNTIME_GAP = (
+    "variant runtime acceptance pending: production buildSystems/packageTrust admission and a real "
+    "approved build-registry model/task/run trace are required; the current runtime driver executes plain Java only. "
+    "JDT prepareLaunch alone cannot establish declarative build-plugin acceptance."
+)
+
+
+def workflow_variant(plan: dict) -> str:
+    if not isinstance(plan, dict):
+        raise ValueError("expected a Java workflow object")
+    if plan.get("schemaVersion") == 1 and plan.get("kind") == "windows-plain-java-workflow":
+        if plan.get("variant", "plain") != "plain":
+            raise ValueError("legacy plain plan cannot be relabelled as another variant")
+        return "plain"
+    if (plan.get("schemaVersion") == 2 and plan.get("kind") == "windows-java-workflow"
+            and plan.get("variant") in VARIANTS):
+        return plan["variant"]
+    raise ValueError("expected a versioned Java workflow variant")
+
+
+def variant_plan(base: dict, variant: str, group_id="org.example.acceptance", artifact_id="workflow") -> dict:
+    """Prepare a new fixed-input plan without adopting another variant's receipts."""
+    if variant not in ("maven", "gradle"):
+        raise ValueError("choose maven or gradle")
+    if len(group_id) > 200 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", group_id):
+        raise ValueError("expected a Java package groupId")
+    if len(artifact_id) > 200 or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", artifact_id):
+        raise ValueError("expected a generator artifactId")
+    plan = {key: copy.deepcopy(base[key]) for key in ("sourceCommit", "sourceInventory", "package", "jdk")}
+    plan.update(schemaVersion=2, kind="windows-java-workflow", variant=variant)
+    plan["project"] = {"name": base["project"]["name"] + " " + variant.title(), "buildSystem": variant,
+                       "groupId": group_id, "artifactId": artifact_id,
+                       "sourcePath": "src/main/java/" + group_id.replace(".", "/") + "/Main.java",
+                       "mainClass": group_id + ".Main", "configurationName": group_id + ".Main"}
+    return plan
+
+
+def archive_manifest(package: dict) -> tuple[dict, set[str]]:
+    archive = read_reference(package["archive"])
+    with zipfile.ZipFile(archive) as source:
+        entries = source.infolist()
+        names = [item.filename for item in entries]
+        if (len(entries) > 100_000 or sum(item.file_size for item in entries) > 2 * 1024**3
+                or len(names) != len(set(names))):
+            raise ValueError("package exceeds bounded unique inventory limits")
+        if source.getinfo("plugin.json").file_size > 4 * 1024**2:
+            raise ValueError("manifest exceeds bounded JSON size")
+        raw = source.read("plugin.json")
+    manifest = json.loads(raw)
+    if (not isinstance(manifest, dict) or not isinstance(manifest.get("requires"), dict)
+            or hashlib.sha256(raw).hexdigest() != package["manifestSha256"] or manifest["requires"] != package["requires"]):
+        raise ValueError("archive manifest/requires identity mismatch")
+    return manifest, set(names)
+
+
+def receipt_blockers(plan: dict, key: str, expected: dict) -> list[str]:
+    reference = plan.get(key)
+    if reference is None:
+        return [key + " missing"]
+    receipt = read_reference(reference, json_document=True)
+    if not isinstance(receipt, dict):
+        raise ValueError(key + " must be a receipt object")
+    if (receipt.get("status") != "passed" or receipt.get("productionTrusted") is not True
+            or any(receipt.get(name) != value for name, value in expected.items())
+            or not isinstance(receipt.get("evidence"), list) or not receipt["evidence"]):
+        return [key + " is candidate/incomplete or has another package/JDK/variant/source identity"]
+    for evidence in receipt["evidence"]:
+        read_reference(evidence)
+    if key == "workspaceEvidence" and workflow_variant(plan) != "plain":
+        root = Path(receipt.get("workspaceRoot", ""))
+        files = receipt.get("generatedFiles", {})
+        if not root.is_absolute():
+            return ["workspaceEvidence lacks an absolute generated workspace"]
+        for relative in (*DESCRIPTORS[plan["variant"]], plan["project"]["sourcePath"], ".lithe/run/local.json"):
+            if relative not in files:
+                return ["workspaceEvidence missing generated file " + relative]
+            path = read_reference(files[relative])
+            if (root.resolve() not in path.resolve().parents
+                    or not same_path(path.resolve(), (root / relative).resolve())):
+                return ["workspaceEvidence generated file belongs to another workspace"]
+        config = read_reference(files[".lithe/run/local.json"], json_document=True)
+        if not same_path(config.get("toolchain", {}).get("javaHomePath", ""), plan["jdk"]["home"]):
+            return ["workspaceEvidence generated configuration has another JDK"]
+    return []
+
+
+def validate_build_package(plan: dict) -> list[str]:
+    package = plan.get("buildPackage")
+    if package is None:
+        return ["buildPackage missing", "buildPackageEvidence missing"]
+    manifest, _ = archive_manifest(package)
+    required = manifest["requires"]
+    systems = [system for system in manifest.get("buildSystems", []) if system.get("id") == package.get("buildSystemId")]
+    if (manifest.get("id") != package.get("pluginId") or manifest["id"] == PLUGIN_ID
+            or not isinstance(required.get("buildSystems"), int) or required["buildSystems"] < 1
+            or required.get("packageTrust") != 1
+            or manifest.get("vendor", {}).get("signatureRequirement") != "publisherPackage"
+            or len(systems) != 1 or systems[0]["id"] != plan["variant"]):
+        raise ValueError("independent complete production-trusted variant build package is required")
+    if systems[0].get("provider") and not required.get("buildProviders"):
+        raise ValueError("provider build package must retain its buildProviders requirement")
+    return receipt_blockers(plan, "buildPackageEvidence", {
+        "variant": plan["variant"], "sourceCommit": plan["sourceCommit"],
+        "pluginId": manifest["id"], "buildSystemId": package["buildSystemId"],
+        "packageSha256": package["archive"]["sha256"], "manifestSha256": package["manifestSha256"]})
 
 
 def same_path(left: str | Path, right: str | Path) -> bool:
@@ -47,11 +157,10 @@ def read_reference(reference: dict, *, json_document=False):
     path = Path(reference["path"])
     if not path.is_absolute() or not re.fullmatch(r"[0-9a-f]{64}", reference["sha256"]):
         raise ValueError("input references need absolute paths and SHA256")
-    if (path.stat().st_size > 2 * 1024**3 or path.is_symlink() or path.is_junction()
+    limit = 4 * 1024**2 if json_document else 2 * 1024**3
+    if (path.stat().st_size > limit or not path.is_file() or path.is_symlink() or path.is_junction()
             or sha256(path) != reference["sha256"]):
         raise ValueError("fixed input bytes changed: " + str(path))
-    if json_document and path.stat().st_size > 4 * 1024**2:
-        raise ValueError("input receipt exceeds bounded JSON size")
     return json.loads(path.read_text(encoding="utf-8-sig")) if json_document else path
 
 
@@ -62,22 +171,13 @@ def validate_plan(plan: dict) -> tuple[dict, list[str]]:
     tests pass. Receipts refer to original evidence, not a new trust authority.
     Native install/scan must validate the supplied package again at runtime.
     """
-    if (plan.get("schemaVersion") != 1 or plan.get("kind") != "windows-plain-java-workflow"
-            or not re.fullmatch(r"[0-9a-f]{40}", plan.get("sourceCommit", ""))
+    variant = workflow_variant(plan)
+    if (not re.fullmatch(r"[0-9a-f]{40}", plan.get("sourceCommit", ""))
             or not isinstance(plan.get("sourceInventory"), dict) or not plan["sourceInventory"]):
         raise ValueError("complete fixed source identity is required")
     package = plan["package"]
-    archive = read_reference(package["archive"])
-    with zipfile.ZipFile(archive) as source:
-        entries = source.infolist()
-        if len(entries) > 100_000 or sum(item.file_size for item in entries) > 2 * 1024**3:
-            raise ValueError("Java package exceeds bounded inventory limits")
-        if source.getinfo("plugin.json").file_size > 4 * 1024**2:
-            raise ValueError("Java manifest exceeds bounded JSON size")
-        raw = source.read("plugin.json")
-    manifest = json.loads(raw)
-    if (hashlib.sha256(raw).hexdigest() != package["manifestSha256"]
-            or manifest.get("id") != PLUGIN_ID or manifest.get("requires") != package["requires"]
+    manifest, names = archive_manifest(package)
+    if (manifest.get("id") != PLUGIN_ID
             or any(manifest["requires"].get(key) != level for key, level in REQUIRES.items())
             or manifest.get("vendor", {}).get("signatureRequirement") != "publisherPackage"):
         raise ValueError("complete official Java manifest/requires/trust identity mismatch")
@@ -86,10 +186,25 @@ def validate_plan(plan: dict) -> tuple[dict, list[str]]:
                                 for item in manifest.get("languageServers", [])):
         raise ValueError("complete Java generator and JDT integration are required")
     project = plan["project"]
-    if (project.get("sourcePath") != "src/Main.java" or project.get("mainClass") != "Main"
-            or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 -]{0,60}", project.get("name", ""))
-            or not project.get("configurationName")):
-        raise ValueError("first workflow must use a plain generated Main project")
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 -]{0,60}", project.get("name", "")) or not project.get("configurationName"):
+        raise ValueError("expected a named generated Java project and run configuration")
+    if variant == "plain":
+        if project.get("sourcePath") != "src/Main.java" or project.get("mainClass") != "Main":
+            raise ValueError("plain workflow must use a plain generated Main project")
+    else:
+        group = project.get("groupId", "")
+        if (len(group) > 200 or len(project.get("artifactId", "")) > 200
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", group)
+                or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", project.get("artifactId", ""))
+                or project.get("buildSystem") != variant or project.get("mainClass") != group + ".Main"
+                or project.get("sourcePath") != "src/main/java/" + group.replace(".", "/") + "/Main.java"):
+            raise ValueError("variant project must bind buildSystem, group/artifact, generated source and qualified Main")
+        build = next((field for field in generator.get("fields", []) if field.get("id") == "buildSystem"), {})
+        if (not any(option.get("value") == variant for option in build.get("options", []))
+                or not any(item.get("buildSystemID") == variant and item.get("when") == {"field": "buildSystem", "equals": variant}
+                           for item in generator.get("requirements", []))
+                or not {"templates/standard/Main.java", *("templates/" + variant + "/" + name for name in DESCRIPTORS[variant])} <= names):
+            raise ValueError("complete Java archive lacks variant generator requirements/templates")
     jdk = plan["jdk"]
     home = Path(jdk["home"])
     if (not home.is_absolute() or not jdk.get("version") or
@@ -97,29 +212,25 @@ def validate_plan(plan: dict) -> tuple[dict, list[str]]:
             sha256(home / "bin/javac.exe") != jdk["javacSha256"]):
         raise ValueError("real fixed JDK java/javac bytes are required")
     blocked = []
+    binding = {} if variant == "plain" else {"variant": variant, "sourceCommit": plan["sourceCommit"]}
     for key, expected in (("packageEvidence", {"packageSha256": package["archive"]["sha256"],
                                               "manifestSha256": package["manifestSha256"]}),
                           ("workspaceEvidence", {"javaHome": jdk["home"], "javaVersion": jdk["version"],
                                                 "javaSha256": jdk["javaSha256"]})):
-        reference = plan.get(key)
-        if reference is None:
-            blocked.append(key + " missing")
-            continue
-        receipt = read_reference(reference, json_document=True)
-        if (receipt.get("status") != "passed" or receipt.get("productionTrusted") is not True
-                or any(receipt.get(name) != value for name, value in expected.items())
-                or not receipt.get("evidence")):
-            blocked.append(key + " is candidate/incomplete or has another package/JDK identity")
-        else:
-            for evidence in receipt["evidence"]:
-                read_reference(evidence)
+        if variant != "plain" and key == "workspaceEvidence":
+            expected.update(project=project, generatorId="java", javacSha256=jdk["javacSha256"],
+                            packageSha256=package["archive"]["sha256"])
+        blocked.extend(receipt_blockers(plan, key, {**expected, **binding}))
+    if variant != "plain":
+        blocked.extend(validate_build_package(plan))
     return manifest, blocked
 
 
-def pending_rows(reason: str) -> list[dict]:
-    return [{"name": "plain-java / " + name, "suite": "plugin-host-acceptance / java-workflow",
+def pending_rows(reason: str, variant="plain") -> list[dict]:
+    cases = CASES if variant == "plain" else (*CASES, "approved-build-model-task", "declarative-build-run-binding")
+    return [{"name": variant + "-java / " + name, "suite": "plugin-host-acceptance / java-workflow",
              "status": "skipped", "durationMs": 0, "maxMs": 120_000, "details": reason}
-            for name in CASES]
+            for name in cases]
 
 
 def assert_observer(snapshot: dict) -> list[dict]:
@@ -206,18 +317,21 @@ def completed_preparation(calls: list[dict], source: Path, main_class: str, sess
     return None
 
 
-def java_source(marker: str, *, invalid=False) -> str:
+def java_source(marker: str, *, invalid=False, package_name=None) -> str:
     # This JDK-only program stays alive for Stop. The existing suite Job bounds
     # its lifetime even when a product assertion or cancellation fails.
     expression = 'missingAcceptanceSymbol' if invalid else json.dumps(marker)
-    return ("public class Main {\n    public static void main(String[] args) throws Exception {\n"
+    if package_name is not None and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", package_name):
+        raise ValueError("invalid Java package name")
+    prefix = "package " + package_name + ";\n\n" if package_name else ""
+    return (prefix + "public class Main {\n    public static void main(String[] args) throws Exception {\n"
             f"        System.out.println({expression});\n"
             "        System.out.flush();\n        System.in.read();\n    }\n}\n")
 
 
-def assert_actual_launch(launch: dict, target: dict, root: Path, java_home: Path) -> None:
+def assert_actual_launch(launch: dict, target: dict, root: Path, java_home: Path, main_class="Main") -> None:
     if (not same_path(launch["executable"], java_home / "bin/java.exe")
-            or not same_path(launch["workingDirectory"], root) or "Main" not in launch["arguments"]):
+            or not same_path(launch["workingDirectory"], root) or main_class not in launch["arguments"]):
         raise AssertionError("actual run did not use the selected project JDK/workspace/main")
     for key, flags in (("classPaths", ("-cp", "-classpath", "--class-path")),
                        ("modulePaths", ("-p", "--module-path"))):
@@ -233,3 +347,25 @@ def assert_actual_launch(launch: dict, target: dict, root: Path, java_home: Path
             raise AssertionError("actual launch did not preserve JDT " + key)
     if not target.get("classPaths") and not target.get("modulePaths"):
         raise AssertionError("JDT returned no runtime paths")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Prepare variant-specific inputs; never launch, sign, download or adopt plain receipts.")
+    parser.add_argument("--base-plan", type=Path, required=True)
+    parser.add_argument("--variant", choices=("maven", "gradle"), required=True)
+    parser.add_argument("--group-id", default="org.example.acceptance")
+    parser.add_argument("--artifact-id", default="workflow")
+    parser.add_argument("--build-package-input", type=Path, help="Fixed buildPackage object (archive/requires/manifestSha256/pluginId/buildSystemId)")
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    plan = variant_plan(json.loads(args.base_plan.read_text(encoding="utf-8-sig")), args.variant, args.group_id, args.artifact_id)
+    if args.build_package_input:
+        plan["buildPackage"] = json.loads(args.build_package_input.read_text(encoding="utf-8-sig"))
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("xb") as output:
+        output.write(json_bytes(plan))
+    print("Prepared " + args.variant + " inputs; receipts and actual product acceptance remain required.")
+
+
+if __name__ == "__main__":
+    main()

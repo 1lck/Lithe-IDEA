@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in generated plain Java UI/JDT/build/run acceptance, never simulated IPC.
+"""Generated Java workflow preflight and opt-in plain UI/JDT/build/run acceptance.
 
 Preflight starts nothing. Runtime needs final source/config/EXE identity, A's
 production-trusted complete independent Java archive and B's real JDK/workspace
@@ -14,15 +14,16 @@ import os
 import platform
 import sys
 import time
+import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 from build_acceptance import missing_capabilities, source_capabilities
 from generator_acceptance import cleanup_session, runtime_paths
-from java_workflow_inputs import (CASES, PENDING, PLUGIN_ID, assert_actual_launch, assert_observer, completed_preparation,
+from java_workflow_inputs import (CASES, PENDING, PLUGIN_ID, REQUIRES, VARIANT_RUNTIME_GAP, assert_actual_launch, assert_observer, completed_preparation,
                                   java_source, json_bytes, pending_rows, read_reference,
-                                  ready_session, same_path, saved_and_synced, sha256, validate_plan)
+                                  ready_session, same_path, saved_and_synced, sha256, validate_plan, workflow_variant)
 from settings_functions_acceptance import (assert_resources, resource_diff, snapshot_resources,
                                           verify_host, verify_installed_archive, wait_for)
 from text_window_fixture import source_inventory
@@ -34,22 +35,35 @@ WORK_SECONDS = 720
 
 
 def preflight(plan: dict, capabilities: dict) -> dict:
-    manifest, blocked = validate_plan(plan)
-    missing = missing_capabilities(manifest["requires"], capabilities)
-    blocked.extend("closed capability " + item for item in missing)
+    variant, requires, build_requires, blocked = "invalid", dict(REQUIRES), {}, []
+    try:
+        variant = workflow_variant(plan)
+        manifest, blocked = validate_plan(plan)
+        requires = manifest["requires"]
+        if variant != "plain":
+            # validate_plan bound these requirements to the actual archive.
+            build_requires = plan.get("buildPackage", {}).get("requires", {"buildSystems": 1, "packageTrust": 1})
+    except (ValueError, OSError, KeyError, TypeError, AttributeError, zipfile.BadZipFile) as error:
+        blocked.append("invalid fixed input: " + str(error))
+    blocked.extend("closed capability " + item for item in missing_capabilities(requires, capabilities))
+    if variant in ("maven", "gradle"):
+        build_requires = build_requires or {"buildSystems": 1, "packageTrust": 1}
+        blocked.extend("closed build capability " + item for item in missing_capabilities(build_requires, capabilities))
+        blocked.append(VARIANT_RUNTIME_GAP)
     reason = "Not executed. " + ("; ".join(blocked) if blocked else "Explicit isolated final-source product invocation required.")
-    return {"complete": False, "plainJavaPassed": False, "runtimeExecuted": False,
-            "blocked": blocked, "requires": manifest["requires"], "tests": pending_rows(reason) +
+    return {"complete": False, "variant": variant, "workflowPassed": False, "buildPluginPassed": False,
+            "plainJavaPassed": False, "runtimeExecuted": False, "scope": "preflight-only" if variant != "plain" else "plain-runtime-driver",
+            "blocked": blocked, "requires": requires, "buildRequires": build_requires, "tests": pending_rows(reason, variant) +
             [{"name": name, "suite": "plugin-host-acceptance / pending-platforms", "status": "skipped",
               "durationMs": 0, "maxMs": 1, "details": details} for name, details in PENDING.items()]}
 
 
 def run(args, driver, reporter, plan):
     work_deadline = time.monotonic() + WORK_SECONDS
-    manifest, blocked = validate_plan(plan)
-    blocked.extend("closed capability " + value for value in missing_capabilities(manifest["requires"], source_capabilities()))
-    if blocked:
-        raise ValueError("Java workflow prerequisites blocked: " + "; ".join(blocked))
+    prerequisites = preflight(plan, source_capabilities())
+    if prerequisites["blocked"]:
+        raise ValueError("Java workflow prerequisites blocked: " + "; ".join(prerequisites["blocked"]))
+    manifest, _ = validate_plan(plan)
     identity = verify_host(args.host_identity, args.executable, plan)
     if (identity.get("sourceInventory") != plan["sourceInventory"] or source_inventory() != plan["sourceInventory"]
             or identity.get("configSha256") != sha256(args.host_identity.with_name("tauri.host-acceptance.conf.json"))
@@ -325,8 +339,13 @@ def main():
     if args.report.exists():
         parser.error("report must be absent; never adopt or overwrite an earlier run's evidence")
     plan = json.loads(args.plan.read_text(encoding="utf-8-sig"))
-    if args.preflight:
-        document = preflight(plan, source_capabilities())
+    if not args.preflight and any(path is not None and path.exists() for path in
+                                 (args.artifact_root, args.app_local_data, args.app_roaming_data, args.webview_data)):
+        parser.error("run-owned evidence/profiles must be absent before preflight or the suite owner")
+    document = preflight(plan, source_capabilities())
+    # Refuse closed/missing prerequisites before the suite worker, Playwright,
+    # isolated profiles, installation, or any product process can be created.
+    if args.preflight or document["blocked"]:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_bytes(json_bytes({"runner": "acceptance", "warnMs": 30_000, "maxMs": 120_000, **document}))
         return 2
@@ -353,6 +372,7 @@ def main():
                                 "details": str(result)})
         if result["status"] != "passed" or not cleanup_proven(result):
             report["plainJavaPassed"] = False
+            report["workflowPassed"] = False
         args.report.write_bytes(json_bytes(report))
         return int(not report["plainJavaPassed"])
     import acceptance_driver as driver
@@ -375,7 +395,8 @@ def main():
         for name, details in PENDING.items():
             reporter.document_pending(name, details)
         driver.write_json(args.report, {"runner": "acceptance", "warnMs": 30_000, "maxMs": 120_000,
-                          "complete": False, "plainJavaPassed": code == 0,
+                          "complete": False, "plainJavaPassed": code == 0, "workflowPassed": code == 0,
+                          "variant": "plain", "scope": "plain-runtime-driver", "buildPluginPassed": False,
                           "runtimeExecuted": getattr(reporter, "runtime_executed", False), "tests": reporter.tests})
     return code
 
