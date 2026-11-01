@@ -81,6 +81,12 @@ pub fn render(request: MarkdownRenderRequest) -> MarkdownRenderResponse {
         )
         .add_tag_attributes("source", &["src", "type", "media"]);
 
+    // README headers commonly align a whole badge row or heading. Keep the
+    // presentational attribute without allowing arbitrary inline styles.
+    for tag in ["div", "p", "h1", "h2", "h3", "h4", "h5", "h6"] {
+        sanitizer.add_tag_attributes(tag, &["align"]);
+    }
+
     MarkdownRenderResponse {
         html: sanitizer.clean(&rendered).to_string(),
     }
@@ -162,5 +168,30 @@ mod tests {
         assert!(output.contains("<details"));
         assert!(output.contains("<summary>More</summary>"));
         assert!(output.contains("<mark>Safe</mark>"));
+    }
+
+    #[test]
+    fn preserves_html_alignment_and_inline_badges_without_allowing_styles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/editor/markdown-html-v1.json"
+        ))
+        .expect("Markdown HTML fixture should decode");
+        let output = html(fixture["source"].as_str().expect("fixture source"));
+
+        assert!(output.contains("<div align=\"center\""));
+        assert!(output.contains("<h1 align=\"right\""));
+        assert!(output.contains("<p align=\"left\""));
+        let header = output.split("</div>").next().expect("HTML header");
+        assert_eq!(header.matches("<img ").count(), 3);
+        assert_eq!(header.matches("<p ").count(), 3);
+        assert_eq!(output.matches("<img ").count(), 4);
+        assert_eq!(output.matches("<br").count(), 1);
+        assert!(output.contains("width=\"80\""));
+        assert!(output.contains("height=\"20\""));
+        assert!(!output.contains("style="));
+        assert!(!output.contains("onclick"));
+        assert!(!output.contains("javascript:"));
+        assert!(!output.contains("<script"));
+        assert!(!output.contains("<style"));
     }
 }
