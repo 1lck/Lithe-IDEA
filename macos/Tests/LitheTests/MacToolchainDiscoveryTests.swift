@@ -327,6 +327,38 @@ struct MacToolchainDiscoveryTests {
     }
     #endif
 
+    /// A provider past its deadline and one whose backend could not answer both reach Core as
+    /// unavailable: the scanned installation still decides, and each keeps its own reason.
+    @Test func providersWithoutAnAnswerAreNamedWithTheirReasonWhileLowerSourcesDecide() async throws {
+        struct BackendDown: LocalizedError {
+            var errorDescription: String? { "fixture backend stopped" }
+        }
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let scanned = try root.installation("home/Kits/scanned.kit/Contents/Home")
+        try Data("21\n".utf8).write(to: root.url("workspace/.compiler-version"))
+        let probes = DiscoveryProbes(outputs: [scanned + "/bin/compiler": "compiler 21.0.1"])
+        var discovery = discovery(root: root, probes: probes)
+        discovery.queryProvider = { _, provider, _, _ in
+            if provider == "kits" { throw MacToolchainDiscovery.QueryTimeout() }
+            throw BackendDown()
+        }
+        discovery.workspaceContext = { _, _ in .init(contextID: "context-1", generation: 3, rootID: "root-1") }
+        let result = await discovery.discover(.init(
+            workspace: root.url("workspace"), sources: [try Self.providerSource(providers: ["kits", "other"])],
+            environment: [:]))
+
+        let kits = Self.pluginID + ":kits"
+        let other = Self.pluginID + ":other"
+        #expect(result.requirements["."] == nil)
+        #expect(result.resolutions["."]?["compiler"] == .init(layer: .automatic, outcome: .resolved(
+            home: scanned, executable: scanned + "/bin/compiler", version: "21.0.1", provider: "host:system"),
+            unavailable: [.init(provider: kits, timedOut: true), .init(provider: other, timedOut: false)]))
+        #expect(result.providerStates[kits] == .failed(L10n.string("No answer within \(Int(MacToolchainDiscovery.queryTimeout)) s")))
+        #expect(result.providerStates[other] == .failed("fixture backend stopped"))
+        #expect(result.diagnostics.count == 2)
+    }
+
     private func discovery(root: DiscoveryFixtureRoot, probes: DiscoveryProbes) -> MacToolchainDiscovery {
         var discovery = MacToolchainDiscovery()
         let home = root.url("home").path

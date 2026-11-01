@@ -282,6 +282,9 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::ToolchainsDecodeReply => {
             plugin_response(id, parsed.payload, crate::toolchain::decode_reply_command)
         }
+        CoreCommand::ToolchainsFailureReply => {
+            plugin_response(id, parsed.payload, crate::toolchain::failure_reply_command)
+        }
         CoreCommand::ToolchainsResolvePins => {
             plugin_response(id, parsed.payload, crate::toolchain::resolve_pins_command)
         }

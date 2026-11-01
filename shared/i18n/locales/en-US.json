@@ -9848,6 +9848,9 @@
     "native.toolchainSettings.providerConflict": "Version managers report different versions",
     "native.toolchainSettings.resolutionUndetermined": "Could not be determined",
     "native.toolchainSettings.requestedNotInstalled": "Requested {arg1} is not installed",
+    "native.toolchainSettings.providerDidNotRespond": "{provider} did not respond",
+    "native.toolchainSettings.providerIsUnavailable": "{provider} is unavailable",
+    "native.toolchainSettings.noAnswerWithinSeconds": "No answer within {seconds} s",
     "lsp.projectJdkInvalid": "The project JDK is invalid or its version could not be read. Check JDK Home in Project settings."
   },
   "overrides": {

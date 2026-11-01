@@ -19,6 +19,7 @@
 "%@ did not answer: %@" = "%@ did not answer: %@";
 "%@ did not finish within %lld seconds." = "%@ did not finish within %lld seconds.";
 "%@ did not report a version; %@ or newer is required." = "%@ did not report a version; %@ or newer is required.";
+"%@ did not respond" = "%@ did not respond";
 "%@ disabled" = "%@ disabled";
 "%@ does not include %@; Lithe renders those characters with %@ and the system font." = "%@ does not include %@; Lithe renders those characters with %@ and the system font.";
 "%@ does not provide archived conversations." = "%@ does not provide archived conversations.";
@@ -36,6 +37,7 @@
 "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace." = "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace.";
 "%@ is not available." = "%@ is not available.";
 "%@ is not installed. Lithe installs it with your npm into its application data." = "%@ is not installed. Lithe installs it with your npm into its application data.";
+"%@ is unavailable" = "%@ is unavailable";
 "%@ is version %@; %@ or newer is required." = "%@ is version %@; %@ or newer is required.";
 "%@ keeps no workspace state that Lithe can reset." = "%@ keeps no workspace state that Lithe can reset.";
 "%@ language server (inside the plugin)" = "%@ language server (inside the plugin)";
@@ -2436,6 +2438,7 @@
 "No Spring Boot or Maven Module configurations" = "No Spring Boot or Maven Module configurations";
 "No Spring MVC endpoints found" = "No Spring MVC endpoints found";
 "No additional paths" = "No additional paths";
+"No answer within %lld s" = "No answer within %lld s";
 "No available local branch. Branches already checked out in another worktree cannot be reused." = "No available local branch. Branches already checked out in another worktree cannot be reused.";
 "No background image selected" = "No background image selected";
 "No branches found" = "No branches found";
@@ -9213,6 +9216,7 @@
 "native.toolchainSettings.loginShell" = "Login shell";
 "native.toolchainSettings.loginShellInfo" = "At launch Lithe reads your login shell's environment, as a terminal does, and gives it to the terminals, tools and language servers it starts. Only PATH is listed; other variables can hold secrets and are only counted.";
 "native.toolchainSettings.moreInstallations" = "%1$lld more";
+"native.toolchainSettings.noAnswerWithinSeconds" = "No answer within %1$lld s";
 "native.toolchainSettings.noEnabledPluginDefinesTools" = "No enabled plugin defines tools.";
 "native.toolchainSettings.noEnabledPluginProvidesVersionManager" = "No enabled plugin provides a version manager.";
 "native.toolchainSettings.noProjectEnvironmentIsAvailable" = "No project environment is available.";
@@ -9241,6 +9245,8 @@
 "native.toolchainSettings.projectStepInfo" = "Version files in this directory or its parents, watched by the version managers of this tool, and the versions those managers report for them.";
 "native.toolchainSettings.providerConflict" = "Version managers report different versions";
 "native.toolchainSettings.providerDidNotAnswer" = "%1$@ did not answer: %2$@";
+"native.toolchainSettings.providerDidNotRespond" = "%1$@ did not respond";
+"native.toolchainSettings.providerIsUnavailable" = "%1$@ is unavailable";
 "native.toolchainSettings.query" = "Query";
 "native.toolchainSettings.queryMilliseconds" = "%1$lld ms";
 "native.toolchainSettings.queryNotBuilt" = "The toolchain query could not be built.";

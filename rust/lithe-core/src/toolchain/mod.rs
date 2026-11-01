@@ -41,6 +41,11 @@ pub fn decode_reply_command(input: Value) -> Result<Value, CoreError> {
     command(input, query::decode, "snapshot")
 }
 
+/// Builds the error reply for a query that timed out or found no backend.
+pub fn failure_reply_command(input: Value) -> Result<Value, CoreError> {
+    command(input, query::failure_reply, "reply")
+}
+
 /// Reads the nearest directory pin without opening or writing native files.
 pub fn resolve_pins_command(input: Value) -> Result<Value, CoreError> {
     command(input, pins::resolve, "resolution")

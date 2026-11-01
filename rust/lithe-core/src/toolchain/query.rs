@@ -293,6 +293,43 @@ fn error_reply(response: &Value, params: &Params) -> Validation<Value> {
     ))
 }
 
+/// Builds the error reply for a query the provider never answered, so the host hands
+/// `decodeReply` the same `{id, response}` a backend error would produce. Only a missed
+/// deadline or an unavailable backend qualifies; cancellation and safety failures stay
+/// operation failures and are not reported as a provider that could not answer.
+pub(crate) fn failure_reply(input: &Value) -> Validation<Value> {
+    object_keys(input, &["params", "code"], &["params", "code"], INVALID)?;
+    let code = match input["code"].as_str() {
+        Some("plugin.toolchain.timeout") => "plugin.toolchain.timeout",
+        Some("plugin.toolchain.providerUnavailable") => "plugin.toolchain.providerUnavailable",
+        _ => {
+            return Err(reject(
+                INVALID,
+                "code",
+                "Only a timeout or an unavailable provider has a failure reply.",
+            ))
+        }
+    };
+    let params = &input["params"];
+    let operation = params["operationID"].as_str().unwrap_or("");
+    let provider = params["providerID"].as_str().unwrap_or("");
+    if !identifier(operation) || !provider_identifier(provider) {
+        return Err(reject(
+            INVALID,
+            "params",
+            "Invalid query operation or provider identity.",
+        ));
+    }
+    let message = if code == "plugin.toolchain.timeout" {
+        "The provider did not answer before the query deadline."
+    } else {
+        "The provider backend is not available."
+    };
+    Ok(json!({"id":1,"response":{"jsonrpc":"2.0","id":1,"error":{
+        "code":rpc_code(code),"message":message,
+        "data":{"code":code,"operationID":operation,"providerID":provider}}}}))
+}
+
 fn glob_component(pattern: &str, value: &str) -> bool {
     let parts: Vec<&str> = pattern.split('*').collect();
     let mut remaining = value;

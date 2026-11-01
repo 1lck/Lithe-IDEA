@@ -112,6 +112,8 @@ pub enum CoreCommand {
     ToolchainsRegistry,
     /// Validates provider answers using native evidence supplied by the host.
     ToolchainsDecodeReply,
+    /// Builds the error reply for a provider query that timed out or found no backend.
+    ToolchainsFailureReply,
     /// Resolves the nearest machine-local directory pin.
     ToolchainsResolvePins,
     /// Resolves the four toolchain layers from a captured value snapshot.
@@ -606,6 +608,7 @@ impl CoreCommand {
             "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
             "toolchains.registry" => Some(Self::ToolchainsRegistry),
             "toolchains.decodeReply" => Some(Self::ToolchainsDecodeReply),
+            "toolchains.failureReply" => Some(Self::ToolchainsFailureReply),
             "toolchains.resolvePins" => Some(Self::ToolchainsResolvePins),
             "toolchains.resolve" => Some(Self::ToolchainsResolve),
             "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),

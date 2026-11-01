@@ -9848,6 +9848,9 @@
     "native.toolchainSettings.providerConflict": "版本管理器给出的版本不一致",
     "native.toolchainSettings.resolutionUndetermined": "无法确定",
     "native.toolchainSettings.requestedNotInstalled": "请求的 {arg1} 未安装",
+    "native.toolchainSettings.providerDidNotRespond": "{provider} 未响应",
+    "native.toolchainSettings.providerIsUnavailable": "{provider} 不可用",
+    "native.toolchainSettings.noAnswerWithinSeconds": "{seconds} 秒内未响应",
     "lsp.projectJdkInvalid": "项目 JDK 无效或无法读取其版本。请检查项目设置中的 JDK Home。"
   },
   "overrides": {

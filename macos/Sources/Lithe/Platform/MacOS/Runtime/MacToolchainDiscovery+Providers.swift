@@ -40,6 +40,19 @@ extension MacToolchainDiscovery {
         var installations: [[String: Any]] = []
         /// Rounds by workspace-relative directory; global-only queries are not a round.
         var rounds: [String: Round] = [:]
+
+        /// Adds one query to its directory round unless the round already holds another context.
+        @discardableResult
+        mutating func join(_ directory: String, context: WorkspaceContext, input: [String: Any], paths: [String]) -> Bool {
+            guard var round = rounds[directory] else { return false }
+            let joined = RoundContext(id: context.contextID, generation: context.generation)
+            if round.context == nil { round.context = joined }
+            guard round.context == joined else { return false }
+            round.queries.append(input)
+            round.paths += paths
+            rounds[directory] = round
+            return true
+        }
     }
 
     /// The directories asked and resolved: the request's within the budget, always with the root.
@@ -77,19 +90,18 @@ extension MacToolchainDiscovery {
                                    caseSensitive: caseSensitive) {
                 case .failure(let message):
                     failure = failure ?? message
+                case .unavailable(let input, let paths, let message):
+                    // Core keeps the provider as `providerUnavailable` while lower sources resolve.
+                    failure = failure ?? message
+                    if let directory, let context {
+                        answers.join(directory, context: context, input: input, paths: paths)
+                    }
                 case .success(let snapshot, let input, let paths):
                     // A reply under another context stays out of its round, so Core never
                     // resolves it; its project requirements are not shown either.
                     var inRound = false
-                    if let directory, let context, var round = answers.rounds[directory] {
-                        let joined = RoundContext(id: context.contextID, generation: context.generation)
-                        if round.context == nil { round.context = joined }
-                        if round.context == joined {
-                            round.queries.append(input)
-                            round.paths += paths
-                            answers.rounds[directory] = round
-                            inRound = true
-                        }
+                    if let directory, let context {
+                        inRound = answers.join(directory, context: context, input: input, paths: paths)
                     }
                     for row in snapshot["installations"] as? [[String: Any]] ?? [] {
                         guard let tool = row["tool"] as? String, let home = row["home"] as? String else { continue }
@@ -134,6 +146,9 @@ extension MacToolchainDiscovery {
     private enum Outcome {
         /// The decoded snapshot, its `decodeReply` input without `filesystem`, and the paths read for it.
         case success([String: Any], input: [String: Any], paths: [String])
+        /// No answer in time, or no backend to answer: the error reply's `decodeReply` input,
+        /// which `toolchains.resolve` reads as this provider being unavailable.
+        case unavailable(input: [String: Any], paths: [String], message: String)
         case failure(String)
     }
 
@@ -157,6 +172,8 @@ extension MacToolchainDiscovery {
             return .failure(L10n.string("The toolchain query could not be built."))
         }
         let reply: [String: Any]
+        // Why the host answered for the provider; a provider's own error keeps its message.
+        var hostFailure: String?
         do {
             let value = try await queryProvider(provider.pluginID, provider.id, wire, Self.queryTimeout)
             guard let object = value.foundationObject as? [String: Any], object["id"] is NSNumber,
@@ -164,7 +181,17 @@ extension MacToolchainDiscovery {
             else { return .failure(L10n.string("The reply could not be read.")) }
             reply = ["id": object["id"]!, "response": response]
         } catch {
-            return .failure(error.localizedDescription)
+            // A cancelled discovery discards its results; it is not a provider that could not answer.
+            if error is CancellationError || Task.isCancelled { return .failure(error.localizedDescription) }
+            let timedOut = error is QueryTimeout
+            guard let failure = core("toolchains.failureReply", [
+                "params": params,
+                "code": timedOut ? "plugin.toolchain.timeout" : "plugin.toolchain.providerUnavailable",
+            ])?["reply"] as? [String: Any], failure["id"] is NSNumber, failure["response"] is [String: Any]
+            else { return .failure(error.localizedDescription) }
+            reply = failure
+            hostFailure = timedOut ? L10n.string("No answer within \(Int(Self.queryTimeout)) s")
+                : error.localizedDescription
         }
         var facts = Self.FactList(caseSensitive: caseSensitive)
         facts.add(root)
@@ -181,7 +208,12 @@ extension MacToolchainDiscovery {
             return .success(snapshot, input: input, paths: facts.paths)
         }
         let error = outcome?["error"] as? [String: Any]
-        return .failure(error?["message"] as? String ?? L10n.string("The reply could not be read."))
+        let message = error?["message"] as? String ?? L10n.string("The reply could not be read.")
+        // Only these two codes leave lower sources usable; every other refusal stays a failure.
+        if ["plugin.toolchain.timeout", "plugin.toolchain.providerUnavailable"].contains(error?["code"] as? String) {
+            return .unavailable(input: input, paths: facts.paths, message: hostFailure ?? message)
+        }
+        return .failure(message)
     }
 
     private struct FactList {

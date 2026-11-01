@@ -52,6 +52,15 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         var unmet: [String] = []
         /// Layers whose providers disagree and need an explicit choice.
         var conflicts: [Layer] = []
+        /// Providers asked about this tool that gave no answer here; lower sources were tried.
+        var unavailable: [Unavailable] = []
+
+        struct Unavailable: Equatable, Sendable {
+            /// The qualified `<pluginID>:<providerID>` Core names.
+            let provider: String
+            /// The query outlived its deadline; otherwise the backend could not answer at all.
+            let timedOut: Bool
+        }
     }
 
     /// A machine-local saved choice, validated by Core and checked like any other home.

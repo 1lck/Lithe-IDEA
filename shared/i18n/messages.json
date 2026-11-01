@@ -94547,6 +94547,54 @@
       }
     },
     {
+      "id": "native.toolchainSettings.providerDidNotRespond",
+      "description": "Tool row summary: a version manager asked about this tool did not answer before the query deadline",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "provider": "string"
+      },
+      "macos": {
+        "key": "%@ did not respond",
+        "arguments": [
+          "provider"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.providerIsUnavailable",
+      "description": "Tool row summary: a version manager asked about this tool could not answer because its plugin backend failed to start, disconnected or did not offer it",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "provider": "string"
+      },
+      "macos": {
+        "key": "%@ is unavailable",
+        "arguments": [
+          "provider"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.noAnswerWithinSeconds",
+      "description": "Toolchain provider query: the query reached its deadline without an answer",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "seconds": "integer"
+      },
+      "macos": {
+        "key": "No answer within %lld s",
+        "arguments": [
+          "seconds"
+        ]
+      }
+    },
+    {
       "id": "lsp.projectJdkInvalid",
       "description": "The configured project JDK cannot be used by the Java language service.",
       "platforms": [

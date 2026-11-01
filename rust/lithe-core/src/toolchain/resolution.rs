@@ -974,8 +974,16 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
                     "plugin.toolchain.timeout" | "plugin.toolchain.providerUnavailable"
                 ) =>
             {
-                unmet.push(json!({"code":"providerUnavailable","tool":tool,
-                    "provider":format!("{}:{}",value["pluginID"].as_str().unwrap_or(""),value["request"]["params"]["providerID"].as_str().unwrap_or(""))}));
+                // Only a provider asked about this tool leaves it without an answer; `cause`
+                // keeps a missed deadline apart from a backend that could not answer at all.
+                if value["request"]["params"]["tools"]
+                    .as_array()
+                    .is_some_and(|tools| tools.iter().any(|asked| asked == tool))
+                {
+                    unmet.push(json!({"code":"providerUnavailable","tool":tool,
+                        "provider":format!("{}:{}",value["pluginID"].as_str().unwrap_or(""),value["request"]["params"]["providerID"].as_str().unwrap_or("")),
+                        "cause":error.code}));
+                }
                 continue;
             }
             Err(error) => return Err(error),

@@ -19,6 +19,7 @@
 "%@ did not answer: %@" = "%@ 未回答：%@";
 "%@ did not finish within %lld seconds." = "%1$@ 未在 %2$lld 秒内完成。";
 "%@ did not report a version; %@ or newer is required." = "%1$@ 没有报告版本，需要 %2$@ 或更高版本。";
+"%@ did not respond" = "%@ 未响应";
 "%@ disabled" = "%@ 已停用";
 "%@ does not include %@; Lithe renders those characters with %@ and the system font." = "%@ 不包含%@；Lithe 会用 %@ 和系统字体显示这些字符。";
 "%@ does not provide archived conversations." = "%@ 不支持归档会话。";
@@ -36,6 +37,7 @@
 "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace." = "%@ 已不再是官方插件，已迁移为 Lithe Store 中的社区插件 %@，这里不会再收到更新。请先卸载它并重启 Lithe，再从插件市场安装社区版本。";
 "%@ is not available." = "%@ 不可用。";
 "%@ is not installed. Lithe installs it with your npm into its application data." = "%@ 尚未安装。Lithe 会用你的 npm 把它安装到应用数据目录。";
+"%@ is unavailable" = "%@ 不可用";
 "%@ is version %@; %@ or newer is required." = "%1$@ 的版本是 %2$@，需要 %3$@ 或更高版本。";
 "%@ keeps no workspace state that Lithe can reset." = "%@ 没有 Lithe 可以重置的工作区状态。";
 "%@ language server (inside the plugin)" = "%@ 语言服务器（插件内置）";
@@ -2436,6 +2438,7 @@
 "No Spring Boot or Maven Module configurations" = "没有 Spring Boot 或 Maven Module 配置";
 "No Spring MVC endpoints found" = "未找到 Spring MVC 端点";
 "No additional paths" = "没有其他路径";
+"No answer within %lld s" = "%lld 秒内未响应";
 "No available local branch. Branches already checked out in another worktree cannot be reused." = "没有可用的本地分支。已在其他工作树检出的分支不能重复使用。";
 "No background image selected" = "未选择背景图片";
 "No branches found" = "没有匹配的分支";
@@ -9213,6 +9216,7 @@
 "native.toolchainSettings.loginShell" = "登录 Shell";
 "native.toolchainSettings.loginShellInfo" = "Lithe 启动时会像终端一样读取登录 Shell 的环境，并提供给它启动的终端、工具和语言服务器。这里只列出 PATH；其他变量可能包含密钥，只显示数量。";
 "native.toolchainSettings.moreInstallations" = "另外 %1$lld 个";
+"native.toolchainSettings.noAnswerWithinSeconds" = "%1$lld 秒内未响应";
 "native.toolchainSettings.noEnabledPluginDefinesTools" = "没有已启用的插件定义工具。";
 "native.toolchainSettings.noEnabledPluginProvidesVersionManager" = "没有已启用的插件提供版本管理器。";
 "native.toolchainSettings.noProjectEnvironmentIsAvailable" = "没有可用的项目环境。";
@@ -9241,6 +9245,8 @@
 "native.toolchainSettings.projectStepInfo" = "此目录或上级目录中、由该工具的版本管理器监视的版本文件，以及版本管理器报告的版本。";
 "native.toolchainSettings.providerConflict" = "版本管理器给出的版本不一致";
 "native.toolchainSettings.providerDidNotAnswer" = "%1$@ 未回答：%2$@";
+"native.toolchainSettings.providerDidNotRespond" = "%1$@ 未响应";
+"native.toolchainSettings.providerIsUnavailable" = "%1$@ 不可用";
 "native.toolchainSettings.query" = "查询";
 "native.toolchainSettings.queryMilliseconds" = "%1$lld 毫秒";
 "native.toolchainSettings.queryNotBuilt" = "无法构建工具链查询。";

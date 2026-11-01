@@ -1156,8 +1156,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
 | `toolchains.registry` | Revalidate complete enabled plugin manifests and host-verified official origin into a deterministic tool-definition/provider registry; no native host capability claim |
 | `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
+| `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
-| `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, conflicts and terminal fixed-value failures |
+| `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
 | `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |

@@ -313,9 +313,19 @@ private struct ToolchainToolRow: View {
         .accessibilityValue(isExpanded ? Text("Expanded") : Text("Collapsed"))
     }
 
-    /// What Core resolves this directory to, or why nothing is used. Core orders the sources;
-    /// this row only reads its outcome.
-    @ViewBuilder private var summary: some View {
+    /// What Core resolves this directory to, or why nothing is used, and which version manager
+    /// gave no answer. Core orders the sources; this row only reads its outcome.
+    private var summary: some View {
+        HStack(spacing: 8) {
+            outcome
+            if let notice = unavailableNotices.first {
+                note(verbatim: notice, color: LitheTheme.settingsEffectPillText)
+                    .help(unavailableNotices.joined(separator: "\n"))
+            }
+        }
+    }
+
+    @ViewBuilder private var outcome: some View {
         switch tool.resolution?.outcome {
         case .resolved(let home, let executable, let version, _):
             HStack(spacing: 6) {
@@ -366,6 +376,17 @@ private struct ToolchainToolRow: View {
     }
 
     private var detection: ToolchainSettingsSnapshot.Detection? { tool.detection }
+
+    /// Version managers asked about this tool that gave no answer here: none within the
+    /// deadline, or no backend to answer. A failed fixed value does not depend on them.
+    private var unavailableNotices: [String] {
+        guard let resolution = tool.resolution else { return [] }
+        if case .failed = resolution.outcome { return [] }
+        return resolution.unavailable.map { unavailable in
+            let title = providers.first { $0.id == unavailable.provider }?.title ?? unavailable.provider
+            return unavailable.timedOut ? L10n.string("\(title) did not respond") : L10n.string("\(title) is unavailable")
+        }
+    }
 
     /// The global source Core selected: the home variable that names it, or the version manager.
     private var globalSource: String? {
@@ -452,7 +473,12 @@ private struct ToolchainToolRow: View {
                     }
                 }
                 if tool.requirements.isEmpty {
-                    Text("Version not queried").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                    if let notice = unavailableNotices.first {
+                        Text(verbatim: notice).font(LitheTheme.uiFont(size: 10.5))
+                            .foregroundStyle(LitheTheme.settingsEffectPillText)
+                    } else {
+                        Text("Version not queried").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                    }
                 }
             }
             requirementRows(tool.requirements)

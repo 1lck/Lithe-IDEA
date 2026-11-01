@@ -1280,8 +1280,14 @@ final class MacServiceContainer {
                     secret: MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)))
                 return await MacToolchainDiscovery(
                     queryProvider: { pluginID, providerID, params, timeout in
-                        try await pluginBackends.queryToolchainProvider(
-                            providerID, params: params, ofPlugin: pluginID, timeout: timeout)
+                        do {
+                            return try await pluginBackends.queryToolchainProvider(
+                                providerID, params: params, ofPlugin: pluginID, timeout: timeout)
+                        } catch let failure as LanguageServerRequestFailure
+                                    where failure.runtimeError.code == "requestTimeout" {
+                            // Core's deadline for the request, not a backend that could not start.
+                            throw MacToolchainDiscovery.QueryTimeout()
+                        }
                     },
                     workspaceContext: { workspace, pluginID in
                         await MainActor.run {

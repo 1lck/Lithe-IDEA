@@ -66,6 +66,10 @@ struct MacToolchainDiscovery: Sendable {
 
     /// One provider query, as `queryProvider` replies must be bounded.
     static let queryTimeout: TimeInterval = 15
+
+    /// What `queryProvider` throws when the query outlived its deadline. Any other error
+    /// except cancellation means the backend could not answer at all.
+    struct QueryTimeout: Error {}
     /// Directories asked per provider; each is one upstream run.
     static let queryDirectoryBudget = 32
 
@@ -245,6 +249,12 @@ struct MacToolchainDiscovery: Sendable {
             return nil
         }
         for row in value["unmet"] as? [[String: Any]] ?? [] {
+            if row["code"] as? String == "providerUnavailable", let provider = row["provider"] as? String {
+                let unavailable = Resolution.Unavailable(
+                    provider: provider, timedOut: row["cause"] as? String == "plugin.toolchain.timeout")
+                if !resolution.unavailable.contains(unavailable) { resolution.unavailable.append(unavailable) }
+                continue
+            }
             guard row["code"] as? String == "requestedNotInstalled", let request = row["request"] as? String,
                   !resolution.unmet.contains(request)
             else { continue }
