@@ -2493,6 +2493,7 @@
 "No pull requests match the selected state." = "当前状态下没有拉取请求。";
 "No recent progress has been received. The task is still active." = "暂未收到新的进度，任务仍在进行。";
 "No recent projects" = "没有最近项目";
+"No registered language servers" = "未注册语言服务器";
 "No release is available yet" = "暂时没有可用版本";
 "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time." = "暂无已记住的选择。在退出对话框中勾选“记住对这类服务的选择”后，下次遇到同类服务就不再询问。";
 "No remote" = "无远程仓库";
@@ -2552,6 +2553,7 @@
 "Not running" = "未运行";
 "Not selected" = "未勾选";
 "Not set" = "未设置";
+"Not started" = "未启动";
 "Not supported on %@ yet." = "暂不支持 %@ 平台";
 "Not tested" = "未测试";
 "Not used" = "不使用";
@@ -6978,6 +6980,7 @@
 "native.lspAvailableLogChannels" = "显示会话事件和服务器输出。暂不支持服务器跟踪和 RPC 消息采集。";
 "native.lspClearViewHint" = "仅清空所选服务器的可见日志，保留已采集的诊断日志。";
 "native.lspLogsTitle" = "LSP 日志";
+"native.lspNotStarted" = "未启动";
 "native.lspServerLogs" = "服务器日志";
 "native.lspStatusLabel" = "LSP";
 "native.lspStopOnDemandHint" = "打开、切换到或编辑匹配的文档时将再次启动。";
@@ -7329,6 +7332,7 @@
 "native.noPullRequestsMatchTheSelectedState" = "当前状态下没有拉取请求。";
 "native.noRecentProgressHasBeenReceivedTheTaskIsStillActive" = "暂未收到新的进度，任务仍在进行。";
 "native.noRecentProjects" = "没有最近项目";
+"native.noRegisteredLanguageServers" = "未注册语言服务器";
 "native.noReleaseIsAvailableYet" = "暂时没有可用版本";
 "native.noRememberedChoicesCheckRememberMyChoiceInTheQuitDialogToSkipTheQuestionForAKi279db9aaf7" = "暂无已记住的选择。在退出对话框中勾选“记住对这类服务的选择”后，下次遇到同类服务就不再询问。";
 "native.noRemote" = "无远程仓库";

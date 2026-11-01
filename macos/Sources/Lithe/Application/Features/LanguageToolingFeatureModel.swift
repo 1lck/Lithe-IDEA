@@ -13,7 +13,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
     @Published private(set) var catalogSnapshot: LanguageProviderCatalogSnapshot
     @Published private(set) var disabledProviderIDs: Set<String> = []
     @Published private(set) var projectPreparation: ProjectPreparationSnapshot?
-    @Published private(set) var statusBarServers: [LSPStatusBarServer] = []
+    @Published private(set) var serverRuntimeSnapshot = LanguageServerRuntimeSnapshot()
     let projectUsage = LSPProjectUsageModel()
     let logs = LanguageServerLogsModel()
     private var preparationObservation: AnyCancellable?
@@ -80,13 +80,9 @@ final class LanguageToolingFeatureModel: ObservableObject {
 
     func bindProjectPreparation(_ sessions: LanguageToolingSessionManager) {
         logs.bind(sessions)
-        statusObservation = Publishers.CombineLatest4(
-            sessions.$languageServerStates, sessions.$languageServerInfos, $catalog, $disabledProviderIDs
-        ).map { states, infos, catalog, disabled in
-            LSPControlCenterPresenter.statusBarServers(
-                descriptors: catalog.descriptors, states: states, infos: infos, disabledProviderIDs: disabled
-            )
-        }.removeDuplicates().sink { [weak self] in self?.statusBarServers = $0 }
+        statusObservation = Publishers.CombineLatest(sessions.$languageServerStates, sessions.$languageServerInfos)
+            .map { LanguageServerRuntimeSnapshot(states: $0, infos: $1) }
+            .removeDuplicates().sink { [weak self] in self?.serverRuntimeSnapshot = $0 }
         preparationObservation = sessions.$projectPreparation.removeDuplicates().sink { [weak self] snapshot in
             self?.projectPreparation = snapshot
         }
@@ -96,7 +92,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
         activationEpoch = UUID()
         activationGenerations.removeAll()
         logs.reset()
-        statusBarServers = []
+        serverRuntimeSnapshot = LanguageServerRuntimeSnapshot()
         projectPreparation = nil
         startupFailures.removeAll()
     }

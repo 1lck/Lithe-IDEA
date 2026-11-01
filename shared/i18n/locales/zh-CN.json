@@ -9743,7 +9743,9 @@
     "native.clearLogView": "清空视图",
     "native.lspClearViewHint": "仅清空所选服务器的可见日志，保留已采集的诊断日志。",
     "native.noMatchingLanguageServerLogs": "没有匹配的语言服务器日志",
-    "native.logInfoLevel": "信息"
+    "native.logInfoLevel": "信息",
+    "native.lspNotStarted": "未启动",
+    "native.noRegisteredLanguageServers": "未注册语言服务器"
   },
   "overrides": {
     "macos": {

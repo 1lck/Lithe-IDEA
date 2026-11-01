@@ -93300,6 +93300,28 @@
         "key": "Info",
         "arguments": []
       }
+    },
+    {
+      "id": "native.lspNotStarted",
+      "description": "LSP entry remains available before any server has started",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not started",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noRegisteredLanguageServers",
+      "description": "LSP entry remains available before any server has started",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No registered language servers",
+        "arguments": []
+      }
     }
   ]
 }

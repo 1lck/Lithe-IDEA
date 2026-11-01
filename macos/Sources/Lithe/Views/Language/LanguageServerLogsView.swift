@@ -75,7 +75,7 @@ struct LanguageServerLogsView: View {
     }
 
     private func providerName(_ id: String) -> String {
-        model.languageProviderCatalog.descriptors.first { $0.id == id }?.displayName ?? id
+        model.statusBarLanguageServers.first { $0.id == id }?.displayName ?? id
     }
 
     private func levelTitle(_ level: LanguageServerLogsModel.MinimumLevel) -> String {

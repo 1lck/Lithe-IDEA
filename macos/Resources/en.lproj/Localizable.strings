@@ -2493,6 +2493,7 @@
 "No pull requests match the selected state." = "No pull requests match the selected state.";
 "No recent progress has been received. The task is still active." = "No recent progress has been received. The task is still active.";
 "No recent projects" = "No recent projects";
+"No registered language servers" = "No registered language servers";
 "No release is available yet" = "No release is available yet";
 "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time." = "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time.";
 "No remote" = "No remote";
@@ -2552,6 +2553,7 @@
 "Not running" = "Not running";
 "Not selected" = "Not selected";
 "Not set" = "Not set";
+"Not started" = "Not started";
 "Not supported on %@ yet." = "Not supported on %@ yet.";
 "Not tested" = "Not tested";
 "Not used" = "Not used";
@@ -6978,6 +6980,7 @@
 "native.lspAvailableLogChannels" = "Shows session events and server output. Server Trace and RPC message capture are not available.";
 "native.lspClearViewHint" = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
 "native.lspLogsTitle" = "LSP Logs";
+"native.lspNotStarted" = "Not started";
 "native.lspServerLogs" = "Server Logs";
 "native.lspStatusLabel" = "LSP";
 "native.lspStopOnDemandHint" = "Starts again when a matching document is opened or edited.";
@@ -7329,6 +7332,7 @@
 "native.noPullRequestsMatchTheSelectedState" = "No pull requests match the selected state.";
 "native.noRecentProgressHasBeenReceivedTheTaskIsStillActive" = "No recent progress has been received. The task is still active.";
 "native.noRecentProjects" = "No recent projects";
+"native.noRegisteredLanguageServers" = "No registered language servers";
 "native.noReleaseIsAvailableYet" = "No release is available yet";
 "native.noRememberedChoicesCheckRememberMyChoiceInTheQuitDialogToSkipTheQuestionForAKi279db9aaf7" = "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time.";
 "native.noRemote" = "No remote";

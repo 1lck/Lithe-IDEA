@@ -11,20 +11,22 @@ import SwiftUI
 @Suite("Language server status and logs")
 @MainActor
 struct LanguageServerStatusTests {
-    @Test func statusListHidesDormantAndDisabledProvidersAndKeepsFailures() {
-        let descriptors = [descriptor("z", "Same"), descriptor("a", "Same"), descriptor("b", "Alpha"),
-                           descriptor("d", "Disabled"), descriptor("s", "Stopped"), descriptor("n", "Never started")]
+    @Test func statusListIncludesDormantAndDisabledRegisteredProvidersAndKeepsFailures() {
+        let registrations = [registration("z", "Same"), registration("a", "Same"), registration("b", "Alpha"),
+                             registration("d", "Disabled"), registration("s", "Stopped"), registration("n", "Never started")]
         let servers = LSPControlCenterPresenter.statusBarServers(
-            descriptors: descriptors,
+            registrations: registrations,
             states: ["z": .ready, "a": .initializing, "b": .failed(.init(exitCode: 1, message: "failure")),
                      "d": .ready, "s": .stopped],
-            infos: ["z": .init(name: "server", version: " 1.2 "), "a": .init(name: "old", version: "stale")],
+            infos: ["z": .init(name: "Same", version: " 1.2 "), "a": .init(name: "Same", version: "stale")],
             disabledProviderIDs: ["d"]
         )
-        #expect(servers.map(\.id) == ["b", "a", "z"])
-        #expect(servers.map(\.version) == [nil, nil, "1.2"])
+        #expect(servers.map(\.id) == ["b", "d", "n", "a", "z", "s"])
+        #expect(servers.map(\.version) == [nil, nil, nil, nil, "1.2", nil])
+        #expect(servers.first { $0.id == "d" }?.status == .disabled)
+        #expect(servers.first { $0.id == "n" }?.status == .stopped)
         #expect(LSPControlCenterPresenter.aggregateStatus(servers) == .error)
-        #expect(LSPControlCenterPresenter.aggregateStatus([]) == nil)
+        #expect(LSPControlCenterPresenter.aggregateStatus([]) == .stopped)
         #expect(LSPControlCenterPresenter.aggregateStatus(Array(servers.dropFirst())) == .initializing)
     }
 
@@ -33,15 +35,45 @@ struct LanguageServerStatusTests {
         defer { harness.sessions.stopAllLanguageServers() }
         harness.feature.bindProjectPreparation(harness.sessions)
         var changes = 0
-        let observation = harness.feature.$statusBarServers.dropFirst().sink { _ in changes += 1 }
+        let observation = harness.feature.$serverRuntimeSnapshot.dropFirst().sink { _ in changes += 1 }
         defer { observation.cancel() }
         try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
-        #expect(harness.feature.statusBarServers.first?.status == .active)
+        #expect(harness.feature.serverRuntimeSnapshot.states["example"] == .ready)
         let beforeLog = changes
         harness.sessions.recordLanguageServerLog(providerID: "example", level: .info, message: "server output")
         #expect(changes == beforeLog)
         harness.feature.stop(providerID: "example")
-        #expect(harness.feature.statusBarServers.isEmpty)
+        #expect(harness.feature.serverRuntimeSnapshot.states["example"] == .stopped)
+    }
+
+    @Test func serverNamesUseExistingExecutableMetadataAndOtherwiseThePluginID() {
+        let registrations = [registration("java", "jdtls"), registration("c", "clangd"),
+            LanguageServerRegistration(id: "legacy", pluginID: "org.example.legacy", executableNames: ["", " "])]
+        let rows = LSPControlCenterPresenter.statusBarServers(registrations: registrations,
+            states: ["java": .ready, "c": .ready, "unregistered": .ready],
+            infos: ["java": .init(name: "Eclipse JDT Language Server", version: "1"),
+                    "c": .init(name: "Apple clangd", version: "21")], disabledProviderIDs: [])
+        #expect(Set(rows.map(\.displayName)) == ["jdtls", "clangd", "org.example.legacy"])
+        #expect(rows.allSatisfy { $0.id != "unregistered" })
+        #expect(LSPControlCenterPresenter.statusBarServers(registrations: [],
+            states: ["java": .ready], infos: [:], disabledProviderIDs: []).isEmpty)
+    }
+
+    @Test func idleMenuKeepsLogsAndSettingsAvailableWithoutAnySessions() throws {
+        var viewed = false, configured = false
+        let menu = LanguageServerStatusMenu.items(servers: [], viewLogs: { _ in viewed = true },
+            restart: { _ in Issue.record("An idle menu must not restart a server") },
+            stop: { _ in Issue.record("An idle menu must not stop a server") },
+            settings: { configured = true })
+        let logs = try #require(menu.first { $0.title == L10n.string(key: "native.inline.viewLogs") })
+        #expect(logs.isEnabled)
+        logs.action()
+        let settings = try #require(menu.first { $0.title == "Language Server Settings..." })
+        #expect(settings.isEnabled)
+        settings.action()
+        #expect(viewed && configured)
+        #expect(menu.first { $0.title == "Restart All Servers" }?.isEnabled == false)
+        #expect(menu.first { $0.title == "Stop All Servers" }?.isEnabled == false)
     }
 
     @Test func restartStopsBeforeReopeningOnlyMatchingDocumentsAndPreservesPreferences() throws {
@@ -243,9 +275,8 @@ struct LanguageServerStatusTests {
         }
     }
 
-    private func descriptor(_ id: String, _ name: String) -> LanguageProviderDescriptor {
-        LanguageProviderDescriptor(id: id, displayName: name, fileExtensions: [id],
-                                   capabilities: .languageServer, activationPolicy: .onDemand)
+    private func registration(_ id: String, _ name: String) -> LanguageServerRegistration {
+        LanguageServerRegistration(id: id, pluginID: "org.example.tools", executableNames: [name])
     }
 }
 

@@ -41,7 +41,12 @@ extension AppModel {
     }
 
     var statusBarLanguageServers: [LSPStatusBarServer] {
-        languageToolingFeature.statusBarServers
+        let snapshot = languageToolingFeature.serverRuntimeSnapshot
+        return LSPControlCenterPresenter.statusBarServers(
+            registrations: services.languageServerRegistrations?(languageProviderCatalog) ?? [],
+            states: snapshot.states, infos: snapshot.infos,
+            disabledProviderIDs: languageToolingFeature.disabledProviderIDs
+        )
     }
 
     func showLanguageServerLogs(providerID: String) {

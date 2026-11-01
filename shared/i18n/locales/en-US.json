@@ -9743,7 +9743,9 @@
     "native.clearLogView": "Clear View",
     "native.lspClearViewHint": "Clear only the selected server's visible logs. Collected diagnostic logs are kept.",
     "native.noMatchingLanguageServerLogs": "No matching language server logs",
-    "native.logInfoLevel": "Info"
+    "native.logInfoLevel": "Info",
+    "native.lspNotStarted": "Not started",
+    "native.noRegisteredLanguageServers": "No registered language servers"
   },
   "overrides": {
     "windows": {

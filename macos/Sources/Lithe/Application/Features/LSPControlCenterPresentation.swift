@@ -16,6 +16,27 @@ struct LSPStatusBarServer: Identifiable, Equatable, Sendable {
     let displayName: String
     let status: LSPServerStatus
     let version: String?
+
+    var canStop: Bool { status != .stopped && status != .disabled }
+}
+
+/// An enabled plugin's server declaration. The language ID only routes existing
+/// session controls; it never supplies the server's visible name.
+struct LanguageServerRegistration: Equatable, Sendable {
+    let id: String
+    let pluginID: String
+    let executableNames: [String]
+
+    init(id: String, pluginID: String, executableNames: [String] = []) {
+        self.id = id
+        self.pluginID = pluginID
+        self.executableNames = executableNames
+    }
+}
+
+struct LanguageServerRuntimeSnapshot: Equatable {
+    var states: [String: LanguageServerSessionState] = [:]
+    var infos: [String: LanguageServerInfo] = [:]
 }
 
 enum LSPCapabilityPresentationState: Equatable, Sendable {
@@ -76,20 +97,24 @@ enum LSPControlCenterPresenter {
     }
 
     static func statusBarServers(
-        descriptors: [LanguageProviderDescriptor],
+        registrations: [LanguageServerRegistration],
         states: [String: LanguageServerSessionState],
         infos: [String: LanguageServerInfo],
         disabledProviderIDs: Set<String>
     ) -> [LSPStatusBarServer] {
-        descriptors.filter { $0.capabilities.contains(.languageServer) }.compactMap { descriptor in
+        registrations.map { registration in
             let status = serverStatus(
-                isDisabled: disabledProviderIDs.contains(descriptor.id),
-                sessionState: states[descriptor.id]
+                isDisabled: disabledProviderIDs.contains(registration.id),
+                sessionState: states[registration.id]
             )
-            guard status != .stopped, status != .disabled else { return nil }
+            let executableName = registration.executableNames.lazy
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
             return LSPStatusBarServer(
-                id: descriptor.id, displayName: descriptor.displayName, status: status,
-                version: status == .active ? reportedServerVersion(infos[descriptor.id]) : nil
+                id: registration.id,
+                displayName: executableName ?? registration.pluginID,
+                status: status,
+                version: status == .active ? reportedServerVersion(infos[registration.id]) : nil
             )
         }.sorted {
             let order = $0.displayName.localizedStandardCompare($1.displayName)
@@ -98,10 +123,10 @@ enum LSPControlCenterPresenter {
     }
 
     /// A failed server must remain discoverable even when another is healthy.
-    static func aggregateStatus(_ servers: [LSPStatusBarServer]) -> LSPServerStatus? {
-        [.error, .starting, .initializing, .stopping, .active].first { status in
+    static func aggregateStatus(_ servers: [LSPStatusBarServer]) -> LSPServerStatus {
+        [.error, .starting, .initializing, .stopping, .active, .stopped, .disabled].first { status in
             servers.contains { $0.status == status }
-        }
+        } ?? .stopped
     }
 
     static func integrationState(
