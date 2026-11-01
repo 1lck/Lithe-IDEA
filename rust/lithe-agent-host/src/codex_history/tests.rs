@@ -54,14 +54,15 @@ fn client(client: DuplexStream) -> (WriteHalf<DuplexStream>, BufReader<ReadHalf<
 }
 
 #[test]
-fn only_codex_launches_have_archived_history_in_their_provider_scope() {
-    let subscription = CodexHistory::for_launch(&launch(
+fn only_codex_launches_have_history_in_the_selected_account() {
+    let mut subscription_launch = launch(
         vec![("CODEX_PATH".into(), "/fixture/other".into())],
         Some(PathBuf::from("/fixture/codex")),
-    ))
-    .unwrap();
+    );
+    subscription_launch.codex_home = Some(PathBuf::from("/fixture/account"));
+    let subscription = CodexHistory::for_launch(&subscription_launch).unwrap();
     assert_eq!(subscription.executable, PathBuf::from("/fixture/codex"));
-    assert_eq!(subscription.model_provider, "openai");
+    assert_eq!(subscription.codex_home, subscription_launch.codex_home);
 
     let gateway = CodexHistory::for_launch(&launch(
         vec![("CODEX_PATH".into(), "/fixture/codex".into())],
@@ -69,7 +70,6 @@ fn only_codex_launches_have_archived_history_in_their_provider_scope() {
     ))
     .unwrap();
     assert_eq!(gateway.executable, PathBuf::from("/fixture/codex"));
-    assert_eq!(gateway.model_provider, "custom-gateway");
 
     let claude = launch(
         vec![("CLAUDE_CODE_EXECUTABLE".into(), "/fixture/claude".into())],
@@ -115,6 +115,7 @@ fn viewing_history_preserves_activity_but_a_new_turn_advances_it() {
                 session_id: thread.id,
                 title: thread.title,
                 updated_at: thread.updated_at,
+                model_provider: thread.model_provider,
             })
             .collect();
         assert_eq!(
@@ -149,6 +150,31 @@ fn missing_or_invalid_activity_never_falls_back_to_metadata_time() {
 }
 
 #[test]
+fn provider_identity_is_upstream_metadata_and_missing_values_remain_unknown() {
+    for (value, expected) in [
+        (json!("native-provider"), Some("native-provider")),
+        (json!(" previous-provider "), Some("previous-provider")),
+        (Value::Null, None),
+        (json!(" \n "), None),
+        (json!(42), None),
+    ] {
+        let mut row = thread("source", WORKSPACE);
+        row["modelProvider"] = value;
+        let (threads, _) = parse_page(&json!({"data": [row]}), WORKSPACE).unwrap();
+        assert_eq!(threads[0].model_provider.as_deref(), expected);
+        let workspace = workspace_context::WorkspaceContext::new(Path::new(WORKSPACE)).unwrap();
+        let summary = serde_json::to_value(threads[0].summary(&workspace)).unwrap();
+        assert_eq!(summary["modelProvider"], json!(expected));
+        if expected.is_none() {
+            assert!(
+                summary.get("modelProvider").is_none(),
+                "older wire shape stays compatible"
+            );
+        }
+    }
+}
+
+#[test]
 fn pages_keep_only_this_workspace_and_prefer_the_user_title() {
     let page = json!({
         "data": [
@@ -168,11 +194,13 @@ fn pages_keep_only_this_workspace_and_prefer_the_user_title() {
                 id: "named".into(),
                 title: Some("Renamed".into()),
                 updated_at: Some("2026-09-20T08:30:00Z".into()),
+                model_provider: None,
             },
             HistoryThread {
                 id: "preview".into(),
                 title: Some("First prompt".into()),
                 updated_at: None,
+                model_provider: None,
             },
         ]
     );
@@ -199,14 +227,7 @@ async fn listing_follows_cursors_past_foreign_pages_without_duplicates() {
     });
     let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(
-            list_pages(
-                &mut writer,
-                &mut reader,
-                "openai",
-                WORKSPACE,
-                true,
-                &mut on_page
-            ),
+            list_pages(&mut writer, &mut reader, WORKSPACE, true, &mut on_page),
             peer
         )
     })
@@ -220,10 +241,89 @@ async fn listing_follows_cursors_past_foreign_pages_without_duplicates() {
     assert_eq!(received[0]["sortKey"], "recency_at");
     assert_eq!(received[0]["useStateDbOnly"], true);
     assert_eq!(received[0]["cursor"], Value::Null);
-    assert_eq!(received[0]["modelProviders"], json!(["openai"]));
+    assert_eq!(received[0]["modelProviders"], json!([]));
     assert_eq!(received[0]["sourceKinds"], json!(SOURCE_KINDS));
     assert_eq!(received[1]["cursor"], "c1");
     assert_eq!(received[2]["cursor"], "c2");
+}
+
+#[tokio::test]
+async fn active_and_archived_history_include_native_and_previous_providers() {
+    for archived in [false, true] {
+        let (local, server) = tokio::io::duplex(64 * 1024);
+        let (mut writer, mut reader) = client(local);
+        let mut on_page = |_: &[HistoryThread]| {};
+        let peer = async {
+            let (reader, mut writer) = tokio::io::split(server);
+            let mut lines = BufReader::new(reader).lines();
+            let request: Value =
+                serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+            let providers = request["params"]["modelProviders"].as_array().unwrap();
+            let rows: Vec<_> = [
+                "openai",
+                "custom-gateway",
+                "native-provider",
+                "previous-provider",
+            ]
+            .into_iter()
+            .filter(|provider| providers.is_empty() || providers.contains(&json!(provider)))
+            .map(|provider| {
+                let mut row = thread(provider, WORKSPACE);
+                row["modelProvider"] = json!(provider);
+                row
+            })
+            .chain([thread("foreign", "/fixture/other")])
+            .collect();
+            writer
+                .write_all(
+                    format!(
+                        "{}\n",
+                        json!({"id": request["id"], "result": {"data": rows, "nextCursor": null}})
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            request["params"].clone()
+        };
+        let (result, params) = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(
+                list_pages(&mut writer, &mut reader, WORKSPACE, archived, &mut on_page),
+                peer
+            )
+        })
+        .await
+        .expect("bounded mixed-provider history listing");
+        let (threads, complete) = result.unwrap();
+        assert!(complete);
+        assert_eq!(
+            threads
+                .iter()
+                .map(|thread| thread.model_provider.as_deref())
+                .collect::<Vec<_>>(),
+            [
+                Some("openai"),
+                Some("custom-gateway"),
+                Some("native-provider"),
+                Some("previous-provider")
+            ]
+        );
+        assert_eq!(
+            threads
+                .iter()
+                .map(|thread| thread.id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "openai",
+                "custom-gateway",
+                "native-provider",
+                "previous-provider"
+            ]
+        );
+        assert_eq!(params["archived"], archived);
+        assert_eq!(params["sourceKinds"], json!(SOURCE_KINDS));
+        assert_eq!(params["useStateDbOnly"], true);
+    }
 }
 
 #[tokio::test]
@@ -238,14 +338,7 @@ async fn listing_reports_when_the_page_bound_truncated_it() {
     );
     let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(
-            list_pages(
-                &mut writer,
-                &mut reader,
-                "custom-gateway",
-                WORKSPACE,
-                true,
-                &mut on_page
-            ),
+            list_pages(&mut writer, &mut reader, WORKSPACE, true, &mut on_page),
             peer
         )
     })
@@ -297,14 +390,7 @@ async fn active_history_publishes_matching_rows_before_later_pages_without_dupli
     });
     let (result, received) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(
-            list_pages(
-                &mut writer,
-                &mut reader,
-                "openai",
-                WORKSPACE,
-                false,
-                &mut on_page
-            ),
+            list_pages(&mut writer, &mut reader, WORKSPACE, false, &mut on_page),
             peer
         )
     })
@@ -380,7 +466,6 @@ async fn active_and_archived_listing_only_read_official_activity_metadata() {
     let history = CodexHistory {
         executable: fake_app_server(&directory.0, &reply),
         cwd: directory.0.clone(),
-        model_provider: SUBSCRIPTION_PROVIDER,
         codex_home: None,
     };
     let workspace = workspace_context::WorkspaceContext::new(&directory.0).unwrap();
@@ -437,7 +522,6 @@ async fn unarchive_sends_only_the_selected_thread_to_the_users_cli() {
     let history = CodexHistory {
         executable: fake_app_server(&directory.0, "\"result\":{\"thread\":{}}"),
         cwd: directory.0.clone(),
-        model_provider: SUBSCRIPTION_PROVIDER,
         codex_home: None,
     };
     tokio::time::timeout(
@@ -470,7 +554,6 @@ async fn upstream_errors_never_reach_the_ui() {
             "\"error\":{\"message\":\"/Users/secret/.codex failed\"}",
         ),
         cwd: directory.0.clone(),
-        model_provider: GATEWAY_PROVIDER,
         codex_home: None,
     };
     let error = tokio::time::timeout(

@@ -311,6 +311,7 @@
 "All modules" = "全部模块";
 "All projects" = "所有项目";
 "All projects · project can override" = "所有项目 · 项目可覆盖";
+"All providers" = "全部供应商";
 "All servers" = "所有服务器";
 "All sessions" = "全部会话";
 "All severities" = "全部级别";
@@ -690,6 +691,7 @@
 "Clear Logs" = "清空日志";
 "Clear Override" = "清除覆盖";
 "Clear Project History…" = "清空项目历史…";
+"Clear View" = "清空视图";
 "Clear branch filter" = "清除分支筛选";
 "Clear build output" = "清除构建输出";
 "Clear collected logs?" = "清空已收集的日志？";
@@ -697,6 +699,7 @@
 "Clear date filter" = "清除日期筛选";
 "Clear debug output" = "清除调试输出";
 "Clear log search" = "清除日志搜索";
+"Clear only the selected server's visible logs. Collected diagnostic logs are kept." = "仅清空所选服务器的可见日志，保留已采集的诊断日志。";
 "Clear path filter" = "清除路径筛选";
 "Clear run output" = "清除运行输出";
 "Clear search" = "清除搜索";
@@ -932,6 +935,7 @@
 "Conversation continued from a summary" = "对话已从摘要继续";
 "Conversation history" = "对话历史";
 "Conversation history is unavailable" = "当前无法读取对话历史";
+"Conversation provider" = "对话供应商";
 "Conversation tabs" = "会话标签";
 "Conversation title" = "会话标题";
 "Conversations for this project and Agent appear here." = "此项目和 Agent 的会话会显示在这里。";
@@ -1799,6 +1803,7 @@
 "Increase Font Size" = "增大字号";
 "Indentation" = "缩进";
 "Index and working tree" = "暂存区和工作树";
+"Info" = "信息";
 "Information" = "信息";
 "Inherit" = "继承";
 "Inherit project JDK" = "继承项目 JDK";
@@ -1948,10 +1953,13 @@
 "Keymap…" = "快捷键…";
 "Korean characters" = "韩文字符";
 "Kotlin Support" = "Kotlin 支持";
+"LSP" = "LSP";
+"LSP Logs" = "LSP 日志";
 "Labels" = "标签";
 "Labels and assignees" = "标签和负责人";
 "Language" = "语言";
 "Language Server" = "语言服务器";
+"Language Server Settings..." = "语言服务器设置...";
 "Language Service" = "语言服务";
 "Language Services" = "语言服务";
 "Language edit targets a file outside the workspace." = "语言编辑指向工作区之外的文件。";
@@ -2456,6 +2464,7 @@
 "No matching commits in the loaded history." = "已加载的历史中没有匹配的提交。";
 "No matching conversations" = "没有匹配的会话";
 "No matching items" = "没有匹配项";
+"No matching language server logs" = "没有匹配的语言服务器日志";
 "No matching logs" = "没有匹配的日志";
 "No matching messages" = "没有匹配的消息";
 "No matching plugins" = "没有匹配的插件";
@@ -2486,6 +2495,7 @@
 "No pull requests match the selected state." = "当前状态下没有拉取请求。";
 "No recent progress has been received. The task is still active." = "暂未收到新的进度，任务仍在进行。";
 "No recent projects" = "没有最近项目";
+"No registered language servers" = "未注册语言服务器";
 "No release is available yet" = "暂时没有可用版本";
 "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time." = "暂无已记住的选择。在退出对话框中勾选“记住对这类服务的选择”后，下次遇到同类服务就不再询问。";
 "No remote" = "无远程仓库";
@@ -2545,6 +2555,7 @@
 "Not running" = "未运行";
 "Not selected" = "未勾选";
 "Not set" = "未设置";
+"Not started" = "未启动";
 "Not supported on %@ yet." = "暂不支持 %@ 平台";
 "Not tested" = "未测试";
 "Not used" = "不使用";
@@ -2753,6 +2764,7 @@
 "Plan before making changes" = "先制定计划，再进行修改。";
 "Planned Git command — waiting to start" = "Git 命令计划 — 等待启动";
 "Planned command" = "计划执行的命令";
+"PlantUML could not render this diagram. Showing its source instead." = "PlantUML 无法渲染此图表，已显示源码。";
 "Platforms" = "支持平台";
 "Plugin" = "插件";
 "Plugin %@ %@ is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update." = "插件 %@ %@ 是已淘汰的原生插件包，不再加载。请在插件管理中重新安装以更新。";
@@ -3184,12 +3196,14 @@
 "Response" = "回复";
 "Responses API" = "Responses API";
 "Restart" = "重新启动";
+"Restart All Servers" = "重启所有服务器";
 "Restart Language Servers" = "重启语言服务器";
 "Restart Lithe" = "重启 Lithe";
 "Restart Lithe to finish uninstalling %@, then install the community plugin %@ from the Marketplace." = "请重启 Lithe 以完成 %@ 的卸载，然后从插件市场安装社区插件 %@。";
 "Restart Lithe to finish uninstalling %@, then install this plugin." = "请重启 Lithe 以完成 %@ 的卸载，然后再安装此插件。";
 "Restart Lithe to load the updated page." = "重启 Lithe 以加载更新后的页面。";
 "Restart Lithe to use %@." = "重启 Lithe 后即可使用 %@。";
+"Restart Server" = "重启服务器";
 "Restart required" = "需要重启 Lithe";
 "Restart run" = "重新运行";
 "Restart service" = "重启服务";
@@ -3463,6 +3477,7 @@
 "Sensitive files are not sent to an AI provider." = "敏感文件不会发送给 AI 服务商。";
 "Separate arguments with spaces; quote an argument that contains spaces." = "参数之间用空格分隔；包含空格的参数请加引号。";
 "Server" = "服务器";
+"Server Logs" = "服务器日志";
 "Server URL" = "服务器 URL";
 "Server address" = "服务器地址";
 "Server default" = "服务器默认";
@@ -3576,6 +3591,7 @@
 "Showing available matches." = "仍显示可用的匹配项。";
 "Showing the previous Java entries while the Java language service prepares the project." = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。";
+"Shows session events and server output. Server Trace and RPC message capture are not available." = "显示会话事件和服务器输出。暂不支持服务器跟踪和 RPC 消息采集。";
 "Side-by-side" = "并排";
 "Side-by-side view" = "并排视图";
 "Sign in again" = "重新登录";
@@ -3706,6 +3722,7 @@
 "Starting commit (optional)" = "起始提交（可选）";
 "Starting module..." = "正在启动模块…";
 "Starting the Agent…" = "正在启动 Agent…";
+"Starts again when a matching document is opened or edited." = "打开、切换到或编辑匹配的文档时将再次启动。";
 "Starts no programs." = "不启动任何程序。";
 "Starts on demand when a matching file is opened" = "按需启动，打开对应文件时运行";
 "Stash" = "暂存";
@@ -3730,6 +3747,7 @@
 "Sticky scroll" = "固定显示作用域标题";
 "Stop" = "停止";
 "Stop %@" = "停止 %@";
+"Stop All Servers" = "停止所有服务器";
 "Stop Camera" = "停止摄像头";
 "Stop Debug" = "停止调试";
 "Stop Loading" = "停止加载";
@@ -3737,6 +3755,7 @@
 "Stop Microphone" = "停止麦克风";
 "Stop Recording" = "停止录制";
 "Stop Run" = "停止运行";
+"Stop Server" = "停止服务器";
 "Stop Tracking Branch" = "停止跟踪分支";
 "Stop active execution" = "停止当前执行";
 "Stop all services" = "停止所有服务";
@@ -4017,6 +4036,7 @@
 "The interface language changes immediately. English is the default." = "界面语言会立即生效。默认语言为英文。";
 "The item can be recovered from the macOS Trash." = "可以从 macOS 废纸篓中恢复此项目。";
 "The language server could not apply this setting. Restart it to use the new value." = "语言服务器无法应用此设置。请重启它以使用新值。";
+"The language server is still stopping. Try again after it has stopped." = "语言服务器仍在停止。请在停止完成后重试。";
 "The language server this build system uses is not available. Open a file of the language and try again." = "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。";
 "The language service that hosts the debug adapter is unavailable." = "承载调试适配器的语言服务不可用。";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "将全量下载最新正式版，在你确认安装后替换当前 AutoBuild。项目和设置会保留，但 AutoBuild 专有的设置可能无法在正式版中使用。";
@@ -4325,7 +4345,6 @@
 "Tools" = "工具";
 "Tools sent" = "发送的工具";
 "Total" = "总计";
-"Total %@" = "总计 %@";
 "Total tokens: %@" = "总 token：%@";
 "Tracking %@" = "跟踪 %@";
 "Tracking Branch" = "跟踪的分支";
@@ -4335,6 +4354,7 @@
 "Try Again" = "重试";
 "Try a branch name or checkout path." = "请尝试输入分支名称或检出路径。";
 "Try a different search term." = "请尝试其他搜索词。";
+"Try another search or provider filter." = "试试其他搜索条件或供应商筛选。";
 "Try another title or session ID." = "试试其他标题或会话 ID。";
 "Try another title, author, number, or label." = "请尝试其他标题、作者、编号或标签。";
 "Turn on MCP to generate a configuration for agents." = "开启 MCP 后会生成供 Agent 使用的配置。";
@@ -4386,6 +4406,7 @@
 "Unknown Keychain error" = "未知的钥匙串错误";
 "Unknown date" = "时间未知";
 "Unknown error" = "未知错误";
+"Unknown provider" = "未知供应商";
 "Unknown source" = "未知来源";
 "Unlink" = "取消关联";
 "Unlinked the pull request" = "已取消关联拉取请求";
@@ -4656,6 +4677,10 @@
 "Zoom in" = "放大";
 "Zoom out" = "缩小";
 "[Line] [:column]:" = "[行] [:列]:";
+"agent.history.allProviders" = "全部供应商";
+"agent.history.provider" = "对话供应商";
+"agent.history.providerHint" = "试试其他搜索条件或供应商筛选。";
+"agent.history.unknownProvider" = "未知供应商";
 "agent.settings.enableSubscription" = "启用";
 "agent.stop" = "停止";
 "ai.add" = "添加";
@@ -4815,6 +4840,7 @@
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS 无法准备更新磁盘映像。请打开 Release 页面手动安装。";
 "main Java" = "主代码";
 "main resources" = "主资源";
+"markdown.plantumlRenderFailed" = "PlantUML 无法渲染此图表，已显示源码。";
 "matches" = "个匹配项";
 "maven.title" = "Maven";
 "menu.copy" = "复制";
@@ -5371,6 +5397,7 @@
 "native.clearDebugOutput" = "清除调试输出";
 "native.clearGitConsole" = "清空 Git 控制台";
 "native.clearLogSearch" = "清除日志搜索";
+"native.clearLogView" = "清空视图";
 "native.clearLogs" = "清空日志";
 "native.clearOverride" = "清除覆盖";
 "native.clearPathFilter" = "清除路径筛选";
@@ -6731,6 +6758,8 @@
 "native.languageServerReturnedAnInvalidTextRange" = "语言服务器返回了无效的文本范围。";
 "native.languageServerReturnedOverlappingTextEdits" = "语言服务器返回了重叠的文本编辑。";
 "native.languageServerSessionStoppedBeforeTheRequestCompleted" = "语言服务器会话在请求完成前已停止。";
+"native.languageServerSettingsAction" = "语言服务器设置...";
+"native.languageServerStillStopping" = "语言服务器仍在停止。请在停止完成后重试。";
 "native.languageServerToolConfigurationChanged" = "语言服务器工具配置已更改";
 "native.languageServers" = "语言服务器";
 "native.languageService" = "语言服务";
@@ -6944,6 +6973,7 @@
 "native.log.variant2" = "日志";
 "native.logDirectory" = "日志目录";
 "native.logFilter" = "日志筛选";
+"native.logInfoLevel" = "信息";
 "native.logLevel" = "日志级别";
 "native.logLocations" = "日志位置";
 "native.logMessage" = "日志消息";
@@ -6959,6 +6989,13 @@
 "native.low" = "低";
 "native.lowEffortAndASmallOutputLimitAreRecommendedForFastCommitMessageGeneration" = "为了快速生成提交信息，建议使用低推理强度和较小的输出限制。";
 "native.lowRecommended" = "低（推荐）";
+"native.lspAvailableLogChannels" = "显示会话事件和服务器输出。暂不支持服务器跟踪和 RPC 消息采集。";
+"native.lspClearViewHint" = "仅清空所选服务器的可见日志，保留已采集的诊断日志。";
+"native.lspLogsTitle" = "LSP 日志";
+"native.lspNotStarted" = "未启动";
+"native.lspServerLogs" = "服务器日志";
+"native.lspStatusLabel" = "LSP";
+"native.lspStopOnDemandHint" = "打开、切换到或编辑匹配的文档时将再次启动。";
 "native.luaSupport" = "Lua 支持";
 "native.macosCouldNotPrepareTheUpdateDiskImageDownloadTheReleaseManuallyAndTryAgain" = "macOS 无法准备更新磁盘映像，请手动下载版本后重试。";
 "native.macosCouldNotPrepareTheUpdateDiskImageOpenTheReleasePageAndInstallItManually" = "macOS 无法准备更新磁盘映像。请打开 Release 页面手动安装。";
@@ -7268,6 +7305,7 @@
 "native.noMatchingConversations" = "没有匹配的会话";
 "native.noMatchingHooks" = "没有匹配的 Hook。";
 "native.noMatchingItems" = "没有匹配项";
+"native.noMatchingLanguageServerLogs" = "没有匹配的语言服务器日志";
 "native.noMatchingLogs" = "没有匹配的日志";
 "native.noMatchingMcpServers" = "没有匹配的 MCP 服务器";
 "native.noMatchingMessages" = "没有匹配的消息";
@@ -7306,6 +7344,7 @@
 "native.noPullRequestsMatchTheSelectedState" = "当前状态下没有拉取请求。";
 "native.noRecentProgressHasBeenReceivedTheTaskIsStillActive" = "暂未收到新的进度，任务仍在进行。";
 "native.noRecentProjects" = "没有最近项目";
+"native.noRegisteredLanguageServers" = "未注册语言服务器";
 "native.noReleaseIsAvailableYet" = "暂时没有可用版本";
 "native.noRememberedChoicesCheckRememberMyChoiceInTheQuitDialogToSkipTheQuestionForAKi279db9aaf7" = "暂无已记住的选择。在退出对话框中勾选“记住对这类服务的选择”后，下次遇到同类服务就不再询问。";
 "native.noRemote" = "无远程仓库";
@@ -7991,6 +8030,7 @@
 "native.response" = "回复";
 "native.responsesAPI" = "Responses API";
 "native.restart" = "重新启动";
+"native.restartAllServers" = "重启所有服务器";
 "native.restartLanguageServers" = "重启语言服务器";
 "native.restartLithe" = "重启 Lithe";
 "native.restartLitheToFinishUninstallingThenInstallTheCommunityPluginFromTheMarketplace" = "请重启 Lithe 以完成 %1$@ 的卸载，然后从插件市场安装社区插件 %2$@。";
@@ -7999,6 +8039,7 @@
 "native.restartLitheToUseArg1" = "重启 Lithe 后即可使用 %1$@。";
 "native.restartRequired" = "需要重启 Lithe";
 "native.restartRun" = "重新运行";
+"native.restartServer" = "重启服务器";
 "native.restartService" = "重启服务";
 "native.restore" = "恢复";
 "native.restoreAllDefaults" = "全部恢复默认";
@@ -8509,6 +8550,7 @@
 "native.stepOut" = "单步跳出";
 "native.stepOver" = "单步跳过";
 "native.stopActiveExecution" = "停止当前执行";
+"native.stopAllServers" = "停止所有服务器";
 "native.stopAllServices" = "停止所有服务";
 "native.stopAndClose" = "停止并关闭";
 "native.stopAndQuit" = "停止并退出";
@@ -8525,6 +8567,7 @@
 "native.stopRun" = "停止运行";
 "native.stopRun.variant2" = "停止运行";
 "native.stopSelected" = "停止所选配置";
+"native.stopServer" = "停止服务器";
 "native.stopService" = "停止服务";
 "native.stopSessionNamed" = "停止 %1$@";
 "native.stopTestRun" = "停止测试运行";
@@ -9053,7 +9096,6 @@
 "native.tools" = "工具";
 "native.toolsSent" = "发送的工具";
 "native.total" = "总计";
-"native.total.variant2" = "总计 %1$@";
 "native.totalTokens" = "总 token：%1$@";
 "native.tracking" = "跟踪 %1$@";
 "native.trackingBranch" = "跟踪的分支";

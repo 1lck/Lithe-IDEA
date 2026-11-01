@@ -560,6 +560,10 @@ pub struct AgentSessionSummary {
     /// ISO 8601 history timestamp, if known. Codex uses conversation activity,
     /// never the metadata update caused by merely resuming a session.
     pub updated_at: Option<String>,
+    /// Opaque upstream provider identity, not the currently selected billing route.
+    /// Missing metadata stays unknown; older consumers can ignore this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
 }
 
 /// Events emitted from the connection worker thread.
@@ -2215,6 +2219,7 @@ async fn list_sessions(
                     .title
                     .and_then(|title| workspace.present_title(&title)),
                 updated_at: session.updated_at,
+                model_provider: None,
             })
             .collect();
         // Keep the final aggregate compatible with clients that do not consume pages.

@@ -17,6 +17,20 @@ import {
 /** ISO-8601 internet date-time, with or without fractional seconds. */
 const INTERNET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
+/** null selects all providers; the empty string selects unknown upstream metadata. */
+export type AgentHistoryProviderFilter = string | null;
+
+export function historyProvider(session: AgentSessionSummary): string {
+  return session.modelProvider?.trim() || "";
+}
+
+/** Source options span active and archived records, independently of search/marks. */
+export function historyProviderOptions(sessions: AgentSessionSummary[]): string[] {
+  const providers = new Set(sessions.map(historyProvider));
+  const known = [...providers].filter((provider) => provider.length > 0).sort();
+  return providers.has("") ? [...known, ""] : known;
+}
+
 /**
  * Milliseconds for an Agent timestamp, or `null` when the value is not the
  * documented ISO-8601 form. A date-only string is rejected rather than guessed,
@@ -48,10 +62,12 @@ export function agentHistoryRows(
   metadata: AgentHistoryMetadataMap,
   query: string,
   filter: AgentHistoryFilter,
+  provider: AgentHistoryProviderFilter = null,
 ): AgentHistoryRow[] {
   const needle = query.trim().toLowerCase();
   return sessions
     .flatMap((session) => {
+      if (provider !== null && historyProvider(session) !== provider) return [];
       const entry = metadata[session.id] ?? emptyAgentHistoryMetadata;
       if (entry.isHidden !== (filter === "removed")) return [];
       if (filter === "favorites" && !entry.isFavorite) return [];

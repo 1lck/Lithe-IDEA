@@ -36,6 +36,7 @@ pub fn render(request: MarkdownRenderRequest) -> MarkdownRenderResponse {
     options.extension.autolink = true;
     options.extension.tasklist = true;
     options.extension.superscript = true;
+    options.extension.subscript = true;
     options.extension.footnotes = true;
     options.extension.inline_footnotes = true;
     options.extension.description_lists = true;
@@ -80,6 +81,12 @@ pub fn render(request: MarkdownRenderRequest) -> MarkdownRenderResponse {
             ],
         )
         .add_tag_attributes("source", &["src", "type", "media"]);
+
+    // README headers commonly align a whole badge row or heading. Keep the
+    // presentational attribute without allowing arbitrary inline styles.
+    for tag in ["div", "p", "h1", "h2", "h3", "h4", "h5", "h6"] {
+        sanitizer.add_tag_attributes(tag, &["align"]);
+    }
 
     MarkdownRenderResponse {
         html: sanitizer.clean(&rendered).to_string(),
@@ -162,5 +169,50 @@ mod tests {
         assert!(output.contains("<details"));
         assert!(output.contains("<summary>More</summary>"));
         assert!(output.contains("<mark>Safe</mark>"));
+    }
+
+    #[test]
+    fn preserves_rich_content_for_offline_preview() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/editor/markdown-rich-content-v1.json"
+        ))
+        .expect("rich Markdown fixture should decode");
+        let output = html(fixture["source"].as_str().expect("fixture source"));
+
+        assert!(output.contains("H<sub ") && output.contains(">2</sub>O"));
+        assert!(output.contains("x<sup ") && output.contains(">2</sup>"));
+        assert!(output.contains(">removed</del>"));
+        assert!(output.contains(">H~2~O x^2^</code>"));
+        assert_eq!(output.matches("data-math-style=\"inline\"").count(), 2);
+        assert_eq!(output.matches("data-math-style=\"display\"").count(), 1);
+        assert!(output.contains("\\ce{2 H2 + O2 -&gt; 2 H2O}"));
+        assert!(output.contains("\\pu{123 kJ}"));
+        assert!(output.contains("language-mermaid"));
+        assert!(output.contains("class=\"footnotes\""));
+    }
+
+    #[test]
+    fn preserves_html_alignment_and_inline_badges_without_allowing_styles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/editor/markdown-html-v1.json"
+        ))
+        .expect("Markdown HTML fixture should decode");
+        let output = html(fixture["source"].as_str().expect("fixture source"));
+
+        assert!(output.contains("<div align=\"center\""));
+        assert!(output.contains("<h1 align=\"right\""));
+        assert!(output.contains("<p align=\"left\""));
+        let header = output.split("</div>").next().expect("HTML header");
+        assert_eq!(header.matches("<img ").count(), 3);
+        assert_eq!(header.matches("<p ").count(), 3);
+        assert_eq!(output.matches("<img ").count(), 4);
+        assert_eq!(output.matches("<br").count(), 1);
+        assert!(output.contains("width=\"80\""));
+        assert!(output.contains("height=\"20\""));
+        assert!(!output.contains("style="));
+        assert!(!output.contains("onclick"));
+        assert!(!output.contains("javascript:"));
+        assert!(!output.contains("<script"));
+        assert!(!output.contains("<style"));
     }
 }

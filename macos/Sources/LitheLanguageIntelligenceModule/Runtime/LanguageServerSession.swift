@@ -74,6 +74,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private var functionProgress: [String: @MainActor @Sendable (PluginFunctionProgress) -> Void] = [:]
     private var documentVersions: [URL: Int] = [:]
     private var pollTask: Task<Void, Never>?
+    private var releaseTask: Task<Void, Never>?
+    private var startsInFlight = 0
     private var state: LanguageServerSessionState = .stopped
     private var processID: Int32?
     /// Requests being written off the main actor. Core writes a request to
@@ -210,7 +212,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         if let prepareProcess, !startingPreparedProcess {
             let generation = UUID()
             startupGeneration = generation
+            startsInFlight += 1
             preparationTask = Task { @MainActor [weak self] in
+                defer { self?.startsInFlight -= 1 }
                 do {
                     let prepared = try await prepareProcess(normalizedRoot)
                     guard let self, self.startupGeneration == generation, !Task.isCancelled else {
@@ -338,14 +342,32 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             startupGeneration = generation
             let resources = releaseResources
             releaseResources = nil
+            startsInFlight += 1
             Task.detached(priority: .userInitiated) { [weak self] in
                 let started = launch()
                 // The completion claims the result only while its generation
                 // is active; a closed/replaced owner destroys the late session.
                 if await self?.completeBackgroundStart(started, generation: generation, resources: resources) != true {
-                    if case .success(let payload) = started { core.destroyLanguageServer(sessionID: payload.sessionID) }
+                    if case .success(let payload) = started {
+                        // A cancelled remote launch can finish after stop().
+                        // Keep its ownership until Core confirms termination.
+                        core.stopLanguageServer(sessionID: payload.sessionID)
+                        let deadline = ContinuousClock.now.advanced(by: .seconds(max(5, shutdownTimeout * 2 + 2)))
+                        var ended = false
+                        while !ended, ContinuousClock.now < deadline {
+                            ended = core.pollLanguageServerEvents(sessionID: payload.sessionID).contains {
+                                $0.type == "stateChanged" && ($0.state == "stopped" || $0.state == "failed")
+                            }
+                            if !ended { try? await Task.sleep(for: .milliseconds(10)) }
+                        }
+                        // Fail closed: retaining the in-flight marker prevents
+                        // reuse of a workspace whose old process is still alive.
+                        guard ended else { return }
+                        core.destroyLanguageServer(sessionID: payload.sessionID)
+                    }
                     await resources?()
                 }
+                await self?.finishBackgroundStart()
             }
             return
         }
@@ -356,6 +378,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             throw error
         }
     }
+
+    private func finishBackgroundStart() { startsInFlight -= 1 }
 
     private func completeBackgroundStart(
         _ result: Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>,
@@ -1176,6 +1200,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     package func stop() {
+        beginStop(inBackground: false)
+    }
+
+    private func beginStop(inBackground: Bool) {
         let wasStarting = startupGeneration != nil
         preparationTask?.cancel()
         preparationTask = nil
@@ -1205,13 +1233,26 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 watchdog.arm(after: stuckSendGrace) { [weak self] in self?.endStuckSend() }
                 stopWatchdog = watchdog
             }
-        } else if usesBackgroundStart {
+        } else if usesBackgroundStart || inBackground {
             let core = core
             Task.detached(priority: .userInitiated) { core.stopLanguageServer(sessionID: sessionID) }
         } else {
             core.stopLanguageServer(sessionID: sessionID)
         }
         if isRunning { transition(to: .stopping) }
+    }
+
+    package func stopAndWait() async -> Bool {
+        // Core may wait for an outbound lock/write; the caller's deadline must
+        // remain responsive on the main actor even when that stop send blocks.
+        beginStop(inBackground: true)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(max(5, shutdownTimeout * 2 + 2)))
+        while sessionID != nil || startsInFlight > 0 || releaseTask != nil {
+            guard ContinuousClock.now < deadline else { return false }
+            do { try await Task.sleep(for: .milliseconds(10)) }
+            catch { return false }
+        }
+        return true
     }
 
     package func retryMavenProfiles() {
@@ -1504,15 +1545,21 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         if let sessionID {
             if usesBackgroundStart || releaseResources != nil {
                 let core = core
-                Task.detached(priority: .userInitiated) {
-                    core.destroyLanguageServer(sessionID: sessionID)
-                    await releaseResources?()
+                releaseTask = Task { @MainActor [self] in
+                    await Task.detached(priority: .userInitiated) {
+                        core.destroyLanguageServer(sessionID: sessionID)
+                        await releaseResources?()
+                    }.value
+                    releaseTask = nil
                 }
             } else {
                 core.destroyLanguageServer(sessionID: sessionID)
             }
         } else if let releaseResources {
-            Task.detached { await releaseResources() }
+            releaseTask = Task { @MainActor [self] in
+                await releaseResources()
+                releaseTask = nil
+            }
         }
         sessionID = nil
         documentVersions = [:]
