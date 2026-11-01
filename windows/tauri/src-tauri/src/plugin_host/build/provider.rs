@@ -308,7 +308,7 @@ pub(super) async fn load_model(
             let fingerprint = app
                 .state::<BuildHostState>()
                 .registry
-                .lock()
+                .read()
                 .map_err(|_| "build registry mutex poisoned")?
                 .model_fingerprint(&HostCoreExecutor, &operation.context)?;
             Ok(fingerprint)
@@ -330,7 +330,7 @@ pub(super) async fn load_model(
             guard.checkpoint()?;
             app.state::<BuildHostState>()
                 .registry
-                .lock()
+                .write()
                 .map_err(|_| "build registry mutex poisoned")?
                 .apply_command_model(&HostCoreExecutor, &operation.context, model, &before)
         })?;

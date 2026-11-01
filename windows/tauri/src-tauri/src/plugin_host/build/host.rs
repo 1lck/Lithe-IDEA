@@ -92,7 +92,7 @@ impl ModelExecutionGuard for HostGuard<'_> {
             .app
             .state::<BuildHostState>()
             .registry
-            .lock()
+            .read()
             .map_err(|_| "build registry mutex poisoned")?
             .context_is_current(&self.operation.context)
         {
@@ -137,7 +137,7 @@ impl ModelExecutionGuard for HostGuard<'_> {
                 .app
                 .state::<BuildHostState>()
                 .registry
-                .try_lock()
+                .try_read()
                 .map(|registry| !registry.context_is_current(&self.operation.context))
                 .unwrap_or_else(|error| matches!(error, std::sync::TryLockError::Poisoned(_)))
     }
@@ -177,7 +177,7 @@ pub(super) async fn prepare_with_refresh(
 ) -> Result<BuildModelReview, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BuildHostState>();
-        let context = state.registry.lock().map_err(|_| "build registry mutex poisoned")?
+        let context = state.registry.read().map_err(|_| "build registry mutex poisoned")?
             .model_context(&window_label, &workspace_root, &plugin_id, &build_system_id, &root)?;
         let _lease = app.state::<super::super::lifecycle::LifecycleState>().acquire(&plugin_id)?;
         let package = verified_identity(&app, &context)?;
@@ -222,7 +222,7 @@ pub(super) async fn prepare_with_refresh(
         operation.provider=prepared_provider;
         let review = state.operations.insert(operation)?;
         let operation = state.operations.get(&window_label, &id)?;
-        if !state.registry.lock().map_err(|_| "build registry mutex poisoned")?.context_is_current(&operation.context) {
+        if !state.registry.read().map_err(|_| "build registry mutex poisoned")?.context_is_current(&operation.context) {
             operation.cancel(); return Err("plugin.build.staleContext".into());
         }
         Ok(review)
@@ -286,7 +286,7 @@ pub(super) async fn load(
         let before = app
             .state::<BuildHostState>()
             .registry
-            .lock()
+            .read()
             .map_err(|_| "build registry mutex poisoned")?
             .model_fingerprint(&HostCoreExecutor, &operation.context)?;
         let loaded = match execute_model(operation, &HostCoreExecutor, &NativeBuildExecutor, &guard)
@@ -302,7 +302,7 @@ pub(super) async fn load(
             guard.checkpoint()?;
             app.state::<BuildHostState>()
                 .registry
-                .lock()
+                .write()
                 .map_err(|_| "build registry mutex poisoned")?
                 .apply_command_model(&HostCoreExecutor, &operation.context, loaded.model, &before)
         })?;
@@ -403,7 +403,7 @@ pub(super) async fn prepare_run(
         let state = app.state::<BuildHostState>();
         let context = state
             .registry
-            .lock()
+            .read()
             .map_err(|_| "build registry mutex poisoned")?
             .model_context(
                 &window_label,
@@ -470,7 +470,7 @@ pub(super) async fn prepare_run(
         let operation = state.operations.get(&window_label, &id)?;
         if !state
             .registry
-            .lock()
+            .read()
             .map_err(|_| "build registry mutex poisoned")?
             .context_is_current(&operation.context)
         {

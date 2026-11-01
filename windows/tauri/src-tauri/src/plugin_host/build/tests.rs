@@ -644,3 +644,80 @@ fn redetection_and_close_reject_late_command_model_publication() {
     registry.close_window("main");
     assert!(!registry.context_is_current(&current));
 }
+
+#[test]
+fn function_scope_readers_do_not_revoke_each_other() {
+    let fixture = Fixture::new();
+    fixture.file("go.mod", "module example.test/app");
+    let declaration = manifest("build-command-stdout.plugin.json");
+    let (registry, _, context) = context(&fixture, &declaration, "go");
+    let state = super::BuildHostState {
+        registry: std::sync::RwLock::new(registry),
+        ..Default::default()
+    };
+    // Keep an ordinary generation reader active while the launch worker checks
+    // the same scope. No workspace, settings or package mutation occurs here.
+    let reader = state.registry.read().unwrap();
+    assert_eq!(
+        reader
+            .function_generation("main", &fixture.workspace())
+            .unwrap(),
+        context.generation
+    );
+    assert_eq!(
+        state.function_scope_revision("main", &fixture.workspace(), &context.plugin_id),
+        Ok(0)
+    );
+    drop(reader);
+}
+
+#[test]
+fn function_scope_keeps_refresh_suspension_reload_and_workspace_revocation() {
+    let fixture = Fixture::new();
+    fixture.file("go.mod", "module example.test/app");
+    let declaration = manifest("build-command-stdout.plugin.json");
+    let (registry, _, context) = context(&fixture, &declaration, "go");
+    let state = super::BuildHostState {
+        registry: std::sync::RwLock::new(registry),
+        ..Default::default()
+    };
+    let revision =
+        || state.function_scope_revision("main", &fixture.workspace(), &context.plugin_id);
+    let old = revision().unwrap();
+    let generation = state
+        .registry
+        .write()
+        .unwrap()
+        .begin_settings_reload("main", &fixture.workspace(), &context.plugin_id)
+        .unwrap();
+    assert!(revision().is_err());
+    assert_eq!(
+        state.function_scope_revision("main", &fixture.workspace(), "other.plugin"),
+        Ok(0)
+    );
+    state
+        .registry
+        .write()
+        .unwrap()
+        .finish_settings_reload("main", generation, &context.plugin_id);
+    assert_eq!(
+        revision(),
+        Ok(old + 1),
+        "completed reload must not revive an old review"
+    );
+    state.registry.write().unwrap().suspend_execution("main");
+    assert!(revision().is_err());
+    state.registry.write().unwrap().resume_execution("main");
+    assert_eq!(revision(), Ok(old + 1));
+    state
+        .registry
+        .write()
+        .unwrap()
+        .reserve_refresh("main", &fixture.workspace());
+    assert!(revision().is_err());
+    state.registry.write().unwrap().close_window("main");
+    assert!(revision().is_err());
+    assert!(state
+        .function_scope_revision("main", "/another-workspace", &context.plugin_id)
+        .is_err());
+}

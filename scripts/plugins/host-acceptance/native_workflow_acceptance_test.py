@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import native_workflow_fixture as fixture
-from native_workflow_acceptance import CASES, preflight
+from native_workflow_acceptance import CASES, preflight, function_receipt
 
 
 class NativeWorkflowTests(unittest.TestCase):
@@ -76,6 +76,32 @@ class NativeWorkflowTests(unittest.TestCase):
         self.assertEqual(len(report["blocked"]), 3)
         self.assertEqual([row["name"] for row in report["tests"]], list(CASES))
         self.assertTrue(all(row["status"] == "skipped" for row in report["tests"]))
+
+    def test_function_observation_preserves_first_failure_and_operation_identity(self):
+        def row(command, value=None, error=None, operation="one"):
+            return {"command": "declarative_plugins_function_" + command,
+                    "args": {"operationId": operation}, "settled": True,
+                    "value": value, "error": error}
+        foreign = row("state", {"phase": "succeeded"}, operation="other")
+        self.assertIsNone(function_receipt([foreign, row("state", {"phase": "starting"})], "one"))
+        failure = row("state", {"phase": "failed", "error": {"code": "plugin.function.staleContext"}})
+        with self.assertRaisesRegex(AssertionError, "one.*plugin.function.staleContext"):
+            function_receipt([foreign, failure], "one")
+        with self.assertRaisesRegex(AssertionError, "native confirm rejected"):
+            function_receipt([row("confirm", error="native confirm rejected")], "one")
+        with self.assertRaisesRegex(AssertionError, "identity"):
+            function_receipt([row("state", {"phase": "succeeded", "context": {"operationId": "other"}})], "one")
+
+    def test_function_observation_requires_terminal_success_after_cleanup(self):
+        rows = [{"command": "declarative_plugins_function_state", "args": {"operationId": "one"},
+                 "settled": True, "value": {"phase": "running"}}]
+        self.assertIsNone(function_receipt(rows, "one"))
+        rows.append({"command": "declarative_plugins_function_state", "args": {"operationId": "one"},
+                     "settled": True, "value": {"phase": "cleanupFailed", "error": {"code": "plugin.function.cleanupFailed"}}})
+        with self.assertRaisesRegex(AssertionError, "cleanupFailed"):
+            function_receipt(rows, "one")
+        rows[-1]["value"] = {"phase": "succeeded", "context": {"operationId": "one"}, "result": {"message": "peer result"}}
+        self.assertEqual(function_receipt(rows, "one")["result"], {"message": "peer result"})
 
     def test_real_controlled_peer_retains_state_between_action_and_source(self):
         node = shutil.which("node")

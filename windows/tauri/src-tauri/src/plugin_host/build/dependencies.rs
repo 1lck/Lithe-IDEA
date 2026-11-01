@@ -298,7 +298,7 @@ impl ModelExecutionGuard for DependencyGuard<'_> {
         let state = self.base.app.state::<BuildHostState>();
         let registry = state
             .registry
-            .lock()
+            .read()
             .map_err(|_| "build registry mutex poisoned")?;
         if registry.model_fingerprint(&HostCoreExecutor, &self.base.operation.context)?
             != self
@@ -339,7 +339,7 @@ pub(super) async fn prepare(
         let (context, fingerprint) = {
             let registry = state
                 .registry
-                .lock()
+                .read()
                 .map_err(|_| "build registry mutex poisoned")?;
             let context = registry.model_context(
                 &window_label,

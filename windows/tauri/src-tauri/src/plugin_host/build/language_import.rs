@@ -235,7 +235,7 @@ pub(super) async fn prepare(
     live_build_window(&app, &label)?;
     app.state::<BuildHostState>()
         .registry
-        .lock()
+        .read()
         .map_err(|_| "build registry mutex poisoned")?
         .check_read_snapshot(&label, &workspace_root, generation)?;
     let checkpoint_app = app.clone();

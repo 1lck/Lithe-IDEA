@@ -55,6 +55,26 @@ def read(page, expression, argument=None):
     return page._sync(asyncio.wait_for(page._impl_obj.evaluate(expression, arg=argument), timeout=10))
 
 
+def function_receipt(calls, operation):
+    """Observe one real IPC operation; never retry or infer success from silence."""
+    for call in calls:
+        if call.get("args", {}).get("operationId") != operation or not call.get("settled"):
+            continue
+        if call["command"] not in ("declarative_plugins_function_prepare", "declarative_plugins_function_confirm", "declarative_plugins_function_state"):
+            continue
+        if call.get("error"):
+            raise AssertionError(f"{operation}: {call['error']}")
+        if call["command"] == "declarative_plugins_function_state":
+            value = call.get("value") or {}
+            if value.get("phase") in ("failed", "cancelled", "cleanupFailed"):
+                raise AssertionError(f"{operation}: {json.dumps(value, ensure_ascii=True)}")
+            if value.get("phase") == "succeeded":
+                if value.get("context", {}).get("operationId") != operation:
+                    raise AssertionError(f"{operation}: terminal identity mismatch")
+                return value
+    return None
+
+
 class Workflow:
     def __init__(self, args, driver, reporter):
         self.args, self.driver, self.reporter = args, driver, reporter
@@ -430,9 +450,26 @@ class Workflow:
         if saved["globalValues"].get("globalMessage") != "confirmed-global":
             raise AssertionError("saved global setting was not read back")
         action = editor.locator("[data-plugin-function-action='inspect']")
+        offset = len(self.calls())
+        started = time.monotonic()
         action.get_by_role("button", name="Inspect workflow", exact=True).click(timeout=5000)
-        action.get_by_role("button", name="Confirm and run", exact=True).click(timeout=10000)
-        self.wait(lambda: action.locator("pre").filter(has_text="Workflow inspect succeeded").count(), "real settings function result")
+        prepared = self.wait(lambda: self.settled("declarative_plugins_function_prepare", offset), "settings function review")
+        if prepared.get("error"):
+            raise AssertionError(str(prepared))
+        operation = prepared["value"]["context"]["operationId"]
+        observation = {"reviewContext": prepared["value"]["context"], "savedIdentity": saved["identity"]}
+        try:
+            action.get_by_role("button", name="Confirm and run", exact=True).click(timeout=10000)
+            def completed():
+                receipt = function_receipt(self.calls()[offset:], operation)
+                return receipt and action.locator("pre").filter(has_text="Workflow inspect succeeded").count()
+            self.wait(completed, "real settings function result and cleanup receipt")
+        finally:
+            observation["durationMs"] = round((time.monotonic() - started) * 1000, 3)
+            observation["calls"] = [{key: row.get(key) for key in ("command", "args", "settled", "error", "value")}
+                                    for row in self.calls()[offset:]
+                                    if row["command"] != "declarative_plugins_function_prepare"]
+            self.driver.write_json(self.args.artifact_root / "settings-function-observation.json", observation)
         # Effect variants are in the complete package. Full reload/restart
         # acceptance remains a separate pending row until its lane passes.
 

@@ -64,9 +64,20 @@ Windows 原生面板之前沿用一次性设置动作的调用路径，每次函
 成功销毁作为唯一清理凭据。超时、销毁失败和未知 worker 结果继续保留租约及原始 join handle，
 不把“已发送退出”当成“已清理”，也不重复派发结果未知的销毁。
 
+函数启动与调用协调器会并行检查同一个构建登记表。普通读取占用互斥锁时，`try_lock` 失败只表示
+锁被占用，不能据此断言设置或工作区已过期。R35 的确定性回归保持一个读取不结束，同时查询同一
+函数作用域，旧实现错误返回 `plugin.function.staleContext`；登记表现在使用读写锁，读取共享同一个
+数据真源，修改仍独占。取得读取后仍核对工作区代次、待刷新、执行暂停及插件设置修订号；等待写入
+结束不能跳过这些条件，也不能恢复重载前的审查。不要用忽略锁失败、返回缓存修订号或自动重试替代。
+
+这修复了已证明的锁竞争误拒绝。R34 首次产品失败只保留了 IPC 和后端记录，没有锁级轨迹，不能把
+它的历史原因追认为已唯一证实；同一镜像的成功复跑也不是这个证明。产品验收应保留 prepare、confirm、
+终态与取消的精确 operation ID 和快照身份，遇到真实失败立即记录，禁止由“没有错误”推定成功。
+
 ## 验证
 
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest windows/tauri/src-tauri/Cargo.toml --report .artifacts/test-stability/native-provider.json`：检查会话注册/进度隔离、动作后刷新、函数取消与其他构建等待器共存。
+- `build::tests::function_scope_readers_do_not_revoke_each_other` 与 `function_scope_keeps_refresh_suspension_reload_and_workspace_revocation` 覆盖读取竞争、真实失效及重载完成后旧 revision 不复活。
 - 同一 Rust 入口还覆盖设置动作的延迟关闭、其他会话终止事件隔离、关闭期限、事件已取走但销毁失败后的租约保留与重试。
 - `python -B scripts/plugins/host-acceptance/native_workflow_acceptance_test.py --report .artifacts/test-stability/native-workflow-helpers.json`：离线检查固定输入、篡改拒绝、门控报告及真实受控对端状态；不是产品验收。
 - `python -B scripts/plugins/host-acceptance/native_workflow_fixture.py --output .artifacts/plugin-host-acceptance/native-workflow-fixture-current` 生成本树输入；`native_workflow_acceptance.py --fixture-root .artifacts/plugin-host-acceptance/native-workflow-fixture-current --report .artifacts/test-stability/native-workflow-preflight.json --preflight` 只做预检。

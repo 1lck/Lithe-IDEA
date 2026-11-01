@@ -17,7 +17,7 @@ use super::build_registry::{
 use super::store;
 use serde::Serialize;
 use serde_json::Value;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 mod dependencies;
@@ -54,9 +54,11 @@ pub use output::BuildRunTerminal;
 pub use run::{BuildRunReview, BuildRunSelection};
 
 /// Registry shared by every window; entries are keyed per window label.
+/// Scope checks run concurrently during launch and invocation. Readers share
+/// this one source of truth; lock contention is not semantic revocation.
 #[derive(Default)]
 pub struct BuildHostState {
-    registry: Mutex<BuildRegistry>,
+    registry: RwLock<BuildRegistry>,
     operations: operation::BuildOperations,
 }
 
@@ -70,7 +72,7 @@ impl BuildHostState {
         plugin: &str,
     ) -> Result<u64, String> {
         self.registry
-            .try_lock()
+            .read()
             .map_err(|_| "plugin.settings.staleContext")?
             .settings_scope_revision(window, root, plugin)
     }
@@ -84,7 +86,7 @@ impl BuildHostState {
         plugin: &str,
     ) -> Result<u64, String> {
         self.registry
-            .try_lock()
+            .read()
             .map_err(|_| "plugin.function.staleContext")?
             .function_scope_revision(window, root, plugin)
     }
@@ -96,7 +98,7 @@ impl BuildHostState {
         context: &super::build_registry::BuildModelContext,
     ) -> bool {
         self.registry
-            .lock()
+            .read()
             .is_ok_and(|registry| registry.context_is_current(context))
     }
     /// Read the workspace incarnation already registered by the native build
@@ -104,7 +106,7 @@ impl BuildHostState {
     pub(crate) fn function_generation(&self, window: &str, root: &str) -> Result<u64, String> {
         let registry = self
             .registry
-            .lock()
+            .read()
             .map_err(|_| "plugin.function.staleContext")?;
         registry.function_generation(window, root)
     }
@@ -429,7 +431,7 @@ pub async fn declarative_plugins_build_plugins_changed(
     let window_label = window.label().to_string();
     app.state::<BuildHostState>()
         .registry
-        .lock()
+        .write()
         .map_err(|_| "build registry mutex poisoned")?
         .drop_plugin(&plugin_id);
     stop_build_operations(&app, |operation| operation.context.plugin_id == plugin_id).await?;
@@ -458,7 +460,7 @@ pub async fn declarative_plugins_build_close_workspace(
         let state = app.state::<BuildHostState>();
         let mut registry = state
             .registry
-            .lock()
+            .write()
             .map_err(|_| "build registry mutex poisoned")?;
         if registry.view(&window_label).workspace_root == workspace_root {
             let generation = registry.suspend_execution(&window_label);
@@ -631,7 +633,7 @@ pub(crate) async fn reload_settings_models(
         let state = preflight_app.state::<BuildHostState>();
         let mut registry = state
             .registry
-            .lock()
+            .write()
             .map_err(|_| "plugin.settings.unavailable")?;
         // A failed drain still owns the original operations. Reclaim them
         // before checking a later settings conflict, as the global barrier does.
@@ -743,7 +745,7 @@ struct BuildExecutionSuspension {
 impl Drop for BuildExecutionSuspension {
     fn drop(&mut self) {
         let state = self.app.state::<BuildHostState>();
-        if let Ok(mut registry) = state.registry.lock() {
+        if let Ok(mut registry) = state.registry.write() {
             registry.resume_execution(&self.window);
         };
         super::web::build::workflow::queue_instance_changes(self.app.clone());
@@ -757,7 +759,7 @@ fn suspend_build_execution(
     let generation = app
         .state::<BuildHostState>()
         .registry
-        .lock()
+        .write()
         .map_err(|_| "build registry mutex poisoned")?
         .suspend_execution(window_label);
     Ok(BuildExecutionSuspension {
@@ -786,7 +788,7 @@ fn suspend_build_refresh(
     let state = app.state::<BuildHostState>();
     let mut registry = state
         .registry
-        .lock()
+        .write()
         .map_err(|_| "build registry mutex poisoned")?;
     let generation = registry.suspend_execution(window_label);
     let ticket = registry.reserve_refresh(window_label, workspace_root);
@@ -810,7 +812,7 @@ pub async fn close_build_window(app: AppHandle, window_label: String) -> Result<
     .await?;
     app.state::<BuildHostState>()
         .registry
-        .lock()
+        .write()
         .map_err(|_| "build registry mutex poisoned")?
         .close_window(&window_label);
     Ok(())
@@ -839,7 +841,7 @@ where
         let state = app.state::<BuildHostState>();
         let mut registry = state
             .registry
-            .lock()
+            .write()
             .map_err(|_| "build registry mutex poisoned")?;
         let result = operation(&mut registry, &source, &persistence);
         if result.is_ok() {
