@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Combine
 import SwiftUI
 @testable import LitheGitModule
 import Testing
@@ -144,6 +145,28 @@ struct EditorTabOrderFeatureModelTests {
         #expect(drag.destination(at: CGPoint(x: 200, y: 150), sourceGroup: first) == nil)
         #expect(drag.destination(at: CGPoint(x: 600, y: 150), sourceGroup: first)?.side == .center)
         #expect(drag.destination(at: CGPoint(x: 405, y: 150), sourceGroup: first)?.side == .left)
+    }
+
+    @Test func editorGroupDropPreviewPublishesOnlyChangedTargets() throws {
+        let drag = EditorGroupDragState(), group = UUID()
+        drag.frames = [group: CGRect(x: 0, y: 0, width: 400, height: 300)]
+        drag.tabFrames = [group: CGRect(x: 0, y: 0, width: 400, height: 36)]
+        var publications: [EditorGroupDragState.Target?] = []
+        let observation = drag.$target.dropFirst().sink { publications.append($0) }
+        defer { observation.cancel() }
+        drag.begin()
+
+        let left = try #require(drag.destination(at: CGPoint(x: 5, y: 150), sourceGroup: nil))
+        let right = try #require(drag.destination(at: CGPoint(x: 395, y: 150), sourceGroup: nil))
+        for _ in 0..<30 { drag.updateTarget(left) }
+        #expect(publications == [left])
+        for _ in 0..<30 { drag.updateTarget(right) }
+        #expect(publications == [left, right])
+        for _ in 0..<30 { drag.updateTarget(nil) }
+        drag.finish()
+        drag.finish()
+        #expect(publications == [left, right, nil])
+        #expect(drag.target == nil)
     }
 
     @Test func agentTabsPresentOneSessionEachAndForgetClosedTabs() {

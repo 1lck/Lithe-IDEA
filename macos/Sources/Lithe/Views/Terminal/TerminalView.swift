@@ -11,9 +11,9 @@ struct TerminalView: View {
         VStack(spacing: 0) {
             terminalToolbar
             terminalCanvas
+                .overlay { TerminalToolDropOverlay(model: model) }
         }
         .contentShape(Rectangle())
-        .overlay { TerminalToolDropOverlay(model: model) }
         .onDrop(
             of: [TerminalTabDragPayload.type],
             delegate: TerminalBarDropDelegate { sessionID in

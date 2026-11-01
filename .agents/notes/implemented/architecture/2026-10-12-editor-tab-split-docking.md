@@ -29,7 +29,7 @@ Git 的工作区、工作树、目录、分支、历史提交和 Stash/Shelf 比
 ### 终端标签使用独立的 AppKit 拖放
 
 终端标签不能继续使用 SwiftUI `.onDrag`。Monaco 所在的 `WKWebView` 会消费拖放目标，祖先视图的 `.onDrop` 收不到终端 payload；带文本兜底的 `NSItemProvider` 还会把 “Terminal” 当文本插入编辑器。
-拖拽源因此改为 AppKit `NSDraggingSession`，pasteboard 只写私有 `com.lithe.terminal-tab`；编辑器工作区、空编辑器和工具窗各放一个只在终端拖拽期间可命中的 AppKit drop overlay。编辑器内继续复用 `EditorGroupDragState` 的分栏预览，标签栏仍交给 SwiftUI 重排。
+拖拽源因此改为 AppKit `NSDraggingSession`，pasteboard 只写私有 `com.lithe.terminal-tab`；编辑器工作区、空编辑器和工具窗正文各放一个只在终端拖拽期间可命中的 AppKit drop overlay。工具窗覆盖层只包住终端正文，不覆盖工具栏，让拖回已有标签左侧或右侧的操作继续使用 SwiftUI 的前后插入逻辑；不能整窗截获后统一追加到末尾。编辑器内继续复用 `EditorGroupDragState` 的分栏预览，标签栏仍交给 SwiftUI 重排。所有预览目标通过同一个去重入口发布，相同落点和重复清空不通知整个编辑分组布局。
 外部标签通过 `EditorTabOrderFeatureModel.insert` 加入布局：边缘总是新建分组，中心加入现有分组；工具窗与编辑器之间只移动 placement，不重建终端会话或 PTY。
 
 正确做法：把工具窗终端拖到编辑器底边得到上下分屏，再把同一标签拖回工具窗，shell 提示符和 scrollback 保持连续。
@@ -114,6 +114,7 @@ Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两�
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 原生事件检查右侧、底部半区、释放提交、Esc 取消、重排、关闭与焦点；实机预览另检查真实字体资源、代码输入、灰色浮动标签及分隔器调整。
 - 终端标签拖放：聚焦测试覆盖外部插入/边缘分屏、私有 pasteboard 与拖拽状态、工具窗终端拖入编辑器不重建进程；真实窗口录屏确认工具窗→底边分屏→右侧分屏→工具窗往返中 PTY 未重建。
+- `TerminalPlacementFeatureModelTests.toolTerminalDropOverlayLeavesTheTabBarAvailable` 在两种面板高度挂载真实工具窗视图，检查正文覆盖层不命中标签栏；`EditorTabOrderFeatureModelTests.editorGroupDropPreviewPublishesOnlyChangedTargets` 检查相同落点、目标切换和重复清空的发布次数。实机拖放仍需检查拖回已有标签前后的位置，组件命中验证不代替系统拖放验收。
 - `EditorTabOrderFeatureModelTests` 对工作区、目录、分支/引用、历史、保存更改、冲突与行标记入口在深浅主题下挂载原生编辑分组，检查普通标签、切换保留、分屏与共享关闭；`GitModuleTests` 检查独立会话并发加载、关闭一个会话、刷新及迟到结果隔离。组件验证不替代完整产品与 Windows 实机验收。
 - `EditorTabOrderFeatureModelTests.explicitNewDiffTabKeepsAnIndependentSessionWhileOrdinaryOpenReusesItsPreview`
   验证同文件显式新标签与普通去重共存；`VcsProviderAppModelTests.providerDiffTabsOwnTheirPendingRequestsWithoutStealingFocus`

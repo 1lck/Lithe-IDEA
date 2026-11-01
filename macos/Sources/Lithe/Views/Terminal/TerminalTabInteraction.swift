@@ -78,7 +78,7 @@ final class TerminalTabInteractionView: NSView, NSDraggingSource {
     }
 }
 
-/// Drop target over the tool window so an editor terminal can return without SwiftUI drop routing.
+/// Covers only the tool canvas; the toolbar retains its per-tab insertion targets.
 struct TerminalToolDropOverlay: NSViewRepresentable {
     let model: AppModel
 
@@ -283,17 +283,17 @@ final class TerminalEditorDropOverlayView: NSView {
         let item = EditorTabItem.terminal(sessionID)
         let source = model.editorTabOrderFeature.group(containing: item)
         guard let target = drag.destination(at: point, sourceGroup: source) else {
-            drag.target = nil
+            drag.updateTarget(nil)
             currentTarget = nil
             return []
         }
         if model.editorTabOrderFeature.contains(item),
            !model.editorTabOrderFeature.canDrop(item, into: target.group, side: target.side) {
-            drag.target = nil
+            drag.updateTarget(nil)
             currentTarget = nil
             return []
         }
-        drag.target = target
+        drag.updateTarget(target)
         currentTarget = target
         return .move
     }

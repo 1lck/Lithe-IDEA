@@ -836,7 +836,7 @@ struct EditorAreaView: View {
         tabDragPreview.move(by: translation)
         if let groupID {
             let destination = drag.destination(at: location, sourceGroup: groupID)
-            if drag.target != destination { drag.target = destination }
+            drag.updateTarget(destination)
         }
         guard tabReorderTarget != plan.target else { return }
         tabReorderTarget = plan.target

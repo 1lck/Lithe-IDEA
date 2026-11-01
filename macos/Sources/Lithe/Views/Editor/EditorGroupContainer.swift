@@ -13,9 +13,14 @@ final class EditorGroupDragState: ObservableObject {
     var tabFrames: [UUID: CGRect] = [:]
     private var dragTabFrames: [UUID: CGRect] = [:]
     private var dragFrames: [UUID: CGRect] = [:]
-    @Published var target: Target?
-    func begin() { dragFrames = frames; dragTabFrames = tabFrames; target = nil }
-    func finish() { target = nil; dragFrames = [:]; dragTabFrames = [:] }
+    @Published private(set) var target: Target?
+    func begin() { dragFrames = frames; dragTabFrames = tabFrames; updateTarget(nil) }
+    func finish() { updateTarget(nil); dragFrames = [:]; dragTabFrames = [:] }
+
+    func updateTarget(_ target: Target?) {
+        guard self.target != target else { return }
+        self.target = target
+    }
 
     func destination(at point: CGPoint, sourceGroup: UUID?) -> Target? {
         guard let (group, fullFrame) = dragFrames.first(where: { $0.value.contains(point) }) else { return nil }
