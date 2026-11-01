@@ -256,7 +256,7 @@ final class EditorTabOrderFeatureModel: ObservableObject {
                       reorderedExistingIDs.indices.contains(existingIndex) else { continue }
                 next.append(.document(reorderedExistingIDs[existingIndex]))
                 existingIndex += 1
-            case .terminal, .media, .repositoryDiff, .agentConversation:
+            case .terminal, .media, .repositoryDiff, .agentConversation, .languageLogs:
                 next.append(item)
             }
         }

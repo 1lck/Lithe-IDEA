@@ -10,6 +10,14 @@ enum LSPServerStatus: Equatable, Sendable {
     case error
 }
 
+/// A projection of session state, never a second lifecycle owner.
+struct LSPStatusBarServer: Identifiable, Equatable, Sendable {
+    let id: String
+    let displayName: String
+    let status: LSPServerStatus
+    let version: String?
+}
+
 enum LSPCapabilityPresentationState: Equatable, Sendable {
     case unknown
     case unsupported
@@ -65,6 +73,35 @@ enum LSPControlCenterPresenter {
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !version.isEmpty else { return nil }
         return version
+    }
+
+    static func statusBarServers(
+        descriptors: [LanguageProviderDescriptor],
+        states: [String: LanguageServerSessionState],
+        infos: [String: LanguageServerInfo],
+        disabledProviderIDs: Set<String>
+    ) -> [LSPStatusBarServer] {
+        descriptors.filter { $0.capabilities.contains(.languageServer) }.compactMap { descriptor in
+            let status = serverStatus(
+                isDisabled: disabledProviderIDs.contains(descriptor.id),
+                sessionState: states[descriptor.id]
+            )
+            guard status != .stopped, status != .disabled else { return nil }
+            return LSPStatusBarServer(
+                id: descriptor.id, displayName: descriptor.displayName, status: status,
+                version: status == .active ? reportedServerVersion(infos[descriptor.id]) : nil
+            )
+        }.sorted {
+            let order = $0.displayName.localizedStandardCompare($1.displayName)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
+    }
+
+    /// A failed server must remain discoverable even when another is healthy.
+    static func aggregateStatus(_ servers: [LSPStatusBarServer]) -> LSPServerStatus? {
+        [.error, .starting, .initializing, .stopping, .active].first { status in
+            servers.contains { $0.status == status }
+        }
     }
 
     static func integrationState(

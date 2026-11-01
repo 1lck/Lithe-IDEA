@@ -1,0 +1,29 @@
+{
+  "id": "lsp-status-logs",
+  "area": "编辑器",
+  "group": "语言服务",
+  "capability": "LSP 状态栏控制与按服务器查看日志",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workbench/LanguageServerStatusView.swift",
+      "macos/Sources/Lithe/Views/Language/LanguageServerLogsView.swift",
+      "macos/Sources/Lithe/Application/Features/LanguageServerLogsModel.swift",
+      "macos/Sources/Lithe/Application/Features/LanguageToolingFeatureModel.swift",
+      "macos/Sources/Lithe/Application/Features/LSPControlCenterPresentation.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+LanguageServerRuntime.swift",
+      "macos/Tests/LitheTests/LanguageServerStatusTests.swift",
+      ".agents/notes/implemented/architecture/2026-09-13-language-tooling-and-lsp-runtime-ownership.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/editor/lsp"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Language Tooling",
+  "verification": "在 macOS 打开至少两种已安装语言插件的源文件，检查右下角 LSP 状态及数量、绿色运行、蓝色启动、黄色停止和红色故障。未启动、已停止和工作区停用的服务器不显示，代码诊断错误不改变运行状态；菜单按名称及 ID 稳定排序。分别重启和停止单个及全部服务器，确认不写工作区启用偏好、停止阻止旧异步激活重新启动、下一次显式文档打开或编辑仍按需启动；无打开文档的预热服务器也能重启。查看日志打开普通编辑器中的 LSP 日志标签并选择对应服务器；重复查看复用同一标签，不创建底部工具窗口。关闭日志标签返回原文件且不丢失未保存内容，支持共享标签排序与分组。验证服务器切换、最低级别筛选、保留原文、复制、清空当前服务器视图、新日志继续出现和其他服务器不受影响。检查日志面板在状态栏消失后仍可见，在中英语言、明暗主题、窄窗口及标签拖动分组后正常显示。Trace 与 RPC 原始消息暂不采集，信息提示明确说明；不得把同一日志伪装成多个通道。真实产品流程结束后关闭本次实例，比较 app bundle 文件清单不变。Windows 暂无该状态项与专用日志视图，不宣称两端一致。"
+}

@@ -13,8 +13,11 @@ final class LanguageToolingFeatureModel: ObservableObject {
     @Published private(set) var catalogSnapshot: LanguageProviderCatalogSnapshot
     @Published private(set) var disabledProviderIDs: Set<String> = []
     @Published private(set) var projectPreparation: ProjectPreparationSnapshot?
+    @Published private(set) var statusBarServers: [LSPStatusBarServer] = []
     let projectUsage = LSPProjectUsageModel()
+    let logs = LanguageServerLogsModel()
     private var preparationObservation: AnyCancellable?
+    private var statusObservation: AnyCancellable?
     private(set) var startupFailures: [String: String] = [:]
 
     private let catalogSource: any LanguageProviderCatalogSource
@@ -24,6 +27,27 @@ final class LanguageToolingFeatureModel: ObservableObject {
     private var documentsProvider: (@MainActor () -> [EditorDocument])?
     private var activateDocument: (@MainActor (EditorDocument) -> Bool)?
     private var notify: (@MainActor (String) -> Void)?
+    private var preparationCancellations: [String: @MainActor () -> Void] = [:]
+    private var activationEpoch = UUID()
+    private var activationGenerations: [String: UUID] = [:]
+
+    struct ActivationToken: Equatable {
+        let epoch: UUID
+        let generation: UUID?
+    }
+
+    func activationToken(providerID: String) -> ActivationToken {
+        ActivationToken(epoch: activationEpoch, generation: activationGenerations[providerID])
+    }
+
+    func registerPreparationCancellation(providerID: String, cancel: @escaping @MainActor () -> Void) {
+        preparationCancellations[providerID] = cancel
+    }
+
+    private func prepareToStop(providerID: String) {
+        activationGenerations[providerID] = UUID()
+        preparationCancellations[providerID]?()
+    }
 
     init(
         catalogSource: any LanguageProviderCatalogSource,
@@ -55,12 +79,24 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func bindProjectPreparation(_ sessions: LanguageToolingSessionManager) {
+        logs.bind(sessions)
+        statusObservation = Publishers.CombineLatest4(
+            sessions.$languageServerStates, sessions.$languageServerInfos, $catalog, $disabledProviderIDs
+        ).map { states, infos, catalog, disabled in
+            LSPControlCenterPresenter.statusBarServers(
+                descriptors: catalog.descriptors, states: states, infos: infos, disabledProviderIDs: disabled
+            )
+        }.removeDuplicates().sink { [weak self] in self?.statusBarServers = $0 }
         preparationObservation = sessions.$projectPreparation.removeDuplicates().sink { [weak self] snapshot in
             self?.projectPreparation = snapshot
         }
     }
 
     func resetWorkspaceState() {
+        activationEpoch = UUID()
+        activationGenerations.removeAll()
+        logs.reset()
+        statusBarServers = []
         projectPreparation = nil
         startupFailures.removeAll()
     }
@@ -127,6 +163,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
         if enabled {
             synchronizeOpenDocuments(providerID: providerID)
         } else {
+            prepareToStop(providerID: providerID)
             sessionsProvider()?.recordLanguageServerLog(
                 providerID: providerID,
                 level: .warning,
@@ -138,6 +175,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func toolConfigurationDidChange(providerID: String) {
+        prepareToStop(providerID: providerID)
         startupFailures[providerID] = nil
         sessionsProvider()?.stopLanguageServer(providerID: providerID)
         sessionsProvider()?.recordLanguageServerLog(
@@ -146,6 +184,30 @@ final class LanguageToolingFeatureModel: ObservableObject {
             message: L10n.string("Language server tool configuration changed"),
             detail: L10n.string("Workspace language server preference preserved")
         )
+    }
+
+    /// Session-only controls leave the workspace's persistent enablement alone.
+    func stop(providerID: String) {
+        prepareToStop(providerID: providerID)
+        sessionsProvider()?.stopLanguageServer(providerID: providerID)
+    }
+
+    func restart(providerID: String) {
+        guard !isDisabled(providerID), let workspaceURL,
+              let descriptor = catalog.descriptors.first(where: {
+                  $0.id == providerID && $0.capabilities.contains(.languageServer)
+              }), let sessions = sessionsProvider() else { return }
+        stop(providerID: providerID)
+        startupFailures[providerID] = nil
+        let documents = (documentsProvider?() ?? []).filter { catalog.provider(for: $0.url)?.id == providerID }
+        if documents.isEmpty {
+            // A prewarmed server can outlive its last editor tab. Restart that
+            // same provider instead of silently turning Restart into Stop.
+            do { try sessions.startLanguageServer(providerID: providerID, rootURL: workspaceURL) }
+            catch { markActivationFailed(providerID: providerID, descriptor: descriptor, error: error) }
+        } else {
+            for document in documents { _ = activateDocument?(document) }
+        }
     }
 
     func markActivationSucceeded(providerID: String) {
