@@ -9,6 +9,33 @@ import Testing
 /// process a request reuses, and when the host stops or restarts it.
 @MainActor
 struct MacBuildProviderSessionsTests {
+    @Test func stopAndWaitIncludesTerminalEventAndAsynchronousResourceRelease() async throws {
+        let core = ScriptedProviderCore(readyAfterStop: true)
+        let session = LanguageServerRuntimeSession(providerID: "fixture",
+            executableURL: URL(fileURLWithPath: "/tools/server"), arguments: [], environment: [:], core: core)
+        let releasing = TestGate(), release = TestGate(), finished = TestGate()
+        session.releaseResources = {
+            releasing.open()
+            #expect(await release.waitUntilOpen(), "Resource release was not permitted")
+        }
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        let closing = Task { @MainActor in
+            let result = await session.stopAndWait()
+            finished.open()
+            return result
+        }
+        defer { core.finishStopping(); release.open(); closing.cancel() }
+        try #require(await core.stopRequested.waitUntilOpen())
+        #expect(!finished.isOpen)
+        core.finishStopping()
+        try #require(await releasing.waitUntilOpen())
+        #expect(core.destroyed.isOpen)
+        #expect(!finished.isOpen, "Termination alone does not release package/workspace resources")
+        release.open()
+        try #require(await finished.waitUntilOpen())
+        #expect(await closing.value)
+    }
+
     @Test(arguments: [false, true])
     func documentSavesReachCoreAndPropagateTransportFailure(fails: Bool) async throws {
         let core = ScriptedProviderCore()
@@ -241,7 +268,7 @@ struct MacBuildProviderSessionsTests {
         #expect(await core.destroyed.waitUntilOpen())
         #expect(await resourcesReleased.waitUntilOpen())
         #expect(states == [.startingProcess, .stopped])
-        #expect(core.stopCalls.isEmpty)
+        #expect(core.stopCalls == ["provider-1"])
     }
 
     @Test
@@ -839,6 +866,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     let functionCancelled = TestGate()
     let commandStarted = TestGate()
     let destroyed = TestGate()
+    let stopRequested = TestGate()
     let releaseStartup = TestGate()
     let synchronized = TestGate()
     /// Opened when a `workspace.stuck` send is blocked; it stays blocked, as
@@ -1068,6 +1096,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
             let state = readyAfterStop ? "ready" : "stopped"
             events[sessionID, default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: state))
         }
+        stopRequested.open()
     }
 
     func finishStopping() {

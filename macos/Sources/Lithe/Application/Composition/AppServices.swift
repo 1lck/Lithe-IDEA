@@ -28,6 +28,9 @@ final class AppServices {
     /// Installed plugins with their enabled state, for the New Project
     /// catalog and the plugins that provide a generator's requirements.
     var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?
+    /// Only enabled, registered plugins inject rows. Existing launch metadata
+    /// can supply names, but never creates rows or triggers executable discovery.
+    var languageServerRegistrations: (@MainActor (LanguageProviderCatalog) -> [LanguageServerRegistration])?
     /// Gives build providers that share a language server the language
     /// sessions; `nil` when the platform starts no build providers.
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?

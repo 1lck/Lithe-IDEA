@@ -279,6 +279,7 @@ extension AppModel {
         editorTabOrderFeature.repositoryDiffSelected = false
         terminalPlacementFeature.moveToEditor(sessionID)
         editorTabOrderFeature.moveToEnd(.terminal(sessionID))
+        editorTabOrderFeature.focus(.terminal(sessionID))
         terminalPlacementFeature.reorderEditorSessions(
             orderedIDs: editorTabOrderFeature.terminalIDs
         )

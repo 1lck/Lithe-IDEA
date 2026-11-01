@@ -691,6 +691,7 @@
 "Clear Logs" = "Clear Logs";
 "Clear Override" = "Clear Override";
 "Clear Project History…" = "Clear Project History…";
+"Clear View" = "Clear View";
 "Clear branch filter" = "Clear branch filter";
 "Clear build output" = "Clear build output";
 "Clear collected logs?" = "Clear collected logs?";
@@ -698,6 +699,7 @@
 "Clear date filter" = "Clear date filter";
 "Clear debug output" = "Clear debug output";
 "Clear log search" = "Clear log search";
+"Clear only the selected server's visible logs. Collected diagnostic logs are kept." = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
 "Clear path filter" = "Clear path filter";
 "Clear run output" = "Clear run output";
 "Clear search" = "Clear search";
@@ -1801,6 +1803,7 @@
 "Increase Font Size" = "Increase Font Size";
 "Indentation" = "Indentation";
 "Index and working tree" = "Index and working tree";
+"Info" = "Info";
 "Information" = "Information";
 "Inherit" = "Inherit";
 "Inherit project JDK" = "Inherit project JDK";
@@ -1950,10 +1953,13 @@
 "Keymap…" = "Keymap…";
 "Korean characters" = "Korean characters";
 "Kotlin Support" = "Kotlin Support";
+"LSP" = "LSP";
+"LSP Logs" = "LSP Logs";
 "Labels" = "Labels";
 "Labels and assignees" = "Labels and assignees";
 "Language" = "Language";
 "Language Server" = "Language Server";
+"Language Server Settings..." = "Language Server Settings...";
 "Language Service" = "Language Service";
 "Language Services" = "Language Services";
 "Language edit targets a file outside the workspace." = "Language edit targets a file outside the workspace.";
@@ -2458,6 +2464,7 @@
 "No matching commits in the loaded history." = "No matching commits in the loaded history.";
 "No matching conversations" = "No matching conversations";
 "No matching items" = "No matching items";
+"No matching language server logs" = "No matching language server logs";
 "No matching logs" = "No matching logs";
 "No matching messages" = "No matching messages";
 "No matching plugins" = "No matching plugins";
@@ -2488,6 +2495,7 @@
 "No pull requests match the selected state." = "No pull requests match the selected state.";
 "No recent progress has been received. The task is still active." = "No recent progress has been received. The task is still active.";
 "No recent projects" = "No recent projects";
+"No registered language servers" = "No registered language servers";
 "No release is available yet" = "No release is available yet";
 "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time." = "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time.";
 "No remote" = "No remote";
@@ -2547,6 +2555,7 @@
 "Not running" = "Not running";
 "Not selected" = "Not selected";
 "Not set" = "Not set";
+"Not started" = "Not started";
 "Not supported on %@ yet." = "Not supported on %@ yet.";
 "Not tested" = "Not tested";
 "Not used" = "Not used";
@@ -3186,12 +3195,14 @@
 "Response" = "Response";
 "Responses API" = "Responses API";
 "Restart" = "Restart";
+"Restart All Servers" = "Restart All Servers";
 "Restart Language Servers" = "Restart Language Servers";
 "Restart Lithe" = "Restart Lithe";
 "Restart Lithe to finish uninstalling %@, then install the community plugin %@ from the Marketplace." = "Restart Lithe to finish uninstalling %@, then install the community plugin %@ from the Marketplace.";
 "Restart Lithe to finish uninstalling %@, then install this plugin." = "Restart Lithe to finish uninstalling %@, then install this plugin.";
 "Restart Lithe to load the updated page." = "Restart Lithe to load the updated page.";
 "Restart Lithe to use %@." = "Restart Lithe to use %@.";
+"Restart Server" = "Restart Server";
 "Restart required" = "Restart required";
 "Restart run" = "Restart run";
 "Restart service" = "Restart service";
@@ -3465,6 +3476,7 @@
 "Sensitive files are not sent to an AI provider." = "Sensitive files are not sent to an AI provider.";
 "Separate arguments with spaces; quote an argument that contains spaces." = "Separate arguments with spaces; quote an argument that contains spaces.";
 "Server" = "Server";
+"Server Logs" = "Server Logs";
 "Server URL" = "Server URL";
 "Server address" = "Server address";
 "Server default" = "Server default";
@@ -3578,6 +3590,7 @@
 "Showing available matches." = "Showing available matches.";
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
+"Shows session events and server output. Server Trace and RPC message capture are not available." = "Shows session events and server output. Server Trace and RPC message capture are not available.";
 "Side-by-side" = "Side-by-side";
 "Side-by-side view" = "Side-by-side view";
 "Sign in again" = "Sign in again";
@@ -3708,6 +3721,7 @@
 "Starting commit (optional)" = "Starting commit (optional)";
 "Starting module..." = "Starting module...";
 "Starting the Agent…" = "Starting the Agent…";
+"Starts again when a matching document is opened or edited." = "Starts again when a matching document is opened or edited.";
 "Starts no programs." = "Starts no programs.";
 "Starts on demand when a matching file is opened" = "Starts on demand when a matching file is opened";
 "Stash" = "Stash";
@@ -3732,6 +3746,7 @@
 "Sticky scroll" = "Sticky scroll";
 "Stop" = "Stop";
 "Stop %@" = "Stop %@";
+"Stop All Servers" = "Stop All Servers";
 "Stop Camera" = "Stop Camera";
 "Stop Debug" = "Stop Debug";
 "Stop Loading" = "Stop Loading";
@@ -3739,6 +3754,7 @@
 "Stop Microphone" = "Stop Microphone";
 "Stop Recording" = "Stop Recording";
 "Stop Run" = "Stop Run";
+"Stop Server" = "Stop Server";
 "Stop Tracking Branch" = "Stop Tracking Branch";
 "Stop active execution" = "Stop active execution";
 "Stop all services" = "Stop all services";
@@ -4019,6 +4035,7 @@
 "The interface language changes immediately. English is the default." = "The interface language changes immediately. English is the default.";
 "The item can be recovered from the macOS Trash." = "The item can be recovered from the macOS Trash.";
 "The language server could not apply this setting. Restart it to use the new value." = "The language server could not apply this setting. Restart it to use the new value.";
+"The language server is still stopping. Try again after it has stopped." = "The language server is still stopping. Try again after it has stopped.";
 "The language server this build system uses is not available. Open a file of the language and try again." = "The language server this build system uses is not available. Open a file of the language and try again.";
 "The language service that hosts the debug adapter is unavailable." = "The language service that hosts the debug adapter is unavailable.";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
@@ -5378,6 +5395,7 @@
 "native.clearDebugOutput" = "Clear debug output";
 "native.clearGitConsole" = "Clear Git console";
 "native.clearLogSearch" = "Clear log search";
+"native.clearLogView" = "Clear View";
 "native.clearLogs" = "Clear Logs";
 "native.clearOverride" = "Clear Override";
 "native.clearPathFilter" = "Clear path filter";
@@ -6738,6 +6756,8 @@
 "native.languageServerReturnedAnInvalidTextRange" = "Language server returned an invalid text range.";
 "native.languageServerReturnedOverlappingTextEdits" = "Language server returned overlapping text edits.";
 "native.languageServerSessionStoppedBeforeTheRequestCompleted" = "Language server session stopped before the request completed.";
+"native.languageServerSettingsAction" = "Language Server Settings...";
+"native.languageServerStillStopping" = "The language server is still stopping. Try again after it has stopped.";
 "native.languageServerToolConfigurationChanged" = "Language server tool configuration changed";
 "native.languageServers" = "Language servers";
 "native.languageService" = "Language Service";
@@ -6951,6 +6971,7 @@
 "native.log.variant2" = "Log";
 "native.logDirectory" = "Log directory";
 "native.logFilter" = "Log filter";
+"native.logInfoLevel" = "Info";
 "native.logLevel" = "Log level";
 "native.logLocations" = "Log locations";
 "native.logMessage" = "Log message";
@@ -6966,6 +6987,13 @@
 "native.low" = "Low";
 "native.lowEffortAndASmallOutputLimitAreRecommendedForFastCommitMessageGeneration" = "Low effort and a small output limit are recommended for fast commit-message generation.";
 "native.lowRecommended" = "Low (recommended)";
+"native.lspAvailableLogChannels" = "Shows session events and server output. Server Trace and RPC message capture are not available.";
+"native.lspClearViewHint" = "Clear only the selected server's visible logs. Collected diagnostic logs are kept.";
+"native.lspLogsTitle" = "LSP Logs";
+"native.lspNotStarted" = "Not started";
+"native.lspServerLogs" = "Server Logs";
+"native.lspStatusLabel" = "LSP";
+"native.lspStopOnDemandHint" = "Starts again when a matching document is opened or edited.";
 "native.luaSupport" = "Lua Support";
 "native.macosCouldNotPrepareTheUpdateDiskImageDownloadTheReleaseManuallyAndTryAgain" = "macOS could not prepare the update disk image. Download the release manually and try again.";
 "native.macosCouldNotPrepareTheUpdateDiskImageOpenTheReleasePageAndInstallItManually" = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
@@ -7275,6 +7303,7 @@
 "native.noMatchingConversations" = "No matching conversations";
 "native.noMatchingHooks" = "No matching Hooks.";
 "native.noMatchingItems" = "No matching items";
+"native.noMatchingLanguageServerLogs" = "No matching language server logs";
 "native.noMatchingLogs" = "No matching logs";
 "native.noMatchingMcpServers" = "No matching MCP servers";
 "native.noMatchingMessages" = "No matching messages";
@@ -7313,6 +7342,7 @@
 "native.noPullRequestsMatchTheSelectedState" = "No pull requests match the selected state.";
 "native.noRecentProgressHasBeenReceivedTheTaskIsStillActive" = "No recent progress has been received. The task is still active.";
 "native.noRecentProjects" = "No recent projects";
+"native.noRegisteredLanguageServers" = "No registered language servers";
 "native.noReleaseIsAvailableYet" = "No release is available yet";
 "native.noRememberedChoicesCheckRememberMyChoiceInTheQuitDialogToSkipTheQuestionForAKi279db9aaf7" = "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time.";
 "native.noRemote" = "No remote";
@@ -7998,6 +8028,7 @@
 "native.response" = "Response";
 "native.responsesAPI" = "Responses API";
 "native.restart" = "Restart";
+"native.restartAllServers" = "Restart All Servers";
 "native.restartLanguageServers" = "Restart Language Servers";
 "native.restartLithe" = "Restart Lithe";
 "native.restartLitheToFinishUninstallingThenInstallTheCommunityPluginFromTheMarketplace" = "Restart Lithe to finish uninstalling %1$@, then install the community plugin %2$@ from the Marketplace.";
@@ -8006,6 +8037,7 @@
 "native.restartLitheToUseArg1" = "Restart Lithe to use %1$@.";
 "native.restartRequired" = "Restart required";
 "native.restartRun" = "Restart run";
+"native.restartServer" = "Restart Server";
 "native.restartService" = "Restart service";
 "native.restore" = "Restore";
 "native.restoreAllDefaults" = "Restore All Defaults";
@@ -8516,6 +8548,7 @@
 "native.stepOut" = "Step out";
 "native.stepOver" = "Step over";
 "native.stopActiveExecution" = "Stop active execution";
+"native.stopAllServers" = "Stop All Servers";
 "native.stopAllServices" = "Stop all services";
 "native.stopAndClose" = "Stop and Close";
 "native.stopAndQuit" = "Stop and Quit";
@@ -8532,6 +8565,7 @@
 "native.stopRun" = "Stop Run";
 "native.stopRun.variant2" = "Stop run";
 "native.stopSelected" = "Stop selected";
+"native.stopServer" = "Stop Server";
 "native.stopService" = "Stop service";
 "native.stopSessionNamed" = "Stop %1$@";
 "native.stopTestRun" = "Stop test run";

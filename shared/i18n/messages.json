@@ -93148,6 +93148,193 @@
       }
     },
     {
+      "id": "native.lspStatusLabel",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "LSP",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.restartServer",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Restart Server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stopServer",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop Server",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.restartAllServers",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Restart All Servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stopAllServers",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop All Servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerSettingsAction",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language Server Settings...",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspStopOnDemandHint",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Starts again when a matching document is opened or edited.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspLogsTitle",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "LSP Logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspServerLogs",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Server Logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspAvailableLogChannels",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Shows session events and server output. Server Trace and RPC message capture are not available.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.clearLogView",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear View",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspClearViewHint",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear only the selected server's visible logs. Collected diagnostic logs are kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noMatchingLanguageServerLogs",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No matching language server logs",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.logInfoLevel",
+      "description": "Native LSP status and log viewer",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Info",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lspNotStarted",
+      "description": "LSP entry remains available before any server has started",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not started",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noRegisteredLanguageServers",
+      "description": "LSP entry remains available before any server has started",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No registered language servers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerStillStopping",
+      "description": "Restart refuses to overlap an old language-server process that has not released its resources",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server is still stopping. Try again after it has stopped.",
+        "arguments": []
+      }
+    },
+    {
       "id": "agent.history.provider",
       "description": "Agent conversation history provider filtering",
       "platforms": [
