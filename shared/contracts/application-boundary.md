@@ -893,3 +893,9 @@ arrays, opaque entrypoints and declared build-option values; the current Provide
 model/declaration validates them during preparation. This reuses protocol 10 rather
 than adding tool-specific persistence fields. Migrating old domain formats remains
 an explicit temporary adapter responsibility, with conflict-protected storage.
+
+Complete persisted Build references retain opaque Run IDs across format migrations;
+the prefix does not confer authority. Core deduplicates only the generated counterpart
+of the effective saved selector and validates it before use. Prepared team/local Run
+layers can be resolved without filesystem publication; native adapters own cancellation,
+source checks, metadata-preserving conditional writes, rollback and readback.

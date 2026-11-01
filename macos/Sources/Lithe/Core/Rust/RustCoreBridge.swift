@@ -1944,6 +1944,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct RunConfigurationResolveRequest: Encodable {
         let root: String
         let toolchainCandidates: [ProjectToolchainCandidate]
+        let teamDocument: ToolingJSONValue?
+        let localDocument: ToolingJSONValue?
     }
     private struct RunConfigurationUpdateOptionsRequest: Encodable {
         let root: String
@@ -2574,13 +2576,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     func resolveRunConfiguration(
         at rootURL: URL,
-        toolchainCandidates: [ProjectToolchainCandidate]
+        toolchainCandidates: [ProjectToolchainCandidate],
+        teamDocument: ToolingJSONValue? = nil,
+        localDocument: ToolingJSONValue? = nil
     ) -> Result<RunConfigurationPayload, CoreCallError> {
         executeResult(
             command: "runConfig.resolve",
             payload: RunConfigurationResolveRequest(
                 root: rootURL.standardizedFileURL.path,
-                toolchainCandidates: toolchainCandidates
+                toolchainCandidates: toolchainCandidates,
+                teamDocument: teamDocument, localDocument: localDocument
             )
         )
     }

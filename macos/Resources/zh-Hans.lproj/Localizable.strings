@@ -3602,6 +3602,7 @@
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Some dependencies are not shown." = "部分依赖未显示。";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
+"Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin." = "部分已保存的运行配置暂时无法迁移。请保留现有文件，在更新 Lithe 及其构建插件后重试。";
 "Some selected files belong to another version control root. Refresh and select them again." = "部分所选文件属于其他版本控制根目录。请刷新后重新选择。";
 "Some special files could not be copied" = "部分特殊文件未能复制";
 "Sort by Last Updated" = "按最近更新排序";
@@ -4756,6 +4757,7 @@
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS 无法准备更新磁盘映像。请打开 Release 页面手动安装。";
 "macos.buildProvider.jvmDebugPortTimeout" = "框架未在期限内开放 JVM 调试端口，请查看运行输出。";
 "macos.buildProvider.jvmDebugRemoteUnavailable" = "远程工作区暂不支持框架服务调试。";
+"macos.native.savedRunMigrationNeedsUpdate" = "部分已保存的运行配置暂时无法迁移。请保留现有文件，在更新 Lithe 及其构建插件后重试。";
 "main Java" = "主代码";
 "main resources" = "主资源";
 "matches" = "个匹配项";

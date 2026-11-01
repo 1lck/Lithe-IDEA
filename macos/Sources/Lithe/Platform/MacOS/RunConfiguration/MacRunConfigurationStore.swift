@@ -24,16 +24,19 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     private let documentMutator: any RunConfigurationDocumentMutating
     private let storage: any FileStorage
     private let preferences: any KeyValueStore
+    private let immutableRoots: [URL]
 
     init(
         core: RustCoreBridge,
         storage: any FileStorage,
         preferences: any KeyValueStore,
-        documentMutator: (any RunConfigurationDocumentMutating)? = nil
+        documentMutator: (any RunConfigurationDocumentMutating)? = nil,
+        immutableRoots: [URL] = []
     ) {
         self.core = core
         self.storage = storage
         self.preferences = preferences
+        self.immutableRoots = [Bundle.main.bundleURL] + immutableRoots
         self.documentMutator = documentMutator ?? RustRunConfigurationDocumentMutator(core: core)
     }
 
@@ -98,8 +101,15 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             projectOwnership: projectOwnership, providerRuns: providerRuns)
     }
 
-    /// Identifies the project's run entries. Core keeps the result in memory
-    /// and in the application cache; nothing is written into the workspace.
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration],
+                  models: [BuildModel], lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
+        try generateCurrent(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: providerRuns, models: models, lease: lease)
+    }
+
+    /// Identifies the project's run entries in memory and the application cache.
+    /// The isolated legacy adapter may convert existing user Run documents.
     func generate(
         at projectURL: URL,
         files: [URL],
@@ -112,7 +122,11 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     }
 
     private func generateCurrent(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
-                                 projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]?) throws -> RunConfigurationGenerationResult {
+                                 projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]?,
+                                 models: [BuildModel] = [], lease suppliedLease: RunConfigurationGenerationLease? = nil) throws -> RunConfigurationGenerationResult {
+        let lease = suppliedLease ?? RunConfigurationGenerationLease()
+        defer { if suppliedLease == nil { lease.invalidate() } }
+        try lease.check()
         let root = projectURL.standardizedFileURL
         guard storage.metadata(for: root)?.isDirectory == true else { throw MacRunConfigurationStoreError.invalidProject }
         let paths = files.compactMap { file -> String? in
@@ -120,6 +134,9 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             guard value.path.hasPrefix(root.path + "/") else { return nil }
             return String(value.path.dropFirst(root.path.count + 1))
         }
+        let migration = MacLegacyMavenRunConfigurationMigration(storage: storage, preferences: preferences, immutableRoots: immutableRoots)
+        let plan = try providerRuns.map { try migration.prepare(workspace: root, projects: projectOwnership ?? [], runs: $0, models: models, lease: lease) }
+        try lease.check()
         let result = try core.generateRunConfiguration(
             at: root,
             paths: paths,
@@ -129,6 +146,17 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             cacheDirectoryURL: storage.cacheDirectory()
 
         ).get()
+        try lease.check()
+        if let plan, !plan.writes.isEmpty {
+            let decoder = JSONDecoder()
+            let team = try plan.teamDocument.map { try decoder.decode(ToolingJSONValue.self, from: $0) }
+            let local = try plan.localDocument.map { try decoder.decode(ToolingJSONValue.self, from: $0) }
+            // Validate both prepared layers against the same generated snapshot
+            // before any user document is published. Core performs no writes.
+            _ = try core.resolveRunConfiguration(at: root, toolchainCandidates: [], teamDocument: team, localDocument: local).get()
+            try lease.check()
+            try migration.apply(plan, workspace: root, lease: lease)
+        }
         return RunConfigurationGenerationResult(entryCount: result.entryCount)
     }
 

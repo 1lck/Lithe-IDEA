@@ -5,6 +5,7 @@ use super::configuration::{BuildProviderRunReference, RunConfiguration};
 use super::types::{Confidence, RunCategory};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One declared provider run applied to an upstream target, independent of language imports.
@@ -86,4 +87,18 @@ pub(super) fn fingerprint(runs: &[ProviderRunConfiguration]) -> String {
     ordered.sort_by_key(|run| run.reference.generated_id());
     let bytes = serde_json::to_vec(&ordered).expect("validated run snapshot encodes");
     format!("sha256:{:x}", Sha256::digest(bytes))
+}
+
+/// Complete saved references own their identity; an ID prefix is not an execution capability.
+/// Validation still rejects malformed selectors after layer merging.
+pub(super) fn is_explicit(item: &Value) -> bool {
+    item["provider"] == "build.provider" && item["id"].is_string() && item["name"].is_string()
+}
+
+/// Opaque selector identity for deduplication, independent of user choices or display names.
+pub(super) fn selector(item: &Value) -> Option<String> {
+    (item["provider"] == "build.provider").then_some(())?;
+    let reference: BuildProviderRunReference =
+        serde_json::from_value(item["extensions"]["build"].clone()).ok()?;
+    Some(reference.generated_id())
 }

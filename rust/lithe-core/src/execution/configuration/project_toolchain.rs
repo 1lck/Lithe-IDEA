@@ -109,6 +109,7 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
             .ok_or_else(invalid_paths)?
             .remove("toolchain");
         let resolved = super::resolve(super::ResolveRequest {
+            team_document: None,
             root: root.to_string_lossy().into_owned(),
             toolchain_candidates: Vec::new(),
             local_document: Some(explicit),

@@ -9,7 +9,8 @@
 和 `.lithe/.gitignore`；没写这些文件之前，Run 和 Debug 都不可用，要先点“识别项目”。
 现在识别结果（检测层，即 Lithe 自动找到的运行入口和工具链需求）只保存在 Rust Core
 的进程内存里，并把上次的结果缓存到应用自己的缓存目录。打开项目时，宿主发现还没识别就直接识别，
-工程里只剩用户自己保存的配置。
+工程里只剩用户自己保存的配置。已有用户 Run 文档的一次性格式转换独立处理，
+不会恢复任何检测文件的工作区写入。
 
 ## 问题
 
@@ -91,6 +92,40 @@ macOS 只把当前启用插件的公开运行声明与最新模型中的匹配�
 这段复用既有检测层和缓存，没有新增资源目录，不写入应用包。Windows 仍待接入
 Provider 宿主；旧 Maven 配置格式及工具链迁移不因新增通用发现就视为完成。
 
+### 保存的选择器保留已有配置 ID
+
+配置 ID 是用户文档中的稳定身份，选择器是插件当前目标的身份；两者不能混为一谈。
+完整的保存记录可以沿用旧 ID，Core 不再要求它必须以 `user:` 开头。没有完整记录的
+孤立覆盖仍然提示孤立，所有实际启动仍重新验证启用插件、声明与目标，ID 不授予权限。
+团队层和本机层先合并成有效选择器，再隐藏检测层中相同目标的重复项；用户明确保存的
+多个配置仍然保留。这样迁移可以保留默认项、选择、层级覆盖和操作身份，而无需改写 ID。
+
+例如，旧服务 `quarkus.maven:nested/app` 转成完整通用选择器后，仍使用原 ID，
+自动生成的同目标条目不再重复出现。不要只换一个新 ID 再删除旧记录，那会把用户
+默认项和本机覆盖变成孤立记录。Core 也不按这个历史前缀识别框架，它只比较选择器。
+
+`resolve` 可接收内存中的团队/本机文档，宿主在发布两个文件前先验证完整合并结果。
+这是通用的事务预检，不写文件、不授予操作权限；实际发布仍检查快照和当前工作区。
+
+### 旧 Maven Run v2 的有界转换
+
+临时的 `MacLegacyMavenRunConfigurationMigration` 只从生成入口调用，不参与正常运行
+准备。它将已有 Run v2 中可确认的框架服务和显式目标任务转为通用选择器，保存原 ID、
+参数数组、入口、环境、目录与按次选项；Java 源码入口继续留给阶段 E。
+必须在当前模型里找到唯一的同工程/同目标，并核对旧提供者与当前目标名称一致。
+重名、框架变化、未知字段、旧 v1 文档、尚未转移的偏好或工具路径都保留原文件并失败，
+不能靠猜测继续转换。这些未覆盖来源仍在 #1495 删除账本中。
+
+宿主先构造两层文档，用 Core 预检，然后比较所有输入（包括未改写的一层）和偏好状态，
+才使用带源版本检查的原子替换。写入、回读、取消或冲突失败时，只回滚自身仍未被改动
+的输出；一个文件无法回滚，也继续尝试其他文件，不覆盖用户或另一进程的新数据。
+生成任务的租约（可撤销的写入资格）在取消、工作区切换、模型变化或后续生成时失效。
+这只约束用户文档与原生状态发布，不把检测缓存当作持久配置。
+
+转换只改已有工作区 Run 文件，保留权限，不创建迁移缓存或收据，不写应用包和已安装
+插件。没有旧记录的只读工程仍可识别。该适配器与唯一入口按 D-MIGRATION-REMOVAL
+在稳定 N+2 前删除；通用 ID、预检和层合并规则继续服务正常保存配置。
+
 ### 识别前也能选 JDK
 
 `ProjectRuntimeService` 在 JDT 启动前就要按项目最低 Java 版本选 JDK。检测层还不存在时，
@@ -127,12 +162,12 @@ Provider 宿主；旧 Maven 配置格式及工具链迁移不因新增通用发�
 
 ### 没有检测层时 `resolve` 按空检测层处理
 
-可以少一次“未识别”的判断。但团队层里覆盖检测入口的条目会全部变成“孤立覆盖”，
+对只有稀疏覆盖的文档，这可以少一次“未识别”的判断。但团队层里覆盖检测入口的条目会全部变成“孤立覆盖”，
 用户会看到一批误导性的诊断。保留 `missing` 并让宿主自动识别更直接。
 
 ## 后果
 
-- 收益：打开项目不再写用户工程；Run 和 Debug 不再需要先手动识别；两端删除了重复的写文件、
+- 收益：常规检测不再写用户工程；已有用户文档的临时格式转换单独做冲突保护。Run 和 Debug 不再需要先手动识别；两端删除了重复的写文件、
   默认项挑选和“重新生成损坏文件”入口。
 - 代价：每个新进程打开工程都要重新识别一次（只读扫描，不启动进程）。Java 入口在 JDT 回答前
   依赖缓存；缓存也没有时，Java 入口要等 JDT 就绪后才出现。
@@ -147,6 +182,7 @@ Provider 宿主；旧 Maven 配置格式及工具链迁移不因新增通用发�
 - `cargo test -p lithe-core --lib detectors`
 - `cd windows/tauri && bun test src/features/run`
 - `./scripts/macos/test/test-macos.sh --filter 'RunConfigurationIntegrationTests|MavenRuntimeTests|RunEntryPointTests'`
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'MacLegacyMavenRunConfigurationMigrationTests|ExecutionModuleTests|MacNativeBuildProviderIntegrationTests'`
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 
 ## 适用范围
@@ -156,3 +192,4 @@ Provider 宿主；旧 Maven 配置格式及工具链迁移不因新增通用发�
 - `windows/tauri/src/features/run/`
 - `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`
 - `macos/Sources/LitheExecutionModule/Services/RunService.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenRunConfigurationMigration.swift`

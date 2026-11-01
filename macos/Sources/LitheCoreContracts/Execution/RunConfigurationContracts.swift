@@ -24,6 +24,16 @@ package struct RunProjectOwnership: Codable, Equatable, Sendable {
     }
 }
 
+/// Revokes user-document and native-state publication when generation loses its owner.
+package final class RunConfigurationGenerationLease: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = true
+    package init() {}
+    package func invalidate() { lock.lock(); current = false; lock.unlock() }
+    package var isCurrent: Bool { lock.lock(); defer { lock.unlock() }; return current }
+    package func check() throws { if !isCurrent { throw CancellationError() } }
+}
+
 /// Portable user choices stored apart from the current target selector.
 package struct BuildProviderRunOptions: Codable, Hashable, Sendable {
     package var runtimeArguments: [String]
@@ -422,6 +432,9 @@ package protocol RunConfigurationOperations: Sendable {
     func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection
     func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
                   projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]) throws -> RunConfigurationGenerationResult
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration],
+                  models: [BuildModel], lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult
     /// `checkFingerprint: false` validates the documents without reading project
     /// inputs. `javaEntrypoints`, JDT's current answer, additionally reports
     /// whether the generated Java entries still match it.
@@ -479,6 +492,13 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration],
+                  models: [BuildModel], lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
+        try lease.check()
+        return try generate(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
+            projectOwnership: projectOwnership, providerRuns: providerRuns)
+    }
     func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection {
         guard providerRuns.isEmpty else {
             return .init(status: .invalid(L10n.string("Load the current build model and enable its provider before running this configuration.")), diagnostics: [])

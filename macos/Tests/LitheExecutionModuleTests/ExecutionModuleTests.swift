@@ -247,6 +247,40 @@ struct ExecutionModuleTests {
         #expect(!service.configurationDiagnostics.contains { $0.code == "staleProviderModel" })
     }
 
+    @Test(arguments: ["task", "workspace", "model", "reset", "new-generation"])
+    func generationPublicationLeaseIsRevokedBeforeAnObsoleteWorkerCanPublish(change: String) async throws {
+        let operations = FreshnessRecordingRunConfigurationOperations()
+        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback))
+        service.configureBuildProjectOwnership { [] }
+        service.configureProviderRunConfigurations { [] }
+        let gate = InventoryInspectionGate()
+        defer { service.reset(); gate.release.signal(); gate.entered.continuation.finish() }
+        await service.loadProject(at: URL(fileURLWithPath: "/old"), files: [], snapshotID: UUID())
+        operations.generationGate = gate
+        let worker = Task { await service.generateRunConfigurations() }
+        defer { worker.cancel(); gate.release.signal() }
+        try await awaitSignal(gate.entered.stream)
+        let lease = try #require(operations.generationLeases.first)
+        operations.generationGate = nil
+        if change == "task" { worker.cancel() }
+        else if change == "workspace" { await service.loadProject(at: URL(fileURLWithPath: "/new"), files: [], snapshotID: UUID()) }
+        else if change == "model" { service.requestProviderGenerationInspection() }
+        else if change == "reset" { service.reset() }
+        else { await service.generateRunConfigurations() }
+        #expect(!lease.isCurrent)
+        let status = service.configurationStatus, state = service.generationState, ids = service.configurations.map(\.id)
+        gate.release.signal()
+        await worker.value
+        #expect(service.configurationStatus == status)
+        #expect(service.generationState == state)
+        #expect(service.configurations.map(\.id) == ids)
+        #expect(!service.isLoadingProject)
+    }
+
     @Test(arguments: ["inputs", "workspace", "reset"])
     func lateProviderInspectionCannotReplaceNewerInputWorkspaceOrReset(change: String) async throws {
         let operations = FreshnessRecordingRunConfigurationOperations()
@@ -2185,6 +2219,20 @@ private final class FreshnessRecordingRunConfigurationOperations: RunConfigurati
     private(set) var providerInspections: [[RunProjectOwnership]] = []
     var providerConfiguration: RunConfiguration?
     private(set) var runInspections: [[RunProviderConfiguration]] = []
+    var generationGate: InventoryInspectionGate?
+    private(set) var generationLeases: [RunConfigurationGenerationLease] = []
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
+                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration],
+                  models: [BuildModel], lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
+        generationLeases.append(lease)
+        try lease.check()
+        if let gate = generationGate {
+            gate.entered.continuation.yield(())
+            if gate.release.wait(timeout: .now() + 2) != .success { Issue.record("Generation publication gate expired") }
+        }
+        try lease.check()
+        return try generate(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints, projectOwnership: projectOwnership)
+    }
     func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection {
         runInspections.append(providerRuns)
         return inspectProviderGeneration(at: projectURL, projectOwnership: projectOwnership)

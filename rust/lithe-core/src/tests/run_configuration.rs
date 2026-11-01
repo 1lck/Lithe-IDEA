@@ -5004,6 +5004,134 @@ fn build_provider_configurations_persist_before_generation_and_reuse_identity() 
     );
 }
 
+/// Persisted identity and selector identity serve different purposes: imported IDs
+/// retain defaults/overrides, while the selector removes only the duplicate auto entry.
+#[test]
+fn explicit_provider_references_keep_arbitrary_ids_and_shadow_only_current_selector() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/build-provider-stable-identities.json"
+    ))
+    .unwrap();
+    let root = temporary_root("provider-stable-identity");
+    fs::create_dir_all(root.join("app")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let call = |command: &str, payload: Value| -> Value {
+        let reply: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"stable","command":command,"payload":payload}).to_string(),
+        ))
+        .unwrap();
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"].clone()
+    };
+    let stable = fixture["expected"]["stableID"].clone();
+    let reference = fixture["reference"].clone();
+    let team = serde_json::json!({"version":2,"configurations":[{"id":stable,"name":"Team service","provider":"build.provider","execution":"service","cwd":"app","extensions":{"build":reference}}]});
+    let team_path = root.join(".lithe/run/configurations.json");
+    let local_path = root.join(".lithe/run/local.json");
+    fs::write(&team_path, team.to_string()).unwrap();
+    let inspected = call(
+        "runConfig.inspect",
+        serde_json::json!({"root":root,"checkFingerprint":false}),
+    );
+    assert_eq!(inspected["status"], "ready");
+    assert_eq!(inspected["requiresGeneration"], true);
+    let before = call("runConfig.resolve", serde_json::json!({"root":root}));
+    assert_eq!(before["configurations"][0]["id"], stable);
+    assert!(before["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|d| d["code"] != "orphanedOverride"));
+    let mut second = reference.clone();
+    second["targetID"] = serde_json::json!("another/opaque-target");
+    let generated = call(
+        "runConfig.generate",
+        serde_json::json!({"root":root,"paths":[],"projectOwnership":[],"providerRuns":[
+            {"projectPath":"app","name":"Auto A","reference":reference},{"projectPath":"app","name":"Auto B","reference":second}
+        ]}),
+    );
+    assert_eq!(
+        generated["generated"]["configurations"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    fs::write(
+        root.join(".lithe/project.json"),
+        serde_json::json!({"version":1,"defaultRunConfiguration":stable}).to_string(),
+    )
+    .unwrap();
+    fs::write(
+        &local_path,
+        serde_json::json!({"version":2,"configurations":[{"id":stable,"env":{"EXAMPLE":"value"}}]})
+            .to_string(),
+    )
+    .unwrap();
+    let resolved = call("runConfig.resolve", serde_json::json!({"root":root}));
+    let configs = resolved["configurations"].as_array().unwrap();
+    assert_eq!(configs.len(), 2);
+    assert_eq!(resolved["defaultRunConfiguration"], stable);
+    assert_eq!(
+        configs
+            .iter()
+            .filter(|c| c["extensions"]["build"]["targetID"] == reference["targetID"])
+            .count(),
+        1
+    );
+    assert!(resolved["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|d| d["code"] != "orphanedOverride"));
+    // A local selector patch replaces the effective claim; it must not hide
+    // the formerly claimed auto target too.
+    fs::write(&local_path,serde_json::json!({"version":2,"configurations":[{"id":stable,"extensions":{"build":{"targetID":second["targetID"]}}}]}).to_string()).unwrap();
+    let replaced = call("runConfig.resolve", serde_json::json!({"root":root}));
+    let configs = replaced["configurations"].as_array().unwrap();
+    assert_eq!(configs.len(), 2);
+    assert_eq!(
+        configs
+            .iter()
+            .filter(|c| c["extensions"]["build"]["targetID"] == second["targetID"])
+            .count(),
+        1
+    );
+    assert_eq!(
+        configs
+            .iter()
+            .filter(|c| c["extensions"]["build"]["targetID"] == reference["targetID"])
+            .count(),
+        1
+    );
+    let original_team = fs::read(&team_path).unwrap();
+    let original_local = fs::read(&local_path).unwrap();
+    let prepared = serde_json::json!({"version":2,"configurations":[{"id":"prepared:stable","name":"Prepared","provider":"build.provider","execution":"service","extensions":{"build":reference}}]});
+    let preview = call(
+        "runConfig.resolve",
+        serde_json::json!({"root":root,"teamDocument":prepared,"localDocument":{"version":2,"configurations":[]}}),
+    );
+    assert!(preview["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["id"] == "prepared:stable"));
+    assert_eq!(fs::read(&team_path).unwrap(), original_team);
+    assert_eq!(fs::read(&local_path).unwrap(), original_local);
+    let mut invalid = prepared.clone();
+    invalid["configurations"][0]["extensions"]["build-run"] = serde_json::json!({"entrypoint":17});
+    let rejected:Value=serde_json::from_str(&execute_json(&serde_json::json!({"id":"invalid","command":"runConfig.resolve","payload":{"root":root,"teamDocument":invalid,"localDocument":{"version":2,"configurations":[]}}}).to_string())).unwrap();
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(fs::read(&team_path).unwrap(), original_team);
+}
+
 /// Portable choices survive document edits without becoming selector identity or cached launch facts.
 #[test]
 fn provider_run_options_preserve_exact_arguments_and_layered_build_choices() {

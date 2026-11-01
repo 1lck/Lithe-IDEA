@@ -9714,7 +9714,8 @@
     "build.targets.title": "Run targets",
     "build.targets.saveAndRun": "Save and Run",
     "build.targets.saveFailed": "The run configuration could not be saved. Reload the project and try again.",
-    "build.targets.saveConflict": "The run configuration changed while saving. Reload and try again."
+    "build.targets.saveConflict": "The run configuration changed while saving. Reload and try again.",
+    "macos.native.savedRunMigrationNeedsUpdate": "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin."
   },
   "overrides": {
     "windows": {

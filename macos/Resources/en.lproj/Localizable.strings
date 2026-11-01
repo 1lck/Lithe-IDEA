@@ -3602,6 +3602,7 @@
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Some dependencies are not shown." = "Some dependencies are not shown.";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
+"Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin." = "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin.";
 "Some selected files belong to another version control root. Refresh and select them again." = "Some selected files belong to another version control root. Refresh and select them again.";
 "Some special files could not be copied" = "Some special files could not be copied";
 "Sort by Last Updated" = "Sort by Last Updated";
@@ -4756,6 +4757,7 @@
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
 "macos.buildProvider.jvmDebugPortTimeout" = "The framework did not open its JVM debug port before the deadline. Check the Run output.";
 "macos.buildProvider.jvmDebugRemoteUnavailable" = "Framework service debugging is not available in remote workspaces yet.";
+"macos.native.savedRunMigrationNeedsUpdate" = "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin.";
 "main Java" = "main Java";
 "main resources" = "main resources";
 "matches" = "matches";

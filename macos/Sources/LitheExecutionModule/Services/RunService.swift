@@ -135,6 +135,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     /// Advances on every regeneration so a JDT freshness answer computed against
     /// the previous document cannot be attached to the new one.
     private var generationRevision = 0
+    private var generationLease: RunConfigurationGenerationLease?
     private var providerInspectionRevision: UInt64 = 0
     private var providerInspectionTask: Task<Void, Never>?
     private var providerInspectionOwner = UUID()
@@ -530,6 +531,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func requestProviderGenerationInspection() {
+        generationLease?.invalidate()
         providerInspectionRevision &+= 1
         providerInspectionRequested = true
         guard providerInspectionTask == nil else { return }
@@ -774,6 +776,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         files: [URL],
         snapshotID: UUID? = nil
     ) async {
+        generationLease?.invalidate()
         cancelProviderGenerationInspection()
         // An overlapping load may still expose the initial Current File placeholder.
         // Only a completed load owns a selection worth preserving on reload.
@@ -956,43 +959,51 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             return
         }
         let loadID = projectLoadID
+        generationLease?.invalidate()
+        let lease = RunConfigurationGenerationLease()
+        generationLease = lease
         generationRevision &+= 1
+        let generationTicket = generationRevision
         isLoadingProject = true
         defer {
-            if projectLoadID == loadID {
+            if projectLoadID == loadID, generationRevision == generationTicket {
                 isLoadingProject = false
             }
+            lease.invalidate()
         }
         let operations = runConfigurationOperations
         let files = projectFiles
-        let modulePaths = Array(Set(buildModels().flatMap { $0.projects.map(\.path) })).sorted()
+        let models = buildModels()
+        let modulePaths = Array(Set(models.flatMap { $0.projects.map(\.path) })).sorted()
         let projectOwnership: [RunProjectOwnership]?
         let providerRuns: [RunProviderConfiguration]?
         do { projectOwnership = try buildProjectOwnership(); providerRuns = try providerRunConfigurations() }
         catch { generationState = .failed(error.localizedDescription); return }
-        let result = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: Result {
-                    if let providerRuns {
-                        return try operations.generate(at: projectURL, files: files, modulePaths: modulePaths,
-                            javaEntrypoints: javaDiscovery.entrypoints, projectOwnership: projectOwnership, providerRuns: providerRuns)
-                    }
-                    return try operations.generate(
-                        at: projectURL,
-                        files: files,
-                        modulePaths: modulePaths,
-                        javaEntrypoints: javaDiscovery.entrypoints,
-                        projectOwnership: projectOwnership
-                    )
-                })
+        let result = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(returning: Result {
+                        if let providerRuns {
+                            return try operations.generate(at: projectURL, files: files, modulePaths: modulePaths,
+                                javaEntrypoints: javaDiscovery.entrypoints, projectOwnership: projectOwnership, providerRuns: providerRuns, models: models, lease: lease)
+                        }
+                        return try operations.generate(
+                            at: projectURL,
+                            files: files,
+                            modulePaths: modulePaths,
+                            javaEntrypoints: javaDiscovery.entrypoints,
+                            projectOwnership: projectOwnership
+                        )
+                    })
+                }
             }
-        }
-        guard !Task.isCancelled, projectLoadID == loadID else { return }
+        } onCancel: { lease.invalidate() }
+        guard !Task.isCancelled, projectLoadID == loadID, generationRevision == generationTicket, lease.isCurrent else { return }
         switch result {
         case .success(let result):
             do {
                 await executableResolver.refreshCandidates(projectURL: projectURL)
-                guard !Task.isCancelled, projectLoadID == loadID else { return }
+                guard !Task.isCancelled, projectLoadID == loadID, generationRevision == generationTicket, lease.isCurrent else { return }
                 var resolution = try resolveWithServiceToolchains(
                     operations: operations,
                     projectURL: projectURL,
@@ -1607,6 +1618,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     package func reset() {
+        generationLease?.invalidate()
         providerDebugConfigurationID = nil
         cancelProviderGenerationInspection()
         stop()

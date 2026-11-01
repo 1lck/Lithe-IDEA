@@ -92720,6 +92720,17 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "macos.native.savedRunMigrationNeedsUpdate",
+      "description": "Saved Run migration: retain unsupported or ambiguous legacy inputs until a compatible cutover is available.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin.",
+        "arguments": []
+      }
     }
   ]
 }

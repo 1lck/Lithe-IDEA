@@ -3350,8 +3350,12 @@ detector revision; either changing marks the detected layer stale and requires
 regeneration.
 
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
-optional `localDocument`. When `localDocument` is present, Core uses that JSON
-object as the local layer instead of reading `.lithe/run/local.json`. It merges
+optional `localDocument` / `teamDocument`. A supplied document replaces that layer
+for this read-only resolution; omitted layers come from `.lithe/run/local.json` /
+`.lithe/run/configurations.json`. Hosts can preflight a complete two-file transaction
+against the current detected layer without publishing either file. Core never writes
+these documents; hosts still own source-identity checks, cancellation, conditional
+publication and readback. It merges
 configurations by stable ID using this precedence:
 `local.json > configurations.json > detected layer`. Scalars and arrays are
 replaced by the higher layer, while toolchain maps merge by key. It returns
@@ -3422,7 +3426,7 @@ per-configuration toolchain path overrides the corresponding project default.
 Provider applications can be explicitly saved with `runConfig.createUserConfiguration`
 using `{root,scope:"local",name,type:"buildProvider",build:{pluginID,buildSystemID,
 root,run,projectID,targetID,userArguments?,execution?}}`. Core upserts the existing local
-reference by selector identity and retains its `user:` ID, unrelated configurations
+reference by selector identity and retains its existing ID (new references use `user:` IDs), unrelated configurations
 and project toolchain defaults. `extensions.build` in Run v2 holds the typed
 reference; optional execution is application/service/task and must match the current
 declaration before preparing (omitted older references mean application). The saved
@@ -3432,9 +3436,21 @@ environment and cwd overrides are user choices forwarded through typed launch op
 explicit args replace older reference userArguments, including an empty array.
 An implicit selector-root cwd remains omitted from launch options for v4 compatibility. Current model membership is revalidated by the
 native build workflow before every preparation. No generated document is needed:
-`runConfig.inspect` recognizes explicit saved local references and `runConfig.resolve`
+`runConfig.inspect` recognizes explicit saved team/local references and `runConfig.resolve`
 merges them against an empty generated layer. A workspace without generated data
 or an explicit saved Provider reference retains the existing missing state.
+Complete saved `build.provider` entries (name, provider, selector and matching execution)
+can retain any existing Run ID, including IDs imported from older formats; a prefix
+does not grant launch authority. Sparse unknown-ID patches remain orphaned. Such an
+entry also makes a team-only workspace runnable before generation, while still returning
+`requiresGeneration: true`. Current declaration/target validation remains mandatory.
+When generation contains that selector, resolution suppresses its duplicate automatic
+entry, retains all explicitly saved configurations, and resolves defaults through the
+same effective selector. Local selector patches update the effective claim, so an
+older team target does not accidentally hide a different auto entry. Detection
+fingerprints and the detected document remain unchanged by user-layer resolution.
+See `fixtures/run-configuration/build-provider-stable-identities.json`.
+
 The platform guards the source snapshot, atomically writes only the local layer,
 then re-reads the result. `shared/fixtures/run-configuration/build-provider.json`
 is the canonical persistence example.

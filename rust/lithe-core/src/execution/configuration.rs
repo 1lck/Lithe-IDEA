@@ -92,6 +92,9 @@ pub struct ResolveRequest {
     /// Host-owned local layer. When present, Core uses it instead of `.lithe/run/local.json`.
     #[serde(default)]
     pub local_document: Option<Value>,
+    /// Optional prepared team layer for a host transaction preflight; never persisted by Core.
+    #[serde(default)]
+    pub team_document: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -589,6 +592,8 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         }
     }
     let local = local_layer_document(&root, request.local_document.clone())?;
+    let team = read_document_value(&root, "run/configurations.json")?
+        .unwrap_or_else(|| json!({"version": VERSION, "configurations": []}));
     if let Some((document, metadata)) = generated
         .and_then(|document| Some((document, document.generator.as_ref()?)))
         .filter(|_| request.check_fingerprint != Some(false))
@@ -694,7 +699,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         }
     }
     Ok(json!({
-        "status": if generated.is_some() || has_saved_build_run(&local) { "ready" } else { "missing" },
+        "status": if generated.is_some() || has_saved_build_run(&local) || has_saved_build_run(&team) { "ready" } else { "missing" },
         // Saved provider tasks remain runnable before detection, but must not
         // suppress discovery of the other entries after a process restart.
         "requiresGeneration": generated.is_none(),
@@ -1432,13 +1437,21 @@ fn is_nested_checkout_path(value: &str) -> bool {
 /// Merges generated, team, and local layers and selects compatible toolchains.
 pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
-    let team = read_document_value(&root, "run/configurations.json")?
-        .unwrap_or_else(|| json!({"version": VERSION, "configurations": []}));
+    let team = match request.team_document {
+        Some(mut document) => {
+            migrate_document_value(&mut document);
+            document
+        }
+        None => read_document_value(&root, "run/configurations.json")?
+            .unwrap_or_else(|| json!({"version": VERSION, "configurations": []})),
+    };
     let local = local_layer_document(&root, request.local_document)?;
     let layer = generated_layer::get(&root);
     let generated = match layer.as_ref() {
         Some(layer) => serde_json::to_value(&layer.document).expect("run configurations encode"),
-        None if has_saved_build_run(&local) => json!({"version": VERSION, "configurations": []}),
+        None if has_saved_build_run(&local) || has_saved_build_run(&team) => {
+            json!({"version": VERSION, "configurations": []})
+        }
         None => {
             return Err(CoreError::new(
                 ErrorCode::WorkspaceNotFound,
@@ -1454,11 +1467,16 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     if let Some(manifest) = manifest.as_ref() {
         validate_sidecar_version_value(manifest)?;
     }
-    let generated_ids = configuration_ids(&generated)?;
+    configuration_ids(&generated)?;
+    let mut configurations = merge_values(&generated, &team, &local)?;
+    let resolved_ids = configurations
+        .iter()
+        .map(|item| item.id.as_str())
+        .collect::<BTreeSet<_>>();
     let mut diagnostics = Vec::new();
     for source in [&team, &local] {
         for id in configuration_ids(source)?.keys() {
-            if !generated_ids.contains_key(id) && !id.starts_with("user:") {
+            if !resolved_ids.contains(id.as_str()) && !id.starts_with("user:") {
                 diagnostics.push(json!({
                     "id": id,
                     "code": "orphanedOverride",
@@ -1467,7 +1485,6 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
             }
         }
     }
-    let mut configurations = merge_values(&generated, &team, &local)?;
     apply_maven_reactor_ownership(&mut configurations, &generated);
     normalize_runtime_consumption(&mut configurations);
     let global_toolchain = local.get("toolchain").cloned();
@@ -1591,11 +1608,30 @@ fn detected_default(
     generated: &RunConfigurationDocument,
     available: &[RunConfiguration],
 ) -> Option<String> {
+    let by_id = available
+        .iter()
+        .map(|item| (item.id.as_str(), item))
+        .collect::<BTreeMap<_, _>>();
+    let mut by_selector = BTreeMap::new();
+    for configuration in available {
+        if let Some(selector) = super::provider_runs::selector(
+            &serde_json::to_value(configuration).expect("configuration encodes"),
+        ) {
+            by_selector.entry(selector).or_insert(configuration);
+        }
+    }
     let detected = generated
         .configurations
         .iter()
         .filter(|configuration| configuration.id != "current-file")
-        .filter(|configuration| available.iter().any(|item| item.id == configuration.id));
+        .filter_map(|configuration| {
+            by_id.get(configuration.id.as_str()).copied().or_else(|| {
+                let selector = super::provider_runs::selector(
+                    &serde_json::to_value(configuration).expect("configuration encodes"),
+                )?;
+                by_selector.get(&selector).copied()
+            })
+        });
     detected
         .clone()
         .find(|configuration| configuration.execution == Execution::Service)
@@ -1786,6 +1822,7 @@ fn update_configuration_options(
 ) -> Result<Value, CoreError> {
     let relative = scope_document(&request.scope)?;
     let resolved = resolve(ResolveRequest {
+        team_document: None,
         root: request.root.clone(),
         toolchain_candidates: Vec::new(),
         local_document: request.local_document.clone(),
@@ -1971,14 +2008,9 @@ fn remove_maven_skip_tests_override(configuration: &mut serde_json::Map<String, 
 
 /// Only explicit provider references make an ungenerated workspace runnable.
 fn has_saved_build_run(document: &Value) -> bool {
-    document["configurations"].as_array().is_some_and(|items| {
-        items.iter().any(|item| {
-            item["provider"] == "build.provider"
-                && item["id"]
-                    .as_str()
-                    .is_some_and(|id| id.starts_with("user:"))
-        })
-    })
+    document["configurations"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(super::provider_runs::is_explicit))
 }
 
 /// Upserts a local reference while preserving unrelated settings and stable IDs.
@@ -2260,6 +2292,7 @@ pub fn provider_launch_inputs(request: ProviderLaunchInputsRequest) -> Result<Va
         "args",
     )?;
     let resolved = resolve(ResolveRequest {
+        team_document: None,
         root: request.root,
         toolchain_candidates: Vec::new(),
         local_document: request.local_document,
@@ -2391,6 +2424,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         "cwd",
     )?;
     let resolved = resolve(ResolveRequest {
+        team_document: None,
         root: request.root.clone(),
         toolchain_candidates: Vec::new(),
         local_document: request.local_document.clone(),
@@ -3073,6 +3107,33 @@ fn merge_values(
     local: &Value,
 ) -> Result<Vec<RunConfiguration>, CoreError> {
     let mut result: BTreeMap<String, Value> = BTreeMap::new();
+    let mut saved = BTreeMap::<String, Value>::new();
+    let mut complete_ids = BTreeSet::new();
+    for source in [team, local] {
+        for item in source["configurations"].as_array().into_iter().flatten() {
+            let Some(id) = item["id"].as_str() else {
+                continue;
+            };
+            if super::provider_runs::is_explicit(item) {
+                complete_ids.insert(id.to_string());
+            }
+            if let Some(previous) = saved.get_mut(id) {
+                merge_configuration_value(previous, item)?;
+            } else {
+                saved.insert(id.to_string(), item.clone());
+            }
+        }
+    }
+    let explicit_selectors = saved
+        .values()
+        .filter(|item| {
+            super::provider_runs::is_explicit(item)
+                && item["id"]
+                    .as_str()
+                    .is_some_and(|id| complete_ids.contains(id))
+        })
+        .filter_map(super::provider_runs::selector)
+        .collect::<BTreeSet<_>>();
     for (source_index, source) in [base, team, local].into_iter().enumerate() {
         let Some(items) = source.get("configurations").and_then(Value::as_array) else {
             return Err(CoreError::new(
@@ -3087,49 +3148,26 @@ fn merge_values(
                     "Run configuration id is required",
                 ));
             };
-            if source_index > 0 && !result.contains_key(id) && !id.starts_with("user:") {
+            // A complete saved selector supersedes only its automatically generated
+            // counterpart. Distinct user configurations for that target remain distinct.
+            if source_index == 0
+                && super::provider_runs::selector(item)
+                    .is_some_and(|selector| explicit_selectors.contains(&selector))
+            {
+                continue;
+            }
+            if source_index > 0
+                && !result.contains_key(id)
+                && !id.starts_with("user:")
+                && !super::provider_runs::is_explicit(item)
+            {
                 continue;
             }
             if let Some(existing) = result.get_mut(id) {
-                let (Some(target), Some(patch)) = (existing.as_object_mut(), item.as_object())
-                else {
-                    return Err(CoreError::new(
-                        ErrorCode::ParseFailed,
-                        "Run configuration must be an object",
-                    ));
-                };
-                for (key, value) in patch {
-                    if key == "source" {
-                        continue;
-                    }
-                    if key == "extensions" {
-                        merge_extensions(target, &mut value.clone())?;
-                        continue;
-                    }
-                    if key == "toolchains" {
-                        let target_map = target
-                            .entry(key.clone())
-                            .or_insert_with(|| json!({}))
-                            .as_object_mut()
-                            .ok_or_else(|| {
-                                CoreError::new(
-                                    ErrorCode::ParseFailed,
-                                    "Run configuration toolchains must be an object",
-                                )
-                            })?;
-                        let patch_map = value.as_object().ok_or_else(|| {
-                            CoreError::new(
-                                ErrorCode::ParseFailed,
-                                "Run configuration toolchains must be an object",
-                            )
-                        })?;
-                        for (toolchain_kind, toolchain_id) in patch_map {
-                            target_map.insert(toolchain_kind.clone(), toolchain_id.clone());
-                        }
-                    } else {
-                        target.insert(key.clone(), value.clone());
-                    }
-                }
+                merge_configuration_value(existing, item)?;
+                let target = existing
+                    .as_object_mut()
+                    .expect("merged configuration is an object");
                 target.insert(
                     "source".to_string(),
                     json!(["generated", "project", "local"][source_index]),
@@ -3155,6 +3193,49 @@ fn merge_values(
             })
         })
         .collect()
+}
+
+/// Applies one sparse configuration patch using the same rules for claim discovery and resolution.
+fn merge_configuration_value(existing: &mut Value, item: &Value) -> Result<(), CoreError> {
+    let (Some(target), Some(patch)) = (existing.as_object_mut(), item.as_object()) else {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Run configuration must be an object",
+        ));
+    };
+    for (key, value) in patch {
+        if key == "source" {
+            continue;
+        }
+        if key == "extensions" {
+            merge_extensions(target, &mut value.clone())?;
+            continue;
+        }
+        if key == "toolchains" {
+            let target_map = target
+                .entry(key.clone())
+                .or_insert_with(|| json!({}))
+                .as_object_mut()
+                .ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::ParseFailed,
+                        "Run configuration toolchains must be an object",
+                    )
+                })?;
+            let patch_map = value.as_object().ok_or_else(|| {
+                CoreError::new(
+                    ErrorCode::ParseFailed,
+                    "Run configuration toolchains must be an object",
+                )
+            })?;
+            for (toolchain_kind, toolchain_id) in patch_map {
+                target_map.insert(toolchain_kind.clone(), toolchain_id.clone());
+            }
+        } else {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    Ok(())
 }
 
 /// Reconciles runtime bindings from the effective command for generated v2

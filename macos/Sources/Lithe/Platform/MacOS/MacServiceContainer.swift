@@ -113,12 +113,6 @@ final class MacServiceContainer {
         let fileStorage = MacFileStorage()
         let workspaceLanguageServerPreferences = MacWorkspaceLanguageServerPreferencesStore(store: store)
         let directoryMarkStore = WorkspaceDirectoryMarkStore(store: store)
-        let runConfigurationStore = MacRunConfigurationStore(
-            core: rustCore,
-            storage: fileStorage,
-            preferences: store
-        )
-        self.runConfigurationStore = runConfigurationStore
         let debugBreakpointStore = MacDebugBreakpointStore(store: store)
         let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
         // Remote workspaces open under an empty placeholder root; both file
@@ -178,6 +172,13 @@ final class MacServiceContainer {
             validator: declarativePluginOperations,
             credentials: pluginCredentials
         )
+        let runConfigurationStore = MacRunConfigurationStore(
+            core: rustCore,
+            storage: fileStorage,
+            preferences: store,
+            immutableRoots: pluginPackageStore.runtimeReadOnlyDirectories
+        )
+        self.runConfigurationStore = runConfigurationStore
         let pluginSettings = MacPluginSettingsStore(store: store)
         let pluginLaunchResolver = MacPluginLanguageServerLaunchResolver(
             planner: declarativePluginOperations,

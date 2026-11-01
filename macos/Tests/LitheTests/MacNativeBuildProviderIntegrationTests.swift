@@ -23,7 +23,13 @@ struct MacNativeBuildProviderIntegrationTests {
         try await verifyRunConfigurationPreparation(savedTaskOnly: true)
     }
 
-    private func verifyRunConfigurationPreparation(savedTaskOnly: Bool) async throws {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
+                   "Requires the stage D Maven package and selected Java/Maven"))
+    func legacyRunTaskMigratesToTheCurrentMavenTargetWithoutLosingItsStableID() async throws {
+        try await verifyRunConfigurationPreparation(savedTaskOnly: true, migrateLegacy: true)
+    }
+
+    private func verifyRunConfigurationPreparation(savedTaskOnly: Bool, migrateLegacy: Bool = false) async throws {
         let environment = ProcessInfo.processInfo.environment
         let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
         let java = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_C_JAVA"]))
@@ -71,7 +77,34 @@ struct MacNativeBuildProviderIntegrationTests {
         do {
             build.reset(workspaceURL: workspace)
             let baseline = try await build.prepareLanguageImport(workspaceURL: workspace)
-            if savedTaskOnly {
+            if migrateLegacy {
+                try await build.prepareLanguageTestModels(allModels: true, workspace: workspace)
+                _ = try await build.prepareLanguageImport(workspaceURL: workspace)
+                let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(defaults: defaults))
+                let legacyID = "user:legacy-validate"
+                let url = workspace.appendingPathComponent(".lithe/run/local.json")
+                try files.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try JSONSerialization.data(withJSONObject: ["version": 2, "configurations": [["id": legacyID, "name": "Saved validate",
+                    "provider": "maven.module", "execution": "task", "cwd": "nested", "args": ["validate"],
+                    "env": ["LITHE_RUN_VALUE": "雪"], "extensions": ["maven": ["module": ".", "profiles": ["run-only"]]]]]], options: [.sortedKeys]).write(to: url)
+                _ = try store.generate(at: workspace, files: [], modulePaths: [], javaEntrypoints: nil,
+                    projectOwnership: build.runProjectOwnership(), providerRuns: build.providerRunConfigurations(),
+                    models: build.entries.compactMap(\.model), lease: RunConfigurationGenerationLease())
+                let resolution = try store.resolve(at: workspace, toolchainCandidates: [])
+                #expect(resolution.configurations.count == 1)
+                #expect(resolution.configurations.first?.configuration.id == legacyID)
+                let inputs = try store.providerLaunchInputs(at: workspace, configurationID: legacyID, providerRoot: "nested")
+                #expect(inputs.reference?.run == "module")
+                #expect(inputs.launchOptions.arguments == ["validate"])
+                #expect(inputs.optionOverrides["profiles"] == .array([.string("run-only")]))
+                let prepared = try await build.prepareConfigurationRun(inputs: inputs, instanceRoot: "nested", workspace: workspace,
+                    tool: BuildProviderHints(), isCurrent: { true }, progress: { _ in })
+                #expect(prepared.arguments.last == "validate")
+                #expect(prepared.arguments.contains("-Prun-only"))
+                #expect(prepared.environment["LITHE_RUN_VALUE"] == "雪")
+                #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
+                #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["nested"]?["profiles"] == nil)
+            } else if savedTaskOnly {
                 try await build.prepareLanguageTestModels(allModels: true, workspace: workspace)
                 let taskPreparation = try await build.prepareConfigurationRun(inputs: ProviderLaunchInputs(
                     buildSystemID: "maven", provider: "maven.module", projectPath: "nested",
