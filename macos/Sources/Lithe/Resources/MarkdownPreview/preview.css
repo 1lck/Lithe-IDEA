@@ -247,8 +247,10 @@ details { margin: 1em 0; padding: 0.75em 0.9em; border: 1px solid var(--border);
 summary { cursor: pointer; font-weight: 600; }
 details > :last-child { margin-bottom: 0; }
 
-img, video { display: block; max-width: 100%; height: auto; margin: 1.25em auto; border-radius: 4px; }
-img { cursor: zoom-in; }
+/* Images participate in their paragraph's inline flow: README badges should
+   wrap only when space runs out, and inherit their container's alignment. */
+img { display: inline-block; max-width: 100%; height: auto; margin: 0; border-radius: 4px; vertical-align: middle; cursor: zoom-in; }
+video { display: block; max-width: 100%; height: auto; margin: 1.25em auto; border-radius: 4px; }
 audio { width: min(100%, 520px); }
 
 .diagram-shell {
