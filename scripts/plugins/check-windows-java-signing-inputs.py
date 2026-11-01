@@ -124,6 +124,7 @@ def check(root, candidate, phase, baseline, deadline):
         "requires": reconstructed["requires"],
         "originPolicy": "publisherPackage", "candidateFiles": files,
         "sourceManifests": reconstructed["sourceManifests"], "inputs": reconstructed["inputs"],
+        "runtimeIdentity": reconstructed["runtimeIdentity"],
         "releaseInputs": release_inputs,
         "upstream": {"jdtVersion": jdt["version"], "jdkManifestVersion": jdk["version"],
                      "jdkPlatform": target["jdkPlatform"], "jdkRoot": jdk["platforms"][target["jdkPlatform"]]["jdkRoot"],

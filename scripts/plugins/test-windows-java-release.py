@@ -260,6 +260,46 @@ def run_tests(report, name_filter=None):
         FIXTURES.raises(ValueError, "plain new child", lambda: f.execute(output=f.root / "installed"))
         FIXTURES.raises(ValueError, "Only rehearsal", lambda: f.execute("package", architecture="x86_64"))
 
+    def interrupted_zip(f):
+        original = ROUTE.make_zip
+        def interrupt(assembly, package, archive, plugin_id, deadline):
+            original(assembly, package, archive, plugin_id, deadline)
+            raise TimeoutError("controlled interruption before atomic publication")
+        with patch.object(ROUTE, "make_zip", interrupt):
+            FIXTURES.raises(TimeoutError, "controlled interruption", f.execute)
+        assert not f.output.exists()
+        f.clean()
+        recovered = f.execute()
+        assert recovered["complete"] and len(recovered["assets"]) == 2
+        assert all(asset["runtimeIdentity"]["release"]["OS_NAME"] == "Windows" for asset in recovered["assets"])
+        FIXTURES.raises(ValueError, "plain new child", f.execute)
+
+    def historical_receipt(f):
+        path = f.root / "scripts/plugins/assemble-windows-java-support.py"
+        content = path.read_text(encoding="utf-8")
+        old = '"inputs": inputs, "runtimeIdentity": identity,'
+        assert old in content
+        path.write_text(content.replace(old, '"inputs": inputs,'), encoding="utf-8")
+        f.command(["git", "add", "scripts/plugins/assemble-windows-java-support.py"])
+        f.command(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Historical receipt format"])
+        plan = json.loads(f.command(["node", "scripts/plugins/official-plugin-releases.mjs", "freeze", ROUTE.PLUGIN]))
+        result = f.execute(plan=plan)
+        assert result["complete"] and all("runtimeIdentity" not in asset for asset in result["assets"])
+
+    def release_expanded_architecture(f):
+        original = ROUTE.verify_zip
+        verified = []
+        def inspect(assembly, archive, extracted, plan, asset, *args):
+            for architecture in verified:
+                assert not (extracted.parent / architecture).exists()
+                assert not (extracted.parent / f"extract-{architecture}").exists()
+            result = original(assembly, archive, extracted, plan, asset, *args)
+            verified.append(asset["arch"])
+            return result
+        with patch.object(ROUTE, "verify_zip", inspect):
+            result = f.execute()
+        assert len(verified) == 2 and result["complete"]
+
     case("dual architecture unsigned rehearsal is deterministic and never invokes signer", rehearsal)
     case("tagged Git input bytes survive today's source and checkout newline changes", frozen_source)
     case("missing ARM64 blocks full assembly while explicit x64 rehearsal stays incomplete", missing)
@@ -277,6 +317,9 @@ def run_tests(report, name_filter=None):
     case("actual frozen assembler package directory cannot be replaced with an identical manifest alias", false_package_source)
     case("archive byte replacement during independent verification fails", archive_replaced_during_verification)
     case("local deadline and output ownership are enforced", deadlines_and_boundaries)
+    case("interrupted ZIP publication leaves no partial output and a fresh run recovers", interrupted_zip)
+    case("older frozen assemblers retain their historical receipt inventory during recovery", historical_receipt)
+    case("verified expanded architecture copies are released before the next archive check", release_expanded_architecture)
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps({"runner": "python", "warnMs": 10000, "maxMs": 30000, "tests": tests}, indent=2)+"\n", encoding="utf-8")
     return int(any(test["status"] != "passed" for test in tests))

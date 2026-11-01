@@ -375,6 +375,13 @@ python scripts/plugins/test-assemble-windows-java-support.py
 输入版本、HTTPS 来源与 SHA-256 由 `third_party/jdtls/manifest.json` 和
 `third_party/jdk/manifest.json` 固定；Windows x64/ARM64 分别要求对应 JDK、PE 架构与
 JDT configuration。脚本离线读取校验后的缓存，拒绝覆盖，清理本次 `.assemble-*` 后原子发布。
+两种 Windows CPU 均按固定上游归档和 `bin/jdtls.py` 使用 `config_win`，包内再放入
+`configuration/<arch>/config.ini`；上游没有 `config_win_arm`，不得在夹具中虚构该目录。
+组装时还核对 JDK `release` 的版本、Windows/CPU 架构、供应商和 JDK 类型；以平台的
+`jdkRoot` 为版本真源（x64 `21.0.12.1+1`，ARM64 `21.0.12+8`），不以顶层版本覆盖 ARM64。
+`runtimeIdentity` 和 release SHA-256 随包回执及签名前报告保留，只属于本次组装；即使与
+另一工作树相同，也不能注册成下载缓存或共享包的身份标记。固定下载仍只由原 SHA-256
+校验路由在复制前、目标暂存和原子发布后验证，不复制 target、索引、LSP workspace 或报告。
 `.artifacts/windows-java-support/`、暂存和 `windows-java-inputs.json` 均走
 `official-plugin-packages` 拒绝路由，所有复制阶段禁止复用；回执证明输入和文件哈希，
 不提供发布者签名或宿主资源封装。正式 Windows 签名完整包和 JDT 生命周期验收完成前，
@@ -407,6 +414,8 @@ unsigned ZIP。`--architecture x86_64` 只允许演练，结果 `complete: false
 packageTrust 仍关闭；正式密钥、ARM64 输入/实机与产品验收保持独立门槛。
 
 `.artifacts/windows-java-support/.release-*` 是本次冻结源码/组装/解压副本，成功失败都删除；
+每个架构的组装和独立解压库存比较通过后立即释放其展开副本，临时峰值限制在一个架构；
+最终 ZIP 继续全部通过后一起原子发布，不能用提前释放副本来发布半套资产。
 完成的 `<run>/*.zip`、`windows-java-release.json` 及外部报告由运行者持有，按
 `official-plugin-packages` 拒绝跨树复用。`.artifacts/{jdtls,jdk}-downloads/.release-download-*`
 是下载临时目录，结束删除，不能通过已有下载校验路由。最终下载仍按原 manifest、平台/架构、

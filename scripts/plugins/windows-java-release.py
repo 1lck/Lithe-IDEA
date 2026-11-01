@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -272,12 +273,21 @@ def execute(root, plan, mode, output, deadline, signer=None, architecture=None, 
                 make_zip(assembly, package, archive, plan["id"], deadline)
             sha256, files = verify_zip(assembly, archive, scratch / f"extract-{asset['arch']}", plan, asset,
                                       expected, root, deadline, signer, verify if mode != "rehearse" else None)
+            # Older frozen assemblers own the original receipt bytes. Never add
+            # today's metadata to an old package or require it for draft recovery.
             result["assets"].append({"assetName": asset["assetName"], "platforms": asset["platforms"],
                 "architecture": asset["arch"], "packageDirectory": asset["packageDirectory"],
                 "manifestSHA256": asset["manifestSHA256"], "pluginAPIVersion": asset["pluginAPIVersion"], "requires": asset.get("requires"),
-                "sha256": sha256, "signatureSHA256": files.get(SIGNATURE), "files": files, "inputs": receipt["inputs"]})
+                "sha256": sha256, "signatureSHA256": files.get(SIGNATURE), "files": files,
+                "inputs": receipt["inputs"],
+                **({"runtimeIdentity": receipt["runtimeIdentity"]} if "runtimeIdentity" in receipt else {})})
             if mode != "verify":
                 (publish / f"{asset['assetName']}.sha256").write_text(sha256 + "\n", encoding="utf-8")
+            # Verified inventories are retained in the report, not as duplicate
+            # expanded runtimes. Keep peak scratch bounded to one architecture;
+            # the final archives still publish together only after all succeed.
+            shutil.rmtree(package.parent)
+            shutil.rmtree(scratch / f"extract-{asset['arch']}")
         if mode in {"package", "verify"}:
             result["publisherVerification"] = "verified-existing-signer"
         # Recheck original caches after both architectures. A coherent receipt

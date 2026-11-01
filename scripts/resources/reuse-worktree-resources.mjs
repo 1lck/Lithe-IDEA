@@ -98,6 +98,8 @@ async function readRegistry() {
   // Windows Java candidates, .assemble-* / .signing-check-* scratch, signing
   // before/after reports and windows-java-inputs.json use that same refusal route: an input receipt is neither a signature nor a seal.
   // Only independently verified jdtls/jdk download inputs may be copied.
+  // runtimeIdentity/release hashes in Windows Java receipts describe assembly,
+  // never reusable cache identity; JDK release metadata is checked after extraction.
   // Core validation or a matching archive hash never transfers user ownership.
   // Complete unsigned native-workflow ZIPs, mutable workspaces, frozen input plans
   // and Provider/function/UI receipts also use this refusal route: never copy them.

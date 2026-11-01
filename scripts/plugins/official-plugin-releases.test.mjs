@@ -133,6 +133,17 @@ test("draft publication rejects wrong identity, tag, partial/extra assets and al
   }
 });
 
+test("authentication transport and rate failures never become an absent draft or permit mutation", async () => {
+  const release = frozenSample();
+  const assets = release.assets.map((asset) => ({ name: asset.assetName, sha256: "1".repeat(64) }));
+  for (const message of ["HTTP 401 authentication failed", "HTTP 403 forbidden", "HTTP 429 rate limit", "network deadline"]) {
+    const client = releaseClient(release);
+    client.find = async () => { throw new Error(message); };
+    await assert.rejects(publishDraft(release, assets, client), { message });
+    assert.deepEqual(client.calls, []);
+  }
+});
+
 test("rejects inconsistent manifest, overlapping platforms, assets and missing capability metadata", () => {
   assert.throws(() => releaseFor(sample, () => ({ ...manifest, id: "wrong" })));
   assert.throws(() => releaseFor(sample, () => ({ ...manifest, version: "1.0" })));

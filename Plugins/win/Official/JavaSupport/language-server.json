@@ -4,6 +4,6 @@
   "sourceManifests": ["third_party/jdtls/manifest.json", "third_party/jdk/manifest.json"],
   "architectures": {
     "x86_64": {"jdkPlatform": "windows-x86_64", "configuration": "config_win", "peMachine": 34404},
-    "arm64": {"jdkPlatform": "windows-aarch64", "configuration": "config_win_arm", "peMachine": 43620}
+    "arm64": {"jdkPlatform": "windows-aarch64", "configuration": "config_win", "peMachine": 43620}
   }
 }
