@@ -17,6 +17,15 @@ static verifier, Swift runner, and Rust runner are Node.js-only.
 
 The Windows timing harness passes an explicit timeout to Bun and reads the
 JUnit duration for every executed test case.
+It runs the complete selection in one Bun 1.3.14 invocation with native
+`--isolate`: each file owns its global object and module mocks. Bun module
+mocks outlive `mock.restore()`, so sharing the same global across test files
+can replace the real dependency of an unrelated test. This is the formal
+joint lane, without a shell loop or a per-file subprocess wrapper. The JSON
+report records this isolation mode. `windows/tauri/bunfig.toml` explicitly
+loads SVG files as file assets, matching the production Vite `?url` imports
+without parsing upstream XML comments as JavaScript.
+
 
 ## Rust
 

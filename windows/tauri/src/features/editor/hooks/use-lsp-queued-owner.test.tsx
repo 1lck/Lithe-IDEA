@@ -14,6 +14,8 @@ import {
 } from "@/features/editor/lsp/pending-document-changes";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { createPaneContent } from "@/features/editor/stores/buffer-content-factory";
+import { replayEditorTextChanges } from "@/features/editor/utils/editor-text-change";
+import type { EditorTextChange } from "@/features/editor/types/editor.types";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { setPluginActive } from "@/features/plugins/declarative-plugin-lifecycle";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -79,9 +81,21 @@ test("a hidden workspace's in-flight flusher cannot borrow a newer same-path att
   );
   const transport = spyOn(adapter, "invokeLsp").mockImplementation(
     async <T,>(command: string, input?: unknown): Promise<T> => {
-      const args = input as { attachmentId: string; content: string };
       if (command === "lsp_document_change") {
-        changes.push({ attachmentId: args.attachmentId, content: args.content });
+        const args = input as {
+          attachmentId: string;
+          filePath: string;
+          content?: string;
+          contentChanges?: EditorTextChange[];
+        };
+        // Observe both forms of the production transport contract. Incremental
+        // changes are applied to the document owned by this attachment.
+        const previous = documents.get(args.filePath.toLowerCase());
+        expect(previous?.attachmentId).toBe(args.attachmentId);
+        const content =
+          args.content ?? replayEditorTextChanges(previous.content, args.contentChanges ?? []);
+        expect(content).toBeDefined();
+        changes.push({ attachmentId: args.attachmentId, content: content! });
         if (changes.length === 1) {
           entered.resolve();
           await gate.promise;

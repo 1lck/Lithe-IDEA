@@ -1710,13 +1710,23 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn fake_adapter_process_round_trips_stdio_with_bounded_cleanup() {
-        let mut child = Command::new("cmd.exe")
-            .args(["/D", "/Q", "/C", "more"])
+        // DAP is a byte stream. `more` is a text pager and may append or
+        // normalize line endings, so it cannot stand in for a raw adapter.
+        let mut command = Command::new("powershell.exe");
+        command
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Console]::OpenStandardInput().CopyTo([Console]::OpenStandardOutput())",
+            ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("fake adapter process should start");
+            .stderr(Stdio::piped());
+        ProcessTree::prepare(&mut command);
+        let mut child = command.spawn().expect("fake adapter process should start");
+        // Retain the native kill-on-close Job through every assertion failure.
+        let tree = ProcessTree::adopt(&mut child).expect("own fake adapter process tree");
         let mut stdin = child.stdin.take().expect("fake adapter stdin");
         let stdout = child.stdout.take().expect("fake adapter stdout");
         let stderr = child.stderr.take().expect("fake adapter stderr");
@@ -1727,10 +1737,12 @@ mod tests {
             let _ = stdout.read_to_end(&mut bytes);
             let _ = output_tx.send(bytes);
         });
+        let (stderr_done_tx, stderr_done_rx) = mpsc::channel();
         thread::spawn(move || {
             let mut stderr = stderr;
             let mut bytes = Vec::new();
             let _ = stderr.read_to_end(&mut bytes);
+            let _ = stderr_done_tx.send(());
         });
 
         let frame = b"Content-Length: 4\r\n\r\nTEST";
@@ -1747,8 +1759,13 @@ mod tests {
         let echoed = output_rx
             .recv_timeout(Duration::from_secs(3))
             .expect("stdout reader must finish within watchdog deadline");
+        stderr_done_rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("stderr reader must finish within watchdog deadline");
+        tree.terminate(Duration::from_secs(2))
+            .expect("fake adapter process tree must be empty");
         assert!(status.success());
-        assert_eq!(echoed, [frame.as_slice(), b"\r\n"].concat());
+        assert_eq!(echoed, frame);
     }
 
     #[cfg(all(windows, feature = "test-support"))]

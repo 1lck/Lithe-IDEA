@@ -943,11 +943,13 @@ describe("explicit command model operations", () => {
     resetState();
     activateWorkspace("ws-a", WORKSPACE_A);
     const shared = deferred();
+    const started = deferred();
     const cleanup = deferred();
     const retryCleanup = mock(async () => {
       await cleanup.promise;
     });
     sharedLanguageStart.mockImplementation(async () => {
+      started.resolve(undefined);
       await shared.promise;
     });
     const providerReview: BuildModelReview = {
@@ -989,7 +991,7 @@ describe("explicit command model operations", () => {
       .loadBuildModel(review.pluginId, "cargo", ".", async () => true, {}, { native })
       .catch((error: unknown) => error);
     try {
-      await flushMicrotasks();
+      await started.promise;
       expect(sharedLanguageStart).toHaveBeenCalledTimes(1);
       const stopped = buildSystemsService
         .cancelBuildModel(review.operationId)
