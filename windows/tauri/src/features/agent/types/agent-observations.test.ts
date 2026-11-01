@@ -6,6 +6,20 @@ const child = (id: string, parentID: string): AgentSubagent => ({
 });
 
 describe("Agent observations", () => {
+  test("child reasoning preserves message identity without rewriting streamed Markdown", () => {
+    let current = child("child", "root");
+    for (const [messageId, text] of [["one", "**Choosing "], ["one", "keys**"], ["two", "**Choosing keys**"]]) {
+      current = updateChild(current, { sessionUpdate: "agent_thought_chunk", messageId, content: { type: "text", text } });
+    }
+    expect(current.messages.map((message) => message.text)).toEqual(["**Choosing keys**", "**Choosing keys**"]);
+    expect(current.messages.map((message) => message.upstreamMessageID)).toEqual(["one", "two"]);
+    expect(current.messages.every((message) => message.usesThoughtSummaryHeadings !== true)).toBe(true);
+    const codex = updateChild(child("codex-child", "root"), {
+      sessionUpdate: "agent_thought_chunk", messageId: "one", content: { type: "text", text: "**Inspecting**" },
+    }, true);
+    expect(codex.messages[0].usesThoughtSummaryHeadings).toBe(true);
+  });
+
   test("finishing a subtree interrupts its tools and leaves sibling output live", () => {
     const tool = { sessionUpdate: "tool_call", toolCallId: "tool", title: "Inspect", status: "in_progress" };
     const parent = updateChild(child("parent", "root"), tool);

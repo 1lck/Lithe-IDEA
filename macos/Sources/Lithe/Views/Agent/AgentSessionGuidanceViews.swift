@@ -1,6 +1,33 @@
 import SwiftUI
 import LitheAgentConversationModule
 
+/// Headings are native text, not bold delimiters sent back through Markdown.
+struct AgentThoughtContent: View {
+    let text: String
+    var isStreaming = false
+    var usesSummaryHeadings = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(AgentThoughtPresentation.sections(text, isStreaming: isStreaming, usesSummaryHeadings: usesSummaryHeadings).enumerated()), id: \.offset) { _, section in
+                VStack(alignment: .leading, spacing: 4) {
+                    if let title = section.title {
+                        Text(verbatim: title)
+                            .font(LitheTheme.uiFont(size: 12, weight: .semibold))
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("agent-thought-section-title")
+                    }
+                    if !section.body.isEmpty {
+                        AgentMarkdownMessage(text: section.body, size: 12).equatable()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .foregroundStyle(LitheTheme.secondaryText)
+    }
+}
+
 /// The agent's reasoning, separate from its reply, styled like a tool group:
 /// a quiet summary line over a rounded Markdown card. Long reasoning scrolls
 /// inside the card and follows the stream. It stays collapsed until requested;
@@ -9,6 +36,7 @@ struct AgentThoughtRow: View {
     @Environment(\.locale) private var locale
     let text: String
     let isStreaming: Bool
+    var usesSummaryHeadings = false
     var isSearching = false
     @Binding var expansion: AgentThoughtExpansion
 
@@ -48,8 +76,7 @@ struct AgentThoughtRow: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    AgentMarkdownMessage(text: text.trimmingCharacters(in: .whitespacesAndNewlines), size: 12)
-                        .equatable()
+                    AgentThoughtContent(text: text, isStreaming: isStreaming, usesSummaryHeadings: usesSummaryHeadings)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Color.clear.frame(height: 0).id(Self.bottomID)

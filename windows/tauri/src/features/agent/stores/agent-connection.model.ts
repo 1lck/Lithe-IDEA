@@ -178,6 +178,7 @@ export class AgentConnectionModel {
   private retryTurnIDs = new Map<string, Set<string>>();
   private retiredTurnIDs = new Set<string>();
   private isClaude = false;
+  private isCodex = false;
   private pendingModeNotices = new Map<string, AgentNotice>();
   private fallbackTransitions = new Map<string, string | null>();
   /** Prompts waiting for a session: keyed by new-session token or session id. */
@@ -187,7 +188,7 @@ export class AgentConnectionModel {
   /** Acknowledged input that must be replayed as a normal prompt after the turn. */
   private continuations = new Map<string, AgentSupplement>();
   private loadTokens = new Map<string, string>();
-  private pendingText = new Map<string, string>();
+  private pendingText = new Map<string, { text: string; messageID?: string }>();
   private createToken: string | null = null;
   private loadBackups = new Map<string, AgentConversation>();
   /** Export loads must not add a tab the user never asked for. */
@@ -408,6 +409,7 @@ export class AgentConnectionModel {
       throw new AgentConnectionBusyError("The Agent session is still stopping.");
     }
     this.isClaude = configuration.agentId === "claude-acp";
+    this.isCodex = configuration.agentId === "codex-acp";
     const pending = this.openConnection(configuration).finally(() => {
       if (this.connectPromise === pending) this.connectPromise = null;
     });
@@ -1340,7 +1342,7 @@ export class AgentConnectionModel {
       }
     } else {
       this.editConversation(rootID, (current) => ({ ...current, quiet: false, retry: null,
-        subagents: current.subagents.map((child) => child.id === parentID ? updateChild(child, update) : child),
+        subagents: current.subagents.map((child) => child.id === parentID ? updateChild(child, update, this.isCodex) : child),
       }));
     }
     return true;
@@ -1435,14 +1437,16 @@ export class AgentConnectionModel {
         // matches the stream instead of merging the thought into the reply.
         this.flushPendingText();
         this.editConversation(sessionID, (current) =>
-          appendMessage(current, "reasoning", text),
+          appendMessage(current, "reasoning", text, typeof update.messageId === "string" ? update.messageId : undefined, this.isCodex),
         );
         return;
       }
       case "agent_message_chunk": {
         const text = updateText(update);
         if (text === null) return;
-        this.pendingText.set(sessionID, (this.pendingText.get(sessionID) ?? "") + text);
+        const messageID = typeof update.messageId === "string" ? update.messageId : undefined;
+        if (this.pendingText.has(sessionID) && this.pendingText.get(sessionID)?.messageID !== messageID) this.flushPendingText();
+        this.pendingText.set(sessionID, { text: (this.pendingText.get(sessionID)?.text ?? "") + text, messageID });
         this.scheduler.schedule(() => this.flushPendingText());
         return;
       }
@@ -1453,7 +1457,8 @@ export class AgentConnectionModel {
         const text = updateText(update);
         if (text === null) return;
         this.flushPendingText();
-        this.editConversation(sessionID, (current) => appendMessage(current, "user", text));
+        this.editConversation(sessionID, (current) => appendMessage(current, "user", text,
+          typeof update.messageId === "string" ? update.messageId : undefined));
         return;
       }
       case "tool_call":
@@ -1546,9 +1551,9 @@ export class AgentConnectionModel {
     if (this.pendingText.size === 0) return;
     const batches = [...this.pendingText.entries()];
     this.pendingText.clear();
-    for (const [sessionID, text] of batches) {
+    for (const [sessionID, { text, messageID }] of batches) {
       if (text.length === 0) continue;
-      this.editConversation(sessionID, (current) => appendMessage(current, "agent", text));
+      this.editConversation(sessionID, (current) => appendMessage(current, "agent", text, messageID));
     }
   }
   /** Returns false when the command could not be queued, leaving the draft intact. */

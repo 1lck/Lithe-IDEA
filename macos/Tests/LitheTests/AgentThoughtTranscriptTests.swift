@@ -8,6 +8,42 @@ import LitheCoreContracts
 @MainActor
 @Suite("Thought transcript lifecycle", .serialized)
 struct AgentThoughtTranscriptTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_THOUGHT_REPLAY_PATH"] != nil))
+    func nativeHistoryRendersDistinctTitlesAndBodiesWithoutChangingSource() throws {
+        let path = try #require(ProcessInfo.processInfo.environment["LITHE_THOUGHT_REPLAY_PATH"])
+        let sourceData = try Data(contentsOf: URL(fileURLWithPath: path))
+        var longest = ""
+        var titleCount = 0
+        for line in sourceData.split(separator: 10) {
+            guard let event = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  event["type"] as? String == "response_item",
+                  let item = event["payload"] as? [String: Any], item["type"] as? String == "reasoning",
+                  let summary = item["summary"] as? [[String: Any]] else { continue }
+            let text = summary.compactMap { $0["text"] as? String }.joined(separator: "\n\n")
+            let count = AgentThoughtPresentation.sections(text).filter { $0.title != nil }.count
+            if count > titleCount { longest = text; titleCount = count }
+        }
+        #expect(titleCount > 1, "The opt-in native history must include multiple summary titles")
+        for dark in [false, true] {
+            for width: CGFloat in [360, 720] {
+                let host = NSHostingView(rootView: AgentThoughtContent(text: longest)
+                    .padding(12).frame(width: width).background(AgentPanelStyle.canvas)
+                    .environment(\.colorScheme, dark ? .dark : .light))
+                host.frame.size = host.fittingSize
+                renderFrame(host)
+                #expect(host.fittingSize.height > CGFloat(titleCount) * 14)
+                if let directory = ProcessInfo.processInfo.environment["LITHE_THOUGHT_SCREENSHOTS"] {
+                    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    let data = try #require(bitmap.representation(using: .png, properties: [:]))
+                    try data.write(to: URL(fileURLWithPath: directory)
+                        .appendingPathComponent("native-summary-\(dark ? "dark" : "light")-\(Int(width)).png"))
+                }
+            }
+        }
+        #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == sourceData, "Read-only replay must never rewrite native history")
+    }
+
     @Test
     func alternatingThoughtsNarrationAndToolsHaveOneDisclosureAndAVisibleReply() async throws {
         let application = NSApplication.shared

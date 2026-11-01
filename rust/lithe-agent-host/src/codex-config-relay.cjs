@@ -170,6 +170,7 @@ function configure(message) {
 function preserveFailure(message) {
   observeAccount(message);
   observeContext(message);
+  preserveReasoningParagraphs(message);
   if (!nativeRecovery) return message;
   if (message.method === 'turn/started') turns.set(message.params.threadId, message.params.turn.id);
   if (message.method === 'turn/completed' && turns.get(message.params.threadId) === message.params.turn.id) turns.delete(message.params.threadId);
@@ -193,6 +194,27 @@ function preserveFailure(message) {
   // typed failure the way 1.x did.
   if (unauthorized(error.codexErrorInfo)) error.codexErrorInfo = 'other';
   return message;
+}
+
+// codex-acp 2.2.2 (also 2.5.0) replays each native reasoning part as a raw
+// chunk without separators. Coalesce only structured history arrays, matching
+// its completed-item path. Never infer boundaries from Markdown or edit history
+// on disk. Remove this compatibility once the pinned adapter preserves parts.
+function preserveReasoningParagraphs(message) {
+  const turns = message.result?.thread?.turns;
+  if (!Array.isArray(turns)) return;
+  for (const turn of turns) {
+    if (!Array.isArray(turn?.items)) continue;
+    for (const item of turn.items) {
+      if (item?.type !== 'reasoning') continue;
+      for (const key of ['summary', 'content']) {
+        const parts = item[key];
+        if (Array.isArray(parts) && parts.length > 1 && parts.every(part => typeof part === 'string')) {
+          item[key] = [parts.join('\n\n')];
+        }
+      }
+    }
+  }
 }
 
 function unauthorized(info) {

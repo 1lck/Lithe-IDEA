@@ -33,6 +33,10 @@ public struct AgentConversationMessage: Identifiable, Equatable, Sendable {
     public let id: String
     public let role: Role
     public var text: String
+    /// ACP message identity, independent of the local row/navigation identity.
+    public var upstreamMessageID: String?
+    /// Only Codex reasoning summaries use activity headings; Claude thinking is prose.
+    public var usesThoughtSummaryHeadings = false
     /// Only supplementary input has a request-scoped delivery acknowledgement.
     public var delivery: Delivery?
     public var toolStatus: ToolStatus?

@@ -110,6 +110,10 @@ export type AgentMessageDelivery =
 
 export interface AgentConversationMessage {
   id: string;
+  /** ACP identity is separate from the local row/navigation identity. */
+  upstreamMessageID?: string;
+  /** Codex summary presentation must never reinterpret Claude thinking prose. */
+  usesThoughtSummaryHeadings?: boolean;
   role: AgentMessageRole;
   text: string;
   delivery: AgentMessageDelivery | null;
@@ -555,19 +559,23 @@ export function upsertToolMessage(
   return { ...conversation, messages };
 }
 
-/** Consecutive chunks of one role extend the previous message instead of splitting it. */
+/** Only consecutive chunks of the same role and upstream message extend a row. */
 export function appendMessage(
   conversation: AgentConversation,
   role: AgentMessageRole,
   text: string,
+  upstreamMessageID?: string,
+  usesThoughtSummaryHeadings = false,
 ): AgentConversation {
   const messages = conversation.messages.slice();
   const last = messages[messages.length - 1];
-  if (last !== undefined && last.role === role) {
+  if (last !== undefined && last.role === role && last.upstreamMessageID === upstreamMessageID) {
     messages[messages.length - 1] = { ...last, text: last.text + text };
   } else {
     messages.push({
       id: crypto.randomUUID(),
+      ...(upstreamMessageID === undefined ? {} : { upstreamMessageID }),
+      ...(role === "reasoning" && usesThoughtSummaryHeadings ? { usesThoughtSummaryHeadings: true } : {}),
       role,
       text,
       delivery: null,

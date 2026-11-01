@@ -309,6 +309,8 @@ struct AgentTranscriptView: View {
                                     responseStatus: conversation?.responseStatus ?? .preparing,
                                     startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
                                     hasStreamingThought: liveThoughtID != nil,
+                                    thoughtTitle: liveThoughtID != nil && messages.last?.usesThoughtSummaryHeadings == true
+                                        ? AgentThoughtPresentation.currentTitle(messages.last?.text ?? "") : nil,
                                     retryAttempt: conversation?.retryAttempt,
                                     retryMaxAttempts: conversation?.retryMaxAttempts,
                                     isQuiet: conversation?.isQuiet == true,
@@ -750,7 +752,8 @@ private struct AgentMessageRow: View {
             }
             .onHover { isHovered = $0 }
         case .thought:
-            AgentThoughtRow(text: message.text, isStreaming: isStreamingThought, isSearching: isSearching,
+            AgentThoughtRow(text: message.text, isStreaming: isStreamingThought,
+                            usesSummaryHeadings: message.usesThoughtSummaryHeadings, isSearching: isSearching,
                             expansion: thoughtExpansion)
         case .tool:
             AgentToolGroupView(messages: [message], searchText: "", onOpenFile: onOpenFile)

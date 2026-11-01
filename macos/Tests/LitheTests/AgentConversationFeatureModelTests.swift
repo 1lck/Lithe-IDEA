@@ -8,6 +8,44 @@ import Testing
 /// are delivered synchronously through `receive`, so no test waits on timers.
 @MainActor
 struct AgentConversationFeatureModelTests {
+    @Test(arguments: [false, true], ["codex-acp", "claude-acp"])
+    func upstreamMessageBoundariesSurviveLiveBatchingAndHistoryReplay(replaying: Bool, agentID: String) async throws {
+        try await withStatisticsFeature(agentID: agentID) { feature, connection, _ in
+            var loadToken: Any?
+            if replaying {
+                feature.selectSession("session-1")
+                loadToken = try #require(connection.commands.last?["token"])
+            } else {
+                feature.prepareConversation()
+                try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            }
+            @MainActor func chunk(_ role: String, _ id: String?, _ text: String) throws {
+                var update: [String: Any] = ["sessionUpdate": role, "content": ["type": "text", "text": text]]
+                update["messageId"] = id
+                try feature.receive(event("agentMessageChunk", ["update": update]))
+            }
+            // All events arrive before the scheduled flush; repeated titles remain distinct.
+            try chunk("agent_thought_chunk", "thought-1", "**Choosing ")
+            try chunk("agent_thought_chunk", "thought-1", "keys**")
+            try chunk("agent_thought_chunk", "thought-2", "**Choosing keys**")
+            try chunk("agent_message_chunk", "reply-1", "First ")
+            try chunk("agent_message_chunk", "reply-1", "reply.")
+            try chunk("agent_message_chunk", "reply-2", "Second reply.")
+            try chunk("agent_message_chunk", nil, "Legacy ")
+            try chunk("agent_message_chunk", nil, "chunks.")
+            if let loadToken {
+                try feature.receive(event("sessionLoaded", ["token": loadToken]))
+            } else {
+                try feature.receive(event("turnFinished"))
+            }
+            let messages = try #require(feature.selectedConversation?.messages)
+            #expect(messages.map(\.text) == ["**Choosing keys**", "**Choosing keys**", "First reply.", "Second reply.", "Legacy chunks."])
+            #expect(messages.map(\.upstreamMessageID) == ["thought-1", "thought-2", "reply-1", "reply-2", nil])
+            #expect(messages.map(\.usesThoughtSummaryHeadings) == [agentID == "codex-acp", agentID == "codex-acp", false, false, false])
+            #expect(Set(messages.map(\.id)).count == messages.count)
+        }
+    }
+
     @Test
     func nativeSubagentsKeepTheirOutputAndToolIdentitySeparateFromTheRoot() async throws {
         try await withStatisticsFeature { feature, connection, _ in
@@ -34,6 +72,8 @@ struct AgentConversationFeatureModelTests {
             #expect(root.messages.filter { $0.role == .tool }.count == 2)
             #expect(Set(root.messages.filter { $0.role == .tool }.map(\.id)).count == 2)
             #expect(root.messages.contains { $0.subagentSessionID == "child-1" && $0.role == .thought })
+            #expect(root.messages.filter { $0.subagentSessionID == "child-1" && $0.role == .thought }
+                .allSatisfy { $0.usesThoughtSummaryHeadings })
             #expect(root.messages.contains { $0.subagentSessionID == "child-1" && $0.role == .agent })
             #expect(root.transcriptMessages.filter { $0.role == .agent }.map(\.text) == ["This project **builds** an IDE."])
             let messages = root.messages
@@ -1217,13 +1257,14 @@ struct AgentConversationFeatureModelTests {
     }
 
     private func withStatisticsFeature(
+        agentID: String = "codex-acp",
         _ operation: (AgentConnectionModel, TestAgentConnection, TestAgentTurnClock) async throws -> Void
     ) async throws {
         let clock = TestAgentTurnClock()
         let transport = TestAgentTransport()
         let feature = AgentConnectionModel(transport: transport, now: { clock.instant })
         do {
-            try feature.connect(configuration: configuration)
+            try feature.connect(configuration: configuration(for: agentID))
             try feature.receive(event("ready"))
             try await operation(feature, try #require(transport.connections.last), clock)
         } catch { await feature.stop(); throw error }
@@ -2132,8 +2173,12 @@ struct AgentConversationFeatureModelTests {
     }
 
     private var configuration: AgentLaunchConfiguration {
+        configuration(for: "codex-acp")
+    }
+
+    private func configuration(for agentID: String) -> AgentLaunchConfiguration {
         AgentLaunchConfiguration(
-            agentID: "codex-acp",
+            agentID: agentID,
             command: "",
             arguments: [],
             workspaceURL: URL(fileURLWithPath: "/tmp/lithe-acp-test"),

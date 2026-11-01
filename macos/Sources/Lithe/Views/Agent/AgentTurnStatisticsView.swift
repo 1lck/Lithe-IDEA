@@ -88,6 +88,7 @@ struct AgentResponseStatusRow: View {
     var responseStatus: AgentResponseStatus = .waiting
     var startedAt: ContinuousClock.Instant?
     var hasStreamingThought = false
+    var thoughtTitle: String?
     var retryAttempt: Int?
     var retryMaxAttempts: Int?
     var isQuiet = false
@@ -108,7 +109,7 @@ struct AgentResponseStatusRow: View {
         switch responseStatus {
         case .preparing: AgentLocalization.string("Preparing conversation…", locale: locale)
         case .waiting: AgentLocalization.string("Waiting for Agent response…", locale: locale)
-        case .thinking: AgentLocalization.string(hasStreamingThought ? "Responding…" : "Thinking…", locale: locale)
+        case .thinking: thoughtTitle ?? AgentLocalization.string(hasStreamingThought ? "Responding…" : "Thinking…", locale: locale)
         case .responding: AgentLocalization.string("Responding…", locale: locale)
         case .runningTools: AgentLocalization.string("Running tools…", locale: locale)
         case .waitingForPermission: AgentLocalization.string("Waiting for permission…", locale: locale)
@@ -127,7 +128,8 @@ struct AgentResponseStatusRow: View {
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(status).accessibilityIdentifier("agent-response-status")
+                    Text(verbatim: status).accessibilityIdentifier("agent-response-status")
+                        .lineLimit(1).truncationMode(.tail).help(status)
                     if let startedAt {
                         let elapsed = AgentTurnStatistics(id: "waiting", startedAt: startedAt).elapsed(at: .now)
                         Text(AgentTurnStatisticsPresentation.duration(elapsed, locale: locale)).monospacedDigit()
