@@ -14,6 +14,7 @@ pub mod editor;
 pub mod git;
 pub mod git_diff;
 pub mod local_history;
+pub mod logging;
 pub mod markdown_preview;
 pub mod maven;
 pub mod memory;

@@ -39,6 +39,7 @@ use lithe_platform as platform;
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, MONO_FONT_FAMILY, current_tokens, icon};
 
+use crate::logging;
 use crate::maven::configuration::{self, MavenEffectiveSettings, MavenLocalSettings};
 use crate::run::config;
 use crate::run::model::{requirement_messages, RunConfiguration, RunDiagnostic, RunEditorOptions, RunSaveScope, RunToolchainPaths};
@@ -105,6 +106,30 @@ const COMMIT_FORMATS: [(&str, &str); 3] = [
     ("conventional", "Conventional"),
     ("plain", "Plain"),
     ("gitmoji", "GitMoji"),
+];
+
+/// 「日志与诊断」页的模块筛选；值必须与 `logging` 写入的模块 id 一致。
+const LOG_CATEGORY_OPTIONS: [(&str, &str); 7] = [
+    ("all", "All modules"),
+    ("application", "Application"),
+    ("language", "Editor and language services"),
+    ("run", "Build, run and debug"),
+    ("git", "Git"),
+    ("plugins", "Plugins"),
+    ("performance", "Performance"),
+];
+
+const LOG_SESSION_OPTIONS: [(&str, &str); 3] = [
+    ("current", "Current session"),
+    ("previous", "Previous session"),
+    ("all", "All sessions"),
+];
+
+const LOG_LEVEL_OPTIONS: [(&str, &str); 4] = [
+    ("debug", "DEBUG"),
+    ("info", "INFO"),
+    ("warn", "WARN"),
+    ("error", "ERROR"),
 ];
 
 // 设置页专有布局刻度。通用字号/圆角来自 `LitheMetrics`，这里只放导航与行
@@ -267,6 +292,15 @@ pub struct AppSettings {
     pub editor_render_whitespace: bool,
     /// 编辑器是否允许滚动到最后一行之后。
     pub editor_scroll_beyond_last_line: bool,
+    // Language services（对齐 Tauri LspPanel）
+    /// 是否启用自动补全。
+    pub auto_completion: bool,
+    /// 是否启用参数提示。
+    pub parameter_hints: bool,
+    /// 是否启用语义高亮。
+    pub semantic_tokens: bool,
+    /// Java 项目打开时的导入方式：`"automatic"`、`"ask"` 或 `"manual"`。
+    pub java_project_import_on_open: String,
     // Process termination policy（只存储，长期驻留服务落地后才强制执行）
     /// Run services：`"ask"` 或 `"terminate"`。
     pub run_services_on_exit: String,
@@ -338,6 +372,10 @@ impl Default for AppSettings {
             // 默认不显示空白字符：与常见编辑器的初始状态一致，避免打开文件就出现点线。
             editor_render_whitespace: false,
             editor_scroll_beyond_last_line: true,
+            auto_completion: true,
+            parameter_hints: true,
+            semantic_tokens: true,
+            java_project_import_on_open: "automatic".to_string(),
             run_services_on_exit: DEFAULT_RUN_SERVICES_ON_EXIT.to_string(),
             terminal_on_quit: DEFAULT_TERMINAL_ON_QUIT.to_string(),
             agent_tasks: DEFAULT_AGENT_TASKS.to_string(),
@@ -480,7 +518,7 @@ fn store_file_path() -> Option<PathBuf> {
 
 /// macOS：`$HOME/Library/Application Support/Lithe`。
 #[cfg(target_os = "macos")]
-fn app_data_dir() -> Option<PathBuf> {
+pub(crate) fn app_data_dir() -> Option<PathBuf> {
     env::var_os("HOME")
         .map(PathBuf::from)
         .map(|home| home.join("Library/Application Support/Lithe"))
@@ -488,19 +526,19 @@ fn app_data_dir() -> Option<PathBuf> {
 
 /// Windows：`%APPDATA%\Lithe`。
 #[cfg(target_os = "windows")]
-fn app_data_dir() -> Option<PathBuf> {
+pub(crate) fn app_data_dir() -> Option<PathBuf> {
     env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("Lithe"))
 }
 
 /// Linux：`$XDG_CONFIG_HOME/lithe`，否则 `$HOME/.config/lithe`。
 #[cfg(target_os = "linux")]
-fn app_data_dir() -> Option<PathBuf> {
+pub(crate) fn app_data_dir() -> Option<PathBuf> {
     xdg_config_lithe()
 }
 
 /// 未知平台：没有专属目录约定，退回 XDG，保证设置仍然可用。
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn app_data_dir() -> Option<PathBuf> {
+pub(crate) fn app_data_dir() -> Option<PathBuf> {
     xdg_config_lithe()
 }
 
@@ -760,6 +798,7 @@ enum ChoiceAction {
     GitFetchTags,
     KeymapPreset,
     Language,
+    JavaProjectImport,
     UpdateChannel,
     RunServices,
     TerminalOnQuit,
@@ -785,6 +824,9 @@ enum ToggleAction {
     GitFetchPrune,
     VimMode,
     AiAutocomplete,
+    AutoCompletion,
+    ParameterHints,
+    SemanticTokens,
 }
 
 /// 步进器对应的设置写入动作。
@@ -887,11 +929,80 @@ impl RunConfigurationsState {
 /// 运行配置保存/重新识别后的通知回调；工作台用它刷新 Run 面板。
 type RunChangedHandler = Rc<dyn Fn(&mut App) + 'static>;
 
-/// 设置页视图。
+/// 「日志与诊断」页的本地状态。
 ///
-/// 左侧是可滚动的分组导航，右侧按选中页面渲染内容。所有可编辑控件立即写入
-/// `self.settings`、调用 `on_change`、持久化并重绘，没有“应用/取消”暂存。
-/// 只读页面不会写盘。
+/// 日志快照与时间线都是磁盘读取结果，进入页面时懒加载；筛选条件保存在
+/// 视图里，与 Tauri 的 `LogSelection` 一一对应。
+struct LogsState {
+    loaded: bool,
+    snapshot: logging::LogSettingsSnapshot,
+    timeline: Option<logging::LogTimeline>,
+    /// `"all"` 或 [logging] 的模块 id。
+    category: String,
+    /// `"current"`、`"previous"`、`"all"`。
+    session: String,
+    /// 小写级别 id：`"debug"` 到 `"error"`。
+    level: String,
+    search: String,
+    since: String,
+    until: String,
+    busy: bool,
+    notice: Option<String>,
+    error: Option<String>,
+    /// 清空日志的二次确认。
+    pending_clear: bool,
+    /// 诊断包预览文件清单；`Some` 表示确认区域可见。
+    bundle_preview: Option<Vec<logging::BundleEntry>>,
+    /// 目录切换后待清理的旧自定义目录与字节数。
+    previous_cleanup: Option<(PathBuf, u64)>,
+}
+
+impl LogsState {
+    fn new() -> Self {
+        Self {
+            loaded: false,
+            snapshot: logging::LogSettingsSnapshot::default(),
+            timeline: None,
+            category: "all".to_string(),
+            session: "current".to_string(),
+            level: "info".to_string(),
+            search: String::new(),
+            since: String::new(),
+            until: String::new(),
+            busy: false,
+            notice: None,
+            error: None,
+            pending_clear: false,
+            bundle_preview: None,
+            previous_cleanup: None,
+        }
+    }
+
+    fn selection(&self) -> logging::LogSelection {
+        logging::LogSelection {
+            category: (self.category != "all").then(|| self.category.clone()),
+            session: self.session.clone(),
+            minimum_level: self.level.clone(),
+            search: Some(self.search.clone()).filter(|value| !value.trim().is_empty()),
+            since: Some(self.since.clone()).filter(|value| !value.trim().is_empty()),
+            until: Some(self.until.clone()).filter(|value| !value.trim().is_empty()),
+        }
+    }
+
+    /// 重新读取设置快照并刷新时间线。
+    fn refresh(&mut self) {
+        self.snapshot = logging::settings_snapshot();
+        self.timeline = Some(logging::query_logs(&self.selection()));
+        self.loaded = true;
+    }
+
+    fn reload_timeline(&mut self) {
+        self.snapshot = logging::settings_snapshot();
+        self.timeline = Some(logging::query_logs(&self.selection()));
+    }
+}
+
+/// 设置页视图。
 pub struct SettingsView {
     settings: AppSettings,
     context: SettingsContext,
@@ -927,6 +1038,12 @@ pub struct SettingsView {
     run_environment_input: Entity<TextareaState>,
     run_editor_pending: Option<RunEditorInputs>,
     on_run_configurations_changed: Option<RunChangedHandler>,
+    /// Logs and Diagnostics 页：日志快照、时间线筛选与三个文本输入框。
+    logs: LogsState,
+    logs_search_input: Entity<InputState>,
+    logs_since_input: Entity<InputState>,
+    logs_until_input: Entity<InputState>,
+    _logs_subscriptions: [Subscription; 3],
 }
 
 impl SettingsView {
@@ -955,6 +1072,43 @@ impl SettingsView {
                 cx.notify();
             }
         });
+
+        // 日志页的三个筛选输入框：变化后丢弃旧时间线，等用户点“刷新日志”。
+        let logs_search_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(tr("Filter log messages"))
+        });
+        let logs_since_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(tr("From (UTC ISO 8601)"))
+        });
+        let logs_until_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(tr("Until (UTC ISO 8601)"))
+        });
+        let logs_search_subscription = cx.subscribe(
+            &logs_search_input,
+            |this, state, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.logs.search = state.read(cx).value().to_string();
+                    this.logs.timeline = None;
+                    cx.notify();
+                }
+            },
+        );
+        let logs_since_subscription =
+            cx.subscribe(&logs_since_input, |this, state, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.logs.since = state.read(cx).value().to_string();
+                    this.logs.timeline = None;
+                    cx.notify();
+                }
+            });
+        let logs_until_subscription =
+            cx.subscribe(&logs_until_input, |this, state, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.logs.until = state.read(cx).value().to_string();
+                    this.logs.timeline = None;
+                    cx.notify();
+                }
+            });
 
         Self {
             settings,
@@ -990,6 +1144,15 @@ impl SettingsView {
             }),
             run_editor_pending: None,
             on_run_configurations_changed: None,
+            logs: LogsState::new(),
+            logs_search_input,
+            logs_since_input,
+            logs_until_input,
+            _logs_subscriptions: [
+                logs_search_subscription,
+                logs_since_subscription,
+                logs_until_subscription,
+            ],
         }
     }
 
@@ -1079,6 +1242,243 @@ impl SettingsView {
     pub fn open_git_page(&mut self, cx: &mut Context<Self>) {
         self.page = SettingsPage::Git;
         cx.notify();
+    }
+
+    /// 直接落到「LSP」页。Run 面板的语言服务设置入口使用（对齐 Tauri
+    /// `openSettingsDialog("language")`）。
+    pub fn open_language_service_page(&mut self, cx: &mut Context<Self>) {
+        self.page = SettingsPage::Lsp;
+        cx.notify();
+    }
+
+    /// 直接落到「Logs and Diagnostics」页。Run 面板的查看日志入口使用
+    /// （对齐 Tauri `openSettingsDialog("logs")`）。
+    pub fn open_logs_page(&mut self, cx: &mut Context<Self>) {
+        self.page = SettingsPage::Diagnostics;
+        if !self.logs.loaded {
+            // 页面首次打开时同步读取日志快照；日志本身很小，且只发生一次。
+            self.logs.refresh();
+        }
+        cx.notify();
+    }
+
+    // -----------------------------------------------------------------
+    // Logs and Diagnostics
+    // -----------------------------------------------------------------
+
+    fn set_log_category(&mut self, value: &'static str, cx: &mut Context<Self>) {
+        if self.logs.category == value {
+            return;
+        }
+        self.logs.category = value.to_string();
+        self.logs.timeline = None;
+        cx.notify();
+    }
+
+    fn set_log_session(&mut self, value: &'static str, cx: &mut Context<Self>) {
+        if self.logs.session == value {
+            return;
+        }
+        self.logs.session = value.to_string();
+        self.logs.timeline = None;
+        cx.notify();
+    }
+
+    fn set_log_level(&mut self, value: &'static str, cx: &mut Context<Self>) {
+        if self.logs.level == value {
+            return;
+        }
+        self.logs.level = value.to_string();
+        self.logs.timeline = None;
+        cx.notify();
+    }
+
+    fn refresh_log_timeline(&mut self, cx: &mut Context<Self>) {
+        self.logs.reload_timeline();
+        self.logs.notice = None;
+        self.logs.error = None;
+        cx.notify();
+    }
+
+    fn set_diagnostic_logging(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let category = self.logs.selection().category;
+        logging::set_diagnostic_logging(enabled, category.as_deref());
+        self.logs.reload_timeline();
+        cx.notify();
+    }
+
+    /// 选择自定义日志父目录；返回后立即切换并提示清理旧目录。
+    fn choose_log_directory(&mut self, cx: &mut Context<Self>) {
+        if self.logs.busy {
+            return;
+        }
+        self.logs.busy = true;
+        let title = tr("Choose the parent directory for Lithe logs").to_string();
+        let platform = platform::current();
+        cx.spawn(async move |this, cx| {
+            let picked = platform.pick_folder(title).await;
+            let _ = this.update(cx, |this, cx| {
+                this.logs.busy = false;
+                match picked {
+                    Some(path) => this.apply_log_directory(Some(path), cx),
+                    None => cx.notify(),
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn restore_default_log_directory(&mut self, cx: &mut Context<Self>) {
+        self.apply_log_directory(None, cx);
+    }
+
+    fn apply_log_directory(&mut self, parent: Option<PathBuf>, cx: &mut Context<Self>) {
+        let previous = self.logs.snapshot.configured_directory.clone();
+        logging::set_log_directory(parent.as_deref());
+        self.logs.reload_timeline();
+        self.logs.previous_cleanup = None;
+        // 旧自定义位置仍有 Lithe 日志时，按 Tauri 的流程询问是否删除。
+        if let Some(previous) = previous {
+            let old_directory = previous.join("Lithe").join("logs");
+            let bytes = logging::directory_log_bytes(&old_directory);
+            if bytes > 0 && old_directory != self.logs.snapshot.effective_path {
+                self.logs.previous_cleanup = Some((previous, bytes));
+            }
+        }
+        self.logs.notice = Some(tr("The log directory changed immediately.").to_string());
+        self.logs.error = None;
+        cx.notify();
+    }
+
+    fn confirm_previous_log_cleanup(&mut self, delete: bool, cx: &mut Context<Self>) {
+        let Some((previous, _)) = self.logs.previous_cleanup.take() else {
+            return;
+        };
+        if !delete {
+            cx.notify();
+            return;
+        }
+        let old_directory = previous.join("Lithe").join("logs");
+        match logging::clear_directory_logs(&old_directory) {
+            (count, freed) if count > 0 => {
+                self.logs.notice = Some(format!(
+                    "{} {} {}.",
+                    tr("Deleted log files:"),
+                    count,
+                    logging::format_bytes(freed)
+                ));
+            }
+            _ => {
+                self.logs.notice = Some(tr("The previous log directory is already empty.").to_string());
+            }
+        }
+        self.logs.error = None;
+        cx.notify();
+    }
+
+    fn open_current_log(&mut self, cx: &mut Context<Self>) {
+        let opened = logging::current_log_file()
+            .map(|path| logging::open_log_file(&path))
+            .unwrap_or(false);
+        if opened {
+            self.logs.error = None;
+        } else {
+            self.logs.error = Some(tr("Unable to open the current log.").to_string());
+        }
+        cx.notify();
+    }
+
+    fn open_log_directory(&mut self, cx: &mut Context<Self>) {
+        let opened = logging::reveal_in_file_manager(&self.logs.snapshot.effective_path);
+        if opened {
+            self.logs.error = None;
+        } else {
+            self.logs.error = Some(tr("Unable to open the log directory.").to_string());
+        }
+        cx.notify();
+    }
+
+    fn copy_log_path(&mut self, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+            self.logs.snapshot.effective_path.display().to_string(),
+        ));
+        self.logs.notice = Some(tr("Log path copied.").to_string());
+        self.logs.error = None;
+        cx.notify();
+    }
+
+    fn confirm_clear_logs(&mut self, cx: &mut Context<Self>) {
+        self.logs.pending_clear = false;
+        let (count, freed) = logging::clear_logs();
+        self.logs.timeline = None;
+        self.logs.reload_timeline();
+        self.logs.notice = Some(format!(
+            "{} {} {} {}.",
+            tr("Deleted"),
+            count,
+            tr("log files, freed"),
+            logging::format_bytes(freed)
+        ));
+        self.logs.error = None;
+        cx.notify();
+    }
+
+    fn preview_log_bundle(&mut self, cx: &mut Context<Self>) {
+        let selection = self.logs.selection();
+        self.logs.bundle_preview = Some(logging::preview_bundle(&selection));
+        self.logs.error = None;
+        cx.notify();
+    }
+
+    /// 确认预览后选择保存路径并写出 zip。
+    fn export_log_bundle(&mut self, cx: &mut Context<Self>) {
+        if self.logs.busy {
+            return;
+        }
+        self.logs.bundle_preview = None;
+        self.logs.busy = true;
+        let selection = self.logs.selection();
+        let title = tr("Choose Where to Save the Diagnostic Bundle").to_string();
+        let default_name = format!("lithe-diagnostics-{}.zip", logging::today());
+        let platform = platform::current();
+        cx.spawn(async move |this, cx| {
+            let picked = platform
+                .pick_save_path(
+                    title,
+                    default_name,
+                    vec![platform::FileFilter {
+                        name: String::from("Zip Archives"),
+                        extensions: vec![String::from("zip")],
+                    }],
+                )
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.logs.busy = false;
+                let Some(destination) = picked else {
+                    cx.notify();
+                    return;
+                };
+                match logging::export_bundle(&destination, &selection) {
+                    Ok(_) => {
+                        this.logs.notice = Some(format!(
+                            "{} {}.",
+                            tr("Diagnostic bundle saved to"),
+                            destination.display()
+                        ));
+                        this.logs.error = None;
+                    }
+                    Err(error) => {
+                        this.logs.error = Some(format!(
+                            "{} {error}",
+                            tr("Unable to export the diagnostic bundle:")
+                        ));
+                        this.logs.notice = None;
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 更新只读工作台上下文并重绘。上下文变化不是设置修改，不写盘。
@@ -1773,6 +2173,20 @@ impl SettingsView {
         self.commit(window, cx);
     }
 
+    /// Java 项目打开时的导入方式；对齐 Tauri `javaProjectImportOnOpen`。
+    fn set_java_project_import_on_open(
+        &mut self,
+        value: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings.java_project_import_on_open == value {
+            return;
+        }
+        self.settings.java_project_import_on_open = value.to_string();
+        self.commit(window, cx);
+    }
+
     /// 外观模式：`system` 暂不监听系统主题，保留当前深浅色。
     fn set_appearance_mode(
         &mut self,
@@ -2122,6 +2536,9 @@ impl SettingsView {
             ChoiceAction::GitFetchTags => self.set_git_fetch_tags(value, window, cx),
             ChoiceAction::KeymapPreset => self.set_keymap_preset(value, window, cx),
             ChoiceAction::Language => self.set_language(value, window, cx),
+            ChoiceAction::JavaProjectImport => {
+                self.set_java_project_import_on_open(value, window, cx)
+            }
             ChoiceAction::UpdateChannel => self.set_update_channel(value, window, cx),
             ChoiceAction::RunServices => self.set_run_services_on_exit(value, window, cx),
             ChoiceAction::TerminalOnQuit => self.set_terminal_on_quit(value, window, cx),
@@ -2154,6 +2571,9 @@ impl SettingsView {
             ToggleAction::GitFetchPrune => &mut self.settings.git_fetch_prune,
             ToggleAction::VimMode => &mut self.settings.vim_mode,
             ToggleAction::AiAutocomplete => &mut self.settings.ai_autocomplete,
+            ToggleAction::AutoCompletion => &mut self.settings.auto_completion,
+            ToggleAction::ParameterHints => &mut self.settings.parameter_hints,
+            ToggleAction::SemanticTokens => &mut self.settings.semantic_tokens,
         };
         if *target == checked {
             return;
@@ -2540,7 +2960,7 @@ impl SettingsView {
     // 内容区
     // -----------------------------------------------------------------
 
-    fn render_content(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+    fn render_content(&mut self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
         let page = self.page;
         let body = match page {
             SettingsPage::General => self.render_general(tokens, cx),
@@ -2552,9 +2972,9 @@ impl SettingsView {
             SettingsPage::Git => self.render_git(tokens, cx),
             SettingsPage::Project => self.render_project(tokens, cx),
             SettingsPage::RunConfigurations => self.render_run_configurations(tokens, cx),
-            SettingsPage::Lsp => self.render_lsp(tokens),
+            SettingsPage::Lsp => self.render_lsp(tokens, cx),
             SettingsPage::Terminal => self.render_terminal(tokens, cx),
-            SettingsPage::Diagnostics => self.render_diagnostics(tokens),
+            SettingsPage::Diagnostics => self.render_diagnostics(tokens, cx),
             SettingsPage::AiProviders => self.render_ai_providers(tokens, cx),
             SettingsPage::Agents => self.render_agents(tokens, cx),
             SettingsPage::Instructions
@@ -4252,22 +4672,81 @@ impl SettingsView {
         block.into_any_element()
     }
 
-    fn render_lsp(&self, tokens: LitheTokens) -> AnyElement {
-        const SERVICES: [&str; 5] = ["Java", "Markdown", "XML", "CSS", "HTML"];
-
-        let mut rows = div().w_full().flex().flex_col();
-        for service in SERVICES {
-            rows = rows.child(readonly_row(
-                service,
-                SharedString::from(tr("Built in")),
+    fn render_lsp(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+        let rows = v_flex()
+            .w_full()
+            .child(described_row(
+                "Auto completion",
+                Some(SharedString::from(tr(
+                    "Show completion suggestions from the active language server.",
+                ))),
+                switch_control(
+                    "lithe-settings:lsp-auto-completion",
+                    self.settings.auto_completion,
+                    "Auto completion",
+                    cx.listener(|this, checked: &bool, window, cx| {
+                        this.apply_toggle(ToggleAction::AutoCompletion, *checked, window, cx)
+                    }),
+                ),
+                tokens,
+            ))
+            .child(setting_row(
+                "Parameter hints",
+                switch_control(
+                    "lithe-settings:lsp-parameter-hints",
+                    self.settings.parameter_hints,
+                    "Parameter hints",
+                    cx.listener(|this, checked: &bool, window, cx| {
+                        this.apply_toggle(ToggleAction::ParameterHints, *checked, window, cx)
+                    }),
+                ),
+                SharedString::default(),
+                tokens,
+            ))
+            .child(setting_row(
+                "Semantic highlighting",
+                switch_control(
+                    "lithe-settings:lsp-semantic-tokens",
+                    self.settings.semantic_tokens,
+                    "Semantic highlighting",
+                    cx.listener(|this, checked: &bool, window, cx| {
+                        this.apply_toggle(ToggleAction::SemanticTokens, *checked, window, cx)
+                    }),
+                ),
+                SharedString::default(),
+                tokens,
+            ))
+            .child(choice_row(
+                "Import Java projects on open",
+                "lithe-settings:lsp-java-import",
+                &[
+                    ("automatic", "Automatically"),
+                    ("ask", "Ask"),
+                    ("manual", "Manually"),
+                ],
+                &self.settings.java_project_import_on_open,
+                ChoiceAction::JavaProjectImport,
+                cx,
+                tokens,
+            ))
+            .child(caption_line(
+                SharedString::from(tr(
+                    "Ask lets you adjust Maven settings first. Manual waits until you open a Java file, run code, or reload Maven.",
+                )),
                 tokens,
             ));
-        }
 
-        div()
+        let detected = v_flex().w_full().child(
+            div()
+                .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                .text_color(tokens.secondary_text)
+                .child(tr(
+                    "Language servers are detected from installed language extensions and start when a supported file opens.",
+                )),
+        );
+
+        v_flex()
             .w_full()
-            .flex()
-            .flex_col()
             .gap(px(SETTINGS_SECTION_GAP))
             .child(section_card(
                 "Language services",
@@ -4275,10 +4754,10 @@ impl SettingsView {
                 rows.into_any_element(),
                 tokens,
             ))
-            .child(note_card(
-                SharedString::from(tr(
-                    "These lightweight language services are built into Lithe. Full LSP servers are not wired into the GPUI build yet.",
-                )),
+            .child(section_card(
+                "Detected language servers",
+                None,
+                detected.into_any_element(),
                 tokens,
             ))
             .into_any_element()
@@ -4353,45 +4832,439 @@ impl SettingsView {
             .into_any_element()
     }
 
-    fn render_diagnostics(&self, tokens: LitheTokens) -> AnyElement {
-        let app_data = app_data_dir()
-            .map(|path| path.display().to_string())
-            .filter(|path| !path.is_empty())
-            .unwrap_or_else(|| tr("Not available").to_string());
+    fn render_diagnostics(&mut self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
+        if !self.logs.loaded {
+            self.logs.refresh();
+        }
+        let snapshot = self.logs.snapshot.clone();
+        let busy = self.logs.busy;
+        let selecting_disabled = busy;
 
-        let details = div()
+        // 时间线筛选：模块、会话、最低级别三组互斥按钮，再是搜索与时间范围。
+        let mut timeline_body = v_flex()
             .w_full()
-            .flex()
-            .flex_col()
-            .child(readonly_row(
-                "Memory",
-                string_or_placeholder(&self.context.memory, "Not reported"),
+            .gap(px(SETTINGS_CONTROL_GAP))
+            .child(log_choice_row(
+                "Module",
+                "lithe-settings:logs-module",
+                &LOG_CATEGORY_OPTIONS,
+                &self.logs.category,
+                SettingsView::set_log_category,
+                cx,
                 tokens,
             ))
-            .child(readonly_row(
-                "App data",
-                SharedString::from(app_data),
+            .child(log_choice_row(
+                "Session",
+                "lithe-settings:logs-session",
+                &LOG_SESSION_OPTIONS,
+                &self.logs.session,
+                SettingsView::set_log_session,
+                cx,
+                tokens,
+            ))
+            .child(log_choice_row(
+                "Minimum level",
+                "lithe-settings:logs-level",
+                &LOG_LEVEL_OPTIONS,
+                &self.logs.level,
+                SettingsView::set_log_level,
+                cx,
+                tokens,
+            ))
+            .child(Input::new(&self.logs_search_input).small().w_full())
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap(px(SETTINGS_CONTROL_GAP))
+                    .child(Input::new(&self.logs_since_input).small().flex_1())
+                    .child(Input::new(&self.logs_until_input).small().flex_1()),
+            )
+            .child(log_button(
+                "lithe-settings:logs-refresh",
+                tr("Refresh logs").to_string(),
+                selecting_disabled,
+                cx.listener(|this, _: &ClickEvent, _window, cx| this.refresh_log_timeline(cx)),
+            ));
+
+        if let Some(timeline) = self.logs.timeline.as_ref() {
+            if timeline.truncated {
+                timeline_body = timeline_body.child(note_card(
+                    SharedString::from(tr("Earlier evidence was omitted by collection limits.")),
+                    tokens,
+                ));
+            }
+            let content = if timeline.content.trim().is_empty() {
+                SharedString::from(tr("No matching logs"))
+            } else {
+                SharedString::from(timeline.content.clone())
+            };
+            timeline_body = timeline_body.child(
+                div()
+                    .id("lithe-settings:logs-timeline")
+                    .w_full()
+                    .max_h(px(288.0))
+                    .overflow_y_scroll()
+                    .rounded(px(LitheMetrics::CONTROL_RADIUS))
+                    .border_1()
+                    .border_color(tokens.divider)
+                    .bg(tokens.raised)
+                    .p(px(8.0))
+                    .font_family(MONO_FONT_FAMILY)
+                    .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                    .text_color(tokens.primary_text)
+                    .child(content),
+            );
+        }
+
+        timeline_body = timeline_body.child(
+            div()
+                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                .text_color(tokens.tertiary_text)
+                .child(SharedString::from(format!(
+                    "{} {}; {} {}",
+                    tr("Dropped:"),
+                    snapshot.dropped_events,
+                    tr("write failures:"),
+                    snapshot.write_failures
+                ))),
+        );
+
+        // 诊断：开关 + 当前状态 + 过期说明。
+        let diagnostic_module = snapshot
+            .diagnostic_category
+            .as_deref()
+            .map(log_category_title)
+            .unwrap_or_else(|| tr("All modules").to_string());
+        let diagnostic_status = if snapshot.diagnostic_enabled {
+            format!(
+                "{} ({})",
+                tr("Detailed diagnostics: On"),
+                diagnostic_module
+            )
+        } else {
+            tr("Detailed diagnostics: Off").to_string()
+        };
+        let diagnostic_body = v_flex()
+            .w_full()
+            .gap(px(SETTINGS_CONTROL_GAP))
+            .child(described_row(
+                "Detailed diagnostics",
+                Some(SharedString::from(tr(
+                    "Record detailed events for the selected module for 15 minutes.",
+                ))),
+                switch_control(
+                    "lithe-settings:logs-diagnostic",
+                    snapshot.diagnostic_enabled,
+                    "Detailed diagnostics",
+                    cx.listener(|this, checked: &bool, _window, cx| {
+                        this.set_diagnostic_logging(*checked, cx)
+                    }),
+                ),
+                tokens,
+            ))
+            .child(caption_line(SharedString::from(diagnostic_status), tokens))
+            .child(caption_line(
+                SharedString::from(tr(
+                    "Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.",
+                )),
                 tokens,
             ));
 
-        div()
+        let fallback = snapshot
+            .fallback_reason
+            .map(log_fallback_description)
+            .unwrap_or_else(|| {
+                SharedString::from(tr("The directory receiving logs in this session."))
+            });
+        let configured_path = snapshot
+            .configured_directory
+            .as_ref()
+            .map(|path| SharedString::from(path.display().to_string()))
+            .unwrap_or_else(|| SharedString::from(tr("Using the default location")));
+
+        let locations_body = v_flex()
             .w_full()
-            .flex()
-            .flex_col()
-            .gap(px(SETTINGS_SECTION_GAP))
-            .child(section_card(
-                "Runtime",
-                None,
-                details.into_any_element(),
+            .gap(px(SETTINGS_CONTROL_GAP))
+            .child(described_row(
+                "Current log location",
+                Some(fallback),
+                v_flex()
+                    .items_end()
+                    .gap(px(4.0))
+                    .child(code_text(
+                        SharedString::from(snapshot.effective_path.display().to_string()),
+                        tokens,
+                    ))
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .justify_end()
+                            .gap(px(SETTINGS_CONTROL_GAP))
+                            .child(log_button(
+                                "lithe-settings:logs-open-current",
+                                tr("Open Current Log").to_string(),
+                                busy,
+                                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.open_current_log(cx)
+                                }),
+                            ))
+                            .child(log_button(
+                                "lithe-settings:logs-open-directory",
+                                tr("Open Directory").to_string(),
+                                busy,
+                                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.open_log_directory(cx)
+                                }),
+                            ))
+                            .child(log_button(
+                                "lithe-settings:logs-copy-path",
+                                tr("Copy Path").to_string(),
+                                busy,
+                                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.copy_log_path(cx)
+                                }),
+                            )),
+                    )
+                    .into_any_element(),
                 tokens,
             ))
+            .child(described_row(
+                "Default log location",
+                Some(SharedString::from(tr(
+                    "Lithe always maintains and cleans this application-owned directory.",
+                ))),
+                code_text(
+                    SharedString::from(snapshot.default_path.display().to_string()),
+                    tokens,
+                ),
+                tokens,
+            ))
+            .child(described_row(
+                "Custom log location",
+                Some(SharedString::from(tr(
+                    "After choosing a parent directory, Lithe writes into its Lithe/logs subdirectory.",
+                ))),
+                v_flex()
+                    .items_end()
+                    .gap(px(4.0))
+                    .child(code_text(configured_path, tokens))
+                    .child(
+                        h_flex()
+                            .justify_end()
+                            .gap(px(SETTINGS_CONTROL_GAP))
+                            .child(log_button(
+                                "lithe-settings:logs-choose-directory",
+                                tr("Choose…").to_string(),
+                                busy,
+                                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.choose_log_directory(cx)
+                                }),
+                            ))
+                            .child(log_button(
+                                "lithe-settings:logs-restore-default",
+                                tr("Restore Default").to_string(),
+                                busy || snapshot.configured_directory.is_none(),
+                                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.restore_default_log_directory(cx)
+                                }),
+                            )),
+                    )
+                    .into_any_element(),
+                tokens,
+            ));
+
+        let mut retention_body = v_flex()
+            .w_full()
+            .gap(px(SETTINGS_CONTROL_GAP))
             .child(note_card(
                 SharedString::from(tr(
-                    "Log viewing, log directory selection, and diagnostics export are not available in the GPUI build yet.",
+                    "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.",
                 )),
                 tokens,
             ))
-            .into_any_element()
+            .child(described_row(
+                "Clear logs in the current directory",
+                Some(SharedString::from(tr(
+                    "Only delete Lithe-managed log files in the current directory.",
+                ))),
+                log_button(
+                    "lithe-settings:logs-clear",
+                    tr("Clear Logs").to_string(),
+                    busy,
+                    cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.logs.pending_clear = true;
+                        cx.notify();
+                    }),
+                ),
+                tokens,
+            ));
+
+        if self.logs.pending_clear {
+            retention_body = retention_body.child(confirm_strip(
+                "lithe-settings:logs-clear-confirm",
+                SharedString::from(tr(
+                    "Only Lithe-managed logs for all modules and sessions in the current directory are deleted. Filters do not limit cleanup; future events keep being recorded.",
+                )),
+                tr("Clear Logs").to_string(),
+                tr("Cancel").to_string(),
+                cx.listener(|this, _: &ClickEvent, _window, cx| this.confirm_clear_logs(cx)),
+                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.logs.pending_clear = false;
+                    cx.notify();
+                }),
+                tokens,
+            ));
+        }
+
+        let mut bundle_body = v_flex()
+            .w_full()
+            .gap(px(SETTINGS_CONTROL_GAP))
+            .child(described_row(
+                "Export Diagnostic Bundle…",
+                Some(SharedString::from(tr(
+                    "Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.",
+                ))),
+                log_button(
+                    "lithe-settings:logs-preview-bundle",
+                    tr("Preview and Export…").to_string(),
+                    busy,
+                    cx.listener(|this, _: &ClickEvent, _window, cx| this.preview_log_bundle(cx)),
+                ),
+                tokens,
+            ));
+
+        if let Some(entries) = self.logs.bundle_preview.as_ref() {
+            let mut files = v_flex()
+                .id("lithe-settings:logs-bundle-files")
+                .w_full()
+                .max_h(px(192.0))
+                .overflow_y_scroll()
+                .gap(px(2.0))
+                .child(note_card(
+                    SharedString::from(tr(
+                        "Lithe will include the following files, with credentials, tokens, and home-directory paths already redacted:",
+                    )),
+                    tokens,
+                ));
+            for entry in entries {
+                files = files.child(
+                    h_flex()
+                        .w_full()
+                        .gap(px(8.0))
+                        .child(
+                            div()
+                                .min_w(px(0.0))
+                                .truncate()
+                                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                                .text_color(tokens.secondary_text)
+                                .child(SharedString::from(entry.relative_path.clone())),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                                .text_color(tokens.tertiary_text)
+                                .child(SharedString::from(logging::format_bytes(
+                                    entry.size_bytes,
+                                ))),
+                        ),
+                );
+            }
+            bundle_body = bundle_body.child(files).child(confirm_strip(
+                "lithe-settings:logs-bundle-confirm",
+                SharedString::from(tr("Export Diagnostic Bundle?")),
+                tr("Export").to_string(),
+                tr("Cancel").to_string(),
+                cx.listener(|this, _: &ClickEvent, _window, cx| this.export_log_bundle(cx)),
+                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.logs.bundle_preview = None;
+                    cx.notify();
+                }),
+                tokens,
+            ));
+        }
+
+        let mut page = v_flex()
+            .w_full()
+            .gap(px(SETTINGS_SECTION_GAP))
+            .child(note_card(
+                SharedString::from(tr(
+                    "Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.",
+                )),
+                tokens,
+            ));
+
+        if let Some(error) = self.logs.error.as_ref() {
+            page = page.child(
+                div()
+                    .w_full()
+                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                    .text_color(tokens.error)
+                    .child(SharedString::from(error.clone())),
+            );
+        }
+        if let Some(notice) = self.logs.notice.as_ref() {
+            page = page.child(
+                div()
+                    .w_full()
+                    .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+                    .text_color(tokens.secondary_text)
+                    .child(SharedString::from(notice.clone())),
+            );
+        }
+        if let Some((previous, bytes)) = self.logs.previous_cleanup.as_ref() {
+            page = page.child(confirm_strip(
+                "lithe-settings:logs-previous-confirm",
+                SharedString::from(format!(
+                    "{} {} {} {}",
+                    tr("The previous directory"),
+                    previous.display(),
+                    tr("still contains about"),
+                    logging::format_bytes(*bytes)
+                )),
+                tr("Delete Logs").to_string(),
+                tr("Keep Logs").to_string(),
+                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.confirm_previous_log_cleanup(true, cx)
+                }),
+                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.confirm_previous_log_cleanup(false, cx)
+                }),
+                tokens,
+            ));
+        }
+
+        page.child(section_card(
+            "Log timeline",
+            None,
+            timeline_body.into_any_element(),
+            tokens,
+        ))
+        .child(section_card(
+            "Diagnostics",
+            None,
+            diagnostic_body.into_any_element(),
+            tokens,
+        ))
+        .child(section_card(
+            "Log locations",
+            None,
+            locations_body.into_any_element(),
+            tokens,
+        ))
+        .child(section_card(
+            "Retention and cleanup",
+            None,
+            retention_body.into_any_element(),
+            tokens,
+        ))
+        .child(section_card(
+            "Diagnostic bundle",
+            None,
+            bundle_body.into_any_element(),
+            tokens,
+        ))
+        .into_any_element()
     }
 
     fn render_ai_providers(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> AnyElement {
@@ -4736,6 +5609,194 @@ fn note_card(text: SharedString, tokens: LitheTokens) -> AnyElement {
         .text_color(tokens.secondary_text)
         .child(text)
         .into_any_element()
+}
+
+/// 小号说明文字，用于状态与健康计数。
+fn caption_line(text: SharedString, tokens: LitheTokens) -> AnyElement {
+    div()
+        .w_full()
+        .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+        .text_color(tokens.tertiary_text)
+        .child(text)
+        .into_any_element()
+}
+
+/// 右对齐的等宽路径。
+fn code_text(text: SharedString, tokens: LitheTokens) -> AnyElement {
+    div()
+        .max_w(px(352.0))
+        .text_right()
+        .font_family(MONO_FONT_FAMILY)
+        .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+        .text_color(tokens.secondary_text)
+        .child(text)
+        .into_any_element()
+}
+
+/// 带说明的设置行：说明在标签下方，控件靠右。
+fn described_row(
+    label: &'static str,
+    description: Option<SharedString>,
+    control: AnyElement,
+    tokens: LitheTokens,
+) -> AnyElement {
+    let mut text = v_flex().min_w(px(0.0)).gap(px(2.0)).child(
+        div()
+            .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
+            .text_color(tokens.primary_text)
+            .child(tr(label)),
+    );
+    if let Some(description) = description {
+        text = text.child(
+            div()
+                .max_w(px(420.0))
+                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                .text_color(tokens.tertiary_text)
+                .child(description),
+        );
+    }
+    div()
+        .w_full()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_between()
+        .gap_x(px(8.0))
+        .gap_y(px(4.0))
+        .child(text)
+        .child(control)
+        .into_any_element()
+}
+
+/// 日志页的互斥筛选行；与 [`choice_row`] 的区别是直接调用视图方法。
+fn log_choice_row(
+    label: &'static str,
+    id_prefix: &'static str,
+    options: &'static [(&'static str, &'static str)],
+    selected: &str,
+    apply: fn(&mut SettingsView, &'static str, &mut Context<SettingsView>),
+    cx: &mut Context<SettingsView>,
+    tokens: LitheTokens,
+) -> AnyElement {
+    let mut controls = h_flex().flex_wrap().gap(px(SETTINGS_CONTROL_GAP));
+    for &(value, title) in options {
+        let is_selected = selected.eq_ignore_ascii_case(value);
+        controls = controls.child(
+            Button::new(format!("{id_prefix}:{value}"))
+                .small()
+                .h(px(SETTINGS_BUTTON_HEIGHT))
+                .rounded(px(SETTINGS_BUTTON_RADIUS))
+                .min_w(px(SETTINGS_OPTION_MIN_WIDTH))
+                .when(is_selected, |button| button.primary())
+                .when(!is_selected, |button| button.secondary())
+                .label(tr(title))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    apply(this, value, cx);
+                })),
+        );
+    }
+    setting_row(
+        label,
+        controls.into_any_element(),
+        SharedString::default(),
+        tokens,
+    )
+}
+
+/// 小号设置按钮。
+fn log_button(
+    id: &'static str,
+    label: String,
+    disabled: bool,
+    handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    Button::new(id)
+        .small()
+        .h(px(SETTINGS_BUTTON_HEIGHT))
+        .rounded(px(SETTINGS_BUTTON_RADIUS))
+        .secondary()
+        .label(label)
+        .disabled(disabled)
+        .on_click(handler)
+        .into_any_element()
+}
+
+/// 行内确认条，替代 Tauri 的 `showConfirmDialog`。
+fn confirm_strip(
+    id: &'static str,
+    message: SharedString,
+    confirm_label: String,
+    cancel_label: String,
+    on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    on_cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    tokens: LitheTokens,
+) -> AnyElement {
+    let confirm_id = format!("{id}:confirm");
+    let cancel_id = format!("{id}:cancel");
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(px(6.0))
+        .rounded(px(LitheMetrics::CONTROL_RADIUS))
+        .border_1()
+        .border_color(tokens.divider)
+        .bg(tokens.raised)
+        .p(px(8.0))
+        .child(
+            div()
+                .text_size(px(LitheMetrics::SMALL_FONT_SIZE))
+                .text_color(tokens.secondary_text)
+                .child(message),
+        )
+        .child(
+            h_flex()
+                .gap(px(SETTINGS_CONTROL_GAP))
+                .child(
+                    Button::new(confirm_id)
+                        .small()
+                        .h(px(SETTINGS_BUTTON_HEIGHT))
+                        .rounded(px(SETTINGS_BUTTON_RADIUS))
+                        .primary()
+                        .label(confirm_label)
+                        .on_click(on_confirm),
+                )
+                .child(
+                    Button::new(cancel_id)
+                        .small()
+                        .h(px(SETTINGS_BUTTON_HEIGHT))
+                        .rounded(px(SETTINGS_BUTTON_RADIUS))
+                        .secondary()
+                        .label(cancel_label)
+                        .on_click(on_cancel),
+                ),
+        )
+        .into_any_element()
+}
+
+/// 日志模块 id → 页面名称。
+fn log_category_title(category: &str) -> String {
+    let value = if category == "app" { "application" } else { category };
+    LOG_CATEGORY_OPTIONS
+        .iter()
+        .find(|(id, _)| *id == value)
+        .map(|(_, title)| tr(title).to_string())
+        .unwrap_or_else(|| category.to_string())
+}
+
+/// 回退原因 → 说明文案，与 Tauri `settings.logs.fallback.*` 对齐。
+fn log_fallback_description(reason: &str) -> SharedString {
+    SharedString::from(match reason {
+        "notWritable" => tr(
+            "The configured directory is not writable. This session is writing to the default location.",
+        ),
+        "unavailable" => tr(
+            "The configured directory is unavailable. This session is writing to the default location.",
+        ),
+        _ => tr(
+            "Application file logging is unavailable. Lithe is continuing with console diagnostics only.",
+        ),
+    })
 }
 
 /// 由外部子系统拥有、当前不可编辑的状态块。

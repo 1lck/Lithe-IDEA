@@ -228,4 +228,32 @@ impl Workbench {
         }
         cx.notify();
     }
+
+    /// 打开设置覆盖层并直接落在「LSP」页。Run 面板的语言服务入口用它。
+    pub(crate) fn open_language_service_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.settings_visible {
+            self.toggle_settings(window, cx);
+        }
+        if let Some(view) = self.settings_view.clone() {
+            view.update(cx, |view, view_cx| {
+                view.open_language_service_page(view_cx)
+            });
+        }
+        cx.notify();
+    }
+
+    /// 打开设置覆盖层并直接落在「Logs and Diagnostics」页。Run 面板的查看日志入口用它。
+    pub(crate) fn open_log_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.settings_visible {
+            self.toggle_settings(window, cx);
+        }
+        if let Some(view) = self.settings_view.clone() {
+            view.update(cx, |view, view_cx| view.open_logs_page(view_cx));
+        }
+        cx.notify();
+    }
 }

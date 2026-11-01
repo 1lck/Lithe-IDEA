@@ -182,6 +182,10 @@ pub struct EditorSurface {
     editor_code_lens: bool,
     /// Tab 宽度（Monaco `tabSize`）。
     editor_tab_size: u32,
+    /// 语言服务：自动补全、参数提示、语义高亮。
+    auto_completion: bool,
+    parameter_hints: bool,
+    semantic_tokens: bool,
 }
 
 impl EditorSurface {
@@ -249,6 +253,9 @@ impl EditorSurface {
             editor_font_ligatures: false,
             editor_code_lens: false,
             editor_tab_size: 4,
+            auto_completion: true,
+            parameter_hints: true,
+            semantic_tokens: true,
         }
     }
 
@@ -314,6 +321,29 @@ impl EditorSurface {
         self.editor_font_ligatures = ligatures;
         self.editor_code_lens = code_lens;
         self.editor_tab_size = tab_size;
+        if self.webview.is_some() {
+            self.send_configure(cx);
+        }
+        cx.notify();
+    }
+
+    /// 语言服务开关；设置页修改后由工作台下发到 Monaco。
+    pub fn set_language_service_preferences(
+        &mut self,
+        auto_completion: bool,
+        parameter_hints: bool,
+        semantic_tokens: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.auto_completion == auto_completion
+            && self.parameter_hints == parameter_hints
+            && self.semantic_tokens == semantic_tokens
+        {
+            return;
+        }
+        self.auto_completion = auto_completion;
+        self.parameter_hints = parameter_hints;
+        self.semantic_tokens = semantic_tokens;
         if self.webview.is_some() {
             self.send_configure(cx);
         }
@@ -1064,6 +1094,9 @@ impl EditorSurface {
             "fontLigatures": self.editor_font_ligatures,
             "codeLens": self.editor_code_lens,
             "tabSize": self.editor_tab_size,
+            "autoCompletion": self.auto_completion,
+            "parameterHints": self.parameter_hints,
+            "semanticTokens": self.semantic_tokens,
         });
         self.evaluate(
             format!(

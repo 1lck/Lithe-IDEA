@@ -4,6 +4,7 @@
 //! 启动/停止本机进程，并把输出与状态同步回视图。
 
 pub(crate) mod config;
+pub(crate) mod java_decision;
 pub(crate) mod model;
 /// 供 Maven 工具窗复用 `project-maven` 工具链与 Windows 命令包装。
 pub(crate) mod session;

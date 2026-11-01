@@ -51,6 +51,9 @@ interface Appearance {
   fontLigatures: boolean;
   codeLens: boolean;
   tabSize: number;
+  autoCompletion: boolean;
+  parameterHints: boolean;
+  semanticTokens: boolean;
 }
 
 const DEFAULT_FONT_FAMILY = '"JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace';
@@ -69,6 +72,9 @@ const appearance: Appearance = {
   fontLigatures: false,
   codeLens: false,
   tabSize: 4,
+  autoCompletion: true,
+  parameterHints: true,
+  semanticTokens: true,
 };
 
 interface Entry {
@@ -755,6 +761,12 @@ function applyConfigure(payload: LitheConfigurePayload): void {
     if (typeof tabSize === "number" && Number.isFinite(tabSize) && tabSize > 0) {
       appearance.tabSize = Math.floor(tabSize);
     }
+    const autoCompletion = (payload as { autoCompletion?: unknown }).autoCompletion;
+    if (typeof autoCompletion === "boolean") appearance.autoCompletion = autoCompletion;
+    const parameterHints = (payload as { parameterHints?: unknown }).parameterHints;
+    if (typeof parameterHints === "boolean") appearance.parameterHints = parameterHints;
+    const semanticTokens = (payload as { semanticTokens?: unknown }).semanticTokens;
+    if (typeof semanticTokens === "boolean") appearance.semanticTokens = semanticTokens;
   }
 
   const background = toMonacoColor(appearance.background, appearance.dark ? "#1e1e1e" : "#ffffff");
@@ -773,6 +785,10 @@ function applyConfigure(payload: LitheConfigurePayload): void {
     fontLigatures: appearance.fontLigatures,
     codeLens: appearance.codeLens,
     tabSize: appearance.tabSize,
+    quickSuggestions: appearance.autoCompletion,
+    suggestOnTriggerCharacters: appearance.autoCompletion,
+    parameterHints: { enabled: appearance.parameterHints },
+    semanticHighlighting: { enabled: appearance.semanticTokens },
     // 只读是分屏副窗格的状态，不属于外观；显式回填当前值，避免外观更新
     // 重设选项时把 setReadonly 的结果覆盖掉。
     readOnly,
@@ -852,6 +868,10 @@ const view = monaco.editor.create(container, {
   fontLigatures: appearance.fontLigatures,
   codeLens: appearance.codeLens,
   tabSize: appearance.tabSize,
+  quickSuggestions: appearance.autoCompletion,
+  suggestOnTriggerCharacters: appearance.autoCompletion,
+  parameterHints: { enabled: appearance.parameterHints },
+  semanticHighlighting: { enabled: appearance.semanticTokens },
   fontFamily: appearance.fontFamily,
   fontSize: appearance.fontSize,
   wordWrap: "off",

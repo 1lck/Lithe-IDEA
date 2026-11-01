@@ -9,26 +9,24 @@ use std::rc::Rc;
 
 use gpui_kit::base::TextSelection;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{
-    Disableable as _, Sizable as _, Theme, h_flex, v_flex, v_virtual_list,
-};
+use gpui_kit::component::{Disableable as _, Sizable as _, Theme, h_flex, v_flex, v_virtual_list};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    MouseMoveEvent, ParentElement, Render, ScrollEvent, ScrollStrategy, SharedString,
+    MouseButton, MouseMoveEvent, ParentElement, Render, ScrollEvent, ScrollStrategy, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, TextStyleRefinement, WhiteSpace, Window,
     div, px,
 };
 use lithe_ui::i18n::tr;
 use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, current_tokens, icon, mono_font_family};
 
+use super::model::TaskStatus;
+use super::session::DiagnosticSeverity;
+use super::view::{MavenPanel, MavenPanelEvent};
 use crate::console::{
     AnsiPalette, ConsoleCaretHandler, ConsoleHost, ConsoleScroll, console_line_element,
     console_scrollbar,
 };
-use super::model::TaskStatus;
-use super::session::DiagnosticSeverity;
-use super::view::{MavenPanel, MavenPanelEvent};
 
 /// 输出行高度，与 Run 面板控制台一致。
 const CONSOLE_LINE_HEIGHT: f32 = 18.0;
@@ -529,6 +527,7 @@ impl Render for MavenOutputPanel {
                 let line_tokens = tokens;
                 let console_caret = self.console.caret_snapshot();
                 let owner = cx.weak_entity();
+                let selection_snapshot = self.console.selection;
                 div()
                     .id("lithe-maven-output-console")
                     .relative()
@@ -537,16 +536,24 @@ impl Render for MavenOutputPanel {
                     .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
                         this.console.on_scroll(event, window, cx);
                     }))
-                    .on_mouse_move(cx.listener(|_, event: &MouseMoveEvent, window, cx| {
+                    .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                         // 拖选不改变 hover 或滚动，GPUI 不会为此重绘；
                         // 按住左键拖动时主动请求一帧，让每行文本在
                         // prepaint 中拿到新的选择范围并即时绘制高亮。
                         if event.pressed_button.is_some()
-                            && TextSelection::has_selection(window, cx)
+                            && (TextSelection::has_selection(window, cx)
+                                || this.console.has_selection())
                         {
                             window.refresh();
                         }
                     }))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.console.end_selection();
+                            cx.notify();
+                        }),
+                    )
                     .child(
                         v_virtual_list(
                             cx.entity(),
@@ -561,14 +568,28 @@ impl Render for MavenOutputPanel {
                                             Rc::new(move |offset, _window, cx| {
                                                 let _ = owner.update(cx, |this, cx| {
                                                     this.console.set_caret(index, offset);
+                                                    this.console.begin_selection(index, offset);
                                                     cx.notify();
                                                 });
                                             })
                                         };
+                                        let on_drag: ConsoleCaretHandler = {
+                                            let owner = owner.clone();
+                                            Rc::new(move |offset, _window, cx| {
+                                                let _ = owner.update(cx, |this, cx| {
+                                                    this.console.update_selection(index, offset);
+                                                    cx.notify();
+                                                });
+                                            })
+                                        };
+                                        let raw_line = panel.task_line_at(index);
+                                        let selected_range = selection_snapshot.and_then(|sel| {
+                                            sel.range_for_line(index, raw_line.len())
+                                        });
                                         console_line_element(
                                             format!("lithe-maven-output-line:{index}"),
                                             index,
-                                            panel.task_line_at(index),
+                                            raw_line,
                                             line_text_style.clone(),
                                             &palette,
                                             line_tokens,
@@ -576,6 +597,8 @@ impl Render for MavenOutputPanel {
                                                 .filter(|(line, _)| *line == index)
                                                 .map(|(_, offset)| offset),
                                             Some(on_caret),
+                                            selected_range,
+                                            Some(on_drag),
                                             CONSOLE_LINE_HEIGHT,
                                         )
                                     })

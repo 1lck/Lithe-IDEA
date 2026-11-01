@@ -40,6 +40,7 @@ use crate::console::{
 };
 
 use super::config::{self, LoadedRunConfigurations};
+use super::java_decision::{self, JavaLaunchDecision};
 use super::model::{
     PreparationPhase, PreparationStatus, ProjectPreparation, RunConfiguration, RunDiagnostic,
     RunExecution, RunLanguage, RunScope,
@@ -192,6 +193,8 @@ pub struct RunPanel {
     batch_selection: bool,
     /// 批量选择模式下被勾选的配置 id。
     checked: HashSet<String>,
+    /// 折叠的分组名称（对齐 Tauri 的折叠状态）。
+    collapsed_groups: HashSet<String>,
     /// 标题栏 more 菜单实体；打开期间持有，关闭时释放。
     /// 工具条「…」弹出菜单与其触发位置；渲染期用 `anchored` 挂到前景层。
     more_menu: Option<(Entity<PopupMenu>, gpui_kit::Point<gpui_kit::Pixels>)>,
@@ -217,6 +220,10 @@ pub struct RunPanel {
     /// Java 项目准备状态（完全对齐 Tauri `ProjectPreparation`，仅在 Java 项目中激活）。
     pub preparation: Option<ProjectPreparation>,
     _preparation_task: Option<Task<()>>,
+    /// Java/Spring Boot 启动前的构建检查结果；有待决项时暂停启动。
+    launch_decision: Option<JavaLaunchDecision>,
+    /// 用户选择「对此工作区始终继续」后跳过后续构建检查。
+    skip_build_check: bool,
 }
 
 impl RunPanel {
@@ -258,6 +265,7 @@ impl RunPanel {
             configuration_width: CONFIGURATION_LIST_DEFAULT_WIDTH,
             batch_selection: false,
             checked: HashSet::new(),
+            collapsed_groups: HashSet::new(),
             more_menu: None,
             _more_menu_subscription: None,
             selected_language: None,
@@ -271,6 +279,8 @@ impl RunPanel {
             preparation_expanded: false,
             preparation: None,
             _preparation_task: None,
+            launch_decision: None,
+            skip_build_check: false,
         }
     }
 
@@ -280,10 +290,7 @@ impl RunPanel {
     }
 
     /// 注入「编辑当前配置」回调：打开设置页的 Run Configurations 页。
-    pub fn on_open_settings(
-        &mut self,
-        handler: impl Fn(&str, &mut Window, &mut App) + 'static,
-    ) {
+    pub fn on_open_settings(&mut self, handler: impl Fn(&str, &mut Window, &mut App) + 'static) {
         self.on_open_settings = Some(Rc::new(handler));
     }
 
@@ -473,9 +480,7 @@ impl RunPanel {
             .as_ref()
             .and_then(|id| self.sessions.get(id))
             .is_some_and(SessionState::is_active);
-        if self
-            .console
-            .sync_line_count(count, CONSOLE_LINE_HEIGHT)
+        if self.console.sync_line_count(count, CONSOLE_LINE_HEIGHT)
             && self.console_follow_tail
             && running
             && count > 0
@@ -503,15 +508,48 @@ impl RunPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let selected = TextSelection::selected_text(window, cx);
-        let text = if selected.trim().is_empty() {
-            self.selected_output()
+        let text = if let Some(text) = self.copy_logical_selection() {
+            text
         } else {
-            selected
+            let selected = TextSelection::selected_text(window, cx);
+            if selected.trim().is_empty() {
+                self.selected_output()
+            } else {
+                selected
+            }
         };
         if !text.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
+    }
+
+    fn copy_logical_selection(&self) -> Option<String> {
+        let sel = self.console.selection.as_ref()?;
+        if sel.anchor == sel.cursor {
+            return None;
+        }
+        let ((start_line, start_col), (end_line, end_col)) = sel.normalized();
+        let count = self.selected_line_count();
+        let mut parts = Vec::new();
+        for line_idx in start_line..=end_line.min(count.saturating_sub(1)) {
+            let line_text = self.selected_line_text(line_idx);
+            let len = line_text.len();
+            if line_idx == start_line && line_idx == end_line {
+                let start = start_col.min(len);
+                let end = end_col.min(len);
+                parts.push(line_text[start..end].to_string());
+            } else if line_idx == start_line {
+                let start = start_col.min(len);
+                parts.push(line_text[start..].to_string());
+            } else if line_idx == end_line {
+                let end = end_col.min(len);
+                parts.push(line_text[..end].to_string());
+            } else {
+                parts.push(line_text);
+            }
+        }
+        let joined = parts.join("\n");
+        (!joined.trim().is_empty()).then_some(joined)
     }
 
     /// 复制按钮与控制台快捷键共用同一份文本。
@@ -608,7 +646,9 @@ impl RunPanel {
 
         let task = cx.spawn(async move |this, cx| {
             // 阶段 1: Starting -> 150ms
-            cx.background_executor().timer(Duration::from_millis(150)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(150))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 if let Some(prep) = this.preparation.as_mut() {
                     prep.phase = PreparationPhase::Importing;
@@ -618,7 +658,9 @@ impl RunPanel {
             });
 
             // 阶段 2: Importing -> 300ms
-            cx.background_executor().timer(Duration::from_millis(300)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(300))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 if let Some(prep) = this.preparation.as_mut() {
                     prep.phase = PreparationPhase::Configuring;
@@ -628,7 +670,9 @@ impl RunPanel {
             });
 
             // 阶段 3: Configuring -> 250ms
-            cx.background_executor().timer(Duration::from_millis(250)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(250))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 if let Some(prep) = this.preparation.as_mut() {
                     prep.phase = PreparationPhase::Building;
@@ -637,7 +681,9 @@ impl RunPanel {
             });
 
             // 阶段 4: Building -> 200ms -> Ready!
-            cx.background_executor().timer(Duration::from_millis(200)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(200))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.preparation = Some(ProjectPreparation::ready());
                 cx.notify();
@@ -714,11 +760,8 @@ impl RunPanel {
 
         self.selected_id = Some(id.clone());
         self.show_details = false;
-        self.sessions.insert(id.clone(), SessionState::starting());
+        self.launch_decision = None;
         self.pending_output.remove(&id);
-        // 新会话从第 0 行开始：重置跟随，不继承上一次的滚动位置。
-        self.console.reset();
-        self.console_follow_tail = true;
         self.emit(cx);
         cx.notify();
 
@@ -728,11 +771,36 @@ impl RunPanel {
             save(cx);
         }
 
+        let skip_build = self.skip_build_check || !session::needs_build_check(&configuration);
+        self.launch_configuration(configuration, root, skip_build, cx);
+    }
+
+    /// 真正启动一个配置。`skip_build` 为 true 时跳过启动前构建。
+    fn launch_configuration(
+        &mut self,
+        configuration: RunConfiguration,
+        root: PathBuf,
+        skip_build: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let id = configuration.id.clone();
+        crate::logging::log_info("run", format!("launching run configuration {id}"));
+        self.selected_id = Some(id.clone());
+        self.show_details = false;
+        self.sessions.insert(id.clone(), SessionState::starting());
+        self.pending_output.remove(&id);
+        self.console.reset();
+        self.console_follow_tail = true;
+        self.emit(cx);
+        cx.notify();
+
         let client = self.client;
-        let session_id = id.clone();
+        let session_id = id;
         cx.spawn(async move |this, cx| {
             let receiver = cx
-                .background_spawn(async move { session::start(client, root, configuration) })
+                .background_spawn(
+                    async move { session::start(client, root, configuration, skip_build) },
+                )
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.watch_session(session_id, receiver, cx);
@@ -1011,8 +1079,7 @@ impl RunPanel {
             return;
         }
         // 虚拟列表的滚动偏移是像素；行高固定（Nowrap 单行），换算是精确的。
-        let current =
-            (-self.console.handle.offset().y / px(CONSOLE_LINE_HEIGHT)).round() as usize;
+        let current = (-self.console.handle.offset().y / px(CONSOLE_LINE_HEIGHT)).round() as usize;
         let target = if forward {
             lines.iter().copied().filter(|line| *line > current).min()
         } else {
@@ -1486,18 +1553,46 @@ impl RunPanel {
         for (group_title, group) in self.group_configurations(&configurations) {
             let representative = group.first().copied();
             let group_icon = representative.map(|c| c.icon());
+            let is_collapsed = self.collapsed_groups.contains(&group_title);
+            let toggle_title = group_title.clone();
+            let group_slug = group_title.replace(' ', "-");
             list = list.child(
                 h_flex()
+                    .id(SharedString::from(format!(
+                        "lithe-run:group-header:{group_slug}"
+                    )))
                     .w_full()
                     .flex_shrink_0()
                     .h(px(GROUP_HEADER_HEIGHT))
                     .items_center()
                     .gap(px(6.0))
                     .px(px(8.0))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(tokens.hover))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if this.collapsed_groups.contains(&toggle_title) {
+                            this.collapsed_groups.remove(&toggle_title);
+                        } else {
+                            this.collapsed_groups.insert(toggle_title.clone());
+                        }
+                        cx.notify();
+                    }))
                     .child(
-                        Icon::new(IconName::ChevronDown)
-                            .with_size(px(12.0))
-                            .text_color(tokens.secondary_text),
+                        div()
+                            .id(SharedString::from(format!(
+                                "lithe-run:chevron:{group_slug}"
+                            )))
+                            .p(px(2.0))
+                            .rounded(px(4.0))
+                            .child(
+                                Icon::new(if is_collapsed {
+                                    IconName::ChevronRight
+                                } else {
+                                    IconName::ChevronDown
+                                })
+                                .with_size(px(12.0))
+                                .text_color(tokens.secondary_text),
+                            ),
                     )
                     .when_some(group_icon, |this, icon_kind| {
                         let color = if icon_kind == LitheIcon::Spring {
@@ -1505,11 +1600,7 @@ impl RunPanel {
                         } else {
                             tokens.secondary_text
                         };
-                        this.child(
-                            icon(icon_kind)
-                                .with_size(px(14.0))
-                                .text_color(color),
-                        )
+                        this.child(icon(icon_kind).with_size(px(14.0)).text_color(color))
                     })
                     .child(
                         div()
@@ -1528,8 +1619,10 @@ impl RunPanel {
                             .child(group.len().to_string()),
                     ),
             );
-            for configuration in group {
-                list = list.child(self.render_configuration_row(&configuration, tokens, cx));
+            if !is_collapsed {
+                for configuration in group {
+                    list = list.child(self.render_configuration_row(&configuration, tokens, cx));
+                }
             }
         }
 
@@ -1584,13 +1677,16 @@ impl RunPanel {
             .px(px(8.0))
             .when(selected, |this| this.bg(tokens.selection))
             .when(!selected, |this| this.hover(|style| style.bg(tokens.hover)))
-            .on_click(cx.listener(move |this, _, _window, cx| {
+            .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
                 this.selected_id = Some(configuration_for_click.id.clone());
                 this.show_details = false;
                 // 切换会话：重置跟随，不继承上一个会话的滚动位置。
                 this.console.reset();
                 this.console_follow_tail = true;
                 this.emit(cx);
+                if event.click_count() >= 2 {
+                    this.start_configuration(configuration_for_click.id.clone(), cx);
+                }
                 cx.notify();
             }))
             // 批量模式才出现勾选框：平时行内只保留图标、名称、状态点和动作按钮。
@@ -1621,8 +1717,9 @@ impl RunPanel {
             .child(
                 Button::new(format!("lithe-run:edit:{id}"))
                     .ghost()
-                    .small()
-                    .child(Icon::new(IconName::Settings).with_size(px(13.0)))
+                    .with_size(px(20.0))
+                    .rounded(px(2.0))
+                    .child(Icon::new(IconName::Settings).with_size(px(12.0)))
                     .tooltip(tr("Edit Service"))
                     .accessibility_label(tr("Edit Service"))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -1632,14 +1729,15 @@ impl RunPanel {
             .child(
                 Button::new(format!("lithe-run:toggle:{id}"))
                     .ghost()
-                    .small()
+                    .with_size(px(20.0))
+                    .rounded(px(2.0))
                     .child(
                         Icon::new(if running {
                             IconName::Square
                         } else {
                             IconName::Play
                         })
-                        .with_size(px(13.0))
+                        .with_size(px(12.0))
                         .text_color(if running {
                             tokens.warning
                         } else {
@@ -1648,6 +1746,11 @@ impl RunPanel {
                     )
                     .tooltip(tr(if running { "Stop" } else { "Run" }))
                     .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.selected_id = Some(id_for_toggle.clone());
+                        this.show_details = false;
+                        this.console.reset();
+                        this.console_follow_tail = true;
+                        this.emit(cx);
                         if let Some(session) = this.sessions.get(&id_for_toggle) {
                             if session.is_active() {
                                 this.stop_configuration(&id_for_toggle, cx);
@@ -1844,7 +1947,8 @@ impl RunPanel {
                             MouseButton::Left,
                             cx.listener(|this, _, window, cx| this.console_focus.focus(window, cx)),
                         )
-                        .child(
+                        .child({
+                            let selection_snapshot = self.console.selection;
                             div()
                                 .id("lithe-run-output")
                                 .relative()
@@ -1853,15 +1957,25 @@ impl RunPanel {
                                 .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
                                     this.console.on_scroll(event, window, cx);
                                 }))
-                                .on_mouse_move(cx.listener(|_, event: &MouseMoveEvent, window, cx| {
-                                    // 拖选不改变 hover 或滚动；按住左键拖动时主动
-                                    // 请求一帧，让选区背景随鼠标即时更新。
-                                    if event.pressed_button.is_some()
-                                        && TextSelection::has_selection(window, cx)
-                                    {
-                                        window.refresh();
-                                    }
-                                }))
+                                .on_mouse_move(cx.listener(
+                                    |this, event: &MouseMoveEvent, window, cx| {
+                                        // 拖选不改变 hover 或滚动；按住左键拖动时主动
+                                        // 请求一帧，让选区背景随鼠标即时更新。
+                                        if event.pressed_button.is_some()
+                                            && (TextSelection::has_selection(window, cx)
+                                                || this.console.has_selection())
+                                        {
+                                            window.refresh();
+                                        }
+                                    },
+                                ))
+                                .on_mouse_up(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _, _, cx| {
+                                        this.console.end_selection();
+                                        cx.notify();
+                                    }),
+                                )
                                 // 控制台用 v_virtual_list：行高固定（Nowrap 单行），
                                 // 只排版可视行，并暴露 ScrollHandle 给平滑滚动。
                                 .child(
@@ -1876,15 +1990,37 @@ impl RunPanel {
                                                         let owner = owner.clone();
                                                         Rc::new(move |offset, _window, cx| {
                                                             let _ = owner.update(cx, |this, cx| {
-                                                                this.console.set_caret(index, offset);
+                                                                this.console
+                                                                    .set_caret(index, offset);
+                                                                this.console
+                                                                    .begin_selection(index, offset);
                                                                 cx.notify();
                                                             });
                                                         })
                                                     };
+                                                    let on_drag: ConsoleCaretHandler = {
+                                                        let owner = owner.clone();
+                                                        Rc::new(move |offset, _window, cx| {
+                                                            let _ = owner.update(cx, |this, cx| {
+                                                                this.console.update_selection(
+                                                                    index, offset,
+                                                                );
+                                                                cx.notify();
+                                                            });
+                                                        })
+                                                    };
+                                                    let raw_line = this.selected_line_text(index);
+                                                    let selected_range = selection_snapshot
+                                                        .and_then(|sel| {
+                                                            sel.range_for_line(
+                                                                index,
+                                                                raw_line.len(),
+                                                            )
+                                                        });
                                                     console_line_element(
                                                         format!("lithe-run-line:{index}"),
                                                         index,
-                                                        &this.selected_line_text(index),
+                                                        &raw_line,
                                                         text_style.clone(),
                                                         &palette,
                                                         line_tokens,
@@ -1892,6 +2028,8 @@ impl RunPanel {
                                                             .filter(|(line, _)| *line == index)
                                                             .map(|(_, offset)| offset),
                                                         Some(on_caret),
+                                                        selected_range,
+                                                        Some(on_drag),
                                                         CONSOLE_LINE_HEIGHT,
                                                     )
                                                 })
@@ -1904,8 +2042,8 @@ impl RunPanel {
                                 .child(console_scrollbar(
                                     &self.console.handle,
                                     "lithe-run-output-scrollbar",
-                                )),
-                        )
+                                ))
+                        })
                         .into_any_element()
                 },
             ));
@@ -2010,7 +2148,10 @@ impl RunPanel {
                 true,
             ),
         ];
-        if let Some(module) = configuration.module().filter(|value| !value.trim().is_empty()) {
+        if let Some(module) = configuration
+            .module()
+            .filter(|value| !value.trim().is_empty())
+        {
             rows.push((tr("Module"), module.to_string(), true));
         }
         if let Some(main_class) = configuration
@@ -2020,11 +2161,7 @@ impl RunPanel {
             rows.push((tr("Main class"), main_class.to_string(), true));
         }
         if !configuration.java_home_path.trim().is_empty() {
-            rows.push((
-                tr("JDK home"),
-                configuration.java_home_path.clone(),
-                true,
-            ));
+            rows.push((tr("JDK home"), configuration.java_home_path.clone(), true));
         }
         if !configuration.maven_executable_path.trim().is_empty() {
             rows.push((
@@ -2067,11 +2204,7 @@ impl RunPanel {
             configuration.source_title().to_string(),
             false,
         ));
-        rows.push((
-            tr("Configuration ID"),
-            configuration.id.clone(),
-            true,
-        ));
+        rows.push((tr("Configuration ID"), configuration.id.clone(), true));
         for (label, value, monospaced) in rows {
             details = details.child(detail_row(label, value, monospaced, tokens));
         }
@@ -2125,7 +2258,10 @@ impl RunPanel {
         let label = if is_failed {
             tr("Java project preparation failed — view details").to_string()
         } else if let Some(percent) = preparation.import_percent {
-            format!("{}: {percent}%", tr("Importing Java project and dependencies"))
+            format!(
+                "{}: {percent}%",
+                tr("Importing Java project and dependencies")
+            )
         } else {
             preparation.phase.label().to_string()
         };
@@ -2181,8 +2317,14 @@ impl RunPanel {
 
         let phases = [
             (PreparationPhase::Starting, tr("Starting Java service")),
-            (PreparationPhase::Importing, tr("Importing Java project and dependencies")),
-            (PreparationPhase::Configuring, tr("Synchronizing Java project configuration")),
+            (
+                PreparationPhase::Importing,
+                tr("Importing Java project and dependencies"),
+            ),
+            (
+                PreparationPhase::Configuring,
+                tr("Synchronizing Java project configuration"),
+            ),
             (PreparationPhase::Building, tr("Building Java project")),
         ];
 
@@ -2500,23 +2642,71 @@ impl RunPanel {
     /// 配置诊断提示条。对齐 macOS `configurationNotice`：Core 会为每个配置各返回
     /// 一条诊断（`RunDiagnostic.id` 指向具体配置），逐条铺开会把同一句话重复几十
     /// 遍，所以这里只展示一条——优先 staleFingerprint，否则取第一条。
-    fn render_banners(&self, _tokens: LitheTokens) -> Vec<AnyElement> {
+    fn render_banners(&self, tokens: LitheTokens, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut banners = Vec::new();
+        if let Some(decision) = &self.launch_decision {
+            banners.push(java_decision::render_java_launch_decision_banner(
+                decision, tokens, cx,
+            ));
+        }
         let notice = self
             .diagnostics
             .iter()
             .find(|diagnostic| diagnostic.code == "staleFingerprint")
             .or_else(|| self.diagnostics.first());
-        notice
-            .map(|diagnostic| {
-                Alert::warning(
-                    SharedString::from("lithe-run:diagnostic"),
-                    SharedString::from(diagnostic.message.clone()),
-                )
-                .banner()
-                .into_any_element()
-            })
-            .into_iter()
-            .collect()
+        banners.extend(notice.map(|diagnostic| {
+            Alert::warning(
+                SharedString::from("lithe-run:diagnostic"),
+                SharedString::from(diagnostic.message.clone()),
+            )
+            .banner()
+            .into_any_element()
+        }));
+        banners
+    }
+
+    /// 「仍然运行」/「对此工作区始终继续」：跳过本次构建失败继续启动。
+    pub(crate) fn continue_java_launch(&mut self, always: bool, cx: &mut Context<Self>) {
+        if always {
+            self.skip_build_check = true;
+        }
+        let Some(decision) = self.launch_decision.take() else {
+            return;
+        };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        self.launch_configuration(decision.configuration, root, true, cx);
+    }
+
+    /// 「重建 Java 索引」：对齐 Tauri actions.rebuildJavaIndex。
+    pub(crate) fn rebuild_java_index(&mut self, cx: &mut Context<Self>) {
+        self.launch_decision = None;
+        let id = self.selected_id.clone().or_else(|| self.default_id.clone());
+        if let Some(id) = id {
+            let session = self
+                .sessions
+                .entry(id)
+                .or_insert_with(SessionState::starting);
+            session.append_output(
+                "Java index cleared. Run the configuration again after project import finishes.\n",
+            );
+        }
+        cx.notify();
+    }
+
+    /// 「打开日志」：切换到该配置查看日志。
+    pub(crate) fn open_decision_logs(&mut self, config_id: &str, cx: &mut Context<Self>) {
+        self.selected_id = Some(config_id.to_string());
+        self.show_details = false;
+        self.emit(cx);
+        cx.notify();
+    }
+
+    /// 「取消」：取消本次启动并关闭决策横幅。
+    pub(crate) fn cancel_java_launch(&mut self, cx: &mut Context<Self>) {
+        self.launch_decision = None;
+        cx.notify();
     }
 
     /// 主体：固定宽度的作用域图标条 + 可拖拽的「配置列表 / 输出」分栏。
@@ -2604,7 +2794,7 @@ impl Render for RunPanel {
         if let Some(error) = self.error.clone() {
             panel = panel.child(status_line(tokens.error, error));
         }
-        for banner in self.render_banners(tokens) {
+        for banner in self.render_banners(tokens, cx) {
             panel = panel.child(banner);
         }
 

@@ -352,6 +352,9 @@ impl Workbench {
         let font_ligatures = settings.editor_font_ligatures;
         let code_lens = settings.editor_code_lens;
         let tab_size = settings.editor_tab_size;
+        let auto_completion = settings.auto_completion;
+        let parameter_hints = settings.parameter_hints;
+        let semantic_tokens = settings.semantic_tokens;
 
         self.editor.update(cx, |editor, editor_cx| {
             editor.set_preferences(
@@ -365,6 +368,12 @@ impl Workbench {
             );
             editor.set_render_whitespace(render_whitespace, editor_cx);
             editor.set_editor_extras(font_ligatures, code_lens, tab_size, editor_cx);
+            editor.set_language_service_preferences(
+                auto_completion,
+                parameter_hints,
+                semantic_tokens,
+                editor_cx,
+            );
         });
 
         if let Some(secondary) = self.editor_secondary.clone() {
@@ -380,6 +389,12 @@ impl Workbench {
                 );
                 editor.set_render_whitespace(render_whitespace, editor_cx);
                 editor.set_editor_extras(font_ligatures, code_lens, tab_size, editor_cx);
+                editor.set_language_service_preferences(
+                    auto_completion,
+                    parameter_hints,
+                    semantic_tokens,
+                    editor_cx,
+                );
             });
         }
     }

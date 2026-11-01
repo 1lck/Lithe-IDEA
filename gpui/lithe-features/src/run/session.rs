@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_channel::{Receiver, Sender, unbounded};
 use lithe_core_client::CoreClient;
@@ -37,22 +37,19 @@ pub fn start(
     client: CoreClient,
     root: PathBuf,
     configuration: RunConfiguration,
+    skip_build: bool,
 ) -> Receiver<SessionEvent> {
     let (sender, receiver) = unbounded();
     thread::spawn(move || {
-        if let Err(message) = launch(client, root, configuration, sender.clone()) {
+        if let Err(message) = launch(client, root, configuration, skip_build, sender.clone()) {
             let _ = sender.send_blocking(SessionEvent::Failed(message));
         }
     });
     receiver
 }
 
-fn launch(
-    client: CoreClient,
-    root: PathBuf,
-    configuration: RunConfiguration,
-    sender: Sender<SessionEvent>,
-) -> Result<(), String> {
+/// 构造 `runConfig.createLaunchPlan` 请求；启动和构建预检共用。
+fn launch_request(root: &Path, configuration: &RunConfiguration) -> Value {
     let root_text = root.to_string_lossy().to_string();
     let mut request = json!({
         "root": root_text,
@@ -80,7 +77,7 @@ fn launch(
             .unwrap_or_default();
         // 与 Tauri 一样带上 Maven 工具窗保存的 settings / 本地仓库 / 可执行文件，
         // 否则多模块项目或自定义 Maven 在启动时会退回默认查找。
-        let maven_settings = crate::maven::configuration::load_local(&root, reactor_path);
+        let maven_settings = crate::maven::configuration::load_local(root, reactor_path);
         request["mavenContext"] = json!({
             "version": 1,
             "reactorPath": reactor_path,
@@ -95,6 +92,53 @@ fn launch(
             "javaHomePath": maven_settings.java_home_path
         });
     }
+    request
+}
+
+/// 是否需要在启动前做一次 Java 项目构建检查。
+pub fn needs_build_check(configuration: &RunConfiguration) -> bool {
+    let provider = configuration.provider.as_str();
+    provider.starts_with("spring-boot")
+        || provider.starts_with("java")
+        || provider.starts_with("maven")
+        || configuration.toolchains.contains_key("maven")
+        || configuration.toolchains.contains_key("java")
+        || configuration.extensions.get("maven").is_some()
+        || configuration.extensions.get("java").is_some()
+        || configuration.language() == super::model::RunLanguage::Java
+}
+
+fn is_maven_launcher(executable: &Path) -> bool {
+    let name = executable
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    name.starts_with("mvn") || name.starts_with("mvnw")
+}
+
+/// 把 Maven 简写目标（如 `spring-boot:run`）规约成完整插件坐标，
+/// 避免多模块父工程没有配置对应 pluginGroup 时导致 NoPluginFoundForPrefixException。
+fn canonicalize_maven_arguments(arguments: &mut [String]) {
+    for arg in arguments.iter_mut() {
+        if arg == "spring-boot:run" {
+            *arg = "org.springframework.boot:spring-boot-maven-plugin:run".to_string();
+        } else if arg == "quarkus:dev" {
+            *arg = "io.quarkus:quarkus-maven-plugin:dev".to_string();
+        } else if arg == "mn:run" {
+            *arg = "io.micronaut.maven:micronaut-maven-plugin:run".to_string();
+        }
+    }
+}
+
+fn launch(
+    client: CoreClient,
+    root: PathBuf,
+    configuration: RunConfiguration,
+    _skip_build: bool,
+    sender: Sender<SessionEvent>,
+) -> Result<(), String> {
+    let request = launch_request(&root, &configuration);
     let plan = client
         .execute_raw("runConfig.createLaunchPlan", request)
         .map_err(|error| {
@@ -105,14 +149,27 @@ fn launch(
         })?;
 
     let launch = LaunchPlan::from_json(&plan)?;
-    let working_directory = resolve_working_directory(&root, &launch.working_directory);
+    let module_opt = configuration
+        .extensions
+        .get("maven")
+        .and_then(|m| m.get("module"))
+        .and_then(Value::as_str)
+        .filter(|m| *m != "." && !m.is_empty());
+    // 子模块项目直接将工作目录指向子模块，使 Maven 天然使用子模块 POM 中声明的插件版本
+    // 避免父工程没有配置对应插件导致前缀找不到或拉取不兼容的高版本插件。
+    let working_directory = if let Some(module) = module_opt {
+        root.join(module)
+    } else {
+        resolve_working_directory(&root, &launch.working_directory)
+    };
     let toolchains = ProjectToolchains::resolve(
         &root,
         &working_directory,
         &configuration.java_home_path,
         &configuration.maven_executable_path,
     );
-    let executable = resolve_executable(&root, &working_directory, &launch.executable, &toolchains)?;
+    let executable =
+        resolve_executable(&root, &working_directory, &launch.executable, &toolchains)?;
     let mut environment = launch.env.clone();
     for (key, reference) in &launch.environment {
         if let Some(value) =
@@ -168,11 +225,22 @@ fn launch(
         }
     }
 
-    let arguments = merge_path_arguments(
+    let mut arguments = merge_path_arguments(
         &launch.arguments,
         &resolve_plan_paths(&root, &launch.classpath),
         &resolve_plan_paths(&root, &launch.modulepath),
     );
+
+    let command_line = format!(
+        "$ {} {}\n\n",
+        executable
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("java"),
+        arguments.join(" ")
+    );
+    let _ = sender.send_blocking(SessionEvent::Output(command_line));
+
     let mut command = command_for(&executable, &arguments);
     command
         .current_dir(&working_directory)
@@ -471,14 +539,9 @@ fn resolve_environment_reference(
                 }
                 return None;
             }
-            let executable = resolve_toolchain_with(
-                root,
-                working_directory,
-                toolchain_name,
-                None,
-                toolchains,
-            )
-            .ok()?;
+            let executable =
+                resolve_toolchain_with(root, working_directory, toolchain_name, None, toolchains)
+                    .ok()?;
             executable
                 .parent()
                 .and_then(Path::parent)
@@ -503,13 +566,9 @@ fn resolve_executable(
 ) -> Result<PathBuf, String> {
     match executable {
         ExecutableRef::Command(command) => resolve_command(root, command),
-        ExecutableRef::Toolchain { name, tool } => resolve_toolchain_with(
-            root,
-            working_directory,
-            name,
-            tool.as_deref(),
-            toolchains,
-        ),
+        ExecutableRef::Toolchain { name, tool } => {
+            resolve_toolchain_with(root, working_directory, name, tool.as_deref(), toolchains)
+        }
     }
 }
 

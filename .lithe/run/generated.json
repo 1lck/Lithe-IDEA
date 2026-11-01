@@ -1,7 +1,7 @@
 {
   "version": 2,
   "generator": {
-    "fingerprint": "sha256:76a74fcb70db8b62bd3e2b3a2210b146f2cc5f4801f6b25ecb36a1c6c8cdfcb7",
+    "fingerprint": "sha256:2e9d412fe3a75918f85ce7ba45f83e6b2a212f06a54e1f625e3c166a88e6f65a",
     "inputs": {
       ".artifacts/test-project/src/main/java/demo/Main.java": "path",
       "Plugins/mac/Official/JavaSupport/templates/java/maven/pom.xml": "sha256:15c36a382aa9224675c6ea72916b875f848ba62930a7c85fea8a4c98d19a2548",
@@ -12,7 +12,7 @@
       "gpui/Cargo.toml": "sha256:1a5d6d6282dac03dd0152cfd7778b01eafe9e4fc08be0ab1f9ecab3f7dac3712",
       "gpui/lithe-core-client/Cargo.toml": "sha256:4fd858e89aff46cd2cd4c883ca03ce24c6a47df6177a461fbbd58987290c304c",
       "gpui/lithe-desktop/Cargo.toml": "sha256:f8553217d6ba8526adc41f19f1e7bec324d15772264888e769229e198b9c44d7",
-      "gpui/lithe-features/Cargo.toml": "sha256:3bd119a84b89108ff2b11150d5bbd7a2cb00b12a9538e6101c63f39fe3991dfb",
+      "gpui/lithe-features/Cargo.toml": "sha256:e3f3e1c36e4780e0b6158de0382e0bf9f94d27ef84cfa9149a1ce83c90ae31b8",
       "gpui/lithe-platform/Cargo.toml": "sha256:6db40e7e201d1e31d8b3f0cb0c5339b33692e7a4b6700cd7cb67c08cf6cdf4fd",
       "gpui/lithe-ui/Cargo.toml": "sha256:3ea839b91a362f0074cf22f4c855d74498e85f0f83953eca351b543d7276cfaa",
       "gpui/lithe-workbench/Cargo.toml": "sha256:4d757600b74051a65594d766ed9d50253505b6855c3f06f4461d0dfc37051ef7",

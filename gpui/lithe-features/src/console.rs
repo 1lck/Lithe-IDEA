@@ -17,9 +17,9 @@ use gpui_kit::component::{Theme, VirtualListScrollHandle};
 use gpui_kit::{
     AnyElement, App, BorderStyle, Bounds, Context, Corners, Edges, Element, ElementId, FontWeight,
     GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior, Hsla, InspectorElementId,
-    InteractiveElement as _, IntoElement, LayoutId, MouseButton, MouseDownEvent, PaintQuad,
-    ParentElement, Pixels, Point, ScrollEvent, ScrollStrategy, SharedString, Size, Styled,
-    StyledText, TextStyleRefinement, Window, div, point, px, rgb, size, transparent_black,
+    InteractiveElement as _, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    PaintQuad, ParentElement, Pixels, Point, ScrollEvent, ScrollStrategy, SharedString, Size,
+    Styled, StyledText, TextStyleRefinement, Window, div, point, px, rgb, size, transparent_black,
 };
 use lithe_ui::LitheTokens;
 
@@ -332,6 +332,10 @@ pub struct AnsiSelectableText {
     caret: Option<usize>,
     /// 鼠标点击本行时上报点击处的字节偏移。
     on_caret: Option<Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
+    /// 稳态逻辑选区区间；优先于虚拟化视口临时投影绘制，避免滚轮滚动时选区丢失。
+    selected_range: Option<Range<usize>>,
+    /// 鼠标按住拖拽经过本行时上报光标字符偏移。
+    on_select_drag: Option<Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
 }
 
 impl AnsiSelectableText {
@@ -355,6 +359,8 @@ impl AnsiSelectableText {
             document_order: 0,
             caret: None,
             on_caret: None,
+            selected_range: None,
+            on_select_drag: None,
         }
     }
 
@@ -370,9 +376,24 @@ impl AnsiSelectableText {
         self
     }
 
+    /// 设置本行要高亮绘制的稳定逻辑选区字节范围。
+    pub fn selected_range(mut self, range: Option<Range<usize>>) -> Self {
+        self.selected_range = range;
+        self
+    }
+
     /// 点击本行时上报点击处的字节偏移。
     pub fn on_caret(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_caret = Some(Rc::new(handler));
+        self
+    }
+
+    /// 按住鼠标拖拽经过本行时上报新的光标偏移。
+    pub fn on_select_drag(
+        mut self,
+        handler: impl Fn(usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_select_drag = Some(Rc::new(handler));
         self
     }
 
@@ -522,6 +543,22 @@ impl Element for AnsiSelectableText {
                 on_caret(offset, window, cx);
             });
         }
+        if let Some(on_select_drag) = self.on_select_drag.clone() {
+            let layout_for_drag = self.styled_text.layout().clone();
+            let hitbox_for_drag = hitbox.clone();
+            window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                if !phase.bubble()
+                    || event.pressed_button != Some(MouseButton::Left)
+                    || !hitbox_for_drag.bounds.contains(&event.position)
+                {
+                    return;
+                }
+                let offset = layout_for_drag
+                    .index_for_position(event.position)
+                    .unwrap_or_else(|offset| offset);
+                on_select_drag(offset, window, cx);
+            });
+        }
         let layout = self.styled_text.layout().clone();
         let selected_text_before = TextSelection::selected_text(window, cx);
         let projection = handle.update_runs(
@@ -535,8 +572,12 @@ impl Element for AnsiSelectableText {
             window.refresh();
         }
         let color = Theme::global(cx).selection;
-        for range in projection.ranges().iter().flatten().cloned() {
+        if let Some(range) = self.selected_range.clone() {
             Self::paint_selection(&layout, range, color, window);
+        } else {
+            for range in projection.ranges().iter().flatten().cloned() {
+                Self::paint_selection(&layout, range, color, window);
+            }
         }
         self.styled_text.paint(
             global_id,
@@ -563,6 +604,51 @@ impl Element for AnsiSelectableText {
     }
 }
 
+/// 逻辑选区范围：起点与终点 (行号, 字节偏移)。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConsoleSelection {
+    pub anchor: (usize, usize),
+    pub cursor: (usize, usize),
+}
+
+impl ConsoleSelection {
+    pub fn new(anchor: (usize, usize), cursor: (usize, usize)) -> Self {
+        Self { anchor, cursor }
+    }
+
+    pub fn normalized(&self) -> ((usize, usize), (usize, usize)) {
+        if self.anchor <= self.cursor {
+            (self.anchor, self.cursor)
+        } else {
+            (self.cursor, self.anchor)
+        }
+    }
+
+    pub fn range_for_line(&self, line_index: usize, line_len: usize) -> Option<Range<usize>> {
+        let ((start_line, start_col), (end_line, end_col)) = self.normalized();
+        if line_index < start_line || line_index > end_line {
+            return None;
+        }
+        if start_line == end_line {
+            if start_col == end_col {
+                return None;
+            }
+            let start = start_col.min(line_len);
+            let end = end_col.min(line_len);
+            return (start < end).then_some(start..end);
+        }
+        if line_index == start_line {
+            let start = start_col.min(line_len);
+            return (start < line_len).then_some(start..line_len);
+        }
+        if line_index == end_line {
+            let end = end_col.min(line_len);
+            return (end > 0).then_some(0..end);
+        }
+        Some(0..line_len)
+    }
+}
+
 /// 面板把自身控制台状态交给共享滚动逻辑。
 pub trait ConsoleHost: 'static {
     fn console(&mut self) -> &mut ConsoleScroll;
@@ -585,6 +671,9 @@ pub struct ConsoleScroll {
     animating: bool,
     /// 插入符位置：行号与行内字节偏移。
     caret: Option<(usize, usize)>,
+    /// 跨虚拟化视口稳定的逻辑选区，不随滚轮滚动丢失。
+    pub selection: Option<ConsoleSelection>,
+    pub is_selecting: bool,
 }
 
 impl ConsoleScroll {
@@ -598,6 +687,8 @@ impl ConsoleScroll {
             last_step: Instant::now(),
             animating: false,
             caret: None,
+            selection: None,
+            is_selecting: false,
         }
     }
 
@@ -608,6 +699,8 @@ impl ConsoleScroll {
         self.target = None;
         self.animating = false;
         self.caret = None;
+        self.selection = None;
+        self.is_selecting = false;
         self.display = px(0.0);
         self.handle.set_offset(point(px(0.0), px(0.0)));
     }
@@ -650,6 +743,38 @@ impl ConsoleScroll {
 
     pub fn set_caret(&mut self, line: usize, offset: usize) {
         self.caret = Some((line, offset));
+    }
+
+    pub fn range_for_line(&self, line_index: usize, line_len: usize) -> Option<Range<usize>> {
+        self.selection
+            .as_ref()
+            .and_then(|sel| sel.range_for_line(line_index, line_len))
+    }
+
+    pub fn has_selection(&self) -> bool {
+        self.selection
+            .as_ref()
+            .is_some_and(|sel| sel.anchor != sel.cursor)
+    }
+
+    pub fn begin_selection(&mut self, line: usize, col: usize) {
+        self.selection = Some(ConsoleSelection::new((line, col), (line, col)));
+        self.is_selecting = true;
+    }
+
+    pub fn update_selection(&mut self, line: usize, col: usize) {
+        if let Some(sel) = self.selection.as_mut() {
+            sel.cursor = (line, col);
+        }
+    }
+
+    pub fn end_selection(&mut self) {
+        self.is_selecting = false;
+        if let Some(sel) = self.selection {
+            if sel.anchor == sel.cursor {
+                self.selection = None;
+            }
+        }
     }
 
     /// 鼠标滚轮滚动时由控制台插值，避免一次滚轮直接跳变。
@@ -736,10 +861,7 @@ impl Default for ConsoleScroll {
 pub type ConsoleCaretHandler = Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>;
 
 /// 覆盖在控制台右侧的滚动条，可悬停显示并直接拖动。
-pub fn console_scrollbar(
-    handle: &VirtualListScrollHandle,
-    id: &'static str,
-) -> AnyElement {
+pub fn console_scrollbar(handle: &VirtualListScrollHandle, id: &'static str) -> AnyElement {
     div()
         .absolute()
         .inset_0()
@@ -747,7 +869,7 @@ pub fn console_scrollbar(
         .into_any_element()
 }
 
-/// 构建控制台的一行：ANSI 颜色、行级 severity 与插入符。
+/// 构建控制台的一行：ANSI 颜色、行级 severity、插入符与稳态选区高亮。
 pub fn console_line_element(
     id: String,
     index: usize,
@@ -757,6 +879,8 @@ pub fn console_line_element(
     tokens: LitheTokens,
     caret: Option<usize>,
     on_caret: Option<ConsoleCaretHandler>,
+    selected_range: Option<Range<usize>>,
+    on_select_drag: Option<ConsoleCaretHandler>,
     line_height: f32,
 ) -> AnyElement {
     let element_id = SharedString::from(id);
@@ -766,9 +890,13 @@ pub fn console_line_element(
         None => highlights,
     };
     let mut element = AnsiSelectableText::new(element_id.clone(), text, highlights, style)
-        .document_order(index as u64);
+        .document_order(index as u64)
+        .selected_range(selected_range);
     if let Some(handler) = on_caret {
         element = element.on_caret(move |offset, window, cx| handler(offset, window, cx));
+    }
+    if let Some(handler) = on_select_drag {
+        element = element.on_select_drag(move |offset, window, cx| handler(offset, window, cx));
     }
     if let Some(offset) = caret {
         element = element.caret(offset);

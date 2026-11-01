@@ -36,6 +36,10 @@ impl Workbench {
         self.layout_root = Some(root.clone());
         self.layout_restored = true;
         self.platform.remember_project(&root);
+        lithe_features::logging::log_info(
+            "app",
+            format!("opened project {}", root.display()),
+        );
         self.project_menu_visible = false;
         self.branch_menu_visible = false;
         self.recent_projects = self.platform.recent_projects();

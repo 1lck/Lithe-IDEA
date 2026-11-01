@@ -29,6 +29,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "All branches" => "全部分支",
         "All configurations" => "全部配置",
         "Allow" => "允许",
+        "Always Continue in This Workspace" => "对此工作区始终继续",
         "Amend" => "修订",
         "App data" => "应用数据",
         "Appearance" => "外观",
@@ -38,6 +39,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Applications" => "应用",
         "Apply" => "应用",
         "Apply Patch…" => "应用补丁…",
+        "Ask" => "询问",
         "Ask before stopping" => "停止前询问",
         "Ask every time" => "每次询问",
         "Ask for each task" => "逐个确认",
@@ -47,12 +49,14 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Attach" => "连接",
         "Authenticate" => "登录",
         "Author" => "作者",
+        "Auto completion" => "自动补全",
         "Auto Refresh Git Status" => "自动刷新 Git 状态",
         "Auto check" => "自动检查",
         "Auto check for updates" => "自动检查更新",
         "Auto-detect (leave empty)" => "自动检测（留空）",
         "Automatic" => "自动检测",
         "Automatic updates are not available in this build yet. The channel and auto-check choices are saved for a future update service." => "此构建尚未接入自动更新。渠道与自动检查选项会被保存，供后续更新服务使用。",
+        "Automatically" => "自动",
         "Automatically generated" => "自动生成",
         "Back" => "返回",
         "Background" => "背景",
@@ -68,6 +72,10 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Build Output" => "构建输出",
         "Build output is not available in this GPUI build." => "此 GPUI 构建尚未接入构建输出。",
         "Build tools" => "构建工具",
+        "Build completed successfully." => "构建成功完成。",
+        "Build response time: {milliseconds} ms. This is evidence only and does not decide whether you may run." => {
+            "构建响应耗时：{milliseconds} 毫秒。该数据只用于说明情况，不决定是否允许运行。"
+        }
         "Build, Execution, Deployment" => "构建、执行、部署",
         "Built in" => "内置",
         "CSS" => "CSS",
@@ -193,6 +201,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Dependencies" => "依赖项",
         "Dependency resolution cancelled" => "依赖项解析已取消",
         "Detected" => "检测到",
+        "Detected language servers" => "检测到的语言服务器",
         "Detecting…" => "正在检测…",
         "Diagnostics" => "诊断",
         "Diff options" => "差异选项",
@@ -309,6 +318,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Info" => "信息",
         "Infrastructure" => "基础设施",
         "Inherited from project" => "继承项目",
+        "Import Java projects on open" => "打开时导入 Java 项目",
         "Importing Java project and dependencies" => "正在导入 Java 项目与依赖",
         "Install an ACP adapter to start a conversation:" => "安装 ACP 适配器后即可开始对话：",
         "Instructions" => "指令",
@@ -334,6 +344,9 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "LSP" => "LSP",
         "Language" => "语言",
         "Language service settings and retry" => "语言服务设置与重试",
+        "Language servers are detected from installed language extensions and start when a supported file opens." => {
+            "语言服务器由已安装的语言扩展检测，并在打开受支持文件时启动。"
+        }
         "Language services" => "语言服务",
         "Languages & Frameworks" => "语言与框架",
         "Leave empty to use the project default." => "留空则使用项目默认值。",
@@ -459,6 +472,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Open File" => "打开文件",
         "Open File…" => "打开文件…",
         "Open Folder" => "打开文件夹",
+        "Open Logs" => "打开日志",
         "Open Project" => "打开项目",
         "Open Project…" => "打开项目…",
         "Open Recent" => "最近打开",
@@ -474,8 +488,10 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Other" => "其他",
         "Override the Maven tool window's Skip Tests setting for this run configuration." => "为当前运行配置覆盖 Maven 工具窗口中的“跳过测试”设置。",
         "PHP" => "PHP",
+        "Manually" => "手动",
         "Package" => "打包",
         "Package name" => "包名",
+        "Parameter hints" => "参数提示",
         "Passed: {count}" => "通过：{count}",
         "Paste" => "粘贴",
         "Path is outside the project" => "路径不在项目内",
@@ -483,6 +499,9 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Plain" => "Plain",
         "Plugin system is not available in the GPUI build yet." => "GPUI 构建尚未接入插件系统。",
         "Plugins" => "插件",
+        "Preparing the Java launch: waiting for the Java language service to update and build the project..." => {
+            "正在准备 Java 启动：等待 Java 语言服务更新并构建项目…"
+        }
         "Preferences" => "首选项",
         "Preview" => "预览",
         "Previous Problem" => "上一个问题",
@@ -530,6 +549,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Recent Projects" => "最近项目",
         "Reconnect" => "重新连接",
         "Redo" => "重做",
+        "Rebuild Java Index" => "重建 Java 索引",
         "References" => "引用",
         "References are not available in this GPUI build." => "此 GPUI 构建尚未接入引用查找。",
         "Refresh" => "刷新",
@@ -568,6 +588,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Run" => "运行",
         "Run Configurations" => "运行配置",
         "Run Configurations…" => "运行配置…",
+        "Run Anyway" => "仍然运行",
         "Run a Maven lifecycle phase to see output." => "运行 Maven 生命周期阶段后将在这里显示输出。",
         "Run a configuration to see process output." => "运行配置后将在这里显示进程输出。",
         "Run and Debug" => "运行和调试",
@@ -607,6 +628,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Search settings" => "搜索设置",
         "Search the workspace" => "搜索工作区",
         "Searching..." => "正在搜索...",
+        "Semantic highlighting" => "语义高亮",
         "Select All" => "全选",
         "Select Opened File" => "定位当前文件",
         "Select Repository" => "选择仓库",
@@ -708,6 +730,8 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "The debugger is not available in this GPUI build." => "此 GPUI 构建尚未接入调试器。",
         "Theme" => "主题",
         "The Java workspace must finish preparation before launch. Background indexing does not block running; compilation runs before launch." => "Java 工作区准备完成后才能启动。普通后台索引不阻塞运行，编译在运行前执行。",
+        "The Java project build reported compilation errors." => "Java 项目构建报告了编译错误。",
+        "The Java build for {name} did not finish successfully" => "{name} 的 Java 构建未成功完成",
         "These choices are stored now; they are enforced once long-lived run services, terminals, agent tasks, and background services land in the GPUI build." => "这些选择现在就会被保存；待长驻的运行服务、终端、Agent 任务和后台服务接入 GPUI 构建后生效。",
         "These lightweight language services are built into Lithe. Full LSP servers are not wired into the GPUI build yet." => "这些轻量语言服务内置于 Lithe。完整的 LSP 服务器尚未接入 GPUI 构建。",
         "These overrides affect only this run configuration. Clear a path to inherit the project environment." => "以下覆盖值仅影响当前运行配置。清空路径可恢复继承项目环境。",
@@ -817,6 +841,107 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "version managed from {value}" => "依赖管理前版本为 {value}",
         "{arg1} results" => "{arg1} 个结果",
         "{count} staged" => "已暂存 {count}",
+        "All modules" => "全部模块",
+        "All sessions" => "全部会话",
+        "Application" => "应用运行",
+        "Application file logging is unavailable. Lithe is continuing with console diagnostics only." => {
+            "应用文件日志当前不可用，Lithe 将继续运行并仅保留控制台诊断。"
+        }
+        "Build, run and debug" => "构建、运行与调试",
+        "Editor and language services" => "编辑器与语言服务",
+        "Performance" => "性能",
+        "Current session" => "当前会话",
+        "Previous session" => "上一次会话",
+        "Session" => "会话",
+        "Minimum level" => "最低级别",
+        "Filter log messages" => "筛选日志内容",
+        "From (UTC ISO 8601)" => "起始时间（UTC ISO 8601）",
+        "Until (UTC ISO 8601)" => "结束时间（UTC ISO 8601）",
+        "Refresh logs" => "刷新日志",
+        "Earlier evidence was omitted by collection limits." => "部分较早的日志因收集上限被省略。",
+        "No matching logs" => "没有匹配的日志",
+        "Dropped:" => "已丢弃：",
+        "write failures:" => "写入失败：",
+        "Detailed diagnostics" => "详细诊断",
+        "Record detailed events for the selected module for 15 minutes." => {
+            "所选模块记录详细事件，15 分钟后自动关闭。"
+        }
+        "Detailed diagnostics: On" => "详细诊断：已开启",
+        "Detailed diagnostics: Off" => "详细诊断：已关闭",
+        "Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status." => {
+            "详细诊断仅覆盖所选模块，15 分钟后自动关闭。刷新可查看当前状态。"
+        }
+        "The directory receiving logs in this session." => "本次会话实际写入日志的目录。",
+        "Using the default location" => "正在使用默认位置",
+        "Current log location" => "当前日志位置",
+        "Open Current Log" => "打开当前日志",
+        "Open Directory" => "打开目录",
+        "Default log location" => "默认日志位置",
+        "Lithe always maintains and cleans this application-owned directory." => {
+            "Lithe 始终维护并清理这个应用自有目录。"
+        }
+        "Custom log location" => "自定义日志位置",
+        "After choosing a parent directory, Lithe writes into its Lithe/logs subdirectory." => {
+            "选择父目录后，Lithe 会写入其中的 Lithe/logs 子目录。"
+        }
+        "Choose…" => "选择…",
+        "Restore Default" => "恢复默认",
+        "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget." => {
+            "模块日志达到 10 MiB 后轮转，保留 30 天。总预算为 100 MiB，性能日志另有限额 20 MiB。"
+        }
+        "Clear logs in the current directory" => "清除当前目录日志",
+        "Only delete Lithe-managed log files in the current directory." => {
+            "只删除当前目录中由 Lithe 管理的日志文件。"
+        }
+        "Clear Logs" => "清空日志",
+        "Only Lithe-managed logs for all modules and sessions in the current directory are deleted. Filters do not limit cleanup; future events keep being recorded." => {
+            "仅删除生效目录中由 Lithe 管理的所有模块和会话日志。筛选条件不限制清理范围，后续事件仍会继续记录。"
+        }
+        "Export Diagnostic Bundle…" => "导出诊断包…",
+        "Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded." => {
+            "预览并导出筛选后的日志和环境信息。凭据和用户目录路径均会脱敏，不包含源码、编辑缓冲区或终端历史。"
+        }
+        "Preview and Export…" => "预览并导出…",
+        "Lithe will include the following files, with credentials, tokens, and home-directory paths already redacted:" => {
+            "Lithe 将包含以下文件，其中的凭据、令牌和用户目录路径均已脱敏："
+        }
+        "Export Diagnostic Bundle?" => "导出诊断包？",
+        "Export" => "导出",
+        "Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle." => {
+            "选择模块，开启详细诊断并复现问题，然后预览并导出诊断包。"
+        }
+        "The previous directory" => "旧目录",
+        "still contains about" => "中仍有约",
+        "Delete Logs" => "删除日志",
+        "Keep Logs" => "保留日志",
+        "Log timeline" => "日志时间线",
+        "Log locations" => "日志位置",
+        "Retention and cleanup" => "保留与清理",
+        "Diagnostic bundle" => "诊断包",
+        "Choose the parent directory for Lithe logs" => "选择 Lithe 日志的父目录",
+        "The log directory changed immediately." => "日志目录已立即切换。",
+        "Deleted log files:" => "已删除日志文件：",
+        "The previous log directory is already empty." => "旧的日志目录已经是空的。",
+        "Unable to open the current log." => "无法打开当前日志。",
+        "Unable to open the log directory." => "无法打开日志目录。",
+        "Log path copied." => "日志路径已复制。",
+        "Deleted" => "已删除",
+        "log files, freed" => "个日志文件，释放",
+        "Choose Where to Save the Diagnostic Bundle" => "选择诊断包的保存位置",
+        "Diagnostic bundle saved to" => "诊断包已保存到",
+        "Unable to export the diagnostic bundle:" => "无法导出诊断包：",
+        "The configured directory is not writable. This session is writing to the default location." => {
+            "配置的目录不可写，本次会话正在写入默认位置。"
+        }
+        "The configured directory is unavailable. This session is writing to the default location." => {
+            "配置的目录当前不可用，本次会话正在写入默认位置。"
+        }
+        "Ask lets you adjust Maven settings first. Manual waits until you open a Java file, run code, or reload Maven." => {
+            "选择“询问”可以先调整 Maven 设置；选择“手动”会等到打开 Java 文件、运行代码或重新加载 Maven 时再导入。"
+        }
+        "Show completion suggestions from the active language server." => {
+            "显示活动语言服务器提供的补全建议。"
+        }
         _ => return None,
     })
 }

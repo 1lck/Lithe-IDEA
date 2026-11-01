@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 async-channel = "2"
 base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 gpui-kit = { workspace = true }
 gpui-webview = { workspace = true }
 wry = { workspace = true }
@@ -22,3 +23,4 @@ memory-stats = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+zip = { version = "2.6", default-features = false }

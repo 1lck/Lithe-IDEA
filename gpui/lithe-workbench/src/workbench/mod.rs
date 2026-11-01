@@ -574,17 +574,23 @@ impl Workbench {
         }
 
         // Run 面板的「Edit」入口：打开设置页并落到当前配置的编辑器。
+        // 准备状态里的「语言服务设置与重试」和「查看日志」复用同一回调，
+        // 用 `language` / `logs` 作为页面标识（对齐 Tauri 的 openSettingsDialog）。
         {
             let owner = cx.weak_entity();
             workbench.run_panel.update(cx, |panel, _panel_cx| {
-                panel.on_open_settings(move |configuration_id, window, cx| {
-                    let _ = owner.update(cx, |this, cx| {
-                        this.open_run_settings(window, cx);
-                        if let Some(view) = this.settings_view.clone() {
-                            let configuration_id = configuration_id.to_string();
-                            view.update(cx, |view, view_cx| {
-                                view.edit_run_configuration(&configuration_id, view_cx);
-                            });
+                panel.on_open_settings(move |target, window, cx| {
+                    let _ = owner.update(cx, |this, cx| match target {
+                        "language" => this.open_language_service_settings(window, cx),
+                        "logs" => this.open_log_settings(window, cx),
+                        configuration_id => {
+                            this.open_run_settings(window, cx);
+                            if let Some(view) = this.settings_view.clone() {
+                                let configuration_id = configuration_id.to_string();
+                                view.update(cx, |view, view_cx| {
+                                    view.edit_run_configuration(&configuration_id, view_cx);
+                                });
+                            }
                         }
                     });
                 });

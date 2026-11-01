@@ -45,6 +45,8 @@ fn main() {
         gpui_kit::init(cx);
         install_fonts(cx);
         install_theme(cx, LitheThemeKind::Lithe, true);
+        // 文件日志先于窗口创建：启动失败也能在日志页看到最后一次运行记录。
+        lithe_features::logging::init();
 
         // 窗口自绘标题栏，初始标题必须写进 `TitlebarOptions`；窗口的系统标题
         // 只在原生装饰可见的阶段（例如 macOS 全屏切换动画）才会用到。
