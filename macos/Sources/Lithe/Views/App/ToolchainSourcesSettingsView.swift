@@ -148,7 +148,7 @@ struct ToolchainSourcesSettingsView: View {
     private var providersGroup: some View {
         let providers = feature.providers
         return ToolchainSettingsGroup(Text("Version managers"), accessory: {
-            LitheInfoTip("Version managers come from enabled plugins. Lithe looks for the files they watch in this project; it does not run or query them yet.")
+            LitheInfoTip("Version managers come from enabled plugins. Lithe asks them what is installed and what this project requires; they never install or trust anything for you.")
         }) {
             if providers.isEmpty {
                 HStack(spacing: 10) {
@@ -231,6 +231,16 @@ struct ToolchainSourcesSettingsView: View {
                                     .truncationMode(.middle)
                                     .textSelection(.enabled)
                             }
+                        }
+                    }
+                    ToolchainSettingsMetaLine("Query") {
+                        switch provider.queryState {
+                        case .notQueried:
+                            Text("Not queried").foregroundStyle(LitheTheme.tertiaryText)
+                        case .answered(let milliseconds):
+                            Text("Answered in \(milliseconds) ms").foregroundStyle(LitheTheme.secondaryText)
+                        case .failed(let message):
+                            Text(verbatim: message).foregroundStyle(LitheTheme.tertiaryText).textSelection(.enabled)
                         }
                     }
                     ToolchainSettingsMetaLine("Definition", info: "This version manager comes from an enabled plugin. Lithe has no built-in version managers.") {

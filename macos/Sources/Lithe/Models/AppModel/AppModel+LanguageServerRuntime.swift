@@ -201,6 +201,7 @@ extension AppModel {
         runFeatureIfActive?.markDependencyFilesChanged(changes)
         handleBuildSystemFileChanges(changes)
         handleVcsProviderFileChanges(changes)
+        toolchainSettingsFeature.workspaceFilesChanged(changes)
         let maven = mavenFeatureIfActive
         let forwarded = changes.filter { change in
             if Self.isWorkspaceDependencyMetadata(

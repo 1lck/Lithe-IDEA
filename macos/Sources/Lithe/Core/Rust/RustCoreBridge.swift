@@ -1965,6 +1965,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let workspaceConfiguration: ToolingJSONValue?
         /// Host services a plugin backend may request; omitted when none.
         let hostServices: [String]?
+        /// Manifest providers offered to a plugin backend; omitted when none.
+        let toolchainProviders: [String]?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -2107,6 +2109,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct LspBuildRequest: Encodable {
         let sessionId: String
         let method: String
+        let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
+    private struct LspToolchainRequest: Encodable {
+        let sessionId: String
         let params: ToolingJSONValue
         let timeoutMilliseconds: Int
     }
@@ -3849,6 +3857,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         initializationOptions: ToolingJSONValue? = nil,
         workspaceConfiguration: ToolingJSONValue? = nil,
         hostServices: [String] = [],
+        toolchainProviders: [String] = [],
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3872,6 +3881,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
                 hostServices: hostServices.isEmpty ? nil : hostServices,
+                toolchainProviders: toolchainProviders.isEmpty ? nil : toolchainProviders,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -4177,6 +4187,20 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 tool: tool,
                 arguments: arguments,
                 timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Sends one `toolchains/query` to a session that negotiated its provider.
+    func lspToolchainRequest(
+        sessionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.toolchainRequest",
+            payload: LspToolchainRequest(
+                sessionId: sessionID, params: params, timeoutMilliseconds: max(1, Self.milliseconds(timeout))
             )
         )
     }

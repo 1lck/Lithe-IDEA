@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 @testable import Lithe
+import LitheCoreContracts
 import LitheModuleAPI
 
 /// Real directories and the real Core; only the home directory and version probes are injected,
@@ -105,6 +106,96 @@ struct MacToolchainDiscoveryTests {
         #expect(probes.calls.isEmpty)
     }
 
+    /// The definition plugin as its own provider, as a version-manager plugin declares one.
+    private static func providerSource() throws -> ToolchainSettingsPluginSource {
+        var manifest = try #require(try JSONSerialization.jsonObject(with: manifest()) as? [String: Any])
+        manifest["requires"] = ["toolDefinitions": 1, "executableResolution": 2, "toolchainProviders": 1,
+                                "backend": 2, "serverProcess": 1]
+        manifest["permissions"] = ["backend.launch", "toolchains.provide"]
+        manifest["toolchainProviders"] = [["id": "kits", "displayName": "Kits", "tools": ["compiler"],
+                                           "watchFiles": [["pattern": ".compiler-version", "reader": "native"]]]]
+        manifest["backend"] = ["launch": ["kind": "packaged", "path": "bin/kits"]]
+        return .init(pluginID: pluginID, name: "Discovery fixture",
+                     manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
+    }
+
+    /// A provider reports an alias link; Core keeps the canonical home, the project
+    /// requirement and the global one apart, and the installation joins the candidates.
+    @Test func providerAnswersAreValidatedAndJoinTheCandidates() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let installed = try root.installation("manager/installs/compiler/21.0.1")
+        try FileManager.default.createSymbolicLink(atPath: root.path + "/manager/installs/compiler/latest",
+                                                   withDestinationPath: installed)
+        let alias = root.path + "/manager/installs/compiler/latest"
+        let versionFile = root.path + "/workspace/.compiler-version"
+        try Data("21\n".utf8).write(to: URL(fileURLWithPath: versionFile))
+        let globalFile = root.path + "/home/.compiler-version"
+        try Data("21\n".utf8).write(to: URL(fileURLWithPath: globalFile))
+        let queries = ProviderQueries { params in
+            let project = params["workspace"] is [String: Any]
+            let statements: [[String: Any]] = [
+                ["tool": "compiler", "scope": "global", "source": globalFile, "request": "21", "installation": alias,
+                 "kind": "declaration", "reader": "native"]
+            ] + (project ? [["tool": "compiler", "scope": "project", "source": versionFile, "request": "21",
+                              "installation": alias, "kind": "declaration", "reader": "native"]] : [])
+            return ["installations": [["tool": "compiler", "version": "21.0.1", "home": alias]],
+                    "statements": statements, "watch": [root.path + "/manager/installs"]]
+        }
+        let probes = DiscoveryProbes(outputs: [installed + "/bin/compiler": "compiler 21.0.1"])
+        var discovery = discovery(root: root, probes: probes)
+        discovery.queryProvider = { plugin, provider, params, _ in try queries.answer(pluginID: plugin, providerID: provider, params: params) }
+        discovery.workspaceContext = { _, _ in .init(contextID: "context-1", generation: 3, rootID: "root-1") }
+        let result = await discovery.discover(.init(
+            workspace: root.url("workspace"), sources: [try Self.providerSource()], environment: [:]))
+
+        let provider = Self.pluginID + ":kits"
+        #expect(result.diagnostics.isEmpty)
+        let detection = try #require(result.detections["compiler"])
+        #expect(detection.installations.map(\.home) == [installed])
+        #expect(detection.installations.first?.provider == provider)
+        #expect(result.requirements["."]?["compiler"] == [.init(request: "21", source: versionFile, providerID: provider,
+                                                                 home: installed, version: "21.0.1")])
+        #expect(result.globalRequirements["compiler"] == [.init(request: "21", source: globalFile, providerID: provider,
+                                                                 home: installed, version: "21.0.1")])
+        #expect(result.watch == [root.path + "/manager/installs"])
+        guard case .answered? = result.providerStates[provider] else {
+            Issue.record("the provider should have answered")
+            return
+        }
+        // A global query, then one per directory, each with its own operation and generation.
+        let sent = queries.sent
+        #expect(sent.count == 2)
+        #expect(sent.first?["workspace"] is NSNull && sent.first?["context"] is NSNull)
+        let workspace = try #require(sent.last?["workspace"] as? [String: Any])
+        #expect(workspace["rootID"] as? String == "root-1" && workspace["directory"] as? String == ".")
+        #expect(Set(sent.compactMap { $0["operationID"] as? String }).count == 2)
+    }
+
+    /// A refused reply names the failure and contributes nothing, not even its valid parts.
+    @Test func aRejectedReplyAddsNoInstallationAndIsReported() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let inside = try root.installation("workspace/vendor/compiler")
+        let queries = ProviderQueries { _ in
+            ["installations": [["tool": "compiler", "version": "1", "home": inside]], "statements": [], "watch": []]
+        }
+        var discovery = discovery(root: root, probes: DiscoveryProbes(outputs: [:]))
+        discovery.queryProvider = { plugin, provider, params, _ in try queries.answer(pluginID: plugin, providerID: provider, params: params) }
+        let result = await discovery.discover(.init(
+            workspace: root.url("workspace"), sources: [try Self.providerSource()], environment: [:]))
+        #expect(result.detections["compiler"]?.installations.isEmpty == true)
+        guard case .failed? = result.providerStates[Self.pluginID + ":kits"] else {
+            Issue.record("a workspace home must be refused")
+            return
+        }
+        // Without an open context only the global query is sent.
+        #expect(queries.sent.count == 1)
+        // The refusal is the reported reason; a missing context does not hide it.
+        #expect(result.diagnostics.count == 1)
+        #expect(result.diagnostics.first?.contains("kits") == true)
+    }
+
     @Test func globsMatchOneComponentLikeCore() {
         #expect(MacToolchainDiscovery.matches("*.kit", "a.kit"))
         #expect(MacToolchainDiscovery.matches("*", "anything"))
@@ -187,5 +278,30 @@ private final class DiscoveryProbes: @unchecked Sendable {
             recorded.append(.init(executable: executable, arguments: arguments))
             return outputs[executable]
         }
+    }
+}
+
+/// Answers queries like a backend would; each result echoes the request's identity.
+private final class ProviderQueries: @unchecked Sendable {
+    private let lock = NSLock()
+    private let result: @Sendable ([String: Any]) -> [String: Any]
+    private var recorded: [[String: Any]] = []
+    private var nextID = 0
+
+    init(result: @escaping @Sendable ([String: Any]) -> [String: Any]) { self.result = result }
+
+    var sent: [[String: Any]] { lock.withLock { recorded } }
+
+    func answer(pluginID _: String, providerID _: String, params: ToolingJSONValue) throws -> ToolingJSONValue {
+        let params = params.foundationObject as? [String: Any] ?? [:]
+        let id = lock.withLock { () -> Int in
+            recorded.append(params)
+            nextID += 1
+            return nextID
+        }
+        var body = result(params)
+        for key in ["operationID", "generation", "providerID"] { body[key] = params[key] }
+        let reply: [String: Any] = ["id": id, "response": ["jsonrpc": "2.0", "id": id, "result": body]]
+        return try #require(ToolingJSONValue.fromFoundation(reply))
     }
 }

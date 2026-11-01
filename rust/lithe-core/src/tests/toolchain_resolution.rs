@@ -392,6 +392,9 @@ fn listing(input: &Value) -> Value {
     ] {
         value[key] = input[key].clone();
     }
+    if let Some(reported) = input.get("providerInstallations") {
+        value["providerInstallations"] = reported.clone();
+    }
     value
 }
 
@@ -465,6 +468,35 @@ fn toolchain_candidates_list_versions_and_share_the_resolver_choice() {
 }
 
 #[test]
+fn toolchain_candidates_keep_provider_attribution_and_count_one_home_once() {
+    let mut value = input();
+    self_provided(&mut value);
+    installation(&mut value, HOME, "21.0.4");
+    installation(&mut value, OLD, "17.0.12");
+    let provider = "dev.lithe.fixture.java-support:installs";
+    value["providerInstallations"] = json!([{"tool":"java","home":HOME,"provider":provider}]);
+    value["systemInstallations"] = json!([{"tool":"java","home":HOME},{"tool":"java","home":OLD}]);
+    let listed = candidates(&value);
+    let installations = listed["installations"].as_array().unwrap();
+    assert_eq!(installations.len(), 2);
+    assert_eq!(installations[0]["home"], HOME);
+    assert_eq!(installations[0]["provider"], provider);
+    assert_eq!(installations[1]["provider"], "host:system");
+    assert_eq!(listed["selected"], HOME);
+}
+
+#[test]
+fn toolchain_candidates_refuse_a_provider_outside_the_registry() {
+    let mut value = input();
+    self_provided(&mut value);
+    for provider in ["dev.example.other:installs", "installs", "host:system"] {
+        value["providerInstallations"] = json!([{"tool":"java","home":HOME,"provider":provider}]);
+        let result = candidates_command(listing(&value)).unwrap();
+        assert_eq!(result["status"], "rejected", "{provider}");
+    }
+}
+
+#[test]
 fn toolchain_candidates_report_equal_versions_as_a_conflict() {
     let mut value = input();
     installation(&mut value, HOME, "21.0.4");
@@ -515,6 +547,31 @@ fn installs_query(input: &Value, homes: &[(&str, &str)]) -> Value {
     result["statements"] = json!([]);
     result["watch"] = json!([]);
     value
+}
+
+/// A provider may name a version manager's alias link. The host reads only the paths the
+/// reply and definition name, under the link; Core derives the canonical target facts.
+#[test]
+fn toolchain_resolution_accepts_a_provider_home_reached_through_an_alias_link() {
+    let mut value = input();
+    self_provided(&mut value);
+    installation(&mut value, HOME, "21.0.4");
+    let alias = "/opt/lithe-fixtures/installs/java/latest";
+    let facts = value["filesystem"].as_array_mut().unwrap();
+    facts.retain(|fact| !fact["path"].as_str().unwrap().starts_with(HOME));
+    facts.push(json!({"path":alias,"canonicalPath":HOME,"kind":"directory"}));
+    facts.push(json!({"path":format!("{alias}/bin"),"canonicalPath":format!("{HOME}/bin"),"kind":"directory"}));
+    facts.push(
+        json!({"path":format!("{alias}/bin/java"),"canonicalPath":format!("{HOME}/bin/java"),
+        "kind":"file","executable":true}),
+    );
+    value["queries"] = json!([installs_query(&value, &[(alias, "21.0.4")])]);
+    let result = resolve(&value);
+    assert_eq!(result["outcome"]["selection"]["home"], HOME, "{result}");
+    assert_eq!(
+        result["outcome"]["selection"]["executable"],
+        format!("{HOME}/bin/java")
+    );
 }
 
 #[test]

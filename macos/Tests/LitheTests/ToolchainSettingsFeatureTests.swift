@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import Testing
 @testable import Lithe
 
@@ -179,6 +180,45 @@ struct ToolchainSettingsFeatureTests {
         #expect(loader.workspaces == [root, root])
     }
 
+    /// A burst of edits to watched files reloads once; other files and other roots do not.
+    @Test
+    func watchedFileChangesReloadTheWholeSnapshotOnce() async {
+        let loader = SettingsSnapshotLoader(snapshots: [snapshot(), snapshot()])
+        let model = ToolchainSettingsFeatureModel(loader: loader, reloadDelay: .zero)
+        defer { model.close() }
+        model.workspaceFilesChanged([.init(fileURL: root.appendingPathComponent(".fixture-version"), kind: .changed)])
+        #expect(loader.workspaces.isEmpty)
+        await model.load(workspace: root)
+        let reloaded = AsyncGate()
+        loader.beforeReturn = { index in if index == 1 { reloaded.open() } }
+        model.workspaceFilesChanged([
+            .init(fileURL: root.appendingPathComponent("README.md"), kind: .changed),
+            .init(fileURL: URL(fileURLWithPath: "/elsewhere/.fixture-version"), kind: .changed)
+        ])
+        model.workspaceFilesChanged([.init(fileURL: root.appendingPathComponent("apps/web/.fixture-version"), kind: .created)])
+        model.workspaceFilesChanged([.init(fileURL: root.appendingPathComponent(".fixture-version"), kind: .deleted)])
+        #expect(await reloaded.wait(timeout: .seconds(5)))
+        #expect(loader.workspaces == [root, root])
+    }
+
+    /// Inputs outside the workspace are watched per snapshot; closing ends the observation.
+    @Test
+    func providerInputsOutsideTheWorkspaceAreWatchedUntilClose() async {
+        var watched = snapshot()
+        watched.watch = ["/fixture/manager/installs"]
+        let loader = SettingsSnapshotLoader(snapshots: [watched, watched])
+        let watcher = InputWatcherStub()
+        let model = ToolchainSettingsFeatureModel(loader: loader, inputWatcher: watcher, reloadDelay: .zero)
+        await model.load(workspace: root)
+        #expect(watcher.paths == [["/fixture/manager/installs"]])
+        let reloaded = AsyncGate()
+        loader.beforeReturn = { index in if index == 1 { reloaded.open() } }
+        watcher.fire()
+        #expect(await reloaded.wait(timeout: .seconds(5)))
+        model.close()
+        #expect(watcher.liveObservations == 0)
+    }
+
     private func snapshot() -> ToolchainSettingsSnapshot {
         let provider = "dev.lithe.fixture.provider:fixture"
         let file = ToolchainSettingsSnapshot.VersionFile(path: "apps/web/.fixture-version", providerIDs: [provider])
@@ -245,4 +285,56 @@ private final class LoginShellStub: LoginShellEnvironmentInspecting, @unchecked 
             return next
         }
     }
+}
+
+/// Opened once by the loader; a test waits for it with its own deadline.
+@MainActor
+private final class AsyncGate {
+    private var isOpen = false
+    private var waiter: CheckedContinuation<Bool, Never>?
+
+    func open() {
+        isOpen = true
+        waiter?.resume(returning: true)
+        waiter = nil
+    }
+
+    func wait(timeout: Duration) async -> Bool {
+        if isOpen { return true }
+        let deadline = Task { @MainActor [weak self] in
+            // test-stability: allow(swift-real-sleep) reason: this only bounds the wait; the loader opens the gate.
+            try? await Task.sleep(for: timeout)
+            self?.waiter?.resume(returning: false)
+            self?.waiter = nil
+        }
+        defer { deadline.cancel() }
+        return await withCheckedContinuation { waiter = $0 }
+    }
+}
+
+private final class InputWatcherStub: ToolchainInputWatching, @unchecked Sendable {
+    private final class Observation {
+        weak var owner: InputWatcherStub?
+        init(owner: InputWatcherStub) { self.owner = owner }
+        deinit { owner?.lock.withLock { owner?.live -= 1 } }
+    }
+
+    private let lock = NSLock()
+    private var recorded: [[String]] = []
+    private var live = 0
+    private var latest: (@Sendable () -> Void)?
+
+    var paths: [[String]] { lock.withLock { recorded } }
+    var liveObservations: Int { lock.withLock { live } }
+
+    func watch(paths: [String], onChange: @escaping @Sendable () -> Void) -> AnyObject? {
+        lock.withLock {
+            recorded.append(paths)
+            live += 1
+            latest = onChange
+        }
+        return Observation(owner: self)
+    }
+
+    func fire() { lock.withLock { latest }?() }
 }

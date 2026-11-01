@@ -130,7 +130,7 @@ pub(super) fn client_initialize_for_plugin(
                 "window": {
                     "workDoneProgress": true
                 },
-                "experimental": experimental_capabilities(plugin_owned)
+                "experimental": experimental_capabilities(plugin_owned, &state.offered_toolchain_providers)
             },
             "initializationOptions": request.initialization_options
         }),
@@ -663,6 +663,27 @@ pub(super) fn client_apply_server_message_for_plugin(
                         .server_capabilities
                         .retain(|feature| feature != super::vcs_provider::VCS_PROVIDER_FEATURE),
                 }
+                state.toolchain_providers = plugin_owned
+                    .then(|| {
+                        super::toolchain_provider::negotiate(
+                            result.get("capabilities").unwrap_or(&Value::Null),
+                            &state.offered_toolchain_providers,
+                        )
+                    })
+                    .flatten()
+                    .unwrap_or_default();
+                if !state.toolchain_providers.is_empty() {
+                    events.push(LspClientEvent {
+                        kind: super::toolchain_provider::NEGOTIATED_EVENT.to_string(),
+                        request_id: None,
+                        method: Some("initialize".to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!({ "providers": state.toolchain_providers })),
+                        error: None,
+                    });
+                }
                 state.text_document_sync =
                     text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
                 state.text_document_save_include_text = match result
@@ -804,13 +825,21 @@ pub(super) fn json_rpc_result(id: &Value, result: Value) -> Result<String, CoreE
 
 /// `capabilities.experimental`: every Lithe protocol a plugin process may
 /// speak next to LSP, each negotiated on its own key.
-fn experimental_capabilities(plugin_owned: bool) -> Value {
+fn experimental_capabilities(
+    plugin_owned: bool,
+    toolchain_providers: &std::collections::BTreeSet<String>,
+) -> Value {
     let mut experimental = super::build_provider::client_experimental_capabilities();
     if plugin_owned {
         let (functions_key, functions_offer) = plugin_function::client_experimental_capabilities();
         experimental[functions_key] = functions_offer;
         let (vcs_key, vcs_offer) = super::vcs_provider::client_experimental_capabilities();
         experimental[vcs_key] = vcs_offer;
+        if let Some((toolchain_key, toolchain_offer)) =
+            super::toolchain_provider::client_experimental_capabilities(toolchain_providers)
+        {
+            experimental[toolchain_key] = toolchain_offer;
+        }
     }
     experimental
 }

@@ -87,7 +87,8 @@ final class AppModelFeatureGraph {
         )
         runtime = RuntimeSettingsFeatureModel(service: services.projectRuntimeService)
         toolchainSettings = ToolchainSettingsFeatureModel(
-            loader: services.toolchainSettingsLoader, loginShell: services.loginShellEnvironmentInspector
+            loader: services.toolchainSettingsLoader, loginShell: services.loginShellEnvironmentInspector,
+            inputWatcher: services.toolchainInputWatcher
         )
         languageTooling = LanguageToolingFeatureModel(
             catalogSource: services.languageProviderCatalogSource,

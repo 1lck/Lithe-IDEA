@@ -33,8 +33,8 @@ enum ToolchainSettingsLoadError: LocalizedError, Equatable {
 }
 
 /// Reads inert declarations, saved pins and filesystem facts. The injected discovery
-/// expands definition scans and probes versions Core asks for; this loader never
-/// queries a provider, writes a file or selects a runtime for a launch.
+/// expands definition scans, queries providers and probes versions Core asks for; this
+/// loader never writes a file or selects a runtime for a launch.
 struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
     /// Bounds the existence checks for version files; the tree projection can hold 1,024 directories.
     static let versionFileCheckBudget = 16_384
@@ -211,7 +211,8 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         let environment = io.environment()
         let candidates = definitions.map { candidate(for: $0, environment: environment, isExecutable: io.isExecutable) }
         let discovered = definitions.isEmpty ? MacToolchainDiscovery.Result()
-            : await io.discover(.init(workspace: workspace, sources: enabled, environment: environment))
+            : await io.discover(.init(workspace: workspace, sources: enabled, environment: environment,
+                                      directories: ["."] + found.keys.filter { $0 != "." }.sorted(by: treeOrder)))
         try Task.checkCancellation()
         diagnostics += discovered.diagnostics
         for definition in definitions where discovered.unchecked.contains(definition.id) {
@@ -230,14 +231,24 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
                     files += (found[id] ?? []).filter { !watching.isDisjoint(with: $0.providerIDs) }
                     current = id == "." ? nil : parent(id)
                 }
+                // A directory without its own version file answers as its nearest queried ancestor.
+                var queried = directory.id
+                while queried != ".", found[queried] == nil { queried = parent(queried) }
                 rows.append(.init(id: definition.id, directoryID: directory.id, displayName: definition.name,
                     pluginID: definition.pluginID, pluginName: definition.pluginName, iconName: definition.icon,
                     pin: saved.map { .init(version: $0.version, home: $0.home, directory: $0.directory) },
-                    versionFiles: files, candidate: candidate, detection: discovered.detections[definition.id]))
+                    versionFiles: files, requirements: discovered.requirements[queried]?[definition.id] ?? [],
+                    globalRequirements: discovered.globalRequirements[definition.id] ?? [],
+                    candidate: candidate, detection: discovered.detections[definition.id]))
             }
         }
-        return .init(workspaceURL: workspace, directories: directories, tools: rows, providers: providers,
-                     diagnostics: diagnostics)
+        let queried = providers.map { provider in
+            var result = provider
+            result.queryState = discovered.providerStates[provider.id] ?? .notQueried
+            return result
+        }
+        return .init(workspaceURL: workspace, directories: directories, tools: rows, providers: queried,
+                     diagnostics: diagnostics, watch: discovered.watch)
     }
 
     /// Literal provider watch files that exist as regular files; glob patterns stay with the provider.

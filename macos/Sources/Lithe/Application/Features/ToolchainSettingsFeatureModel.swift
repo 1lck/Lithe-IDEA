@@ -1,5 +1,7 @@
 import Combine
+import Darwin
 import Foundation
+import LitheCoreContracts
 
 /// Owns only settings presentation and read lifecycle, not runtime discovery or launch selection.
 @MainActor
@@ -19,11 +21,22 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
 
     private let loader: (any ToolchainSettingsLoading)?
     private let loginShellInspector: (any LoginShellEnvironmentInspecting)?
+    private let inputWatcher: (any ToolchainInputWatching)?
+    private let reloadDelay: Duration
     private var generation = UUID()
+    private var reloadTask: Task<Void, Never>?
+    private var inputObservation: AnyObject?
 
-    init(loader: (any ToolchainSettingsLoading)? = nil, loginShell: (any LoginShellEnvironmentInspecting)? = nil) {
+    init(
+        loader: (any ToolchainSettingsLoading)? = nil,
+        loginShell: (any LoginShellEnvironmentInspecting)? = nil,
+        inputWatcher: (any ToolchainInputWatching)? = nil,
+        reloadDelay: Duration = .milliseconds(350)
+    ) {
         self.loader = loader
         self.loginShellInspector = loginShell
+        self.inputWatcher = inputWatcher
+        self.reloadDelay = reloadDelay
     }
 
     var selectedDirectory: ToolchainSettingsSnapshot.Directory? {
@@ -40,6 +53,8 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
 
     /// Each load revokes older results; callers retain and cancel their structured UI task.
     func load(workspace: URL?) async {
+        reloadTask?.cancel()
+        reloadTask = nil
         await loadSnapshot(workspace: workspace)
         // A read the app started at launch is still running: show its outcome when it lands.
         if loginShell?.state == .reading, !Task.isCancelled { await rereadLoginShell() }
@@ -54,6 +69,41 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
         loginShell = next
         guard !Task.isCancelled else { return }
         await loadSnapshot(workspace: workspaceURL)
+    }
+
+    /// Any provider input revokes the whole snapshot, so old installations never mix with
+    /// new requirements. Nothing runs before the pages first load one.
+    func workspaceFilesChanged(_ changes: [WorkspaceFileChange]) {
+        guard let root = snapshot?.workspaceURL?.standardizedFileURL.path else { return }
+        let patterns = providers.flatMap(\.watchFiles)
+        let touched = changes.contains { change in
+            let path = change.fileURL.standardizedFileURL.path
+            guard path.hasPrefix(root + "/") else { return false }
+            let parts = path.dropFirst(root.count + 1).split(separator: "/").map(String.init)
+            return patterns.contains { pattern in
+                let count = pattern.split(separator: "/").count
+                return count <= parts.count && fnmatch(pattern, parts.suffix(count).joined(separator: "/"), FNM_PATHNAME) == 0
+            }
+        }
+        if touched { scheduleReload() }
+    }
+
+    /// Bursts of file events collapse into one reload; the latest reload replaces earlier ones.
+    private func scheduleReload() {
+        guard snapshot != nil else { return }
+        reloadTask?.cancel()
+        let delay = reloadDelay
+        reloadTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            await self.loadSnapshot(workspace: self.workspaceURL)
+        }
+    }
+
+    private func observeInputs(of snapshot: ToolchainSettingsSnapshot) {
+        inputObservation = inputWatcher?.watch(paths: snapshot.watch) { [weak self] in
+            Task { @MainActor [weak self] in self?.scheduleReload() }
+        }
     }
 
     private func loadSnapshot(workspace: URL?) async {
@@ -78,6 +128,7 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
                 throw SnapshotError.workspaceMismatch
             }
             snapshot = next
+            observeInputs(of: next)
             if !next.directories.contains(where: { $0.id == selectedDirectoryID }) {
                 selectedDirectoryID = next.directories.first?.id ?? "."
             }
@@ -110,6 +161,9 @@ final class ToolchainSettingsFeatureModel: ObservableObject {
     /// Revocation happens before any suspended load can return to this actor.
     func close() {
         generation = UUID()
+        reloadTask?.cancel()
+        reloadTask = nil
+        inputObservation = nil
         snapshot = nil
         workspaceURL = nil
         loadError = nil

@@ -596,6 +596,40 @@ fn system_installations(input: &Value, tool: &str) -> Validation<Vec<Value>> {
     Ok(installations)
 }
 
+/// Homes `toolchains.decodeReply` accepted from a provider declaring `tool`, kept
+/// under that provider's identity; one the registry does not list is refused.
+fn provider_installations(input: &Value, tool: &str, registry: &Value) -> Validation<Vec<Value>> {
+    let mut installations = Vec::new();
+    for value in array(input, "providerInstallations", 512)? {
+        fields(value, &["tool", "home", "provider"])?;
+        if value["tool"] != tool {
+            continue;
+        }
+        let home = value["home"]
+            .as_str()
+            .ok_or_else(|| reject("providerInstallations"))?;
+        let provider = value["provider"]
+            .as_str()
+            .and_then(|provider| provider.rsplit_once(':'))
+            .filter(|(plugin, provider)| {
+                registry["providers"].as_array().is_some_and(|entries| {
+                    entries.iter().any(|entry| {
+                        entry["pluginID"] == *plugin
+                            && entry["provider"]["id"] == *provider
+                            && entry["provider"]["tools"]
+                                .as_array()
+                                .is_some_and(|tools| tools.iter().any(|known| known == tool))
+                    })
+                })
+            })
+            .ok_or_else(|| reject("providerInstallations"))?;
+        installations.push(
+            json!({"tool":tool,"home":home,"provider":format!("{}:{}", provider.0, provider.1)}),
+        );
+    }
+    Ok(installations)
+}
+
 /// The automatic layer's candidate set, keyed by canonical home.
 struct Automatic {
     eligible: BTreeMap<String, Value>,
@@ -721,6 +755,7 @@ pub(crate) fn candidates(input: &Value) -> Validation<Value> {
             "minimumVersion",
             "probes",
             "systemInstallations",
+            "providerInstallations",
             "environment",
         ],
     )?;
@@ -760,7 +795,9 @@ pub(crate) fn candidates(input: &Value) -> Validation<Value> {
         }
         shell.push(row);
     }
-    let set = automatic_set(&snapshot, &system_installations(input, tool)?)?;
+    let mut reported = provider_installations(input, tool, &registry)?;
+    reported.extend(system_installations(input, tool)?);
+    let set = automatic_set(&snapshot, &reported)?;
     let mut installations: Vec<_> = set
         .eligible
         .values()
