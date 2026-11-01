@@ -89,6 +89,8 @@ async function readRegistry() {
   // not reusable build inputs, even without plugin mirror staging.
   // Plugin host secrets and workspace state also take this rejection route,
   // never a download/cache validator: their identity belongs to the installation.
+  // PlantUML is a pinned Git input; neither another bundle nor live render state
+  // is a reusable resource. Its isolated WebView never writes packaged inputs.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

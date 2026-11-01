@@ -1880,7 +1880,7 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func markdownPreviewResourcesAreBundledAndPlantUMLFree() throws {
+    func markdownPreviewResourcesAreBundledAndOffline() throws {
         let templateURL = try #require(MarkdownPreviewResources.templateURL)
         let directoryURL = try #require(MarkdownPreviewResources.directoryURL)
         #expect(FileManager.default.fileExists(atPath: templateURL.path))
@@ -1893,8 +1893,9 @@ struct LitheCoreLogicTests {
             contentsOf: directoryURL.appendingPathComponent("preview.js"),
             encoding: .utf8
         )
-        #expect(!template.lowercased().contains("plantuml"))
-        #expect(!runtime.lowercased().contains("plantuml"))
+        #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("plantuml.html").path))
+        #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("vendor/plantuml/plantuml.js").path))
+        #expect(runtime.contains("markdownPlantUML"))
         #expect(!template.contains("script src=\"http"))
         #expect(template.contains("connect-src 'none'"))
     }

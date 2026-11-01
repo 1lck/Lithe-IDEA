@@ -8,5 +8,10 @@ All preview dependencies are bundled with Lithe and loaded from the application 
 - D3 6.7.0 — ISC — `vendor/d3-LICENSE`
 - markmap-lib 0.14.1 — MIT — `vendor/markmap-lib-LICENSE`
 - markmap-view 0.14.0 — MIT — `vendor/markmap-view-LICENSE`
+- PlantUML JavaScript engine `@plantuml/core` 1.2026.9 — MIT — `vendor/plantuml/LICENSE`
 
-The Highlight.js browser bundle is the distribution already vendored by MiaoYan; its version banner and upstream license are preserved. The remaining files come from the matching npm distributions. PlantUML and its encoder are intentionally not included.
+The Highlight.js browser bundle is the distribution already vendored by MiaoYan; its version banner and upstream license are preserved. The remaining files come from the matching npm distributions.
+
+PlantUML uses the official JavaScript build's built-in Smetana layout engine. Graphviz/Viz.js, the URL encoder, optional standard libraries, themes, emoji and external include loaders are not bundled. Rendering is local in a nonpersistent, restricted WebView; the result is displayed as an SVG image, never injected into the document DOM.
+
+`vendor/plantuml/plantuml.js` comes unchanged from `https://registry.npmjs.org/@plantuml/core/-/core-1.2026.9.tgz` (`package/plantuml.js`, upstream Git revision `18d0aae311a4f1eb3723bb4b0ad939185e22f166`). npm archive integrity: `sha512-Qy46og9hEb+wOFtjUfniWkl/BDwHpDuebQX5rF+35s9PS2G4cKZf1iWw4E/ELLQ0pTkESPDoQTbKWcc3ZyVcVA==`. Script SHA-256: `21c049ce47d087eff61ae0836f9c62a2b0c0d2528a5f16c2247057544228fae7`. The npm release's MIT license and upstream notices are preserved in `vendor/plantuml/LICENSE` (line endings normalized to LF only). Versions before 1.2026.6 use different licensing and must not be substituted. These are Git-tracked build inputs, not runtime downloads or writable bundle state.

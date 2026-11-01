@@ -2764,6 +2764,7 @@
 "Plan before making changes" = "先制定计划，再进行修改。";
 "Planned Git command — waiting to start" = "Git 命令计划 — 等待启动";
 "Planned command" = "计划执行的命令";
+"PlantUML could not render this diagram. Showing its source instead." = "PlantUML 无法渲染此图表，已显示源码。";
 "Platforms" = "支持平台";
 "Plugin" = "插件";
 "Plugin %@ %@ is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update." = "插件 %@ %@ 是已淘汰的原生插件包，不再加载。请在插件管理中重新安装以更新。";
@@ -4839,6 +4840,7 @@
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS 无法准备更新磁盘映像。请打开 Release 页面手动安装。";
 "main Java" = "主代码";
 "main resources" = "主资源";
+"markdown.plantumlRenderFailed" = "PlantUML 无法渲染此图表，已显示源码。";
 "matches" = "个匹配项";
 "maven.title" = "Maven";
 "menu.copy" = "复制";
