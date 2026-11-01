@@ -294,6 +294,9 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::ToolchainsDiscoveryPlan => {
             plugin_response(id, parsed.payload, crate::toolchain::discovery_plan_command)
         }
+        CoreCommand::ToolchainsCandidates => {
+            plugin_response(id, parsed.payload, crate::toolchain::candidates_command)
+        }
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }

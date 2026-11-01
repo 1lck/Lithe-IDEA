@@ -26,16 +26,50 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         var directory: String = "."
     }
 
-    /// The first declared automatic candidate a child process would find now.
+    /// The first `PATH` match for a declared command, as a child process would find it now.
     /// It is an existing executable, not a verified version or a selection.
     struct Candidate: Equatable, Sendable {
-        enum Origin: Equatable, Sendable {
-            case variable(String)
-            case path
+        let executable: String
+    }
+
+    /// What the global and automatic layers find for one tool, checked by Core against
+    /// native facts and the definition's own version probe. Nothing here grants launch authority.
+    struct Detection: Equatable, Sendable {
+        /// A declared login-shell home variable and Core's check of the layout it names.
+        struct Shell: Equatable, Sendable {
+            let variable: String
+            let home: String
+            var executable: String? = nil
+            var version: String? = nil
+            /// Core's skip code when no version was established.
+            var reason: String? = nil
         }
 
-        let executable: String
-        let origin: Origin
+        /// A discovered home that passed every check, with its probed version.
+        struct Installation: Equatable, Sendable {
+            let home: String
+            let executable: String
+            let version: String
+            /// `host:system` for a definition scan, otherwise the qualified provider.
+            let provider: String
+            /// The scanned entry the home was found under, when the definition's home layout
+            /// adds a suffix (`jdk-21.jdk` for `jdk-21.jdk/Contents/Home`); it names the installation.
+            var location: String? = nil
+        }
+
+        /// A discovered home that failed a check, with Core's skip code.
+        struct Skipped: Equatable, Sendable {
+            let home: String
+            let reason: String
+        }
+
+        var shell: [Shell] = []
+        /// Highest version first.
+        var installations: [Installation] = []
+        var skipped: [Skipped] = []
+        /// The home the automatic layer picks; `nil` with `conflict` means equal highest versions.
+        var selected: String? = nil
+        var conflict = false
     }
 
     struct Tool: Identifiable, Equatable, Sendable {
@@ -49,6 +83,8 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         /// Version files watched by providers of this tool, nearest directory first.
         var versionFiles: [VersionFile] = []
         var candidate: Candidate? = nil
+        /// `nil` when discovery did not run or could not check this tool.
+        var detection: Detection? = nil
 
         var identity: String { "\(directoryID):\(id)" }
     }

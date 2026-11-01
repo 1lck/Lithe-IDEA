@@ -1146,7 +1146,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, conflicts and terminal fixed-value failures |
 | `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
-| `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes and budgets; never scans native directories |
+| `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
+| `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
 | `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
 | `plugins.editorActions.decode` | Validate independent action registration or collection results |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |

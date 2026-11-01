@@ -189,7 +189,7 @@ struct ToolchainEnvironmentSettingsView: View {
     private func toolsGroup(_ snapshot: ToolchainSettingsSnapshot) -> some View {
         let tools = feature.tools
         return ToolchainSettingsGroup(Text("Tools"), accessory: {
-            LitheInfoTip("Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Version managers are not queried yet, so the versions that version files and global defaults ask for are not shown.")
+            LitheInfoTip("Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Version managers are not queried yet, so the versions that version files ask for are not shown.")
             Spacer(minLength: 8)
             Button(action: refresh) {
                 HStack(spacing: 4) {
@@ -323,8 +323,17 @@ private struct ToolchainToolRow: View {
         } else if let file = tool.versionFiles.first {
             // "Version not queried" stays in the expanded step, so a narrow row only truncates the path.
             monospaced(file.path, size: 11.5, color: LitheTheme.primaryText)
+        } else if let shell = verifiedShell, let version = shell.version {
+            versioned(version, home: shell.home)
+        } else if let selected = selectedInstallation {
+            versioned(selected.version, home: selected.home)
         } else if let candidate = tool.candidate {
             monospaced(ToolchainSettingsText.abbreviated(candidate.executable), size: 11.5, color: LitheTheme.secondaryText)
+        } else if detection?.conflict == true {
+            Text("Several installations have the same version")
+                .font(LitheTheme.uiFont(size: 12))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .lineLimit(1)
         } else {
             Text("Not found")
                 .font(LitheTheme.uiFont(size: 12))
@@ -341,15 +350,33 @@ private struct ToolchainToolRow: View {
             }
         } else if !tool.versionFiles.isEmpty {
             LitheSettingsPill("Version file", kind: .project)
-        } else if let candidate = tool.candidate {
-            LitheSettingsPill(verbatim: ToolchainSettingsText.origin(candidate.origin))
+        } else if let shell = verifiedShell {
+            LitheSettingsPill(verbatim: ToolchainSettingsText.variable(shell.variable))
+        } else if selectedInstallation != nil {
+            LitheSettingsPill("Discovered")
+        } else if tool.candidate != nil {
+            LitheSettingsPill(verbatim: "PATH")
         }
     }
 
+    private var detection: ToolchainSettingsSnapshot.Detection? { tool.detection }
+
+    /// A login-shell home whose version Core established; it outranks discovered installations.
+    private var verifiedShell: ToolchainSettingsSnapshot.Detection.Shell? {
+        detection?.shell.first { $0.version != nil }
+    }
+
+    private var selectedInstallation: ToolchainSettingsSnapshot.Detection.Installation? {
+        detection.flatMap { detection in detection.installations.first { $0.home == detection.selected } }
+    }
+
+    /// An unverified `PATH` match is shown last: without a version it cannot outrank an installation.
     private var firstMatch: Int? {
         if tool.pin != nil { return 1 }
         if !tool.versionFiles.isEmpty { return 2 }
-        if tool.candidate != nil { return 4 }
+        if verifiedShell != nil { return 3 }
+        if selectedInstallation != nil { return 4 }
+        if tool.candidate != nil { return 3 }
         return nil
     }
 
@@ -401,28 +428,82 @@ private struct ToolchainToolRow: View {
     }
 
     private var globalStep: some View {
-        ToolchainResolutionStep(
+        let shell = detection?.shell ?? []
+        return ToolchainResolutionStep(
             number: 3, title: "Global defaults",
-            info: "The version a version manager uses outside any project. Version managers are not queried yet.",
-            isFirstMatch: false, hasFact: false
+            info: "The home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run. Version managers' global versions are not queried yet.",
+            isFirstMatch: firstMatch == 3, hasFact: !shell.isEmpty || tool.candidate != nil
         ) {
-            Text("Not queried").foregroundStyle(LitheTheme.tertiaryText)
+            ForEach(shell, id: \.variable) { row in
+                // A long variable name leaves no room for the version beside it in a narrow card.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) { shellVariable(row) }
+                    VStack(alignment: .leading, spacing: 2) { shellVariable(row) }
+                }
+                monospaced(ToolchainSettingsText.abbreviated(row.home), size: 10.5, color: LitheTheme.secondaryText, truncation: .head)
+                if row.version == nil {
+                    Text(verbatim: ToolchainSettingsText.skipReason(row.reason))
+                        .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                }
+            }
+            if let candidate = tool.candidate {
+                HStack(spacing: 4) {
+                    ToolchainSettingsTag(verbatim: "PATH")
+                    monospaced(ToolchainSettingsText.abbreviated(candidate.executable), size: 11, color: LitheTheme.primaryText, truncation: .head)
+                }
+                Text("Version not verified").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+            }
+            if shell.isEmpty && tool.candidate == nil {
+                Text("Not found").foregroundStyle(LitheTheme.tertiaryText)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("toolchain-step:" + tool.id + ":global")
     }
 
+    /// Discovered installations, highest version first; the step card keeps a few and counts the rest.
     private var automaticStep: some View {
-        ToolchainResolutionStep(
+        let installations = detection?.installations ?? []
+        let skipped = detection?.skipped ?? []
+        let shown = Array(installations.prefix(Self.shownInstallations))
+        return ToolchainResolutionStep(
             number: 4, title: "Automatic discovery",
-            info: "The first executable found through the variables and commands this tool's plugin declares, using the login shell's PATH. Its version is not checked.",
-            isFirstMatch: firstMatch == 4, hasFact: tool.candidate != nil
+            info: "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run.",
+            isFirstMatch: firstMatch == 4, hasFact: !installations.isEmpty
         ) {
-            if let candidate = tool.candidate {
-                ToolchainSettingsTag(verbatim: ToolchainSettingsText.origin(candidate.origin))
-                monospaced(ToolchainSettingsText.abbreviated(candidate.executable), size: 11, color: LitheTheme.primaryText, truncation: .head)
-                Text("Version not verified").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
-            } else {
+            // Version above home: beside a version, a narrow card keeps only a home's shared
+            // tail (`…/Contents/Home`), which cannot tell installations apart.
+            ForEach(shown, id: \.home) { installation in
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 4) {
+                        version(installation.version, emphasized: installation.home == detection?.selected)
+                        if installation.home == detection?.selected {
+                            Image(systemName: "checkmark")
+                                .font(LitheTheme.uiFont(size: 9.5, weight: .bold))
+                                .foregroundStyle(LitheTheme.accent)
+                                .accessibilityLabel(Text("Selected"))
+                        }
+                    }
+                    monospaced(ToolchainSettingsText.abbreviated(installation.location ?? installation.home), size: 10.5,
+                               color: LitheTheme.secondaryText, truncation: .head, help: installation.home)
+                }
+            }
+            if installations.count > shown.count {
+                Text("\(installations.count - shown.count) more")
+                    .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                    .help(installations.dropFirst(shown.count).map { $0.version + "  " + $0.home }.joined(separator: "\n"))
+            }
+            if detection?.conflict == true {
+                Text("Several installations have the same version")
+                    .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.settingsEffectPillText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !skipped.isEmpty {
+                Text("\(skipped.count) skipped")
+                    .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText)
+                    .help(skipped.map { ToolchainSettingsText.skipReason($0.reason) + "  " + $0.home }.joined(separator: "\n"))
+            }
+            if installations.isEmpty && skipped.isEmpty {
                 Text("Not found").foregroundStyle(LitheTheme.tertiaryText)
             }
         }
@@ -430,15 +511,43 @@ private struct ToolchainToolRow: View {
         .accessibilityIdentifier("toolchain-step:" + tool.id + ":automatic")
     }
 
+    private static let shownInstallations = 3
+
+    @ViewBuilder
+    private func shellVariable(_ row: ToolchainSettingsSnapshot.Detection.Shell) -> some View {
+        ToolchainSettingsTag(verbatim: ToolchainSettingsText.variable(row.variable))
+        if let found = row.version {
+            version(found, emphasized: true)
+        }
+    }
+
+    /// A version keeps its full width; the path beside or below it is what truncates.
+    private func version(_ text: String, emphasized: Bool) -> some View {
+        Text(verbatim: text)
+            .font(LitheTheme.uiFont(size: 11.5, weight: emphasized ? .semibold : .regular, design: .monospaced))
+            .foregroundStyle(emphasized ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            .lineLimit(1)
+            .fixedSize()
+            .textSelection(.enabled)
+    }
+
+    private func versioned(_ version: String, home: String) -> some View {
+        HStack(spacing: 6) {
+            LitheSettingsPill(verbatim: version, kind: .value)
+            monospaced(ToolchainSettingsText.abbreviated(home), size: 11, color: LitheTheme.tertiaryText)
+        }
+    }
+
     /// Step cards are narrow, so they cut from the front to keep the file or executable name.
-    private func monospaced(_ text: String, size: CGFloat, color: Color, truncation: Text.TruncationMode = .middle) -> some View {
+    private func monospaced(_ text: String, size: CGFloat, color: Color, truncation: Text.TruncationMode = .middle,
+                            help: String? = nil) -> some View {
         Text(verbatim: text)
             .font(LitheTheme.uiFont(size: size, design: .monospaced))
             .foregroundStyle(color)
             .lineLimit(1)
             .truncationMode(truncation)
             .textSelection(.enabled)
-            .help(text)
+            .help(help ?? text)
     }
 }
 
@@ -699,10 +808,17 @@ enum ToolchainSettingsText {
         return result + ["."]
     }
 
-    static func origin(_ origin: ToolchainSettingsSnapshot.Candidate.Origin) -> String {
-        switch origin {
-        case .path: "PATH"
-        case let .variable(name): "$" + name
+    static func variable(_ name: String) -> String {
+        "$" + name
+    }
+
+    /// Core's skip code for a home it checked, as a reader understands it.
+    static func skipReason(_ code: String?) -> String {
+        switch code {
+        case "probeFailed": L10n.string("Version check failed")
+        case "versionUnsatisfied": L10n.string("Version too old")
+        case "unsafePath": L10n.string("Not a valid installation")
+        default: L10n.string("Not usable")
         }
     }
 }

@@ -192,7 +192,7 @@ struct ToolchainSettingsFeatureTests {
                 .init(id: "compiler", directoryID: "apps/web", displayName: "Fixture compiler", pluginID: "dev.lithe.fixture.compiler",
                       pluginName: "Compiler", pin: .init(version: "1", home: "/fixture/compiler"), versionFiles: [file]),
                 .init(id: "renderer", directoryID: "apps/web", displayName: "Fixture renderer", pluginID: "dev.lithe.fixture.renderer",
-                      pluginName: "Renderer", candidate: .init(executable: "/fixture/bin/renderer", origin: .path))
+                      pluginName: "Renderer", candidate: .init(executable: "/fixture/bin/renderer"))
             ],
             providers: [.init(id: provider, title: "Fixture provider", pluginID: "dev.lithe.fixture.provider",
                               pluginName: "Provider", tools: ["compiler"], watchFiles: [".fixture-version"])])

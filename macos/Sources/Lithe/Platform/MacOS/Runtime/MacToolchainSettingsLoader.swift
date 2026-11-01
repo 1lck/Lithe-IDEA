@@ -9,6 +9,8 @@ struct ToolchainSettingsPluginSource: Equatable, Sendable {
     let name: String
     let manifest: Data
     let isEnabled: Bool
+    /// Host-verified official origin; Core requires it for short tool definition IDs.
+    var verifiedOfficial = false
 }
 
 struct ToolchainSettingsSavedPin: Equatable, Sendable {
@@ -30,8 +32,9 @@ enum ToolchainSettingsLoadError: LocalizedError, Equatable {
     }
 }
 
-/// Reads inert declarations, saved pins and filesystem facts; it never runs a tool,
-/// queries a provider or selects a runtime.
+/// Reads inert declarations, saved pins and filesystem facts. The injected discovery
+/// expands definition scans and probes versions Core asks for; this loader never
+/// queries a provider, writes a file or selects a runtime for a launch.
 struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
     /// Bounds the existence checks for version files; the tree projection can hold 1,024 directories.
     static let versionFileCheckBudget = 16_384
@@ -46,6 +49,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
     private let environment: @Sendable () -> [String: String]
     private let fileExists: @Sendable (URL) -> Bool
     private let isExecutable: @Sendable (String) -> Bool
+    private let discover: @Sendable (MacToolchainDiscovery.Request) async -> MacToolchainDiscovery.Result
 
     init(
         sources: @escaping @MainActor @Sendable () -> [ToolchainSettingsPluginSource],
@@ -57,7 +61,10 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         },
         fileExists: @escaping @Sendable (URL) -> Bool = Self.regularFileExists,
         isExecutable: @escaping @Sendable (String) -> Bool = Self.executableExists,
-        readLocalData: (@Sendable (URL) throws -> Data?)? = nil
+        readLocalData: (@Sendable (URL) throws -> Data?)? = nil,
+        discover: @escaping @Sendable (MacToolchainDiscovery.Request) async -> MacToolchainDiscovery.Result = {
+            await MacToolchainDiscovery().discover($0)
+        }
     ) {
         // FileStorage's generic prefix reader may open special files; production
         // reads use a checked nonblocking native descriptor instead.
@@ -69,6 +76,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         self.environment = environment
         self.fileExists = fileExists
         self.isExecutable = isExecutable
+        self.discover = discover
     }
 
     func load(workspace: URL?) async throws -> ToolchainSettingsSnapshot {
@@ -80,9 +88,9 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         let installed = await sources()
         let directoryIDs = await directories(workspace)
         let io = IO(readLocalData: readLocalData, resolvePin: resolvePin, environment: environment,
-                    fileExists: fileExists, isExecutable: isExecutable)
+                    fileExists: fileExists, isExecutable: isExecutable, discover: discover)
         let worker = Task.detached(priority: .userInitiated) {
-            try Self.snapshot(workspace: workspace, sources: installed, directoryIDs: directoryIDs, io: io)
+            try await Self.snapshot(workspace: workspace, sources: installed, directoryIDs: directoryIDs, io: io)
         }
         return try await withTaskCancellationHandler {
             let snapshot = try await worker.value
@@ -99,12 +107,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         let environment: @Sendable () -> [String: String]
         let fileExists: @Sendable (URL) -> Bool
         let isExecutable: @Sendable (String) -> Bool
-    }
-
-    /// The automatic candidates a settings page can check without running anything.
-    private enum Probe {
-        case variable(name: String, path: String)
-        case command(String)
+        let discover: @Sendable (MacToolchainDiscovery.Request) async -> MacToolchainDiscovery.Result
     }
 
     private struct Definition {
@@ -113,19 +116,21 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         let pluginID: String
         let pluginName: String
         let icon: String?
-        let probes: [Probe]
+        /// Declared `PATH` commands, in declaration order.
+        let commands: [String]
     }
 
     private static func snapshot(
         workspace: URL?, sources: [ToolchainSettingsPluginSource], directoryIDs: [String], io: IO
-    ) throws -> ToolchainSettingsSnapshot {
+    ) async throws -> ToolchainSettingsSnapshot {
         try Task.checkCancellation()
         guard sources.count <= 128 else { throw ToolchainSettingsLoadError.invalidDeclarations }
         var definitions: [Definition] = []
         var providers: [ToolchainSettingsSnapshot.Provider] = []
         var knownTools: Set<String> = []
         var knownPlugins: Set<String> = []
-        for source in sources.filter(\.isEnabled).sorted(by: { $0.pluginID < $1.pluginID }) {
+        let enabled = sources.filter(\.isEnabled).sorted(by: { $0.pluginID < $1.pluginID })
+        for source in enabled {
             try Task.checkCancellation()
             guard source.manifest.count <= 1_048_576, knownPlugins.insert(source.pluginID).inserted,
                   let manifest = try? JSONSerialization.jsonObject(with: source.manifest) as? [String: Any],
@@ -137,7 +142,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
                 else { throw ToolchainSettingsLoadError.invalidDeclarations }
                 let icon = (tool["icon"] as? [String: Any])?["host"] as? String
                 definitions.append(Definition(id: id, name: name, pluginID: source.pluginID,
-                                              pluginName: source.name, icon: icon, probes: probes(tool)))
+                                              pluginName: source.name, icon: icon, commands: commands(tool)))
             }
             var providerIDs: Set<String> = []
             for provider in try contribution(manifest, key: "toolchainProviders", maximum: 8) {
@@ -205,6 +210,13 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         }
         let environment = io.environment()
         let candidates = definitions.map { candidate(for: $0, environment: environment, isExecutable: io.isExecutable) }
+        let discovered = definitions.isEmpty ? MacToolchainDiscovery.Result()
+            : await io.discover(.init(workspace: workspace, sources: enabled, environment: environment))
+        try Task.checkCancellation()
+        diagnostics += discovered.diagnostics
+        for definition in definitions where discovered.unchecked.contains(definition.id) {
+            diagnostics.append(L10n.string("Installations of \(definition.name) could not be checked."))
+        }
         var rows: [ToolchainSettingsSnapshot.Tool] = []
         for directory in directories {
             try Task.checkCancellation()
@@ -221,7 +233,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
                 rows.append(.init(id: definition.id, directoryID: directory.id, displayName: definition.name,
                     pluginID: definition.pluginID, pluginName: definition.pluginName, iconName: definition.icon,
                     pin: saved.map { .init(version: $0.version, home: $0.home, directory: $0.directory) },
-                    versionFiles: files, candidate: candidate))
+                    versionFiles: files, candidate: candidate, detection: discovered.detections[definition.id]))
             }
         }
         return .init(workspaceURL: workspace, directories: directories, tools: rows, providers: providers,
@@ -263,42 +275,28 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         return found
     }
 
-    private static func probes(_ tool: [String: Any]) -> [Probe] {
+    private static func commands(_ tool: [String: Any]) -> [String] {
         guard let executables = tool["executables"] as? [[String: Any]] else { return [] }
         return executables.prefix(32).compactMap { candidate in
             if let platforms = candidate["platforms"] as? [String], !platforms.contains("macos") { return nil }
-            switch candidate["kind"] as? String {
-            case "environment":
-                guard let name = text(candidate["variable"], maximum: 64),
-                      let path = text(candidate["path"], maximum: 256), validDirectory(path), path != "."
-                else { return nil }
-                return .variable(name: name, path: path)
-            case "command":
-                guard let command = text(candidate["command"], maximum: 64), !command.contains("/") else { return nil }
-                return .command(command)
-            default:
-                return nil
-            }
+            guard candidate["kind"] as? String == "command", let command = text(candidate["command"], maximum: 64),
+                  !command.contains("/")
+            else { return nil }
+            return command
         }
     }
 
-    /// The first declared environment or `PATH` candidate that exists, in declaration order.
+    /// The first declared command found on `PATH`, in declaration order. Login-shell home
+    /// variables are checked by Core through discovery instead.
     private static func candidate(
         for definition: Definition, environment: [String: String], isExecutable: @Sendable (String) -> Bool
     ) -> ToolchainSettingsSnapshot.Candidate? {
         let searchPath = (environment["PATH"] ?? "").split(separator: ":").prefix(256)
             .map(String.init).filter { $0.hasPrefix("/") }
-        for probe in definition.probes {
-            switch probe {
-            case let .variable(name, path):
-                guard let home = environment[name], home.hasPrefix("/") else { continue }
-                let executable = (home.hasSuffix("/") ? String(home.dropLast()) : home) + "/" + path
-                if isExecutable(executable) { return .init(executable: executable, origin: .variable(name)) }
-            case let .command(command):
-                for directory in searchPath {
-                    let executable = (directory.hasSuffix("/") ? String(directory.dropLast()) : directory) + "/" + command
-                    if isExecutable(executable) { return .init(executable: executable, origin: .path) }
-                }
+        for command in definition.commands {
+            for directory in searchPath {
+                let executable = (directory.hasSuffix("/") ? String(directory.dropLast()) : directory) + "/" + command
+                if isExecutable(executable) { return .init(executable: executable) }
             }
         }
         return nil

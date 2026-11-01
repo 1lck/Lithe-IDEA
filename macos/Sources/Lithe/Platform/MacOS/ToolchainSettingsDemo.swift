@@ -175,39 +175,93 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
         return result
     }
 
-    /// Sample manifests standing in for installed plugins; the host itself knows none of these tools.
-    private static let samplePlugins: [ToolchainSettingsPluginSource] = [
-        sample("dev.lithe.sample.jvm", "JVM (sample)", """
-            "toolDefinitions": [
-              {"id": "java", "displayName": "JDK", "executables": [
-                {"kind": "environment", "variable": "JAVA_HOME", "path": "bin/java"},
-                {"kind": "command", "command": "java"}]},
-              {"id": "maven", "displayName": "Maven", "executables": [
-                {"kind": "environment", "variable": "MAVEN_HOME", "path": "bin/mvn"},
-                {"kind": "command", "command": "mvn"}]}]
-            """),
-        sample("dev.lithe.sample.node", "Node.js (sample)", """
-            "toolDefinitions": [
-              {"id": "node", "displayName": "Node.js", "executables": [{"kind": "command", "command": "node"}]}],
-            "toolchainProviders": [
-              {"id": "nvm", "displayName": "nvm", "tools": ["node"], "watchFiles": [{"pattern": ".nvmrc"}]}]
-            """),
-        sample("dev.lithe.sample.python", "Python (sample)", """
-            "toolDefinitions": [
-              {"id": "python", "displayName": "Python", "executables": [{"kind": "command", "command": "python3"}]}],
-            "toolchainProviders": [
-              {"id": "uv", "displayName": "uv", "tools": ["python"], "watchFiles": [{"pattern": ".python-version"}]}]
-            """),
-        sample("dev.lithe.sample.mise", "mise (sample)", """
-            "toolchainProviders": [
-              {"id": "mise", "displayName": "mise", "tools": ["java", "maven", "node", "python"],
-               "watchFiles": [{"pattern": "mise.toml"}, {"pattern": ".tool-versions"}]}]
-            """)
+    /// Sample manifests standing in for installed official plugins; the host itself knows none of these tools.
+    /// They are complete production manifests, so Core admits them and discovery scans this Mac for real.
+    static let samplePlugins: [ToolchainSettingsPluginSource] = [
+        sample("dev.lithe.sample.jvm", "JVM (sample)", definitions: [
+            tool("java", "JDK", layout: "bin/java", version: (["-version"], #"version \"(?:1\.)?(\d+(?:\.\d+)*)"#),
+                 variable: "JAVA_HOME", command: "java",
+                 homeLayouts: [["match": "*.jdk", "home": "Contents/Home"], ["match": "*", "home": "."]],
+                 discovery: [absolute("/Library/Java/JavaVirtualMachines", "*.jdk"),
+                             home("Library/Java/JavaVirtualMachines/*.jdk"), home(".sdkman/candidates/java/*"),
+                             absolute("/opt/homebrew/Cellar", "openjdk*/*")]),
+            tool("maven", "Maven", layout: "bin/mvn", version: (["--version"], #"Apache Maven (\d+(?:\.\d+)*)"#),
+                 variable: "MAVEN_HOME", command: "mvn",
+                 discovery: [absolute("/opt/homebrew/Cellar", "maven/*"), home(".sdkman/candidates/maven/*")])
+        ]),
+        sample("dev.lithe.sample.node", "Node.js (sample)", definitions: [
+            tool("node", "Node.js", layout: "bin/node", version: (["--version"], #"v(\d+(?:\.\d+)*)"#), command: "node",
+                 discovery: [home(".nvm/versions/node/*"), absolute("/opt/homebrew/Cellar", "node/*"),
+                             absolute("/opt/homebrew/Cellar", "node@*/*")])
+        ], providers: [provider("nvm", "nvm", tools: ["node"], watch: [".nvmrc"])]),
+        sample("dev.lithe.sample.python", "Python (sample)", definitions: [
+            tool("python", "Python", layout: "bin/python3", version: (["--version"], #"Python (\d+(?:\.\d+)*)"#),
+                 command: "python3", discovery: [home(".local/share/uv/python/cpython-*")])
+        ], providers: [provider("uv", "uv", tools: ["python"], watch: [".python-version"])]),
+        sample("dev.lithe.sample.mise", "mise (sample)", providers: [
+            provider("mise", "mise", tools: ["java", "maven", "node", "python"], watch: ["mise.toml", ".tool-versions"])
+        ])
     ]
 
-    private static func sample(_ id: String, _ name: String, _ contributions: String) -> ToolchainSettingsPluginSource {
-        ToolchainSettingsPluginSource(pluginID: id, name: name,
-                                      manifest: Data("{\"id\": \"\(id)\", \(contributions)}".utf8), isEnabled: true)
+    private static func sample(
+        _ id: String, _ name: String, definitions: [[String: Any]] = [], providers: [[String: Any]] = []
+    ) -> ToolchainSettingsPluginSource {
+        var manifest: [String: Any] = [
+            "schemaVersion": 2, "id": id, "displayName": name, "version": "1.0.0", "pluginAPIVersion": 3,
+            "vendor": ["id": "dev.lithe.sample", "displayName": "Lithe samples", "signatureRequirement": "publisherPackage"]
+        ]
+        var requires: [String: Int] = [:]
+        var permissions: [String] = []
+        if !definitions.isEmpty {
+            manifest["toolDefinitions"] = definitions
+            requires.merge(["toolDefinitions": 1, "executableResolution": 2]) { $1 }
+        }
+        if !providers.isEmpty {
+            manifest["toolchainProviders"] = providers
+            manifest["backend"] = ["launch": ["kind": "packaged", "path": "bin/provider"], "arguments": ["--stdio"]]
+            requires.merge(["toolchainProviders": 1, "backend": 2, "serverProcess": 1]) { $1 }
+            permissions = ["backend.launch", "toolchains.provide"]
+        }
+        manifest["requires"] = requires
+        manifest["permissions"] = permissions
+        let data = (try? JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])) ?? Data()
+        return ToolchainSettingsPluginSource(pluginID: id, name: name, manifest: data, isEnabled: true, verifiedOfficial: true)
+    }
+
+    private static func tool(
+        _ id: String, _ name: String, layout: String, version: ([String], String), variable: String? = nil,
+        command: String, homeLayouts: [[String: String]] = [], discovery: [[String: Any]]
+    ) -> [String: Any] {
+        var executables: [[String: Any]] = [
+            ["id": "pinned", "kind": "setting", "settingID": "executable", "layer": "project"],
+            ["id": "project-request", "kind": "toolchain", "scope": "project"],
+            ["id": "default", "kind": "setting", "settingID": "executable", "layer": "global"],
+            ["id": "global-request", "kind": "toolchain", "scope": "global"]
+        ]
+        if let variable { executables.append(["id": "home", "kind": "environment", "variable": variable, "path": layout]) }
+        executables += [["id": "shell", "kind": "command", "command": command],
+                        ["id": "detected", "kind": "toolchain", "scope": "installed"]]
+        var definition: [String: Any] = [
+            "id": id, "displayName": name, "icon": ["host": "plugin"],
+            "executableLayouts": [["path": layout]], "executables": executables,
+            "version": ["arguments": version.0, "pattern": version.1],
+            "homeLayouts": homeLayouts, "discovery": discovery,
+            "commands": [command], "wrappers": [], "pathPrepend": ["${home}/bin"],
+            "exports": variable.map { [["name": $0, "value": "${home}"]] } ?? [],
+            "launch": ["${executable}", "${arguments}"]
+        ]
+        if let variable { definition["homeVariable"] = variable }
+        return definition
+    }
+
+    private static func provider(_ id: String, _ name: String, tools: [String], watch: [String]) -> [String: Any] {
+        ["id": id, "displayName": name, "tools": tools, "watchFiles": watch.map { ["pattern": $0, "reader": "native"] }]
+    }
+
+    private static func home(_ pattern: String) -> [String: Any] { ["root": ["kind": "home"], "pattern": pattern] }
+
+    private static func absolute(_ path: String, _ pattern: String) -> [String: Any] {
+        ["root": ["kind": "absolute", "path": path], "pattern": pattern]
     }
 }
 #endif

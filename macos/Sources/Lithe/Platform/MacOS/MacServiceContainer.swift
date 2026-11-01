@@ -1266,7 +1266,10 @@ final class MacServiceContainer {
                         pluginID: plugin.descriptor.id.rawValue,
                         name: plugin.manifest.displayName,
                         manifest: plugin.descriptor.normalizedManifest,
-                        isEnabled: enabled.contains(plugin.descriptor.id)
+                        isEnabled: enabled.contains(plugin.descriptor.id),
+                        // Short tool IDs need an official catalog entry installed through a verified channel.
+                        verifiedOfficial: OfficialPluginCatalog.entry(for: plugin.descriptor.id) != nil
+                            && [.bundled, .marketplace].contains(plugin.installation.origin)
                     )
                 }
             },

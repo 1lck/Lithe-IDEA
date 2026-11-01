@@ -274,9 +274,18 @@ private final class ToolchainLayoutFixture {
             tools: [
                 .init(id: "compiler", displayName: "Fixture compiler", pluginID: "dev.lithe.fixture.compiler", pluginName: "Compiler support",
                       pin: .init(version: "24.10.2", home: installation), versionFiles: [file],
-                      candidate: .init(executable: "/fixture/system/a-long-bin-directory/compiler", origin: .variable("FIXTURE_HOME"))),
+                      candidate: .init(executable: "/fixture/system/a-long-bin-directory/compiler"),
+                      detection: .init(
+                        shell: [.init(variable: "FIXTURE_HOME", home: "/fixture/system/a-long-home-directory-name",
+                                      executable: "/fixture/system/a-long-home-directory-name/bin/compiler", version: "23.4.1")],
+                        installations: (0..<5).map { index in
+                            .init(home: installation + "-\(index)", executable: installation + "-\(index)/bin/compiler",
+                                  version: "24.10.\(5 - index)", provider: "host:system")
+                        },
+                        skipped: [.init(home: "/fixture/installations/broken-home", reason: "probeFailed")],
+                        selected: installation + "-0")),
                 .init(id: "renderer", displayName: "Fixture renderer", pluginID: "dev.lithe.fixture.renderer", pluginName: "Renderer support",
-                      candidate: .init(executable: "/fixture/renderers/12.3.0/bin/renderer", origin: .path))
+                      candidate: .init(executable: "/fixture/renderers/12.3.0/bin/renderer"))
             ],
             providers: [.init(id: provider, title: "Fixture provider", pluginID: "dev.lithe.fixture.provider",
                               pluginName: "Provider support", tools: ["compiler"], watchFiles: ["versions.fixture"])])

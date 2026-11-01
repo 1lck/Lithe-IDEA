@@ -93554,7 +93554,7 @@
         "macos"
       ],
       "macos": {
-        "key": "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Version managers are not queried yet, so the versions that version files and global defaults ask for are not shown.",
+        "key": "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Version managers are not queried yet, so the versions that version files ask for are not shown.",
         "arguments": []
       }
     },
@@ -93653,7 +93653,7 @@
         "macos"
       ],
       "macos": {
-        "key": "The version a version manager uses outside any project. Version managers are not queried yet.",
+        "key": "The home variables and commands this tool's plugin declares, read from the login shell. A home's version comes from the tool's own version command; a command found on PATH is not run. Version managers' global versions are not queried yet.",
         "arguments": []
       }
     },
@@ -93664,7 +93664,7 @@
         "macos"
       ],
       "macos": {
-        "key": "The first executable found through the variables and commands this tool's plugin declares, using the login shell's PATH. Its version is not checked.",
+        "key": "Installations found in the locations this tool's plugin declares. Each version comes from the tool's own version command, and the highest one is used. Installations inside the project are never run.",
         "arguments": []
       }
     },
@@ -93941,6 +93941,201 @@
       },
       "macos": {
         "key": "Version files were checked in the first %lld directories only.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.discovered",
+      "description": "A tool resolved from an installation found by automatic discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discovered",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.moreInstallations",
+      "description": "Number of further discovered installations not listed",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "%lld more",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.sameVersionConflict",
+      "description": "Automatic discovery found different installations with the same highest version",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Several installations have the same version",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionCheckFailed",
+      "description": "An installation was skipped because its version command failed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version check failed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionTooOld",
+      "description": "An installation was skipped because its version is below the required minimum",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Version too old",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.notAValidInstallation",
+      "description": "An installation was skipped because its files do not match the tool definition or it is inside the project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not a valid installation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.notUsable",
+      "description": "An installation was skipped for another reason",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not usable",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.installationsCouldNotBeChecked",
+      "description": "Installations of a tool could not be checked",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string"
+      },
+      "macos": {
+        "key": "Installations of %@ could not be checked.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.discoveryDeclarationsUnchecked",
+      "description": "Installed tool declarations could not be checked, so automatic discovery did not run",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Installed toolchain declarations could not be checked for discovery.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstVersionsChecked",
+      "description": "Version checks stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld installation versions were checked.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.versionsNotCheckedInTime",
+      "description": "Version checks stopped at the time limit",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Some installation versions were not checked in time.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstInstallationsChecked",
+      "description": "Installation checks for one tool stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld installations of a tool were checked.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.tooManyFilesForOneTool",
+      "description": "File checks for one tool stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Too many files to check for one tool; some installations were skipped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstLocationsScanned",
+      "description": "Discovery locations stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld discovery locations were scanned.",
+        "arguments": [
+          "arg1"
+        ]
+      }
+    },
+    {
+      "id": "native.toolchainSettings.onlyFirstEntriesChecked",
+      "description": "Discovered entries stopped at a limit",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "integer"
+      },
+      "macos": {
+        "key": "Only the first %lld discovered entries were checked.",
         "arguments": [
           "arg1"
         ]

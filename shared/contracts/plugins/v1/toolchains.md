@@ -1,12 +1,16 @@
 # Plugin-owned toolchains: Core foundation
 
-**Status: shared Core implemented; neither native host is connected.** This
-slice validates data and resolves captured facts. It does not launch providers,
-probe programs, parse manager files, watch paths, write pins, or download tools.
+**Status: shared Core implemented; the macOS settings pages run the declarative
+route read-only.** Core validates data and resolves captured facts; it does not
+launch providers, probe programs, parse manager files, watch paths, write pins,
+or download tools. The macOS settings host expands `discoveryPlan` scans, runs the
+definition's version probe on executables Core returns from `candidates`, and
+shows the result. No provider is queried, nothing is watched or saved, and no
+build, run or language-server launch uses the result yet. Windows is not connected.
 The [broader proposal](proposals/toolchains/README.md) still describes unsupported
-consumer migration, native lifecycle, UI, persistence and manager-plugin work.
+consumer migration, native lifecycle, persistence and manager-plugin work.
 The active shape is [plugin-manifest.schema.json](plugin-manifest.schema.json),
-not the proposal envelopes. No native product support is implied by Core support.
+not the proposal envelopes.
 
 ## Manifest admission and registry
 
@@ -84,6 +88,7 @@ are not a substitute for that adapter. These commands perform no native I/O.
 | `toolchains.resolve` | Captured resolver input described below | `resolution` |
 | `toolchains.checkVersion` | `{registry,tool,output,minimumVersion?}` | `version` |
 | `toolchains.discoveryPlan` | `{registry,platform}` | `plan` |
+| `toolchains.candidates` | Captured discovery input described below | `candidates` |
 
 Every `registry` input is the raw `{plugins:[...]}` request, not a previously
 normalized result. Core revalidates complete production manifests and the
@@ -196,9 +201,38 @@ capture. Numeric dotted components (at most eight unsigned 32-bit parts, 64 byte
 compare with trailing zeros ignored; aliases and tool-specific version syntax are
 not interpreted. No match gives `version:null,satisfied:false`. `discoveryPlan`
 returns `{tools,limits}`. Each tool carries platform-filtered `scans`, the sorted
-qualified `providers` that declare it, and definition-owned layouts and probes.
-It neither scans, queries nor executes them; limits are 256 roots, 4096 entries
-and 64 ancestors for the eventual host adapter.
+qualified `providers` that declare it, and the definition's `homeLayouts`,
+`executableLayouts`, `version` probe, `pathPrepend` templates and `environment`
+login-shell home variables (`{variable,path}` from its platform-applicable
+`environment` candidates). It neither scans, queries nor executes them; limits
+are 256 roots, 4096 entries and 64 ancestors for the host adapter.
+
+## Settings candidates
+
+`candidates` reports what a settings page shows for one tool's global and
+automatic layers without resolving a directory. It requires `{registry,tool,
+platform,workspaceRoot,filesystem}` and accepts `workspaceRoots`,
+`filesystemCaseSensitive`, `minimumVersion`, `probes`, `systemInstallations` and
+`environment`, with the same meaning and checks as in `resolve`. The output is
+`{tool,shell,installations,skipped,selected,conflicts}`:
+
+- `shell` lists each declared home variable present in `environment` as
+  `{candidateID,variable,home,executable?,version?|reason?}`, checked through
+  the candidate's own `path` layout.
+- `installations` are eligible host-scanned homes `{home,executable,version,
+  provider}`, highest version first, with the canonical home Core checked.
+- `skipped` lists homes that failed a check as `{home,provider,reason,
+  executable?}`; reasons are stable codes such as `unsafePath`, `probeFailed`
+  and `versionUnsatisfied`.
+- `selected` is the automatic-layer home, or `null`; equal highest versions
+  in different homes leave it `null` and add an `automatic` entry to `conflicts`.
+
+A first call without `probes` returns every checked executable as `probeFailed`.
+The host runs only those executables with the definition's probe arguments,
+then calls again with their `{executable,output,exitCode}`. Homes inside a
+workspace root are refused before any probe, so a project program is never run
+to read its version. The macOS host bounds probes by count, concurrency and
+total time, and reports skipped work as diagnostics rather than a missing tool.
 
 Production-shape examples are [tool-definition.plugin.json](fixtures/tool-definition.plugin.json)
 and [toolchain-provider.plugin.json](fixtures/toolchain-provider.plugin.json).

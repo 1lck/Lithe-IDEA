@@ -60,3 +60,8 @@ pub fn check_version_command(input: Value) -> Result<Value, CoreError> {
 pub fn discovery_plan_command(input: Value) -> Result<Value, CoreError> {
     command(input, resolution::discovery_plan, "plan")
 }
+
+/// Lists checked installations, versions and the automatic choice for a settings page.
+pub fn candidates_command(input: Value) -> Result<Value, CoreError> {
+    command(input, resolution::candidates, "candidates")
+}

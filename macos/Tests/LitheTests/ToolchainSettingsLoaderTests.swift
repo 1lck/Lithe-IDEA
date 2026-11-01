@@ -2,6 +2,7 @@ import Foundation
 import Darwin
 import Testing
 @testable import Lithe
+import LitheModuleAPI
 
 @Suite("Toolchain settings loader")
 struct ToolchainSettingsLoaderTests {
@@ -39,12 +40,13 @@ struct ToolchainSettingsLoaderTests {
         directories: @escaping @MainActor @Sendable (URL?) -> [String] = { _ in [] },
         resolvePin: @escaping @Sendable (Data, String, String) throws -> ToolchainSettingsSavedPin? = MacToolchainSettingsLoader.resolvePinUsingCore,
         isRemoteWorkspace: @escaping @Sendable (URL) -> Bool = { _ in false },
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        discover: @escaping @Sendable (MacToolchainDiscovery.Request) async -> MacToolchainDiscovery.Result = { _ in .init() }
     ) -> MacToolchainSettingsLoader {
         MacToolchainSettingsLoader(sources: sources, directories: directories, resolvePin: resolvePin,
             isRemoteWorkspace: isRemoteWorkspace, environment: { environment },
             fileExists: { files.exists($0) }, isExecutable: { files.executable($0) },
-            readLocalData: { try files.read($0) })
+            readLocalData: { try files.read($0) }, discover: discover)
     }
 
     @Test func missingLocalFileListsDeclarationsWithoutClaimingAnyValue() async throws {
@@ -100,22 +102,76 @@ struct ToolchainSettingsLoaderTests {
         #expect(snapshot.tools.last?.pin?.home == "/fixture/installed/compiler/2")
     }
 
-    @Test func automaticDiscoveryFollowsDeclarationOrderAndSkipsOtherPlatforms() async throws {
+    @Test func pathCandidateFollowsDeclarationOrderAndSkipsOtherPlatforms() async throws {
         let source = try source(executables: [
-            ["kind": "command", "command": "fixturec", "platforms": ["linux"]],
+            ["kind": "command", "command": "linuxc", "platforms": ["linux"]],
             ["kind": "environment", "variable": "FIXTURE_HOME", "path": "bin/fixturec"],
-            ["kind": "command", "command": "fixturec"]
+            ["kind": "command", "command": "fixturec"],
+            ["kind": "command", "command": "otherc"]
         ])
         let environment = ["FIXTURE_HOME": "/fixture/home/", "PATH": "relative/bin:/fixture/first:/fixture/second"]
-        let onPath = ToolchainLoaderFiles(executables: ["/fixture/second/fixturec", "relative/bin/fixturec"])
+        let onPath = ToolchainLoaderFiles(executables: ["/fixture/second/fixturec", "relative/bin/fixturec",
+                                                        "/fixture/first/linuxc", "/fixture/home/bin/fixturec"])
         let found = try await loader(files: onPath, sources: { [source] }, environment: environment).load(workspace: workspace)
-        #expect(found.tools.first?.candidate == .init(executable: "/fixture/second/fixturec", origin: .path))
-        // An earlier declaration wins even when a later one also exists.
-        let both = ToolchainLoaderFiles(executables: ["/fixture/second/fixturec", "/fixture/home/bin/fixturec"])
+        // Home variables are checked by Core through discovery, never by this existence test.
+        #expect(found.tools.first?.candidate == .init(executable: "/fixture/second/fixturec"))
+        // An earlier command wins even when a later one is earlier on PATH.
+        let both = ToolchainLoaderFiles(executables: ["/fixture/second/fixturec", "/fixture/first/otherc"])
         let preferred = try await loader(files: both, sources: { [source] }, environment: environment).load(workspace: workspace)
-        #expect(preferred.tools.first?.candidate == .init(executable: "/fixture/home/bin/fixturec", origin: .variable("FIXTURE_HOME")))
+        #expect(preferred.tools.first?.candidate == .init(executable: "/fixture/second/fixturec"))
         let missing = try await loader(sources: { [source] }, environment: environment).load(workspace: workspace)
         #expect(missing.tools.first?.candidate == nil)
+    }
+
+    @Test func discoveryReceivesEnabledSourcesAndEveryDirectoryRowSharesItsDetection() async throws {
+        let enabled = try source()
+        let disabled = try source(pluginID: "dev.lithe.fixture.disabled", enabled: false)
+        let requests = ToolchainDiscoveryRequests()
+        let detection = ToolchainSettingsSnapshot.Detection(
+            shell: [.init(variable: "FIXTURE_HOME", home: "/fixture/home", executable: "/fixture/home/bin/fixturec",
+                          version: "3.1")],
+            installations: [.init(home: "/fixture/installed/4.0", executable: "/fixture/installed/4.0/bin/fixturec",
+                                  version: "4.0", provider: "host:system")],
+            skipped: [.init(home: "/fixture/installed/broken", reason: "probeFailed")],
+            selected: "/fixture/installed/4.0")
+        let files = ToolchainLoaderFiles(existing: [workspace.appendingPathComponent("apps/.fixture-version").path])
+        let snapshot = try await loader(files: files, sources: { [disabled, enabled] }, directories: { _ in ["apps"] },
+            environment: ["FIXTURE_HOME": "/fixture/home"],
+            discover: { request in
+                requests.record(request)
+                return .init(detections: ["compiler": detection], diagnostics: ["Fixture discovery note"])
+            }).load(workspace: workspace)
+        let request = try #require(requests.values.first)
+        #expect(requests.values.count == 1)
+        #expect(request.workspace == workspace)
+        #expect(request.sources.map(\.pluginID) == [enabled.pluginID])
+        #expect(request.environment == ["FIXTURE_HOME": "/fixture/home"])
+        #expect(snapshot.tools.map(\.directoryID) == [".", "apps"])
+        #expect(snapshot.tools.allSatisfy { $0.detection == detection })
+        #expect(snapshot.diagnostics == ["Fixture discovery note"])
+    }
+
+    @Test func toolsCoreCouldNotCheckAreNamedWithoutADetection() async throws {
+        let source = try source()
+        let snapshot = try await loader(sources: { [source] },
+            discover: { _ in .init(unchecked: ["compiler"]) }).load(workspace: workspace)
+        #expect(snapshot.tools.first?.detection == nil)
+        #expect(snapshot.diagnostics == [L10n.string("Installations of \("Fixture compiler") could not be checked.")])
+    }
+
+    @Test func discoveryDoesNotRunWithoutAWorkspaceOrDefinitions() async throws {
+        let requests = ToolchainDiscoveryRequests()
+        let discover: @Sendable (MacToolchainDiscovery.Request) async -> MacToolchainDiscovery.Result = { request in
+            requests.record(request)
+            return .init()
+        }
+        let source = try source()
+        _ = try await loader(sources: { [source] }, discover: discover).load(workspace: nil)
+        let manifest = try JSONSerialization.data(withJSONObject: ["id": "dev.lithe.fixture.empty"])
+        let empty = ToolchainSettingsPluginSource(pluginID: "dev.lithe.fixture.empty", name: "Empty", manifest: manifest,
+                                                  isEnabled: true)
+        _ = try await loader(sources: { [empty] }, discover: discover).load(workspace: workspace)
+        #expect(requests.values.isEmpty)
     }
 
     @Test func truncatedListsSayHowManyDirectoriesWereCovered() async throws {
@@ -302,4 +358,16 @@ private final class ToolchainLoaderFiles: @unchecked Sendable {
     }
 
     func executable(_ path: String) -> Bool { executables.contains(path) }
+}
+
+/// Records discovery requests without scanning or running anything.
+private final class ToolchainDiscoveryRequests: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [MacToolchainDiscovery.Request] = []
+
+    var values: [MacToolchainDiscovery.Request] { lock.withLock { recorded } }
+
+    func record(_ request: MacToolchainDiscovery.Request) {
+        lock.withLock { recorded.append(request) }
+    }
 }

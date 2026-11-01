@@ -1,6 +1,8 @@
 //! Exercises shared tool selection through production commands and inert native facts.
 
-use crate::toolchain::{check_version_command, discovery_plan_command, resolve_command};
+use crate::toolchain::{
+    candidates_command, check_version_command, discovery_plan_command, resolve_command,
+};
 use serde_json::{json, Value};
 
 const WORKSPACE: &str = "/opt/lithe-fixtures/workspace";
@@ -272,6 +274,7 @@ fn toolchain_commands_cross_the_json_dispatch_boundary() {
             "plan",
         ),
         ("toolchains.resolve", input(), "resolution"),
+        ("toolchains.candidates", listing(&input()), "candidates"),
     ] {
         let response: Value = serde_json::from_str(&crate::execute_json(
             &json!({"id":"toolchains","command":command,"payload":payload}).to_string(),
@@ -354,6 +357,129 @@ fn toolchain_resolution_discovery_comes_only_from_enabled_definition_data() {
     let result =
         discovery_plan_command(json!({"registry":value["registry"],"platform":"macos"})).unwrap();
     assert_eq!(result["plan"]["tools"], json!([]));
+}
+
+#[test]
+fn toolchain_discovery_plan_carries_path_entries_and_platform_home_variables() {
+    let result =
+        discovery_plan_command(json!({"registry":input()["registry"],"platform":"macos"})).unwrap();
+    let tool = &result["plan"]["tools"][0];
+    assert_eq!(tool["pathPrepend"], json!(["${home}/bin"]));
+    assert_eq!(
+        tool["environment"],
+        json!([{"variable":"JAVA_HOME","path":"bin/java"}])
+    );
+    let result =
+        discovery_plan_command(json!({"registry":input()["registry"],"platform":"windows"}))
+            .unwrap();
+    assert_eq!(
+        result["plan"]["tools"][0]["environment"],
+        json!([{"variable":"JAVA_HOME","path":"bin/java.exe"}])
+    );
+}
+
+/// Narrows a resolver input to the settings listing's directory-free fields.
+fn listing(input: &Value) -> Value {
+    let mut value = json!({"tool":"java"});
+    for key in [
+        "registry",
+        "platform",
+        "workspaceRoot",
+        "filesystem",
+        "probes",
+        "systemInstallations",
+        "environment",
+    ] {
+        value[key] = input[key].clone();
+    }
+    value
+}
+
+fn candidates(input: &Value) -> Value {
+    let result = candidates_command(listing(input)).unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    result["candidates"].clone()
+}
+
+#[test]
+fn toolchain_candidates_return_probe_targets_before_versions_are_known() {
+    let mut value = input();
+    installation(&mut value, HOME, "21.0.4");
+    installation(&mut value, OLD, "17.0.12");
+    value["systemInstallations"] = json!([{"tool":"java","home":OLD},{"tool":"java","home":HOME},
+        {"tool":"java","home":"/opt/lithe-fixtures/missing"}]);
+    value["environment"]["JAVA_HOME"] = json!(OLD);
+    value["probes"] = json!([]);
+    let listed = candidates(&value);
+    assert_eq!(listed["installations"], json!([]));
+    assert_eq!(listed["selected"], Value::Null);
+    let skipped = listed["skipped"].as_array().unwrap();
+    assert_eq!(skipped.len(), 3);
+    let probe_targets: Vec<_> = skipped
+        .iter()
+        .filter(|row| row["reason"] == "probeFailed")
+        .map(|row| row["executable"].clone())
+        .collect();
+    assert_eq!(
+        probe_targets,
+        vec![
+            json!(format!("{OLD}/bin/java")),
+            json!(format!("{HOME}/bin/java"))
+        ]
+    );
+    let missing = skipped
+        .iter()
+        .find(|row| row["reason"] == "unsafePath")
+        .unwrap();
+    assert!(missing.get("executable").is_none());
+    assert_eq!(listed["shell"][0]["executable"], format!("{OLD}/bin/java"));
+    assert_eq!(listed["shell"][0]["reason"], "probeFailed");
+}
+
+#[test]
+fn toolchain_candidates_list_versions_and_share_the_resolver_choice() {
+    let mut value = input();
+    installation(&mut value, HOME, "21.0.4");
+    installation(&mut value, OLD, "17.0.12");
+    value["systemInstallations"] = json!([{"tool":"java","home":OLD},{"tool":"java","home":HOME}]);
+    value["environment"]["JAVA_HOME"] = json!(OLD);
+    let listed = candidates(&value);
+    assert_eq!(
+        listed["installations"],
+        json!([
+            {"home":HOME,"executable":format!("{HOME}/bin/java"),"version":"21.0.4","provider":"host:system"},
+            {"home":OLD,"executable":format!("{OLD}/bin/java"),"version":"17.0.12","provider":"host:system"}
+        ])
+    );
+    assert_eq!(listed["selected"], HOME);
+    assert_eq!(listed["skipped"], json!([]));
+    assert_eq!(
+        listed["shell"],
+        json!([{"candidateID":"home","variable":"JAVA_HOME","home":OLD,
+            "executable":format!("{OLD}/bin/java"),"version":"17.0.12"}])
+    );
+    // The login shell wins in resolution; the listing still reports the automatic choice.
+    assert_eq!(resolve(&value)["outcome"]["selection"]["home"], OLD);
+    value["environment"] = json!({});
+    assert_eq!(resolve(&value)["outcome"]["selection"]["home"], HOME);
+}
+
+#[test]
+fn toolchain_candidates_report_equal_versions_as_a_conflict() {
+    let mut value = input();
+    installation(&mut value, HOME, "21.0.4");
+    installation(&mut value, OLD, "21.0.4");
+    value["systemInstallations"] = json!([{"tool":"java","home":OLD},{"tool":"java","home":HOME}]);
+    let listed = candidates(&value);
+    assert_eq!(listed["selected"], Value::Null);
+    assert_eq!(listed["conflicts"][0]["action"], "chooseInstallation");
+    assert_eq!(listed["installations"].as_array().unwrap().len(), 2);
+    let mut unknown = listing(&value);
+    unknown["tool"] = json!("dev.lithe.fixture.java-support:missing");
+    assert_eq!(candidates_command(unknown).unwrap()["status"], "rejected");
+    let mut directory = listing(&value);
+    directory["directory"] = json!(".");
+    assert_eq!(candidates_command(directory).unwrap()["status"], "rejected");
 }
 
 /// Turns the definition plugin into its own installation-only provider, without scans.

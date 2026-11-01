@@ -120,6 +120,8 @@ pub enum CoreCommand {
     ToolchainsCheckVersion,
     /// Plans system scans solely from enabled tool definitions.
     ToolchainsDiscoveryPlan,
+    /// Lists checked installations and the automatic choice for one tool.
+    ToolchainsCandidates,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Lists a build system's executable candidates and version probes (`build.invocationPlan`).
@@ -606,6 +608,7 @@ impl CoreCommand {
             "toolchains.resolve" => Some(Self::ToolchainsResolve),
             "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
             "toolchains.discoveryPlan" => Some(Self::ToolchainsDiscoveryPlan),
+            "toolchains.candidates" => Some(Self::ToolchainsCandidates),
             "build.detect" => Some(Self::BuildDetect),
             "build.invocationPlan" => Some(Self::BuildInvocationPlan),
             "build.checkToolVersion" => Some(Self::BuildCheckToolVersion),

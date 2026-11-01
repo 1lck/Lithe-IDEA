@@ -158,9 +158,19 @@ pub(crate) fn discovery_plan(input: &Value) -> Validation<Value> {
                     )
                 })
                 .collect();
+            // Login-shell home variables the host reads, with the layout each one selects.
+            let environment: Vec<_> = definition["executables"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|value| value["kind"] == "environment" && applicable(value, platform))
+                .map(|value| json!({"variable":value["variable"],"path":value.get("path")}))
+                .collect();
             json!({"tool":definition["id"],"pluginID":entry["pluginID"],"scans":scans,"providers":providers,
             "homeLayouts":definition.get("homeLayouts").cloned().unwrap_or(json!([])),
-            "executableLayouts":definition["executableLayouts"],"version":definition["version"]})
+            "executableLayouts":definition["executableLayouts"],"version":definition["version"],
+            "pathPrepend":definition.get("pathPrepend").cloned().unwrap_or(json!([])),
+            "environment":environment})
         })
         .collect::<Vec<_>>();
     Ok(json!({"tools":tools,"limits":{"roots":256,"entries":4096,"ancestors":64}}))
@@ -475,6 +485,305 @@ fn project_selection(
     )
 }
 
+/// Validates the native evidence shared by resolution and candidate listing: platform
+/// and case policy, workspace roots, filesystem facts and bounded probe outputs.
+fn prepare<'a>(input: &'a Value, definition: &'a Value) -> Validation<(Snapshot<'a>, String)> {
+    let platform = input["platform"]
+        .as_str()
+        .filter(|platform| matches!(*platform, "macos" | "windows" | "linux"))
+        .ok_or_else(|| reject("platform"))?;
+    let case_sensitive = input
+        .get("filesystemCaseSensitive")
+        .map(|value| {
+            value
+                .as_bool()
+                .ok_or_else(|| reject("filesystemCaseSensitive"))
+        })
+        .transpose()?
+        .unwrap_or(platform != "windows");
+    let root = input["workspaceRoot"]
+        .as_str()
+        .and_then(|root| paths::normalize(root, platform, true))
+        .ok_or_else(|| reject("workspaceRoot"))?;
+    let mut roots = vec![root.clone()];
+    for value in array(input, "workspaceRoots", 64)? {
+        roots.push(
+            value
+                .as_str()
+                .ok_or_else(|| reject("workspaceRoots"))?
+                .to_owned(),
+        );
+    }
+    let facts = array(input, "filesystem", 16384)?;
+    let minimum = input
+        .get("minimumVersion")
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| components(value).is_some())
+                .ok_or_else(|| reject("minimumVersion"))
+        })
+        .transpose()?;
+    let mut probes = BTreeMap::new();
+    for value in array(input, "probes", 1024)? {
+        let probe: Probe = serde_json::from_value(value.clone()).map_err(|_| reject("probes"))?;
+        if probe.output.len() > 128 * 1024 {
+            return Err(reject("probes.output"));
+        }
+        let key = paths::normalize(&probe.executable, platform, case_sensitive)
+            .ok_or_else(|| reject("probes.executable"))?;
+        if probes.insert(key, probe).is_some() {
+            return Err(reject("probes"));
+        }
+    }
+    let mut snapshot = Snapshot {
+        input,
+        definition,
+        platform,
+        case_sensitive,
+        roots,
+        facts,
+        targets: Vec::new(),
+        probes,
+        minimum,
+    };
+    snapshot.validate_facts()?;
+    snapshot.targets = query::implied_targets(facts, platform, case_sensitive)
+        .map_err(|_| reject("filesystem"))?;
+    if snapshot.key(
+        snapshot.fact(&root, "directory")?["canonicalPath"]
+            .as_str()
+            .ok_or_else(|| reject("workspaceRoot"))?,
+    )? != snapshot.key(&root)?
+    {
+        return Err(reject("workspaceRoot"));
+    }
+    Ok((snapshot, root))
+}
+
+/// Host-observed string maps (login-shell variables, command homes, explicit choices).
+fn string_maps(input: &Value, keys: &[&str]) -> Validation<()> {
+    for key in keys {
+        if let Some(value) = input.get(*key) {
+            let map = value
+                .as_object()
+                .filter(|map| map.len() <= 256)
+                .ok_or_else(|| reject(key))?;
+            if map.values().any(|value| {
+                !value
+                    .as_str()
+                    .is_some_and(|value| value.is_empty() || bounded(value, 4096))
+            }) {
+                return Err(reject(key));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Homes the host found by expanding this tool's `discovery` scans.
+fn system_installations(input: &Value, tool: &str) -> Validation<Vec<Value>> {
+    let mut installations = Vec::new();
+    for value in array(input, "systemInstallations", 512)? {
+        fields(value, &["tool", "home"])?;
+        if value["tool"] == tool {
+            let home = value["home"]
+                .as_str()
+                .ok_or_else(|| reject("systemInstallations"))?;
+            installations.push(json!({"tool":tool,"home":home,"provider":SYSTEM_PROVIDER}));
+        }
+    }
+    Ok(installations)
+}
+
+/// The automatic layer's candidate set, keyed by canonical home.
+struct Automatic {
+    eligible: BTreeMap<String, Value>,
+    /// Reported installations that failed a check, with the executable to probe when
+    /// the layout itself was valid.
+    skipped: BTreeMap<String, Value>,
+    failure: Option<&'static str>,
+}
+
+fn automatic_set(snapshot: &Snapshot<'_>, installations: &[Value]) -> Validation<Automatic> {
+    let mut set = Automatic {
+        eligible: BTreeMap::new(),
+        skipped: BTreeMap::new(),
+        failure: None,
+    };
+    for installation in installations {
+        let Some(home) = installation["home"].as_str() else {
+            continue;
+        };
+        let provider = installation["provider"].as_str().unwrap_or("");
+        match snapshot.selection(home, provider, "automatic") {
+            Ok(value) => {
+                let key = snapshot.key(value["home"].as_str().unwrap_or(""))?;
+                if set
+                    .eligible
+                    .get(&key)
+                    .is_none_or(|kept: &Value| attribution(&value) < attribution(kept))
+                {
+                    set.eligible.insert(key, value);
+                }
+            }
+            Err(code) => {
+                set.failure = Some(code);
+                let checked = snapshot.checked(home, None).ok();
+                let canonical = checked
+                    .as_ref()
+                    .and_then(|value| value["home"].as_str())
+                    .unwrap_or(home);
+                let mut row = json!({"home":canonical,"provider":provider,"reason":code});
+                if let Some(executable) = checked.as_ref().map(|value| &value["executable"]) {
+                    row["executable"] = executable.clone();
+                }
+                let key = snapshot
+                    .key(canonical)
+                    .unwrap_or_else(|_| canonical.to_owned());
+                if set
+                    .skipped
+                    .get(&key)
+                    .is_none_or(|kept: &Value| attribution(&row) < attribution(kept))
+                {
+                    set.skipped.insert(key, row);
+                }
+            }
+        }
+    }
+    set.skipped.retain(|key, _| !set.eligible.contains_key(key));
+    Ok(set)
+}
+
+/// Picks the highest version; equal highest versions in different homes need `chosen`,
+/// otherwise they become an `automatic` conflict naming every route.
+fn automatic_choice(
+    snapshot: &Snapshot<'_>,
+    eligible: BTreeMap<String, Value>,
+    chosen: Option<&str>,
+) -> Validation<(Option<Value>, Option<Value>)> {
+    let newest = eligible
+        .values()
+        .filter_map(|value| components(value["version"].as_str()?))
+        .max();
+    let mut best: Vec<_> = eligible
+        .into_values()
+        .filter(|value| value["version"].as_str().and_then(components) == newest)
+        .collect();
+    if best.len() <= 1 {
+        return Ok((best.pop(), None));
+    }
+    if let Some(chosen) = chosen {
+        let identity = snapshot.key(chosen)?;
+        let selected = best
+            .iter()
+            .find(|value| {
+                value["home"]
+                    .as_str()
+                    .and_then(|home| snapshot.key(home).ok())
+                    .as_ref()
+                    == Some(&identity)
+            })
+            .cloned();
+        if selected.is_some() {
+            return Ok((selected, None));
+        }
+    }
+    let providers: BTreeSet<_> = best
+        .iter()
+        .filter_map(|value| value["provider"].as_str())
+        .collect();
+    let installations: Vec<_> = best.iter().map(|value| value["home"].clone()).collect();
+    Ok((
+        None,
+        Some(
+            json!({"scope":"automatic","providers":providers,"installations":installations,
+            "action":"chooseInstallation"}),
+        ),
+    ))
+}
+
+/// Lists what a settings page shows for one tool's global and automatic layers without
+/// resolving a directory: login-shell homes and the discovered installations with their
+/// checked executables, versions or skip reasons, and Core's automatic choice. Hosts
+/// probe only the executables returned here, then call again with `probes`.
+pub(crate) fn candidates(input: &Value) -> Validation<Value> {
+    fields(
+        input,
+        &[
+            "registry",
+            "tool",
+            "platform",
+            "filesystemCaseSensitive",
+            "workspaceRoot",
+            "workspaceRoots",
+            "filesystem",
+            "minimumVersion",
+            "probes",
+            "systemInstallations",
+            "environment",
+        ],
+    )?;
+    let registry = definitions::registry(&input["registry"])?;
+    let tool = input["tool"]
+        .as_str()
+        .filter(|tool| definitions::tool_id(tool))
+        .ok_or_else(|| reject("tool"))?;
+    let definition = enabled(&registry, tool).ok_or_else(|| reject("tool"))?;
+    let (snapshot, _) = prepare(input, definition)?;
+    string_maps(input, &["environment"])?;
+    let mut shell = Vec::new();
+    for candidate in definition["executables"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|value| value["kind"] == "environment" && applicable(value, snapshot.platform))
+    {
+        let Some(variable) = candidate["variable"].as_str() else {
+            continue;
+        };
+        let Some(home) = input["environment"][variable]
+            .as_str()
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let layout = candidate["path"].as_str();
+        let mut row = json!({"candidateID":candidate["id"],"variable":variable,"home":home});
+        if let Ok(checked) = snapshot.checked(home, layout) {
+            row["home"] = checked["home"].clone();
+            row["executable"] = checked["executable"].clone();
+        }
+        match snapshot.layout_selection(home, layout, "host:shell", "global") {
+            Ok(value) => row["version"] = value["version"].clone(),
+            Err(code) => row["reason"] = json!(code),
+        }
+        shell.push(row);
+    }
+    let set = automatic_set(&snapshot, &system_installations(input, tool)?)?;
+    let mut installations: Vec<_> = set
+        .eligible
+        .values()
+        .map(|value| {
+            json!({"home":value["home"],"executable":value["executable"],
+                "version":value["version"],"provider":value["provider"]})
+        })
+        .collect();
+    installations.sort_by(|left, right| {
+        let version = |value: &Value| value["version"].as_str().and_then(components);
+        version(right)
+            .cmp(&version(left))
+            .then_with(|| left["home"].as_str().cmp(&right["home"].as_str()))
+    });
+    let skipped: Vec<_> = set.skipped.into_values().collect();
+    let (selected, conflict) = automatic_choice(&snapshot, set.eligible, None)?;
+    Ok(
+        json!({"tool":tool,"shell":shell,"installations":installations,"skipped":skipped,
+        "selected":selected.map(|value| value["home"].clone()),
+        "conflicts":conflict.into_iter().collect::<Vec<_>>()}),
+    )
+}
+
 /// Resolves definitions, provider replies, pins and trusted native observations once.
 pub(crate) fn resolve(input: &Value) -> Validation<Value> {
     fields(
@@ -529,101 +838,20 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
             vec![],
         ));
     };
-    let platform = input["platform"]
-        .as_str()
-        .filter(|platform| matches!(*platform, "macos" | "windows" | "linux"))
-        .ok_or_else(|| reject("platform"))?;
-    let case_sensitive = input
-        .get("filesystemCaseSensitive")
-        .map(|value| {
-            value
-                .as_bool()
-                .ok_or_else(|| reject("filesystemCaseSensitive"))
-        })
-        .transpose()?
-        .unwrap_or(platform != "windows");
-    let root = input["workspaceRoot"]
-        .as_str()
-        .and_then(|root| paths::normalize(root, platform, true))
-        .ok_or_else(|| reject("workspaceRoot"))?;
-    let mut roots = vec![root.clone()];
-    for value in array(input, "workspaceRoots", 64)? {
-        roots.push(
-            value
-                .as_str()
-                .ok_or_else(|| reject("workspaceRoots"))?
-                .to_owned(),
-        );
-    }
-    let facts = array(input, "filesystem", 16384)?;
     let generation = input["generation"]
         .as_u64()
         .filter(|value| *value > 0)
         .ok_or_else(|| reject("generation"))?;
-    let minimum = input
-        .get("minimumVersion")
-        .map(|value| {
-            value
-                .as_str()
-                .filter(|value| components(value).is_some())
-                .ok_or_else(|| reject("minimumVersion"))
-        })
-        .transpose()?;
-    let mut probes = BTreeMap::new();
-    for value in array(input, "probes", 1024)? {
-        let probe: Probe = serde_json::from_value(value.clone()).map_err(|_| reject("probes"))?;
-        if probe.output.len() > 128 * 1024 {
-            return Err(reject("probes.output"));
-        }
-        let key = paths::normalize(&probe.executable, platform, case_sensitive)
-            .ok_or_else(|| reject("probes.executable"))?;
-        if probes.insert(key, probe).is_some() {
-            return Err(reject("probes"));
-        }
-    }
-    let mut snapshot = Snapshot {
-        input,
-        definition,
-        platform,
-        case_sensitive,
-        roots,
-        facts,
-        targets: Vec::new(),
-        probes,
-        minimum,
-    };
-    snapshot.validate_facts()?;
-    snapshot.targets = query::implied_targets(facts, platform, case_sensitive)
-        .map_err(|_| reject("filesystem"))?;
-    if snapshot.key(
-        snapshot.fact(&root, "directory")?["canonicalPath"]
-            .as_str()
-            .ok_or_else(|| reject("workspaceRoot"))?,
-    )? != snapshot.key(&root)?
-    {
-        return Err(reject("workspaceRoot"));
-    }
+    let (snapshot, root) = prepare(input, definition)?;
+    let platform = snapshot.platform;
+    let case_sensitive = snapshot.case_sensitive;
     if input
         .get("projectCodeAllowed")
         .is_some_and(|value| !value.is_boolean())
     {
         return Err(reject("projectCodeAllowed"));
     }
-    for key in ["environment", "commandHomes", "providerChoices"] {
-        if let Some(value) = input.get(key) {
-            let map = value
-                .as_object()
-                .filter(|map| map.len() <= 256)
-                .ok_or_else(|| reject(key))?;
-            if map.values().any(|value| {
-                !value
-                    .as_str()
-                    .is_some_and(|value| value.is_empty() || bounded(value, 4096))
-            }) {
-                return Err(reject(key));
-            }
-        }
-    }
+    string_maps(input, &["environment", "commandHomes", "providerChoices"])?;
     if let Some(choices) = input.get("providerChoices") {
         fields(choices, &["project", "global", "automatic"])?;
     }
@@ -740,15 +968,7 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
                 .cloned(),
         );
     }
-    for value in array(input, "systemInstallations", 512)? {
-        fields(value, &["tool", "home"])?;
-        if value["tool"] == tool {
-            let home = value["home"]
-                .as_str()
-                .ok_or_else(|| reject("systemInstallations"))?;
-            installations.push(json!({"tool":tool,"home":home,"provider":SYSTEM_PROVIDER}));
-        }
-    }
+    installations.extend(system_installations(input, tool)?);
     let candidates: Vec<_> = definition["executables"]
         .as_array()
         .into_iter()
@@ -1058,58 +1278,17 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
                 }
             }
             ("toolchain", "automatic") => {
-                let mut eligible = BTreeMap::new();
-                for installation in &installations {
-                    if let Some(home) = installation["home"].as_str() {
-                        match snapshot.selection(
-                            home,
-                            installation["provider"].as_str().unwrap_or(""),
-                            layer,
-                        ) {
-                            Ok(value) => {
-                                let key = snapshot.key(value["home"].as_str().unwrap_or(""))?;
-                                if eligible.get(&key).is_none_or(|kept: &Value| {
-                                    attribution(&value) < attribution(kept)
-                                }) {
-                                    eligible.insert(key, value);
-                                }
-                            }
-                            Err(code) => failure = Some(reason(code, tool)),
-                        }
-                    }
-                }
-                let newest = eligible
-                    .values()
-                    .filter_map(|value| components(value["version"].as_str()?))
-                    .max();
-                let mut best: Vec<_> = eligible
-                    .into_values()
-                    .filter(|value| value["version"].as_str().and_then(components) == newest)
-                    .collect();
-                if best.len() > 1 {
-                    if let Some(chosen) = input["providerChoices"]["automatic"].as_str() {
-                        let identity = snapshot.key(chosen)?;
-                        selected = best
-                            .iter()
-                            .find(|value| {
-                                value["home"]
-                                    .as_str()
-                                    .and_then(|home| snapshot.key(home).ok())
-                                    .as_ref()
-                                    == Some(&identity)
-                            })
-                            .cloned();
-                    }
-                    let providers: BTreeSet<_> = best
-                        .iter()
-                        .filter_map(|value| value["provider"].as_str())
-                        .collect();
-                    if selected.is_none() {
-                        conflicts.push(json!({"scope":"automatic","providers":providers,"installations":best.iter().map(|value|value["home"].clone()).collect::<Vec<_>>(),"action":"chooseInstallation"}));
-                        failure = Some(reason("ambiguousInstallation", tool));
-                    }
-                } else {
-                    selected = best.pop();
+                let set = automatic_set(&snapshot, &installations)?;
+                failure = set.failure.map(|code| reason(code, tool));
+                let (choice, conflict) = automatic_choice(
+                    &snapshot,
+                    set.eligible,
+                    input["providerChoices"]["automatic"].as_str(),
+                )?;
+                selected = choice;
+                if let Some(conflict) = conflict {
+                    conflicts.push(conflict);
+                    failure = Some(reason("ambiguousInstallation", tool));
                 }
             }
             ("environment", _) => {
