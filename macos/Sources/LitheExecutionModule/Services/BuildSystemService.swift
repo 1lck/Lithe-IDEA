@@ -1161,10 +1161,16 @@ package final class BuildSystemService: ObservableObject {
             guard valid() else { throw CancellationError() }
             let proposed = base.options.merging(inputs.optionOverrides) { _, value in value }
             let resolution = try planner.resolveOptions(entry.target, options: proposed, modelValues: initialModel?.optionValues)
-            guard inputs.optionOverrides.allSatisfy({ key, value in
-                !resolution.dropped.contains(key) && resolution.options.contains { $0.id == key && $0.value == value }
-            }) else { throw BuildSystemServiceError(L10n.string("The build option value is invalid. Inspect its current kind and choices.")) }
-            let context = BuildPlanContext(root: base.root, options: proposed, pluginDirectory: base.pluginDirectory,
+            var overrides: [String: ToolingJSONValue] = [:]
+            for key in inputs.optionOverrides.keys {
+                guard !resolution.dropped.contains(key), let value = resolution.options.first(where: { $0.id == key })?.value else {
+                    throw BuildSystemServiceError(L10n.string("The build option value is invalid. Inspect its current kind and choices."))
+                }
+                // Core normalizes declared values (for example multi-select order).
+                // A normalized value is valid; a discarded or unknown choice is not.
+                overrides[key] = value
+            }
+            let context = BuildPlanContext(root: base.root, options: base.options.merging(overrides) { _, value in value }, pluginDirectory: base.pluginDirectory,
                 workspaceStateDirectory: base.workspaceStateDirectory, modelInputs: base.modelInputs)
             let launchTool: BuildProviderHints
             if tool.toolExecutable != nil { launchTool = tool }

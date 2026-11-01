@@ -3439,11 +3439,33 @@ The platform guards the source snapshot, atomically writes only the local layer,
 then re-reads the result. `shared/fixtures/run-configuration/build-provider.json`
 is the canonical persistence example.
 
+`extensions.build-run` stores portable user choices separately from the selector:
+`{runtimeArguments?: string[], entrypoint?: string, options?: object}`. Runtime arguments
+retain exact argv boundaries (at most 1,024 elements, each at most 65,536 UTF-8 bytes).
+The opaque entrypoint is at most 4,096 bytes; an empty string explicitly clears an
+inherited entrypoint. `options` holds at most 64 declared Build option values, within
+64 KiB of UTF-8 JSON; keys are bounded portable identifiers. Core does not interpret
+the values. The native Build service validates every value against the current
+selected declaration/model before preparation, including explicit `false` and `[]`.
+Commands, cached executable paths and debug adapters are not fields in this namespace.
+
+`runConfig.updateOptions` and `runConfig.saveEditorChanges` accept optional
+`providerRunOptions` in this shape for a `build.provider` configuration. Omission
+preserves that namespace for older callers; explicit null is rejected. A supplied
+snapshot replaces each of its fields in the selected layer, normalizing omitted fields
+to `runtimeArguments:[]`, `entrypoint:""`, `options:{}` so reset can clear inherited
+choices. Other extension namespaces and the selector remain intact. Re-saving the
+same selector preserves its working-directory override and portable choices.
+The production macOS store and preference copies carry the typed snapshot unchanged.
+See `fixtures/run-configuration/build-provider-options.json`; no new Provider RPC or
+SDK protocol version is needed, because preparation reuses accepted v10 launch options.
+
 `runConfig.providerLaunchInputs` takes `{root,configurationId,providerRoot,localDocument?}`
 and resolves the same document layers for one preparation. It returns bounded typed
 `launchOptions`, explicit build-option overrides and project identity without planning
-a tool command. Saved `build.provider` selectors additionally return the exact typed
-`reference`; the native Build service revalidates its plugin, instance, run, project,
+a tool command. For `build.provider`, `extensions.build-run.runtimeArguments` and its
+non-empty entrypoint populate launch options, and its `options` populate optionOverrides.
+Saved selectors additionally return the exact typed `reference`; the native Build service revalidates its plugin, instance, run, project,
 target and execution against the current enabled model. Parameters must be read again
 before process launch, and an invalidated configuration or operation rejects late replies.
 

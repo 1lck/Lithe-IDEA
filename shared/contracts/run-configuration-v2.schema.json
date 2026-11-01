@@ -120,6 +120,34 @@
       },
       "additionalProperties": false
     },
+    "buildProviderRunOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeArguments": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "type": "string",
+            "maxLength": 65536,
+            "pattern": "^[^\\u0000]*$"
+          }
+        },
+        "entrypoint": {
+          "type": "string",
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000]*$"
+        },
+        "options": {
+          "type": "object",
+          "maxProperties": 64,
+          "description": "Opaque declared Build option values, bounded to 64 KiB UTF-8 JSON by Core; validated against the current declaration during preparation.",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,200}$"
+          }
+        }
+      }
+    },
     "configuration": {
       "type": "object",
       "required": ["id", "provider"],
@@ -171,7 +199,10 @@
             "debug": false,
             "extensions": {
               "required": ["build"],
-              "properties": { "build": { "$ref": "#/$defs/buildProviderReference" } }
+              "properties": {
+                "build": { "$ref": "#/$defs/buildProviderReference" },
+                "build-run": { "$ref": "#/$defs/buildProviderRunOptions" }
+              }
             }
           }
         }

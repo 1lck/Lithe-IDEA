@@ -24,6 +24,24 @@ package struct RunProjectOwnership: Codable, Equatable, Sendable {
     }
 }
 
+/// Portable user choices stored apart from the current target selector.
+package struct BuildProviderRunOptions: Codable, Hashable, Sendable {
+    package var runtimeArguments: [String]
+    /// Empty clears an inherited entrypoint without naming a runtime.
+    package var entrypoint: String
+    package var options: [String: ToolingJSONValue]
+    package init(runtimeArguments: [String] = [], entrypoint: String = "", options: [String: ToolingJSONValue] = [:]) {
+        self.runtimeArguments = runtimeArguments; self.entrypoint = entrypoint; self.options = options
+    }
+    private enum CodingKeys: CodingKey { case runtimeArguments, entrypoint, options }
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        runtimeArguments = try values.decodeIfPresent([String].self, forKey: .runtimeArguments) ?? []
+        entrypoint = try values.decodeIfPresent(String.self, forKey: .entrypoint) ?? ""
+        options = try values.decodeIfPresent([String: ToolingJSONValue].self, forKey: .options) ?? [:]
+    }
+}
+
 /// A current model target matched to a public run declaration; no tool semantics.
 package struct RunProviderConfiguration: Codable, Equatable, Sendable {
     package let projectPath: String

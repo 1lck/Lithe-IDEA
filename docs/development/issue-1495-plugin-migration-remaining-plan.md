@@ -42,6 +42,26 @@ Windows Rust 消费者检查与既有基线一致，仍有两处 macOS 无法编
 本段没有迁移旧框架 ID 与领域选项，也没有删除归属中的 reactor、Wrapper 或版本字段；
 这些仍属于上表待办，不把新的自动配置当成阶段 D 整体完成。
 
+### 旧 Run 数据迁移所需的通用选项（2026-11-01）
+
+已补充 `extensions.build-run` 保存精确运行时参数、入口和按次 Build 选项，并通过
+现有 v10 `launchOptions` / 生效选项转交 Provider；不再为这些新数据增加 Maven 字段。
+团队与本机层允许显式清空，旧调用者省略时保留原值；原生存储、偏好和同选择器重存
+保留它们与工作目录。大小、空值和未知字段在调用 Provider 前拒绝。
+
+本轮 Core 1439 项全量和 macOS 284 项回归通过。新增共享契约用例为 15/25 毫秒，
+生产桥接读写为 9 毫秒；真实保存任务使用未排序的两个 Profile，按当前声明规范化后
+运行（5.904 秒），Build 默认选项和模型保持不变。另覆盖原生 Reset、原生配置存储、
+插件包清单与会话释放；计时报告为
+`.artifacts/test-stability/stage-d-portable-choices-core-final.html` 和
+`stage-d-portable-choices-macos-normalized.html`。Core 生成的写入文档通过 Run v2 Schema；
+显式 null 被拒绝，运行时参数与不透明 Build 选项读回一致。Windows Cargo 检查仍与
+基线相同，仅有两处 macOS 不支持的 Windows API 错误，未执行 Windows 产品。
+
+这是旧数据迁移的存储前提，尚未把旧框架 ID、领域选项或工具覆盖自动转换为新格式。
+转换必须保持层级、稳定身份与冲突保护，并在回读后清理旧输入；Core 现存领域解析
+和归属字段继续保留在待删除账本，不能把前提完成当成迁移完成。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

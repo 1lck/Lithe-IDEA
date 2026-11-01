@@ -886,3 +886,10 @@ independently of language imports. The host projects generic selectors and upstr
 labels; Core owns stable Run IDs, layering and snapshot freshness. Neither layer
 interprets framework IDs or reconstructs commands/toolchains from those selectors.
 The existing Java ownership projection remains separate during the remaining migration.
+
+Portable Provider user choices live in Run v2 `extensions.build-run`, separately
+from `extensions.build` selector identity. Hosts preserve exact runtime argument
+arrays, opaque entrypoints and declared build-option values; the current Provider
+model/declaration validates them during preparation. This reuses protocol 10 rather
+than adding tool-specific persistence fields. Migrating old domain formats remains
+an explicit temporary adapter responsibility, with conflict-protected storage.

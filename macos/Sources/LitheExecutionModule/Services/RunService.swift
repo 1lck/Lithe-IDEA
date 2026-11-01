@@ -1176,7 +1176,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
 
     package func resetOptions(for configuration: RunConfiguration) {
         saveEditorChanges(
-            RunOptions(),
+            RunOptions(providerRunOptions: configuration.buildProvider == nil ? nil : BuildProviderRunOptions()),
             for: configuration,
             scope: .local
         )

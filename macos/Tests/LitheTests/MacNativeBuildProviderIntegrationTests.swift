@@ -45,7 +45,7 @@ struct MacNativeBuildProviderIntegrationTests {
           <filtering>true</filtering></testResource></testResources></build>
         <profiles><profile><id>run-only</id><properties><selected.value>current-profile</selected.value>
           <selected.sources>inactive-sources</selected.sources><selected.checks>checks</selected.checks></properties>
-        </profile></profiles></project>
+        </profile><profile><id>additional</id></profile></profiles></project>
         """.utf8).write(to: workspace.appendingPathComponent("nested/pom.xml"))
         let before = try Self.inventory(package)
         let core = RustCoreBridge(), storage = MacFileStorage()
@@ -90,10 +90,16 @@ struct MacNativeBuildProviderIntegrationTests {
                 let reference = BuildProviderRunReference(pluginID: source.pluginID, buildSystemID: "maven", root: "nested",
                     run: "module", projectID: moduleTarget.projectID, targetID: moduleTarget.id, userArguments: ["validate"], execution: .task)
                 let savedID = try store.saveBuildProviderConfiguration(reference, name: "Validate module", at: workspace)
+                try store.saveOptions(RunOptions(programArguments: "validate", providerRunOptions: BuildProviderRunOptions(
+                    options: ["profiles": .array([.string("run-only"), .string("additional")])])), configurationID: savedID, scope: .local, at: workspace)
                 let savedInputs = try store.providerLaunchInputs(at: workspace, configurationID: savedID, providerRoot: "nested")
                 let savedPreparation = try await build.prepareConfigurationRun(inputs: savedInputs, instanceRoot: "nested", workspace: workspace,
                     tool: BuildProviderHints(), isCurrent: { true }, progress: { _ in })
                 #expect(savedPreparation.arguments.last == "validate")
+                #expect(savedPreparation.arguments.contains("-Padditional,run-only"))
+                #expect(savedInputs.optionOverrides["profiles"] == .array([.string("run-only"), .string("additional")]))
+                #expect(try build.languageImport(workspaceURL: workspace, root: nil) == baseline)
+                #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["nested"]?["profiles"] == nil)
                 #expect(try store.resolve(at: workspace, toolchainCandidates: []).configurations.first?.configuration.execution == .task)
                 #expect(build.configurationRunSource(inputs: savedInputs, instanceRoot: "nested") == source)
             } else {

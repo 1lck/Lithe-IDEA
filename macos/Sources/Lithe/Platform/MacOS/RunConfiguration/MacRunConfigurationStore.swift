@@ -168,7 +168,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     mavenSkipTests: maven?.skipTests,
                     mavenExecutablePath: java?.mavenExecutablePath ?? "",
                     mavenJavaHomePath: java?.mavenJavaHomePath ?? "",
-                    environment: value.env ?? [:]
+                    environment: value.env ?? [:],
+                    providerRunOptions: value.extensions?.buildRun
                 ),
                 source: RunConfigurationSource(rawValue: value.source ?? "generated") ?? .generated
             )

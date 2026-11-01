@@ -110,6 +110,48 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func portableProviderChoicesRoundTripThroughNativeStorageWithoutLosingArgumentBoundaries() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-choices-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("app/work"), withIntermediateDirectories: true)
+        let fixtureData = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/run-configuration/build-provider-options.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: fixtureData) as? [String: Any])
+        func decode<T: Decodable>(_ key: String, as _: T.Type) throws -> T {
+            try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: try #require(fixture[key])))
+        }
+        let reference = try decode("reference", as: BuildProviderRunReference.self)
+        let choices = try decode("choices", as: BuildProviderRunOptions.self)
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore())
+        let id = try store.saveBuildProviderConfiguration(reference, name: "Service", at: root)
+        var options = RunOptions(workingDirectoryPath: "app/work", programArguments: "--application=\"one two\" 雪",
+            environment: ["EXAMPLE": "value"], providerRunOptions: choices)
+        try store.saveOptions(options, configurationID: id, scope: .local, at: root)
+        let resolved = try store.resolve(at: root, toolchainCandidates: [])
+        #expect(resolved.configurations.first?.options.providerRunOptions == choices)
+        let inputs = try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: "app")
+        #expect(inputs.reference == reference)
+        #expect(inputs.launchOptions.runtimeArguments == choices.runtimeArguments)
+        #expect(inputs.launchOptions.entrypoint == choices.entrypoint)
+        #expect(inputs.optionOverrides == choices.options)
+        #expect(inputs.launchOptions.arguments == ["--application=one two", "雪"])
+        #expect(inputs.launchOptions.environment == options.environment)
+        #expect(inputs.launchOptions.workingDirectory == "app/work")
+        #expect(inputs.opaqueReferenceArguments == nil)
+        // Native preference copies also keep the exact arrays and option values.
+        let encoded = try JSONEncoder().encode(options)
+        #expect(try JSONDecoder().decode(RunOptions.self, from: encoded) == options)
+        #expect(try store.saveBuildProviderConfiguration(reference, name: "Renamed", at: root) == id)
+        #expect(try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: "app") == inputs)
+        options.providerRunOptions = BuildProviderRunOptions()
+        try store.saveOptions(options, configurationID: id, scope: .local, at: root)
+        let reset = try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: "app")
+        #expect(reset.launchOptions.runtimeArguments.isEmpty)
+        #expect(reset.launchOptions.entrypoint == nil)
+        #expect(reset.optionOverrides.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
+    }
+
+    @Test
     func readySavedTasksStillRequestDetectionUntilGenerationSucceeds() async {
         let fixture = makeFixture(status: .ready)
         fixture.operations.requiresGeneration = true
@@ -4091,14 +4133,17 @@ struct RunConfigurationIntegrationTests {
         ) == true)
     }
 
-    @Test
-    func resettingOptionsUsesTheCombinedEditorSave() async {
+    @Test(arguments: [false, true])
+    func resettingOptionsUsesTheCombinedEditorSave(provider: Bool) async {
         let configuration = JavaRunConfiguration(
             id: "spring",
             name: "Spring",
-            kind: .springBoot,
+            kind: provider ? .process(provider: "build.provider") : .springBoot,
+            execution: .service,
             modulePath: ".",
-            mainClass: nil
+            mainClass: nil,
+            buildProvider: provider ? BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "engine", root: ".",
+                run: "serve", projectID: "p", targetID: "t", execution: .service) : nil
         )
         let fixture = makeFixture(
             status: .ready,
@@ -4116,7 +4161,7 @@ struct RunConfigurationIntegrationTests {
         fixture.service.resetOptions(for: configuration)
 
         #expect(fixture.operations.editorSaveCalls == 1)
-        #expect(fixture.operations.savedOptions == [RunOptions()])
+        #expect(fixture.operations.savedOptions == [RunOptions(providerRunOptions: provider ? BuildProviderRunOptions() : nil)])
         #expect(fixture.operations.savedScopes == [.local])
     }
 

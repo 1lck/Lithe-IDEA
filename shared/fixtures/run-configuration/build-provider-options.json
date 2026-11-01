@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "reference": {
+    "pluginID": "dev.example.engine",
+    "buildSystemID": "engine",
+    "root": "app",
+    "run": "serve",
+    "projectID": "opaque/project:1",
+    "targetID": "opaque/target:2",
+    "execution": "service",
+    "userArguments": [
+      "legacy argument"
+    ]
+  },
+  "choices": {
+    "runtimeArguments": [
+      "--opaque=one two",
+      "",
+      "雪",
+      "quote\"\\literal"
+    ],
+    "entrypoint": "opaque/entry:雪",
+    "options": {
+      "features": [
+        "a",
+        "雪"
+      ],
+      "strict": false,
+      "empty": []
+    }
+  },
+  "changed": {
+    "runtimeArguments": [
+      "--next=value"
+    ],
+    "entrypoint": "",
+    "options": {}
+  },
+  "arguments": [
+    "--application=one two",
+    "雪"
+  ],
+  "environment": {
+    "EXAMPLE": "value"
+  },
+  "workingDirectory": "app/work",
+  "expected": {
+    "buildSystemID": "engine",
+    "execution": "service"
+  }
+}

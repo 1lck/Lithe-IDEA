@@ -485,6 +485,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 let maven: Maven?
                 let java: Java?
                 var build: BuildProviderRunReference? = nil
+                var buildRun: BuildProviderRunOptions? = nil
+                private enum CodingKeys: String, CodingKey {
+                    case maven, java, build
+                    case buildRun = "build-run"
+                }
             }
             let id: String
             let name: String
@@ -1954,6 +1959,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let mavenExecutablePath: String
         let mavenJavaHomePath: String
         let toolchain: ProjectToolchainSelection?
+        let providerRunOptions: BuildProviderRunOptions?
     }
     private struct RunConfigurationCreateUserRequest: Encodable {
         let root: String
@@ -2637,7 +2643,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,
-                toolchain: toolchain
+                toolchain: toolchain,
+                providerRunOptions: options.providerRunOptions
             )
         )
     }
@@ -2664,7 +2671,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,
-                toolchain: toolchain
+                toolchain: toolchain,
+                providerRunOptions: options.providerRunOptions
             )
         )
     }

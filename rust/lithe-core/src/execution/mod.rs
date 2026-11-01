@@ -7,6 +7,7 @@ pub(crate) mod generated_layer;
 mod java_selection;
 mod launch_command;
 mod project_ownership;
+mod provider_run_options;
 mod provider_runs;
 pub use java_selection::{
     compare_java_candidates, select_java, select_java_candidates, JavaSelection,

@@ -45,6 +45,7 @@ package struct RunOptions: Codable, Hashable, Sendable {
     package var arguments = ""
     package var environment: [String: String] = [:]
     package var java = JavaCapability()
+    package var providerRunOptions: BuildProviderRunOptions?
 
     package init(
         javaHomePath: String = "",
@@ -55,11 +56,13 @@ package struct RunOptions: Codable, Hashable, Sendable {
         mavenSkipTests: Bool? = nil,
         mavenExecutablePath: String = "",
         mavenJavaHomePath: String = "",
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        providerRunOptions: BuildProviderRunOptions? = nil
     ) {
         self.workingDirectoryPath = workingDirectoryPath
         arguments = programArguments
         self.environment = environment
+        self.providerRunOptions = providerRunOptions
         java = JavaCapability(
             homePath: javaHomePath,
             mavenExecutablePath: mavenExecutablePath,
@@ -100,7 +103,7 @@ package struct RunOptions: Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case workingDirectoryPath, arguments, environment, java
+        case workingDirectoryPath, arguments, environment, java, providerRunOptions
         case javaHomePath, vmArguments, programArguments, activeProfiles
     }
 
@@ -111,6 +114,7 @@ package struct RunOptions: Codable, Hashable, Sendable {
             ?? container.decodeIfPresent(String.self, forKey: .programArguments)
             ?? ""
         environment = try container.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
+        providerRunOptions = try container.decodeIfPresent(BuildProviderRunOptions.self, forKey: .providerRunOptions)
         java = try container.decodeIfPresent(JavaCapability.self, forKey: .java) ?? JavaCapability(
             homePath: try container.decodeIfPresent(String.self, forKey: .javaHomePath) ?? "",
             vmArguments: try container.decodeIfPresent(String.self, forKey: .vmArguments) ?? "",
@@ -124,6 +128,7 @@ package struct RunOptions: Codable, Hashable, Sendable {
         try container.encode(arguments, forKey: .arguments)
         try container.encode(environment, forKey: .environment)
         try container.encode(java, forKey: .java)
+        try container.encodeIfPresent(providerRunOptions, forKey: .providerRunOptions)
     }
 }
 

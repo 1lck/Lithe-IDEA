@@ -5004,6 +5004,176 @@ fn build_provider_configurations_persist_before_generation_and_reuse_identity() 
     );
 }
 
+/// Portable choices survive document edits without becoming selector identity or cached launch facts.
+#[test]
+fn provider_run_options_preserve_exact_arguments_and_layered_build_choices() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/build-provider-options.json"
+    ))
+    .unwrap();
+    let root = temporary_root("provider-run-options");
+    fs::create_dir_all(root.join("app/work")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let call = |command: &str, payload: Value| -> Value {
+        let reply: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"choices","command":command,"payload":payload}).to_string(),
+        ))
+        .unwrap();
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"].clone()
+    };
+    let save = || {
+        call(
+            "runConfig.createUserConfiguration",
+            serde_json::json!({"root":root,"scope":"local","type":"buildProvider","name":"Service","build":fixture["reference"]}),
+        )
+    };
+    let saved = save();
+    let id = saved["id"].clone();
+    let local_path = root.join(".lithe/run/local.json");
+    let team_path = root.join(".lithe/run/configurations.json");
+    fs::write(&local_path, saved["document"].as_str().unwrap()).unwrap();
+    let team = serde_json::json!({"version":2,"configurations":[{"id":id,"extensions":{"build-run":fixture["choices"]}}]});
+    fs::write(&team_path, team.to_string()).unwrap();
+    let read = || {
+        call(
+            "runConfig.providerLaunchInputs",
+            serde_json::json!({"root":root,"configurationId":id,"providerRoot":"app"}),
+        )
+    };
+    let initial = read();
+    assert_eq!(
+        initial["buildSystemID"],
+        fixture["expected"]["buildSystemID"]
+    );
+    assert_eq!(
+        initial["launchOptions"]["execution"],
+        fixture["expected"]["execution"]
+    );
+    assert_eq!(
+        initial["launchOptions"]["runtimeArguments"],
+        fixture["choices"]["runtimeArguments"]
+    );
+    assert_eq!(
+        initial["launchOptions"]["entrypoint"],
+        fixture["choices"]["entrypoint"]
+    );
+    assert_eq!(initial["optionOverrides"], fixture["choices"]["options"]);
+    assert_eq!(
+        initial["launchOptions"]["arguments"],
+        fixture["reference"]["userArguments"]
+    );
+    let update = |choices: Option<Value>| {
+        let mut payload = serde_json::json!({"root":root,"scope":"local","configurationId":id,
+            "arguments":"--application=\"one two\" 雪","environment":fixture["environment"],"workingDirectory":fixture["workingDirectory"]});
+        if let Some(choices) = choices {
+            payload["providerRunOptions"] = choices;
+        }
+        call("runConfig.updateOptions", payload)
+    };
+    let document = update(Some(fixture["changed"].clone()));
+    fs::write(&local_path, document["document"].as_str().unwrap()).unwrap();
+    let changed = read();
+    assert_eq!(
+        changed["launchOptions"]["runtimeArguments"],
+        fixture["changed"]["runtimeArguments"]
+    );
+    assert!(
+        changed["launchOptions"].get("entrypoint").is_none(),
+        "Explicit empty clears the team entrypoint"
+    );
+    assert_eq!(
+        changed["optionOverrides"],
+        serde_json::json!({}),
+        "An explicit empty map clears team options"
+    );
+    assert_eq!(changed["launchOptions"]["arguments"], fixture["arguments"]);
+    assert_eq!(
+        changed["launchOptions"]["environment"],
+        fixture["environment"]
+    );
+    assert_eq!(
+        changed["launchOptions"]["workingDirectory"],
+        fixture["workingDirectory"]
+    );
+    assert_eq!(changed["reference"], fixture["reference"]);
+    let omitted = update(None);
+    let omitted: Value = serde_json::from_str(omitted["document"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        omitted["configurations"][0]["extensions"]["build-run"],
+        fixture["changed"]
+    );
+    let resaved = save();
+    assert_eq!(resaved["id"], id);
+    let resaved: Value = serde_json::from_str(resaved["document"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        resaved["configurations"][0]["cwd"],
+        fixture["workingDirectory"]
+    );
+    assert_eq!(
+        resaved["configurations"][0]["extensions"]["build-run"],
+        fixture["changed"]
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&team_path).unwrap()).unwrap(),
+        team
+    );
+    assert!(!root.join(".lithe/run/generated.json").exists());
+}
+
+/// Malformed portable choices fail before a provider request; unknown fields cannot smuggle launch facts.
+#[test]
+fn provider_run_options_reject_malformed_or_oversized_values() {
+    let root = temporary_root("provider-run-options-invalid");
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let reference = serde_json::json!({"pluginID":"dev.example","buildSystemID":"engine","root":".","run":"serve","projectID":"p","targetID":"t"});
+    let local_path = root.join(".lithe/run/local.json");
+    for choices in [
+        serde_json::json!(null),
+        serde_json::json!({"runtimeArguments":null}),
+        serde_json::json!({"runtimeArguments":["bad\u{0}"]}),
+        serde_json::json!({"runtimeArguments":vec!["a";1025]}),
+        serde_json::json!({"runtimeArguments":["a".repeat(65537)]}),
+        serde_json::json!({"entrypoint":null}),
+        serde_json::json!({"entrypoint":"a".repeat(4097)}),
+        serde_json::json!({"options":null}),
+        serde_json::json!({"options":{"bad key":true}}),
+        serde_json::json!({"options":{"opaque":"a".repeat(65536)}}),
+        serde_json::json!({"options":(0..65).map(|n|(format!("key-{n}"),serde_json::json!(false))).collect::<std::collections::BTreeMap<_,_>>()}),
+        serde_json::json!({"command":"cached"}),
+        serde_json::json!({"debug":{"adapter":"cached"}}),
+    ] {
+        fs::write(&local_path, serde_json::json!({"version":2,"configurations":[{"id":"user:service","name":"Service","provider":"build.provider","execution":"application","cwd":".","extensions":{"build":reference,"build-run":choices}}]}).to_string()).unwrap();
+        let reply: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"invalid","command":"runConfig.resolve","payload":{"root":root}}).to_string())).unwrap();
+        assert_eq!(reply["ok"], false, "Invalid choice accepted");
+    }
+    // The mutation port must reject explicit null as well as persisted null,
+    // rather than treating malformed input as an omitted legacy field.
+    fs::write(&local_path, serde_json::json!({"version":2,"configurations":[{"id":"user:service","name":"Service","provider":"build.provider","execution":"application","cwd":".","extensions":{"build":reference}}]}).to_string()).unwrap();
+    for options in [
+        serde_json::json!(null),
+        serde_json::json!({"runtimeArguments":null}),
+        serde_json::json!({"entrypoint":"bad\u{0}"}),
+    ] {
+        let reply: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"invalid-update","command":"runConfig.updateOptions","payload":{"root":root,"scope":"local","configurationId":"user:service","providerRunOptions":options}}).to_string())).unwrap();
+        assert_eq!(reply["ok"], false, "Invalid mutation accepted");
+    }
+}
+
 /// A non-Java provider owns discovery; regenerating labels must retain user choices,
 /// while withdrawing a target must not resurrect it from the previous detected layer.
 #[test]

@@ -226,6 +226,12 @@ pub struct UpdateOptionsRequest {
     pub maven_executable_path: String,
     #[serde(default)]
     pub maven_java_home_path: String,
+    /// Portable provider choices. Omission preserves the existing namespace.
+    #[serde(
+        default,
+        deserialize_with = "super::provider_run_options::optional_request_options"
+    )]
+    pub provider_run_options: Option<super::provider_run_options::BuildProviderRunOptions>,
     /// When present, `updateOptions` writes the document-level global toolchain
     /// into the local layer instead of patching one configuration.
     #[serde(default)]
@@ -1796,6 +1802,15 @@ fn update_configuration_options(
             CoreError::new(ErrorCode::InvalidRequest, "Run configuration was not found")
         })?;
     let uses_maven_capability = is_maven_backed(provider);
+    if let Some(options) = &request.provider_run_options {
+        if provider != "build.provider" {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Provider run options require a build provider reference",
+            ));
+        }
+        options.validate()?;
+    }
     let java_home_path =
         normalize_scoped_toolchain_path(&root, &request.scope, &request.java_home_path)?;
     let maven_executable_path =
@@ -1840,7 +1855,12 @@ fn update_configuration_options(
     if !maven_java_home_path.is_empty() {
         java_extension.insert("mavenJavaHomePath".to_string(), json!(maven_java_home_path));
     }
-    if uses_maven_capability {
+    if provider == "build.provider" {
+        patch["args"] = json!(split_arguments(&request.arguments));
+        if let Some(options) = &request.provider_run_options {
+            patch["extensions"] = json!({"build-run":options});
+        }
+    } else if uses_maven_capability {
         let mut maven_extension = serde_json::Map::from_iter([
             (
                 "jvmArguments".to_string(),
@@ -2029,7 +2049,8 @@ fn create_build_provider_configuration(
         )
     })?;
     let managed = json!({"id":id,"name":name,"provider":"build.provider","execution":reference.execution.unwrap_or_default(),
-        "cwd":reference.root,"confidence":"declared"});
+        "confidence":"declared"});
+    object.entry("cwd").or_insert_with(|| json!(reference.root));
     object.extend(
         managed
             .as_object()
@@ -2276,8 +2297,16 @@ pub fn provider_launch_inputs(request: ProviderLaunchInputsRequest) -> Result<Va
         } else {
             json!(reference.user_arguments)
         };
-        let mut options = json!({"execution":reference.execution.unwrap_or_default(),"runtimeArguments":[],
+        let choices = super::provider_run_options::BuildProviderRunOptions::from_extensions(
+            &serde_json::from_value(config["extensions"].clone()).map_err(|_| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid provider run options")
+            })?,
+        )?;
+        let mut options = json!({"execution":reference.execution.unwrap_or_default(),"runtimeArguments":choices.runtime_arguments,
             "arguments":arguments,"environment":config["env"]});
+        if !choices.entrypoint.is_empty() {
+            options["entrypoint"] = json!(choices.entrypoint);
+        }
         // Saving an older selector materializes its root as cwd. Keep that
         // default opaque for v4 applications; only an actual override is v10.
         if explicit_cwd
@@ -2288,7 +2317,7 @@ pub fn provider_launch_inputs(request: ProviderLaunchInputsRequest) -> Result<Va
         }
         return Ok(
             json!({"buildSystemID":reference.build_system_id,"provider":reference.run,"projectPath":reference.root,
-            "launchOptions":options,"optionOverrides":{},"reference":reference}),
+            "launchOptions":options,"optionOverrides":choices.options,"reference":reference}),
         );
     }
     let maven = &config["extensions"]["maven"];
@@ -3244,6 +3273,9 @@ fn validate_configuration(configuration: &RunConfiguration) -> Result<(), CoreEr
             )
         })?;
         reference.validate()?;
+        super::provider_run_options::BuildProviderRunOptions::from_extensions(
+            &configuration.extensions,
+        )?;
         if configuration.command.is_some()
             || !configuration.toolchains.is_empty()
             || configuration.debug.is_some()
