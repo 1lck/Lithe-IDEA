@@ -756,6 +756,8 @@ enum PluginMarketplacePresentation {
         switch permission {
         case "languageServer.launch":
             PluginMarketplacePresentation.localized("Start a language server when you open files of its language", locale: locale)
+        case "editor.actions":
+            L10n.string("Add clickable actions beside document text")
         case "process.run":
             PluginMarketplacePresentation.localized("Run your files", locale: locale)
         case "ui.contribute":

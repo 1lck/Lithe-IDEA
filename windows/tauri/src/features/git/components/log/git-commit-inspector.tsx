@@ -5,15 +5,19 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resiz
 import { useTranslation } from "@/i18n/locale-provider";
 import { getCommitFiles } from "../../api/git-commits-api";
 import { getRefDiff } from "../../api/git-diff-api";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit, GitCommitFile } from "../../types/git.types";
 import { mapGitReadsInBatches } from "../../utils/git-async-batch";
+import { selectedCommitFilePath } from "../../utils/commit-file-diff-navigation";
 import {
   aggregateSelectedCommitFileRows,
+  commitFilePreviewHash,
   gitDiffsToCommitFiles,
   resolveGitCommitSelectionDiff,
   type GitCommitSelectionDiff,
 } from "../../utils/git-commit-selection-diff";
+import { COMMIT_FILE_PREVIEW_PATH } from "../../utils/multi-file-diff";
 import { GitCommitDetails } from "./git-commit-details";
 import { GitCommitFileTree, getFirstCommitFilePath } from "./git-commit-file-tree";
 
@@ -73,6 +77,30 @@ export function GitCommitInspector({
   const [failedSelectionKey, setFailedSelectionKey] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const handledPreviewRequestRef = useRef(previewRequest);
+  // The preview's own previous/next-file navigation changes the buffer, not the tree selection.
+  // Follow the file it shows, but only when that preview belongs to this very selection.
+  const previewedPath = useBufferStore((state) => {
+    if (!repoPath || !selectionDiff) return null;
+    const buffer = state.buffers.find((candidate) => candidate.path === COMMIT_FILE_PREVIEW_PATH);
+    const data = buffer?.type === "diff" ? buffer.diffData : undefined;
+    return data &&
+      "files" in data &&
+      data.commitFilePreview &&
+      data.repoPath === repoPath &&
+      data.commitHash === commitFilePreviewHash(selectionDiff)
+      ? selectedCommitFilePath(data)
+      : null;
+  });
+  // Re-evaluated only when the previewed file or the loaded file list changes, so a click that
+  // has just selected a row is not reverted by the previous preview that is still displayed.
+  const followPreviewedPath = useEffectEvent(() => {
+    if (previewedPath && files.some((file) => file.path === previewedPath)) {
+      setSelectedPath(previewedPath);
+    }
+  });
+  useEffect(() => {
+    if (loadedSelectionKey === selectionKey) followPreviewedPath();
+  }, [previewedPath, loadedSelectionKey, selectionKey]);
 
   // Selecting a commit previews its first file, like the IDEA Git log. Only explicit user
   // selections bump `previewRequest`, so opening the Log never steals the editor on its own.

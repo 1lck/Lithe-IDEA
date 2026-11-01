@@ -68,7 +68,15 @@ export async function installJavaTextMate(resourcesConfig: JavaTextMateResources
   worker.onmessage = ({ data }) => {
     if (data.type === "error") { fail(new Error(data.message)); return; }
     const binding = bindings.get(data.id);
-    if (!binding || binding.model.isDisposed() || binding.model.getVersionId() !== data.version) return;
+    if (!binding || binding.model.isDisposed()) return;
+    if (binding.model.getVersionId() !== data.version) {
+      // The worker believes these rows landed; tell it they did not.
+      if (data.rows.length > 0) {
+        worker.postMessage({ type: "stale", id: data.id, lineCount: data.lineCount,
+          start: data.rows[0].line, end: data.rows[data.rows.length - 1].line });
+      }
+      return;
+    }
     binding.received += data.rows.length;
     const builder = new ContiguousMultilineTokensBuilder();
     for (const row of data.rows) {
@@ -113,7 +121,7 @@ export async function installJavaTextMate(resourcesConfig: JavaTextMateResources
       });
       const attached = model.onDidChangeAttached(() => worker.postMessage({ type: "visible", id, visible: model.isAttachedToEditor() }));
       return {
-        requestTokens(start: number) { if (opened) worker.postMessage({ type: "request", id, start }); },
+        requestTokens(start: number, end: number) { if (opened) worker.postMessage({ type: "request", id, start, end }); },
         dispose() {
           edits.dispose(); attached.dispose(); bindings.delete(id);
           worker.postMessage({ type: "dispose", id });

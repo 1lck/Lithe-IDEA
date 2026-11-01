@@ -1,4 +1,5 @@
 import type { EditorTextChange } from "../types/editor.types";
+import { sortEditorTextChangesForOriginalDocument } from "../utils/editor-text-change";
 
 type DocumentChangeListener = (filePath: string) => void;
 type DocumentChangeFlusher = () => Promise<void>;
@@ -7,10 +8,15 @@ const pendingChanges = new Map<string, EditorTextChange[]>();
 const listeners = new Set<DocumentChangeListener>();
 const flushers = new Map<string, DocumentChangeFlusher>();
 
+/**
+ * Appends one edit's changes. The queue is replayed in order with each range
+ * relative to the previous result, and the ranges of one edit all refer to the
+ * text before it, so they go end to start to keep each other valid.
+ */
 export function queueLspDocumentChanges(filePath: string, changes: readonly EditorTextChange[]): void {
   if (!filePath || changes.length === 0) return;
   const queued = pendingChanges.get(filePath) ?? [];
-  queued.push(...changes);
+  queued.push(...sortEditorTextChangesForOriginalDocument(changes));
   pendingChanges.set(filePath, queued);
   for (const listener of listeners) listener(filePath);
 }

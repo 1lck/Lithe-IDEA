@@ -18,11 +18,14 @@ import { CancellationTokenSource, CancellationToken } from "monaco-editor/esm/vs
 import { ready } from "./workbench";
 import { IStandaloneThemeService } from "monaco-editor/esm/vs/editor/standalone/common/standaloneTheme.js";
 import { TokenMetadata } from "monaco-editor/esm/vs/editor/common/encodedTokenAttributes.js";
-import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
+import { acquireEditorModelSource } from "@lithe/editor/model-source";
 import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
 import { mouseInputCases } from "./mouse-input.integration";
 import { contextMenuCases } from "./context-menu.integration";
 import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
+import { installPluginGrammar } from "@lithe/editor/plugin-grammar-tokenizer";
+import { attachPluginEditorActions } from "@lithe/editor/plugin-editor-actions";
+import httpGrammarSource from "../../../shared/contracts/plugins/v1/fixtures/grammars/http.monarch.json" with { type: "text" };
 import { imeInputCases } from "./ime-input.integration";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
@@ -54,6 +57,142 @@ async function verify() {
     await operation();
     cases.push({ name, durationMs: performance.now() - started });
   }
+  await check("ordinary plugin grammar runs in a worker and preserves Monaco editing", async () => {
+    if (!languages.getLanguages().some(language => language.id === "fixture-http")) languages.register({ id: "fixture-http" });
+    const installation = installPluginGrammar("fixture-http", JSON.stringify({ tokenizer: { root: [["#.*$", "comment"]] } }));
+    const previous = initialEditor.getModel();
+    const model = monacoEditor.createModel("# request\nGET /orders", "fixture-http");
+    let listener: { dispose(): void } | undefined;
+    try {
+      const colored = new Promise<void>(resolve => {
+        listener = model.onDidChangeTokens(() => {
+          const tokens = (model as any).tokenization.getLineTokens(1);
+          if (tokens.getStandardTokenType(0) === 1) resolve();
+        });
+      });
+      initialEditor.setModel(model);
+      await withDeadline(colored, "plugin worker never published comment tokens");
+      initialEditor.executeEdits("plugin-worker-fixture", [{ range: new Range(2, 5, 2, 5), text: " /new" }]);
+      assert(model.getValue().includes("/new"), "plugin tokenization blocked editing");
+    } finally { listener?.dispose(); initialEditor.setModel(previous); model.dispose(); installation.dispose(); }
+  });
+  await check("worker grammar preserves ordered cases and defaults to root after a host roundtrip", async () => {
+    const id = "fixture-ordered-http";
+    if (!languages.getLanguages().some(language => language.id === id)) languages.register({ id });
+    // Sorted host dictionaries must not reorder anything inside the source string.
+    const source = '{"tokenizer":{"comment":[[".*","comment"]],"root":[["[A-Z]+",{"cases":{"GET":"string","[A-Z]+":"comment","@default":"identifier"}}]]}}';
+    const payload = JSON.parse(JSON.stringify({ grammar: { kind: "monarch", source } }));
+    const installation = installPluginGrammar(id, payload.grammar.source);
+    const previous = initialEditor.getModel(), model = monacoEditor.createModel("GET", id);
+    let listener: { dispose(): void } | undefined;
+    try {
+      const colored = new Promise<void>(resolve => {
+        listener = model.onDidChangeTokens(() => {
+          if ((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 2) resolve();
+        });
+      });
+      initialEditor.setModel(model);
+      await withDeadline(colored, "worker lost root or the first matching case");
+    } finally { listener?.dispose(); initialEditor.setModel(previous); model.dispose(); installation.dispose(); }
+  });
+  await check("configuration-only aliases retain syntax and withdraw without changing their sibling language", async () => {
+    const previous = initialEditor.getModel();
+    try {
+      await window.lithe.setPluginLanguages({ languages: [{ id: "properties", fileExtensions: ["properties"],
+        configuration: { lineComment: "!" } }] });
+      await send({ type: "open", id: "plugin-properties", text: "# comment\nkey=value" });
+      await window.lithe.activate({ id: "plugin-properties", filename: "example.properties", text: "# comment\nkey=value", revision: 0, readonly: false });
+      const model = initialEditor.getModel()!;
+      assert(model.getLanguageId() === "properties", "plugin identity was replaced by its tokenizer alias");
+      (model as any).tokenization.forceTokenization(1);
+      assert((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 1,
+        "configuration-only properties lost the ini tokenizer");
+      initialEditor.setPosition(new Position(2, 1));
+      await initialEditor.getAction("editor.action.commentLine")!.run();
+      assert(model.getLineContent(2).startsWith("!"), "alias did not use its independent comment configuration");
+      await window.lithe.setPluginLanguages({ languages: [] });
+      assert(model.getLanguageId() === "ini", "withdrawing the configuration did not restore the tokenizer alias");
+      (model as any).tokenization.forceTokenization(1);
+      assert((model as any).tokenization.getLineTokens(1).getStandardTokenType(0) === 1, "withdrawing alias disposed the base engine");
+    } finally {
+      await window.lithe.setPluginLanguages({ languages: [] });
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "plugin-properties" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("plugin action refresh acknowledges scheduling while collection is pending and editing still drains", async () => {
+    const previous = initialEditor.getModel();
+    await send({ type: "open", id: "plugin-slow-actions", text: "GET /orders" });
+    await window.lithe.activate({ id: "plugin-slow-actions", filename: "orders.http", text: "GET /orders", revision: 0, readonly: false });
+    await send({ type: "holdPluginActions" });
+    try {
+      await withDeadline(window.lithe.refreshPluginEditorActions(), "refresh waited for plugin collection");
+      await withDeadline(send({ type: "awaitPluginActions" }), "collector did not start");
+      // Grammar/config updates must not wait for pending actions either.
+      await withDeadline(window.lithe.setPluginLanguages({ languages: [{ id: "fixture-source", fileExtensions: ["orderedhttp"],
+        grammar: { kind: "monarch", source: httpGrammarSource } }] }), "static language update waited for plugin collection");
+      initialEditor.executeEdits("slow-plugin", [{ range: new Range(1, 1, 1, 1), text: "# edited\n" }]);
+      const snapshot = await withDeadline(window.lithe.freeze("plugin-slow-actions"), "slow plugin blocked save barrier");
+      assert(snapshot.text.startsWith("# edited"), "save barrier lost input while plugin was pending");
+      window.lithe.unlock("plugin-slow-actions");
+    } finally {
+      await send({ type: "releasePluginActions" });
+      await window.lithe.setPluginLanguages({ languages: [] });
+      await window.lithe.retain([]);
+      await send({ type: "closeFixtureDocument", documentID: "plugin-slow-actions" });
+      initialEditor.setModel(previous);
+    }
+  });
+  await check("tool actions share a gutter menu and reject superseded batches", async () => {
+    const previous = initialEditor.getModel();
+    const model = monacoEditor.createModel("GET /orders", "plaintext");
+    const entry = { model, revision: 0, chain: Promise.resolve(), readonly: false, frozen: false, closingHolds: 0 };
+    let active = true, collections = 0;
+    const calls: any[] = [];
+    const service = StandaloneServices.get(IContextMenuService), originalMenu = service.showContextMenu;
+    let menu: any[] = [];
+    service.showContextMenu = delegate => { menu = [...delegate.getActions()]; };
+    const entries = new Map([["tool", entry]]);
+    const binding = attachPluginEditorActions({
+      entries: () => entries, editors: () => [initialEditor], lineNumbersFirst: true,
+      current: () => { const version = model.getVersionId(); return () => active && !model.isDisposed() && model.getVersionId() === version; },
+      request: async payload => {
+        if ((payload as any).type === "pluginEditorAction") { calls.push(payload); return { ok: true }; }
+        return { batch: String(++collections), actions: [
+          { id: "send", line: 1, endLine: 1, title: "Send request", icon: "run" },
+          { id: "preview", line: 1, endLine: 1, title: "Preview request", icon: "run" },
+        ] };
+      },
+    });
+    try {
+      initialEditor.setModel(model);
+      binding.attach(initialEditor);
+      await binding.refresh();
+      assert(model.getAllDecorations().filter(value => value.options.linesDecorationsClassName?.includes("lithe-plugin-editor-action")).length === 1,
+        "same-line actions created competing gutter decorations");
+      const target = document.createElement("span");
+      target.className = "lithe-plugin-editor-action";
+      (initialEditor as any)._onMouseDown.fire({
+        target: { element: target, position: new Position(1, 1) },
+        event: { leftButton: true, posx: 10, posy: 10, preventDefault() {}, stopPropagation() {} },
+      });
+      assert(menu.length === 2 && menu[0].label === "Send request" && menu[1].label === "Preview request",
+        "same-line plugin actions lost their separate menu labels");
+      await menu[0].run();
+      assert(calls.length === 1 && calls[0].action === "send" && calls[0].batch === "1",
+        "explicit click did not preserve the opaque action/batch identity");
+      entry.revision++;
+      binding.schedule("tool", entry);
+      assert(!model.getAllDecorations().some(value => value.options.linesDecorationsClassName?.includes("lithe-plugin-editor-action")),
+        "edited document kept its old action clickable");
+      await menu[0].run();
+      assert(calls.length === 1, "retained menu executed an action after its batch was revoked");
+    } finally {
+      service.showContextMenu = originalMenu;
+      active = false; binding.dispose(); initialEditor.setModel(previous); model.dispose();
+    }
+  });
   for (const test of contextMenuCases) await check(test.name, async () => test.run());
   for (const test of mouseInputCases) await check(test.name, async () => test.run());
   for (const test of imeInputCases) await check(test.name, async () => test.run());
@@ -218,8 +357,9 @@ async function verify() {
       assert(acquireEditorModelSource(model, text) === source, "multiple views created competing source mirrors");
       model.pushEditOperations([], [{ range: new Range(2, 1, 2, 6), text: "new" }], () => null);
       assert(source.content === "first\r\nnew\nlast\rtail", "Windows mirror normalized untouched source newlines");
-      const position = sourcePositionAt(source.content, source.content.indexOf("tail"));
-      assert(position.line === 3 && position.column === 0, "Windows LSP source position ignored CR");
+      model.pushEditOperations([], [{ range: new Range(4, 2, 4, 2), text: "!" }], () => null);
+      const position = source.lastChange?.changes[0]?.start;
+      assert(position?.line === 3 && position.column === 0, "Windows LSP source position ignored CR");
       source.replace("external\rnew\n");
       assert(source.lastChange?.external, "external replacement escaped source suppression");
       model.pushEditOperations([], [{ range: new Range(2, 1, 2, 4), text: "edited" }], () => null);
@@ -295,6 +435,35 @@ async function verify() {
   await send({ type: "open", text: source });
   await window.lithe.activate({ id: "A", text: source, revision: 0, language: "java", readonly: false, focus: false });
   const editor = monacoEditor.getEditors()[0];
+  await check("plugin edit bridge preserves dirty Unicode, CRLF and a single real undo", async () => {
+    const id = "plugin-edit", text = "dirty 😀\r\n中文";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "plaintext", readonly: false });
+    const target = editor.getModel()!;
+    try {
+      editor.setSelections([new Selection(1, 1, 1, 6), new Selection(2, 1, 2, 3)]);
+      const selected = await withDeadline(window.lithe.pluginSelections({ id }), "plugin selections timed out") as any;
+      assert(selected.status === "ok" && selected.selections.length === 2, "plugin lost multiple selections");
+      const edits = [
+        { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6, text: "DONE\n!" },
+        { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 3, text: "文字" },
+      ];
+      const applied = await withDeadline(window.lithe.applyPluginEdits({ id, revision: selected.revision,
+        token: "plugin-batch", eol: "\r\n", edits }), "plugin edits timed out") as any;
+      assert(applied.status === "applied", `plugin edits rejected: ${applied.status}`);
+      const native = await send({ type: "fixtureSnapshot", id });
+      assert(native.text === "DONE\r\n! 😀\r\n文字", "plugin edits diverged from exact native source");
+      const stale = await window.lithe.applyPluginEdits({ id, revision: selected.revision, token: "stale", eol: "\r\n", edits });
+      assert(stale.status === "versionConflict", "stale plugin edit overwrote current input");
+      await target.undo();
+      const undone = await withDeadline(window.lithe.freeze(id), "plugin undo timed out") as any;
+      assert(undone.text === text, "one real Monaco undo did not restore the whole plugin batch");
+    } finally {
+      window.lithe.unlock(id);
+      await window.lithe.retain(["A"]);
+      await window.lithe.activate({ id: "A", text: source, revision: 0, language: "java", readonly: false });
+    }
+  });
   await check("editor context menu routes existing Monaco actions to the native host", async () => {
     const service = StandaloneServices.get(IContextMenuService) as any;
     let listener: { dispose(): void } | undefined;

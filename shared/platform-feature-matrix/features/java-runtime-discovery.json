@@ -19,7 +19,8 @@
       "rust/lithe-core/src/project/maven.rs",
       "rust/lithe-core/src/tests/languages.rs",
       "shared/fixtures/execution/maven-runtime-versions.json",
-      ".agents/notes/implemented/architecture/2026-09-21-maven-settings-reach-the-language-server.md"
+      ".agents/notes/implemented/architecture/2026-09-21-maven-settings-reach-the-language-server.md",
+      ".agents/notes/implemented/bug-fix/2026-10-30-login-shell-environment-and-jdk-selection.md"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -35,11 +36,12 @@
       "rust/lithe-core/src/project/maven.rs",
       "rust/lithe-core/src/tests/languages.rs",
       "shared/fixtures/execution/maven-runtime-versions.json",
-      ".agents/notes/implemented/architecture/2026-09-21-maven-settings-reach-the-language-server.md"
+      ".agents/notes/implemented/architecture/2026-09-21-maven-settings-reach-the-language-server.md",
+      ".agents/notes/implemented/bug-fix/2026-10-30-login-shell-environment-and-jdk-selection.md"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "两端安装 JDK 8/17/21：项目要求 17 且 JAVA_HOME 为 8 时验证自动选择兼容版本；核对设置、Run、Maven 目标、测试使用同一 JDK。验证显式选择不变、没有兼容版本时回退并提示，以及无要求时的平台默认顺序。 macOS 恢复已有运行配置时检查主队列仍能处理交互；同一工具与符号链接别名只探测一次，并发请求共用结果；工具文件变化或手动刷新后重新探测，失败结果可重试。验证切换项目和取消打开后旧探测结果不再应用。 两端验证 mvnd 根目录、bin 目录和启动器三种显式选择，执行仍使用 mvnd 客户端；同目录显式 mvn 保持普通 Maven 设置。自动选择保留有效 Wrapper、普通 Maven、mvnd 顺序，覆盖仅 MVND_HOME、仅 PATH、无效 MVND_HOME 回退。版本读取内嵌 Apache Maven 行，忽略 daemon 标题，使用共享版本 fixture。核对 JDT 全局设置读取 mvnd 的 mvn/conf/settings.xml，缺失时不回退 daemon conf；普通 Maven 目录缺启动器、Wrapper 和失效链接均不冒充安装，macOS 目录与客户端符号链接跟随真实安装。Core languages 测试仅验证共享设置规则；各原生系统还需以独立临时项目、仓库和 daemon 状态目录实际构建、验证 JDT 设置并清理进程，完成前两端保持待验证。"
+  "verification": "两端安装 JDK 8/17/21：项目要求 17 且 JAVA_HOME 为 8 时验证自动选择兼容版本；核对设置、Run、Maven 目标、测试使用同一 JDK。验证显式选择不变、没有兼容版本时回退并提示，以及无要求时的平台默认顺序。 macOS 恢复已有运行配置时检查主队列仍能处理交互；同一工具与符号链接别名只探测一次，并发请求共用结果；工具文件变化或手动刷新后重新探测，失败结果可重试。验证切换项目和取消打开后旧探测结果不再应用。 两端验证 mvnd 根目录、bin 目录和启动器三种显式选择，执行仍使用 mvnd 客户端；同目录显式 mvn 保持普通 Maven 设置。自动选择保留有效 Wrapper、普通 Maven、mvnd 顺序，覆盖仅 MVND_HOME、仅 PATH、无效 MVND_HOME 回退。版本读取内嵌 Apache Maven 行，忽略 daemon 标题，使用共享版本 fixture。核对 JDT 全局设置读取 mvnd 的 mvn/conf/settings.xml，缺失时不回退 daemon conf；普通 Maven 目录缺启动器、Wrapper 和失效链接均不冒充安装，macOS 目录与客户端符号链接跟随真实安装。Core languages 测试仅验证共享设置规则；各原生系统还需以独立临时项目、仓库和 daemon 状态目录实际构建、验证 JDT 设置并清理进程，完成前两端保持待验证。 两端在项目声明 Java 8、JAVA_HOME 为 21 且另装 JDK 8 时验证选择 JDK 8；项目声明 11、只装 17 和 21 时选择 17。macOS 验证 mise（含 Contents/Home 布局）、asdf、~/.jdks 下的 JDK 和 SDKMAN/mise/asdf 的 Maven 能被自动发现，PATH 中的 mise/asdf shims 不被当作 Maven home；Windows 验证 mise、asdf、Scoop（apps/*/current）、Semeru、OpenJDK 目录下的 JDK 和 mise、asdf、SDKMAN、Scoop 的 Maven，且排在显式配置、Wrapper 和 PATH 之后。"
 }

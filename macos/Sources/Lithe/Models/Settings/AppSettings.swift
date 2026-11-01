@@ -49,11 +49,20 @@ final class AppSettings: ObservableObject {
         static let legacyHiddenFilePatterns = "settings.hiddenFilePatterns"
         static let searchExcludedPathPatterns = "settings.searchExcludedPathPatterns"
         static let searchExclusionsEnabled = "settings.searchExclusionsEnabled"
+        static let localHistoryIgnorePatterns = "settings.localHistoryIgnorePatterns"
+        static let localHistoryIgnoreRegexes = "settings.localHistoryIgnoreRegexes"
+        static let localHistoryStorageLimitMegabytes = "settings.localHistoryStorageLimitMegabytes"
         static let gitExecutable = "settings.gitExecutable"
         static let gitUseCredentialHelper = "settings.gitUseCredentialHelper"
         static let gitFetchOptions = "settings.gitFetchOptions"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
+        static let networkProxyMode = "settings.networkProxyMode"
+        static let networkProxyType = "settings.networkProxyType"
+        static let networkProxyHost = "settings.networkProxyHost"
+        static let networkProxyPort = "settings.networkProxyPort"
+        static let networkProxyUsername = "settings.networkProxyUsername"
+        static let networkProxyExclusions = "settings.networkProxyExclusions"
         static let commitMessageAI = "settings.commitMessageAI"
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
@@ -188,6 +197,40 @@ final class AppSettings: ObservableObject {
             if oldValue != searchExclusionsEnabled { searchExclusionsDidChange.send() }
         }
     }
+    /// Kept out of local history only; the project tree still shows these files.
+    /// Holds the user's own globs plus `!**/name/` for removed built-in folder
+    /// rules, so built-ins added later still apply.
+    @Published var localHistoryIgnorePatterns: [String] {
+        didSet {
+            defaults.set(localHistoryIgnorePatterns, forKey: Key.localHistoryIgnorePatterns)
+            if oldValue != localHistoryIgnorePatterns { localHistoryIgnoreRulesDidChange.send() }
+        }
+    }
+    @Published var localHistoryIgnoreRegexes: [String] {
+        didSet {
+            defaults.set(localHistoryIgnoreRegexes, forKey: Key.localHistoryIgnoreRegexes)
+            if oldValue != localHistoryIgnoreRegexes { localHistoryIgnoreRulesDidChange.send() }
+        }
+    }
+    static let defaultLocalHistoryStorageLimitMegabytes = 100
+    static let localHistoryStorageLimitRange = 50...5000
+    /// Accept a whole nonnegative number, optionally followed by the displayed unit.
+    nonisolated static func parseLocalHistoryStorageLimitMegabytes(_ input: String) -> Int? {
+        var number = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if number.uppercased().hasSuffix("MB") {
+            number = String(number.dropLast(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !number.isEmpty, number.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
+        return Int(number)
+    }
+
+    /// Per-project local history cap in MB (1 MB = 1024 × 1024 bytes).
+    @Published var localHistoryStorageLimitMegabytes: Int {
+        didSet {
+            defaults.set(localHistoryStorageLimitMegabytes, forKey: Key.localHistoryStorageLimitMegabytes)
+            if oldValue != localHistoryStorageLimitMegabytes { localHistoryIgnoreRulesDidChange.send() }
+        }
+    }
     let gitExecutionPreferences = GitExecutionPreferences()
     @Published var gitExecutable: String {
         didSet { defaults.set(gitExecutable, forKey: Key.gitExecutable); updateGitExecutionPreferences() }
@@ -213,6 +256,94 @@ final class AppSettings: ObservableObject {
     }
     @Published var projectOpenBehavior: ProjectOpenBehavior {
         didSet { defaults.set(projectOpenBehavior.rawValue, forKey: Key.projectOpenBehavior) }
+    }
+    /// Read by the Keychain migration in the composition root, which runs
+    /// without an `AppSettings` path for secrets.
+    nonisolated static let networkProxyPasswordKey = "proxy.password"
+    let networkProxyPreferences = NetworkProxyPreferences()
+    @Published var networkProxyMode: NetworkProxyMode {
+        didSet {
+            defaults.set(networkProxyMode.rawValue, forKey: Key.networkProxyMode)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyType: NetworkProxyType {
+        didSet {
+            defaults.set(networkProxyType.rawValue, forKey: Key.networkProxyType)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyHost: String {
+        didSet {
+            defaults.set(networkProxyHost, forKey: Key.networkProxyHost)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyPort: Int {
+        didSet {
+            defaults.set(networkProxyPort, forKey: Key.networkProxyPort)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyUsername: String {
+        didSet {
+            defaults.set(networkProxyUsername, forKey: Key.networkProxyUsername)
+            updateNetworkProxyPreferences()
+        }
+    }
+    /// Hosts that bypass a custom proxy, one entry per element; the settings
+    /// page edits them as one comma-separated string.
+    @Published var networkProxyExclusions: [String] {
+        didSet {
+            defaults.set(networkProxyExclusions, forKey: Key.networkProxyExclusions)
+            updateNetworkProxyPreferences()
+        }
+    }
+
+    private func updateNetworkProxyPreferences() {
+        // The snapshot carries the stored values as entered; normalization
+        // and validation are owned by Rust Core (`network.proxyPolicy`).
+        var configuration = networkProxyPreferences.snapshot
+        configuration.mode = networkProxyMode
+        configuration.type = networkProxyType
+        configuration.host = networkProxyHost
+        configuration.port = networkProxyPort
+        configuration.username = networkProxyUsername
+        configuration.exclusions = networkProxyExclusions
+        networkProxyPreferences.update(configuration)
+    }
+
+    /// Drafts retain the saved credential's identity. Only a newly typed
+    /// password is unbound; Rust decides whether a saved one matches this draft.
+    func networkProxyCandidate(type: NetworkProxyType, host: String, port: Int,
+                               username: String, passwordDraft: String) -> NetworkProxyConfiguration {
+        var configuration = networkProxyPreferences.snapshot
+        configuration.mode = .custom
+        configuration.type = type
+        configuration.host = host
+        configuration.port = port
+        configuration.username = username
+        if !passwordDraft.isEmpty {
+            configuration.password = passwordDraft
+            configuration.passwordIdentity = nil
+        }
+        return configuration
+    }
+
+    /// Loading must use the identity stored with the secret, not today's
+    /// mutable endpoint. This also prevents rebinding after a failed save.
+    func updateNetworkProxyCredential(_ credential: NetworkProxyCredential?) {
+        networkProxyCredential = credential
+        var configuration = networkProxyPreferences.snapshot
+        configuration.password = credential?.password ?? ""
+        configuration.passwordIdentity = credential?.identity
+        networkProxyPreferences.update(configuration)
+    }
+
+    @Published private(set) var networkProxyCredential: NetworkProxyCredential? = nil
+
+    var networkProxyHasSavedPassword: Bool {
+        networkProxyCredential?.password.isEmpty == false
     }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
@@ -363,6 +494,11 @@ final class AppSettings: ObservableObject {
         searchExcludedPathPatterns = defaults.stringArray(forKey: Key.searchExcludedPathPatterns) ?? []
         // Existing saved exclusions stay active when upgrading from the inline editor.
         searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
+        localHistoryIgnorePatterns = defaults.stringArray(forKey: Key.localHistoryIgnorePatterns) ?? []
+        localHistoryIgnoreRegexes = defaults.stringArray(forKey: Key.localHistoryIgnoreRegexes) ?? []
+        localHistoryStorageLimitMegabytes = (defaults.object(forKey: Key.localHistoryStorageLimitMegabytes) as? Int)
+            .map { min(max($0, Self.localHistoryStorageLimitRange.lowerBound), Self.localHistoryStorageLimitRange.upperBound) }
+            ?? Self.defaultLocalHistoryStorageLimitMegabytes
         gitExecutable = defaults.string(forKey: Key.gitExecutable) ?? ""
         gitUseCredentialHelper = defaults.object(forKey: Key.gitUseCredentialHelper) as? Bool ?? true
         var savedFetchOptions = defaults.data(forKey: Key.gitFetchOptions)
@@ -375,6 +511,16 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = ProjectOpenBehavior(
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
+        networkProxyMode = NetworkProxyMode(
+            rawValue: defaults.string(forKey: Key.networkProxyMode) ?? ""
+        ) ?? .system
+        networkProxyType = NetworkProxyType(
+            rawValue: defaults.string(forKey: Key.networkProxyType) ?? ""
+        ) ?? .http
+        networkProxyHost = defaults.string(forKey: Key.networkProxyHost) ?? ""
+        networkProxyPort = defaults.object(forKey: Key.networkProxyPort) as? Int ?? 0
+        networkProxyUsername = defaults.string(forKey: Key.networkProxyUsername) ?? ""
+        networkProxyExclusions = defaults.stringArray(forKey: Key.networkProxyExclusions) ?? []
         let selectedPreset = KeyboardShortcutPreset(
             rawValue: defaults.string(forKey: Key.keyboardShortcutPreset) ?? ""
         ) ?? .macOS
@@ -420,6 +566,10 @@ final class AppSettings: ObservableObject {
         repairImportedAgentProviders()
         AppThemeRuntime.shared.activate(colorTheme)
         updateGitExecutionPreferences()
+        // Property initialization does not fire didSet, so the snapshot the
+        // network layer reads must be synced explicitly once, here at the end
+        // of initialization — a reload must keep the saved policy effective.
+        updateNetworkProxyPreferences()
     }
 
     var terminalShellPath: String? {
@@ -501,6 +651,8 @@ final class AppSettings: ObservableObject {
 
     private let searchExclusionsDidChange = PassthroughSubject<Void, Never>()
     var searchExclusionsChanges: AnyPublisher<Void, Never> { searchExclusionsDidChange.eraseToAnyPublisher() }
+    private let localHistoryIgnoreRulesDidChange = PassthroughSubject<Void, Never>()
+    var localHistoryIgnoreRulesChanges: AnyPublisher<Void, Never> { localHistoryIgnoreRulesDidChange.eraseToAnyPublisher() }
 
     /// Search Everywhere globs never change other search clients or project visibility.
     var searchEverywhereVisibilityRules: FileVisibilityRules {
@@ -556,11 +708,20 @@ final class AppSettings: ObservableObject {
         hiddenPathPatterns = []
         searchExcludedPathPatterns = []
         searchExclusionsEnabled = true
+        localHistoryIgnorePatterns = []
+        localHistoryIgnoreRegexes = []
+        localHistoryStorageLimitMegabytes = Self.defaultLocalHistoryStorageLimitMegabytes
         gitFetchOptions = GitFetchOptions()
         gitExecutable = ""
         gitUseCredentialHelper = true
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
+        networkProxyMode = .system
+        networkProxyType = .http
+        networkProxyHost = ""
+        networkProxyPort = 0
+        networkProxyUsername = ""
+        networkProxyExclusions = []
         commitMessageAI = .default
         agentCommand = ""
         agentArguments = ""
@@ -581,6 +742,8 @@ final class AppSettings: ObservableObject {
         setKeyboardShortcutOverrides([:])
         javaBuildFailurePolicies = [:]
         defaults.set(nil, forKey: Key.javaBuildFailurePolicies)
+        // All stored properties are initialized; the snapshot can now read self.
+        updateNetworkProxyPreferences()
     }
 
     func setKeyboardShortcutOverrides(_ value: [String: [KeyboardShortcutBinding]]) {

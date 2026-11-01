@@ -596,7 +596,9 @@ private struct SearchEverywhereContent: View {
 
     private func actionRow(_ action: LitheAction, selected: Bool) -> some View {
         Button {
-            performAction(action)
+            // Native pointer dispatch can still reach the closure of a disabled
+            // row; use the same execution gate as the keyboard path.
+            if action.isEnabled { performAction(action) }
         } label: {
             HStack(spacing: 8) {
                 if let icon = actionIcon(action) {

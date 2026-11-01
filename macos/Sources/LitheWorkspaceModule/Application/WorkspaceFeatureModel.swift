@@ -14,7 +14,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
     package private(set) var workspaceGeneration = 0
     package private(set) var appliedSnapshot: WorkspaceSnapshot?
     @Published package private(set) var rootNode: FileNode?
-    @Published package private(set) var projectFiles: [URL] = []
+    @Published package private(set) var projectFiles: [URL] = [] {
+        didSet { rebuildProjectMembership() }
+    }
+    private var projectFilePaths: Set<String> = []
+    private var projectDirectoryPaths: Set<String> = []
     @Published package private(set) var isLoadingWorkspace = false
     @Published package private(set) var isRefreshingWorkspace = false
     @Published package private(set) var loadErrorMessage: String?
@@ -1290,9 +1294,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let changedURLs = paths
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
             .filter { isWorkspaceURL($0) && watchConfiguration?.isIgnored($0) != true }
-            .reduce(into: [URL]()) { values, url in
-                if !values.contains(url) { values.append(url) }
-            }
+            .reduce(into: Set<URL>()) { $0.insert($1) }
             .sorted { $0.path < $1.path }
         guard !changedURLs.isEmpty else { return }
         let conflictDetected = processExternalChanges?(changedURLs) ?? false
@@ -1369,10 +1371,25 @@ package final class WorkspaceFeatureModel: ObservableObject {
         case requiresSnapshot
     }
 
+    private func rebuildProjectMembership() {
+        // Rebuild only when the inventory changes, never once per watcher event.
+        // Stop at an indexed ancestor so shared directory chains are visited once.
+        projectFilePaths = Set(projectFiles.map { $0.standardizedFileURL.path })
+        projectDirectoryPaths.removeAll(keepingCapacity: true)
+        for path in projectFilePaths {
+            var parent = (path as NSString).deletingLastPathComponent
+            while !parent.isEmpty, projectDirectoryPaths.insert(parent).inserted {
+                let next = (parent as NSString).deletingLastPathComponent
+                if next == parent { break }
+                parent = next
+            }
+        }
+    }
+
     private func isKnownProjectFile(_ url: URL) -> Bool {
         // Directory listings and watcher events can observe different disk
         // revisions. Membership belongs to the inventory, not the visible tree.
-        projectFiles.contains { $0.standardizedFileURL == url.standardizedFileURL }
+        projectFilePaths.contains(url.path)
     }
 
     /// Whether the inventory already accounts for a directory, so an event on
@@ -1382,8 +1399,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         case .displayed(let node, _)?:
             return node.isDirectory
         case .belowUnloaded?:
-            let prefix = url.path + "/"
-            return projectFiles.contains { $0.path.hasPrefix(prefix) }
+            return projectDirectoryPaths.contains(url.path)
         default:
             return false
         }

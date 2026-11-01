@@ -6,6 +6,7 @@ import LitheCoreContracts
 import LitheDebugModule
 import LitheExecutionModule
 import LitheGitModule
+import LitheModuleAPI
 
 /// Local editor assets included by ordinary preview and release packaging.
 enum MonacoWorkbenchResources {
@@ -316,6 +317,18 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private var javaRunMarkerLists: [String: (context: MonacoDocumentContext, revision: Int, url: URL, markers: [JavaRunMarker])] = [:]
     private var javaRunMarkerRequests: [String: UUID] = [:]
     private var javaRunMarkerRefreshSubscription: AnyCancellable?
+    private struct EditorActionList {
+        let context: MonacoDocumentContext
+        let contentVersion: UInt64
+        let batch: String
+        let actions: [(key: String, registration: PluginEditorActionRegistration, action: PluginEditorAction)]
+    }
+    private var pluginActionLists: [String: EditorActionList] = [:]
+    private var pluginActionRequests: [String: (id: UUID, task: Task<Void, Never>, deadline: Task<Void, Never>)] = [:]
+    private var pluginActionExecutions: [UUID: (documentID: String, registration: PluginEditorActionRegistration, task: Task<Void, Never>)] = [:]
+    private var pluginActionsSubscription: AnyCancellable?
+    private var pluginLanguagesSubscription: AnyCancellable?
+    private var lastPluginLanguages: PluginEditorLanguageSet?
     private var testOutcomeSubscription: AnyCancellable?
     private var testServiceIdentity: ObjectIdentifier?
     private var codeActionCommands: [String: (context: MonacoDocumentContext, key: String, root: URL?, command: LanguageServerCommand)] = [:]
@@ -353,6 +366,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private var lastGitStates: [String: Data] = [:]
     private var lastMarkers: [String: [EditorDiagnostic]] = [:]
     private var synchronizingIDs: Set<String> = []
+    /// Content version recorded when an origin-tagged plugin edit crossed the
+    /// bridge, keyed by the edit token until the applying call collects it.
+    private var pluginEditAcknowledgements: [String: UInt64] = [:]
     private var markdownScrollBinding: Binding<MarkdownScrollPosition>?
     private var markdownScrollID: String?
     private var markdownScrollRevision: UInt64?
@@ -565,6 +581,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         document.synchronizeEditor = { [self] completion in
             self.synchronize(id: id, completion: completion)
         }
+        document.editorSurface = MonacoDocumentSurface(session: self)
         document.holdEditorForClose = { [self, weak document] completion in
             guard let document else { completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return }
             let token = UUID().uuidString
@@ -603,6 +620,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         bindSynchronization(document)
         subscriptions[id] = document.textDidChange.sink { [weak self, weak document] in
             guard let self, let document, self.currentDocument(id) === document, !self.applyingEdit else { return }
+            self.cancelPluginActions(for: id)
             let previous = self.revisions[id] ?? 0
             self.revisions[id] = previous + 1
             self.call("window.lithe.replace(payload)", arguments: ["payload": ["id": id, "text": document.text, "previousRevision": previous, "revision": previous + 1]])
@@ -719,6 +737,68 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             .sink { [weak self] _ in self?.call("window.lithe.refreshJavaRunMarkers()") }
     }
 
+    /// Plugin grammars apply without a restart: the editor follows every
+    /// change of the plugins' independent static editor resources.
+    private func observePluginLanguages(model: AppModel) {
+        guard let languages = model.services.pluginEditorLanguages else { return }
+        if pluginLanguagesSubscription == nil {
+            pluginLanguagesSubscription = languages.changes
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak languages] in
+                    guard let self, let languages, self.ready, !self.failed else { return }
+                    self.sendPluginLanguages(languages.current())
+                }
+        }
+        sendPluginLanguages(languages.current())
+    }
+
+    private func sendPluginLanguages(_ set: PluginEditorLanguageSet) {
+        guard set != lastPluginLanguages else { return }
+        lastPluginLanguages = set
+        call("window.lithe.setPluginLanguages(payload)", arguments: ["payload": set.editorPayload]) { result in
+            if case .success(let value) = result, let failed = (value as? [String: Any])?["failed"] as? [[String: Any]] {
+                for failure in failed {
+                    NSLog("Lithe plugin grammar failed in the editor: %@ %@",
+                          failure["id"] as? String ?? "-", failure["message"] as? String ?? "-")
+                }
+            }
+        }
+    }
+
+    private func cancelPluginActions(for id: String, closing: Bool = false) {
+        pluginActionLists[id] = nil
+        if let request = pluginActionRequests.removeValue(forKey: id) {
+            request.deadline.cancel()
+            request.task.cancel()
+        }
+        if closing {
+            for (operation, execution) in pluginActionExecutions where execution.documentID == id {
+                execution.task.cancel()
+                pluginActionExecutions[operation] = nil
+            }
+        }
+    }
+
+    private func observePluginActions(model: AppModel) {
+        guard pluginActionsSubscription == nil, let service = model.services.pluginEditorActions else { return }
+        pluginActionsSubscription = service.changes.receive(on: DispatchQueue.main).sink { [weak self, weak service] in
+            guard let self, let service else { return }
+            for id in Array(self.pluginActionRequests.keys) { self.cancelPluginActions(for: id) }
+            self.pluginActionLists.removeAll()
+            for (id, execution) in self.pluginActionExecutions where !service.contains(execution.registration) {
+                execution.task.cancel()
+                self.pluginActionExecutions[id] = nil
+            }
+            if self.ready, !self.failed {
+                self.call("window.lithe.refreshPluginEditorActions()") { result in
+                    if case .failure(let error) = result {
+                        NSLog("Lithe plugin editor action refresh failed: %@", error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+
     private func observeCodeVision(model: AppModel) {
         if codeVisionSubscription == nil {
             codeVisionSubscription = model.javaFeature.$javaCodeVisionHints
@@ -833,6 +913,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, javaKeywordNavigationFilter: Bool = true, appearance: EditorAppearanceSettings = EditorAppearanceSettings(), markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
+        // Before the document: its file may be of a plugin language.
+        observePluginLanguages(model: model)
+        observePluginActions(model: model)
         let id = document.id.uuidString
         let groupDocuments: [EditorDocument]
         if let scopedDocumentID {
@@ -845,6 +928,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             documentReadOnlyStates[oldID] = nil
             if let old = documents[oldID], old.editorSynchronizationOwnerID == synchronizationOwnerID {
                 old.synchronizeEditor = nil; old.holdEditorForClose = nil; old.editorSynchronizationOwnerID = nil
+                old.editorSurface = nil
             }
             completionLists[oldID] = nil
             codeActionLists[oldID] = nil
@@ -855,6 +939,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             javaNavigationRequests[oldID] = nil
             javaRunMarkerLists[oldID] = nil
             javaRunMarkerRequests[oldID] = nil
+            cancelPluginActions(for: oldID, closing: true)
             lastGitStates[oldID] = nil
             gitLoads.removeValue(forKey: oldID)?.cancel()
             blameLoads.removeValue(forKey: oldID)?.cancel()
@@ -1062,7 +1147,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     func allowsMessage(_ type: String) -> Bool {
         !isReadOnlyPreview || !["format", "codeActions", "resolveCodeAction", "executeCodeAction",
-                               "rename", "resolveCompletion", "javaRunMarkerAction", "setBlameVisibility"].contains(type)
+                               "rename", "resolveCompletion", "javaRunMarkerAction", "pluginEditorAction",
+                               "setBlameVisibility"].contains(type)
     }
 
     func receive(_ message: WKScriptMessage, reply: @escaping (Any?, String?) -> Void) {
@@ -1214,6 +1300,102 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             model.editorDidFocus(document)
             model.performJavaRunMarker(marker, action: action, in: document.url)
             reply(["ok": true], nil)
+        case "pluginEditorActions":
+            guard let model, !failed, !isReadOnlyPreview,
+                  let revision = body["revision"] as? Int, revision == revisions[id],
+                  let workspace = model.pluginWebWorkspaceContext,
+                  model.services.pluginWorkspaceContexts?.contexts.contains(where: { $0.reference == workspace && $0.authority == .local }) == true,
+                  let service = model.services.pluginEditorActions, let backends = model.pluginWebBackends,
+                  document.text.utf8.count <= 128 * 1024 else { reply(["actions": []], nil); return }
+            cancelPluginActions(for: id)
+            let registrations = service.registrations(context: workspace, filename: document.url.lastPathComponent)
+            let text = document.text, version = document.contentVersion, requestID = UUID(), batch = UUID().uuidString
+            let input: ToolingJSONValue = .object([
+                "document": .object(["documentID": .string(id), "version": .integer(Int(clamping: version)),
+                    "path": model.workspaceURL.flatMap { root in
+                        let prefix = root.standardizedFileURL.path + "/", path = document.url.standardizedFileURL.path
+                        return path.hasPrefix(prefix) ? .string(String(path.dropFirst(prefix.count))) : nil
+                    } ?? .null]),
+                "text": .string(text),
+            ])
+            let task = Task { @MainActor [weak self, weak document] in
+                defer {
+                    if self?.pluginActionRequests[id]?.id == requestID {
+                        self?.pluginActionRequests.removeValue(forKey: id)?.deadline.cancel()
+                    }
+                }
+                var items: [(key: String, registration: PluginEditorActionRegistration, action: PluginEditorAction)] = []
+                let clock = ContinuousClock(), started = clock.now
+                for registration in registrations {
+                    do {
+                        try Task.checkCancellation()
+                        guard let remaining = PluginEditorActionCollectionBudget.remaining(after: started.duration(to: clock.now)) else { break }
+                        guard service.contains(registration) else { continue }
+                        let result = try await backends.invokePluginFunction(registration.functionID, params: input,
+                            ofPlugin: registration.pluginID, context: workspace, timeout: remaining, progress: { _ in })
+                        try Task.checkCancellation()
+                        let actions = try service.decode(result, text: text)
+                        guard service.contains(registration), actions.allSatisfy({ service.contains(registration, functionID: $0.invoke.functionID) }) else { continue }
+                        for action in actions { items.append((UUID().uuidString, registration, action)) }
+                        guard items.count <= 1000 else { items = []; break }
+                    } catch {
+                        if Task.isCancelled { break }
+                        NSLog("Lithe plugin editor actions failed [%@]: %@", registration.pluginID, error.localizedDescription)
+                    }
+                }
+                guard let self, let document, !Task.isCancelled, self.isCurrent(context), document.contentVersion == version,
+                      self.pluginActionRequests[id]?.id == requestID,
+                      items.allSatisfy({ service.contains($0.registration, functionID: $0.action.invoke.functionID) }) else {
+                    reply(["cancelled": true], nil); return
+                }
+                self.pluginActionRequests.removeValue(forKey: id)?.deadline.cancel()
+                self.pluginActionLists[id] = EditorActionList(context: context, contentVersion: version, batch: batch, actions: items)
+                reply(["batch": batch, "actions": items.map { item in
+                    ["id": item.key, "line": item.action.range.start.line, "endLine": item.action.range.end.line,
+                     "title": item.action.title, "icon": item.action.icon] as [String: Any]
+                }], nil)
+            }
+            let deadline = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: PluginEditorActionCollectionBudget.maximum) } catch { return }
+                guard self?.pluginActionRequests[id]?.id == requestID else { return }
+                self?.cancelPluginActions(for: id)
+            }
+            pluginActionRequests[id] = (requestID, task, deadline)
+        case "pluginEditorAction":
+            guard let model, !failed, !isReadOnlyPreview, !self.isReadOnly(document),
+                  let revision = body["revision"] as? Int, revision == revisions[id],
+                  let list = pluginActionLists[id], list.batch == body["batch"] as? String,
+                  isCurrent(list.context), list.contentVersion == document.contentVersion,
+                  let key = body["action"] as? String, let item = list.actions.first(where: { $0.key == key }),
+                  let service = model.services.pluginEditorActions,
+                  service.contains(item.registration, functionID: item.action.invoke.functionID),
+                  model.pluginWebWorkspaceContext == item.registration.context,
+                  let backends = model.pluginWebBackends,
+                  pluginActionExecutions.count < 16 else { reply(["cancelled": true], nil); return }
+            model.editorDidFocus(document)
+            let operation = UUID()
+            let params: ToolingJSONValue = .object([
+                "documentID": .string(id), "expectedVersion": .integer(Int(clamping: list.contentVersion)),
+                "actionID": .string(item.action.id), "data": item.action.invoke.params,
+            ])
+            let task = Task { @MainActor [weak self] in
+                defer { self?.pluginActionExecutions[operation] = nil }
+                do {
+                    _ = try await backends.invokePluginFunction(item.action.invoke.functionID, params: params,
+                        ofPlugin: item.registration.pluginID, context: item.registration.context,
+                        timeout: .seconds(60), progress: { _ in })
+                    try Task.checkCancellation()
+                    reply(["ok": true], nil)
+                } catch {
+                    if Task.isCancelled { reply(["cancelled": true], nil) }
+                    else {
+                        NSLog("Lithe plugin editor action failed [%@]: %@", item.registration.pluginID, error.localizedDescription)
+                        self?.model?.showNotification("The plugin host request could not be completed.")
+                        reply(["ok": false], nil)
+                    }
+                }
+            }
+            pluginActionExecutions[operation] = (id, item.registration, task)
         case "javaNavigationAction":
             guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
                   let list = javaNavigationLists[id], isCurrent(list.context), list.revision == revision, list.url == document.url,
@@ -1350,6 +1532,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 }
             }
         case "edit":
+            cancelPluginActions(for: id)
             guard !self.isReadOnly(document), !failed, body["baseRevision"] as? Int == revisions[id],
                   let changes = body["changes"] as? [[String: Any]] else { reply(nil, "Stale editor edit"); return }
             var bound = (document.text as NSString).length
@@ -1376,6 +1559,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
             applyingEdit = false
             revisions[id, default: 0] += 1
+            if let origin = body["origin"] as? String { pluginEditAcknowledgements[origin] = document.contentVersion }
             model?.documentFeature.promotePreviewDocument(document)
             model?.documentDidChange(document)
             if let model { refreshDebugState(model: model) }
@@ -1676,6 +1860,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     private func fail(_ message: String) {
         failed = true
+        pluginActionRequests.values.forEach { $0.deadline.cancel(); $0.task.cancel() }
+        pluginActionExecutions.values.forEach { $0.task.cancel() }
+        pluginActionRequests.removeAll(); pluginActionExecutions.removeAll(); pluginActionLists.removeAll()
         contextMenu.dismiss()
         model?.showNotification("Editor: \(message)")
     }
@@ -1686,6 +1873,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(error.localizedDescription) }
 
     isolated deinit {
+        pluginActionRequests.values.forEach { $0.deadline.cancel(); $0.task.cancel() }
+        pluginActionExecutions.values.forEach { $0.task.cancel() }
         contextMenu.dismiss()
         gitLoads.values.forEach { $0.cancel() }
         blameLoads.values.forEach { $0.cancel() }
@@ -1694,5 +1883,121 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         // A surviving document remains guarded if teardown happened before a successful drain.
         // The stale weak synchronization callback fails instead of silently saving old content.
         pending.values.forEach { $0(.failure(EditorDocument.DocumentError.editorNotSynchronized)) }
+    }
+}
+
+// MARK: - Plugin document surface
+
+/// Adapter from the host-internal ``EditorDocumentSurface`` port to the Monaco
+/// bridge. Version checks compare the bridge revision captured synchronously with
+/// the document's ``EditorDocument/contentVersion``; Monaco repeats the check
+/// against its own revision, so input not yet acknowledged by Swift rejects the edit.
+@MainActor
+private final class MonacoDocumentSurface: EditorDocumentSurface {
+    private weak var session: MonacoWorkbenchSession?
+
+    init(session: MonacoWorkbenchSession) { self.session = session }
+
+    func readSelections(of document: EditorDocument) async throws -> EditorSurfaceSelections {
+        guard let session else { throw EditorDocumentServiceError.editorUnavailable }
+        return try await session.readPluginSelections(of: document)
+    }
+
+    func apply(_ request: EditorSurfaceEditRequest, to document: EditorDocument) async throws -> UInt64 {
+        guard let session else { throw EditorDocumentServiceError.editorUnavailable }
+        return try await session.applyPluginEdits(request, to: document)
+    }
+}
+
+/// Sendable decoding of the editor's reply so no `Any` crosses the continuation.
+private struct MonacoPluginReply: Sendable {
+    let status: String
+    let revision: Int?
+    let selections: [EditorSelection]
+
+    init(_ value: Any?) {
+        let body = value as? [String: Any] ?? [:]
+        status = body["status"] as? String ?? "invalid"
+        revision = body["revision"] as? Int
+        selections = (body["selections"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let anchorLine = item["anchorLine"] as? Int, let anchorColumn = item["anchorColumn"] as? Int,
+                  let activeLine = item["activeLine"] as? Int, let activeColumn = item["activeColumn"] as? Int else { return nil }
+            return EditorSelection(anchor: EditorTextPosition(line: anchorLine, column: anchorColumn),
+                                   active: EditorTextPosition(line: activeLine, column: activeColumn))
+        }
+    }
+}
+
+extension MonacoWorkbenchSession {
+    private func pluginCall(_ script: String, payload: [String: Any]) async throws -> MonacoPluginReply {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<MonacoPluginReply, Error>) in
+            call(script, arguments: ["payload": payload]) { result in
+                switch result {
+                case .success(let value): continuation.resume(returning: MonacoPluginReply(value))
+                case .failure: continuation.resume(throwing: EditorDocumentServiceError.editorUnavailable)
+                }
+            }
+        }
+    }
+
+    /// The bridge revision of a document this session owns and can currently serve.
+    private func pluginRevision(of document: EditorDocument) throws -> (id: String, revision: Int) {
+        let id = document.id.uuidString
+        guard currentDocument(id) === document else { throw EditorDocumentServiceError.documentNotFound }
+        guard ready, !failed, webView != nil, !synchronizingIDs.contains(id), !unconfirmedModels.contains(id),
+              let revision = revisions[id] else { throw EditorDocumentServiceError.editorUnavailable }
+        return (id, revision)
+    }
+
+    fileprivate func readPluginSelections(of document: EditorDocument) async throws -> EditorSurfaceSelections {
+        let (id, _) = try pluginRevision(of: document)
+        let reply = try await pluginCall("window.lithe.pluginSelections(payload)", payload: ["id": id])
+        guard currentDocument(id) === document else { throw EditorDocumentServiceError.documentNotFound }
+        guard reply.status == "ok", let revision = reply.revision else {
+            throw reply.status == "documentNotFound" ? EditorDocumentServiceError.documentNotFound
+                : EditorDocumentServiceError.editorUnavailable
+        }
+        // A differing revision means keystrokes are still crossing the bridge;
+        // the selections then describe text this side has not seen yet.
+        guard revision == revisions[id] else {
+            throw EditorDocumentServiceError.versionConflict(expected: document.contentVersion, actual: document.contentVersion &+ 1)
+        }
+        return EditorSurfaceSelections(selections: reply.selections, version: document.contentVersion)
+    }
+
+    fileprivate func applyPluginEdits(_ request: EditorSurfaceEditRequest, to document: EditorDocument) async throws -> UInt64 {
+        let (id, revision) = try pluginRevision(of: document)
+        guard !isReadOnly(document) else { throw EditorDocumentServiceError.readOnly }
+        guard document.contentVersion == request.expectedVersion else {
+            throw EditorDocumentServiceError.versionConflict(expected: request.expectedVersion, actual: document.contentVersion)
+        }
+        let token = UUID().uuidString
+        defer { pluginEditAcknowledgements[token] = nil }
+        let edits: [[String: Any]] = request.edits.map { edit in
+            ["startLineNumber": edit.range.start.line, "startColumn": edit.range.start.column,
+             "endLineNumber": edit.range.end.line, "endColumn": edit.range.end.column, "text": edit.normalizedText]
+        }
+        let reply = try await pluginCall("window.lithe.applyPluginEdits(payload)", payload: [
+            "id": id, "revision": revision, "token": token, "eol": request.lineSeparator, "edits": edits,
+        ])
+        switch reply.status {
+        case "applied":
+            // The tagged edit was acknowledged before the editor replied, so its
+            // version is exact even if newer keystrokes have arrived since.
+            if let version = pluginEditAcknowledgements[token] { return version }
+            // Monaco drops edits that rewrite identical text; nothing crossed
+            // the bridge, so the buffer is still at the expected version.
+            if reply.revision == revision, document.contentVersion == request.expectedVersion { return request.expectedVersion }
+            throw EditorDocumentServiceError.editorUnavailable
+        case "versionConflict":
+            throw EditorDocumentServiceError.versionConflict(
+                expected: request.expectedVersion, actual: max(document.contentVersion, request.expectedVersion &+ 1))
+        case "composition": throw EditorDocumentServiceError.compositionInProgress
+        case "readOnly": throw EditorDocumentServiceError.readOnly
+        case "documentNotFound": throw EditorDocumentServiceError.documentNotFound
+        case "outOfRange":
+            throw EditorDocumentServiceError.rangeOutOfBounds(editIndex: request.edits.first?.index ?? 0)
+        default: throw EditorDocumentServiceError.editorUnavailable
+        }
     }
 }

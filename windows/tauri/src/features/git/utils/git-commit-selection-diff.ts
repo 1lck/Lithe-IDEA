@@ -11,6 +11,13 @@ export type GitCommitSelectionDiff =
       newest: GitCommit;
     };
 
+/** Identity stored in a commit-file preview's `commitHash`, shared by publisher and observers. */
+export function commitFilePreviewHash(selection: GitCommitSelectionDiff): string {
+  if (selection.kind === "commit") return selection.commit.hash;
+  if (selection.kind === "range") return `${selection.baseRef ?? "root"}..${selection.targetRef}`;
+  return selection.commits[0]?.hash ?? "selection";
+}
+
 export interface GitSelectedCommitDiffAggregate {
   files: GitCommitFile[];
   diffs: GitDiff[];

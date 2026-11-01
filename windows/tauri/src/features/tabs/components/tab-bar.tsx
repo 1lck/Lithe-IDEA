@@ -6,8 +6,9 @@ import {
   PlusIcon as Plus,
   SidebarSimpleIcon as PanelLeftClose,
 } from "@/ui/icons";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useJavaFileIconCacheLifecycle } from "@/extensions/icon-themes/hooks/use-java-file-icon-kind";
+import { selectBuffersOverTabLimit } from "@/features/editor/stores/buffer-eviction";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { MarkdownModePicker } from "@/features/editor/components/toolbar/markdown-mode-picker";
@@ -45,6 +46,7 @@ import {
 import TabBarItem from "./tab-bar-item";
 import TabContextMenu from "./tab-context-menu";
 import { tabChromeBuffersEqual, toTabChromeBuffer } from "../utils/tab-chrome-buffer";
+import { markTabActivated } from "../utils/tab-recency";
 
 interface TabBarProps {
   paneId?: string;
@@ -102,6 +104,7 @@ const TabBar = ({
     showNewTabView,
   } = useBufferStore.use.actions();
   const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
+  const tabLimitPolicy = useSettingsStore((state) => state.settings.tabLimitPolicy);
   const tabStripLayout = getTabStripLayout(
     useSettingsStore((state) => state.settings.editorTabLayoutMode),
   );
@@ -124,6 +127,7 @@ const TabBar = ({
 
   const [draggedBufferId, setDraggedBufferId] = useState<string | null>(null);
   const [editingBufferId, setEditingBufferId] = useState<string | null>(null);
+  const [contextMenuBufferId, setContextMenuBufferId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
 
   const [srAnnouncement, setSrAnnouncement] = useState<string>("");
@@ -254,18 +258,18 @@ const TabBar = ({
   );
 
   useEffect(() => {
-    if (maxOpenTabs > 0 && buffers.length > maxOpenTabs && handleTabClose) {
-      const closableBuffers = buffers.filter(
-        (b) => !b.isPinned && b.id !== activeBufferId && !(b.type === "editor" && b.isDirty),
-      );
+    if (activeBufferId) markTabActivated(activeBufferId);
+  }, [activeBufferId]);
 
-      let tabsToClose = buffers.length - maxOpenTabs;
-      for (let i = 0; i < closableBuffers.length && tabsToClose > 0; i++) {
-        handleTabClose(closableBuffers[i].id);
-        tabsToClose--;
-      }
-    }
-  }, [buffers, maxOpenTabs, activeBufferId, handleTabClose]);
+  // The store evicts as tabs open; this catches a lowered limit or restored tabs.
+  useEffect(() => {
+    if (!handleTabClose) return;
+    const overLimit = selectBuffersOverTabLimit(buffers, maxOpenTabs, {
+      keepBufferId: activeBufferId,
+      policy: tabLimitPolicy,
+    });
+    for (const buffer of overLimit) handleTabClose(buffer.id);
+  }, [buffers, maxOpenTabs, tabLimitPolicy, activeBufferId, handleTabClose]);
 
   // Auto-scroll active tab into view
   useEffect(() => {
@@ -568,6 +572,124 @@ const TabBar = ({
     [sortedBuffers, getBufferDisplayName, handleTabClick, t, updateActivePath, closeTab],
   );
 
+
+  // Only the tab whose menu is open builds one: building a tab menu is not free.
+  const renderTabContextMenu = (buffer: PaneContent) => (
+    <TabContextMenu
+    buffer={buffer}
+    paneId={paneId}
+    onPin={handleTabPin}
+    onRename={startRename}
+    onCloseTab={(bufferId) => {
+      const targetBuffer = bufferById.get(bufferId);
+      if (targetBuffer) closeTab(bufferId);
+    }}
+    onCloseOthers={handleCloseOtherTabs}
+    onCloseSaved={handleCloseSavedTabs}
+    onCloseAll={handleCloseAllTabs}
+    onCloseToRight={handleCloseTabsToRight}
+    isPaneLocked={isPaneLocked}
+    onTogglePaneLocked={
+      paneId && !disablePaneActions && !isBottomPane
+        ? handleTogglePaneLocked
+        : undefined
+    }
+    onCopyPath={handleCopyPath}
+    onCopyRelativePath={handleCopyRelativePath}
+    onReload={(bufferId) => {
+      const targetBuffer = bufferById.get(bufferId);
+      if (targetBuffer && targetBuffer.path !== "extensions://marketplace") {
+        const { closeBuffer, openBuffer } = useBufferStore.getState().actions;
+        closeBuffer(bufferId);
+        setTimeout(async () => {
+          try {
+            const content =
+              targetBuffer.type === "editor" || targetBuffer.type === "diff"
+                ? targetBuffer.content
+                : "";
+            openBuffer(
+              targetBuffer.path,
+              targetBuffer.name,
+              content,
+              targetBuffer.type === "image",
+              targetBuffer.type === "diff",
+            );
+          } catch (error) {
+            console.error("Failed to reload buffer:", error);
+          }
+        }, 100);
+      }
+    }}
+    onRevealInFinder={handleRevealInFolder}
+    onSplitRight={
+      paneId
+        ? (targetPaneId, bufferId) => {
+            splitEditorGroup(targetPaneId, "horizontal", bufferId);
+          }
+        : undefined
+    }
+    onSplitDown={
+      paneId
+        ? (targetPaneId, bufferId) => {
+            splitEditorGroup(targetPaneId, "vertical", bufferId);
+          }
+        : undefined
+    }
+  />
+  );
+
+  // Tab entries are memoized, so they get one stable set of actions that
+  // always calls the latest handlers. Inline callbacks made every tab, with
+  // its tooltip and context-menu roots, re-render whenever a file opened.
+  const tabStripActionsRef = useRef({
+    handleTabSelect,
+    handleDoubleClick,
+    handleKeyDown,
+    closeTab,
+    handleTabPin,
+    setEditingName,
+    commitRename,
+    cancelRename,
+    getClickCapture,
+  });
+  tabStripActionsRef.current = {
+    handleTabSelect,
+    handleDoubleClick,
+    handleKeyDown,
+    closeTab,
+    handleTabPin,
+    setEditingName,
+    commitRename,
+    cancelRename,
+    getClickCapture,
+  };
+  const tabStripActions = useMemo<TabStripActions>(
+    () => ({
+      select: (buffer) => tabStripActionsRef.current.handleTabSelect(buffer),
+      doubleClick: (event, index) => tabStripActionsRef.current.handleDoubleClick(event, index),
+      keyDown: (event, index) => tabStripActionsRef.current.handleKeyDown(event, index),
+      close: (bufferId) => tabStripActionsRef.current.closeTab(bufferId),
+      pin: (bufferId) => tabStripActionsRef.current.handleTabPin(bufferId),
+      editingNameChange: (value) => tabStripActionsRef.current.setEditingName(value),
+      renameSubmit: (value) => tabStripActionsRef.current.commitRename(value),
+      renameCancel: () => tabStripActionsRef.current.cancelRename(),
+      clickCapture: (bufferId, event) =>
+        tabStripActionsRef.current.getClickCapture(bufferId)?.(event),
+      setTabRef: (index, element) => {
+        tabRefs.current[index] = element;
+      },
+      menuOpenChange: (bufferId, open) => {
+        if (open) setContextMenuBufferId(bufferId);
+      },
+      menuOpenChangeComplete: (bufferId, open) => {
+        if (!open) {
+          setContextMenuBufferId((current) => (current === bufferId ? null : current));
+        }
+      },
+    }),
+    [],
+  );
+
   return (
     <>
       <TabDndContext
@@ -598,103 +720,22 @@ const TabBar = ({
               )}
             >
               {sortedBuffers.map((buffer, index) => (
-                <SortableTab
+                <TabStripEntry
                   key={buffer.id}
-                  id={buffer.id}
-                  tabRef={(el) => {
-                    tabRefs.current[index] = el;
-                  }}
-                  disabled={editingBufferId === buffer.id}
-                  className={tabStripLayout.sortableTabClassName}
-                  onClickCapture={getClickCapture(buffer.id)}
-                >
-                  {({ isDragging }) => (
-                    <ContextMenu>
-                      <ContextMenuTrigger className="contents">
-                        <TabBarItem
-                          buffer={buffer}
-                          displayName={getBufferDisplayName(buffer)}
-                          index={index}
-                          isActive={buffer.id === activeBufferId}
-                          isGroupActive={isGroupActive}
-                          isDraggedTab={isDragging}
-                          isWrapped={tabStripLayout.wrapsTabs}
-                          onClick={() => handleTabSelect(buffer)}
-                          onDoubleClick={(e) => handleDoubleClick(e, index)}
-                          onKeyDown={(e) => handleKeyDown(e, index)}
-                          handleTabClose={closeTab}
-                          handleTabPin={handleTabPin}
-                          isEditing={editingBufferId === buffer.id}
-                          editingName={editingName}
-                          onEditingNameChange={setEditingName}
-                          onRenameSubmit={commitRename}
-                          onRenameCancel={cancelRename}
-                        />
-                      </ContextMenuTrigger>
-                      <TabContextMenu
-                        buffer={buffer}
-                        paneId={paneId}
-                        onPin={handleTabPin}
-                        onRename={startRename}
-                        onCloseTab={(bufferId) => {
-                          const targetBuffer = bufferById.get(bufferId);
-                          if (targetBuffer) closeTab(bufferId);
-                        }}
-                        onCloseOthers={handleCloseOtherTabs}
-                        onCloseSaved={handleCloseSavedTabs}
-                        onCloseAll={handleCloseAllTabs}
-                        onCloseToRight={handleCloseTabsToRight}
-                        isPaneLocked={isPaneLocked}
-                        onTogglePaneLocked={
-                          paneId && !disablePaneActions && !isBottomPane
-                            ? handleTogglePaneLocked
-                            : undefined
-                        }
-                        onCopyPath={handleCopyPath}
-                        onCopyRelativePath={handleCopyRelativePath}
-                        onReload={(bufferId) => {
-                          const targetBuffer = bufferById.get(bufferId);
-                          if (targetBuffer && targetBuffer.path !== "extensions://marketplace") {
-                            const { closeBuffer, openBuffer } = useBufferStore.getState().actions;
-                            closeBuffer(bufferId);
-                            setTimeout(async () => {
-                              try {
-                                const content =
-                                  targetBuffer.type === "editor" || targetBuffer.type === "diff"
-                                    ? targetBuffer.content
-                                    : "";
-                                openBuffer(
-                                  targetBuffer.path,
-                                  targetBuffer.name,
-                                  content,
-                                  targetBuffer.type === "image",
-                                  targetBuffer.type === "diff",
-                                );
-                              } catch (error) {
-                                console.error("Failed to reload buffer:", error);
-                              }
-                            }, 100);
-                          }
-                        }}
-                        onRevealInFinder={handleRevealInFolder}
-                        onSplitRight={
-                          paneId
-                            ? (targetPaneId, bufferId) => {
-                                splitEditorGroup(targetPaneId, "horizontal", bufferId);
-                              }
-                            : undefined
-                        }
-                        onSplitDown={
-                          paneId
-                            ? (targetPaneId, bufferId) => {
-                                splitEditorGroup(targetPaneId, "vertical", bufferId);
-                              }
-                            : undefined
-                        }
-                      />
-                    </ContextMenu>
-                  )}
-                </SortableTab>
+                  buffer={buffer}
+                  displayName={getBufferDisplayName(buffer)}
+                  index={index}
+                  isActive={buffer.id === activeBufferId}
+                  isGroupActive={isGroupActive}
+                  isWrapped={tabStripLayout.wrapsTabs}
+                  sortableClassName={tabStripLayout.sortableTabClassName}
+                  isEditing={editingBufferId === buffer.id}
+                  editingName={editingBufferId === buffer.id ? editingName : ""}
+                  contextMenu={
+                    contextMenuBufferId === buffer.id ? renderTabContextMenu(buffer) : null
+                  }
+                  actions={tabStripActions}
+                />
               ))}
             </div>
           </SortableContext>
@@ -770,3 +811,111 @@ const TabBar = ({
 };
 
 export default TabBar;
+
+interface TabStripActions {
+  select: (buffer: PaneContent) => void;
+  doubleClick: (event: React.MouseEvent, index: number) => void;
+  keyDown: (event: React.KeyboardEvent, index: number) => void;
+  close: (bufferId: string) => void;
+  pin: (bufferId: string) => void;
+  editingNameChange: (value: string) => void;
+  renameSubmit: (value: string) => void;
+  renameCancel: () => void;
+  clickCapture: (bufferId: string, event: React.MouseEvent<HTMLDivElement>) => void;
+  setTabRef: (index: number, element: HTMLDivElement | null) => void;
+  menuOpenChange: (bufferId: string, open: boolean) => void;
+  menuOpenChangeComplete: (bufferId: string, open: boolean) => void;
+}
+
+interface TabStripEntryProps {
+  buffer: PaneContent;
+  displayName: string;
+  index: number;
+  isActive: boolean;
+  isGroupActive?: boolean;
+  isWrapped: boolean;
+  sortableClassName?: string;
+  isEditing: boolean;
+  editingName: string;
+  contextMenu: ReactNode;
+  actions: TabStripActions;
+}
+
+/** One tab with its drag handle and context menu; re-renders only when its own props change. */
+const TabStripEntry = memo(function TabStripEntry({
+  buffer,
+  displayName,
+  index,
+  isActive,
+  isGroupActive,
+  isWrapped,
+  sortableClassName,
+  isEditing,
+  editingName,
+  contextMenu,
+  actions,
+}: TabStripEntryProps) {
+  const bufferId = buffer.id;
+  const tabRef = useCallback(
+    (element: HTMLDivElement | null) => actions.setTabRef(index, element),
+    [actions, index],
+  );
+  const onClickCapture = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => actions.clickCapture(bufferId, event),
+    [actions, bufferId],
+  );
+  const onClick = useCallback(() => actions.select(buffer), [actions, buffer]);
+  const onDoubleClick = useCallback(
+    (event: React.MouseEvent) => actions.doubleClick(event, index),
+    [actions, index],
+  );
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent) => actions.keyDown(event, index),
+    [actions, index],
+  );
+  const onOpenChange = useCallback(
+    (open: boolean) => actions.menuOpenChange(bufferId, open),
+    [actions, bufferId],
+  );
+  const onOpenChangeComplete = useCallback(
+    (open: boolean) => actions.menuOpenChangeComplete(bufferId, open),
+    [actions, bufferId],
+  );
+
+  return (
+    <SortableTab
+      id={bufferId}
+      tabRef={tabRef}
+      disabled={isEditing}
+      className={sortableClassName}
+      onClickCapture={onClickCapture}
+    >
+      {({ isDragging }) => (
+        <ContextMenu onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
+          <ContextMenuTrigger className="contents">
+            <TabBarItem
+              buffer={buffer}
+              displayName={displayName}
+              index={index}
+              isActive={isActive}
+              isGroupActive={isGroupActive}
+              isDraggedTab={isDragging}
+              isWrapped={isWrapped}
+              onClick={onClick}
+              onDoubleClick={onDoubleClick}
+              onKeyDown={onKeyDown}
+              handleTabClose={actions.close}
+              handleTabPin={actions.pin}
+              isEditing={isEditing}
+              editingName={editingName}
+              onEditingNameChange={actions.editingNameChange}
+              onRenameSubmit={actions.renameSubmit}
+              onRenameCancel={actions.renameCancel}
+            />
+          </ContextMenuTrigger>
+          {contextMenu}
+        </ContextMenu>
+      )}
+    </SortableTab>
+  );
+});

@@ -128,11 +128,37 @@ enum MacRuntimeDiscovery {
             add(sdkmanJavaRoot + "/" + entry)
         }
 
+        // IDEA's downloads, then mise (which keeps a macOS JDK as its bundle) and asdf.
+        let roots = [homeDirectory + "/.jdks"]
+            + versionManagerInstallRoots(tool: "java", environment: environment, homeDirectory: homeDirectory)
+        for root in roots {
+            for entry in directoryEntries(root).sorted() {
+                add(root + "/" + entry + "/Contents/Home")
+                add(root + "/" + entry)
+            }
+        }
+
         return paths.values.sorted { $0.path < $1.path }
+    }
+
+    /// Install directories of `tool` kept by mise and asdf. Their shims resolve to the
+    /// manager's own binary rather than a home, so the installs are read directly.
+    /// Mirrors OpenIDEA's version-manager detection
+    /// (https://github.com/l0ng-ai/openidea, Apache-2.0); see the repository NOTICE.
+    static func versionManagerInstallRoots(
+        tool: String, environment: [String: String], homeDirectory: String
+    ) -> [String] {
+        func value(_ key: String) -> String? { environment[key].flatMap { $0.isEmpty ? nil : $0 } }
+        let mise = value("MISE_DATA_DIR")
+            ?? (value("XDG_DATA_HOME") ?? homeDirectory + "/.local/share") + "/mise"
+        let asdf = value("ASDF_DATA_DIR") ?? homeDirectory + "/.asdf"
+        return [mise + "/installs/" + tool, asdf + "/installs/" + tool]
     }
 
     static func discoverMavenExecutables(
         environment: [String: String],
+        homeDirectory: String = NSHomeDirectory(),
+        directoryEntries: (String) -> [String] = directoryNames(at:),
         isExecutable: (URL) -> Bool = { MacRuntimeLocator().isExecutable(at: $0) }
     ) -> [URL] {
         var paths: [URL] = []
@@ -140,7 +166,8 @@ enum MacRuntimeDiscovery {
         func add(_ path: String) {
             let expanded = (path as NSString).expandingTildeInPath
             let url = URL(fileURLWithPath: expanded).standardizedFileURL
-            guard isExecutable(url), seen.insert(url.path).inserted else { return }
+            // `latest`/`current` aliases of a version manager point at a listed install.
+            guard isExecutable(url), seen.insert(url.resolvingSymlinksInPath().path).inserted else { return }
             paths.append(url)
         }
 
@@ -149,9 +176,20 @@ enum MacRuntimeDiscovery {
                 add(URL(fileURLWithPath: home).appendingPathComponent("bin/mvn").path)
             }
         }
+        // A version manager's shim is a link to the manager, not a Maven home; the
+        // install it stands for is listed below with its real home.
         let pathDirectories = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+            .filter { URL(fileURLWithPath: $0).lastPathComponent != "shims" }
         for directory in pathDirectories {
             add(URL(fileURLWithPath: directory).appendingPathComponent("mvn").path)
+        }
+        let sdkmanRoot = environment["SDKMAN_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? homeDirectory + "/.sdkman"
+        let installRoots = [sdkmanRoot + "/candidates/maven"]
+            + versionManagerInstallRoots(tool: "maven", environment: environment, homeDirectory: homeDirectory)
+        for root in installRoots {
+            for entry in directoryEntries(root).sorted() {
+                add(root + "/" + entry + "/bin/mvn")
+            }
         }
         for path in [
             "/opt/homebrew/opt/maven/bin/mvn",
@@ -244,7 +282,7 @@ enum MacRuntimeDiscovery {
             }
     }
 
-    private static func directoryNames(at path: String) -> [String] {
+    static func directoryNames(at path: String) -> [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
     }
 

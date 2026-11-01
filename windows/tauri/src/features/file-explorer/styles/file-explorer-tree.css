@@ -94,6 +94,12 @@
   background-color: var(--file-tree-hover-bg);
 }
 
+/* Project tree rows get no hover highlight: sweeping the pointer over many rows repainted
+   one pseudo-element per row and made scrolling stutter. Other file trees keep the hover. */
+.file-explorer-shell .file-tree-container [data-sidebar-tree-row]:hover::before {
+  background-color: transparent;
+}
+
 .file-tree-container .file-tree-row {
   position: relative;
   z-index: 2;
@@ -189,9 +195,10 @@
   transition: opacity var(--app-duration-fast) var(--app-ease-smooth);
 }
 
-.file-tree-container:has(.file-tree-guide:hover) [data-sidebar-tree-row] .file-tree-guide,
+/* Set by lib/tree-guide-visibility.ts; :has() here restyled the whole tree on every focus change. */
+.file-tree-container[data-guide-hover] [data-sidebar-tree-row] .file-tree-guide,
 .file-tree-container:focus-visible [data-sidebar-tree-row] .file-tree-guide,
-.file-tree-container:has(:focus-visible) [data-sidebar-tree-row] .file-tree-guide {
+.file-tree-container[data-guide-focus] [data-sidebar-tree-row] .file-tree-guide {
   opacity: 0.9;
 }
 

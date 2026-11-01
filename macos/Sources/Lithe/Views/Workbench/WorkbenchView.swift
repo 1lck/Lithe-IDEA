@@ -588,6 +588,10 @@ struct WorkbenchView: View {
                 .padding(.bottom, LitheTheme.Metrics.statusBarHeight + LitheTheme.Notification.edgeInset)
             }
         }
+        .overlay(alignment: .bottomLeading) {
+            // Messages that plugins show in this window; the host's own balloons stay on the right.
+            PluginHostMessageStack(messages: model.hostMessages)
+        }
         .overlay {
             if model.isSearchEverywhereVisible, let feature = model.searchFeatureIfActive {
                 SearchEverywhereView(

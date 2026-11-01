@@ -53,6 +53,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private let pluginID: String?
     /// Host services Core lets this plugin backend request.
     private let hostServices: [String]
+    /// Manifest providers this backend is offered during `initialize`.
+    private let offeredToolchainProviders: [String]
 
     private var sessionID: String?
     private var startupGeneration: UUID?
@@ -125,9 +127,15 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// it once through `respond(to:with:)`; without an owner the request is
     /// refused so the backend never waits for an answer that cannot come.
     package var onHostRequest: ((PluginHostRequest) -> Void)?
+    /// Receives the ID of a host request the backend cancelled with
+    /// `$/cancelRequest` (function protocol 3). Core has already answered
+    /// the backend; the owner stops the work and sends no answer.
+    package var onHostRequestCancelled: ((String) -> Void)?
     /// The VCS provider the process negotiated in `initialize`, as Core's
     /// `vcsProvider` event reported it; nil for every other session.
     package private(set) var vcsNegotiation: VcsProviderNegotiation?
+    /// Providers the backend selected, from the `toolchainProviders` event.
+    package private(set) var toolchainProviders: [String] = []
     package var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
     package var javaTestRunnerURL: URL? {
         hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources?.javaTestRunnerURL
@@ -150,7 +158,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence,
         pluginID: String? = nil,
-        hostServices: [String] = []
+        hostServices: [String] = [],
+        toolchainProviders: [String] = []
     ) {
         self.providerID = providerID
         self.executableURL = executableURL
@@ -169,6 +178,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.moduleID = moduleID
         self.pluginID = pluginID
         self.hostServices = hostServices
+        self.offeredToolchainProviders = toolchainProviders
     }
 
     /// Derived from the last lifecycle state Rust published: there is no local
@@ -277,6 +287,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let core = core
         let pluginID = pluginID
         let hostServices = hostServices
+        let offeredToolchainProviders = offeredToolchainProviders
         let providerID = providerID
         let executableURL = executableURL
         let environment = environment
@@ -289,7 +300,22 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let resolvedOptions = initializationOptions
         let resolvedConfiguration = workspaceConfiguration
         let launch: @Sendable () -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> = {
-            if let pluginID {
+            if let pluginID, !offeredToolchainProviders.isEmpty {
+                core.startPluginToolchainBackend(
+                    pluginID: pluginID,
+                    providerID: providerID,
+                    executableURL: executableURL,
+                    arguments: resolvedArguments,
+                    environment: environment,
+                    rootURL: normalizedRoot,
+                    initializationOptions: resolvedOptions,
+                    hostServices: hostServices,
+                    toolchainProviders: offeredToolchainProviders,
+                    initializeTimeout: initializeTimeout,
+                    requestTimeout: requestTimeout,
+                    shutdownTimeout: shutdownTimeout
+                )
+            } else if let pluginID {
                 core.startPluginLanguageServer(
                     pluginID: pluginID,
                     providerID: providerID,
@@ -878,12 +904,47 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Sends one `toolchains/query` and returns `{ id, response }`, the raw
+    /// reply `toolchains.decodeReply` validates. Cancelling the task sends
+    /// `$/cancelRequest`; a late reply then finds no pending request.
+    package func toolchainRequest(params: ToolingJSONValue, timeout: TimeInterval) async throws -> ToolingJSONValue {
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        let started: LanguageServerRuntimeOperation
+        switch await send(timeout: timeout, { core in
+            core.requestToolchainProvider(sessionID: sessionID, params: params, timeout: timeout)
+        }) {
+        case .success(let operation): started = operation
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(started, name: "toolchains/query") { result in
+                    continuation.resume(with: result.flatMap { event in
+                        guard case .object(let object)? = event.result, let value = object["value"] else {
+                            return .failure(LanguageServerRuntimeSessionError.missingResult)
+                        }
+                        return .success(value)
+                    })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(started.operationID) }
+        }
+    }
+
     /// Invokes a plugin function of the plugin that owns this session. Core
     /// checks ownership and registration; a refusal or a failed call throws
     /// `PluginFunctionFailure`, and cancelling the task cancels the call.
     package func invokeFunction(
         _ functionID: String,
         params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference? = nil,
         timeout: TimeInterval,
         progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
     ) async throws -> ToolingJSONValue {
@@ -898,7 +959,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let operation: LanguageServerRuntimeOperation
         switch await send(timeout: timeout, { core in
             core.requestPluginFunction(
-                sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params, timeout: timeout
+                sessionID: sessionID, pluginID: pluginID, functionID: functionID, params: params,
+                context: context, timeout: timeout
             )
         }) {
         case .success(let started): operation = started
@@ -933,9 +995,30 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// it is sent off the main actor like a request.
     package func respond(to requestID: String, with outcome: Result<ToolingJSONValue, PluginHostRequestFailure>) {
         guard let sessionID else { return }
-        let core = core
-        Task.detached(priority: .userInitiated) {
-            _ = core.respondToPluginHostRequest(sessionID: sessionID, hostRequestID: requestID, outcome: outcome)
+        Task { @MainActor [self] in
+            _ = await send(timeout: requestTimeout) { core in
+                core.respondToPluginHostRequest(sessionID: sessionID, hostRequestID: requestID, outcome: outcome)
+            }
+            sendsInFlight -= 1
+        }
+    }
+
+    /// Sends the backend one host notification. Core writes it to the
+    /// backend's input like an answer, so it is sent off the main actor.
+    /// `false` is an expected protocol downgrade (keep the backend alive);
+    /// `nil` means the session ended or the transport/Core refused the send.
+    package func notify(method: String, params: ToolingJSONValue) async -> Bool? {
+        guard let sessionID, case .ready = state, !Task.isCancelled else { return nil }
+        let result = await send(timeout: requestTimeout) { core in
+            core.notifyPluginBackend(sessionID: sessionID, method: method, params: params)
+        }
+        sendsInFlight -= 1
+        switch result {
+        case .success(let delivered):
+            return delivered
+        case .failure(let failure):
+            onLog?(.warning, "Plugin host notification was not delivered", failure.message, nil)
+            return nil
         }
     }
 
@@ -962,12 +1045,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// A write that is still blocked when the call's timeout passes, or
     /// `stuckSendGrace` after the caller was cancelled, ends the process:
     /// the write then fails and Core fails the session.
-    private func send(
+    private func send<Value: Sendable>(
         timeout: TimeInterval,
-        _ request: @escaping @Sendable (any LanguageServerRuntimeCore) -> Result<
-            LanguageServerRuntimeOperation, LanguageServerRuntimeFailure
-        >
-    ) async -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        _ request: @escaping @Sendable (any LanguageServerRuntimeCore) -> Result<Value, LanguageServerRuntimeFailure>
+    ) async -> Result<Value, LanguageServerRuntimeFailure> {
         sendsInFlight += 1
         // A drain that started before this send must finish before the request
         // is written; its events then cannot include this request's reply.
@@ -1438,10 +1519,22 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 respond(to: id, with: .failure(PluginHostRequestFailure(message: "The host serves no requests of this process.")))
             }
             return false
+        case "hostRequestCancelled":
+            if case .object(let object)? = event.result, case .string(let id)? = object["hostRequestID"] {
+                onHostRequestCancelled?(id)
+            }
+            return false
         case "vcsProvider":
             switch Self.decodeEventResult(event, as: VcsProviderNegotiation.self) {
             case .success(let negotiation): vcsNegotiation = negotiation
             case .failure(let error): onLog?(.error, "Invalid VCS provider event", error.localizedDescription, nil)
+            }
+            return false
+        case "toolchainProviders":
+            if case .object(let object)? = event.result, case .array(let providers)? = object["providers"] {
+                toolchainProviders = providers.compactMap {
+                    if case .string(let provider) = $0 { provider } else { nil }
+                }
             }
             return false
         case "featuresChanged":
@@ -1535,6 +1628,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             onFunctionsChange?([])
         }
         vcsNegotiation = nil
+        toolchainProviders = []
         let released = onReleased
         onReleased = nil
         released?()

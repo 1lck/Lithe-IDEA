@@ -131,7 +131,7 @@ beforeEach(() => {
       selectReference: () => {},
       forgetReference: () => {},
       refresh,
-      loadMore: async () => {},
+      loadMore: async () => false,
     })),
     spyOn(workspaceRefs, "useGitWorkspaceReferences").mockImplementation(() => ({
       referencesByRepository: new Map(),

@@ -262,6 +262,46 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let relocated: Bool
     }
 
+    struct HistoryUsagePayload: Decodable, Sendable {
+        let usedBytes: Int64
+        let limitBytes: Int64
+    }
+
+    struct HistoryIgnorePreviewPayload: Decodable, Sendable {
+        struct RegexError: Decodable, Sendable, Equatable {
+            let index: Int
+            let message: String
+        }
+
+        enum Match: Decodable, Sendable, Equatable {
+            case hidden
+            case pattern(String)
+            case regex(index: Int)
+
+            private enum CodingKeys: String, CodingKey { case kind, pattern, index }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                switch try container.decode(String.self, forKey: .kind) {
+                case "hidden": self = .hidden
+                case "pattern": self = .pattern(try container.decode(String.self, forKey: .pattern))
+                case "regex": self = .regex(index: try container.decode(Int.self, forKey: .index))
+                case let kind:
+                    throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "Unknown match \(kind)")
+                }
+            }
+        }
+
+        let regexErrors: [RegexError]
+        let builtInIgnorePatterns: [String]
+        let matched: Match?
+        let gitIgnored: Bool?
+    }
+
+    private struct HistoryClearPayload: Decodable, Sendable {
+        let cleared: Bool
+    }
+
     struct MarkdownRenderPayload: Decodable, Sendable {
         let html: String
     }
@@ -1389,6 +1429,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let pruneExpired: Bool
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
+        let ignoreRules: HistoryIgnoreRules
+        let storageLimitBytes: Int64?
+    }
+
+    private struct HistoryIgnoreRules: Encodable {
+        let pathPatterns: [String]
+        let pathRegexes: [String]
+    }
+
+    private struct HistoryIgnorePreviewRequest: Encodable {
+        let path: String?
+        let ignoreRules: HistoryIgnoreRules
+        let hiddenFilePatterns: [String]
+        let workspaceRoot: String?
+    }
+
+    private struct HistoryStorageRequest: Encodable {
+        let storageRoot: String
+        var storageLimitBytes: Int64?
     }
 
     private struct HistoryEntriesRequest: Encodable {
@@ -1673,6 +1732,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let workspaceConfiguration: ToolingJSONValue?
         /// Host services a plugin backend may request; omitted when none.
         let hostServices: [String]?
+        /// Manifest providers offered to a plugin backend; omitted when none.
+        let toolchainProviders: [String]?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -1819,6 +1880,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let timeoutMilliseconds: Int
     }
 
+    private struct LspToolchainRequest: Encodable {
+        let sessionId: String
+        let params: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
     private struct LspVcsRequest: Encodable {
         let sessionId: String
         let vcs: String
@@ -1835,15 +1902,26 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let functionID: String
         }
 
+        struct Context: Encodable {
+            let contextID: String
+            let generation: Int
+        }
+
         let sessionId: String
         let function: Reference
         let params: ToolingJSONValue
         let timeoutMilliseconds: Int
+        /// Omitted when nil, so Core sees the version 2 request shape.
+        let context: Context?
     }
 
     private struct LspHostResponseRequest: Encodable {
         struct Failure: Encodable {
             let message: String
+            /// Omitted when nil.
+            let code: String?
+            /// Omitted when nil.
+            let details: ToolingJSONValue?
         }
 
         let sessionId: String
@@ -2427,7 +2505,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         content: String?,
         pruneExpired: Bool,
         hiddenDirectoryNames: [String],
-        hiddenFilePatterns: [String]
+        hiddenFilePatterns: [String],
+        ignorePatterns: [String] = [],
+        ignoreRegexes: [String] = [],
+        storageLimitBytes: Int64? = nil
     ) -> HistoryEntryPayload? {
         execute(
             command: "history.record",
@@ -2439,9 +2520,50 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 content: content,
                 pruneExpired: pruneExpired,
                 hiddenDirectoryNames: hiddenDirectoryNames,
-                hiddenFilePatterns: hiddenFilePatterns
+                hiddenFilePatterns: hiddenFilePatterns,
+                ignoreRules: HistoryIgnoreRules(
+                    pathPatterns: ignorePatterns,
+                    pathRegexes: ignoreRegexes
+                ),
+                storageLimitBytes: storageLimitBytes
             )
         )
+    }
+
+    func historyIgnorePreview(
+        path: String?,
+        ignorePatterns: [String],
+        ignoreRegexes: [String],
+        hiddenFilePatterns: [String],
+        workspaceURL: URL? = nil
+    ) -> HistoryIgnorePreviewPayload? {
+        execute(
+            command: "history.ignorePreview",
+            payload: HistoryIgnorePreviewRequest(
+                path: path,
+                ignoreRules: HistoryIgnoreRules(
+                    pathPatterns: ignorePatterns,
+                    pathRegexes: ignoreRegexes
+                ),
+                hiddenFilePatterns: hiddenFilePatterns,
+                workspaceRoot: workspaceURL?.standardizedFileURL.path
+            )
+        )
+    }
+
+    func historyUsage(storageURL: URL, limitBytes: Int64? = nil) -> HistoryUsagePayload? {
+        execute(
+            command: "history.usage",
+            payload: HistoryStorageRequest(storageRoot: storageURL.standardizedFileURL.path, storageLimitBytes: limitBytes)
+        )
+    }
+
+    func historyClear(storageURL: URL) -> Bool {
+        let response: HistoryClearPayload? = execute(
+            command: "history.clear",
+            payload: HistoryStorageRequest(storageRoot: storageURL.standardizedFileURL.path)
+        )
+        return response?.cleared == true
     }
 
     func historyEntries(
@@ -3425,6 +3547,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         initializationOptions: ToolingJSONValue? = nil,
         workspaceConfiguration: ToolingJSONValue? = nil,
         hostServices: [String] = [],
+        toolchainProviders: [String] = [],
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3448,6 +3571,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
                 hostServices: hostServices.isEmpty ? nil : hostServices,
+                toolchainProviders: toolchainProviders.isEmpty ? nil : toolchainProviders,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -3757,6 +3881,20 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    /// Sends one `toolchains/query` to a session that negotiated its provider.
+    func lspToolchainRequest(
+        sessionID: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.toolchainRequest",
+            payload: LspToolchainRequest(
+                sessionId: sessionID, params: params, timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
     /// Invokes a plugin function. Core refuses it unless the session belongs
     /// to `pluginID` and registered the function.
     func lspFunctionRequest(
@@ -3764,6 +3902,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         pluginID: String,
         functionID: String,
         params: ToolingJSONValue,
+        context: PluginWorkspaceContextReference? = nil,
         timeout: TimeInterval
     ) -> Result<LspOperationPayload, CoreCallError> {
         executeResult(
@@ -3772,7 +3911,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 sessionId: sessionID,
                 function: .init(pluginID: pluginID, functionID: functionID),
                 params: params,
-                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout)),
+                context: context.map { .init(contextID: $0.contextID, generation: $0.generation) }
             )
         )
     }
@@ -3782,7 +3922,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         sessionID: String,
         hostRequestID: String,
         result: ToolingJSONValue?,
-        failureMessage: String?
+        failureMessage: String?,
+        failureCode: String? = nil,
+        failureDetails: ToolingJSONValue? = nil
     ) -> Result<Void, CoreCallError> {
         executeVoid(
             command: "lsp.hostResponse",
@@ -3790,9 +3932,32 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 sessionId: sessionID,
                 hostRequestID: hostRequestID,
                 result: failureMessage == nil ? (result ?? .null) : nil,
-                error: failureMessage.map { .init(message: $0) }
+                error: failureMessage.map { .init(message: $0, code: failureCode, details: failureDetails) }
             )
         )
+    }
+
+    private struct LspHostNotifyRequest: Encodable {
+        let sessionId: String
+        let method: String
+        let params: ToolingJSONValue
+    }
+
+    private struct LspHostNotifyResponse: Decodable {
+        let delivered: Bool
+    }
+
+    /// Sends a plugin backend one host notification. `false` when the
+    /// backend negotiated a function protocol without the notification.
+    func lspHostNotify(
+        sessionID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, CoreCallError> {
+        executeResult(
+            command: "lsp.hostNotify",
+            payload: LspHostNotifyRequest(sessionId: sessionID, method: method, params: params)
+        ).map { (response: LspHostNotifyResponse) in response.delivered }
     }
 
     /// Cancels a pending operation. Its completion event still arrives, carrying

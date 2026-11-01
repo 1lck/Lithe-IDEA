@@ -1,6 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
@@ -11,6 +11,7 @@ import {
 } from "@/features/tabs/utils/internal-tab-drag";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import {
+  createDropListenerScope,
   dispatchAgentDropHover,
   dispatchDroppedPathsToAgent,
   dispatchDroppedPathsToTerminal,
@@ -107,16 +108,17 @@ export const useFileSystemFolderDrop = (
   treatPaneDropAsGlobal = false,
 ) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  // Callers pass an inline callback. Reaching it through an effect event keeps
+  // each of their renders from re-registering every native listener over IPC.
+  const deliverDrop = useEffectEvent((paths: string[]) => onDrop(paths));
 
   useEffect(() => {
     const currentWindow = getCurrentWindow();
-    let unlistenWindow: (() => void) | null = null;
-    let unlistenWebview: (() => void) | null = null;
-    let domTeardown: (() => void) | null = null;
+    const listeners = createDropListenerScope();
 
     const handleExternalPayload = async (payload: { type: string; paths?: string[] }) => {
       await handleExternalFileDropPayload(payload, {
-        onDrop,
+        onDrop: deliverDrop,
         setDraggingOver: setIsDraggingOver,
         onError: (error) => {
           console.error("Error handling dropped items:", error);
@@ -173,14 +175,16 @@ export const useFileSystemFolderDrop = (
         await handleExternalPayload(payload);
       };
 
-      unlistenWindow = await currentWindow.onDragDropEvent((event) =>
-        handleNativeDragDrop(event.payload),
+      listeners.add(
+        await currentWindow.onDragDropEvent((event) => handleNativeDragDrop(event.payload)),
       );
+      if (listeners.disposed) return;
 
       const currentWebview = getCurrentWebview();
-      unlistenWebview = await currentWebview.onDragDropEvent((event) =>
-        handleNativeDragDrop(event.payload),
+      listeners.add(
+        await currentWebview.onDragDropEvent((event) => handleNativeDragDrop(event.payload)),
       );
+      if (listeners.disposed) return;
 
       const onDomDragOver = (event: DragEvent) => {
         if (getInternalTabDragData()) return;
@@ -229,22 +233,18 @@ export const useFileSystemFolderDrop = (
       window.addEventListener("dragenter", onDomEnter);
       window.addEventListener("dragleave", onDomLeave);
 
-      domTeardown = () => {
+      listeners.add(() => {
         window.removeEventListener("dragover", onDomDragOver);
         window.removeEventListener("drop", onDomDrop);
         window.removeEventListener("dragenter", onDomEnter);
         window.removeEventListener("dragleave", onDomLeave);
-      };
+      });
     };
 
-    setupListener();
+    void setupListener();
 
-    return () => {
-      if (unlistenWindow) unlistenWindow();
-      if (unlistenWebview) unlistenWebview();
-      if (domTeardown) domTeardown();
-    };
-  }, [onDrop, treatPaneDropAsGlobal]);
+    return () => listeners.dispose();
+  }, [treatPaneDropAsGlobal]);
 
   return { isDraggingOver };
 };

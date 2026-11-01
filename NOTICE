@@ -1,0 +1,16 @@
+Lithe
+Copyright 2026 Lithe contributors
+
+This product includes software derived from OpenIDEA
+(https://github.com/l0ng-ai/openidea, revision 971760f8580be4c60c13fe8f0294d2f9c48fc0bc),
+licensed under the Apache License 2.0.
+Copyright 2026 OpenIDEA contributors
+
+The derived parts are the login shell environment reader
+(macos/Sources/Lithe/Platform/MacOS/Runtime/MacLoginShellEnvironment.swift, from
+crates/ide-host/src/shell_env.rs), the automatic JDK selection policy
+(rust/lithe-core/src/execution/java_selection.rs, from crates/ide-sdk/src/java.rs) and the
+version manager install locations used by JDK and Maven discovery. They were translated
+and modified for Lithe; each derived file names its origin.
+
+Lithe is not affiliated with OpenIDEA, JetBrains s.r.o. or their products.

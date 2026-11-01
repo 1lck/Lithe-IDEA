@@ -319,6 +319,17 @@ public extension ModuleID {
         ModuleID("\(pluginID).debug-adapters")
     }
 
+    /// Enablement for a standalone tool backend with no UI/domain module.
+    static func backendExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).backend")
+    }
+
+    /// The language grammars one declarative plugin declares, enabled
+    /// together. Nothing runs while it is enabled; it only gates highlighting.
+    static func grammarsExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).grammars")
+    }
+
     /// The New Project entries one declarative plugin declares, enabled
     /// together. Nothing runs while it is enabled; it only gates the entries.
     static func projectGeneratorsExtension(_ pluginID: String) -> ModuleID {

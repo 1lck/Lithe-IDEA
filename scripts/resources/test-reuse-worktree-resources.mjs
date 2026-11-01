@@ -117,6 +117,16 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
   });
+  await test("plugin grammar tokens and action leases cannot cross worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "editor-theme-assets");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<editor-memory>/plugin-grammar-workers-and-tokens"));
+    assert.ok(resource.locations.includes("<editor-memory>/plugin-editor-action-leases"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");
@@ -353,7 +363,7 @@ try {
     assert.ok(pluginState.locations.includes("<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/"));
     assert.ok(pluginState.locations.includes("<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/build-systems/<build-system-id>/<workspace-digest>/"));
     assert.equal(pluginState.reusable, false);
-    for (const id of ["official-plugin-packages", "plugin-marketplace-state", "mcp-registry-metadata", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
+    for (const id of ["official-plugin-packages", "plugin-marketplace-state", "plugin-host-runtime-state", "mcp-registry-metadata", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
       assert.ok(!listed.stdout.includes(id));
       const refused = reuse(["--resource", id]);
       assert.notEqual(refused.status, 0);

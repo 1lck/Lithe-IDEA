@@ -12,6 +12,21 @@ extension AppModel {
         await historyModuleCoordinator.activate()
     }
 
+    func localHistoryIgnorePreview(path: String?, rules: LocalHistoryVisibilityRules) async -> LocalHistoryIgnorePreview? {
+        await activateHistoryModule()?.previewIgnoreRules(path: path, rules: rules)
+    }
+
+    /// Nil when no project is open.
+    func localHistoryUsage() async -> LocalHistoryUsage? {
+        guard workspaceURL != nil else { return nil }
+        return await activateHistoryModule()?.storageUsage()
+    }
+
+    func clearLocalHistory() async -> Bool {
+        guard workspaceURL != nil, let feature = await activateHistoryModule() else { return false }
+        return await feature.clearHistory()
+    }
+
     func withHistoryModule(_ action: @escaping @MainActor (ProjectHistoryFeatureModel) async -> Void) {
         historyModuleCoordinator.perform(action)
     }

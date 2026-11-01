@@ -487,6 +487,8 @@ interface AutoSaveTask {
    * cancelled, the continuation is dropped so the newer text stays unsaved.
    */
   continuesOperationId?: string;
+  /** Starts the write without waiting for the debounce. */
+  run: () => void;
 }
 
 interface AppState {
@@ -518,6 +520,8 @@ interface AppActions {
     selectionRange: { start: number; end: number };
   }) => void;
   cleanup: () => void;
+  /** Starts every queued autosave now, for when focus leaves the document. */
+  flushAutoSaves: () => void;
   /**
    * Drops a queued autosave continuation that was waiting on `operationId`. A
    * continuation must not outlive a write that failed or conflicted.
@@ -539,8 +543,13 @@ const defaultEditorAppScheduler: EditorAppScheduler = {
   clearTimer: (timer) => clearTimeout(timer),
 };
 
-/** Debounce window that batches a burst of edits into one write. */
-const AUTO_SAVE_DELAY_MILLISECONDS = 150;
+/**
+ * Debounce window that batches a burst of edits into one write. Each write also
+ * makes the language server reload the file, so pauses between words must not
+ * trigger it. Matches VS Code's `files.autoSaveDelay`; `flushAutoSaves` covers
+ * tools that read the disk once focus moves to them.
+ */
+const AUTO_SAVE_DELAY_MILLISECONDS = 1_000;
 
 export const createEditorAppStore = (
   workspaceId: string,
@@ -623,15 +632,22 @@ export const createEditorAppStore = (
                 path: target.path,
                 operationId: crypto.randomUUID(),
               };
-              const timeoutId = scheduler.setTimer(() => {
+              // The task stays queued until its write settles, so a focus change
+              // can reach it after the timer already fired.
+              let started = false;
+              const run = () => {
+                if (started) return;
+                started = true;
                 void runAutoSave(autoSaveContext, text, target);
-              }, AUTO_SAVE_DELAY_MILLISECONDS);
+              };
+              const timeoutId = scheduler.setTimer(run, AUTO_SAVE_DELAY_MILLISECONDS);
 
               set((state) => {
                 state.autoSaveTasks[bufferId] = {
                   timeoutId,
                   context: autoSaveContext,
                   continuesOperationId,
+                  run,
                 };
               });
             };
@@ -860,6 +876,19 @@ export const createEditorAppStore = (
           set((state) => {
             state.autoSaveTasks = {};
           });
+        },
+
+        flushAutoSaves: () => {
+          const tasks = Object.values(get().autoSaveTasks);
+          if (tasks.length === 0) return;
+          // Forgotten first so the blur events of one focus change start one write.
+          set((state) => {
+            state.autoSaveTasks = {};
+          });
+          for (const task of tasks) {
+            scheduler.clearTimer(task.timeoutId);
+            task.run();
+          }
         },
 
         cancelAutoSaveContinuation: (operationId: string) => {

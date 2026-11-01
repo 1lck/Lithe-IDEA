@@ -19,15 +19,19 @@ const SERIALIZED_TOTAL_LIMIT = 3_000;
 const SERIALIZED_MAX_DEPTH = 3;
 const ERROR_STACK_FRAMES = 8;
 
-let inFlight = 0;
-const MAX_IN_FLIGHT_LOGS = 64;
+/** Logs waiting for the next batch; beyond this, new logs are dropped and counted. */
+const MAX_QUEUED_LOGS = 256;
+/** Longest a queued log waits for the window to become idle before it is sent anyway. */
+const FLUSH_IDLE_TIMEOUT_MS = 1_000;
 let installed = false;
 let diagnosticEnabled = false;
 let serializing = false;
 let consecutiveFailures = 0;
 let suppressedFailures = 0;
 let breakerOpenUntil = 0;
-let halfOpenProbeInFlight = false;
+let queue: Array<{ input: FrontendLogInput; resolve: (forwarded: boolean) => void }> = [];
+let flushScheduled = false;
+let batchInFlight = false;
 let stopFpsLogging: (() => void) | null = null;
 let initializationPromise: Promise<LogSettingsSnapshot | null> | null = null;
 let workspaceRoots: string[] = [];
@@ -168,61 +172,110 @@ export function serializeConsoleArguments(values: unknown[]) {
   }
 }
 
-function rawInvoke(input: FrontendLogInput) {
-  return invoke<void>("frontend_trace", {
-    level: input.level,
-    scope: input.scope,
-    message: input.message,
-    payload: input.payload ?? null,
+function invokeBatch(entries: FrontendLogInput[]) {
+  return invoke<void>("frontend_trace_batch", {
+    entries: entries.map((entry) => ({
+      level: entry.level,
+      scope: entry.scope,
+      message: entry.message,
+      payload: entry.payload ?? null,
+    })),
   });
 }
 
-export function submitFrontendLog(input: FrontendLogInput): Promise<boolean> {
-  if (input.level === "debug" && !diagnosticEnabled) return Promise.resolve(false);
-
-  const now = Date.now();
-  const breakerIsOpen = breakerOpenUntil > now;
-  if (breakerIsOpen) {
-    suppressedFailures += 1;
-    return Promise.resolve(false);
+function scheduleWhenIdle(run: () => void) {
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(run, { timeout: FLUSH_IDLE_TIMEOUT_MS });
+  } else {
+    setTimeout(run, 0);
   }
-  const isHalfOpenProbe = breakerOpenUntil > 0;
-  if (isHalfOpenProbe && halfOpenProbeInFlight) return Promise.resolve(false);
-  if (isHalfOpenProbe) halfOpenProbeInFlight = true;
+}
 
-  if (inFlight >= MAX_IN_FLIGHT_LOGS) {
-    suppressedFailures += 1;
-    return Promise.resolve(false);
-  }
-  inFlight += 1;
-  return rawInvoke(input)
+let sendBatch = invokeBatch;
+let scheduleBatch = scheduleWhenIdle;
+
+/** Replaces the IPC transport and flush scheduling; returns a function restoring both. */
+export function setFrontendLogTransportForTests(
+  transport: typeof invokeBatch,
+  schedule: (run: () => void) => void,
+) {
+  sendBatch = transport;
+  scheduleBatch = schedule;
+  return () => {
+    sendBatch = invokeBatch;
+    scheduleBatch = scheduleWhenIdle;
+    queue = [];
+    flushScheduled = false;
+    batchInFlight = false;
+    consecutiveFailures = 0;
+    suppressedFailures = 0;
+    breakerOpenUntil = 0;
+  };
+}
+
+function scheduleFlush() {
+  if (flushScheduled || batchInFlight) return;
+  flushScheduled = true;
+  scheduleBatch(() => {
+    flushScheduled = false;
+    flushFrontendLogs();
+  });
+}
+
+/**
+ * Sends every queued log in one IPC call. Logs are queued instead of sent one
+ * by one because each call serializes its payload on the UI thread: language
+ * servers log every request, and sending those individually added several
+ * milliseconds to each file open.
+ */
+function flushFrontendLogs() {
+  if (batchInFlight || queue.length === 0) return;
+  const batch = queue;
+  queue = [];
+  batchInFlight = true;
+  sendBatch(batch.map((entry) => entry.input))
     .then(() => {
       const recoveredFailures = consecutiveFailures + suppressedFailures;
       consecutiveFailures = 0;
       suppressedFailures = 0;
       breakerOpenUntil = 0;
-      halfOpenProbeInFlight = false;
       if (recoveredFailures > 0) {
-        void rawInvoke({
-          level: "warn",
-          scope: "runtime.console",
-          message: "frontend log forwarding recovered",
-          payload: { failures: recoveredFailures },
-        }).catch(() => {});
+        queue.push({
+          input: {
+            level: "warn",
+            scope: "runtime.console",
+            message: "frontend log forwarding recovered",
+            payload: { failures: recoveredFailures },
+          },
+          resolve: () => {},
+        });
       }
-      return true;
+      for (const entry of batch) entry.resolve(true);
     })
     .catch(() => {
-      halfOpenProbeInFlight = false;
       consecutiveFailures += 1;
       if (consecutiveFailures >= FORWARD_FAILURE_THRESHOLD) {
         breakerOpenUntil = Date.now() + FORWARD_BREAKER_COOLDOWN_MS;
       }
-      return false;
+      for (const entry of batch) entry.resolve(false);
     })
     .finally(() => {
-      inFlight -= 1;
+      batchInFlight = false;
+      if (queue.length > 0) scheduleFlush();
     });
+}
+
+export function submitFrontendLog(input: FrontendLogInput): Promise<boolean> {
+  if (input.level === "debug" && !diagnosticEnabled) return Promise.resolve(false);
+
+  if (breakerOpenUntil > Date.now() || queue.length >= MAX_QUEUED_LOGS) {
+    suppressedFailures += 1;
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    queue.push({ input, resolve });
+    scheduleFlush();
+  });
 }
 
 function forwardConsole(level: "warn" | "error", args: unknown[]) {
@@ -296,6 +349,8 @@ export function initializeFrontendLogging() {
   installed = true;
   installConsoleProxy();
   installUnhandledErrorCapture();
+  // Queued logs would otherwise be lost when the window closes or reloads.
+  window.addEventListener("pagehide", flushFrontendLogs);
   stopFpsLogging = startFpsLogging(forwardFpsEvent, isFrontendDiagnosticEnabled);
   void listen<LogSettingsSnapshot>("lithe-log-runtime-fallback", (event) => {
     setFrontendDiagnosticEnabled(event.payload.diagnostic_enabled);

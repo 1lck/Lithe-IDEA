@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheAIAssistanceModule
 import LitheAgentConversationModule
@@ -88,7 +89,8 @@ final class MacServiceContainer {
         aiConfigurationSources providedAIConfigurationSources: [any AIConfigurationSource]? = nil,
         gitPerformanceLogger: (any GitPerformanceLogger)? = nil,
         pluginWebPageLifecycle providedPluginWebPageLifecycle: PluginWebPageLifecycle? = nil,
-        applicationLogging: (any ApplicationLogging)? = nil
+        applicationLogging: (any ApplicationLogging)? = nil,
+        networkSessionProvider providedNetworkSessionProvider: MacNetworkSessionProvider? = nil
     ) {
         let pluginWebPageLifecycle = providedPluginWebPageLifecycle ?? .shared
         let gitExecutionJournal = GitExecutionJournal()
@@ -111,6 +113,23 @@ final class MacServiceContainer {
             metadataRepositoryURLs: [mavenRepositoryURL, gradleRepositoryURL]
         )
         let fileStorage = MacFileStorage()
+        // One proxy-aware session factory per process: LitheApp creates it so
+        // the rollback downloader outside this container shares the policy,
+        // and every transport inside resolves sessions through it per request.
+        let networkSessionProvider = providedNetworkSessionProvider
+            ?? MacNetworkSessionProvider(
+                preferences: settings.networkProxyPreferences,
+                policyResolver: { [rustCore] configuration in
+                    rustCore.networkProxyPolicy(from: configuration)
+                }
+            )
+        let proxyPasswordStore = MacKeychainSecureStore(service: fileStorage.identity.keychainService("proxy"))
+        if let credential = NetworkProxyCredential.load(from: proxyPasswordStore, key: AppSettings.networkProxyPasswordKey) {
+            settings.updateNetworkProxyCredential(credential)
+        }
+        let proxyConnectionChecker = MacNetworkProxyTester(policyResolver: { [rustCore] configuration in
+            rustCore.networkProxyPolicy(from: configuration)
+        })
         let workspaceLanguageServerPreferences = MacWorkspaceLanguageServerPreferencesStore(store: store)
         let directoryMarkStore = WorkspaceDirectoryMarkStore(store: store)
         let debugBreakpointStore = MacDebugBreakpointStore(store: store)
@@ -131,7 +150,7 @@ final class MacServiceContainer {
         let secureStore = MacLocalSecretStore()
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
-            transport: MacGitHubHTTPTransport(),
+            transport: MacGitHubHTTPTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.acquireSession() }),
             configuration: MacGitHubConfiguration(),
             secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("github")),
             git: MacGitHubGitOperations(core: rustCore)
@@ -264,11 +283,12 @@ final class MacServiceContainer {
         }
         let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
+        let proxySessionProvider: @Sendable () -> MacNetworkSessionLease = { [networkSessionProvider] in networkSessionProvider.acquireSession() }
         #if DEBUG
         pluginMarketplaceTransport = MacPluginMarketplaceFixtureTransport.fromEnvironment()
-            ?? MacURLSessionPluginMarketplaceTransport()
+            ?? MacURLSessionPluginMarketplaceTransport(sessionProvider: proxySessionProvider)
         #else
-        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport()
+        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport(sessionProvider: proxySessionProvider)
         #endif
         let remotePluginPackages = MacRemotePluginPackageDeployer(
             installed: pluginStartup.registeredPlugins,
@@ -298,7 +318,9 @@ final class MacServiceContainer {
                 contributions: AIAssistanceModule.moduleContributions
             ) {
                 AIAssistanceModule(
-                    transportFactory: { MacURLSessionTransport() },
+                    transportFactory: {
+                        MacURLSessionTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.acquireSession() })
+                    },
                     credentialResolver: credentialResolver
                 )
             })
@@ -414,7 +436,31 @@ final class MacServiceContainer {
                     applicationLogging?.record(level: "warn", scope: "plugins.migration", message: message, fields: [:])
                 }
             )
-            return MacPluginBackendSessions(
+            // Host services of backend requests: the credentials of
+            // protocol 2 and the workspace contexts of protocol 3. Context
+            // state lives below each plugin's `${stateDir}` in Application
+            // Support, never in the bundle or the package.
+            let hostDispatcher = PluginHostServiceDispatcher(contexts: .shared)
+            hostDispatcher.register(PluginCredentialHostService(credentials: pluginCredentials))
+            let backendDirectories = MacPluginStateDirectories(fileStorage: fileStorage)
+            let workspaceHost = PluginWorkspaceHostService(
+                contexts: .shared,
+                backendStateDirectory: { backendDirectories.backendStateDirectory(pluginID: $0) },
+                rootIDSecret: { MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)) }
+            )
+            hostDispatcher.register(workspaceHost)
+            hostDispatcher.register(PluginDocumentHostService(contexts: .shared))
+            let editorActions = PluginEditorActionHostService(contexts: .shared, decoder: declarativePluginOperations)
+            hostDispatcher.register(editorActions)
+            hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,
+                files: MacPluginWorkspaceFileService(
+                    searchOperations: RustWorkspaceOperations(core: rustCore),
+                    watcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport),
+                    isRemoteWorkspaceRoot: { remoteWorkspaces.resolve($0) != nil }
+                )))
+            hostDispatcher.register(PluginWindowHostService(contexts: .shared, metadata: workspaceHost,
+                                                            fileStorage: fileStorage, platformUI: platformUI))
+            let sessions = MacPluginBackendSessions(
                 launchResolver: pluginLaunchResolver,
                 tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
                 versionChecker: declarativePluginOperations,
@@ -427,8 +473,24 @@ final class MacServiceContainer {
                         applicationLogging?.record(level: "info", scope: "plugins.migration", message: "database connections moved into the plugin",
                             fields: ["profiles": String(profiles), "passwords": String(passwords)])
                     }
-                }
+                },
+                canStart: { id in
+                    guard moduleLaunchMode != .safeMode,
+                          let package = pluginStartup.registeredPlugins.first(where: { $0.descriptor.id.rawValue == id }),
+                          let module = package.manifest.modules.first(where: {
+                              $0.manifest.id == .backendExtension(id) || $0.manifest.id == ModuleID("\(id).ui")
+                          })?.manifest else { return false }
+                    return (moduleStore.enabledState(for: module.id) ?? (module.defaultState == .enabled))
+                        && !moduleStore.isQuarantined(module.id)
+                },
+                hostDispatcher: hostDispatcher
             )
+            sessions.editorActions = editorActions
+            sessions.onActivationFailure = { [applicationLogging] pluginID, error in
+                applicationLogging?.record(level: "warn", scope: "plugins.backend", message: "backend activation failed",
+                    fields: ["plugin": pluginID, "error": error.localizedDescription])
+            }
+            return sessions
         }
         pluginBackends.register(pluginStartup.registeredPlugins)
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
@@ -452,7 +514,7 @@ final class MacServiceContainer {
         )
         // A debug-only declaration adds a debugger to a language another owner
         // serves, so it must not switch the host's own tools for it off.
-        let languageOwningSupports = installedLanguageSupports.filter { !$0.isDebugOnly }
+        let languageOwningSupports = installedLanguageSupports.filter { !$0.isDebugOnly && !$0.isEditorOnly }
         let pluginLanguageIDs = Set(languageOwningSupports.map(\.id))
         // A package may declare, through its host integration, that the host
         // keeps providing a feature of its language. Everything else of an
@@ -1062,7 +1124,37 @@ final class MacServiceContainer {
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
+        // Static editor resources follow their own enablement; ordinary tool
+        // actions register at runtime in the shared backend's host services.
+        let editorLanguageModuleChanges = PassthroughSubject<Void, Never>()
+        MacPluginEditorLanguages.observeModuleChanges(on: moduleRuntime, changed: {
+            editorLanguageModuleChanges.send()
+        }) { runtime in
+            for package in pluginStartup.registeredPlugins where package.descriptor.declaresBackend && package.descriptor.ui == nil {
+                let id = package.descriptor.id.rawValue
+                if let state = try? runtime.snapshot(for: .backendExtension(id)),
+                   state.state != .disabled, !state.isQuarantined, !state.isSuppressedBySafeMode {
+                    pluginBackends.enable(id)
+                } else { pluginBackends.disable(id) }
+            }
+        }
+        services.pluginEditorActions = pluginBackends.editorActions
+        services.pluginEditorLanguages = MacPluginEditorLanguages(
+            launchRegistered: pluginStartup.registeredPlugins,
+            isModuleUsable: { [weak moduleRuntime] id in
+                guard let snapshot = try? moduleRuntime?.snapshot(for: id) else { return false }
+                return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
+            },
+            livePackages: { liveSnapshotBox.snapshot.activePackages },
+            decoder: declarativePluginOperations,
+            triggers: [livePlugins.changes, editorLanguageModuleChanges.eraseToAnyPublisher()],
+            log: { message, fields in
+                NSLog("Lithe %@ %@", message, fields.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
+            }
+        )
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
+        services.proxyPasswordStore = proxyPasswordStore
+        services.proxyConnectionChecker = proxyConnectionChecker
         services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
             core: rustCore, storage: fileStorage
         )
@@ -1101,6 +1193,8 @@ final class MacServiceContainer {
                 }
             )
         }
+        services.pluginWorkspaceContexts = PluginWorkspaceContexts.shared
+        services.pluginBackendActivation = pluginBackends
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared
@@ -1142,6 +1236,50 @@ final class MacServiceContainer {
             }
         )
         let installedPlugins = pluginStartup.registeredPlugins
+        services.loginShellEnvironmentInspector = MacLoginShellEnvironment.shared
+        services.toolchainSettingsLoader = MacToolchainSettingsLoader(
+            sources: { [pluginManager] in
+                let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
+                return installedPlugins.map { plugin in
+                    ToolchainSettingsPluginSource(
+                        pluginID: plugin.descriptor.id.rawValue,
+                        name: plugin.manifest.displayName,
+                        manifest: plugin.descriptor.normalizedManifest,
+                        isEnabled: enabled.contains(plugin.descriptor.id),
+                        // Short tool IDs need an official catalog entry installed through a verified channel.
+                        verifiedOfficial: OfficialPluginCatalog.entry(for: plugin.descriptor.id) != nil
+                            && [.bundled, .marketplace].contains(plugin.installation.origin)
+                    )
+                }
+            },
+            directories: { [weak services] _ in services?.toolchainSettingsDirectories?() ?? [] },
+            isRemoteWorkspace: { remoteWorkspaces.contains($0) },
+            discover: { [pluginBackends, fileStorage] request in
+                let rootIDs = PluginWorkspaceRootIDs(
+                    secret: MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)))
+                return await MacToolchainDiscovery(
+                    queryProvider: { pluginID, providerID, params, timeout in
+                        try await pluginBackends.queryToolchainProvider(
+                            providerID, params: params, ofPlugin: pluginID, timeout: timeout)
+                    },
+                    workspaceContext: { workspace, pluginID in
+                        await MainActor.run {
+                            let path = workspace.standardizedFileURL.path
+                            for context in PluginWorkspaceContexts.shared.contexts {
+                                guard case .local = context.authority,
+                                      let folder = context.folders.first(where: { $0.localURL.standardizedFileURL.path == path })
+                                else { continue }
+                                return MacToolchainDiscovery.WorkspaceContext(
+                                    contextID: context.contextID, generation: context.generation,
+                                    rootID: rootIDs.rootID(of: folder.location, pluginID: pluginID))
+                            }
+                            return nil
+                        }
+                    }
+                ).discover(request)
+            }
+        )
+        services.toolchainInputWatcher = MacToolchainInputWatcher()
         services.projectGeneratorSources = { [pluginManager] in
             // Enablement is read on every call, so a plugin enabled from the
             // window shows its entries and satisfies requirements at once.
@@ -1178,7 +1316,7 @@ final class MacServiceContainer {
         prepareTools: @MainActor (LanguageProviderDescriptor) async -> Void
     ) async throws {
         try Task.checkCancellation()
-        guard let support = supports.first(where: { $0.id == languageID && !$0.isDebugOnly }),
+        guard let support = supports.first(where: { $0.id == languageID && !$0.isDebugOnly && !$0.isEditorOnly }),
               let moduleID = support.languageServerModuleID,
               let snapshot = try? runtime.snapshot(for: moduleID),
               snapshot.state != .disabled, !snapshot.isQuarantined, !snapshot.isSuppressedBySafeMode else {
@@ -1277,6 +1415,8 @@ final class MacServiceContainer {
                     || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .vcsProvidersExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .debugAdaptersExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .grammarsExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .backendExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {

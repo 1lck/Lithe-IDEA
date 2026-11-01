@@ -12,6 +12,7 @@ This directory is the cross-platform source of truth:
 | --- | --- |
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
 | `fixtures/*.plugin.json` | Valid example manifests, named after the capability they exercise rather than a published plugin: `language-*` (packaged, system-command, and host-integration language servers; `node-runtime` for a discovered runtime), `hello-lithe` and `web-panel` (UI), `settings-v2`, and `build-*` (level 3 build systems and the two forms of a build provider) |
+| `fixtures/tool-definition.plugin.json`, `fixtures/toolchain-provider.plugin.json` | Production-shape Core fixtures for tool definitions and a packaged toolchain provider; require explicit new host capabilities, not yet supplied by native products |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
@@ -21,6 +22,8 @@ This directory is the cross-platform source of truth:
 | `fixtures/project-plans.json` | Golden `project.*` form evaluations, generation plans, and name checks |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
+| `toolchains.md` | Implemented Core foundation: plugin definitions/provider declarations, verified-origin registry, reply validation, directory pins, snapshot resolution, version matching and discovery plans; native hosts are not connected |
+| `proposals/toolchains/` | Broader design draft, including unimplemented query transport, native lifecycle/persistence, consumer migration, settings UI and manager plugins; examples are review projections, not installable manifests |
 
 Validation and template expansion are implemented once in Rust Core
 (`rust/lithe-core/src/plugins/`, with build systems in
@@ -36,6 +39,30 @@ schema's `$id` is its URL there. Contract changes land here first and must then
 be synced to that repository, so links in this file that leave this directory
 are absolute. `plugin.json` may not carry a `$schema` key, because unknown
 fields are rejected; editors associate the schema by file name instead.
+
+## Plugin-owned toolchains (Core foundation)
+
+The [toolchains draft](proposals/toolchains/README.md) records the replacement
+design discussed in [PR #1581](https://github.com/1lck/Lithe-IDEA/pull/1581#issuecomment-6541366112).
+All tool definitions belong to enabled plugins; the host supplies only generic
+query, validation, resolution, persistence, and presentation mechanisms. It
+does not add a built-in tool-definition table or interpret version-manager
+configuration formats.
+
+The [implemented Core contract](toolchains.md) now accepts `toolDefinitions: 1`
+and `toolchainProviders: 1` declarations and provides six `toolchains.*` commands.
+`executableResolution: 2` applies to tool-definition candidates only; it does not
+admit new sources into existing Build candidate sets. Definitions are entirely
+plugin-owned, with reserved short IDs checked against host-verified official
+provenance when constructing the registry.
+
+Neither native host advertises or integrates this foundation yet. Core consumes
+captured host facts; it does not start a provider, run a probe, watch files, scan
+the system, persist pins, or change current Java/Maven selection. The broader
+proposal remains unsupported where it exceeds this implemented slice. In
+particular, `toolchainConsumers`, generic runtime launches, settings pages, mise
+and SDKMAN providers, and live backend activation are not implemented here.
+Proposal envelopes remain separate from production manifests.
 
 ## Package layout
 
@@ -69,6 +96,8 @@ symbolic links. A host treats an installed package as read-only.
 | `settings` | User-adjustable plugin options (level 2 and later). |
 | `ui` | Host-rendered tool windows and commands (level 2 and later). |
 | `buildSystems` | Project-level build tools (level 3). |
+| `toolDefinitions` | Plugin-owned tool policy ([Core foundation](toolchains.md)); requires `toolDefinitions: 1` and `executableResolution: 2`; native adapters are not connected. |
+| `toolchainProviders` | Backend fact-provider declarations ([Core foundation](toolchains.md)); requires `toolchainProviders: 1`, backend/server-process capabilities and `toolchains.provide`. |
 
 Unknown fields are refused (`plugin.manifest.invalid`) so an older host
 rejects a package instead of ignoring part of it. At levels 1 and 2 a new
@@ -84,6 +113,77 @@ present. A leading dot is optional only in `fileExtensions` (`.php` equals
 `php`). In complete file names, project markers, and management file names it
 is part of the name, so `.toolrc` and `.env.example` stay hidden-file names. Optional `dependencies` lists `managementFileNames`,
 `projectDependencyPaths`, and `projectBinaryPaths` relative to the project.
+
+#### Grammars and editor configuration (`languages` 2)
+
+`languages` 2 adds two optional fields to a language. Both are data: the host
+reads them from the package and the editor applies them without starting any
+process, so a language with a grammar needs no language server, backend, or
+activation event, and a plugin may consist of grammars alone.
+
+```json
+{
+  "id": "http",
+  "displayName": "HTTP Request",
+  "fileExtensions": ["http", "rest"],
+  "grammar": { "kind": "monarch", "path": "grammars/http.monarch.json" },
+  "configuration": {
+    "lineComment": "#",
+    "blockComment": ["/*", "*/"],
+    "brackets": [["{", "}"], ["[", "]"]],
+    "autoClosingPairs": [["{", "}"], ["\"", "\""]]
+  }
+}
+```
+
+- `grammar.kind` names the highlighting engine. Version 2 defines only
+  `monarch`; another engine is added as a new kind in a later version, so a
+  plugin can move between engines without changing anything else.
+- This is a static package contribution: `languages[]` belongs to the manifest
+  and `grammar.path` references a package JSON file. No public host method accepts
+  inline grammar JSON to dynamically register, replace, or dispose a highlighting
+  provider. Live installation/update/withdrawal of eligible static packages does
+  not imply such an API or automatic reload after arbitrary file changes;
+  installed packages remain read-only.
+- Adding another language or grammar using the supported structure needs only
+  plugin data; changing its rules does not itself raise the API version. A new
+  engine or capability kind still needs an implemented host adapter and an
+  explicit contract; an arbitrary new `kind` string cannot supply one.
+- This contribution does not register completion, hover, definition, symbol,
+  formatting, rename, or Code Action providers backed by ordinary plugin
+  functions. Those independent provider bindings are not implemented; existing
+  LSP support and `editor/registerActions` are separate capabilities, not a
+  substitute for them.
+- `grammar.path` is a package-relative file that stays inside the package.
+  Hosts read it read-only from the installed package, pass its text to
+  `plugins.declarative.decodeGrammar`, and hand the returned object to the
+  editor as validated source text, never through a reconstructed JSON object:
+  Monarch `cases` are evaluated in source order. The worker parses that text and
+  defaults `start` to `root` when absent. A grammar Core refuses is `plugin.grammar.invalid` with the
+  failing field (such as `grammar.tokenizer.root[3][1].log`); the language then
+  opens as plain text and the rest of the plugin keeps working.
+- A Monarch grammar is the JSON form of a
+  [Monaco Monarch](https://microsoft.github.io/monaco-editor/monarch.html)
+  definition: rule regexes are strings, and attribute values are strings or
+  string lists. Core accepts at most 256 KiB, 256 states, 4096 rules, regexes
+  of 2048 bytes, attribute lists of 4096 entries, 64 `cases` guards, 32
+  brackets, and actions nested 8 deep. It refuses `log` actions, `next`,
+  `switchTo`, and `include` targets that are not states of the grammar
+  (`@a.b` resolves to the longest declared prefix, as in Monarch), `cases`
+  guards naming an undeclared attribute, and `nextEmbedded` values other
+  than `@pop` or a language ID. The fixture
+  [`fixtures/grammars/http.monarch.json`](fixtures/grammars/http.monarch.json)
+  is a complete example.
+- `configuration` sets `lineComment`, `blockComment` (open and close),
+  `brackets`, and `autoClosingPairs`. Each delimiter is 1 to 16 bytes without
+  control characters; each list has at most 32 pairs.
+- Grammar compilation and matching run only in a terminable worker. No plugin
+  regex runs on the editor UI thread. Include cycles and expanded rule counts
+  over 4096 are refused; a stalled worker is terminated after its local deadline.
+  Buffers over 128 Ki UTF-16 units or 10,000 lines remain plain/editable. Embedded
+  languages are plain text in this first worker adapter.
+- Declaring `languages: 2` without using either field is
+  `plugin.manifest.invalid`; using them under `languages: 1` is too.
 
 ### Language servers
 
@@ -219,7 +319,7 @@ process does not use `${workspaceStateDir}`; otherwise the request is
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
 | `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |
 | `vcsProvider` | Present only for a `vcsProviderID` selection: the [provider descriptor](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md#provider-descriptor) the host keeps for the session. |
-| `backend` | Present only for a `backend` selection: `{hostServices}`, the sorted [host services](#host-services-protocol-version-2) the plugin's permissions grant. The host passes them to `lsp.startServer.hostServices` unchanged. |
+| `backend` | Present only for a `backend` selection: `{hostServices}`, the sorted [host services](#host-services-protocol-version-2) the plugin's permissions grant, plus `version: 2` for a [`backend` 2](#backend-2-workspace-contexts) process. The host passes `hostServices` to `lsp.startServer.hostServices` unchanged. |
 
 A language without a server, an undeclared build system, a build system
 without a provider, an undeclared VCS provider, and a plugin without a
@@ -399,21 +499,24 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 
 | Capability | Covers | Versions |
 | --- | --- | --- |
-| `languages` | `languages[]` | `1` |
+| `languages` | `languages[]` | `1`, `2` (adds [`grammar` and `configuration`](#grammars-and-editor-configuration-languages-2)) |
 | `packageTrust` | `vendor.bundledSignatureRequirement`: origin-scoped trust for a host-sealed bundled copy of a publisher-signed plugin | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
 | `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
-| `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
-| `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options | `1`, `2`, `3` |
+| `ui` | `ui` | `1`, `2` (web content), `3` (native controls), `4` ([backend-only commands](#backend-only-commands-ui-4)) |
+| `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options; v4 declarative preparation roles | `1`, `2`, `3`, `4` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports, v9 opaque semantic test selectors, v10 typed run options and service/task preparation, v11 registry connection debugging | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
 | `executableResolution` | Shared executable candidate ordering and strict selection; v2 canonical project/subproject toolchain registry bindings | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
-| `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process for its pages | `1` |
+| `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process | `1`, `2` (adds [start without a page and workspace contexts](#backend-2-workspace-contexts)) |
+| `toolDefinitions` | [Tool identities, layouts, discovery and four-layer candidates](toolchains.md) | `1` (Core only) |
+| `toolchainProviders` | [Provider declarations and permission-bound answer validation](toolchains.md) | `1` (Core only) |
+| `executableResolution` | [Shared executable candidates](#shared-executable-candidates-executableresolution-1); v2 adds tool-definition candidates without changing existing Build candidate sets | `1`, `2` (v2 Core only) |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
@@ -502,6 +605,8 @@ Rules for publishing across levels and capability versions:
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
 | `backend.launch` | `backend` is declared |
 | `credentials.store` | the backend uses the [credentials host service](#host-services-protocol-version-2); refused without a `backend` |
+| `workspace.metadata` | the backend uses the [workspace host service](#workspace-contexts-and-capability-discovery-protocol-version-3); refused without `backend` 2 |
+| `editor.actions` | the backend registers independent editor actions; requires `backend` 2 and `documents.read`, grants only `editor/registerActions`, not document edits or domain execution |
 
 | Activation event | Meaning |
 | --- | --- |
@@ -511,8 +616,12 @@ Rules for publishing across levels and capability versions:
 | `onBuildSystem:<id>` | Activate the build system before its first plan, model, or decode. |
 | `onVcsRoot:<id>` | Start the VCS provider once a root of its VCS is detected in the workspace. |
 | `onDebug:<id>` | Start the debug adapter when a debug session needs it (API level 4). |
+| `onWorkspaceOpen` | Start the [`backend` 2](#backend-2-workspace-contexts) process once a workspace is open. Optional, names no ID, refused without `backend` 2. |
 
-Each provider needs its event and each event needs a provider. Enabling a
+Each provider needs its event and each event needs a provider; the only
+optional event is `onWorkspaceOpen`. There is no event that starts a plugin
+on every launch (`onStartupFinished`, `*`): it is
+`plugin.activation.invalid`. Enabling a
 plugin only permits activation; nothing starts until its event occurs.
 
 ## Trust
@@ -1713,6 +1822,38 @@ language, or workspace:
 - A plugin publishes one archive per platform, so its packaged path does not
   vary by `${arch}`; a macOS archive may carry a universal binary.
 
+### Backend 2: workspace contexts
+
+`requires.backend: 2` keeps every rule of version 1 and changes when the
+process starts and what it learns about workspaces.
+`fixtures/backend-workspace.plugin.json` is the example.
+
+- It may start without a page. It needs at least one way to start: a web
+  tool window (first page call, as in version 1), a `ui.commands[]` entry
+  (its `onCommand:<id>` also starts the backend), or the `onWorkspaceOpen`
+  event. A backend 2 with none of them is `plugin.manifest.invalid`.
+- It is still one process per plugin, shared by every open workspace and
+  window, on the machine that runs Lithe, also for remote workspaces. No
+  workspace is process state: each call names its workspace explicitly
+  (a context, below), so `${workspaceStateDir}` stays refused.
+- Starting on `onWorkspaceOpen` never delays opening the workspace. The host
+  starts such backends after the window is shown, one plugin at a time, and
+  a backend that does not finish `initialize` within its initialize timeout
+  is stopped and reported like any failed server start. A failed or
+  disabled backend never blocks the workspace.
+- The `workspace.metadata` permission grants the
+  [`workspace` host service](#workspace-contexts-and-capability-discovery-protocol-version-3).
+  It reveals the open workspaces' names, root folders and IDs, their
+  authority, and the plugin's per-workspace state directory; it reads no
+  file content.
+- Activation is gated only by the plugin being installed, enabled, and
+  reviewed. Lithe has no workspace trust state at the moment: an operation
+  that runs or changes something asks the user per operation, as the host's
+  own controls do.
+- A host that offers only `backend: [1]` refuses the manifest with
+  `plugin.api.unsupported` (`requires.backend`), so an older host never
+  starts a process that expects contexts.
+
 ## Project generators
 
 `projectGenerators` (requires `projectGenerators` 1 and the `project.generate`
@@ -1904,7 +2045,7 @@ Two rules keep these directions from forming a loop:
 ### Negotiation
 
 For a session owned by a plugin (`lsp.startServer.pluginId`), the host offers
-`capabilities.experimental.litheFunctions: { "versions": [1, 2] }` in
+`capabilities.experimental.litheFunctions: { "versions": [1, 2, 3] }` in
 `initialize`, next to and independent of `litheBuild`. Host-owned sessions do
 not offer or accept this protocol, retain no plugin-function registry, and
 reject register/unregister with `-32601`. A plugin backend that offers
@@ -1954,7 +2095,8 @@ backend that did not negotiate the protocol gets `-32601` for both.
 ### Invocation
 
 `lsp.functionRequest { sessionId, operationId?, function, params?,
-timeoutMilliseconds? }` returns `{ operationId }` and sends:
+timeoutMilliseconds?, context? }` (`context` from protocol version 3, see
+[workspace contexts](#workspace-contexts-and-capability-discovery-protocol-version-3)) returns `{ operationId }` and sends:
 
 ```json
 { "method": "lithe/function/invoke", "params": { "functionID": "snapshot.refresh", "operationID": "…", "params": { … } } }
@@ -2027,9 +2169,13 @@ granted services as `lsp.startServer.hostServices` (from the launch plan's
   the plugin and are deleted when it is uninstalled.
 - Core refuses, without involving the host, in this order: a session that
   negotiated version 1 or a method version 2 does not define (`-32601`,
-  `plugin.host.unavailable`), a service the plugin is not granted (`-32601`,
-  `plugin.host.permissionDenied`), and malformed params (`-32602`,
-  `plugin.host.invalidParams`). The code is in `error.data.code`.
+  `plugin.host.unavailable`), a service the plugin is not granted (`-32601`
+  in version 2, `-32010` from version 3, `plugin.host.permissionDenied`),
+  and malformed params (`-32602`, `plugin.host.invalidParams`; from
+  version 3 a field the method does not define is `-32018`,
+  `plugin.host.unsupportedOption`, see
+  [Extending version 3](#extending-version-3)). The code is in
+  `error.data.code`.
 - An accepted request becomes the runtime event `hostRequest` with `method`
   and `result: { hostRequestID, service, params }`. The host answers it with
   `lsp.hostResponse { sessionId, hostRequestID, result? | error: { message } }`;
@@ -2038,8 +2184,372 @@ granted services as `lsp.startServer.hostServices` (from the launch plan's
   `hostRequestID`, including one already answered, is `invalid_request`.
 - A session holds at most 16 unanswered host requests; a further one is
   refused with `plugin.host.failed`. Unanswered requests end with the session.
-- `hostServices` needs `pluginId` and names only services this Core defines;
-  otherwise `lsp.startServer` is `invalid_request`.
+- `hostServices` needs `pluginId` and names only services this Core defines
+  (`credentials`, `workspace`, or registered method-grant names); otherwise `lsp.startServer` is
+  `invalid_request`.
+
+### Workspace contexts and capability discovery (protocol version 3)
+
+Version 3 keeps every rule of version 2 and adds capability discovery,
+subscription disposal, workspace contexts, a context on each call, typed host
+failures with details, cancellation of host requests, and host
+notifications.
+
+| Request | Params | Result | Granted by |
+| --- | --- | --- | --- |
+| `lithe/host/getCapabilities` | none or `{}` | `{ protocolVersion, backendAuthority, services, limits }` | every plugin-owned session |
+| `lithe/host/subscriptions/dispose` | `{ subscriptionID }` | `null`, also for an unknown or already disposed ID | every plugin-owned session |
+| `lithe/host/workspace/listContexts` | none or `{}` | `{ revision, contexts: [<context>] }` | `workspace.metadata` |
+| `lithe/host/workspace/getContext` | `{ context: { contextID, generation } }` | `<context>` | `workspace.metadata` |
+| `lithe/host/workspace/getFolders` | `{ context: { contextID, generation } }` | `{ folders: [<folder>] }` | `workspace.metadata` |
+
+- Core answers `getCapabilities` itself. `services` maps each service the
+  session may use (the implicit `host`, `subscriptions`, and `commands`, and
+  the granted ones) to `{ methods, notifications }`: the requests it may
+  send and the [host notifications](#host-notifications-protocol-version-3)
+  it may receive. It lists nothing the session may not use, and a host
+  grants only the services it has handlers for, so a listed method never
+  fails for want of one. `backendAuthority` is `"local"`: the backend runs on
+  the machine that runs Lithe. `limits` gives `pendingHostRequests`,
+  `functionResultBytes`, `hostRequestBytes`, `hostResultBytes`, `errorMessageBytes` (the cut of a host failure's
+  message), `errorDetailsBytes`, and `notificationBytes`. A backend must
+  check `services` instead of assuming a method from the version.
+- A context is one open workspace in one window:
+
+  ```json
+  {
+    "contextID": "w-3f2a9c",
+    "generation": 2,
+    "name": "orders",
+    "authority": { "kind": "local" },
+    "folders": [{ "rootID": "r0c1d2e3f4a5b6c7d", "name": "orders", "path": "/Users/me/orders" }],
+    "stateDirectory": "/Users/me/Library/Application Support/Lithe/PluginState/<plugin>/backend/workspaces/<digest>"
+  }
+  ```
+
+  `contextID` uses the key alphabet and lives as long as the window shows
+  that workspace: a window that switches to another workspace closes the
+  context and opens one with a new `contextID`, so state a backend keyed by
+  the ID never carries over to a different workspace. `generation` starts at
+  1 and grows every time the same workspace's folders or authority change; a
+  request naming an older generation, or a closed context, is
+  `plugin.host.contextExpired`, and the backend asks again. `revision` of
+  `listContexts` grows whenever a context opens, closes, or changes.
+- `rootID` identifies one root folder stably for the same location, across
+  restarts, without revealing the path. It is keyed per plugin with a host
+  secret, so two plugins see different IDs for the same folder and an ID
+  cannot be computed from a guessed path. `path` is present only for a
+  `local` authority.
+- `authority.kind` is `local` or `remote` (a remote workspace, which also
+  has `authority.id`, an opaque connection ID). For a `remote` context the
+  folders carry no `path`: the local directory the host keeps for a remote
+  workspace is an empty placeholder, not the workspace. File, search, and
+  process services answer a request for a context whose authority they do
+  not implement with `plugin.host.authorityUnsupported`; they never read the
+  placeholder or run the operation locally instead.
+- `stateDirectory` is private to the plugin and the workspace, outside the
+  plugin package and the application bundle. Only `getContext` returns it,
+  and creates it then; `listContexts` entries carry every other field and
+  create nothing, so listing many windows leaves no directories behind.
+  `${stateDir}` is the plugin-wide state. Both survive disabling and
+  updating the plugin and are deleted when it is uninstalled.
+- A page call may name its context: `lsp.functionRequest.context`
+  (`{ contextID, generation }`) reaches a version 3 backend as
+  `params.context` of `lithe/function/invoke`. A malformed reference is
+  `plugin.function.invalidParams`; a backend that negotiated version 1 or 2
+  receives the call without it. The host fills it from the page's window.
+- A host failure may carry a code and details:
+  `lsp.hostResponse.error: { message, code?, details? }`. Core passes these
+  codes to a version 3 backend, each with its own JSON-RPC error code so a
+  backend can branch on the number alone; any other code, no code, or a
+  version 2 backend gets `plugin.host.failed`. `details` is an object of at
+  most 4 KiB serialized (for example `{ currentVersion }` with
+  `versionConflict`, or `{ retryAfterMilliseconds }` with `rateLimited`);
+  it reaches a version 3 backend as `error.data.details` and is dropped
+  otherwise. Details that are not an object, or larger, are dropped too;
+  the failure itself still reaches the backend. `fixtures/function-protocol.json` (`hostFailures`)
+  lists the mapping.
+
+  | Code | JSON-RPC | Meaning |
+  | --- | --- | --- |
+  | `plugin.host.unavailable` | `-32601` | The host offers no such service or method |
+  | `plugin.host.invalidParams` | `-32602` | Params malformed or out of range |
+  | `plugin.host.failed` | `-32603` | Any other failure |
+  | `plugin.host.cancelled` | `-32800` | The request was cancelled |
+  | `plugin.host.permissionDenied` | `-32010` | Permission not declared, or the user withheld consent |
+  | `plugin.host.contextExpired` | `-32011` | The context is closed or its generation replaced |
+  | `plugin.host.authorityUnsupported` | `-32012` | The service does not support the workspace authority |
+  | `plugin.host.versionConflict` | `-32013` | A document or resource version differs from the expected one |
+  | `plugin.host.limitExceeded` | `-32014` | A host limit was exceeded |
+  | `plugin.host.timeout` | `-32015` | The host's deadline passed |
+  | `plugin.host.notFound` | `-32016` | The named resource does not exist |
+  | `plugin.host.readOnly` | `-32017` | The resource or workspace cannot be written |
+  | `plugin.host.unsupportedOption` | `-32018` | The host does not implement a requested option; `details.option` names the field |
+  | `plugin.host.preconditionFailed` | `-32019` | A state the request requires does not hold, such as a missing user confirmation |
+  | `plugin.host.busy` | `-32020` | The resource is in use; retry later |
+  | `plugin.host.rateLimited` | `-32021` | Too many requests in a period; retry after `details.retryAfterMilliseconds` when given |
+
+  JSON-RPC reserves `-32768` to `-32000` for the protocol and lets
+  implementations define `-32099` to `-32000` as server errors. `-32000`
+  to `-32009` stay free for backends' own failures, which many JSON-RPC
+  libraries already use from `-32000`, so host codes start at `-32010` and
+  grow by one; a code is never reused for another meaning. Versions 1 and
+  2 keep their numbers.
+- A backend may cancel its own pending host request with `$/cancelRequest`.
+  Core answers it at once with `-32800` and `plugin.host.cancelled`, frees
+  the slot, and publishes `hostRequestCancelled { hostRequestID }` so the host
+  stops the work; a later `lsp.hostResponse` for that ID is
+  `invalid_request`. The 17th pending request of a version 3 session is
+  `plugin.host.limitExceeded`.
+- A service that creates a subscription returns a `subscriptionID` of the key
+  alphabet; its notifications name it. Ending the session, disabling the
+  plugin, or closing the subscription's context disposes it.
+- A backend still cannot ask the host to call a function or a domain
+  operation (`plugin.function.recursiveCall`), so a page call never waits on
+  itself through the host.
+
+### Host notifications (protocol version 3)
+
+The host tells a version 3 backend about changes with JSON-RPC
+notifications; the backend answers none of them. The host sends them through
+Core with `lsp.hostNotify { sessionId, method, params }`, which returns
+`{ delivered }`: `false` when the session negotiated an older version, which
+then never sees them.
+
+| Notification | Params | Granted by |
+| --- | --- | --- |
+| `lithe/host/workspace/didChangeContexts` | `{ revision }` | `workspace.metadata` |
+| `lithe/host/subscriptions/notify` | `{ subscriptionID, sequence, event }` | every plugin-owned session |
+| `lithe/host/commands/didRun` | `{ commandID, context? }` | every plugin-owned session |
+
+- `didChangeContexts` follows every change `revision` of `listContexts`
+  counts; the backend calls `listContexts` for the contexts. A backend that
+  starts later reads them itself.
+- `subscriptions/notify` carries one `event` object of the named
+  subscription. `sequence` starts at 1 and grows by one per subscription, so
+  a backend can detect a gap; nothing follows a disposal.
+- `commands/didRun` reaches the plugin's backend when the user runs one of
+  the plugin's commands. `commandID` is the command's ID; `context`
+  (`{ contextID, generation }`) is the window's context when it has one. A
+  running backend receives it in order with the other notifications; a
+  stopped one is started for it only when it declares
+  `onCommand:<commandID>`, and receives it once ready.
+- `revision` and `sequence` are positive integers, `event` is an object,
+  and serialized params are at most `limits.notificationBytes`. Core refuses
+  any other method, a service the session is not granted, malformed params,
+  a session that is not plugin-owned, or one that is not ready, with
+  `invalid_request`. `fixtures/function-protocol.json`
+  (`hostNotifications`) holds the cases.
+
+### Extending version 3
+
+From version 3, host capabilities are added within the version, and a
+backend discovers them with `getCapabilities` instead of a version number. A later host adds, without a
+new version:
+
+- a service with its methods and notifications, granted by a new manifest
+  permission, or a method or notification of an existing service;
+- an optional field of request params (an *option*) whose absence keeps the
+  earlier behavior, or a field of a result, a notification, `details`, or
+  `limits`;
+- a failure code, which takes the next unused JSON-RPC number after
+  `-32021`; a number never changes meaning.
+
+A new protocol version is needed only for a change an existing backend
+would misread: removing or renaming a method, notification, or field,
+changing a field's meaning or type, making an option required, changing a
+code's number, or weakening an ordering or lifecycle guarantee above.
+
+So that a version 3 backend works with every host of version 3:
+
+- It calls a method only when `getCapabilities.services` lists it; another
+  is `-32601`, `plugin.host.unavailable`.
+- It ignores result, notification, `details`, and `limits` fields it does
+  not know, and any `lithe/host/*` notification it does not know.
+- Core refuses a field the method does not define with `-32018`,
+  `plugin.host.unsupportedOption`, and `details: { option }` naming it, before
+  the host sees the request; the backend may retry without that option. A
+  service whose params Core does not type answers the same way itself.
+- It treats a JSON-RPC number it does not know as a host failure, and
+  branches on `error.data.code` when it knows that code.
+- A package whose backend needs a new service declares the new permission.
+  A host that does not know the permission refuses the package at install
+  (`plugin.permission.unknown`), so a permission is never granted or
+  ignored silently.
+
+`fixtures/function-protocol.json` (`hostRequests`) holds the
+unsupported-option cases.
+
+### Public document, file and window methods (protocol version 3)
+
+These methods are implemented by the macOS host. Windows does not advertise
+`backend` support. `getCapabilities` lists only the intersection of the plugin's
+permission-derived grants and this host's registered method handlers.
+
+New grants in `lsp.startServer.hostServices` use **full method names**, not service
+names. The legacy `workspace` grant still admits only `listContexts`, `getContext`
+and `getFolders`; it never grants file reads. The legacy `credentials` grant is
+unchanged. Registering another handler cannot replace a method already registered.
+
+All methods below require `context: {contextID, generation}`. Resource arguments
+use `{rootID, path}` from that plugin's `getFolders` response; paths use `/` and
+are relative to the root. A root ID is not a lifetime or an authorization token.
+Opening the same folder in two windows creates independent context-owned leases;
+closing one does not invalidate the other, and reopening works with generation 1
+in its new context. Remote contexts are explicitly refused by this first set of
+methods. Unknown options fail before side effects with `unsupportedOption`.
+
+| Methods (prefix `lithe/host/`) | Permission | Params in addition to `context` | Result |
+| --- | --- | --- | --- |
+| `documents/list` | `documents.read` | none | `{documents:[<summary>]}` |
+| `documents/getSnapshot` | `documents.read` | `documentID` | `{document:<summary>, text}` from the dirty live buffer |
+| `editor/registerActions` | `editor.actions` (+ `documents.read`) | `id,function,selector` | `{subscriptionID}`; independent editor actions, see below |
+| `editor/getActive` | `documents.read` | none | summary of the foreground text tab, or `null` |
+| `editor/getSelections` | `documents.read` | `documentID` | `{documentID,version,selections:[{anchor,active}],primaryIndex}` |
+| `editor/applyEdits` | `editor.edit` | `documentID,expectedVersion,edits:[{range,text}]` | `{documentID,version,applied}` |
+| `editor/replaceSelections` | `editor.edit` | `documentID,expectedVersion,selections:[{anchor,active}],replacements:[string]` | same; one replacement for all selections or one per selection |
+| `editor/insertText` | `editor.edit` | `documentID,expectedVersion,at,text` | same |
+| `workspace/readDirectory` | `workspace.files.read` | `resource,cursor?,limit?` | `{entries:[{name,resource,kind}],nextCursor}` |
+| `workspace/stat` | `workspace.files.read` | `resource` | `{resource,kind,size,modifiedMilliseconds}` |
+| `workspace/readFile` | `workspace.files.read` | `resource,maximumBytes?` | `{resource,source:"disk",byteCount,isTruncated,identity,text?,encoding?,base64?}` |
+| `workspace/watch` | `workspace.files.watch` | `resource,recursive?` (default false) | `{subscriptionID}`; events contain `{rootID,changedPaths,requiresRescan}` |
+| `workspace/findFiles` | `workspace.search` | `resource` naming the root (`path:""`), `query,fileMask?,cursor?,limit?` | `{matches:[<resource>],nextCursor,isTruncated,source:"disk"}` |
+| `workspace/findText` | `workspace.search` | root `resource,pattern,fileMask?,caseSensitive?,wholeWords?,regularExpression?,cursor?,limit?` | same envelope, matches `{resource,line,preview,range:null}`; the upstream search owner currently reports lines, not exact match spans |
+| `editor/open`, `editor/reveal` | `editor.open` | `resource,activation?` (`select` or `background`), `range?,tab?` (`regular` only) | document identity/version and state, `wasAlreadyOpen,windowIsForeground,appliedSelection` |
+| `preview/openHTML` | `preview.open` | HTML `resource,presentation?` (`editorAndPreview` or `previewOnly`), `range?` | open result plus `usesLiveBuffer:true,presentation`; explicitly changes the existing tab's presentation |
+| `browser/openExternal` | `browser.open` | exactly one of HTTP(S) `url` or HTML `resource`; `unsaved?` (`openSavedFile` or `requireSaved`) for a resource | `{opened:true,source:"web"|"disk",hasUnsavedChanges?}` |
+| `window/showInformation`, `window/showWarning`, `window/showError` | `window.messages` | `text,actions?` | `{selectedIndex}`; zero-based, or `null` on dismissal |
+
+A document summary has `documentID,version,path,languageID,isReadOnly,isDirty,
+encoding,lineEnding`. `path` is workspace-relative or null for a document outside
+the root; `languageID` may be null. Positions `{line,column}` are one-based UTF-16;
+ranges `{start,end}` are half-open and cannot split a surrogate pair. Selections
+keep anchor/active direction. Batches are atomic and one Monaco undo step. Stale
+versions, read-only buffers, pending editor synchronization and IME composition
+are refused. Background documents without a mounted editor can be listed/read,
+but edits/selections may return `busy`; opening a foreground tab does not imply
+that its web editor is already ready. Retry reads after readiness, not edits
+blindly. `editor.open/reveal` currently applies a range's start as a caret and
+reports `{kind:"caret",line,column}`, not a fabricated full selection.
+
+Limits: snapshots and file reads expose at most 128 KiB of source text/bytes per
+call; oversized snapshots return `limitExceeded`, file reads report truncation.
+This leaves room for worst-case JSON escaping under the 1 MiB serialized host
+request/result budget. Batches contain at most 1,000 edits/selections. Directory
+pages default to 200 and cap at 1,000; search pages default to 100 and cap at 200,
+with the search owner's overall 200-result cap. Explicit file reads use
+component-wise `O_NOFOLLOW`; listings omit symlinks. Hidden-file rules affect
+listing/search/watch, not authorization for explicit reads. Open/browser paths
+retain the existing canonical containment checks and their documented
+check-to-open race; native backends are not OS-sandboxed.
+
+Machine host requests have a 30-second host deadline. User-choice messages wait
+until the user answers, the request is cancelled, or the context/session closes.
+Messages retain the per-plugin/window rate and queue limits (5/10 seconds,
+3 pending per plugin, 10 per window, 2,000 text characters, 3 actions of 40
+characters). Session exit revokes grants and cancels requests/subscriptions;
+old session callbacks cannot affect a replacement. Closing a context cancels its
+requests with `contextExpired`. Notifications have a 128-entry per-session queue;
+context revisions coalesce to the latest, and overflow ends the session instead
+of allowing unbounded memory or silently losing commands. Notification/response
+writes share the process write watchdog and stop cleanup with function requests.
+
+Cancellation or timeout **does not promise rollback**: an edit or external open
+may already have committed. The SDK must not replay a mutation on these failures.
+On `versionConflict`, reread and recompute; on `contextExpired`, resolve the
+original target again, never substitute the focused window. `busy`/`rateLimited`
+may be retried with bounds; `permissionDenied`/`readOnly` need user intervention.
+
+### Backend-only commands (`ui` 4)
+
+`requires.ui:4` permits `ui.commands` without `toolWindowID` and allows an empty
+or omitted `toolWindows` array. Such a command requires `backend:2`, the existing
+`ui.contribute` and `backend.launch` permissions, and its `onCommand:<id>` event.
+Versions 1-3 retain their window-required behavior. An old host rejects ui 4 at
+installation, rather than accepting a command it cannot execute. See
+`fixtures/command-backend.plugin.json`.
+
+The command appears through the ordinary workbench command contributions and
+sends `commands/didRun` without opening a dummy tool window. Commands arriving
+while initialize is pending wait until ready; a crashed backend can start again
+on its declared command event. Background workspace activation has two concurrent
+start slots; explicit command activation does not wait for unrelated background
+plugins. `didRun` remains an event, not an acknowledgement that the command's
+business action succeeded; a future result-bearing execute API must use the
+existing request lifecycle rather than infer success from notification delivery.
+
+### Independent editor actions (protocol version 3)
+
+Editor actions are a host presentation capability of an ordinary tool backend,
+not an LSP, Build, Run, Test or Debug provider. A play icon is presentation, not
+an execution kind. The host understands the bounded range/title/icon/invocation
+shape; HTTP/SQL parsing and execution remain private to the plugin. Native domain
+workflows still use their own typed contracts, never a private-function substitute.
+
+A backend declares `backend: 2`, `documents.read` and `editor.actions`, discovers
+`lithe/host/editor/registerActions` with `getCapabilities`, then registers per
+workspace context:
+
+```json
+{
+  "context": {"contextID": "w1", "generation": 1},
+  "id": "requestActions",
+  "function": "requests.collectActions",
+  "selector": {"fileExtensions": ["http", "rest"], "fileNames": []}
+}
+```
+
+- Registration returns `{subscriptionID}`. Dispose with the existing subscription
+  API. It only records the binding and never calls the backend while answering;
+  collection runs later. The function must already be registered on that session.
+- No manifest `runMarkers` section or capability, no special command notification,
+  and no language-server/Run declaration is added. The first implementation starts
+  through existing `onWorkspaceOpen` (or an existing explicit entry); registration
+  cannot discover a backend that has not started. Backend installation still needs
+  restart. Standalone backends have an application-scoped enablement module,
+  without a fake UI or language provider; safe mode/quarantine/disable still veto
+  their startup. Example package: `fixtures/editor-actions.plugin.json`.
+- A selector has 1 to 32 literal names/extensions; extensions accept an optional
+  leading dot. Matching is case-insensitive. At most 32 bindings per plugin across
+  contexts; duplicate registration IDs in a context are refused.
+- The host invokes the collection function via existing `lithe/function/invoke`
+  with workspace context and `{document:{documentID,version,path},text}`. Version
+  is the same public buffer version as `documents/getSnapshot`, not a WebView
+  revision. Source is the dirty live buffer, capped at 128 KiB. Remote workspaces
+  and read-only preview surfaces are not served by this first implementation.
+- Collection is read-only by contract: no network request or business execution.
+  Edits invalidate the old actions immediately and cancel older collection work;
+  the host debounces fresh collection and rejects stale or withdrawn results.
+  macOS bounds the whole collection batch to eight seconds, not eight seconds per
+  binding. Refresh acknowledges scheduling without waiting for collectors; a slow
+  or failed collector must not fail editing or the save synchronization barrier.
+- Return `{actions:[{id,range:{start:{line,column},end:{line,column}},title,icon,
+  invoke:{functionID,params?}}]}`. Positions are one-based UTF-16, half-open and
+  cannot split surrogate pairs. Each range stays in the exact input document.
+  `id` is 1 to 128 bytes without controls, unique per answer; `title` is 1 to 200
+  characters on one line. `icon` is `run` or `run-all`, a host-owned presentation
+  token. At most 1000 actions and 1 MiB serialized; malformed answers are refused
+  whole. Same-line actions share a menu rather than silently replacing each other.
+- Each invocation target is a currently registered function of the same plugin;
+  `params` is a plugin-private JSON object. The host stores it behind an opaque
+  per-batch action key, never accepts invocation payloads from the web editor, and
+  validates document/context/session/registration again on click. It calls the
+  function with `{documentID,expectedVersion,actionID,data:<params>}` through the
+  ordinary invocation lifecycle. The plugin validates/re-reads the live document
+  before side effects. Click executions are not cancelled by unrelated re-parsing;
+  withdrawing the binding, ending its session/context or tearing down the owning
+  editor cancels them. The host never retries side effects automatically.
+- Registration/collection validation is shared Core command
+  `plugins.editorActions.decode`; public host failures retain protocol 3's existing
+  distinct codes (`invalidParams`, `permissionDenied`, `versionConflict`, etc.).
+  No tool-private error or result is interpreted as a build/test result.
+- Existing `commands/didRun {commandID,context?}` is unchanged. A command-palette
+  entry can read the document/selection and call the same plugin implementation.
+- This is an additive host method within protocol 3, not a protocol-version bump.
+  Old hosts do not advertise it. A plugin can retain its existing command/window
+  entry point; a package requiring `editor.actions` is deliberately refused by an
+  older host that does not recognize that permission, rather than silently granted.
+  Grammar capability admission is separate. SDK/contract mirrors still need sync.
 
 ### Compatibility
 
@@ -2047,12 +2557,21 @@ granted services as `lsp.startServer.hostServices` (from the launch plan's
 - A backend written before this protocol does not answer `litheFunctions`.
   It keeps serving its language and its `litheBuild` requests, receives no
   function calls, and its function requests are answered with `-32601`.
-- A new host capability or wire field the other side must not ignore needs a
-  new protocol version, offered next to the old one.
+- Up to version 3, every protocol version added host capabilities. From
+  version 3 a new host capability or optional field is added within the
+  version ([Extending version 3](#extending-version-3)); only a change an
+  existing backend would misread needs a new protocol version, offered next
+  to the old one.
 - A backend that answers `version: 1` keeps working unchanged: version 2
-  only adds host services.
+  only adds host services. A backend that answers `version: 2` keeps
+  working unchanged: version 3 only adds methods, notifications, the call
+  context, and failure codes and details, all of which it never sees.
+- `requires.backend: 1` packages keep their meaning; a new behavior of the
+  backend capability is `backend` 2, never a silent change of version 1.
 - `fixtures/function-protocol.json` holds the golden cases, including the
-  host requests (`hostRequests`). Rust Core tests run them, and a scripted backend covers routing, result, failure, cancellation,
+  host requests (`hostRequests`), call contexts (`invocationContexts`), host
+  failure codes (`hostFailures`), and host notifications
+  (`hostNotifications`). Rust Core tests run them, and a scripted backend covers routing, result, failure, cancellation,
   deadline, late reply, revocation, and compatibility with a build-only
   backend.
 
@@ -2124,6 +2643,8 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.build.invalidSelection` | Core | A build request selects a scope, target, filter, or argument the declaration does not allow, or misses a required path |
 | `plugin.build.invalidOutput` | Core | Build-tool output or a report does not fit its decoder |
 | `plugin.launch.invalidRequest` | Core | A launch plan request has an unusable directory or an unknown architecture |
+| `plugin.grammar.invalid` | Core | A language's grammar file is not a Monarch grammar Core accepts; `field` names the failing part |
+| `plugin.grammar.unavailable` | Core | The plugin declares no grammar for the language |
 | `plugin.vcs.reserved` | Core | A VCS provider claims the ID of the built-in Git support |
 | `plugin.vcs.invalidOutput` | Core | A VCS provider's reply does not fit the [VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md) |
 | `plugin.index.invalid` | Core | Malformed index root or entry, or an invalid URL, checksum, platform, version, or date |
@@ -2155,8 +2676,21 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.function.recursiveCall` | Core | A backend asked the host to dispatch a domain operation or function |
 | `plugin.host.unavailable` | Core | A backend asked for a host capability the negotiated protocol does not offer |
 | `plugin.host.permissionDenied` | Core | A backend asked for a [host service](#host-services-protocol-version-2) its plugin's permissions do not grant |
-| `plugin.host.invalidParams` | Core | A host-service request has malformed or unknown params |
-| `plugin.host.failed` | Core | The host could not complete a host-service request, or too many were unanswered |
+| `plugin.host.invalidParams` | Core | A host-service request has malformed params, or (before version 3) unknown ones |
+| `plugin.host.unsupportedOption` | Core, Host | From version 3, a host-service request names a field the host does not implement; `details.option` names it |
+| `plugin.host.failed` | Core | The host could not complete a host-service request, or (before version 3) too many were unanswered |
+| `plugin.host.contextExpired` | Host | The request names a workspace context that closed or has a newer generation |
+| `plugin.host.authorityUnsupported` | Host | The context's authority (for example a remote workspace) does not implement the operation |
+| `plugin.host.versionConflict` | Host | A versioned write names an older version than the current one |
+| `plugin.host.limitExceeded` | Core, Host | A host limit on size, count, or rate was exceeded |
+| `plugin.host.cancelled` | Core, Host | The backend cancelled the host request, or the host stopped it |
+| `plugin.host.timeout` | Host | The host's own deadline for the operation passed |
+| `plugin.host.notFound` | Host | The named resource does not exist |
+| `plugin.host.readOnly` | Host | The resource or workspace cannot be written |
+| `plugin.host.preconditionFailed` | Host | A state the request requires does not hold |
+| `plugin.host.busy` | Host | The resource is in use; retry later |
+| `plugin.host.rateLimited` | Host | Too many requests in a period |
+| `plugin.backend.exited` | Host | A page's call, or a host operation for the backend, ended because the backend process exited |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or
 disabled), `running`, `restartRequired`, `updateRequired`, and `failed`.
@@ -2257,8 +2791,9 @@ them), `lithe.context` (`pluginID`, `windowID`, `platform`, `locale`,
 `theme`), `lithe.request(method, params)`, which returns a promise of the
 result or rejects with `{ code, message }`, and `lithe.on(event, listener)`,
 which returns an unsubscribe function. A page reaches only its own plugin's
-build systems and the open workspace. Requests that run anything go through
-the same workspace trust and consent prompts as the host's own controls, and
+build systems and the open workspace. Requests that run anything ask for the
+same per-operation consent as the host's own controls (Lithe has no workspace
+trust state at the moment), and
 their output appears in the host's Build output window.
 
 | Method | Parameters | Result |
@@ -2515,7 +3050,8 @@ receive the selected build tool as `tool.executable`; their ServerProcess protoc
 is unchanged. Language Servers, Execution Providers, and other ServerProcess
 launch forms can later adapt into this same resolver without changing their
 manifest structure all at once: preserve package-realpath/executable checks,
-workspace trust, auto-start restrictions, runtime ownership and cancellation.
+per-operation consent (there is no workspace trust state yet), auto-start
+restrictions, runtime ownership and cancellation.
 They do **not** advertise support for new candidate declarations until their
 adapter is implemented; this capability currently authorizes the Build candidate
 positions only. Windows does not advertise it yet.

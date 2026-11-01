@@ -3,6 +3,7 @@ import {
   AGENT_DROP_TARGET_SELECTOR,
   AGENT_FILE_DROP_EVENT,
   AGENT_FILE_DROP_HOVER_EVENT,
+  createDropListenerScope,
   dispatchAgentDropHover,
   dispatchDroppedPathsToAgent,
   dispatchTerminalPathInsert,
@@ -134,5 +135,30 @@ describe("external file drop routing", () => {
       [AGENT_FILE_DROP_HOVER_EVENT, { active: false }],
     ]);
     expect(dispatchAgentDropHover(element([]), true)).toBe(false);
+  });
+});
+
+describe("drop listener scope", () => {
+  test("disposing releases every listener once", () => {
+    const released: string[] = [];
+    const scope = createDropListenerScope();
+    scope.add(() => released.push("window"));
+    scope.add(() => released.push("webview"));
+
+    scope.dispose();
+    scope.dispose();
+
+    expect(released).toEqual(["window", "webview"]);
+    expect(scope.disposed).toBe(true);
+  });
+
+  test("a listener whose registration finishes after cleanup is released at once", () => {
+    const released: string[] = [];
+    const scope = createDropListenerScope();
+
+    scope.dispose();
+    scope.add(() => released.push("late"));
+
+    expect(released).toEqual(["late"]);
   });
 });

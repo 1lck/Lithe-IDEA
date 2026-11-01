@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import {
   useFileTreePresentation,
@@ -20,6 +20,7 @@ import type { GitCommitFile } from "../../types/git.types";
 import { getCommitFileStatusColorClassName } from "../../utils/git-file-status-visuals";
 import { gitFileTreeOrder } from "../../utils/git-file-tree-order";
 import { compareGitFileNames } from "../../utils/natural-file-name-compare";
+import { installTreeGuideVisibility } from "@/features/file-explorer/lib/tree-guide-visibility";
 
 export function countCommitFileTreeLeaves(node: PathTreeNode<GitCommitFile>): number {
   if (node.type === "leaf") return 1;
@@ -165,6 +166,28 @@ export function GitCommitFileTree({
     [files],
   );
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // The selection can move without a click here (the diff preview's next/previous file), so a
+  // newly selected file must not stay hidden inside a folder the user collapsed earlier.
+  const [revealedPath, setRevealedPath] = useState<string | null>(null);
+  if (selectedPath !== revealedPath) {
+    setRevealedPath(selectedPath);
+    const normalized = selectedPath?.replace(/\\/g, "/");
+    if (normalized && [...collapsed].some((path) => normalized.startsWith(`${path}/`))) {
+      setCollapsed(new Set([...collapsed].filter((path) => !normalized.startsWith(`${path}/`))));
+    }
+  }
+  // Vertical-only "nearest" scrolling: a click on a wide row must not jump the horizontal offset.
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const row = viewport?.querySelector<HTMLElement>('[data-sidebar-tree-row][data-active="true"]');
+    if (!viewport || !row) return;
+    const viewportBounds = viewport.getBoundingClientRect();
+    const rowBounds = row.getBoundingClientRect();
+    if (rowBounds.top < viewportBounds.top)
+      viewport.scrollTop -= viewportBounds.top - rowBounds.top;
+    else if (rowBounds.bottom > viewportBounds.bottom)
+      viewport.scrollTop += rowBounds.bottom - viewportBounds.bottom;
+  }, [selectedPath]);
   const toggle = (path: string) => {
     setCollapsed((current) => {
       const next = new Set(current);
@@ -176,6 +199,9 @@ export function GitCommitFileTree({
   // IntelliJ's commit-files tree scrolls horizontally instead of truncating long names,
   // like the changes tree: the tree widens to the widest rendered row (see
   // use-tree-content-width.ts) and the viewport scrolls both ways.
+  useEffect(() => {
+    installTreeGuideVisibility();
+  }, []);
   const treeContentWidth = useTreeContentWidth({
     viewportRef,
     rowSelector: "[data-sidebar-tree-row]",

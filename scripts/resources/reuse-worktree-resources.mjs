@@ -89,10 +89,14 @@ async function readRegistry() {
   // Per-operation Maven report snapshots have no reusable identity and must remain isolated.
   // Native configuration probes (including their isolated repository manager), source-identity cache v2 and secret-bearing
   // conditional replacements and private provider-written outputs/<operation-id>.json use the same explicit rejection route.
+  // Plugin grammar workers use checkout-built editor assets; decoded grammars,
+  // document tokens and editor action leases are memory-only, never reusable.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,
   // not reusable build inputs, even without plugin mirror staging.
+  // Plugin host secrets and workspace state also take this rejection route,
+  // never a download/cache validator: their identity belongs to the installation.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

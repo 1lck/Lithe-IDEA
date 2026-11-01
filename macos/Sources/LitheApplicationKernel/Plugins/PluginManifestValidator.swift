@@ -167,7 +167,7 @@ public struct ValidatedPluginCatalog: Sendable {
                 // another package owns; it never takes that ownership over.
                 // Plugins are visited in ID order, so it waits until every
                 // owning declaration is in, whichever ID sorts first.
-                if support.isDebugOnly {
+                if support.isDebugOnly || support.isEditorOnly {
                     debugOnlySupports.append((plugin.id, support))
                     continue
                 }

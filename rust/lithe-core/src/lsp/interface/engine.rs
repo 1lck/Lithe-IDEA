@@ -2,7 +2,7 @@
 
 use super::client::{
     client_apply_server_message_for_plugin, client_initialize_for_plugin, json_rpc_error_with_code,
-    json_rpc_result,
+    json_rpc_error_with_data, json_rpc_notification, json_rpc_result,
 };
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
@@ -68,6 +68,8 @@ const MAX_BUILD_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 /// working copy over a slow link can take long, but never stays pending
 /// without a deadline.
 const MAX_VCS_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
+/// Longest toolchain query a host may ask for; queries only read manager state.
+const MAX_TOOLCHAIN_QUERY_TIMEOUT_MS: u64 = 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
@@ -110,6 +112,10 @@ pub struct StartServerRequest {
     /// requests to the host.
     #[serde(default)]
     pub host_services: Vec<String>,
+    /// Provider IDs of the plugin's verified manifest. Only a plugin-owned
+    /// session with some is offered `litheToolchains`.
+    #[serde(default)]
+    pub toolchain_providers: Vec<String>,
     pub executable_path: String,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -225,10 +231,11 @@ pub struct SyncDocumentRequest {
     pub session_id: String,
     pub uri: String,
     pub language_id: String,
-    /// Full document text. Required for `didOpen`; optional for incremental `didChange`.
+    /// Full document text. May be omitted when `content_changes` extends a
+    /// document Core already holds.
     #[serde(default)]
     pub text: String,
-    /// Range-based edits used when the server advertised Incremental `textDocumentSync`.
+    /// Edits in the order they happened, each range relative to the previous result.
     #[serde(default)]
     pub content_changes: Vec<LspDocumentContentChange>,
 }
@@ -433,6 +440,23 @@ pub struct BuildProviderRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One `toolchains/query`, addressed to a session that negotiated the provider
+/// named in `params`. The result arrives as a `requestCompleted` event whose
+/// `result.value` is `{ id, response }`, the complete untrusted JSON-RPC response,
+/// which the host passes to `toolchains.decodeReply`.
+pub struct ToolchainProviderRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// Query parameters; `toolchains.decodeReply` validates them with the reply.
+    pub params: Value,
+    /// Deadline of this request, capped at `MAX_TOOLCHAIN_QUERY_TIMEOUT_MS`.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 /// One VCS-provider request. Core plans the method and params from the
 /// operation and its arguments, so the host never writes a raw method. The
 /// result arrives as a `requestCompleted` event whose `result.value` is the
@@ -476,7 +500,9 @@ pub struct PluginHostResponse {
     #[serde(default)]
     pub result: Option<Value>,
     /// The host could not perform the service. Its message reaches the
-    /// backend, bounded; the code is always `plugin.host.failed`.
+    /// backend, bounded. Its code passes only when it is one a host may
+    /// report (`plugin_function::host_failure`); otherwise, and before
+    /// protocol version 3, it is `plugin.host.failed`.
     #[serde(default)]
     pub error: Option<PluginHostFailure>,
 }
@@ -486,6 +512,35 @@ pub struct PluginHostResponse {
 /// Why the host could not perform a forwarded host-service request.
 pub struct PluginHostFailure {
     pub message: String,
+    /// Stable `plugin.host.*` code of the failure, from protocol version 3.
+    #[serde(default)]
+    pub code: Option<String>,
+    /// Structured facts a backend may act on, such as the current version
+    /// of a `plugin.host.versionConflict`. From protocol version 3 it
+    /// reaches the backend as `error.data.details` when it is an object
+    /// within `plugin_function::MAX_HOST_DETAILS_BYTES`; otherwise it is
+    /// dropped and the code and message still arrive.
+    #[serde(default)]
+    pub details: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One notification from the host to a plugin backend, such as a
+/// subscription event or a changed set of workspace contexts. Core admits
+/// only the methods of `plugin_function::HOST_NOTIFICATIONS`.
+pub struct PluginHostNotification {
+    pub session_id: String,
+    pub method: String,
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Whether a host notification was written to the backend. `false` means
+/// the backend negotiated a protocol version without the notification.
+pub struct PluginHostNotificationResponse {
+    pub delivered: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -505,6 +560,11 @@ pub struct PluginFunctionRequest {
     /// session's request timeout when absent.
     #[serde(default)]
     pub timeout_milliseconds: Option<u64>,
+    /// Workspace context `{ contextID, generation }` the call belongs to.
+    /// It reaches a backend that negotiated protocol version 3 or later as
+    /// `params.context`, and is dropped for an older backend.
+    #[serde(default)]
+    pub context: Option<Value>,
 }
 
 fn empty_object() -> Value {
@@ -1367,6 +1427,20 @@ pub fn build_provider_request(
     Ok(OperationResponse { operation_id })
 }
 
+/// Sends one `toolchains/query` to a session that negotiated its provider.
+pub fn toolchain_provider_request(
+    request: ToolchainProviderRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .toolchain_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
 /// Sends one VCS-provider request to a session that negotiated the protocol.
 pub fn vcs_provider_request(request: VcsProviderRequest) -> Result<OperationResponse, CoreError> {
     let operation_id = request
@@ -1385,6 +1459,16 @@ pub fn plugin_host_response(request: PluginHostResponse) -> Result<(), CoreError
     engine()
         .session(&request.session_id)?
         .host_response(request)
+}
+
+/// Sends one host notification to a plugin backend.
+pub fn plugin_host_notify(
+    request: PluginHostNotification,
+) -> Result<PluginHostNotificationResponse, CoreError> {
+    let delivered = engine()
+        .session(&request.session_id)?
+        .host_notify(request)?;
+    Ok(PluginHostNotificationResponse { delivered })
 }
 
 /// Invokes one plugin function on a session of the function's plugin.
@@ -1687,7 +1771,14 @@ impl LspEngine {
             checked_workspace_configuration(request.workspace_configuration)?;
         let initialize = client_initialize_for_plugin(
             ClientInitializeRequest {
-                state: LspClientState::default(),
+                state: LspClientState {
+                    offered_toolchain_providers: if request.plugin_id.is_some() {
+                        request.toolchain_providers.iter().cloned().collect()
+                    } else {
+                        Default::default()
+                    },
+                    ..LspClientState::default()
+                },
                 root_uri: request.root_uri.clone(),
                 process_id: (!crate::remote::workspace::is_remote())
                     .then_some(std::process::id() as i64),
@@ -2010,11 +2101,16 @@ impl RuntimeSession {
                         content_changes: request.content_changes,
                     })?
                 } else {
+                    let text = unopened_document_text(
+                        state.client.open_documents.get(&uri),
+                        request.text,
+                        &request.content_changes,
+                    )?;
                     client_open_document(ClientOpenDocumentRequest {
                         state: state.client.clone(),
                         uri: uri.clone(),
                         language_id: request.language_id,
-                        text: request.text,
+                        text,
                     })?
                 };
                 state.client = response.state;
@@ -2031,6 +2127,11 @@ impl RuntimeSession {
                 // Version zero means the semantic document exists in the Rust
                 // store but has not yet been opened on the server. The latest
                 // sync wins until initialize completes.
+                let text = unopened_document_text(
+                    state.client.open_documents.get(&uri),
+                    request.text,
+                    &request.content_changes,
+                )?;
                 state.client.diagnostics.remove(&uri);
                 state.client.diagnostic_versions.remove(&uri);
                 state.client.open_documents.insert(
@@ -2039,7 +2140,7 @@ impl RuntimeSession {
                         uri,
                         language_id: request.language_id,
                         version: 0,
-                        text: request.text.into(),
+                        text: text.into(),
                     },
                 );
                 // Version zero remains an internal "not opened on the wire"
@@ -2511,6 +2612,75 @@ impl RuntimeSession {
 
     /// Writes a VCS-provider request planned by `crate::vcs::plan`, which
     /// checks the operation's arguments and negotiated capability.
+    fn toolchain_request(
+        &self,
+        request: ToolchainProviderRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            let provider = request.params["providerID"].as_str().unwrap_or_default();
+            if !state
+                .client
+                .toolchain_providers
+                .iter()
+                .any(|negotiated| negotiated == provider)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The process did not negotiate this toolchain provider.",
+                )
+                .with_details("plugin.toolchain.providerUnavailable"));
+            }
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(milliseconds.clamp(1, MAX_TOOLCHAIN_QUERY_TIMEOUT_MS))
+                })
+                .unwrap_or(state.request_timeout);
+            let response = allocate_raw_request(
+                state.client.clone(),
+                super::toolchain_provider::QUERY_METHOD,
+                request.params,
+            )?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: super::toolchain_provider::QUERY_METHOD.to_string(),
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id, request_id.clone());
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
     fn vcs_request(
         &self,
         request: VcsProviderRequest,
@@ -2637,6 +2807,12 @@ impl RuntimeSession {
                 &wire_operation_id,
                 &request.params,
             )?;
+            let mut params = params;
+            super::plugin_function::attach_context(
+                &mut params,
+                state.client.plugin_function_version.unwrap_or(0),
+                request.context.as_ref(),
+            )?;
             let timeout = request
                 .timeout_milliseconds
                 .map(|milliseconds| {
@@ -2698,16 +2874,81 @@ impl RuntimeSession {
                     )
                 })?;
             match (response.result, response.error) {
-                (_, Some(failure)) => json_rpc_error_with_code(
-                    &backend_id,
-                    -32603,
-                    &super::plugin_function::bounded_host_message(&failure.message),
-                    super::plugin_function::codes::HOST_FAILED,
-                )?,
-                (result, None) => json_rpc_result(&backend_id, result.unwrap_or(Value::Null))?,
+                (_, Some(failure)) => {
+                    let version = state.client.plugin_function_version.unwrap_or(0);
+                    let (code, rpc_code) = if version >= super::plugin_function::CONTEXT_VERSION {
+                        super::plugin_function::host_failure(failure.code.as_deref())
+                    } else {
+                        (super::plugin_function::codes::HOST_FAILED, -32603)
+                    };
+                    let mut data = json!({ "code": code });
+                    if version >= super::plugin_function::CONTEXT_VERSION {
+                        if let Some(details) =
+                            super::plugin_function::bounded_host_details(failure.details.as_ref())
+                        {
+                            data["details"] = details;
+                        }
+                    }
+                    json_rpc_error_with_data(
+                        &backend_id,
+                        rpc_code,
+                        &super::plugin_function::bounded_host_message(&failure.message),
+                        data,
+                    )?
+                }
+                (result, None) => {
+                    let result = result.unwrap_or(Value::Null);
+                    if state.client.plugin_function_version.unwrap_or(0)
+                        >= super::plugin_function::CONTEXT_VERSION
+                        && result.to_string().len() > super::plugin_function::MAX_RESULT_BYTES
+                    {
+                        json_rpc_error_with_code(
+                            &backend_id,
+                            -32014,
+                            "Host result exceeds the byte limit.",
+                            super::plugin_function::codes::HOST_LIMIT_EXCEEDED,
+                        )?
+                    } else {
+                        json_rpc_result(&backend_id, result)?
+                    }
+                }
             }
         };
         self.send_messages_or_fail(&outbound_order, vec![message], "hostResponse")
+    }
+
+    /// Writes one host notification to a ready plugin-owned backend.
+    /// Returns `false`, writing nothing, when the backend negotiated a
+    /// protocol version without the notification.
+    fn host_notify(&self, notification: PluginHostNotification) -> Result<bool, CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let message = {
+            let state = self.lock_state()?;
+            if self.plugin_id.is_none() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Only a plugin process receives host notifications.",
+                ));
+            }
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            let delivered = super::plugin_function::host_notification(
+                &notification.method,
+                &notification.params,
+                state.client.plugin_function_version.unwrap_or(0),
+                &state.client.host_services,
+            )?;
+            if !delivered {
+                return Ok(false);
+            }
+            json_rpc_notification(&notification.method, notification.params)?
+        };
+        self.send_messages_or_fail(&outbound_order, vec![message], "hostNotify")?;
+        Ok(true)
     }
 
     fn request_with_kind(
@@ -3655,6 +3896,25 @@ impl RuntimeSession {
                         }
                     }
                 }
+                Some(PendingKind::Feature)
+                    if pending_before.as_ref().is_some_and(|pending| {
+                        pending.method == super::toolchain_provider::QUERY_METHOD
+                    }) =>
+                {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let result = super::toolchain_provider::reply_outcome(&value);
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                Some(result),
+                                None,
+                            );
+                        }
+                    }
+                }
                 Some(PendingKind::Feature) => {
                     if let Some(pending) = pending_before.as_ref() {
                         if let Some(operation_id) = &pending.operation_id {
@@ -4288,6 +4548,12 @@ impl RuntimeSession {
                     )?);
                 } else if event.kind == super::vcs_provider::NEGOTIATED_EVENT {
                     push_vcs_provider_event(self, &mut state, event.result.unwrap_or_default());
+                } else if event.kind == super::toolchain_provider::NEGOTIATED_EVENT {
+                    push_toolchain_provider_event(
+                        self,
+                        &mut state,
+                        event.result.unwrap_or_default(),
+                    );
                 } else if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
                         push_diagnostics_event(
@@ -4298,6 +4564,17 @@ impl RuntimeSession {
                             event.diagnostics.unwrap_or_default(),
                         );
                     }
+                } else if event.kind == "notification"
+                    && self.plugin_id.is_some()
+                    && event.method.as_deref() == Some("$/cancelRequest")
+                    && cancel_host_request_locked(
+                        self,
+                        &mut state,
+                        event.result.as_ref(),
+                        &mut outbound,
+                    )?
+                {
+                    // The backend withdrew one of its own host requests.
                 } else if event.kind == "notification"
                     && !(suppress_structured_java_preparation_notification
                         && is_structured_import_notification(
@@ -5499,7 +5776,7 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
             || request
                 .host_services
                 .iter()
-                .any(|service| service != super::plugin_function::HOST_SERVICE_CREDENTIALS))
+                .any(|service| !super::plugin_function::is_host_grant(service)))
     {
         return Err(invalid_field("hostServices"));
     }
@@ -6348,6 +6625,106 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
     );
 }
 
+/// Publishes the providers a backend selected, so the host queries only those.
+fn push_toolchain_provider_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    result: Value,
+) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "toolchainProviders".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(result),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+}
+
+/// Handles a backend's `$/cancelRequest` for one of its own pending host
+/// requests: the backend gets `plugin.host.cancelled` at once, so the
+/// pending slot frees without waiting for the host, and the host gets a
+/// `hostRequestCancelled` event naming the `hostRequestID` so it can stop
+/// the work. A later answer from the host for that ID is refused like any
+/// unknown ID. Returns false when the notification names no pending host
+/// request, so it is handled like any other notification.
+fn cancel_host_request_locked(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    params: Option<&Value>,
+    outbound: &mut Vec<String>,
+) -> Result<bool, CoreError> {
+    if state.client.plugin_function_version.unwrap_or(0) < super::plugin_function::CONTEXT_VERSION {
+        return Ok(false);
+    }
+    let Some(backend_id) = params.and_then(|params| params.get("id")) else {
+        return Ok(false);
+    };
+    let Some(host_request_id) = state
+        .host_requests
+        .iter()
+        .find(|(_, pending)| *pending == backend_id)
+        .map(|(host_request_id, _)| host_request_id.clone())
+    else {
+        return Ok(false);
+    };
+    let backend_id = state
+        .host_requests
+        .remove(&host_request_id)
+        .unwrap_or(Value::Null);
+    outbound.push(json_rpc_error_with_code(
+        &backend_id,
+        -32800,
+        "The plugin process cancelled this host-service request.",
+        super::plugin_function::codes::HOST_CANCELLED,
+    )?);
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "hostRequestCancelled".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(json!({ "hostRequestID": host_request_id })),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+    Ok(true)
+}
+
 /// Publishes the session's registered functions after a registry change.
 /// Publishes a backend's well-formed host-service request as `hostRequest`,
 /// or answers it at once when the session already has the most requests the
@@ -6360,11 +6737,17 @@ fn forward_host_request_locked(
 ) -> Result<Vec<String>, CoreError> {
     let backend_id = request.get("id").cloned().unwrap_or(Value::Null);
     if state.host_requests.len() >= super::plugin_function::MAX_PENDING_HOST_REQUESTS {
+        let version = state.client.plugin_function_version.unwrap_or(0);
+        let code = if version >= super::plugin_function::CONTEXT_VERSION {
+            super::plugin_function::codes::HOST_LIMIT_EXCEEDED
+        } else {
+            super::plugin_function::codes::HOST_FAILED
+        };
         return Ok(vec![json_rpc_error_with_code(
             &backend_id,
-            -32603,
+            super::plugin_function::host_rpc_code(code),
             "Too many host-service requests are waiting for the host.",
-            super::plugin_function::codes::HOST_FAILED,
+            code,
         )?]);
     }
     let host_request_id = format!("host-{}", state.next_host_request_id);
@@ -7010,6 +7393,7 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.function_by_operation.clear();
     clear_function_registry(session, state);
     state.client.vcs_provider = None;
+    state.client.toolchain_providers.clear();
     state.linked_document_paths = LinkedDocumentPaths::default();
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
@@ -7025,6 +7409,29 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.initialize_deadline = None;
     state.shutdown_deadline = None;
     push_features_event(session, state, Vec::new());
+}
+
+/// Resolves the text of a document that has not been opened on the wire yet.
+///
+/// Hosts may send only ranged edits, which then extend the text Core retained.
+/// Edits for a document Core never received cannot be resolved, so the host
+/// resends the full text.
+fn unopened_document_text(
+    stored: Option<&LspClientDocument>,
+    text: String,
+    changes: &[LspDocumentContentChange],
+) -> Result<String, CoreError> {
+    if !text.is_empty() || changes.is_empty() {
+        return Ok(text);
+    }
+    let Some(stored) = stored else {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Cannot apply ranged edits to a document Core has not received.",
+        )
+        .with_details("documentNotSynchronized"));
+    };
+    crate::lsp::apply_content_changes_sequential(&stored.text, changes)
 }
 
 fn flush_queued_documents_locked(state: &mut SessionState) -> Result<Vec<String>, CoreError> {
@@ -7115,6 +7522,7 @@ mod tests {
             provider_id: "gopls".to_string(),
             plugin_id: None,
             host_services: Vec::new(),
+            toolchain_providers: Vec::new(),
             executable_path: "/usr/bin/scripted-server".to_string(),
             arguments: vec!["--stdio".to_string()],
             environment: BTreeMap::new(),
@@ -8511,6 +8919,63 @@ mod tests {
             "class Main { int value; }"
         );
         assert_eq!(harness.snapshot().open_documents[uri].version, 1);
+    }
+
+    #[test]
+    fn ranged_edits_extend_text_retained_before_the_server_is_ready() {
+        let harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        let uri = "file:///workspace/First.java";
+        harness.sync(uri, "class First {}");
+        let appended = LspDocumentContentChange {
+            range: Some(LspRange {
+                start: LspPosition {
+                    line: 0,
+                    utf16_column: 11,
+                },
+                end: LspPosition {
+                    line: 0,
+                    utf16_column: 11,
+                },
+            }),
+            text: "Renamed".to_string(),
+        };
+        harness
+            .session()
+            .sync_document(SyncDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: uri.to_string(),
+                language_id: "java".to_string(),
+                text: String::new(),
+                content_changes: vec![appended.clone()],
+            })
+            .expect("ranged edits should extend the retained text");
+
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        assert!(harness.server.await_notification("textDocument/didOpen"));
+        let written = String::from_utf8_lossy(&harness.server.written_bytes()).into_owned();
+        assert!(written.contains("class FirstRenamed {}"));
+
+        let error = harness
+            .session()
+            .sync_document(SyncDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: "file:///workspace/Unknown.java".to_string(),
+                language_id: "java".to_string(),
+                text: String::new(),
+                content_changes: vec![appended],
+            })
+            .expect_err("edits to an unknown document cannot be resolved");
+        assert_eq!(error.details.as_deref(), Some("documentNotSynchronized"));
     }
 
     #[test]
@@ -11150,6 +11615,7 @@ public class Main {
                 provider_id: "java".to_string(),
                 plugin_id: None,
                 host_services: Vec::new(),
+                toolchain_providers: Vec::new(),
                 executable_path,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
@@ -11892,6 +12358,7 @@ public class Main {
             provider_id: String::new(),
             plugin_id: None,
             host_services: Vec::new(),
+            toolchain_providers: Vec::new(),
             executable_path: "/bin/server".to_string(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
@@ -12985,6 +13452,126 @@ public class Main {
         assert!(harness.server.await_notification("$/cancelRequest"));
     }
 
+    // Toolchain providers against a scripted backend. Only a plugin-owned
+    // session launched with declared providers is offered `litheToolchains`,
+    // and only a provider its process selected receives `toolchains/query`.
+
+    fn toolchain_backend(answer: Value) -> Harness {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.toolchain-provider".to_string());
+            request.toolchain_providers = vec!["mise".to_string()];
+        });
+        harness
+            .server
+            .complete_initialize(json!({ "experimental": { "litheToolchains": answer } }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    fn toolchain_query(harness: &Harness, provider: &str) -> Result<String, CoreError> {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .toolchain_request(
+                ToolchainProviderRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    params: json!({ "operationID": "query-1", "generation": 1, "providerID": provider }),
+                    timeout_milliseconds: None,
+                },
+                operation_id.clone(),
+            )
+            .map(|()| operation_id)
+    }
+
+    fn no_toolchain_query_written(harness: &Harness) -> bool {
+        harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "toolchains/query")
+    }
+
+    #[test]
+    fn host_sessions_are_not_offered_the_toolchain_protocol() {
+        let harness = Harness::start(|request| {
+            request.toolchain_providers = vec!["mise".to_string()];
+        });
+        harness.server.complete_initialize(json!({}));
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert!(initialize["params"]["capabilities"]["experimental"]
+            .get("litheToolchains")
+            .is_none());
+    }
+
+    #[test]
+    fn a_query_reaches_only_a_selected_provider_and_returns_the_raw_response() {
+        let mut harness = toolchain_backend(json!({ "version": 1, "providers": ["mise"] }));
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert_eq!(
+            initialize["params"]["capabilities"]["experimental"]["litheToolchains"],
+            json!({ "versions": [1], "providers": ["mise"] })
+        );
+        let event = harness
+            .await_event(|event| event.kind == "toolchainProviders")
+            .clone();
+        assert_eq!(event.result, Some(json!({ "providers": ["mise"] })));
+
+        let refused = toolchain_query(&harness, "asdf").expect_err("not selected");
+        assert_eq!(
+            refused.details.as_deref(),
+            Some("plugin.toolchain.providerUnavailable")
+        );
+        assert!(no_toolchain_query_written(&harness));
+
+        let operation = toolchain_query(&harness, "mise").expect("written");
+        let id = harness
+            .server
+            .await_request("toolchains/query")
+            .expect("the query is written");
+        let wire_id: u64 = id.parse().expect("a numeric wire ID");
+        // Even a provider error stays a raw reply: decodeReply owns its mapping.
+        let response = json!({
+            "jsonrpc": "2.0", "id": wire_id,
+            "error": { "code": -32073, "message": "untrusted", "data": { "code": "x" } }
+        });
+        harness.server.send(response.clone());
+        let event = harness
+            .await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str())
+            })
+            .clone();
+        assert!(event.error.is_none());
+        assert_eq!(
+            event.result,
+            Some(json!({ "value": { "id": wire_id, "response": response } }))
+        );
+    }
+
+    #[test]
+    fn an_undeclared_toolchain_provider_enables_nothing() {
+        let mut harness = toolchain_backend(json!({ "version": 1, "providers": ["mise", "asdf"] }));
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "toolchainProviders"));
+        let error = toolchain_query(&harness, "mise").expect_err("refused");
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert!(no_toolchain_query_written(&harness));
+    }
+
     // VCS providers against a scripted backend. Only a plugin-owned session
     // is offered `litheVcs`, and only one whose process answered with a VCS
     // ID and every required capability receives requests, each planned by
@@ -13302,6 +13889,7 @@ public class Main {
                     },
                     params: json!({ "project": "app" }),
                     timeout_milliseconds,
+                    context: None,
                 },
                 operation_id.clone(),
             )
@@ -13407,7 +13995,7 @@ public class Main {
             initialize["params"]["capabilities"]["experimental"],
             json!({
                 "litheBuild": { "versions": [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1] },
-                "litheFunctions": { "versions": [1, 2] },
+                "litheFunctions": { "versions": [1, 2, 3] },
                 "litheVcs": { "versions": [1] }
             })
         );
@@ -14189,7 +14777,10 @@ public class Main {
             wire["result"] = result;
         }
         if let Some(message) = error {
-            wire["error"] = json!({ "message": message });
+            wire["error"] = match message.split_once('|') {
+                Some((code, message)) => json!({ "message": message, "code": code }),
+                None => json!({ "message": message }),
+            };
         }
         let response: PluginHostResponse =
             serde_json::from_value(wire).expect("documented wire shape");
@@ -14294,6 +14885,252 @@ public class Main {
         assert_eq!(
             harness.session().lock_state().unwrap().host_requests.len(),
             limit
+        );
+    }
+
+    /// From version 3 Core answers capability discovery itself, listing
+    /// only the session's grants; the host never sees the request.
+    #[test]
+    fn capability_discovery_is_answered_by_core() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "caps",
+            "method": "lithe/host/getCapabilities"
+        }));
+        let reply = await_reply(&harness, "caps");
+        assert_eq!(reply["result"]["protocolVersion"], 3);
+        assert_eq!(reply["result"]["backendAuthority"], "local");
+        assert!(reply["result"]["services"]["workspace"].is_object());
+        assert!(reply["result"]["services"]["credentials"].is_null());
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "hostRequest"));
+    }
+
+    /// From version 3 a field a method does not define is answered as an
+    /// unsupported option naming it, so a backend can retry without it; the
+    /// host never sees the request.
+    #[test]
+    fn an_unknown_option_is_named_to_a_version_3_backend() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "folders",
+            "method": "lithe/host/workspace/getFolders",
+            "params": {
+                "context": { "contextID": "w-1", "generation": 1 },
+                "includeHidden": true
+            }
+        }));
+        let reply = await_reply(&harness, "folders");
+        assert_eq!(reply["error"]["code"], -32018);
+        assert_eq!(
+            reply["error"]["data"]["code"],
+            "plugin.host.unsupportedOption"
+        );
+        assert_eq!(
+            reply["error"]["data"]["details"],
+            json!({ "option": "includeHidden" })
+        );
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "hostRequest"));
+    }
+
+    /// From version 3 a host failure's code reaches the backend when it is
+    /// one a host may report; an unknown code is `plugin.host.failed`.
+    #[test]
+    fn typed_host_failures_reach_a_version_3_backend() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        for (id, code, expected, rpc_code) in [
+            (
+                "a",
+                "plugin.host.contextExpired",
+                "plugin.host.contextExpired",
+                -32011,
+            ),
+            ("b", "plugin.function.unknown", "plugin.host.failed", -32603),
+        ] {
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": id,
+                "method": "lithe/host/workspace/getFolders",
+                "params": { "context": { "contextID": "w1", "generation": 1 } }
+            }));
+            let event = harness
+                .await_event(|event| event.kind == "hostRequest")
+                .clone();
+            let host_request_id = event.result.unwrap()["hostRequestID"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            harness.events.clear();
+            host_response(
+                &harness,
+                &host_request_id,
+                None,
+                Some(&format!("{code}|The workspace closed.")),
+            )
+            .expect("the host reports its failure");
+            let reply = await_reply(&harness, id);
+            assert_eq!(reply["error"]["data"]["code"], expected, "{code}");
+            assert_eq!(reply["error"]["code"], rpc_code, "{code}");
+        }
+    }
+
+    /// A host failure's details reach a version 3 backend under
+    /// `error.data.details`, next to the stable code.
+    #[test]
+    fn host_failure_details_reach_a_version_3_backend() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "folders",
+            "method": "lithe/host/workspace/getFolders",
+            "params": { "context": { "contextID": "w1", "generation": 1 } }
+        }));
+        let host_request_id = harness
+            .await_event(|event| event.kind == "hostRequest")
+            .clone()
+            .result
+            .unwrap()["hostRequestID"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let response: PluginHostResponse = serde_json::from_value(json!({
+            "sessionId": harness.session_id,
+            "hostRequestID": host_request_id,
+            "error": {
+                "message": "The context changed.",
+                "code": "plugin.host.contextExpired",
+                "details": { "generation": 2 }
+            }
+        }))
+        .expect("documented wire shape");
+        harness
+            .session()
+            .host_response(response)
+            .expect("the host reports its failure");
+        let reply = await_reply(&harness, "folders");
+        assert_eq!(reply["error"]["data"]["code"], "plugin.host.contextExpired");
+        assert_eq!(
+            reply["error"]["data"]["details"],
+            json!({ "generation": 2 })
+        );
+    }
+
+    /// `lsp.hostNotify` writes an admitted notification to the backend and
+    /// refuses one the session was not granted.
+    #[test]
+    fn host_notifications_reach_a_version_3_backend() {
+        let harness = host_service_backend(3, &["workspace"]);
+        let notify = |method: &str, params: Value| {
+            let request: PluginHostNotification = serde_json::from_value(json!({
+                "sessionId": harness.session_id,
+                "method": method,
+                "params": params,
+            }))
+            .expect("documented wire shape");
+            harness.session().host_notify(request)
+        };
+        assert!(notify(
+            "lithe/host/workspace/didChangeContexts",
+            json!({ "revision": 2 })
+        )
+        .expect("an admitted notification"));
+        assert!(harness
+            .server
+            .await_notification("lithe/host/workspace/didChangeContexts"));
+        assert!(notify("lithe/build/run", json!({})).is_err());
+    }
+
+    /// A version 2 backend never receives a notification it cannot read.
+    #[test]
+    fn host_notifications_skip_a_version_2_backend() {
+        let harness = host_service_backend(2, &["workspace"]);
+        let request: PluginHostNotification = serde_json::from_value(json!({
+            "sessionId": harness.session_id,
+            "method": "lithe/host/workspace/didChangeContexts",
+            "params": { "revision": 2 },
+        }))
+        .expect("documented wire shape");
+        assert!(!harness
+            .session()
+            .host_notify(request)
+            .expect("a known notification"));
+    }
+
+    /// A backend that cancels its own host request is answered at once, the
+    /// host learns which request to stop, and its late answer is refused.
+    #[test]
+    fn a_backend_can_cancel_its_host_request() {
+        let mut harness = host_service_backend(3, &["workspace"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "list",
+            "method": "lithe/host/workspace/listContexts"
+        }));
+        let host_request_id = harness
+            .await_event(|event| event.kind == "hostRequest")
+            .clone()
+            .result
+            .unwrap()["hostRequestID"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": "list" }
+        }));
+        let cancelled = harness
+            .await_event(|event| event.kind == "hostRequestCancelled")
+            .clone();
+        assert_eq!(
+            cancelled.result.unwrap()["hostRequestID"],
+            json!(host_request_id)
+        );
+        let reply = await_reply(&harness, "list");
+        assert_eq!(reply["error"]["data"]["code"], "plugin.host.cancelled");
+        assert!(host_response(&harness, &host_request_id, Some(json!({})), None).is_err());
+    }
+
+    /// A call's workspace context reaches a version 3 backend as
+    /// `params.context`, and a malformed reference never leaves Core.
+    #[test]
+    fn invocations_carry_the_workspace_context_from_version_3() {
+        let harness = plugin_backend(json!({
+            "litheFunctions": { "version": 3, "functions": [{ "id": "snapshot.refresh" }] }
+        }));
+        let call = |context: Value| {
+            let operation_id = harness.engine.next_operation_id();
+            harness.session().function_request(
+                PluginFunctionRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    function: super::super::plugin_function::FunctionReference {
+                        plugin_id: FUNCTION_PLUGIN.to_string(),
+                        function_id: "snapshot.refresh".to_string(),
+                    },
+                    params: json!({}),
+                    timeout_milliseconds: None,
+                    context: Some(context),
+                },
+                operation_id,
+            )
+        };
+        let error = call(json!({ "contextID": "w/1", "generation": 1 }))
+            .expect_err("a malformed context is refused");
+        assert_eq!(
+            error.details.as_deref(),
+            Some("plugin.function.invalidParams")
+        );
+        call(json!({ "contextID": "w1", "generation": 2 })).expect("sent");
+        let request_id = harness
+            .server
+            .await_request("lithe/function/invoke")
+            .expect("the call should reach the backend");
+        assert_eq!(
+            harness.written_request(&request_id)["params"]["context"],
+            json!({ "contextID": "w1", "generation": 2 })
         );
     }
 }

@@ -164,6 +164,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var searchExclusionsObservation: AnyCancellable?
+    private var localHistoryIgnoreRulesObservation: AnyCancellable?
     private var livePluginObservation: AnyCancellable?
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
@@ -204,6 +205,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var notificationFeature: WorkbenchNotificationFeatureModel { featureGraph.notification }
     var workbenchBackgroundFeature: WorkbenchBackgroundFeatureModel { featureGraph.workbenchBackground }
     var runtimeFeature: RuntimeSettingsFeatureModel { featureGraph.runtime }
+    var toolchainSettingsFeature: ToolchainSettingsFeatureModel { featureGraph.toolchainSettings }
     var languageToolingFeature: LanguageToolingFeatureModel { featureGraph.languageTooling }
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
@@ -266,7 +268,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         store: moduleCapabilityStore,
         workspace: { [weak self] in self?.workspaceURL },
         settings: { [weak self] in
-            self?.settings.fileVisibilityRules.localHistoryRules
+            self?.settings.localHistoryRules
                 ?? LocalHistoryVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
         },
         files: { [weak self] in self?.projectFiles ?? [] },
@@ -591,6 +593,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
         }
+        localHistoryIgnoreRulesObservation = settings.localHistoryIgnoreRulesChanges.sink { [weak self] in
+            // An inactive module reads the rules when it opens the workspace.
+            guard let self, let feature = self.projectHistoryFeatureIfActive else { return }
+            let rules = self.settings.localHistoryRules
+            Task { await feature.updateVisibilityRules(rules) }
+        }
         searchExclusionsObservation = settings.searchExclusionsChanges.sink { [weak self] in
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
@@ -711,10 +719,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func shutdownProjectSession() async {
         isProjectSessionClosed = true
+        toolchainSettingsFeature.close()
         commitFileDeletion.reset()
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.
         services.pluginWebPages.closeAll()
+        closePluginWorkspaceContext()
+        dismissPluginHostMessages(.windowClosed)
         workbenchFeature.endLayoutSession()
         // VCS providers too: their pending refreshes, or a scan still loading
         // the workspace, would otherwise start a process for a closed window.
@@ -732,6 +743,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             self.fileVisibilityRulesObserverID = nil
         }
         searchExclusionsObservation = nil
+        localHistoryIgnoreRulesObservation = nil
         livePluginObservation = nil
         await shutdownModuleRuntime()
         moduleSessionCoordinator?.stopObserving()
@@ -942,6 +954,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     private func prepareForWorkspaceOpen(at normalizedURL: URL) {
         commitFileDeletion.reset()
+        dismissPluginHostMessages(.workspaceChanged)
         documentLanguageCoordinator?.stop()
         beginModuleRuntimeShutdown()
         // A workspace root is a hard language-server ownership boundary. Stop
@@ -984,6 +997,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         selectedSidebar = .project
         projectItemEditRequest = nil
         pendingProjectItemDeletion = nil
+        openPluginWorkspaceContext(at: normalizedURL)
     }
 
     func resumeGitObservationAfterActivation() async {
@@ -1000,6 +1014,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     private func finishWorkspaceClose(for workspaceURL: URL) {
         commitFileDeletion.reset()
+        closePluginWorkspaceContext()
+        dismissPluginHostMessages(.workspaceChanged)
         releaseRemoteWorkspace(at: workspaceURL)
         ideCapabilities.disable()
         documentLanguageCoordinator?.stop()
@@ -1023,6 +1039,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         languageToolingSessionsIfActive?.stopAll()
         executionModuleCoordinator.resetTests(languageTestServiceIfActive)
         runtimeFeature.closeProject()
+        toolchainSettingsFeature.close()
         executionModuleCoordinator.resetFeatures(
             run: runFeatureIfActive,
             tests: languageTestServiceIfActive,
@@ -1047,6 +1064,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func prepareForStandaloneOpen(at normalizedURL: URL) {
+        closePluginWorkspaceContext()
         documentLanguageCoordinator?.stop()
         featureGraph.editorSession.resetContent()
         isFindBarVisible = false

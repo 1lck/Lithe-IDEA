@@ -28,6 +28,13 @@ final class AppServices {
     /// Installed plugins with their enabled state, for the New Project
     /// catalog and the plugins that provide a generator's requirements.
     var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?
+    /// Read-only plugin toolchain projection; absent until platform composition.
+    var toolchainSettingsLoader: (any ToolchainSettingsLoading)?
+    var toolchainInputWatcher: (any ToolchainInputWatching)?
+    /// Existing workspace tree projection; settings must not start a second filesystem scan.
+    var toolchainSettingsDirectories: (@MainActor () -> [String])?
+    /// The startup login-shell read, for settings; absent on platforms that do not read one.
+    var loginShellEnvironmentInspector: (any LoginShellEnvironmentInspecting)?
     /// Gives build providers that share a language server the language
     /// sessions; `nil` when the platform starts no build providers.
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?
@@ -36,6 +43,16 @@ final class AppServices {
     /// Fires after plugins that take effect without a restart were installed,
     /// updated, removed, enabled or disabled; `nil` when the platform has none.
     var pluginRegistrationChanges: AnyPublisher<Void, Never>?
+    /// The workspace contexts plugin backends see, shared by every window;
+    /// `nil` when the platform runs no plugin backends.
+    var pluginWorkspaceContexts: PluginWorkspaceContexts?
+    /// Starts plugin backends on `onWorkspaceOpen` and `onCommand:<id>`;
+    /// `nil` when the platform runs no plugin backends.
+    var pluginBackendActivation: (any PluginBackendActivating)?
+    var pluginEditorActions: PluginEditorActionHostService?
+    /// Static plugin editor resources; `nil` when
+    /// the platform loads no plugins.
+    var pluginEditorLanguages: (any PluginEditorLanguageProviding)?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing
@@ -97,6 +114,12 @@ final class AppServices {
     let directoryWatcherFactory: any DirectoryWatcherFactory
     let platformUI: any PlatformUI
     let shortcutDetectorFactory: any ShortcutDetectorFactory
+    /// Keychain-backed store for the custom proxy password; `nil` leaves the
+    /// password field on the network settings page disabled.
+    var proxyPasswordStore: (any SecureStore)?
+    /// Performs the network settings page's proxy connectivity check; `nil`
+    /// hides the test button.
+    var proxyConnectionChecker: (any NetworkProxyChecking)?
 
     init(
         moduleRuntime: ModuleRuntime,
@@ -205,5 +228,7 @@ final class AppServices {
         self.directoryWatcherFactory = directoryWatcherFactory
         self.platformUI = platformUI
         self.shortcutDetectorFactory = shortcutDetectorFactory
+        self.proxyPasswordStore = nil
+        self.proxyConnectionChecker = nil
     }
 }

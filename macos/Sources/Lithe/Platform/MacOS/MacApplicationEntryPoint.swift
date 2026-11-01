@@ -18,14 +18,25 @@ enum MacApplicationEntryPoint {
             exit(CommandLine.arguments[1].withCString { lithe_bridge_git_askpass($0) })
         }
         #if DEBUG
+        if CommandLine.arguments.contains("--toolchain-settings-demo") || CommandLine.arguments.contains("--toolchain-sources-demo") {
+            ToolchainSettingsDemo.run()
+            return
+        }
         if CommandLine.arguments.contains("--problems-demo")
             || Bundle.main.object(forInfoDictionaryKey: "LitheProblemsDemo") as? Bool == true {
             ProblemsDemo.run()
             return
         }
         #endif
+        // First, while this is the only thread: `setenv` races with concurrent readers.
+        let refreshLoginShellEnvironment = MacLoginShellEnvironment.activate(
+            cacheURL: MacFileStorage().cacheDirectory().appendingPathComponent("login-path")
+        )
         // Before any subprocess starts, so every descendant inherits the scope.
         MacProcessInstance.activate()
+        if let refreshLoginShellEnvironment {
+            DispatchQueue.global(qos: .utility).async(execute: refreshLoginShellEnvironment)
+        }
         LitheApp.main()
     }
 }

@@ -8,6 +8,7 @@ pub(crate) mod process;
 pub(crate) mod remote_process;
 #[cfg(test)]
 mod scripted;
+mod toolchain_provider;
 mod transport;
 mod types;
 mod vcs_provider;

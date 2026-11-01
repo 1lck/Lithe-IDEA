@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { getBufferById } from "../utils/buffer-index";
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useBufferStore } from "./buffer.store";
 
 const WORKSPACE = "buffer-new-tab-test";
@@ -15,12 +16,20 @@ function getActiveEditor(): EditorContent {
   return buffer;
 }
 
+const defaultMaxOpenTabs = useSettingsStore.getState().settings.maxOpenTabs;
+function setMaxOpenTabs(maxOpenTabs: number) {
+  useSettingsStore.setState((state) => {
+    state.settings.maxOpenTabs = maxOpenTabs;
+  });
+}
+
 beforeEach(() => {
   workspaceRuntimeRegistry.resetForTests();
   workspaceRuntimeRegistry.ensureWorkspace({ id: WORKSPACE, name: "New Tab" }, "ready");
 });
 
 afterEach(() => {
+  setMaxOpenTabs(defaultMaxOpenTabs);
   useBufferStore.getStore(WORKSPACE).setState({ buffers: [], activeBufferId: null });
 });
 
@@ -85,7 +94,7 @@ describe("showNewTabView", () => {
 
   test("keeps a dirty untitled tab instead of evicting it at the tab limit", () => {
     const store = useBufferStore.getStore(WORKSPACE);
-    store.setState({ maxOpenTabs: 1 });
+    setMaxOpenTabs(1);
 
     store.getState().actions.showNewTabView();
     const first = getActiveEditor();
@@ -98,9 +107,20 @@ describe("showNewTabView", () => {
     expect(buffers.filter((buffer) => buffer.path.startsWith("untitled:"))).toHaveLength(2);
   });
 
+  test("follows the tab limit setting, where 0 means no limit", () => {
+    const store = useBufferStore.getStore(WORKSPACE);
+    setMaxOpenTabs(0);
+
+    store.getState().actions.showNewTabView();
+    const first = getActiveEditor();
+    store.getState().actions.showNewTabView();
+
+    expect(store.getState().buffers.some((buffer) => buffer.id === first.id)).toBe(true);
+  });
+
   test("evicts a clean untitled tab once the tab limit is reached", () => {
     const store = useBufferStore.getStore(WORKSPACE);
-    store.setState({ maxOpenTabs: 1 });
+    setMaxOpenTabs(1);
 
     store.getState().actions.showNewTabView();
     const first = getActiveEditor();

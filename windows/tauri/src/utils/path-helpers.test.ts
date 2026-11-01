@@ -4,6 +4,7 @@ import {
   getRelativePath,
   normalizePath,
   pathStartsWithRoot,
+  toRootedPath,
 } from "./path-helpers";
 
 test("path identity follows filesystem case rules", () => {
@@ -61,4 +62,17 @@ test("normalizes lowercase Windows verbatim UNC prefixes", () => {
   expect(normalizePath(changed)).toBe("//server/share/workspace/pom.xml");
   expect(pathStartsWithRoot(changed, root)).toBe(true);
   expect(getRelativePath(changed, root)).toBe("pom.xml");
+});
+
+test("respells paths inside a root with the root prefix and separator", () => {
+  const root = String.raw`D:\work\project`;
+
+  expect(toRootedPath("d:/work/project/src/App.java", root)).toBe(
+    String.raw`D:\work\project\src\App.java`,
+  );
+  expect(toRootedPath("D:/work/project", root)).toBe(root);
+  expect(toRootedPath("D:/work/project/src/App.java", "D:/work/project/")).toBe(
+    "D:/work/project/src/App.java",
+  );
+  expect(toRootedPath("D:/other/App.java", root)).toBe("D:/other/App.java");
 });

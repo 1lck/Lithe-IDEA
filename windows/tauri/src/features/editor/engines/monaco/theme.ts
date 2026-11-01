@@ -7,6 +7,7 @@ import {
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import type { ThemeDefinition } from "@/extensions/themes/theme.types";
 import { toMonacoColor } from "./color";
+import { MonacoThemeDefinitionCache } from "./theme-definition-cache";
 import { createMonacoTokenThemeRules, MONACO_TOKEN_THEME_INHERITS_BASE } from "./token-theme-rules";
 
 function getThemeId(theme: string): string {
@@ -153,12 +154,17 @@ function createMonacoThemeData(
   };
 }
 
+const definedMonacoThemes = new MonacoThemeDefinitionCache();
+
 export function defineMonacoTheme(themeId: string, italicComments = false): string {
   const theme = themeRegistry.getTheme(themeId);
   if (!theme) return getThemeId(themeId);
 
   const monacoThemeId = toMonacoThemeName(theme.id, italicComments);
-  monacoEditor.defineTheme(monacoThemeId, createMonacoThemeData(theme, italicComments));
+  const themeData = createMonacoThemeData(theme, italicComments);
+  if (definedMonacoThemes.needsDefinition(monacoThemeId, themeData)) {
+    monacoEditor.defineTheme(monacoThemeId, themeData);
+  }
 
   return monacoThemeId;
 }
