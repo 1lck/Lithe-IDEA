@@ -105,6 +105,38 @@ struct BackgroundResourceSelectionViewTests {
         #expect(recognized.rememberCheckbox.state == .off)
     }
 
+    @Test func retainedAccessibilityCheckboxReadsLiveIndividualAndBulkSelection() throws {
+        let view = BackgroundResourceSelectionView(resources: [resource("first"), resource("second")])
+        view.layoutSubtreeIfNeeded()
+        let document = try #require(view.scrollView.documentView)
+        func elements() -> [NSAccessibilityElement] {
+            (document.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
+                .filter { $0.accessibilityRole() == .checkBox }
+        }
+        let original = elements()
+        let first = try #require(original.first)
+        let second = try #require(original.last)
+        #expect(first !== second)
+        #expect(first.accessibilityValue() as? Int == 1)
+        #expect(second.accessibilityValue() as? Int == 1)
+        #expect(first.accessibilityPerformPress())
+        #expect(view.selectedIDs == ["second"])
+        #expect(first.accessibilityValue() as? Int == 0)
+        #expect(second.accessibilityValue() as? Int == 1)
+        let repeated = elements()
+        #expect(repeated.first === first)
+        #expect(repeated.last === second)
+        let checkbox = try #require(descendants(document).compactMap { $0 as? NSButton }.first { $0.tag == 0 })
+        checkbox.performClick(nil)
+        #expect(first.accessibilityValue() as? Int == 1)
+        view.deselectAllButton.performClick(nil)
+        #expect(first.accessibilityValue() as? Int == 0)
+        #expect(second.accessibilityValue() as? Int == 0)
+        view.selectAllButton.performClick(nil)
+        #expect(first.accessibilityValue() as? Int == 1)
+        #expect(second.accessibilityValue() as? Int == 1)
+    }
+
     @Test func shortAndEmptyListsDoNotReserveTheMaximumHeight() {
         for resources in [[], [resource("single")]] {
             let view = BackgroundResourceSelectionView(resources: resources)

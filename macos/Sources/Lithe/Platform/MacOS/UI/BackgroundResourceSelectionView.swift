@@ -29,9 +29,9 @@ final class BackgroundResourceSelectionView: NSView {
         super.init(frame: .zero)
         document.isSelected = { [weak self] in self?.selectedIDs.contains($0) == true }
         document.onToggle = { [weak self] id, selected in
-            guard let self else { return }
+            guard let self, self.selectedIDs.contains(id) != selected else { return }
             if selected { self.selectedIDs.insert(id) } else { self.selectedIDs.remove(id) }
-            self.selectionChanged()
+            self.selectionChanged(changedIDs: [id])
         }
         scrollView.frame = NSRect(x: 0, y: 0, width: Self.contentWidth,
                                   height: min(document.frame.height, Self.maximumListHeight))
@@ -74,22 +74,25 @@ final class BackgroundResourceSelectionView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    private func selectionChanged() {
+    private func selectionChanged(changedIDs: Set<String> = []) {
         let selected = selectedIDs.count
         selectionLabel.stringValue = String(format: L10n.string("%lld of %lld services selected"), selected, resources.count)
         selectAllButton.isEnabled = selected < resources.count
         deselectAllButton.isEnabled = selected > 0
         document.updateVisibleCheckboxes()
+        document.notifyAccessibilitySelectionChanged(for: changedIDs)
     }
 
     @objc private func selectAllResources() {
-        selectedIDs = Set(resources.map(\.id))
-        selectionChanged()
+        let changedIDs = Set(resources.map(\.id)).subtracting(selectedIDs)
+        selectedIDs.formUnion(changedIDs)
+        selectionChanged(changedIDs: changedIDs)
     }
 
     @objc private func deselectAllResources() {
+        let changedIDs = selectedIDs
         selectedIDs.removeAll()
-        selectionChanged()
+        selectionChanged(changedIDs: changedIDs)
     }
 }
 
@@ -107,6 +110,7 @@ private final class ResourceListDocument: NSTextView {
     var onToggle: (String, Bool) -> Void = { _, _ in }
     private var anchors: [Anchor] = []
     private var checkboxes: [Int: ResourceCheckbox] = [:]
+    private var accessibilityCheckboxes: [String: ResourceCheckboxAccessibilityElement] = [:]
     private var scrollObservation: NSObjectProtocol?
 
     init(resources: [BackgroundResourceCandidate], width: CGFloat) {
@@ -187,18 +191,30 @@ private final class ResourceListDocument: NSTextView {
     override func accessibilityChildren() -> [Any]? {
         let children = (super.accessibilityChildren() ?? []).filter { !($0 is ResourceCheckbox) }
         return children + anchors.enumerated().map { index, anchor in
+            if let existing = accessibilityCheckboxes[anchor.id] { return existing }
             let element = ResourceCheckboxAccessibilityElement()
             element.setAccessibilityParent(self)
             element.setAccessibilityRole(.checkBox)
             element.setAccessibilityLabel(anchor.name)
-            element.setAccessibilityValue(isSelected(anchor.id) ? 1 : 0)
+            element.isSelected = { [weak self] in self?.isSelected(anchor.id) == true }
             element.setAccessibilityFrameInParentSpace(NSRect(x: 8, y: anchor.y, width: 20, height: 20))
             element.onPress = { [weak self] in
                 guard let self else { return }
                 self.scrollToVisible(NSRect(x: 0, y: self.anchors[index].y, width: 20, height: 20))
                 self.onToggle(anchor.id, !self.isSelected(anchor.id))
             }
+            accessibilityCheckboxes[anchor.id] = element
             return element
+        }
+    }
+
+    func notifyAccessibilitySelectionChanged(for ids: Set<String>) {
+        // Notify the same objects already handed to assistive technology;
+        // scrolling or selection changes must not create offscreen controls.
+        for id in ids.sorted() {
+            if let element = accessibilityCheckboxes[id] {
+                NSAccessibility.post(element: element, notification: .valueChanged)
+            }
         }
     }
 
@@ -262,6 +278,8 @@ private final class ResourceCheckbox: NSButton {
 }
 
 private final class ResourceCheckboxAccessibilityElement: NSAccessibilityElement {
+    var isSelected: (() -> Bool)?
     var onPress: (() -> Void)?
+    override func accessibilityValue() -> Any? { isSelected?() == true ? 1 : 0 }
     override func accessibilityPerformPress() -> Bool { onPress?(); return onPress != nil }
 }
