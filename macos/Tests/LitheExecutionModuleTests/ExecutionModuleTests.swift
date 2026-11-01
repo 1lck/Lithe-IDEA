@@ -10,8 +10,10 @@ import Testing
 struct ExecutionModuleTests {
     @Test(arguments: ["launch", "stop", "reset", "disable", "changed", "cancel"])
     func providerDebugKeepsCanonicalInputsAndOwnsItsProcessAcrossCancellation(outcome: String) async throws {
-        let owner = BuildSystemPluginSource(pluginID: "dev.first", manifest: Data(), packageURL: URL(fileURLWithPath: "/fixture/first"), buildSystems: [])
-        let operations = ProviderChoicesRunOperations(), gate = ProviderPreparationGate(), process = TestStreamingProcess()
+        let owner = BuildSystemPluginSource(pluginID: "dev.first", manifest: Data(), packageURL: URL(fileURLWithPath: "/fixture/first"), buildSystems: [
+            .init(id: "maven", displayName: "Provider", modelSource: .provider, tasks: [], testScopes: [], dependencyScopes: [],
+                  providerRuns: [.init(id: "service", displayName: "Service", targetTags: ["service"], debugConfigurationType: "example", execution: .service)])])
+        let operations = ProviderChoicesRunOperations(withReference: true), gate = ProviderPreparationGate(), process = TestStreamingProcess()
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
@@ -24,7 +26,7 @@ struct ExecutionModuleTests {
         var ended: [String] = []
         let observation = service.providerDebugEnded.sink { ended.append($0) }
         service.configureProviderConfigurationRuns(source: { _, _ in owner }) { inputs, _, _, _, _, _, languageImport in
-            #expect(inputs.launchOptions.debug == .init(port: 51235))
+            #expect(inputs.launchOptions.debug == .init(adapterID: "dev.adapter/remote", configurationType: "example", port: 51235))
             #expect(inputs.launchOptions.arguments == ["a b", "雪"])
             gate.entered.continuation.yield(())
             let waiter = Task { try await awaitSignal(gate.release.stream) }
@@ -35,7 +37,10 @@ struct ExecutionModuleTests {
             return try JSONDecoder().decode(BuildRunPreparation.self, from: Data(#"{"executable":{"kind":"toolchain","value":"project-maven"},"arguments":["prepared-debug"],"workingDirectory":".","environment":{}}"#.utf8))
         }
         await service.loadProject(at: root, files: [])
-        let task = Task { try await service.prepareProviderDebug(operations.configurations[0], port: 51235, languageImport: { value in
+        let task = Task { try await service.prepareProviderDebug(operations.configurations[0], debug: { type in
+            #expect(type == "example")
+            return .init(adapterID: "dev.adapter/remote", configurationType: type, port: 51235)
+        }, languageImport: { value in
             guard case .maven(let context) = value else { throw CancellationError() }
             #expect(context.profiles == ["run-only"]); imports += 1
         }, isCurrent: { current }) }
@@ -2935,8 +2940,10 @@ private final class TestLanguageExecutionSession: LanguageExecutionSession {
 
 /// Two Maven services with resolved choices. Any legacy goal-planning call fails the test.
 private struct ProviderChoicesRunOperations: RunConfigurationOperations {
-    let configurations = ["first", "second"].map { id in RunConfiguration(id: id, name: id,
-        kind: .mavenFramework(.quarkus), execution: .service, modulePath: id, mainClass: nil, mavenReactorPath: ".") }
+    var withReference = false
+    var configurations: [RunConfiguration] { ["first", "second"].map { id in RunConfiguration(id: id, name: id,
+        kind: withReference ? .process(provider: "build.provider") : .mavenFramework(.quarkus), execution: .service, modulePath: id, mainClass: nil, mavenReactorPath: withReference ? nil : ".",
+        buildProvider: withReference ? .init(pluginID: "dev.first", buildSystemID: "maven", root: ".", run: "service", projectID: id, targetID: "service", execution: .service) : nil) } }
     func inspect(at _: URL) -> ProjectRunConfigurationInspection { .init(status: .ready, diagnostics: []) }
     func generate(at _: URL, files _: [URL], modulePaths _: [String], javaEntrypoints _: JavaEntrypoints?, projectOwnership _: [RunProjectOwnership]?) throws -> RunConfigurationGenerationResult { .init(entryCount: 2) }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2944,7 +2951,8 @@ private struct ProviderChoicesRunOperations: RunConfigurationOperations {
     }
     func providerLaunchInputs(at _: URL, configurationID: String, providerRoot _: String) throws -> ProviderLaunchInputs {
         .init(buildSystemID: "maven", provider: "quarkus.maven", projectPath: configurationID,
-              launchOptions: .init(execution: .service, arguments: ["a b", "雪"]))
+              launchOptions: .init(execution: .service, arguments: ["a b", "雪"]),
+              reference: withReference ? .init(pluginID: "dev.first", buildSystemID: "maven", root: ".", run: "service", projectID: configurationID, targetID: "service", execution: .service) : nil)
     }
     func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
         Issue.record("Provider-owned Maven service reached the legacy Core goal planner")

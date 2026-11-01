@@ -79,7 +79,7 @@ pub(crate) fn run_options_negotiated(capabilities: &Value) -> bool {
         .is_some_and(|version| matches!(version, 10 | 11))
 }
 
-/// Version 11 accepts a host-selected suspended JVM endpoint.
+/// Version 11 accepts a registry-selected adapter and host-owned connection target.
 pub(crate) const RUNTIME_DEBUG_FEATURE: &str = "litheBuildRuntimeDebug";
 /// The process agreement, rather than just the manifest, gates debug choices.
 pub(crate) fn runtime_debug_negotiated(capabilities: &Value) -> bool {

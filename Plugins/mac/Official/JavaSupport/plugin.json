@@ -3,22 +3,39 @@
   "id": "dev.lithe.plugin.java-support",
   "displayName": "Java Support",
   "version": "1.1.0",
-  "pluginAPIVersion": 3,
-  "requires": {"languages": 1, "languageServers": 1, "serverProcess": 1, "settings": 2, "projectGenerators": 1, "packageTrust": 1},
+  "pluginAPIVersion": 4,
+  "requires": {"debugAdapters": 1, "languages": 1, "languageServers": 1, "serverProcess": 1, "settings": 2, "projectGenerators": 1, "packageTrust": 1},
   "vendor": {
     "id": "dev.lithe",
     "displayName": "Lithe",
     "signatureRequirement": "publisherPackage",
     "bundledSignatureRequirement": "sameTeamAsHost"
   },
-  "permissions": ["languageServer.launch", "project.generate"],
-  "activationEvents": ["onLanguage:java"],
+  "permissions": ["languageServer.launch", "project.generate", "debug.launch", "debug.attach"],
+  "activationEvents": ["onLanguage:java", "onDebug:java"],
   "languages": [
     {
       "id": "java",
       "displayName": "Java",
       "fileExtensions": ["java"],
       "projectFileNames": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+    }
+  ],
+  "debugAdapters": [
+    {
+      "id": "java",
+      "displayName": "Java Debugger",
+      "adapterID": "java",
+      "configurationTypes": ["java"],
+      "requests": ["attach"],
+      "selectors": [{"targetKinds": ["connection"], "languageIDs": ["java"]}],
+      "launch": {
+        "transport": "tcpLanguageServer",
+        "endpoint": {"languageID": "java", "command": "vscode.java.startDebugSession"}
+      },
+      "configurations": {
+        "attach": {"targetBindings": {"connection": {"host": "hostName", "port": "port"}}}
+      }
     }
   ],
   "settings": [

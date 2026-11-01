@@ -2894,14 +2894,16 @@ fn provider_run_options_preserve_argv_and_validate_declared_execution_and_cwd() 
 
 /// Runtime debugging requires an explicit process agreement and never a provider-selected host.
 #[test]
-fn provider_jvm_debug_options_require_version_eleven_and_a_host_selected_loopback_endpoint() {
+fn provider_connection_debug_options_require_version_eleven_and_a_declared_registry_type() {
     let mut manifest: Value = serde_json::from_str(contract_file!(
         "fixtures/build-provider-run-options.plugin.json"
     ))
     .unwrap();
-    let fixture: Value =
-        serde_json::from_str(contract_file!("fixtures/build-jvm-debug-options.json")).unwrap();
-    let workspace = TemporaryWorkspace::new("provider-jvm-debug");
+    let fixture: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-connection-debug-options.json"
+    ))
+    .unwrap();
+    let workspace = TemporaryWorkspace::new("provider-connection-debug");
     workspace.write("app/Main.java", "class Main {}");
     workspace.write("tools/readme.txt", "cwd");
     let mut request: Value =
@@ -2919,11 +2921,27 @@ fn provider_jvm_debug_options_require_version_eleven_and_a_host_selected_loopbac
     };
     assert_eq!(plan(&manifest, &request).unwrap()["status"], "rejected");
     manifest["requires"]["buildProviders"] = json!(11);
+    assert_eq!(plan(&manifest, &request).unwrap()["status"], "rejected");
+    let runs = manifest["buildSystems"][0]["run"].as_array_mut().unwrap();
+    runs.iter_mut().find(|run| run["id"] == "service").unwrap()["debug"] =
+        json!({"configurationType":"java"});
     let planned = plan(&manifest, &request).unwrap();
     assert_eq!(planned["status"], "ok", "{planned}");
     assert_eq!(
         planned["plan"]["provider"]["params"]["launchOptions"],
         fixture["launchOptions"]
+    );
+    let mut opaque_manifest = manifest.clone();
+    let mut opaque_request = request.clone();
+    let runs = opaque_manifest["buildSystems"][0]["run"]
+        .as_array_mut()
+        .unwrap();
+    runs.iter_mut().find(|run| run["id"] == "service").unwrap()["debug"] =
+        json!({"configurationType":"runtime / λ"});
+    opaque_request["launchOptions"]["debug"]["configurationType"] = json!("runtime / λ");
+    assert_eq!(
+        plan(&opaque_manifest, &opaque_request).unwrap()["status"],
+        "ok"
     );
     for debug in [
         Value::Null,
@@ -2933,6 +2951,10 @@ fn provider_jvm_debug_options_require_version_eleven_and_a_host_selected_loopbac
         json!({"runtime":"jvm","port":65536}),
         json!({"runtime":"jvm","port":1.5}),
         json!({"runtime":"jvm","port":51235,"host":"remote"}),
+        json!({"adapterID":"java","configurationType":"java","target":{"kind":"connection","host":"127.0.0.1","port":51235}}),
+        json!({"adapterID":"dev.example/adapter","configurationType":"other","target":{"kind":"connection","host":"127.0.0.1","port":51235}}),
+        json!({"adapterID":"dev.example/adapter","configurationType":"java","target":{"kind":"connection","host":"remote","port":51235}}),
+        json!({"adapterID":"dev.example/adapter","configurationType":"java","target":{"kind":"connection","host":"127.0.0.1","port":0}}),
     ] {
         let mut invalid = request.clone();
         invalid["launchOptions"]["debug"] = debug;

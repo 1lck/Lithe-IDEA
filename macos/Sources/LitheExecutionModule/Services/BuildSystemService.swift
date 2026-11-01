@@ -1178,11 +1178,11 @@ package final class BuildSystemService: ObservableObject {
             guard runs.count == 1, let run = runs.first else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
             if inputs.launchOptions.debug != nil {
                 let resolution = try planner.resolveOptions(entry.target, options: context.options, modelValues: model.optionValues)
-                guard let imported = try planner.languageImport(entry.target, workspaceURL: workspace, root: context.root,
-                    options: Self.effectiveOptionValues(resolution, stored: context.options), executableURL: launchTool.toolExecutable)
-                else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
-                guard valid() else { throw CancellationError() }
-                try await onLanguageImport(imported)
+                if let imported = try planner.languageImport(entry.target, workspaceURL: workspace, root: context.root,
+                    options: Self.effectiveOptionValues(resolution, stored: context.options), executableURL: launchTool.toolExecutable) {
+                    guard valid() else { throw CancellationError() }
+                    try await onLanguageImport(imported)
+                }
                 guard valid() else { throw CancellationError() }
             }
             let opaqueArguments = inputs.opaqueReferenceArguments

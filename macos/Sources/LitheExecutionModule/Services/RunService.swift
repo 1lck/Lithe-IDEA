@@ -193,24 +193,26 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     /// Debug uses the same canonical inputs and process owner as Run. Only the
-    /// selected loopback port crosses the domain boundary, never Maven flags.
-    package func prepareProviderDebug(_ configuration: RunConfiguration, port: UInt16,
+    /// registered adapter and local connection cross the boundary, never runtime flags.
+    package func prepareProviderDebug(_ configuration: RunConfiguration,
+        debug: @escaping @MainActor (String) throws -> BuildLaunchOptions.Debug,
         languageImport: @escaping @MainActor (BuildLanguageImport) async throws -> Void = { _ in },
         isCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> String {
-        guard configuration.usesProviderFrameworkLaunch, projectURL != nil, configurationRunPreparer != nil else { throw CancellationError() }
+        guard configuration.usesProviderConnectionDebug, projectURL != nil, configurationRunPreparer != nil else { throw CancellationError() }
         stop()
         let owner = UUID()
         let task = Task {
             try Task.checkCancellation()
             guard self.providerDebugPreparation?.id == owner else { throw CancellationError() }
-            return try await self.prepareProviderDebugExecution(configuration, port: port, languageImport: languageImport, isCurrent: isCurrent)
+            return try await self.prepareProviderDebugExecution(configuration, debug: debug, languageImport: languageImport, isCurrent: isCurrent)
         }
         providerDebugPreparation = (owner, { task.cancel() })
         defer { if providerDebugPreparation?.id == owner { providerDebugPreparation = nil } }
         return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
-    private func prepareProviderDebugExecution(_ configuration: RunConfiguration, port: UInt16,
+    private func prepareProviderDebugExecution(_ configuration: RunConfiguration,
+        debug: @escaping @MainActor (String) throws -> BuildLaunchOptions.Debug,
         languageImport: @escaping @MainActor (BuildLanguageImport) async throws -> Void,
         isCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> String {
         guard let workspace = projectURL, let prepare = configurationRunPreparer else { throw CancellationError() }
@@ -228,18 +230,32 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                 && self.providerLaunchRevision == revision && self.generationRevision == generated
                 && self.primaryExecutionID == identity && self.isRunning
         }
-        guard let context = try mavenContext(for: configuration), valid() else { throw CancellationError() }
-        let root = context.reactorPath, operations = runConfigurationOperations
+        let root: String
+        if let reference = configuration.buildProvider { root = reference.root }
+        else if let context = try mavenContext(for: configuration) { root = context.reactorPath }
+        else { throw CancellationError() }
+        guard valid() else { throw CancellationError() }
+        let operations = runConfigurationOperations
         let original = try await Task.detached(priority: .userInitiated) {
             try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: root)
         }.value
         guard valid(), let owner = configurationRunSource?(original, root) else { throw CancellationError() }
         primaryProviderSource = owner
         var choices = original.launchOptions
-        choices.debug = .init(port: port)
+        guard let reference = original.reference,
+              let declaration = owner.buildSystems.first(where: { $0.id == original.buildSystemID })?
+                .providerRuns.first(where: { $0.id == reference.run }),
+              declaration.execution == .service, let configurationType = declaration.debugConfigurationType else {
+            throw RunConfigurationOperationFailure(message: L10n.string("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled."))
+        }
+        let selected = try debug(configurationType)
+        guard selected.configurationType == configurationType, valid() else { throw CancellationError() }
+        choices.debug = selected
         let inputs = ProviderLaunchInputs(buildSystemID: original.buildSystemID, provider: original.provider,
             projectPath: original.projectPath, launchOptions: choices, optionOverrides: original.optionOverrides, reference: original.reference)
-        let tool = try buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: root)
+        let tool = configuration.buildProvider == nil
+            ? try buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: root)
+            : BuildProviderHints()
         let prepared = try await prepare(inputs, root, workspace, tool, valid, { [weak self] value in
             if valid() { self?.append(value.output ?? value.message.map { $0 + "\n" } ?? "") }
         }) { value in

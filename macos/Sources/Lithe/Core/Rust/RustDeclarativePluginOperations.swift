@@ -190,6 +190,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                         kind: request.targetKind,
                         path: request.path,
                         processID: request.processID,
+                        host: request.host, port: request.port,
                         workingDirectory: request.workingDirectory,
                         executable: request.executable,
                         arguments: request.arguments, environment: request.environment
@@ -614,6 +615,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 let kind: String
                 let path: String?
                 let processID: Int?
+                let host: String?
+                let port: UInt16?
                 let workingDirectory: String?
                 let executable: String?
                 let arguments: [String]?

@@ -104,10 +104,11 @@ package final class RunFeatureModel: ObservableObject {
     package var mavenProfiles: [MavenProfile] { service.mavenProfiles }
     package var primaryExecutionID: String? { service.primaryExecutionID }
     package var providerDebugEnded: AnyPublisher<String, Never> { service.providerDebugEnded.eraseToAnyPublisher() }
-    package func prepareProviderDebug(_ configuration: RunConfiguration, port: UInt16,
+    package func prepareProviderDebug(_ configuration: RunConfiguration,
+        debug: @escaping @MainActor (String) throws -> BuildLaunchOptions.Debug,
         languageImport: @escaping @MainActor (BuildLanguageImport) async throws -> Void = { _ in },
         isCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> String {
-        try await service.prepareProviderDebug(configuration, port: port, languageImport: languageImport, isCurrent: isCurrent)
+        try await service.prepareProviderDebug(configuration, debug: debug, languageImport: languageImport, isCurrent: isCurrent)
     }
     package func isProviderDebugActive(_ operation: String) -> Bool { service.isProviderDebugActive(operation) }
     package func providerDebugProcessID(_ operation: String) -> Int32? { service.providerDebugProcessID(operation) }

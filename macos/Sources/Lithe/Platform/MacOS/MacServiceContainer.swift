@@ -969,6 +969,11 @@ final class MacServiceContainer {
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
                 javaTestLaunchResolver: rustCore,
+                providerConnection: { configurationType, adapterID, port in
+                    try MacBuildConnectionDebugResolver(planner: declarativePluginOperations,
+                        entries: qualifiedDebugAdapters, generation: { liveSnapshotBox.snapshot.generation })
+                        .prepare(configurationType: configurationType, preferredAdapterID: adapterID, port: port)
+                },
                 providerLaunch: { source, preparation, workspaceURL, title in
                     try MacBuildDebugLaunchResolver(planner: declarativePluginOperations,
                         entry: { qualifiedDebugAdapters()[$0] }, generation: { liveSnapshotBox.snapshot.generation })

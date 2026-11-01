@@ -60,7 +60,7 @@ export interface BuildTestSelection {
 export interface BuildLaunchOptions {
   execution: "application" | "service" | "task";
   runtimeArguments: string[]; arguments: string[]; environment: Record<string, string>;
-  workingDirectory?: string; entrypoint?: string; debug?: { runtime: "jvm"; port: number };
+  workingDirectory?: string; entrypoint?: string; debug?: { adapterID: string; configurationType: string; target: { kind: "connection"; host: "127.0.0.1"; port: number } };
 }
 export interface BuildRunSelection {
   run: string; projectID: string; targetID: string; userArguments?: string[]; launchOptions?: BuildLaunchOptions;

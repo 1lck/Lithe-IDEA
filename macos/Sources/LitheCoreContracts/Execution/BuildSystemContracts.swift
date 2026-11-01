@@ -123,9 +123,10 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
         public let displayName: String
         public let targetTags: [String]
         public let debugAdapter: String?
+        public let debugConfigurationType: String?
         public let execution: BuildExecution
-        public init(id: String, displayName: String, targetTags: [String], debugAdapter: String? = nil, execution: BuildExecution = .application) {
-            self.id = id; self.displayName = displayName; self.targetTags = targetTags; self.debugAdapter = debugAdapter; self.execution = execution
+        public init(id: String, displayName: String, targetTags: [String], debugAdapter: String? = nil, debugConfigurationType: String? = nil, execution: BuildExecution = .application) {
+            self.id = id; self.displayName = displayName; self.targetTags = targetTags; self.debugAdapter = debugAdapter; self.debugConfigurationType = debugConfigurationType; self.execution = execution
         }
     }
     /// Optional public producer identities; never installation dependencies or private function access.
@@ -792,11 +793,20 @@ package struct BuildProviderRunReference: Codable, Hashable, Sendable {
 
 /// Version-10 user choices. Providers own their interpretation and the host owns the process.
 package struct BuildLaunchOptions: Codable, Equatable, Sendable {
-    /// Version 11 requests a suspended JVM on a host-selected loopback port.
+    /// Version 11 carries a registry-selected adapter and a host-owned local endpoint.
     package struct Debug: Codable, Equatable, Sendable {
-        package let runtime: String
-        package let port: UInt16
-        package init(port: UInt16) { self.runtime = "jvm"; self.port = port }
+        package struct Target: Codable, Equatable, Sendable {
+            package let kind: String
+            package let host: String
+            package let port: UInt16
+        }
+        package let adapterID: String
+        package let configurationType: String
+        package let target: Target
+        package init(adapterID: String, configurationType: String, port: UInt16) {
+            self.adapterID = adapterID; self.configurationType = configurationType
+            self.target = .init(kind: "connection", host: "127.0.0.1", port: port)
+        }
     }
     package let execution: BuildExecution
     package var runtimeArguments: [String]

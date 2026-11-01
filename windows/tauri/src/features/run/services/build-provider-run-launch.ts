@@ -13,7 +13,7 @@ export interface BuildProviderRunRequest {
   reference?: BuildProviderRunReference;
   source?: { buildSystemID: string; root: string; provider: string; execution: "application" | "service" | "task" };
   sessionId: string; executionId: string;
-  debugPort?: number;
+  debug?: NonNullable<BuildProviderLaunchInputs["launchOptions"]["debug"]>;
   runtimeExecutablePaths: Record<string, string>;
   isCurrent: () => boolean; onRevoked: () => void; onOutput: (text: string) => void; onReady: (launch: PreparedNativeBuildRun) => void;
 }
@@ -89,7 +89,7 @@ export function startBuildProviderRun(request: BuildProviderRunRequest, ports: B
     try {
       await models.ensure(scope.instance, controller.signal, text => { if (request.isCurrent()) request.onOutput(text); }); catalogCurrent();
       const operation = scope.domain.prepareConfigurationRun(scope.instance, { ...inputs, launchOptions: { ...inputs.launchOptions,
-        ...(request.debugPort !== undefined ? { debug: { runtime: "jvm" as const, port: request.debugPort } } : {}) } });
+        ...(request.debug !== undefined ? { debug: structuredClone(request.debug) } : {}) } });
       const cancel = () => { scope.domain.cancel(operation.operationID); };
       controller.signal.addEventListener("abort", cancel, { once: true });
       if (controller.signal.aborted) cancel();

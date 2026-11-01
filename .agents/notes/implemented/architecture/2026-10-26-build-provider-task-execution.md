@@ -340,8 +340,22 @@ Stop 在准备期间可用，新 Run 先撤销旧任务，迟到返回不能清�
 
 ### 框架调试保留 Maven 运行方式
 
+Review 修正（2026-10-31）：`runtime: jvm` 不是通用宿主契约，已改为
+`adapterID`、`configurationType` 和 `{kind: connection, host: 127.0.0.1, port}`。
+插件运行声明只发布配置类型；宿主复用现有 Registry，显式适配器选择优先，缺失或
+歧义时拒绝启动。准备、端口等待和 attach 都持有注册代次和包身份，停用、替换或
+代次变化撤销并清理所属进程，不能恢复到内置 Java attach。
+
+Java Support 在自己的 `debugAdapters` 声明 JDT 托管适配器，引用同包的 Java
+语言服务器；Maven 只引用公开类型，不能借 `tcpLanguageServer` 调用别的包。
+语言服务器会话也核对所属插件。现有 Core 的 `debug.adapters.startArguments`
+负责 connection 到 DAP 参数的绑定；运行时特定的 JDWP/Mojo 参数仍由 Maven
+后端解释。没有新增下载或运行时目录，插件安装目录与 app bundle 保持只读。
+普通 Java 的旧调试迁移仍属于阶段 E，不因为此入口已改造就宣称全量完成。
+
+
 框架的开发目标可能维护热更新、生成代码和运行时初始化，不能在 Debug 点击后改成
-随便一个 Java 主类。协议 11 在已有运行选项里接收宿主选定的本机 JVM 端口；Maven
+随便一个 Java 主类。协议 11 在已有运行选项里接收宿主从 Registry 选择的适配器身份、公开配置类型和本机 connection 目标；Maven
 后端通过当前生效插件的 Mojo（Maven 目标执行单元）描述符配置暂停和回环地址。
 Spring Boot 合并现有 JVM 参数并拒绝重复 JDWP；Quarkus、Micronaut 使用各自插件的
 受管调试参数，并校验参数名称和类型。缺少兼容参数时明确失败，不静默忽略。
@@ -643,3 +657,22 @@ buildSystemID 停止：两个插件可以声明同名工具，却拥有不同的
 场景通过；另显式执行三项真实 JDT/JVM，包哈希与进程清理断言通过。SDK 六项
 E2E、Core→Maven 20 项、资源复用 30 项及 i18n 35 项通过。保留原有超时，不放宽
 运行预算；新原生流程单独计时，报告位于 `stage-d-preview-*`。
+
+### PR #1558 review 修正验证（2026-11-01）
+
+v7 的格式无关编辑和通用报告/准备任务回归在本地通过 Core 1436 项、macOS
+246 项；后续 v11 注册表与通用保存引用增量通过 macOS 192 项、Windows 前端
+62 项及类型检查/生产构建，Node SDK 构建协议 26 项和 Java SDK 49 项通过。
+Node/Java 的真实 SDK E2E 共 6 项通过；计数有重叠，不相加为全新覆盖数。
+
+v11 Core 全量计时 1436 项中 1435 项先通过；唯一失败是项目生成器测试把正式
+Java Support 裁成语言提供者时遗漏删除新 DAP 声明，却移除了调试权限。已修正
+测试裁剪并增加独立准入断言，该项定向回归 30ms 通过。
+`stage-d-review-connection-core-final.json` 合并每个精确用例的最新结果，保留原始
+全量报告和定向日志供核对，不代表又执行了一遍全量。
+
+真实 Maven 流程 20 步、Quarkus/Micronaut 暂停/JDI/恢复/HTTP 和清理 4 步通过；
+最新开发包的 macOS 生产存储写回、回读及外部冲突测试通过（7.354 秒）。包清单
+不变。v7 的 XML 格式回归归 Maven 编辑器，JSON 格式回归归 SDK；宿主不保留
+XML 编辑器。原生 Windows/完整断点 UI/正式发行组合仍未验收；#1581 尚未合并，
+工具定义消费和 Core Maven 专用运行配置边界继续列为未完成，三个 PR 保持 Draft。

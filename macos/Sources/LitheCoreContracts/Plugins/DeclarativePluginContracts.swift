@@ -699,6 +699,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 displayName: $0.displayName,
                 adapterID: $0.adapterID ?? $0.id,
                 requests: Set($0.requests.compactMap(DebugRequestKind.init(rawValue:))),
+                configurationTypes: $0.configurationTypes,
                 languageIDs: $0.languageIDs,
                 fileLaunchLanguageIDs: $0.fileLaunchLanguageIDs,
                 consoleCommands: $0.consoleCommands,
@@ -1147,6 +1148,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let displayName: String
             let adapterID: String?
             let requests: [String]
+            let configurationTypes: [String]
             let selectors: [Selector]
             let capabilities: Capabilities?
             let console: Console?
@@ -1192,6 +1194,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 // Rust Core fills in `launch` when the manifest omits `requests`;
                 // the same default keeps a hand-built descriptor consistent.
                 requests = try values.decodeIfPresent([String].self, forKey: .requests) ?? ["launch"]
+                configurationTypes = try values.decodeIfPresent([String].self, forKey: .configurationTypes) ?? []
                 selectors = try values.decodeIfPresent([Selector].self, forKey: .selectors) ?? []
                 capabilities = try values.decodeIfPresent(Capabilities.self, forKey: .capabilities)
                 console = try values.decodeIfPresent(Console.self, forKey: .console)
@@ -1199,7 +1202,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, adapterID, requests, selectors, capabilities, console, configurations
+                case configurationTypes, id, displayName, adapterID, requests, selectors, capabilities, console, configurations
             }
         }
 
@@ -1250,7 +1253,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let scope: DeclarativeBuildSystem.OptionScope?
             }
             struct ProviderRun: Decodable {
-                struct Debug: Decodable { let adapter: String }
+                struct Debug: Decodable { let adapter: String?; let configurationType: String? }
                 let debug: Debug?
                 struct Targets: Decodable { let tags: [String] }
                 let id: String
@@ -1333,7 +1336,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     declaresProvider: declaresProvider,
                     testDiscovery: test?.discovery ?? false,
                     providerRuns: run.filter { $0.source == "provider" }.map {
-                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter, execution: $0.execution ?? .application)
+                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter, debugConfigurationType: $0.debug?.configurationType, execution: $0.execution ?? .application)
                     }, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration,
                     providerTestReports: test?.results?.decoder == "provider",
                     testSelectorKinds: test?.selectorKinds ?? []
@@ -1407,6 +1410,8 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     /// The `adapterID` of the DAP `initialize` request.
     public let adapterID: String
     public let requests: Set<DebugRequestKind>
+    /// Public registry aliases advertised by this adapter.
+    public let configurationTypes: [String]
     /// Every language a selector of the adapter names, whatever the request or
     /// target kind. It says which languages the plugin has a debugger for, so a
     /// debug-only declaration is recognised; it does not choose the adapter for
@@ -1435,6 +1440,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         displayName: String,
         adapterID: String,
         requests: Set<DebugRequestKind> = [.launch, .attach],
+        configurationTypes: [String] = [],
         languageIDs: [String],
         fileLaunchLanguageIDs: [String]? = nil,
         consoleCommands: [DebugConsoleCommand] = [],
@@ -1446,6 +1452,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         self.displayName = displayName
         self.adapterID = adapterID
         self.requests = requests
+        self.configurationTypes = configurationTypes
         self.languageIDs = languageIDs
         self.fileLaunchLanguageIDs = fileLaunchLanguageIDs ?? languageIDs
         self.consoleCommands = consoleCommands
@@ -1540,10 +1547,12 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
     public enum Request: String, Sendable { case launch, attach }
 
     public let request: Request
-    /// What the target is: `file` or `process`.
+    /// The registry target kind, including `file`, `executable`, `process` and `connection`.
     public let targetKind: String
     public let path: String?
     public let processID: Int?
+    public let host: String?
+    public let port: UInt16?
     public let workingDirectory: String?
     /// The program the host found for a launch whose adapter binds `program` to
     /// `target.executable`; an absolute path the host has checked is runnable.
@@ -1555,6 +1564,7 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
 
     public init(
         request: Request, targetKind: String, path: String? = nil, processID: Int? = nil,
+        host: String? = nil, port: UInt16? = nil,
         workingDirectory: String? = nil, executable: String? = nil,
         registrationGeneration: Int, currentRegistrationGeneration: Int,
         arguments: [String]? = nil, environment: [String: String]? = nil
@@ -1563,6 +1573,7 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
         self.targetKind = targetKind
         self.path = path
         self.processID = processID
+        self.host = host; self.port = port
         self.workingDirectory = workingDirectory
         self.executable = executable
         self.arguments = arguments

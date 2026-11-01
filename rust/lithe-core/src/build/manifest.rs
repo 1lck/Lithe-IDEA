@@ -697,11 +697,20 @@ pub(crate) struct RunDeclaration {
     pub(crate) extension: BTreeMap<String, String>,
 }
 
-/// Explicit adapter reference; it never grants cross-package access.
+/// Native launch binds a local adapter; connection attach names a public registry type.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RunDebug {
-    pub(crate) adapter: String,
+    /// Local adapter ID for v5 native executable launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) adapter: Option<String>,
+    /// Opaque public registry alias for v11 service connection attach.
+    #[serde(
+        default,
+        rename = "configurationType",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) configuration_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1435,14 +1444,17 @@ impl BuildSystemDeclaration {
             ));
         }
         for run in &self.run {
-            if run.debug.is_some() {
-                if context.build_providers_version < 5 {
-                    return Err(invalid(
-                        &field,
-                        "Provider debug preparation requires buildProviders 5.",
-                    ));
+            if let Some(debug) = &run.debug {
+                match (&debug.adapter, &debug.configuration_type) {
+                    (Some(_), None) if context.build_providers_version >= 5 => {
+                        super::debug_preparation::adapter(run, context.debug_adapters)?;
+                    }
+                    (None, Some(kind)) if context.build_providers_version >= 11
+                        && super::run_preparation::valid_configuration_type(kind)
+                        && run.execution == Some(BuildExecution::Service) => {}
+                    _ => return Err(invalid(&field,
+                        "Debug requires a same-package native adapter (buildProviders 5), or one registry configurationType for a service (buildProviders 11).")),
                 }
-                super::debug_preparation::adapter(run, context.debug_adapters)?;
             }
         }
         if matches!(
@@ -1983,12 +1995,7 @@ impl BuildSystemDeclaration {
                     "Run IDs are unique identifiers that start with a letter.",
                 ));
             }
-            if run.debug.is_some()
-                && (run.source != TaskSource::Provider
-                    || run
-                        .execution
-                        .is_some_and(|execution| execution != BuildExecution::Application))
-            {
+            if run.debug.is_some() && run.source != TaskSource::Provider {
                 return Err(invalid(
                     &field,
                     "Debug preparation requires a provider run.",

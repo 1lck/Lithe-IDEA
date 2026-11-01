@@ -5,7 +5,7 @@
 use super::decode::{self, Workspace};
 use super::manifest::{BuildExecution, BuildSystemDeclaration, TaskSource};
 use super::plans::{self, OutputPlanRequest, SelectedEntity};
-use crate::plugins::declarative::{is_bare_command, is_identifier, Validation};
+use crate::plugins::declarative::{is_bare_command, is_identifier, is_plugin_id, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -42,12 +42,31 @@ pub(crate) struct LaunchOptions {
     debug: Option<RuntimeDebug>,
 }
 
-/// A host-selected loopback JVM endpoint; providers may not select a remote host.
+/// The host selects a current DebugAdapter Registry entry and a local debuggee endpoint.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RuntimeDebug {
-    runtime: String,
+    /// Qualified registry identity selected and revalidated by the native host.
+    #[serde(rename = "adapterID")]
+    adapter_id: String,
+    /// Public alias matching the selected run's declaration.
+    configuration_type: String,
+    /// Host-owned endpoint of the suspended service, not the adapter transport.
+    target: ConnectionTarget,
+}
+
+/// A debuggee connection, independent of language and adapter transport.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ConnectionTarget {
+    kind: String,
+    host: String,
     port: u16,
+}
+
+/// Registry aliases remain opaque names, with bounded non-control text.
+pub(crate) fn valid_configuration_type(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
 }
 
 /// Omitted debug means Run; explicit null must never silently discard Debug.
@@ -69,7 +88,20 @@ impl LaunchOptions {
     fn validate(&self, workspace_root: Option<&str>) -> Validation<()> {
         let invalid = || plans::invalid_selection("Invalid provider launch options.");
         if self.debug.as_ref().is_some_and(|debug| {
-            debug.runtime != "jvm" || debug.port == 0 || self.execution != BuildExecution::Service
+            debug.target.kind != "connection"
+                || debug.target.host != "127.0.0.1"
+                || debug.target.port == 0
+                || self.execution != BuildExecution::Service
+                || !valid_configuration_type(&debug.configuration_type)
+                || !debug
+                    .adapter_id
+                    .split_once('/')
+                    .is_some_and(|(plugin, adapter)| {
+                        is_plugin_id(plugin)
+                            && plugin.len() <= 128
+                            && is_identifier(adapter)
+                            && adapter.len() <= 64
+                    })
         }) {
             return Err(invalid());
         }
@@ -161,6 +193,18 @@ pub(crate) fn plan(
                 ));
             }
             options.validate(request.workspace_root.as_deref())?;
+            if let Some(debug) = &options.debug {
+                if declaration
+                    .debug
+                    .as_ref()
+                    .and_then(|binding| binding.configuration_type.as_ref())
+                    != Some(&debug.configuration_type)
+                {
+                    return Err(plans::invalid_selection(
+                        "The selected registry type must match this run's debug declaration.",
+                    ));
+                }
+            }
         }
         None if execution != BuildExecution::Application => {
             return Err(plans::invalid_selection(

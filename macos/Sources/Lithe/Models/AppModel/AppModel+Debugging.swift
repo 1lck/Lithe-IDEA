@@ -193,8 +193,8 @@ extension AppModel {
             }
             return
         }
-        if selectedConfiguration.usesProviderFrameworkLaunch {
-            await startProviderFrameworkDebug(selectedConfiguration, identity: identity, run: runFeature)
+        if selectedConfiguration.usesProviderConnectionDebug {
+            await startProviderServiceDebug(selectedConfiguration, identity: identity, run: runFeature)
             return
         }
         if selectedConfiguration.buildProvider != nil {
@@ -219,8 +219,8 @@ extension AppModel {
             configurations: runFeature.configurations
         )
         runFeature.select(configuration)
-        if configuration.usesProviderFrameworkLaunch {
-            await startProviderFrameworkDebug(configuration, identity: identity, run: runFeature)
+        if configuration.usesProviderConnectionDebug {
+            await startProviderServiceDebug(configuration, identity: identity, run: runFeature)
             return
         }
 

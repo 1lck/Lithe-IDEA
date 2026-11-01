@@ -13,16 +13,16 @@
 
 [2026-10-30 的 review](https://github.com/1lck/Lithe-IDEA/pull/1558#pullrequestreview-5715250513)
 改变了下文已接通代码的验收条件。历史通过数只证明当时的实现，不能用来认定被驳回的
-架构可以合入。三个 PR 继续保持 Draft；协议 8～10 保留，协议 7、11 及其 SDK 实现待重写。
+架构可以合入。三个 PR 继续保持 Draft；协议 8～10 保留，协议 7 已改为提供者编辑，协议 11 正改为注册表连接目标；完整迁移仍有下列待办。
 
 | 修正项 | 当前状态与退出条件 |
 | --- | --- |
 | 通用测试报告 | macOS 改为直接消费 `BuildTestResults`；移除三种 Maven 报告类型和转换。上游摘要、调用次数、耗时、来源位置与不透明重跑引用保持原义；JDT 发现适配器明确关联报告名称，通用 UI 不解析用例名称。Windows 的现有行标记字段保留兼容别名。验证记录见本次计时报告，不替代整机验收。 |
 | 原生配置 v7 | 已移除 XML 绑定和 Core XML 编辑器，新增提供者编辑计划及不含文档的回执。两端暂存/校验/原子发布接线已更新；Node/Java JSON E2E、真实 Maven 编辑/回读、127 项 macOS、71 项 Windows 前端和类型检查通过。Windows 原生 4 个既有 watcher 失败、整机未验收；完整正式组合仍待验证。 |
-| 服务调试 v11 | 待修改：删除 `runtime: jvm` 和新增的内置 Java attach 路线，以适配器身份和 `connection` 目标经过既有 Registry。`tcpLanguageServer` 必须引用同包语言服务器，不能把 Maven 插件直接接到另一包的 JDT。 |
-| 工具选择 | 等 [#1581](https://github.com/1lck/Lithe-IDEA/pull/1581) 合并后接 `toolchainSources`；2026-10-31 核实它仍为 Draft、未合并。删除本 PR 新增的 Maven toolchain 注册和按名字选择，不另建版本管理链。 |
+| 服务调试 v11 | 已删除本入口的 `runtime: jvm` 与内置 Java attach；协议传递适配器身份、公开配置类型和 `connection` 目标，宿主从当前 Registry 选择并验证配置，跨准备/监听/连接检查包与注册代次。Java Support 自己声明同包 JDT 托管适配器，Maven 仅声明配置类型；真实断点 UI 与发行组合仍待验收。 |
+| 工具选择 | 等 [#1581](https://github.com/1lck/Lithe-IDEA/pull/1581) 合并后接其重写后的 `toolDefinitions` / `toolchainProviders` 与四层选择契约（旧 `toolchainSources` 方案已撤回）；2026-11-01 核实它已 Ready、仍未合并。删除本 PR 新增的 Maven toolchain 注册和按名字选择，不另建版本管理链。 |
 | Maven 运行配置与准备任务 | 待修改：Core 不增加 Maven profile/reactor/framework 的稳定解析面；提供者拥有语义。准备任务已改为 `buildSystems: 4` 清单的通用用途和适用源码角色，宿主不约定固定任务 ID；Maven 运行配置语义迁移仍待处理。 |
-| SDK 与版本 | 2026-10-31 核实 SDK main 两种实现最高为 6，GitHub 仅有 sdk-node-v0.1.0 发布；7～11 仍在 Draft。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 仍须重写。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
+| SDK 与版本 | 2026-10-31 核实 SDK main 两种实现最高为 6，GitHub 仅有 sdk-node-v0.1.0 发布；7～11 仍在 Draft。重写 v7 为提供者暂存编辑，保留 8～10 版本及处理器，v11 改为注册表连接目标，正式发行组合仍待验收。只在宿主合并后同步契约副本，正式 SDK 锁定值不变。 |
 
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 

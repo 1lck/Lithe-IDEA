@@ -19,19 +19,24 @@
     "workingDirectory": "tools",
     "entrypoint": "example.Main",
     "debug": {
-      "runtime": "jvm",
-      "port": 51235
+      "adapterID": "dev.lithe.plugin.java-support/java",
+      "configurationType": "java",
+      "target": {
+        "kind": "connection",
+        "host": "127.0.0.1",
+        "port": 51235
+      }
     }
   },
   "result": {
     "executable": {
-      "kind": "toolchain",
-      "value": "project-maven"
+      "kind": "command",
+      "value": "engine"
     },
     "arguments": [
-      "--file",
-      "app/pom.xml",
-      "framework:run"
+      "serve",
+      "--root",
+      "app"
     ],
     "workingDirectory": "tools",
     "environment": {

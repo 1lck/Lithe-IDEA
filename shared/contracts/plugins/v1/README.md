@@ -407,7 +407,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options | `1`, `2`, `3` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports, v9 opaque semantic test selectors, v10 typed run options and service/task preparation | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports, v9 opaque semantic test selectors, v10 typed run options and service/task preparation, v11 registry connection debugging | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
 | `executableResolution` | Shared executable candidate ordering and strict selection; v2 canonical project/subproject toolchain registry bindings | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
@@ -1128,28 +1128,38 @@ launch result validation and cancellation/stale-result behavior are unchanged.
 Canonical fixtures: `fixtures/build-provider-run-options.plugin.json` and
 `fixtures/build-run-options.json`.
 
-#### JVM service debugging (buildProviders 11)
+#### Registry connection debugging (buildProviders 11)
 
-Version 11 retains versions 1–10 and adds optional
-`launchOptions.debug: { "runtime": "jvm", "port": 51235 }` to service
-`lithe/build/prepareRun` requests. The exact two fields are required; the port
-is an integer from 1 through 65535. Explicit null, unknown fields, other runtime
-kinds and application/task execution are rejected. Both the manifest capability
-and the process agreement must support version 11; hosts and SDKs refuse the
-field before invoking an older handler.
+Version 11 retains versions 1–10. A provider service run may declare
+`debug: {"configurationType":"example"}`. This is a public DebugAdapter Registry
+alias, not another plugin's private language server or a local adapter ID.
+The host selects one currently enabled adapter advertising the type and `attach`,
+respecting an explicit qualified adapter selection. Missing or ambiguous entries
+fail before starting the provider process. It sends:
 
-The host selects an unused local port and owns the process, its output and its
-lifetime. The provider configures its upstream tool to start exactly one JVM
-agent, bound to `127.0.0.1`, suspended until attachment. It must preserve the
-user's effective tool/profile/runtime choices and fail explicitly when its
-framework version cannot honor them. It cannot select a remote endpoint or
-silently launch an ordinary main class in place of the declared framework goal.
-The result remains the portable Run process plan, without adapter commands,
-DAP arguments or an endpoint selected by the provider. Hosts attach their
-existing JVM debugger after readiness and stop the process on cancellation,
-workspace/package invalidation, debugger failure or session termination.
-This does not change the separate same-package native `prepareDebug` API.
-Canonical fixture: `fixtures/build-jvm-debug-options.json`.
+```json
+{"debug":{"adapterID":"dev.example/debug","configurationType":"example",
+  "target":{"kind":"connection","host":"127.0.0.1","port":51235}}}
+```
+
+These are the exact three debug fields and three target fields. The host owns
+the port (integer 1–65535), process, readiness and cleanup. Explicit null, unknown
+fields, remote hosts and application/task execution are rejected. The type must
+match the selected run declaration. Both manifest and process agreement must
+support v11; older SDKs reject before invoking a handler. The provider uses its
+upstream engine to suspend the service until attachment; it owns runtime-specific
+flags and fails if it cannot honor the request. It returns the ordinary portable
+Run process plan, without selecting an endpoint or returning DAP arguments.
+
+The host retains the adapter's qualified identity, package and registry generation
+through preparation, readiness and attach. Disable, replacement or stale input
+revokes the operation and cleans its owned process. Adapter configuration is
+produced by existing `debug.adapters.startArguments` with a `connection` target;
+the selected registered adapter owns its transport. In particular,
+`tcpLanguageServer` may refer only to a language server declared by that adapter's
+own plugin. No built-in language debugger fallback is permitted.
+This does not change same-package native `prepareDebug` (v5).
+Canonical fixture: `fixtures/build-connection-debug-options.json`.
 
 ### Native debug preparation (version 5)
 

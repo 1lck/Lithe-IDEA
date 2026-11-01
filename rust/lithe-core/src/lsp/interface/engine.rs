@@ -12541,7 +12541,7 @@ public class Main {
     #[test]
     fn provider_runtime_debug_requires_version_eleven_before_wire_send() {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../shared/contracts/plugins/v1/fixtures/build-jvm-debug-options.json"
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-connection-debug-options.json"
         ))
         .unwrap();
         let params = json!({"launchOptions":fixture["launchOptions"]});

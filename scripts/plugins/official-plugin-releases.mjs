@@ -48,7 +48,7 @@ export function releaseFor(plugin, readManifest = readPackageManifest) {
   const manifest = readManifest(plugin.packageDirectory);
   if (manifest.id !== plugin.id) throw new Error("Plugin manifest ID does not match its release configuration");
   if (!versionPattern.test(manifest.version)) throw new Error(`${plugin.id} version must be major.minor.patch`);
-  if (![1, 2, 3].includes(manifest.pluginAPIVersion)) throw new Error("Missing or unsupported pluginAPIVersion");
+  if (![1, 2, 3, 4].includes(manifest.pluginAPIVersion)) throw new Error("Missing or unsupported pluginAPIVersion");
   if (!/^[a-z0-9-]+-v$/.test(plugin.tagPrefix)) throw new Error("Invalid plugin tag prefix");
   const repository = plugin.index.repository.replace(/\/$/, "");
   if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
@@ -80,11 +80,11 @@ export function releaseFor(plugin, readManifest = readPackageManifest) {
   });
   if (!assets.length) throw new Error("A release needs assets");
   let requires;
-  if (manifest.pluginAPIVersion === 3) {
+  if (manifest.pluginAPIVersion >= 3) {
     if (!manifest.requires || typeof manifest.requires !== "object" || Array.isArray(manifest.requires)
         || !Object.keys(manifest.requires).length
         || Object.entries(manifest.requires).some(([id, v]) => !/^[a-z][A-Za-z0-9]*$/.test(id) || !Number.isSafeInteger(v) || v < 1)) {
-      throw new Error("API 3 requires the manifest's capability versions");
+      throw new Error("API 3+ requires the manifest's capability versions");
     }
     requires = Object.fromEntries(Object.entries(manifest.requires).sort(([a], [b]) => a.localeCompare(b)));
   }
