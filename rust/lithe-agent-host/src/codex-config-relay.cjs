@@ -24,10 +24,20 @@ delete env.LITHE_CODEX_CONTEXT_URL;
 delete env.LITHE_CODEX_OBSERVATION_BASE;
 env.CODEX_PATH = executable;
 const options = { env, stdio: ['pipe', 'pipe', 'inherit'] };
+// Codex 0.166 rechecks the process provider before accepting each turn. ACP's
+// per-thread route alone no longer suffices. These process-local, non-secret
+// defaults match the explicit authentication mode; ACP still supplies the
+// complete gateway definition over stdio for every new/resumed/forked thread.
+// Codex's CLI accepts bare string override values. Fixed, space-free values
+// also avoid adding a second layer of TOML quoting through Windows npm shims.
+const nativeArguments = ['-c', `model_provider=${nativeRecovery ? 'custom-gateway' : 'openai'}`];
+if (nativeRecovery) nativeArguments.push('-c', 'model_providers.custom-gateway.name=ACP-gateway', '-c', 'model_providers.custom-gateway.wire_api=responses');
+nativeArguments.push('app-server');
 // Match upstream's Windows launcher support, including npm's codex.cmd.
+// Only fixed arguments are appended, never gateway URLs, headers or credentials.
 const native = process.platform === 'win32'
-  ? spawn(`"${executable}" app-server`, { ...options, shell: true })
-  : spawn(executable, ['app-server'], options);
+  ? spawn(`"${executable}" ${nativeArguments.join(' ')}`, { ...options, shell: true })
+  : spawn(executable, nativeArguments, options);
 const turns = new Map();
 let sequence = 0;
 const pendingResumes = new Map();

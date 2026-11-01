@@ -311,6 +311,7 @@
 "All modules" = "All modules";
 "All projects" = "All projects";
 "All projects · project can override" = "All projects · project can override";
+"All providers" = "All providers";
 "All servers" = "All servers";
 "All sessions" = "All sessions";
 "All severities" = "All severities";
@@ -932,6 +933,7 @@
 "Conversation continued from a summary" = "Conversation continued from a summary";
 "Conversation history" = "Conversation history";
 "Conversation history is unavailable" = "Conversation history is unavailable";
+"Conversation provider" = "Conversation provider";
 "Conversation tabs" = "Conversation tabs";
 "Conversation title" = "Conversation title";
 "Conversations for this project and Agent appear here." = "Conversations for this project and Agent appear here.";
@@ -4334,6 +4336,7 @@
 "Try Again" = "Try Again";
 "Try a branch name or checkout path." = "Try a branch name or checkout path.";
 "Try a different search term." = "Try a different search term.";
+"Try another search or provider filter." = "Try another search or provider filter.";
 "Try another title or session ID." = "Try another title or session ID.";
 "Try another title, author, number, or label." = "Try another title, author, number, or label.";
 "Turn on MCP to generate a configuration for agents." = "Turn on MCP to generate a configuration for agents.";
@@ -4385,6 +4388,7 @@
 "Unknown Keychain error" = "Unknown Keychain error";
 "Unknown date" = "Unknown date";
 "Unknown error" = "Unknown error";
+"Unknown provider" = "Unknown provider";
 "Unknown source" = "Unknown source";
 "Unlink" = "Unlink";
 "Unlinked the pull request" = "Unlinked the pull request";
@@ -4655,6 +4659,10 @@
 "Zoom in" = "Zoom in";
 "Zoom out" = "Zoom out";
 "[Line] [:column]:" = "[Line] [:column]:";
+"agent.history.allProviders" = "All providers";
+"agent.history.provider" = "Conversation provider";
+"agent.history.providerHint" = "Try another search or provider filter.";
+"agent.history.unknownProvider" = "Unknown provider";
 "agent.settings.enableSubscription" = "Enable";
 "agent.stop" = "Stop";
 "ai.add" = "Add";

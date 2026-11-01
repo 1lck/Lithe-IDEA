@@ -1277,6 +1277,7 @@ export class AgentConnectionModel {
           id,
           title: asString(entry.title) ?? local?.title ?? null,
           updatedAt: asString(entry.updatedAt),
+          modelProvider: asString(entry.modelProvider)?.trim() || null,
         },
       ];
     });
