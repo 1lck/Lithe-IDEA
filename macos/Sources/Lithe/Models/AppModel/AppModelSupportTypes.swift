@@ -6,6 +6,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case general = "General"
     case editor = "Editor"
     case keymap = "Keymap"
+    case toolchainEnvironment = "Runtime Environment"
+    case toolchainSources = "Toolchain Sources"
     case project = "Project"
     case run = "Run configurations"
     case terminal = "Terminal"
@@ -49,6 +51,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .editor: "textformat"
         case .keymap: "keyboard"
         case .project: "shippingbox"
+        case .toolchainEnvironment: "shippingbox"
+        case .toolchainSources: "externaldrive"
         case .run: "play.rectangle"
         case .terminal: "terminal"
         case .lsp: "server.rack"
@@ -88,7 +92,7 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: [.general, .updates, .network, .editor, .keymap, .processTermination]
         case .versionControl: [.git]
-        case .build: [.project, .run]
+        case .build: [.toolchainEnvironment, .toolchainSources, .project, .run]
         case .languages: [.lsp]
         case .tools: [.terminal, .diagnostics]
         case .ai: [.providers, .agents] + SettingsSubgroup.library.categories + [.ai]

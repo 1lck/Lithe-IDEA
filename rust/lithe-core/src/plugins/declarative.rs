@@ -52,6 +52,8 @@ const PERMISSION_VCS: &str = "process.vcs";
 const PERMISSION_PROJECT_GENERATE: &str = "project.generate";
 /// Starting the plugin's own backend process. `backend` 1.
 const PERMISSION_BACKEND: &str = "backend.launch";
+/// Supplying facts that can change the executable selected for a defined tool.
+const PERMISSION_TOOLCHAINS: &str = "toolchains.provide";
 /// Letting the backend keep secrets in the host's credential store, private
 /// to the plugin. `backend` 1.
 const PERMISSION_CREDENTIALS: &str = "credentials.store";
@@ -72,6 +74,7 @@ const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_PROJECT_GENERATE,
     PERMISSION_RUN,
     PERMISSION_TEST,
+    PERMISSION_TOOLCHAINS,
     PERMISSION_UI,
     PERMISSION_UI_WEB,
     PERMISSION_VCS,
@@ -207,6 +210,12 @@ pub struct DeclarativePluginManifest {
     /// `super::backend`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     backend: Option<super::backend::BackendDeclaration>,
+    /// Tool policies owned by plugins, never a host-maintained definition table.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tool_definitions: Vec<Value>,
+    /// Fact providers served by the plugin's existing backend process.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    toolchain_providers: Vec<Value>,
 }
 
 /// UI supplied by plugins. The host owns every window shell: docking, title,
@@ -800,6 +809,18 @@ pub fn validate_manifest_value(value: Value) -> Validation<DeclarativePluginMani
         }
         capabilities::check_manifest_requires(&value, version)?;
     }
+    for (field, limit) in [("toolDefinitions", 32), ("toolchainProviders", 8)] {
+        if value.get(field).is_some_and(|section| {
+            !section
+                .as_array()
+                .is_some_and(|items| !items.is_empty() && items.len() <= limit)
+        }) {
+            return Err(invalid(
+                field,
+                "A declared toolchain section must be nonempty and bounded.",
+            ));
+        }
+    }
     let manifest: DeclarativePluginManifest = serde_json::from_value(value).map_err(|error| {
         PluginRejection::new(
             "plugin.manifest.invalid",
@@ -858,6 +879,8 @@ impl DeclarativePluginManifest {
             && self.vcs_providers.is_empty()
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
+            && self.tool_definitions.is_empty()
+            && self.toolchain_providers.is_empty()
             // A backend 2 may be the whole plugin: it starts on a workspace.
             && self.backend.is_none()
         {
@@ -1005,6 +1028,8 @@ impl DeclarativePluginManifest {
             && self.vcs_providers.is_empty()
             && self.debug_adapters.is_empty()
             && self.project_generators.is_empty()
+            && self.tool_definitions.is_empty()
+            && self.toolchain_providers.is_empty()
             && self.backend.is_none()
             // A grammar alone is a complete highlighting plugin.
             && !self.languages.iter().any(LanguageDeclaration::uses_version_2)
@@ -1044,6 +1069,7 @@ impl DeclarativePluginManifest {
             },
         )?;
         self.validate_debug_adapters(&declared_settings)?;
+        self.validate_toolchains()?;
         if let Some(backend) = &self.backend {
             backend.validate(&super::backend::DeclarationContext {
                 plugin_api_version: self.plugin_api_version,
@@ -1058,6 +1084,7 @@ impl DeclarativePluginManifest {
                     .activation_events
                     .iter()
                     .any(|event| event == super::backend::ON_WORKSPACE_OPEN),
+                toolchain_query_trigger: !self.toolchain_providers.is_empty(),
             })?;
         }
         self.validate_permissions()?;
@@ -1075,20 +1102,21 @@ impl DeclarativePluginManifest {
             ),
             (
                 capabilities::EXECUTABLE_RESOLUTION,
-                self.build_systems.iter().any(|system| {
-                    system
-                        .invocation
-                        .executables
-                        .iter()
-                        .chain(
-                            system
-                                .invocation
-                                .runtime_dependencies
-                                .iter()
-                                .flat_map(|runtime| &runtime.executables),
-                        )
-                        .any(|candidate| candidate.uses_resolution())
-                }),
+                !self.tool_definitions.is_empty()
+                    || self.build_systems.iter().any(|system| {
+                        system
+                            .invocation
+                            .executables
+                            .iter()
+                            .chain(
+                                system
+                                    .invocation
+                                    .runtime_dependencies
+                                    .iter()
+                                    .flat_map(|runtime| &runtime.executables),
+                            )
+                            .any(|candidate| candidate.uses_resolution())
+                    }),
             ),
             (capabilities::LANGUAGES, !self.languages.is_empty()),
             (
@@ -1138,6 +1166,14 @@ impl DeclarativePluginManifest {
                 !self.debug_adapters.is_empty(),
             ),
             (capabilities::BACKEND, self.backend.is_some()),
+            (
+                capabilities::TOOL_DEFINITIONS,
+                !self.tool_definitions.is_empty(),
+            ),
+            (
+                capabilities::TOOLCHAIN_PROVIDERS,
+                !self.toolchain_providers.is_empty(),
+            ),
         ];
         sections
             .into_iter()
@@ -1195,6 +1231,66 @@ impl DeclarativePluginManifest {
                     "requires.serverProcess",
                     "serverProcess 2 is required exactly when an adapter runs on the selected runtime.",
                 ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_toolchains(&self) -> Validation<()> {
+        if self.tool_definitions.is_empty()
+            && self.requires.get(capabilities::EXECUTABLE_RESOLUTION) == Some(&2)
+        {
+            return Err(invalid(
+                "requires.executableResolution",
+                "Executable resolution 2 is reserved to tool definitions.",
+            ));
+        }
+        if self.tool_definitions.is_empty() && self.toolchain_providers.is_empty() {
+            return Ok(());
+        }
+        if self.plugin_api_version < CAPABILITIES_API_VERSION {
+            return Err(invalid(
+                "toolDefinitions",
+                "Toolchain declarations require plugin API level 3.",
+            ));
+        }
+        if !self.tool_definitions.is_empty()
+            && self.requires.get(capabilities::EXECUTABLE_RESOLUTION) != Some(&2)
+        {
+            return Err(invalid(
+                "requires.executableResolution",
+                "Tool definitions require executable resolution 2.",
+            ));
+        }
+        crate::toolchain::definitions::validate_declarations(
+            &self.id,
+            &self.tool_definitions,
+            &self.toolchain_providers,
+        )?;
+        if !self.toolchain_providers.is_empty() {
+            if self.backend_version() != 2 {
+                return Err(invalid(
+                    "requires.backend",
+                    "Toolchain providers require backend 2.",
+                ));
+            }
+            let backend = self.backend.as_ref().ok_or_else(|| {
+                invalid(
+                    "backend",
+                    "A toolchain provider requires the plugin backend.",
+                )
+            })?;
+            let value = serde_json::to_value(backend)
+                .map_err(|_| invalid("backend", "The backend cannot be encoded."))?;
+            let launch = &value["launch"];
+            let packaged = launch["kind"] == "packaged"
+                || (launch["kind"] == "runtime" && launch["packagedRuntime"].as_str().is_some());
+            if !packaged
+                || value["runtimeDependencies"]
+                    .as_array()
+                    .is_some_and(|values| !values.is_empty())
+            {
+                return Err(invalid("backend.launch", "Provider backends must bootstrap from packaged executables or packaged runtimes without discovered dependencies."));
             }
         }
         Ok(())
@@ -1374,6 +1470,18 @@ impl DeclarativePluginManifest {
         }
         if !self.build_systems.is_empty() {
             required.insert(PERMISSION_BUILD);
+        }
+        if !self.toolchain_providers.is_empty() {
+            required.insert(PERMISSION_TOOLCHAINS);
+        } else if self
+            .permissions
+            .iter()
+            .any(|permission| permission == PERMISSION_TOOLCHAINS)
+        {
+            return Err(invalid(
+                "permissions",
+                "toolchains.provide requires a toolchain provider.",
+            ));
         }
         if !self.vcs_providers.is_empty() {
             required.insert(PERMISSION_VCS);

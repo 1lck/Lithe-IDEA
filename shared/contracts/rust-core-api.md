@@ -1064,6 +1064,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
+| `lsp.toolchainRequest` | Send one `toolchains/query` to a plugin backend that negotiated the provider |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.prepareLaunch` | Prepare a saved Java source through shared entry selection, serialized build and runtime path resolution |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
@@ -1153,6 +1154,14 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
+| `toolchains.registry` | Revalidate complete enabled plugin manifests and host-verified official origin into a deterministic tool-definition/provider registry; no native host capability claim |
+| `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
+| `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
+| `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
+| `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
+| `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
+| `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
+| `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
 | `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
 | `plugins.editorActions.decode` | Validate independent action registration or collection results |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
@@ -2913,6 +2922,20 @@ cancellation and late results follow `lsp.cancelOperation`. Execution replies
 are validated as `{exitCode: Int32, output: string}` and progress is mapped
 from a Core-owned wire request ID to `requestProgress` for the still-pending
 operation. See the [provider execution contract](plugins/v1/README.md#provider-task-execution-buildproviders-2).
+
+`lsp.toolchainRequest` accepts `{ sessionId, operationId?, params,
+timeoutMilliseconds? }` and returns `{ operationId }`. `lsp.startServer` takes
+`toolchainProviders`, the manifest's provider IDs; only a plugin-owned session
+with some offers `capabilities.experimental.litheToolchains: { versions: [1],
+providers }`. A backend that answers `{ version: 1, providers }` with a non-empty,
+duplicate-free subset of the offer emits a `toolchainProviders` runtime event
+with `result: { providers }`; any other answer enables none. A request whose
+`params.providerID` was not negotiated is `not_supported` with details
+`plugin.toolchain.providerUnavailable`, and nothing is written. The
+`requestCompleted` event carries `result.value: { id, response }`: the JSON-RPC
+ID and the complete, unvalidated response, error replies included, which the host
+passes to `toolchains.decodeReply` with the same `params`. The timeout is capped
+at 60 seconds; cancellation and late results follow `lsp.buildRequest`.
 
 `lsp.vcsRequest` accepts `{ sessionId, operationId?, vcs, operation, root,
 tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.

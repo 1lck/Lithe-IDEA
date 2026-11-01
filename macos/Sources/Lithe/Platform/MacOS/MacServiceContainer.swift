@@ -1257,6 +1257,56 @@ final class MacServiceContainer {
             }
         )
         let installedPlugins = pluginStartup.registeredPlugins
+        services.loginShellEnvironmentInspector = MacLoginShellEnvironment.shared
+        services.toolchainSettingsLoader = MacToolchainSettingsLoader(
+            sources: { [pluginManager] in
+                let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
+                return installedPlugins.map { plugin in
+                    ToolchainSettingsPluginSource(
+                        pluginID: plugin.descriptor.id.rawValue,
+                        name: plugin.manifest.displayName,
+                        manifest: plugin.descriptor.normalizedManifest,
+                        isEnabled: enabled.contains(plugin.descriptor.id),
+                        // Short tool IDs need an official catalog entry installed through a verified channel.
+                        verifiedOfficial: OfficialPluginCatalog.entry(for: plugin.descriptor.id) != nil
+                            && [.bundled, .marketplace].contains(plugin.installation.origin)
+                    )
+                }
+            },
+            directories: { [weak services] _ in services?.toolchainSettingsDirectories?() ?? [] },
+            isRemoteWorkspace: { remoteWorkspaces.contains($0) },
+            discover: { [pluginBackends, fileStorage] request in
+                let rootIDs = PluginWorkspaceRootIDs(
+                    secret: MacPluginRootIDSecret.load(from: MacPluginRootIDSecret.fileURL(fileStorage: fileStorage)))
+                return await MacToolchainDiscovery(
+                    queryProvider: { pluginID, providerID, params, timeout in
+                        do {
+                            return try await pluginBackends.queryToolchainProvider(
+                                providerID, params: params, ofPlugin: pluginID, timeout: timeout)
+                        } catch let failure as LanguageServerRequestFailure
+                                    where failure.runtimeError.code == "requestTimeout" {
+                            // Core's deadline for the request, not a backend that could not start.
+                            throw MacToolchainDiscovery.QueryTimeout()
+                        }
+                    },
+                    workspaceContext: { workspace, pluginID in
+                        await MainActor.run {
+                            let path = workspace.standardizedFileURL.path
+                            for context in PluginWorkspaceContexts.shared.contexts {
+                                guard case .local = context.authority,
+                                      let folder = context.folders.first(where: { $0.localURL.standardizedFileURL.path == path })
+                                else { continue }
+                                return MacToolchainDiscovery.WorkspaceContext(
+                                    contextID: context.contextID, generation: context.generation,
+                                    rootID: rootIDs.rootID(of: folder.location, pluginID: pluginID))
+                            }
+                            return nil
+                        }
+                    }
+                ).discover(request)
+            }
+        )
+        services.toolchainInputWatcher = MacToolchainInputWatcher()
         services.projectGeneratorSources = { [pluginManager] in
             // Enablement is read on every call, so a plugin enabled from the
             // window shows its entries and satisfies requirements at once.

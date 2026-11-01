@@ -155,6 +155,13 @@ pub struct LspClientState {
     /// `litheVcs`; `None` when the protocol was not negotiated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vcs_provider: Option<super::vcs_provider::VcsNegotiation>,
+    /// Manifest providers `initialize` offers under `litheToolchains`, from
+    /// `lsp.startServer.toolchainProviders`.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub offered_toolchain_providers: BTreeSet<String>,
+    /// The offered providers the backend selected; empty until negotiated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub toolchain_providers: Vec<String>,
 }
 
 impl Default for LspClientState {
@@ -176,6 +183,8 @@ impl Default for LspClientState {
             plugin_function_version: None,
             host_services: BTreeSet::new(),
             vcs_provider: None,
+            offered_toolchain_providers: BTreeSet::new(),
+            toolchain_providers: Vec::new(),
         }
     }
 }

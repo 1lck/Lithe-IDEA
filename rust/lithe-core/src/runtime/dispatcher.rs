@@ -276,6 +276,30 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::editor_actions::decode_command,
         ),
+        CoreCommand::ToolchainsRegistry => {
+            plugin_response(id, parsed.payload, crate::toolchain::registry_command)
+        }
+        CoreCommand::ToolchainsDecodeReply => {
+            plugin_response(id, parsed.payload, crate::toolchain::decode_reply_command)
+        }
+        CoreCommand::ToolchainsFailureReply => {
+            plugin_response(id, parsed.payload, crate::toolchain::failure_reply_command)
+        }
+        CoreCommand::ToolchainsResolvePins => {
+            plugin_response(id, parsed.payload, crate::toolchain::resolve_pins_command)
+        }
+        CoreCommand::ToolchainsResolve => {
+            plugin_response(id, parsed.payload, crate::toolchain::resolve_command)
+        }
+        CoreCommand::ToolchainsCheckVersion => {
+            plugin_response(id, parsed.payload, crate::toolchain::check_version_command)
+        }
+        CoreCommand::ToolchainsDiscoveryPlan => {
+            plugin_response(id, parsed.payload, crate::toolchain::discovery_plan_command)
+        }
+        CoreCommand::ToolchainsCandidates => {
+            plugin_response(id, parsed.payload, crate::toolchain::candidates_command)
+        }
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }
@@ -1889,6 +1913,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Build-provider response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspToolchainRequest => {
+            match serde_json::from_value::<crate::lsp::ToolchainProviderRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid toolchain-provider request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::toolchain_provider_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Toolchain response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

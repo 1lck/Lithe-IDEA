@@ -1,0 +1,25 @@
+{
+  "proposalVersion": 1,
+  "pluginID": "dev.lithe.fixture.mise",
+  "requires": { "toolchainProviders": 1, "backend": 2, "serverProcess": 1 },
+  "permissions": ["backend.launch", "toolchains.provide"],
+  "toolchainProviders": [
+    {
+      "id": "mise",
+      "displayName": "mise",
+      "tools": ["java", "node", "maven", "pnpm", "go"],
+      "watchFiles": [
+        { "pattern": "mise.toml", "reader": "native" },
+        { "pattern": "mise.local.toml", "reader": "native" },
+        { "pattern": ".mise.toml", "reader": "native" },
+        { "pattern": ".tool-versions", "reader": "compatible" },
+        { "pattern": ".mise/config.toml", "reader": "native" },
+        { "pattern": ".mise/config.local.toml", "reader": "native" }
+      ]
+    }
+  ],
+  "backend": {
+    "launch": { "kind": "packaged", "path": "bin/mise-provider" },
+    "arguments": ["--stdio"]
+  }
+}

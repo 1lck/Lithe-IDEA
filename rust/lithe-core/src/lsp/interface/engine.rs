@@ -68,6 +68,8 @@ const MAX_BUILD_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 /// working copy over a slow link can take long, but never stays pending
 /// without a deadline.
 const MAX_VCS_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
+/// Longest toolchain query a host may ask for; queries only read manager state.
+const MAX_TOOLCHAIN_QUERY_TIMEOUT_MS: u64 = 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
@@ -110,6 +112,10 @@ pub struct StartServerRequest {
     /// requests to the host.
     #[serde(default)]
     pub host_services: Vec<String>,
+    /// Provider IDs of the plugin's verified manifest. Only a plugin-owned
+    /// session with some is offered `litheToolchains`.
+    #[serde(default)]
+    pub toolchain_providers: Vec<String>,
     pub executable_path: String,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -431,6 +437,23 @@ pub struct BuildProviderRequest {
     pub params: Value,
     /// Deadline of this request, in milliseconds, capped at
     /// `MAX_BUILD_PROVIDER_TIMEOUT_MS`; the session's request timeout when absent.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One `toolchains/query`, addressed to a session that negotiated the provider
+/// named in `params`. The result arrives as a `requestCompleted` event whose
+/// `result.value` is `{ id, response }`, the complete untrusted JSON-RPC response,
+/// which the host passes to `toolchains.decodeReply`.
+pub struct ToolchainProviderRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// Query parameters; `toolchains.decodeReply` validates them with the reply.
+    pub params: Value,
+    /// Deadline of this request, capped at `MAX_TOOLCHAIN_QUERY_TIMEOUT_MS`.
     #[serde(default)]
     pub timeout_milliseconds: Option<u64>,
 }
@@ -1398,6 +1421,20 @@ pub fn build_provider_request(
     Ok(OperationResponse { operation_id })
 }
 
+/// Sends one `toolchains/query` to a session that negotiated its provider.
+pub fn toolchain_provider_request(
+    request: ToolchainProviderRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .toolchain_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
 /// Sends one VCS-provider request to a session that negotiated the protocol.
 pub fn vcs_provider_request(request: VcsProviderRequest) -> Result<OperationResponse, CoreError> {
     let operation_id = request
@@ -1728,7 +1765,14 @@ impl LspEngine {
             checked_workspace_configuration(request.workspace_configuration)?;
         let initialize = client_initialize_for_plugin(
             ClientInitializeRequest {
-                state: LspClientState::default(),
+                state: LspClientState {
+                    offered_toolchain_providers: if request.plugin_id.is_some() {
+                        request.toolchain_providers.iter().cloned().collect()
+                    } else {
+                        Default::default()
+                    },
+                    ..LspClientState::default()
+                },
                 root_uri: request.root_uri.clone(),
                 process_id: (!crate::remote::workspace::is_remote())
                     .then_some(std::process::id() as i64),
@@ -2440,6 +2484,75 @@ impl RuntimeSession {
 
     /// Writes a VCS-provider request planned by `crate::vcs::plan`, which
     /// checks the operation's arguments and negotiated capability.
+    fn toolchain_request(
+        &self,
+        request: ToolchainProviderRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Language server is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            let provider = request.params["providerID"].as_str().unwrap_or_default();
+            if !state
+                .client
+                .toolchain_providers
+                .iter()
+                .any(|negotiated| negotiated == provider)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The process did not negotiate this toolchain provider.",
+                )
+                .with_details("plugin.toolchain.providerUnavailable"));
+            }
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(milliseconds.clamp(1, MAX_TOOLCHAIN_QUERY_TIMEOUT_MS))
+                })
+                .unwrap_or(state.request_timeout);
+            let response = allocate_raw_request(
+                state.client.clone(),
+                super::toolchain_provider::QUERY_METHOD,
+                request.params,
+            )?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: super::toolchain_provider::QUERY_METHOD.to_string(),
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id, request_id.clone());
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
     fn vcs_request(
         &self,
         request: VcsProviderRequest,
@@ -3588,6 +3701,25 @@ impl RuntimeSession {
                         }
                     }
                 }
+                Some(PendingKind::Feature)
+                    if pending_before.as_ref().is_some_and(|pending| {
+                        pending.method == super::toolchain_provider::QUERY_METHOD
+                    }) =>
+                {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let result = super::toolchain_provider::reply_outcome(&value);
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                Some(result),
+                                None,
+                            );
+                        }
+                    }
+                }
                 Some(PendingKind::Feature) => {
                     if let Some(pending) = pending_before.as_ref() {
                         if let Some(operation_id) = &pending.operation_id {
@@ -4221,6 +4353,12 @@ impl RuntimeSession {
                     )?);
                 } else if event.kind == super::vcs_provider::NEGOTIATED_EVENT {
                     push_vcs_provider_event(self, &mut state, event.result.unwrap_or_default());
+                } else if event.kind == super::toolchain_provider::NEGOTIATED_EVENT {
+                    push_toolchain_provider_event(
+                        self,
+                        &mut state,
+                        event.result.unwrap_or_default(),
+                    );
                 } else if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
                         push_diagnostics_event(
@@ -6168,6 +6306,40 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
     );
 }
 
+/// Publishes the providers a backend selected, so the host queries only those.
+fn push_toolchain_provider_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    result: Value,
+) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "toolchainProviders".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(result),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+}
+
 /// Handles a backend's `$/cancelRequest` for one of its own pending host
 /// requests: the backend gets `plugin.host.cancelled` at once, so the
 /// pending slot frees without waiting for the host, and the host gets a
@@ -6882,6 +7054,7 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.function_by_operation.clear();
     clear_function_registry(session, state);
     state.client.vcs_provider = None;
+    state.client.toolchain_providers.clear();
     state.linked_document_paths = LinkedDocumentPaths::default();
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
@@ -7009,6 +7182,7 @@ mod tests {
             provider_id: "gopls".to_string(),
             plugin_id: None,
             host_services: Vec::new(),
+            toolchain_providers: Vec::new(),
             executable_path: "/usr/bin/scripted-server".to_string(),
             arguments: vec!["--stdio".to_string()],
             environment: BTreeMap::new(),
@@ -10936,6 +11110,7 @@ public class Main {
                 provider_id: "java".to_string(),
                 plugin_id: None,
                 host_services: Vec::new(),
+                toolchain_providers: Vec::new(),
                 executable_path,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
@@ -11678,6 +11853,7 @@ public class Main {
             provider_id: String::new(),
             plugin_id: None,
             host_services: Vec::new(),
+            toolchain_providers: Vec::new(),
             executable_path: "/bin/server".to_string(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
@@ -12630,6 +12806,126 @@ public class Main {
             Some("requestTimeout")
         );
         assert!(harness.server.await_notification("$/cancelRequest"));
+    }
+
+    // Toolchain providers against a scripted backend. Only a plugin-owned
+    // session launched with declared providers is offered `litheToolchains`,
+    // and only a provider its process selected receives `toolchains/query`.
+
+    fn toolchain_backend(answer: Value) -> Harness {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.toolchain-provider".to_string());
+            request.toolchain_providers = vec!["mise".to_string()];
+        });
+        harness
+            .server
+            .complete_initialize(json!({ "experimental": { "litheToolchains": answer } }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    fn toolchain_query(harness: &Harness, provider: &str) -> Result<String, CoreError> {
+        let operation_id = harness.engine.next_operation_id();
+        harness
+            .session()
+            .toolchain_request(
+                ToolchainProviderRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    params: json!({ "operationID": "query-1", "generation": 1, "providerID": provider }),
+                    timeout_milliseconds: None,
+                },
+                operation_id.clone(),
+            )
+            .map(|()| operation_id)
+    }
+
+    fn no_toolchain_query_written(harness: &Harness) -> bool {
+        harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "toolchains/query")
+    }
+
+    #[test]
+    fn host_sessions_are_not_offered_the_toolchain_protocol() {
+        let harness = Harness::start(|request| {
+            request.toolchain_providers = vec!["mise".to_string()];
+        });
+        harness.server.complete_initialize(json!({}));
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert!(initialize["params"]["capabilities"]["experimental"]
+            .get("litheToolchains")
+            .is_none());
+    }
+
+    #[test]
+    fn a_query_reaches_only_a_selected_provider_and_returns_the_raw_response() {
+        let mut harness = toolchain_backend(json!({ "version": 1, "providers": ["mise"] }));
+        let initialize = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "initialize")
+            .expect("initialize should have been written");
+        assert_eq!(
+            initialize["params"]["capabilities"]["experimental"]["litheToolchains"],
+            json!({ "versions": [1], "providers": ["mise"] })
+        );
+        let event = harness
+            .await_event(|event| event.kind == "toolchainProviders")
+            .clone();
+        assert_eq!(event.result, Some(json!({ "providers": ["mise"] })));
+
+        let refused = toolchain_query(&harness, "asdf").expect_err("not selected");
+        assert_eq!(
+            refused.details.as_deref(),
+            Some("plugin.toolchain.providerUnavailable")
+        );
+        assert!(no_toolchain_query_written(&harness));
+
+        let operation = toolchain_query(&harness, "mise").expect("written");
+        let id = harness
+            .server
+            .await_request("toolchains/query")
+            .expect("the query is written");
+        let wire_id: u64 = id.parse().expect("a numeric wire ID");
+        // Even a provider error stays a raw reply: decodeReply owns its mapping.
+        let response = json!({
+            "jsonrpc": "2.0", "id": wire_id,
+            "error": { "code": -32073, "message": "untrusted", "data": { "code": "x" } }
+        });
+        harness.server.send(response.clone());
+        let event = harness
+            .await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str())
+            })
+            .clone();
+        assert!(event.error.is_none());
+        assert_eq!(
+            event.result,
+            Some(json!({ "value": { "id": wire_id, "response": response } }))
+        );
+    }
+
+    #[test]
+    fn an_undeclared_toolchain_provider_enables_nothing() {
+        let mut harness = toolchain_backend(json!({ "version": 1, "providers": ["mise", "asdf"] }));
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "toolchainProviders"));
+        let error = toolchain_query(&harness, "mise").expect_err("refused");
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert!(no_toolchain_query_written(&harness));
     }
 
     // VCS providers against a scripted backend. Only a plugin-owned session

@@ -206,6 +206,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var notificationFeature: WorkbenchNotificationFeatureModel { featureGraph.notification }
     var workbenchBackgroundFeature: WorkbenchBackgroundFeatureModel { featureGraph.workbenchBackground }
     var runtimeFeature: RuntimeSettingsFeatureModel { featureGraph.runtime }
+    var toolchainSettingsFeature: ToolchainSettingsFeatureModel { featureGraph.toolchainSettings }
     var languageToolingFeature: LanguageToolingFeatureModel { featureGraph.languageTooling }
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
@@ -721,6 +722,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func shutdownProjectSession() async {
         isProjectSessionClosed = true
+        toolchainSettingsFeature.close()
         commitFileDeletion.reset()
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.
@@ -1042,6 +1044,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         languageToolingSessionsIfActive?.stopAll()
         executionModuleCoordinator.resetTests(languageTestServiceIfActive)
         runtimeFeature.closeProject()
+        toolchainSettingsFeature.close()
         executionModuleCoordinator.resetFeatures(
             maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
