@@ -196,6 +196,8 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
+Maven/Gradle 验收输入按变体绑定源码、Java 包、独立构建包、JDK 和实际生成文件。前置检查在材料不全或不匹配时于产品启动前阻断；即使辅助收据齐全，仍保留未实施的变体运行检查，不能把 plain Java 结果改标为 Maven/Gradle 成功。正式包签名、生产能力准入，以及“生成 → JDT → 构建模型/任务 → 运行/停止”的完整流程需独立实机证据。不得删减 requires 或用测试信任开放能力。
+
 ## 适用范围
 
 - `rust/lithe-core/src/project_generators/`
@@ -214,3 +216,7 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 - `windows/tauri/src-tauri/src/plugin_host/project_generators/`
 - `scripts/plugins/host-acceptance/generator_acceptance.py`
 - `scripts/plugins/host-acceptance/generator_fixture.py`
+
+- `scripts/plugins/host-acceptance/java_workflow_inputs.py`
+- `scripts/plugins/host-acceptance/java_workflow_acceptance.py`
+- `scripts/plugins/host-acceptance/java_workflow_observer.js`

@@ -95,8 +95,8 @@ async function readRegistry() {
   // per-workspace build options use plugin-marketplace-state's refusal route.
   // Window/operation-owned model/dependency files stay in mutable plugin state
   // and use official-plugin-packages' exclusion; decoded output is not a reusable artifact.
-  // Windows Java candidates, .assemble-* scratch and windows-java-inputs.json
-  // use that same refusal route: an input receipt is neither a signature nor a seal.
+  // Windows Java candidates, .assemble-* / .signing-check-* scratch, signing
+  // before/after reports and windows-java-inputs.json use that same refusal route: an input receipt is neither a signature nor a seal.
   // Only independently verified jdtls/jdk download inputs may be copied.
   // Core validation or a matching archive hash never transfers user ownership.
   // Native acceptance fixtures/profiles use plugin-host-acceptance-state's

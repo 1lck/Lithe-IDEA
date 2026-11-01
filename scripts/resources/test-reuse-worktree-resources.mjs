@@ -394,6 +394,8 @@ try {
     const packages = registry.excludedResources.find(item => item.id === "official-plugin-packages");
     assert.ok(packages.locations.includes(".artifacts/windows-java-support/"));
     assert.ok(packages.locations.includes(".artifacts/windows-java-support/.assemble-*/"));
+    assert.ok(packages.locations.includes(".artifacts/windows-java-support/.signing-check-*/"));
+    assert.match(packages.reason, /check-windows-java-signing-inputs\.py/);
     assert.ok(packages.locations.includes(".artifacts/windows-java-support/<candidate>/windows-java-inputs.json"));
     assert.match(packages.reason, /assemble-windows-java-support\.py/);
     assert.match(packages.reason, /receipt is evidence only/);
@@ -401,6 +403,9 @@ try {
       ".artifacts/windows-java-support/candidate/runtime/x86_64/bin/java.exe",
       ".artifacts/windows-java-support/candidate/windows-java-inputs.json",
       ".artifacts/windows-java-support/.assemble-fixture/package/plugin.json",
+      ".artifacts/windows-java-support/.signing-check-fixture/candidate/plugin.json",
+      ".artifacts/windows-java-support/candidate-before.json",
+      ".artifacts/windows-java-support/candidate-after.json",
     ]) {
       const source = path.join(sourceRoot, fixture);
       await fs.mkdir(path.dirname(source), { recursive: true });

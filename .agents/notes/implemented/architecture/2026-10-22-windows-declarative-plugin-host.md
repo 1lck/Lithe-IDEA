@@ -268,6 +268,8 @@ R24 的真实 Node 24.15 子进程已验证两个 tree-sitter-cli 版本的 CONN
 - 前端回落链路测试：`windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.test.ts` 断言契约插件启动映射与无归属文件返回 null；启动扫描步骤在 bootstrap 中执行。
 - M1 尚属静态与进程内验证：真实插件包安装→启用→语言服务器拉起的全链路实机验收随 M2/M3 完成，期间矩阵 `verificationStatus` 保持 pending。`./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh <base> HEAD` 随 PR 通过。
 
+Maven/Gradle 验收输入按变体绑定源码、Java 包、独立构建包、JDK 和实际生成文件。前置检查在材料不全或不匹配时于产品启动前阻断；即使辅助收据齐全，仍保留未实施的变体运行检查，不能把 plain Java 结果改标为 Maven/Gradle 成功。正式包签名、生产能力准入，以及“生成 → JDT → 构建模型/任务 → 运行/停止”的完整流程需独立实机证据。不得删减 requires 或用测试信任开放能力。
+
 ## 适用范围
 
 - `windows/tauri/src-tauri/build.rs`、`capabilities/plugin-web.json` 与 `permissions/declarative-web/bridge.toml`（应用内桥插件及最小来源权限）
@@ -290,3 +292,7 @@ R24 的真实 Node 24.15 子进程已验证两个 tree-sitter-cli 版本的 CONN
 - `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`（契约插件回落来源）
 - `windows/tauri/src/features/bootstrap/bootstrap-async.ts`（启动扫描步骤）
 - `shared/platform-feature-matrix/features/declarative-plugin-contract.json`、`plugin-marketplace.json`、`plugin-extension-management.json`、`declarative-plugin-settings.json`、`php-optional-plugin.json`、`plugin-web-tool-windows.json`
+
+- `scripts/plugins/host-acceptance/java_workflow_inputs.py`
+- `scripts/plugins/host-acceptance/java_workflow_acceptance.py`
+- `scripts/plugins/host-acceptance/java_workflow_observer.js`

@@ -437,6 +437,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B scripts/plugins/test-assemble-windows-java-support.py --report .artifacts/test-stability/windows-java-assembly.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugins/test-check-windows-java-signing-inputs.py --report .artifacts/test-stability/windows-java-signing-inputs.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B scripts/plugins/host-acceptance/java_workflow_acceptance_test.py --report .artifacts/test-stability/plugin-java-workflow-helpers.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B scripts/plugins/host-acceptance/vcs_move_diagnostic_test.py --report .artifacts/test-stability/plugin-vcs-move-driver.json

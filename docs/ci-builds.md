@@ -380,6 +380,20 @@ JDT configuration。脚本离线读取校验后的缓存，拒绝覆盖，清理
 不提供发布者签名或宿主资源封装。正式 Windows 签名完整包和 JDT 生命周期验收完成前，
 生产 `packageTrust` 保持关闭，不能把合成 ARM64 测试当作目标机器验收。
 
+签名交接使用 `scripts/plugins/check-windows-java-signing-inputs.py` 的 `before-signing` /
+`after-signing --baseline <签名前报告>` 两阶段入口；`--candidate` 指向同一工作树的候选，
+`--report` 必须是候选外的新 `.artifacts` 文件。检查会复用组装器从固定缓存重建
+`.artifacts/windows-java-support/.signing-check-*` 临时副本，逐文件核对候选和回执；
+约需一份候选大小的临时空间，截止时间用 `--timeout-seconds` 显式限定。临时副本
+总会删除，签名前后报告、包和回执均走 `official-plugin-packages` 拒绝复用路由。
+报告固定 `productionAdmission: false`，不调用签名算法或读取私钥；正式发布者使用
+已有 `LithePluginPackageSigner` 对冻结目录签名，并对目录及归档独立解压副本执行
+`--verify`。准确命令和当前 macOS-only 发布配置缺口见
+`Plugins/win/Official/JavaSupport/README.md`。
+
+确定性回归：`python scripts/plugins/test-check-windows-java-signing-inputs.py`。
+其单项时长 JSON 交给现有测试报告生成器输出 HTML/JUnit。
+
 生成器运行时契约验收在隔离 profile 的
 `<windows-local-app-data>/app.lithe.windows.host-acceptance/generator-runtime/` 创建独立 JDK
 副本；只在此副本内暂存 `bin/java.exe.acceptance-retained`，并在 finally 恢复。该副本与
