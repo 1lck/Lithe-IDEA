@@ -33,7 +33,15 @@ export function createWindowsBuildProviderWorkspace(workspacePath: string): Wind
   return new WindowsBuildProviderWorkspace(workspacePath, {
     core: buildCore, providers: windowsBuildProviders, guard: pluginPlanGuard,
     translate: key => createTranslator(useSettingsStore.getState().settings.displayLanguage)(key),
-    tools: (target, root, checkVersions, configurationID) => invoke("declarative_plugins_build_tool", { ...target, root, checkVersions, configurationId: configurationID }),
+    tools: async (target, root, checkVersions, configurationID) => {
+      try { return await invoke("declarative_plugins_build_tool", { ...target, root, checkVersions, configurationId: configurationID }); }
+      catch (cause) {
+        if (typeof cause === "string" && cause.startsWith("toolchain.native.")) {
+          throw Object.assign(new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("native.selectedToolchainUnavailable")), { code: cause, cause });
+        }
+        throw cause;
+      }
+    },
     configurationCheck: check,
     configurationFiles: {
       prepare: (target, root, operationId, snapshot, edits) => invoke("declarative_plugins_build_prepare_configuration", { ...target, root, operationId, snapshot, edits }),

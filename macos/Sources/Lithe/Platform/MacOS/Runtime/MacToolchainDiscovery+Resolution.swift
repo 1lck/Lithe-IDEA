@@ -115,7 +115,21 @@ extension MacToolchainDiscovery {
             "providerInstallations": input.reported, "probes": []
         ]
         guard let candidates = core("toolchains.candidates", probeInput)?["candidates"] as? [String: Any] else { throw Self.unavailable() }
-        let targets = Self.probeTargets(candidates)
+        var targets = Self.probeTargets(candidates)
+        if projectCodeAllowed, minimumVersion != nil {
+            // Core first proves a project launcher without asking it for a version.
+            // Only this explicit consumer action may probe that checked launcher;
+            // the final resolution still enforces the original minimum version.
+            var beforeVersion = payload
+            beforeVersion.removeValue(forKey: "minimumVersion")
+            let provisional = core("toolchains.resolve", beforeVersion)?["resolution"] as? [String: Any]
+            let outcome = provisional?["outcome"] as? [String: Any]
+            let selected = outcome?["selection"] as? [String: Any]
+            if outcome?["kind"] as? String == "resolved", selected?["projectCode"] as? Bool == true,
+               let executable = selected?["executable"] as? String, !targets.contains(executable) {
+                targets.append(executable)
+            }
+        }
         guard targets.count <= Self.probeBudget else { throw Self.unavailable() }
         var probing = self
         let consumerProbe = self.consumerProbe

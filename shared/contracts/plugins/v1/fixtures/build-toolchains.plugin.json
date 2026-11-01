@@ -33,17 +33,21 @@
         "executables": [
           {
             "kind": "toolchain",
-            "toolchainID": "project-maven"
+            "toolchainID": "dev.lithe.fixture.build-toolchains:compiler"
           }
         ],
         "runtimeDependencies": [
           {
-            "id": "java",
+            "id": "vm",
             "minimumVersion": "8",
+            "version": {
+              "arguments": ["--version"],
+              "pattern": "VM (\\d+(?:\\.\\d+)*)"
+            },
             "executables": [
               {
                 "kind": "toolchain",
-                "toolchainID": "project-maven-jdk"
+                "toolchainID": "dev.lithe.fixture.build-toolchains:vm"
               }
             ]
           }

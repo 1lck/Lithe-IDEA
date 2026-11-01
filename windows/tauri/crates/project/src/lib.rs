@@ -1,5 +1,6 @@
 pub mod document_file;
 pub mod build_options;
+pub mod defined_toolchain;
 pub mod native_configuration;
 pub mod provider_run_configuration;
 pub mod document_watcher;

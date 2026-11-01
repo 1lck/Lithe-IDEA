@@ -26,8 +26,8 @@ pub struct BuildToolContext {
     pub executes_project_code: bool,
 }
 
-/// Resolves one instance without running project code. Explicit execution may
-/// request bounded machine-tool version checks; project launchers are not probed.
+/// Resolves one instance through current declarations and bounded native probes.
+/// Only explicit execution may probe or select a project-owned launcher.
 #[tauri::command]
 pub async fn declarative_plugins_build_tool(
     app: AppHandle,
@@ -49,16 +49,22 @@ pub async fn declarative_plugins_build_tool(
         let planned = core_execute("build.invocationPlan", payload(json!({"root":root,"platform":"windows","settings":layers.global})))?;
         if planned["status"] != "ok" { return Err(format!("Build invocation rejected: {}", planned["error"]["message"])); }
         let invocation = &planned["invocation"];
+        let (tool_registry, _tool_leases) = installed_tool_registry(&app)?;
+        let normalized_tools = core_execute("toolchains.registry", tool_registry.clone())?;
+        if normalized_tools["status"] != "ok" { return Err("toolchain.native.unavailable".into()); }
         let workspace = std::fs::canonicalize(&workspace_path).map_err(|error| error.to_string())?;
         let state = build::build_state_directory(&store::plugin_state_directory(&app, &plugin_id)?, &build_system_id)?;
         let workspace_state = state.join(build::build_workspace_key(&workspace_path));
         if check_versions { std::fs::create_dir_all(&workspace_state).map_err(|error| error.to_string())?; }
         let inherited: HashMap<String, String> = std::env::vars().collect();
+        let user_home = app.path().home_dir().map_err(|_| "toolchain.native.unavailable")?;
+        let defined_context = DefinitionContext { registry:&tool_registry, normalized:&normalized_tools,
+            inherited:&inherited, user_home:&user_home, state:&workspace_state, explicit:check_versions };
         let mut forwarded = BTreeMap::from([("PATH".into(), std::env::var("PATH").unwrap_or_default())]);
         for name in invocation["environmentInputs"].as_array().into_iter().flatten().filter_map(Value::as_str) {
             if let Some((_, value)) = inherited.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)) { forwarded.insert(name.into(),value.clone()); }
         }
-        let mut resolver = Resolver { workspace: &workspace, root: &root, choices: &choices["toolchain"], runtimes: serde_json::from_value(choices["toolchain"]["runtimeExecutablePaths"].clone()).map_err(|error| format!("Invalid saved runtime paths: {error}"))?, environment: forwarded, project_code:false };
+        let mut resolver = Resolver { workspace: &workspace, root: &root, choices: &choices["toolchain"], runtimes: serde_json::from_value(choices["toolchain"]["runtimeExecutablePaths"].clone()).map_err(|error| format!("Invalid saved runtime paths: {error}"))?, environment: forwarded, project_code:false, definitions: BTreeMap::new() };
         for dependency in invocation["runtimeDependencies"].as_array().into_iter().flatten() {
             let id = dependency["id"].as_str().ok_or("Build runtime has no ID")?;
             let fallback;
@@ -66,23 +72,26 @@ pub async fn declarative_plugins_build_tool(
                 fallback = json!([{"kind":"toolchain","toolchainID":if id == "java" { "project-jdk".to_string() } else { format!("project-{id}") }}]);
                 &fallback
             } else { &dependency["executables"] };
+            resolver.prepare_definitions(candidates, dependency, &defined_context)?;
             let selected = resolver.select_checked(candidates, |selected| check_version(&package.manifest, &build_system_id, Some(id), dependency, selected, &workspace_state, check_versions))?;
             resolver.add_runtime(id, selected)?;
         }
+        resolver.prepare_definitions(&invocation["executables"], invocation, &defined_context)?;
         let selected = resolver.select_checked(&invocation["executables"], |selected| check_version(&package.manifest, &build_system_id, None, invocation, selected, &workspace_state, check_versions))?;
         let environment = selected.environment;
         Ok(BuildToolContext { manifest:package.manifest, plugin_directory: package.root.to_string_lossy().into_owned(),
-            identity: json!({"globalSettings":layers.global,"projectSettings":layers.project,"toolchain":choices["toolchain"]}),
+            identity: json!({"globalSettings":layers.global,"projectSettings":layers.project,"toolchain":choices["toolchain"],"toolDefinitions":tool_registry}),
             workspace_state_directory: workspace_state.to_string_lossy().into_owned(), environment,
             tool: json!({"executable":selected.path}), executes_project_code:selected.project_code })
     }).await
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Selected {
     path: PathBuf,
     environment: BTreeMap<String, String>,
     project_code: bool,
+    defined: bool,
 }
 
 struct Resolver<'a> {
@@ -92,9 +101,96 @@ struct Resolver<'a> {
     runtimes: HashMap<String, String>,
     environment: BTreeMap<String, String>,
     project_code: bool,
+    definitions: BTreeMap<String, Selected>,
+}
+
+struct DefinitionContext<'a> {
+    registry: &'a Value,
+    normalized: &'a Value,
+    inherited: &'a HashMap<String, String>,
+    user_home: &'a Path,
+    state: &'a Path,
+    explicit: bool,
 }
 
 impl Resolver<'_> {
+    fn prepare_definitions(
+        &mut self,
+        candidates: &Value,
+        declaration: &Value,
+        context: &DefinitionContext<'_>,
+    ) -> Result<(), String> {
+        for candidate in candidates
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|value| value["kind"] == "toolchain")
+        {
+            let id = candidate["toolchainID"]
+                .as_str()
+                .ok_or("toolchain.native.unavailable")?;
+            if !context.normalized["registry"]["definitions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|value| value["definition"]["id"] == id)
+            {
+                continue;
+            }
+            let directory = candidate["root"].as_str().unwrap_or(self.root);
+            let mut environment: BTreeMap<String, String> = context
+                .inherited
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            for (key, value) in &self.environment {
+                environment.retain(|old, _| !old.eq_ignore_ascii_case(key));
+                environment.insert(key.clone(), value.clone());
+            }
+            let selected = lithe_project::defined_toolchain::resolve(
+                lithe_project::defined_toolchain::Request {
+                    registry: context.registry,
+                    workspace: self.workspace,
+                    user_home: context.user_home,
+                    tool: id,
+                    directory,
+                    environment: &environment,
+                    minimum_version: declaration["minimumVersion"].as_str(),
+                    project_code_allowed: context.explicit,
+                },
+                |path, arguments, environment, deadline| {
+                    let mut command =
+                        run::command_for_executable(&path.to_string_lossy(), arguments);
+                    // Passive checks use the workspace; explicit actions get writable
+                    // operation state. Neither directory is an installed package.
+                    command.envs(environment).current_dir(if context.explicit {
+                        context.state
+                    } else {
+                        self.workspace
+                    });
+                    let (stdout, stderr) =
+                        launch::run_process_probe_with_timeout(&mut command, id, true, deadline)?;
+                    Ok(format!(
+                        "{}\n{}",
+                        String::from_utf8_lossy(&stdout),
+                        String::from_utf8_lossy(&stderr)
+                    ))
+                },
+            )?
+            .ok_or("toolchain.native.unavailable")?;
+            self.definitions.insert(
+                format!("{id}\n{directory}"),
+                Selected {
+                    path: selected.executable,
+                    environment: selected.environment,
+                    project_code: selected.project_code,
+                    defined: true,
+                },
+            );
+        }
+        Ok(())
+    }
+
     fn add_runtime(&mut self, id: &str, selected: Selected) -> Result<(), String> {
         self.project_code |= selected.project_code;
         self.environment.extend(selected.environment);
@@ -102,11 +198,13 @@ impl Resolver<'_> {
         self.runtimes.insert(id.into(), executable.clone());
         self.runtimes
             .insert(format!("project-{id}"), executable.clone());
-        self.environment.insert(
-            format!("LITHE_{}_PATH", id.to_uppercase().replace('-', "_")),
-            executable,
-        );
-        if id == "java" {
+        if !selected.defined {
+            self.environment.insert(
+                format!("LITHE_{}_PATH", id.to_uppercase().replace('-', "_")),
+                executable,
+            );
+        }
+        if !selected.defined && id == "java" {
             if let Some(home) = selected.path.parent().and_then(Path::parent) {
                 self.environment
                     .insert("JAVA_HOME".into(), home.to_string_lossy().into_owned());
@@ -164,24 +262,21 @@ impl Resolver<'_> {
                 let id = candidate["toolchainID"]
                     .as_str()
                     .ok_or("Build toolchain has no ID")?;
+                let root = candidate["root"].as_str().unwrap_or(self.root);
+                if let Some(selected) = self.definitions.get(&format!("{id}\n{root}")) {
+                    environment.extend(selected.environment.clone());
+                    return Ok(Some(Selected {
+                        environment,
+                        ..selected.clone()
+                    }));
+                }
                 let maven_java = self.choices["mavenJavaHomePath"].as_str().unwrap_or("");
-                let java_home = if id == "project-maven-jdk" && !maven_java.is_empty() {
-                    maven_java
-                } else {
-                    self.choices["javaHomePath"].as_str().unwrap_or("")
-                };
+                let java_home = self.choices["javaHomePath"].as_str().unwrap_or("");
                 let (resolved, project_code) = run::resolve_build_launch(ResolveLaunchArgs {
                     root: self.workspace.into(),
                     working_directory: self.root.into(),
                     executable: LaunchExecutable {
-                        toolchain: Some(
-                            if id == "project-maven-jdk" {
-                                "project-jdk"
-                            } else {
-                                id
-                            }
-                            .into(),
-                        ),
+                        toolchain: Some(id.into()),
                         command: None,
                         tool: None,
                     },
@@ -293,6 +388,7 @@ impl Resolver<'_> {
             path,
             environment,
             project_code,
+            defined: false,
         }))
     }
 }
@@ -305,6 +401,31 @@ fn runtime_environment(environment: HashMap<String, String>) -> BTreeMap<String,
         })
         .map(|(key, value)| (key.to_ascii_uppercase(), value))
         .collect()
+}
+
+/// Installation records currently prove no official publisher identity on Windows.
+/// Never infer reserved short-ID ownership from a manifest or its directory name.
+fn installed_tool_registry(
+    app: &AppHandle,
+) -> Result<(Value, Vec<super::lifecycle::NativeLease>), String> {
+    let lifecycle = app.state::<LifecycleState>();
+    let mut plugins = Vec::new();
+    let mut leases = Vec::new();
+    for package in app
+        .state::<super::PluginHostState>()
+        .packages()
+        .into_iter()
+        .filter(|package| {
+            package.entry.enabled
+                && package.entry.status == "accepted"
+                && (package.manifest["toolDefinitions"].is_array()
+                    || package.manifest["toolchainProviders"].is_array())
+        })
+    {
+        leases.push(lifecycle.acquire(&package.entry.plugin_id)?);
+        plugins.push(json!({"manifest":package.manifest,"verifiedOfficial":false}));
+    }
+    Ok((json!({"plugins":plugins}), leases))
 }
 
 #[cfg(test)]
@@ -352,6 +473,7 @@ mod tests {
             runtimes: HashMap::from([("java".into(), fixture.0.to_string_lossy().into_owned())]),
             environment: BTreeMap::new(),
             project_code: false,
+            definitions: BTreeMap::new(),
         };
         assert!(resolver
             .select(&json!([{"kind":"runtime","runtime":"java"}]))
@@ -377,6 +499,41 @@ mod tests {
     }
 
     #[test]
+    fn definition_runtime_exports_do_not_infer_a_legacy_home_or_private_variable() {
+        let fixture = Fixture::new();
+        let workspace = fixture.workspace();
+        let choices = json!({});
+        let executable = fixture.file("kit/custom/compiler.exe");
+        let mut resolver = Resolver {
+            workspace: &workspace,
+            root: ".",
+            choices: &choices,
+            runtimes: HashMap::new(),
+            environment: BTreeMap::new(),
+            project_code: false,
+            definitions: BTreeMap::new(),
+        };
+        let selected = Selected {
+            path: executable.clone(),
+            project_code: false,
+            defined: true,
+            environment: BTreeMap::from([(
+                "DECLARED_HOME".into(),
+                fixture.0.join("kit").to_string_lossy().into_owned(),
+            )]),
+        };
+        resolver
+            .definitions
+            .insert("dev.example.tools:compiler\napp".into(), selected.clone());
+        let selected = resolver.select(&json!([{"kind":"toolchain","toolchainID":"dev.example.tools:compiler","root":"app"}])).unwrap();
+        assert_eq!(selected.path, executable);
+        resolver.add_runtime("java", selected).unwrap();
+        assert!(resolver.environment.contains_key("DECLARED_HOME"));
+        assert!(!resolver.environment.contains_key("JAVA_HOME"));
+        assert!(!resolver.environment.contains_key("LITHE_JAVA_PATH"));
+    }
+
+    #[test]
     fn an_automatic_candidate_can_fail_version_acceptance_but_an_explicit_setting_cannot_fall_back()
     {
         let fixture = Fixture::new();
@@ -389,6 +546,7 @@ mod tests {
             root: ".",
             choices: &choices,
             project_code: false,
+            definitions: BTreeMap::new(),
             runtimes: HashMap::from([
                 ("old".into(), old.to_string_lossy().into_owned()),
                 (
@@ -426,6 +584,7 @@ mod tests {
             runtimes: HashMap::new(),
             environment: BTreeMap::new(),
             project_code: false,
+            definitions: BTreeMap::new(),
         };
         let candidates = json!([{"kind":"projectFile","path":"mvnw.cmd","requires":[".mvn/wrapper.properties"]}]);
         assert!(resolver.select(&candidates).is_err());
@@ -460,6 +619,7 @@ mod tests {
             runtimes: HashMap::new(),
             environment: BTreeMap::new(),
             project_code: false,
+            definitions: BTreeMap::new(),
         };
         assert!(resolver.select(&json!([{"kind":"setting","path":fixture.0.join("missing.exe")},{"kind":"setting","path":fallback}])).is_err());
     }
@@ -477,6 +637,7 @@ mod tests {
             runtimes: HashMap::new(),
             environment: BTreeMap::new(),
             project_code: false,
+            definitions: BTreeMap::new(),
         };
         resolver
             .add_runtime(
@@ -485,6 +646,7 @@ mod tests {
                     path: executable.clone(),
                     environment: BTreeMap::new(),
                     project_code: false,
+                    defined: false,
                 },
             )
             .unwrap();

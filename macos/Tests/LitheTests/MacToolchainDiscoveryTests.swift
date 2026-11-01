@@ -275,7 +275,7 @@ struct MacToolchainDiscoveryTests {
         manifest["toolDefinitions"] = definitions
         let source = ToolchainSettingsPluginSource(pluginID: Self.pluginID, name: "Fixture",
             manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
-        let probes = DiscoveryProbes(outputs: [:])
+        let probes = DiscoveryProbes(outputs: [wrapper.path: "compiler 21"])
         let discovery = discovery(root: root, probes: probes)
         let request = MacToolchainDiscovery.Request(workspace: root.url("workspace"), sources: [source], environment: [:])
         let local: ToolingJSONValue = .object(["version": .number(1), "toolchains": .object([:])])
@@ -287,6 +287,19 @@ struct MacToolchainDiscoveryTests {
                                                    local: local, projectCodeAllowed: true)
         #expect(selected?.executable == wrapper && selected?.projectCode == true)
         #expect(probes.calls.isEmpty)
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await discovery.resolve(request, tool: "compiler", directory: ".", minimumVersion: "17",
+                                        local: local, projectCodeAllowed: false)
+        }
+        #expect(probes.calls.isEmpty)
+        let checked = try await discovery.resolve(request, tool: "compiler", directory: ".", minimumVersion: "17",
+                                                  local: local, projectCodeAllowed: true)
+        #expect(checked?.executable == wrapper && checked?.version == "21" && checked?.projectCode == true)
+        #expect(probes.calls == [.init(executable: wrapper.path, arguments: ["--version"])])
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await discovery.resolve(request, tool: "compiler", directory: ".", minimumVersion: "23",
+                                        local: local, projectCodeAllowed: true)
+        }
     }
 
     @Test func consumerQueriesCurrentWorkspaceProviderWithMatchingResolutionIdentity() async throws {

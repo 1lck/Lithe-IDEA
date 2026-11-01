@@ -14,10 +14,21 @@ fn manifest() -> Value {
     .unwrap()
 }
 fn snapshot() -> Value {
-    serde_json::from_str(include_str!(
+    let mut value: Value = serde_json::from_str(include_str!(
         "../../../../shared/contracts/plugins/v1/fixtures/build-configuration.json"
     ))
-    .unwrap()
+    .unwrap();
+    if cfg!(windows) {
+        value["sources"][0]["uri"] = json!("file:///C:/fixture/user/settings.xml");
+    }
+    value
+}
+fn native_fixture_path(path: &str) -> String {
+    if cfg!(windows) {
+        format!("C:{path}")
+    } else {
+        path.into()
+    }
 }
 fn call(command: fn(Value) -> Result<Value, crate::protocol::CoreError>, request: Value) -> Value {
     let manifest = manifest();
@@ -25,7 +36,7 @@ fn call(command: fn(Value) -> Result<Value, crate::protocol::CoreError>, request
     command(json!({"manifest":manifest,"buildSystemID":id,"request":request})).unwrap()
 }
 fn edit_request() -> Value {
-    json!({"root":".", "workspaceStateDirectory":"/fixture/state", "outputFile":"/fixture/state/outputs/edit.json",
+    json!({"root":".", "workspaceStateDirectory":native_fixture_path("/fixture/state"), "outputFile":native_fixture_path("/fixture/state/outputs/edit.json"),
         "snapshot":snapshot(), "edits":{"sourceID":"user", "revision":snapshot()["sources"][0]["revision"],
             "values":{"localRepository":"/new"}}})
 }
@@ -140,7 +151,10 @@ fn native_editing_passes_opaque_fields_and_private_staging_without_document_byte
         "lithe/build/editConfiguration"
     );
     let params = &result["plan"]["provider"]["params"];
-    assert_eq!(params["outputFile"], "/fixture/state/outputs/edit.json");
+    assert_eq!(
+        params["outputFile"],
+        native_fixture_path("/fixture/state/outputs/edit.json")
+    );
     assert_eq!(params["edits"]["values"], json!({"cacheLocation":"/new"}));
     for key in ["document", "rootElement", "path", "itemElement"] {
         assert!(!params.to_string().contains(&format!("\"{key}\":")));
@@ -157,6 +171,7 @@ fn native_editing_rejects_stale_unknown_read_only_and_escaping_requests() {
         "escape",
         "sameSource",
         "noState",
+        "relativeOutput",
     ] {
         let mut request = edit_request();
         match variant {
@@ -164,10 +179,13 @@ fn native_editing_rejects_stale_unknown_read_only_and_escaping_requests() {
             "unknown" => request["edits"]["values"] = json!({"unavailable":true}),
             "readonly" => request["snapshot"]["sources"][0]["writable"] = json!(false),
             "type" => request["edits"]["values"]["localRepository"] = json!(true),
-            "escape" => request["outputFile"] = json!("/fixture/state/../settings.json"),
+            "escape" => {
+                request["outputFile"] =
+                    json!(native_fixture_path("/fixture/state/../settings.json"))
+            }
             "sameSource" => {
-                request["workspaceStateDirectory"] = json!("/fixture");
-                request["outputFile"] = json!("/fixture/user/settings.xml");
+                request["workspaceStateDirectory"] = json!(native_fixture_path("/fixture"));
+                request["outputFile"] = json!(native_fixture_path("/fixture/user/settings.xml"));
             }
             "noState" => {
                 request
@@ -175,6 +193,7 @@ fn native_editing_rejects_stale_unknown_read_only_and_escaping_requests() {
                     .unwrap()
                     .remove("workspaceStateDirectory");
             }
+            "relativeOutput" => request["outputFile"] = json!("state/outputs/edit.json"),
             _ => unreachable!(),
         }
         assert_eq!(

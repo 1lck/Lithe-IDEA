@@ -181,6 +181,43 @@ Maven 仓库报告分别在 `stage-d-generic-owner-native-v2/` 和 `stage-d-gene
 首次生产准入失败、旧工具名断言失败及空源码版本要求失败均保留日志，未放宽断言或预算。
 Windows Cargo 在 macOS 检查仍只有两处原生 API 基线错误，不代表原生 Windows 通过。
 
+### Windows 原生工具解析与最低运行时验证（2026-11-01）
+
+Windows 的 Build 解析开始读取已准入插件的工具定义，目录 pin、声明扫描、Shell 变量和
+命令仍交相同 Core 规则校验。原生 adapter 不包含 Maven/Java 名字分支，不由安装目录
+或 manifest 自称官方来源。固定值不依赖低层查询；没有固定值而需要 Provider 时因查询
+后端尚未实现而明确拒绝。只有声明的导出、PATH 和明确输入进入 RPC，宿主秘密不转发。
+这些基础代码不开放 Build 能力准入，Registry 调试与旧消费者迁移仍在待办。
+
+移除 Windows 未准入 Build 路径新增的 `project-maven-jdk` 别名与按该名字选择 JDK 的分支。
+共享工具消费 fixture 改用两个命名空间工具及显式版本声明，验证不依赖 Maven/Java 注册名。
+
+同时修复显式 Wrapper 的版本证据缺口：需要最低版本时，先由 Core 确认项目启动器，再
+有界探测并以原最低版本重新解析。macOS 真实 Maven 委托 Wrapper 与目录 pin 两种情况
+通过；被动调用不执行 Wrapper，版本过旧仍拒绝。原生测试覆盖第二种工具、固定值失效、
+同版本冲突、目录继承、环境隔离和探测期间输入变化；macOS 上四个既有 watcher 超时保留
+原断言，真实 Windows 结果以现有 CI 为准。
+
+固定宿主 `3d1656ed4` 的 [Windows CI 41312095369](https://github.com/1lck/Lithe-IDEA/actions/runs/41312095369)
+前端通过，Rust/JDT 再被 v7 暂存输出的 Unix 路径 fixture 阻断。本轮已把该文件的暂存目录、
+输出、源 URI 和拒绝变体，以及 Provider 环境回归的工具路径一并改为原生路径；保留相对
+路径、越界、同源和缺失 state 的拒绝，不放宽生产安全检查。后续集中重跑，不宣称该轮通过。
+
+当前宿主与 Maven `5f701c9`、SDK `23e455a` 的 [Java 8 开发验证 41312168557](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/41312168557)
+已通过 runner Maven 和 Maven 3.6.3，两组都包含真实 Core/Maven 工作流；runner 另覆盖
+Windows TypeScript 工作流及 Java 17 框架调试场景。SDK 仅调整显式宿主 CI 的覆盖开关，
+`0ce8335` 对同一宿主的 [验证 41312873834](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/41312873834)
+通过 Node 20、Java 8、Rust 和当前配置/报告/运行选项 E2E；整体仍因公开契约镜像相对
+preview 的漂移检查失败。按既定顺序等待宿主合入后同步，不修改镜像或正式锁定值来掩盖漂移。
+
+本批本地最终结果：Core 1,573 项全量通过；macOS 30 项逐项计时通过，另有 1 项外部工具
+开关跳过，真实 Maven 目录 pin/Wrapper 均覆盖；Windows 前端 465 项、类型检查、生产构建
+通过；当前源码上的 SDK E2E 6 项通过。Project crate 的 68 项中 64 项通过（含新增 9 项
+定义解析回归），4 个既有 watcher 在 macOS 超时；保留失败日志和门槛。Windows host 的
+生产与测试编译检查仅有既有两项 Windows API 错误。计时报告分别为
+`stage-d-generic-tools-core-final.html`、`stage-d-generic-tools-macos-final.html`、
+`stage-d-windows-defined-tools-bun.html` 和 `stage-d-windows-defined-tools-rust-final.html`。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`

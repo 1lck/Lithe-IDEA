@@ -251,15 +251,15 @@ fn canonical_toolchain_candidates_keep_instance_identity_and_require_version_two
     );
     assert_eq!(
         plan["invocation"]["executables"],
-        json!([{"kind":"toolchain","toolchainID":"project-maven","root":"services/a"}])
+        json!([{"kind":"toolchain","toolchainID":"dev.lithe.fixture.build-toolchains:compiler","root":"services/a"}])
     );
     assert_eq!(
         plan["invocation"]["runtimeDependencies"][0]["executables"],
-        json!([{"kind":"toolchain","toolchainID":"project-maven-jdk","root":"services/a"}])
+        json!([{"kind":"toolchain","toolchainID":"dev.lithe.fixture.build-toolchains:vm","root":"services/a"}])
     );
     assert_eq!(
         plan["invocation"]["runtimeDependencies"][0]["version"]["arguments"],
-        json!(["-version"])
+        json!(["--version"])
     );
     manifest["requires"]["executableResolution"] = json!(1);
     let rejected = validate_command(json!({"manifest":manifest})).unwrap();
@@ -275,7 +275,12 @@ fn canonical_toolchain_candidates_keep_instance_identity_and_require_version_two
 fn resolved_tool_environment_reaches_providers_with_option_precedence_and_bounded_inputs() {
     let mut manifest = fixture("build-provider.plugin.json");
     manifest["buildSystems"][0]["options"] = json!([{"id":"mode","displayName":"Mode","kind":"boolean","environment":{"JAVA_HOME":"/fixture/option-jdk"}}]);
-    let request = json!({"root":".","options":{"mode":true},"tool":{"executable":"/fixture/mvn", "environment":{"JAVA_HOME":"/fixture/selected-jdk","PATH":"/fixture/bin"}}});
+    let executable = if cfg!(windows) {
+        "C:/fixture/mvn.cmd"
+    } else {
+        "/fixture/mvn"
+    };
+    let request = json!({"root":".","options":{"mode":true},"tool":{"executable":executable, "environment":{"JAVA_HOME":"/fixture/selected-jdk","PATH":"/fixture/bin"}}});
     let plan = call("modelPlan", manifest.clone(), "gradle", request.clone());
     assert_eq!(
         plan["plan"]["provider"]["params"]["environment"],

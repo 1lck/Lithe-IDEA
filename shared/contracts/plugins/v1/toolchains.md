@@ -11,7 +11,10 @@ runs the definition's version probe on executables Core returns from
 whole snapshot. Nothing is saved by these pages. The pinned Stage D integration
 adds a separate fresh-resolution adapter for macOS Build and Provider Run;
 settings detections are never used as launch permits. Existing Java and
-language-server consumers still use their previous adapters. Windows is not connected.
+language-server consumers still use their previous adapters. Windows now has
+native Build plumbing for directory pins, declared scans and shell candidates;
+provider queries and verified official origin are not connected, and product
+capability admission remains closed.
 The [broader proposal](proposals/toolchains/README.md) still describes unsupported
 consumer migration, native lifecycle, persistence and manager-plugin work.
 The active shape is [plugin-manifest.schema.json](plugin-manifest.schema.json),

@@ -92200,7 +92200,8 @@
       "id": "native.selectedToolchainUnavailable",
       "description": "Native UI: The selected toolchain is unavailable.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The selected toolchain is unavailable.",

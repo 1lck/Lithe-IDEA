@@ -12,8 +12,8 @@ import Testing
 @MainActor
 struct MacNativeBuildProviderIntegrationTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
-                   "Requires the stage D Maven package and selected Java/Maven"))
-    func installedDefinitionsResolveTheRealBuildAndRuntimeThroughDirectoryPins() async throws {
+                   "Requires the stage D Maven package and selected Java/Maven"), arguments: [false, true])
+    func installedDefinitionsResolveTheRealBuildAndRuntimeThroughDirectoryPins(projectWrapper: Bool) async throws {
         let environment = ProcessInfo.processInfo.environment
         let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
         let javaPath = try #require(environment["LITHE_STAGE_C_JAVA"])
@@ -34,10 +34,22 @@ struct MacNativeBuildProviderIntegrationTests {
                   isEnabled: true, verifiedOfficial: true)
         ]
         let before = try Self.inventory(package), javaBefore = try Self.inventory(javaPackage)
-        try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": [".": [
-            "java": ["home": javaHome, "version": "selected", "provider": "host:manual"],
-            "io.github.lithe-idea.maven-build:maven": ["home": mavenHome, "version": "selected", "provider": "host:manual"]
-        ]]]).write(to: workspace.appendingPathComponent(".lithe/toolchains/local.json"))
+        var pins = ["java": ["home": javaHome, "version": "selected", "provider": "host:manual"]]
+        if projectWrapper {
+            // A fixture launcher delegates to the explicit real Maven without a
+            // download. Opening the workspace cannot execute this project code.
+            let wrapper = workspace.appendingPathComponent("mvnw")
+            let escapedMaven = maven.replacingOccurrences(of: "'", with: "'\"'\"'")
+            try Data("#!/bin/sh\nexec '\(escapedMaven)' \"$@\"\n".utf8).write(to: wrapper)
+            try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapper.path)
+            try files.createDirectory(at: workspace.appendingPathComponent(".mvn/wrapper"), withIntermediateDirectories: true)
+            try Data("# fixture launcher needs no distribution\n".utf8)
+                .write(to: workspace.appendingPathComponent(".mvn/wrapper/maven-wrapper.properties"))
+        } else {
+            pins["io.github.lithe-idea.maven-build:maven"] = ["home": mavenHome, "version": "selected", "provider": "host:manual"]
+        }
+        try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": [".": pins]])
+            .write(to: workspace.appendingPathComponent(".lithe/toolchains/local.json"))
         let defined = MacDefinedToolchainResolver()
         defined.sources = { sources }
         let runtime = ProjectRuntimeService(runtimeLocator: MacRuntimeLocator(), store: NativeDefinedToolPreferences())
@@ -51,9 +63,11 @@ struct MacNativeBuildProviderIntegrationTests {
         let selected = try await resolver.resolve(invocation, displayName: "Maven", workspaceURL: workspace) { runtime, output in
             try core.checkToolVersion(target, runtime: runtime, output: output)
         }
-        #expect(selected.executableURL.path == maven)
+        let expected = projectWrapper ? try #require(MacToolchainDiscovery.realpath(workspace.appendingPathComponent("mvnw").path)) : maven
+        #expect(selected.executableURL.path == expected)
         #expect(selected.environment["JAVA_HOME"] == javaHome)
-        #expect(selected.version != nil && !selected.executesProjectCode)
+        #expect(selected.executesProjectCode == projectWrapper)
+        if !projectWrapper { #expect(selected.version != nil) }
         #expect(selected.providerEnvironment["JAVA_HOME"] == javaHome)
         #expect(try Self.inventory(package) == before)
         #expect(try Self.inventory(javaPackage) == javaBefore)

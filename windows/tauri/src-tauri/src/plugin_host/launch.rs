@@ -462,7 +462,20 @@ pub(super) fn run_process_probe(
     tool: &str,
     require_success: bool,
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
-    let deadline = Instant::now() + RUNTIME_PROBE_TIMEOUT;
+    run_process_probe_with_timeout(command, tool, require_success, RUNTIME_PROBE_TIMEOUT)
+}
+
+/// A consumer's remaining operation budget may be shorter than one probe.
+pub(super) fn run_process_probe_with_timeout(
+    command: &mut Command,
+    tool: &str,
+    require_success: bool,
+    timeout: Duration,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    if timeout.is_zero() {
+        return Err("runtime probe deadline expired".into());
+    }
+    let deadline = Instant::now() + timeout.min(RUNTIME_PROBE_TIMEOUT);
     let stdout_bytes = Cell::new(0_usize);
     let stderr_bytes = Cell::new(0_usize);
     let exceeded = || {

@@ -26,7 +26,35 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 
 宿主在 `plugins.declarative.validate` 的 payload 里声明 `hostCapabilities = { languages:[1], languageServers:[1,2], serverProcess:[1], settings:[1,2], ui:[1,2] }`。Core 的 `capabilities.rs` 会拒绝声明了宿主未开放能力的插件，宿主不需要自己写拒绝逻辑。M3 已把 `languageServers` 与 `settings` 提到 2，注册设置页并下推 `workspaceConfiguration`；M4 已增 `ui:[1,2]`。`executionProviders`、`buildProviders` 与 `buildSystems` 仍未开放，运行/测试计划命令的存在不代表这些插件能力可安装。宿主不声明的能力，市场侧按不支持展示。
 
-### Build Provider 的传输基础（阶段 D，产品入口仍待迁移）
+### 工具定义的原生解析基础（阶段 D，准入仍关闭）
+
+Windows 的构建工具解析开始复用相同的 Core 工具定义与四层规则；原生 adapter 放在
+`lithe-project::defined_toolchain`，不解析 Maven、Java 或版本管理器配置。它按声明展开
+有数量上限的目录扫描，读取当前目录 pin 和文件身份，只对 Core 检查过的候选运行版本
+探测，返回单次操作持有的路径和声明导出的环境。两个不同的工具 ID 使用相同入口。
+
+正确做法是把可执行布局、探测参数和导出变量放在插件声明中，宿主只读盘并提供事实。
+不要按工具名称推算 home，也不要把宿主环境整体转交 Provider：探测可继承本机环境，
+RPC 只得到声明的导出、PATH 和 invocation 明确要求的输入。总解析期限为 20 秒，单个
+探测最多 5 秒且受剩余总期限约束；扫描、安装数、文件事实和探测数均有上限。探测完成后
+重新核对文件身份与本机 pin 原文，输入改变即拒绝；不写安装包或新建运行时缓存。
+
+固定 pin 不依赖低层 Provider 或扫描。没有固定值而声明需要 Provider 时，当前 Windows
+宿主因尚无查询生命周期而明确返回不可用，不能跳过它去选另一个版本。项目 Wrapper 只在
+显式执行时选择；需要最低版本时，Core 先确认其项目代码身份，再做有界探测，并以原最低
+版本重新解析。打开工程不会运行 Wrapper。版本规则继续由 Core 和插件定义拥有。
+
+本机安装记录尚不能证明官方来源，因此原生 registry 不从包名、目录或 manifest 伪造
+`verifiedOfficial`；官方短 ID、通用后端查询、旧 Java/Agent 消费者及数据迁移仍需后续接入。
+Build 能力准入保持关闭。此基础增加了原生能力和受控测试，但不代表 Windows Maven
+完整迁移，更不允许为删除旧命令破坏仍在使用它们的消费者。
+
+代价是完整构建/运行前需要重新收集一次证据；它避免把设置页旧检测变成长期启动许可。
+验证使用跨平台临时文件与注入探测，覆盖两个工具、继承、冲突、版本、秘密隔离及输入撤销，
+并由现有 Windows CI 验证真实命令包装与进程树清理。macOS 上 Project crate 的既有四个
+watcher 超时不作为新解析逻辑已通过 Windows 的证据。
+
+### Build Provider 的传输与模型
 
 Windows 的 Build 后端继续复用已有 Core LSP 进程运行时，不另写 stdio、RPC 或进程树
 管理器。原生 `plugin_host/build.rs` 只给已准入的插件展开公开启动计划，复用现有的包路径、
