@@ -2058,9 +2058,11 @@ and additionally accepts `maxSymbolResults` and optional
 case-insensitive contiguous fragments and camel/word humps, rather than arbitrary
 subsequences. Each file/type/symbol bucket is ranked before its requested cap;
 the total cap still applies to the file, type, symbol, then content buckets.
-A zero `maxFileResults` skips the names-only index entirely; zero
-`maxContentResults` together with zero `maxSymbolResults` skips the content/symbol
-index. All three zero caps produce no index builds. Omitted caps retain their
+A zero `maxFileResults` skips file-name result collection. Text-only queries use
+a ready content index, or a names-only inventory with the content visibility rules
+and the existing exact matcher while the content index is cold or warming.
+Symbol queries still require the content/symbol index. All three zero caps produce
+no index builds. Omitted caps retain their
 existing defaults. macOS forwards the selected workspace sources through these
 existing caps: Actions-only stays local, Text-only requests contents, Files and
 Agent completion request names, and Classes/Symbols share the symbol index.
@@ -4559,3 +4561,15 @@ The macOS settings surface offers search, refresh, file details, native open and
 reveal, creation and import. It keeps native loading separate from management
 and rejects stale results after project changes. Windows can use the same Core
 operations; the settings UI and Windows runtime validation remain pending.
+
+### Project JDK supplied to JDT LS
+
+`lsp.startServer.javaRuntimes` entries contain `homePath`, `version`, and optional
+`isDefault` (default `false`). Platforms use their existing project toolchain selection,
+including explicit JDK homes outside discovery roots. The server process JVM remains
+independent. Core registers one JDK per Java major; the first valid selected candidate
+wins its major and alone receives `default: true` in `java.configuration.runtimes`,
+both at initialization and in configuration responses. Empty homes and unparseable versions
+are ignored during projection; platform adapters validate explicit choices before launch.
+Legacy callers that omit `isDefault` retain their previous behavior.
+Fixture: `shared/fixtures/lsp/java-project-runtimes-v1.json`.

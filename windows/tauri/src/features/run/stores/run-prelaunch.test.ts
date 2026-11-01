@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { RunConfiguration } from "../types/run.types";
-import { createRunStore, type RunStoreDependencies } from "./run.store";
+import { createRunStore, releaseRunSessionWorkspace, type RunStoreDependencies } from "./run.store";
 
 const configuration: RunConfiguration = {
   id: "standalone",
@@ -73,6 +73,62 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
 }
 
 describe("Standalone Java compile-then-run", () => {
+  test("a rejected application launch reports to its own session and preserves other executions", async () => {
+    const application = { ...configuration, id: "missing-jdk", execution: "application" as const };
+    const { dependencies, startRunProcess } = standaloneDependencies();
+    const stopRunProcess = mock(async () => {});
+    const store = createRunStore("rejected-application", { ...dependencies, stopRunProcess });
+    const background = { id: "background", configurationId: "background", title: "Background",
+      output: "Background output", isRunning: true, exitCode: null };
+    store.setState({
+      root: "D:/work", configurations: [application],
+      diagnostics: [{ id: application.id, code: "missingToolchain", message: "JDK unavailable" }],
+      primaryConfigurationId: "task", primaryExecutionId: "task-execution", primaryRunning: true,
+      primaryOutput: "Task output", sessions: [background],
+    });
+    expect(await store.getState().actions.runConfiguration(application.id)).toBeNull();
+    expect(store.getState()).toMatchObject({ primaryRunning: true, primaryOutput: "Task output",
+      primaryExecutionId: "task-execution", selectedSessionId: application.id });
+    expect(store.getState().sessions[0]).toEqual(background);
+    expect(store.getState().sessions[1]).toMatchObject({ configurationId: application.id,
+      output: "JDK unavailable\n", isRunning: false, exitCode: 1 });
+    const active = { ...store.getState().sessions[1], executionId: "existing-app", isRunning: true, exitCode: null };
+    store.setState({ sessions: [background, active] });
+    await store.getState().actions.runConfiguration(application.id);
+    expect(store.getState().sessions[1]).toMatchObject({ executionId: "existing-app", isRunning: true, exitCode: null });
+    expect(startRunProcess).not.toHaveBeenCalled();
+    expect(stopRunProcess).not.toHaveBeenCalled();
+  });
+
+  test("an application owns a cancellable session while workspace saving is pending", async () => {
+    const saving = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    const application: RunConfiguration = { ...configuration, id: "pending-save", execution: "application", provider: "shell" };
+    const { dependencies, startRunProcess } = standaloneDependencies({
+      saveWorkspaceBeforeLaunch: async () => { entered.resolve(); await saving.promise; },
+    });
+    const store = createRunStore("pending-application-save", dependencies);
+    store.setState({ root: "D:/work", configurations: [application] });
+    const launch = store.getState().actions.runConfiguration(application.id);
+    try {
+      await entered.promise;
+      expect(store.getState().selectedSessionId).toBe(application.id);
+      expect(store.getState().sessions[0]).toMatchObject({
+        id: application.id, configurationId: application.id, isPreparing: true, isRunning: false,
+      });
+      expect(store.getState().sessions[0].executionId).toBeDefined();
+      await store.getState().actions.stop(application.id);
+      saving.resolve();
+      expect(await launch).toBeNull();
+      expect(startRunProcess).not.toHaveBeenCalled();
+      expect(store.getState().sessions[0].isPreparing).toBe(false);
+    } finally {
+      saving.resolve();
+      await launch;
+      await store.getState().actions.stop(application.id);
+      releaseRunSessionWorkspace(application.id);
+    }
+  });
   test("stopping resource processing invalidates the execution before JVM launch", async () => {
     let release = () => {};
     const gate = new Promise<void>((resolve) => {
@@ -498,25 +554,42 @@ describe("Java project launch preparation feedback", () => {
     );
   });
 
-  test("shows the notice in the primary panel for an application launch", async () => {
+  test("applications own their preparation and output independently", async () => {
     const application: RunConfiguration = { ...projectConfiguration, execution: "application" };
-    let primaryWhilePreparing: { output: string; title: string | null } | undefined;
+    const second = { ...application, id: "second", name: "Second application" };
+    const stopped: string[] = [];
+    let preparationOutput: string | undefined;
     const store = storeWith(application, {
+      stopRunProcess: mock(async (id) => { stopped.push(id); }),
       prepareJavaRunLaunch: mock(async () => {
-        const state = store.getState();
-        primaryWhilePreparing = { output: state.primaryOutput, title: state.primaryTitle };
+        preparationOutput = store.getState().sessions.find(s => s.id === application.id)?.output;
         return { kind: "ready" as const, target: javaLaunch };
       }),
     });
-
-    await store.getState().actions.runConfiguration(application.id);
-
-    expect(store.getState().primaryExecutionId).toEqual(expect.any(String));
-    expect(store.getState().primaryConfigurationId).toBe(application.id);
-    expect(store.getState().primaryPreparing).toBe(false);
-    expect(primaryWhilePreparing?.title).toBe("ruoyi-admin");
-    expect(primaryWhilePreparing?.output).toContain("waiting for the Java language service");
-    expect(store.getState().primaryOutput).toStartWith("$ java.exe");
+    store.setState({ configurations: [application, second] });
+    try {
+      await store.getState().actions.runConfiguration(application.id);
+      expect(preparationOutput).toContain("waiting for the Java language service");
+      const first = store.getState().sessions.find(s => s.id === application.id)!;
+      await store.getState().actions.runConfiguration(second.id);
+      expect(stopped).toEqual([application.id, second.id]);
+      expect(store.getState().sessions.find(s => s.id === application.id)).toEqual(first);
+      expect(store.getState().sessions.every(s => s.isRunning)).toBe(true);
+      const oldExecution = store.getState().sessions.find(s => s.id === second.id)!.executionId;
+      await store.getState().actions.stop(second.id);
+      expect(store.getState().sessions.find(s => s.id === application.id)?.isRunning).toBe(true);
+      expect(store.getState().sessions.find(s => s.id === second.id)?.output).toContain("$ java.exe");
+      await store.getState().actions.runConfiguration(second.id);
+      expect(store.getState().sessions).toHaveLength(2);
+      const restarted = store.getState().sessions.find(s => s.id === second.id)!;
+      await store.getState().actions.stop(second.id, oldExecution);
+      expect(store.getState().sessions.find(s => s.id === second.id)).toEqual(restarted);
+      expect(restarted.isRunning).toBe(true);
+      expect(store.getState().sessions.find(s => s.id === application.id)).toEqual(first);
+    } finally {
+      await store.getState().actions.stop(application.id);
+      await store.getState().actions.stop(second.id);
+    }
   });
 
   test("does not show the notice for standalone Java compiled with javac", async () => {
@@ -537,7 +610,7 @@ describe("Java project launch preparation feedback", () => {
 
     await store.getState().actions.runConfiguration(configuration.id);
 
-    expect(outputWhilePreparing).toBeUndefined();
+    expect(outputWhilePreparing).toBe("");
   });
 
   test("continues the same launch after one failed build without rebuilding", async () => {

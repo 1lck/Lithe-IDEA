@@ -888,3 +888,12 @@ queries keep one execution identity. Stop targets the owned preparation ID befor
 launch and the owned native process ID afterward. Missing or stale references fail without a CLI or old domain fallback.
 A Provider application's native output remains visible even without generated
 Run configurations. See `../fixtures/run-configuration/build-provider.json`.
+
+### Project Java runtime and language-server runtime
+
+Platforms supply the selected project JDK with `javaRuntimes[].isDefault`, reusing
+Run's project configuration and requirement-aware selection. The JDT host JVM may
+remain the bundled supported JVM. Core projects the selected project home to JDT's
+`java.configuration.runtimes[].default`; it must not infer the project VM from the
+server executable. An invalid explicit selection must not mark an unrelated discovered candidate as the default;
+Windows reports the invalid setting before launch.

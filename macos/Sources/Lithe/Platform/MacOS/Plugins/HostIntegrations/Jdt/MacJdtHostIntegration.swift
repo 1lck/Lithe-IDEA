@@ -76,14 +76,9 @@ final class MacJdtHostIntegration: MacLanguageServerHostIntegration {
             // JDT LS binds each project to the installed JDK that matches its
             // release; the JDK it runs on cannot build a project for a newer
             // Java release.
-            let discovered = runtimeService.javaRuntimes.isEmpty
-                ? MacRuntimeDiscovery.discover(environment: MacRuntimeLocator().environment()).javaRuntimes
-                : runtimeService.javaRuntimes
             let resources = try launchResources.resources(
                 from: declared,
-                javaRuntimes: discovered.map {
-                    JavaLanguageServiceRuntime(homePath: $0.homePath, version: $0.version)
-                }
+                javaRuntimes: runtimeService.javaLanguageServiceRuntimes()
             )
             return .available(LanguageServerHostIntegrationLaunch(
                 runtimeExecutableURL: runtimeExecutableURL,

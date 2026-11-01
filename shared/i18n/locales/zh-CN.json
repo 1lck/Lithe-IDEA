@@ -9751,7 +9751,8 @@
     "agent.history.allProviders": "全部供应商",
     "agent.history.unknownProvider": "未知供应商",
     "agent.history.providerHint": "试试其他搜索条件或供应商筛选。",
-    "markdown.plantumlRenderFailed": "PlantUML 无法渲染此图表，已显示源码。"
+    "markdown.plantumlRenderFailed": "PlantUML 无法渲染此图表，已显示源码。",
+    "lsp.projectJdkInvalid": "项目 JDK 无效或无法读取其版本。请检查项目设置中的 JDK Home。"
   },
   "overrides": {
     "macos": {

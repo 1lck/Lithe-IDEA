@@ -93392,6 +93392,13 @@
         "key": "PlantUML could not render this diagram. Showing its source instead.",
         "arguments": []
       }
+    },
+    {
+      "id": "lsp.projectJdkInvalid",
+      "description": "The configured project JDK cannot be used by the Java language service.",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

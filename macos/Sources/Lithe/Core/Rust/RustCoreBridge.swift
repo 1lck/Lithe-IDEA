@@ -1978,6 +1978,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct LspJavaRuntimeRequest: Encodable {
+        let isDefault: Bool
         let homePath: String
         let version: String
     }
@@ -3887,7 +3888,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 mavenContext: mavenContext,
                 javaGradle: javaGradle,
                 javaRuntimes: (jdtlsLaunchResources?.javaRuntimes ?? []).map {
-                    LspJavaRuntimeRequest(homePath: $0.homePath, version: $0.version)
+                    LspJavaRuntimeRequest(isDefault: $0.isDefault, homePath: $0.homePath, version: $0.version)
                 },
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
                 requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),

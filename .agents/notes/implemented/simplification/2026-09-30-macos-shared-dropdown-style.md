@@ -85,6 +85,23 @@ Rust 模拟时间验证 99/100ms 边界、最终 flush 与较晚优质候选；�
 核对去重、非零像素偏移与预览不跳；Core 覆盖四来源超过 200、恰好整页、空页与跨查询游标拒绝。
 Windows 仍消费旧有最终响应，未实现或验收其流式展示和自动分页。
 
+#1624：查询不再等待纯预热任务，但继续等待 watcher 更新和设置失效屏障。
+Core 只在短暂取得缓存槽时持有全局锁，同一工作区/规则/来源的构建由槽内锁串行；
+正文构建不会堵住文件名。失效移除整个槽，旧构建只能完成自己的脱离缓存的槽，不能重新发布。
+正文查询优先用已就绪的内容索引；冷启动或预热中使用相同规则的轻量文件清单，
+通过现有精确匹配器读取当前页需要的文件，避免为了 50 个结果先构建全项目 trigram 和符号。
+这保留匹配选项、取消和分页顺序；代价是冷查询无匹配时仍需遍历全部可搜索文件，
+并不承诺每个项目固定毫秒数。参考 OpenIdea `b3abc8edd11a2869e3361c66c73e6464714a6c0f`
+的 `src/features/search/everywhere/controller.ts` 独立来源，以及
+`crates/ide-search/src/engine.rs` 按需扫描；没有复制其引擎或新增并行索引系统。
+
+搜索窗口右下角复用 `ProjectReplaceCornerHandle` 和几何边界，尺寸只存于当前弹窗视图。
+原生鼠标拖动保持左上角与输入焦点，拖动不写应用设置或广播工作台状态；空查询仍压成 84pt，
+再次输入恢复本次选择的尺寸。正文结果把代码预览置于主行，文件名、行号和目录置于次行，
+仍沿用稳定结果 ID、原生键盘导航和已有预览。名称行保持既有语义。
+验证包含阻塞预热时查询先完成、内容槽阻塞时名称/正文可查、失效不复活旧槽，以及深浅主题
+宽窄窗口的原生角拖动。所有新增状态仅在内存，不写发行资源、签名或增量更新基线。
+
 双 Shift 搜索窗口沿用 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`
 的 `SearchEverywhereUI.java`、`SENewUIHeaderView.kt`、`BigPopupUI.java`、
 `IslandsUICustomization.kt`、`IslandsTabPainter.kt` 与 `ManyIslandsDark/Light.theme.json`。
@@ -103,7 +120,7 @@ Islands 的 JTabbedPane 委托同一个工具窗口标签绘制器；40pt 分类
 弹窗与输入背景读取 `Popup.background`，深/浅分别为 `#26282C/#F7F8F9`；
 外边框读取 `Popup.borderColor`，分别为 `#33353B/#DDDFE4`。
 这些是搜索弹窗专用 token，不修改其他菜单的背景。结果区首选宽度 670pt、
-最大高度 600pt 来自 `BigPopupUI.createListPane` 与 `JBUI.CurrentTheme.BigPopup`，
+默认结果高度 600pt 来自 `BigPopupUI.createListPane` 与 `JBUI.CurrentTheme.BigPopup`，
 窄窗口把宽度限制在当前工作区内部。外框裁剪内容后内描边，避免分类背景盖住圆角。
 `BigPopupUI.calcPrefSize` 的 SHORT 模式移除结果区：没有输入时只保留 84pt
 分类栏与搜索行，输入后展开结果区，清空后恢复紧凑高度。
