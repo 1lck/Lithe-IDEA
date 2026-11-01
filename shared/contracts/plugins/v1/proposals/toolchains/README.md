@@ -46,7 +46,7 @@ not authorize replacing unrelated host commands.
 | [query.schema.json](query.schema.json) | Query request/reply shapes |
 | [resolution.schema.json](resolution.schema.json) | Resolver outcomes and structured reasons |
 | [local.schema.json](local.schema.json) | Proposed extension of the machine-local document with directory pins |
-| [fixtures/](fixtures/) | Illustrative contributions, queries, resolution outcomes, pins, and rejections |
+| `fixtures/` | Illustrative contributions, queries, resolution outcomes, pins, and rejections |
 
 Schemas describe JSON shape. Signature verification, duplicate-definition
 registration, enabled-plugin ownership, path containment, executable evidence,
