@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
+import { createTranslator, type DisplayLanguage } from "@/i18n/locale";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useKeymaps } from "@/features/keymaps/hooks/use-keymaps";
 import { openFocusedFile } from "@/features/keymaps/hooks/use-file-open-target";
@@ -33,18 +34,19 @@ let container: HTMLDivElement;
 let observerDescriptor: PropertyDescriptor | undefined;
 let intersectionObserverDescriptor: PropertyDescriptor | undefined;
 const spies: Array<{ mockRestore(): void }> = [];
+const observeMore = mock((_target: Element) => {});
 
-function Navigation() {
+function Navigation({ language }: { language: DisplayLanguage }) {
   useKeymaps();
   return (
-    <LocaleProvider language="en-US">
+    <LocaleProvider language={language}>
       <GlobalSearchBuffer />
     </LocaleProvider>
   );
 }
 
-async function render() {
-  await act(async () => root.render(<Navigation />));
+async function render(language: DisplayLanguage = "en-US") {
+  await act(async () => root.render(<Navigation language={language} />));
 }
 
 async function press(target: HTMLElement, key: string, ctrlKey = false, altKey = false) {
@@ -70,6 +72,7 @@ beforeEach(async () => {
   spies.push(spyOn(globalThis, "requestAnimationFrame").mockReturnValue(0));
   previousAct = actGlobal.IS_REACT_ACT_ENVIRONMENT;
   actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+  observeMore.mockClear();
   observerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
   intersectionObserverDescriptor = Object.getOwnPropertyDescriptor(
     globalThis,
@@ -78,7 +81,7 @@ beforeEach(async () => {
   Object.defineProperty(globalThis, "IntersectionObserver", {
     configurable: true,
     value: class {
-      observe() {}
+      observe(target: Element) { observeMore(target); }
       disconnect() {}
     },
   });
@@ -176,6 +179,31 @@ afterEach(async () => {
   restoreDom();
   if (previousAct === undefined) delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
   else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
+});
+
+test("partial search failures stay visible beside results and pause automatic loading until retry", async () => {
+  const retry = mock(async () => {});
+  const priorObservations = observeMore.mock.calls.length;
+  search = {
+    ...search,
+    error: { kind: "indexing", code: "readFailed" },
+    hasMoreResults: true,
+    loadMoreResults: retry,
+  };
+  await render("zh-CN");
+  const firstRow = () => container.querySelector(`[data-file-navigator-key="${firstPath}"]`);
+  expect(firstRow()).not.toBeNull();
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+    createTranslator("zh-CN")("indexing.readFailed"),
+  );
+  expect(observeMore).toHaveBeenCalledTimes(priorObservations);
+  await render("en-US");
+  const alert = container.querySelector<HTMLElement>('[role="alert"]')!;
+  expect(alert.textContent).toContain(createTranslator("en-US")("indexing.readFailed"));
+  expect(retry).not.toHaveBeenCalled();
+  await act(async () => alert.querySelector<HTMLButtonElement>("button")!.click());
+  expect(retry).toHaveBeenCalledTimes(1);
+  expect(firstRow()).not.toBeNull();
 });
 
 test("F4 from the search query opens the keyboard-selected match with one-based location", async () => {

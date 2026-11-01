@@ -80,6 +80,7 @@ extension AppModel {
 
     @discardableResult
     func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
+        guard !workspaceFeature.isIndexExcluded(document.url) else { return false }
         guard let identity = currentWorkspaceIdentity,
               let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
         let workspaceURL = identity.url

@@ -65,6 +65,8 @@ struct IndexKey {
     hidden_directories: Vec<String>,
     hidden_file_patterns: Vec<String>,
     names_only: bool,
+    delegated_roots: Vec<PathBuf>,
+    policy_revision: u64,
 }
 
 type SharedIndex = Arc<RwLock<WorkspaceSearchIndex>>;
@@ -86,6 +88,8 @@ fn key(root: &Path, rules: &VisibilityRules) -> IndexKey {
         hidden_directories: rules.hidden_directories.clone(),
         hidden_file_patterns: rules.hidden_file_patterns.clone(),
         names_only: false,
+        delegated_roots: rules.delegated_roots.clone(),
+        policy_revision: super::indexing::context(root).map_or(0, |policy| policy.revision),
     }
 }
 
@@ -181,13 +185,30 @@ pub(crate) fn update_cached_file(root: &Path, path: &Path) {
         return;
     }
     let metadata = fs::symlink_metadata(&absolute).ok();
+    if super::indexing::is_excluded(
+        root,
+        &absolute,
+        metadata.as_ref().is_some_and(|m| m.is_dir()),
+    )
+    .unwrap_or(true)
+    {
+        return;
+    }
+    let revision = super::indexing::context(root).map_or(0, |policy| policy.revision);
     for (cache_key, slot) in entries {
+        if cache_key.policy_revision != revision {
+            continue;
+        }
         let Ok(slot) = slot.lock() else { continue };
         let Some(index) = slot.as_ref() else { continue };
         let rules = VisibilityRules {
             hidden_directories: cache_key.hidden_directories,
             hidden_file_patterns: cache_key.hidden_file_patterns,
+            delegated_roots: cache_key.delegated_roots,
         };
+        if rules.is_delegated(&absolute) {
+            continue;
+        }
         if let Ok(mut index) = index.write() {
             index.update_file(&absolute, &relative, metadata.as_ref(), &rules);
         };
@@ -216,7 +237,11 @@ pub(crate) fn update_paths(
     if entries.is_empty() {
         return UpdateOutcome::NotIndexed;
     }
+    let revision = super::indexing::context(root).map_or(0, |policy| policy.revision);
     for (cache_key, slot) in entries {
+        if cache_key.policy_revision != revision {
+            return UpdateOutcome::RequiresRebuild;
+        }
         let Ok(slot) = slot.lock() else {
             return UpdateOutcome::RequiresRebuild;
         };
@@ -229,17 +254,30 @@ pub(crate) fn update_paths(
         let effective_rules = VisibilityRules {
             hidden_directories: cache_key.hidden_directories,
             hidden_file_patterns: cache_key.hidden_file_patterns,
+            delegated_roots: cache_key.delegated_roots,
         };
         for value in paths {
             let Some(absolute) = normalized_update_path(root, value) else {
                 continue;
             };
+            if effective_rules.is_delegated(&absolute) {
+                continue;
+            }
             let relative = relative_path(&absolute, root);
             // Both name and content indexes exclude nested linked worktrees.
             if is_inside_nested_linked_worktree(root, &relative) {
                 continue;
             }
             let metadata = fs::symlink_metadata(&absolute).ok();
+            if super::indexing::is_excluded(
+                root,
+                &absolute,
+                metadata.as_ref().is_some_and(|m| m.is_dir()),
+            )
+            .unwrap_or(true)
+            {
+                continue;
+            }
             if metadata.as_ref().is_some_and(|value| value.is_dir())
                 || (metadata.is_none() && index.has_descendant(&relative))
             {
@@ -254,7 +292,8 @@ pub(crate) fn update_paths(
 impl WorkspaceSearchIndex {
     fn build(root: &Path, rules: &VisibilityRules, names_only: bool) -> Result<Self, CoreError> {
         let mut paths = Vec::new();
-        collect_files(root, root, rules, &mut paths)?;
+        let policy = super::indexing::context(root);
+        collect_files(root, root, rules, &mut paths, policy.as_deref())?;
         let mut index = Self {
             files: Vec::new(),
             free_ids: Vec::new(),
@@ -264,8 +303,14 @@ impl WorkspaceSearchIndex {
         };
         for path in paths {
             crate::protocol::cancellation::check()?;
+            if let Some(policy) = &policy {
+                policy.check()?;
+            }
             let relative = relative_path(&path, root);
             index.add_file(&path, relative);
+        }
+        if let Some(policy) = &policy {
+            policy.check()?;
         }
         Ok(index)
     }
@@ -454,8 +499,17 @@ fn collect_files(
     path: &Path,
     rules: &VisibilityRules,
     files: &mut Vec<PathBuf>,
+    policy: Option<&super::indexing::IndexingContext>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
+    if rules.is_delegated(path) {
+        return Ok(());
+    }
+    if let Some(policy) = policy {
+        if policy.reason(&relative_path(path, root), true)?.is_some() {
+            return Ok(());
+        }
+    }
     let children = match visible_children(path, root, rules, ChildOrder::Traversal) {
         Ok(listing) => listing.children,
         Err(error)
@@ -478,8 +532,16 @@ fn collect_files(
     };
     for (child, is_directory) in children {
         if is_directory {
-            collect_files(root, &child, rules, files)?;
+            collect_files(root, &child, rules, files, policy)?;
         } else {
+            if let Some(policy) = policy {
+                if policy
+                    .reason(&relative_path(&child, root), false)?
+                    .is_some()
+                {
+                    continue;
+                }
+            }
             files.push(child);
         }
     }
@@ -565,6 +627,7 @@ mod tests {
         let rules = VisibilityRules {
             hidden_directories: vec![],
             hidden_file_patterns: vec![],
+            delegated_roots: Vec::new(),
         };
         let slot = Arc::new(std::sync::Mutex::new(None));
         cache()
@@ -577,6 +640,7 @@ mod tests {
         let worker_rules = VisibilityRules {
             hidden_directories: vec![],
             hidden_file_patterns: vec![],
+            delegated_roots: Vec::new(),
         };
         let worker = std::thread::spawn(move || {
             let names = get_names(&worker_root, &worker_rules).unwrap();
@@ -696,13 +760,14 @@ mod tests {
         let root = crate::tests::support::temporary_root("search-missing-descendant");
         let rules = VisibilityRules {
             hidden_directories: vec![],
+            delegated_roots: Vec::new(),
             hidden_file_patterns: vec![],
         };
         let mut paths = Vec::new();
-        assert!(collect_files(&root, &root.join("vanished"), &rules, &mut paths).is_ok());
+        assert!(collect_files(&root, &root.join("vanished"), &rules, &mut paths, None).is_ok());
         assert!(paths.is_empty());
         assert!(matches!(
-            collect_files(&root, &root, &rules, &mut paths)
+            collect_files(&root, &root, &rules, &mut paths, None)
                 .unwrap_err()
                 .code,
             ErrorCode::WorkspaceNotFound
@@ -711,7 +776,7 @@ mod tests {
         let _scope = crate::protocol::cancellation::Scope::begin(Some(operation_id.clone()), None);
         assert!(crate::protocol::cancellation::cancel(&operation_id));
         assert!(matches!(
-            collect_files(&root, &root.join("vanished"), &rules, &mut paths)
+            collect_files(&root, &root.join("vanished"), &rules, &mut paths, None)
                 .unwrap_err()
                 .code,
             ErrorCode::Cancelled
@@ -774,11 +839,12 @@ mod tests {
         }
         let rules = VisibilityRules {
             hidden_directories: vec![],
+            delegated_roots: Vec::new(),
             hidden_file_patterns: vec![],
         };
         let mut paths = Vec::new();
         assert!(matches!(
-            collect_files(&blocked, &blocked, &rules, &mut paths)
+            collect_files(&blocked, &blocked, &rules, &mut paths, None)
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -818,6 +884,7 @@ mod tests {
         // judge the same list.
         let rules = VisibilityRules {
             hidden_directories: vec![],
+            delegated_roots: Vec::new(),
             hidden_file_patterns: fixture["hiddenFilePatterns"]
                 .as_array()
                 .unwrap()
@@ -887,6 +954,7 @@ mod tests {
         for index in 0..32 {
             let rules = VisibilityRules {
                 hidden_directories: vec![],
+                delegated_roots: Vec::new(),
                 hidden_file_patterns: vec![format!("exclude-{index}/")],
             };
             let content = get_or_build(&root, &rules).unwrap();

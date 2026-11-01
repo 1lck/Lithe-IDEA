@@ -105,6 +105,15 @@ test("every settings page belongs to exactly one group or is a top-level page, i
   }
 });
 
+test("indexing and ignore exclusion queries lead to Git instead of Project settings", () => {
+  for (const language of ["en-US", "zh-CN"] as const) {
+    const t = createTranslator(language);
+    for (const query of ["index", "ignore", "exclude", "索引", "忽略", "排除", t("indexing.autoGit")]) {
+      expect(filterSettingsCategories(query, t).map(({ id }) => id)).toEqual(["git"]);
+    }
+  }
+});
+
 test("settings search excludes fields absent from the current panels", () => {
   for (const language of ["en-US", "zh-CN"] as const) {
     const t = createTranslator(language);

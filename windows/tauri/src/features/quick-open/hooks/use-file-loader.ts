@@ -1,3 +1,5 @@
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
+import { useIndexingVersion } from "@/features/file-explorer/stores/workspace-indexing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type FffIndexedFile, fffListFiles } from "@/features/file-search/lib/file-search-api";
 import { getNativeWorkspaceRootPaths } from "@/features/file-search/utils/file-search-paths";
@@ -14,6 +16,7 @@ const toQuickOpenFiles = (files: readonly Pick<FffIndexedFile, "name" | "path">[
   }));
 
 export const useFileLoader = (isVisible: boolean) => {
+  const workspaceId = useWorkspaceId();
   const getAllProjectFiles = useFileSystemStore((state) => state.getAllProjectFiles);
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
@@ -21,9 +24,12 @@ export const useFileLoader = (isVisible: boolean) => {
     () => getNativeWorkspaceRootPaths(rootFolderPath, workspaceFolders),
     [rootFolderPath, workspaceFolders],
   );
+  const policyVersion = useIndexingVersion(nativeRootPaths);
   const workspaceKey = JSON.stringify([
     rootFolderPath,
     workspaceFolders.map((folder) => folder.path),
+    policyVersion,
+    workspaceId,
   ]);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
@@ -47,7 +53,7 @@ export const useFileLoader = (isVisible: boolean) => {
         // Refresh once per opening; typing searches this list without rescanning.
         const allFiles =
           nativeRootPaths.length > 0
-            ? await fffListFiles(nativeRootPaths)
+            ? await fffListFiles(nativeRootPaths, workspaceId)
             : (await getAllProjectFiles()).filter((file) => !file.isDir);
         if (cancelled) return;
         loadedForRootRef.current = workspaceKey;
@@ -70,10 +76,10 @@ export const useFileLoader = (isVisible: boolean) => {
 
     void loadFiles();
     return cleanup;
-  }, [getAllProjectFiles, isVisible, nativeRootPaths, workspaceKey]);
+  }, [getAllProjectFiles, isVisible, nativeRootPaths, workspaceKey, policyVersion]);
 
   return {
-    files,
+    files: loadedForRootRef.current === workspaceKey ? files : [],
     hasLoadedFiles: loadedForRootRef.current === workspaceKey,
     isLoadingFiles,
     isIndexing,
