@@ -36,6 +36,7 @@ pub fn render(request: MarkdownRenderRequest) -> MarkdownRenderResponse {
     options.extension.autolink = true;
     options.extension.tasklist = true;
     options.extension.superscript = true;
+    options.extension.subscript = true;
     options.extension.footnotes = true;
     options.extension.inline_footnotes = true;
     options.extension.description_lists = true;
@@ -168,6 +169,26 @@ mod tests {
         assert!(output.contains("<details"));
         assert!(output.contains("<summary>More</summary>"));
         assert!(output.contains("<mark>Safe</mark>"));
+    }
+
+    #[test]
+    fn preserves_rich_content_for_offline_preview() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/editor/markdown-rich-content-v1.json"
+        ))
+        .expect("rich Markdown fixture should decode");
+        let output = html(fixture["source"].as_str().expect("fixture source"));
+
+        assert!(output.contains("H<sub ") && output.contains(">2</sub>O"));
+        assert!(output.contains("x<sup ") && output.contains(">2</sup>"));
+        assert!(output.contains(">removed</del>"));
+        assert!(output.contains(">H~2~O x^2^</code>"));
+        assert_eq!(output.matches("data-math-style=\"inline\"").count(), 2);
+        assert_eq!(output.matches("data-math-style=\"display\"").count(), 1);
+        assert!(output.contains("\\ce{2 H2 + O2 -&gt; 2 H2O}"));
+        assert!(output.contains("\\pu{123 kJ}"));
+        assert!(output.contains("language-mermaid"));
+        assert!(output.contains("class=\"footnotes\""));
     }
 
     #[test]

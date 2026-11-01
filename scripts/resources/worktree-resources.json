@@ -34,6 +34,16 @@
   ],
   "excludedResources": [
     {
+      "id": "markdown-preview-assets",
+      "reusable": false,
+      "locations": [
+        "macos/Sources/Lithe/Resources/MarkdownPreview/",
+        "<app-bundle>/Contents/Resources/Lithe_Lithe.bundle/MarkdownPreview/"
+      ],
+      "identity": "Git-tracked preview template and offline vendor scripts, styles, fonts and notices. KaTeX/mhchem versions, source archive integrity and extracted mhchem SHA-256 are fixed in THIRD_PARTY_NOTICES.md. Independent of platform architecture/toolchain; generated bundle copies have no reusable identity stamp.",
+      "reason": "Check out source via Git and copy this checkout's resources at build time before signing. Never copy another worktree's generated bundle or download/patch preview libraries at runtime. All rendering is in memory and the packaged files stay read-only, preserving code signatures and Sparkle delta baselines. Every reuse copy stage rejects this resource."
+    },
+    {
       "id": "markdown-plantuml-assets",
       "reusable": false,
       "locations": [
