@@ -92,6 +92,8 @@ pub struct MavenPanel {
 
     // 运行中的 Maven 任务。
     task: TaskState,
+    /// 最近一次测试运行的目标与模块，供输出面板的「重新运行测试」使用。
+    last_test_run: Option<TestRunRequest>,
     /// 依赖解析进程的进程树，按模块路径索引，用于取消。
     dependency_trees: BTreeMap<String, Arc<ProcessTree>>,
 
@@ -116,6 +118,14 @@ struct GoalDialog {
 struct ProfileDialog {
     input: Entity<InputState>,
     _input_subscription: Subscription,
+}
+
+/// 一次测试运行的参数；重新运行测试时按原样重放。
+#[derive(Clone, Debug)]
+struct TestRunRequest {
+    goals: Vec<String>,
+    module: Option<String>,
+    title: String,
 }
 
 /// 一次 Maven 任务的全部运行时状态。
@@ -199,6 +209,7 @@ impl MavenPanel {
             dependency_loads: BTreeMap::new(),
             dependency_generation: 0,
             task: TaskState::new(),
+            last_test_run: None,
             dependency_trees: BTreeMap::new(),
             node_menu: None,
             _menu_subscription: None,
@@ -386,6 +397,13 @@ impl MavenPanel {
         self.stop_task(cx);
 
         let parse_test_results = goals.iter().any(|goal| goal.contains("test"));
+        if parse_test_results {
+            self.last_test_run = Some(TestRunRequest {
+                goals: goals.clone(),
+                module: module.clone(),
+                title: title.clone(),
+            });
+        }
         self.task = TaskState {
             status: TaskStatus::Running,
             title: Some(title),
@@ -576,17 +594,41 @@ impl MavenPanel {
     }
 
     pub fn clear_output(&mut self, cx: &mut Context<Self>) {
-        if self.task.is_running() {
-            return;
-        }
+        let running = self.task.is_running();
         self.task.output.clear();
         self.task.issues.clear();
         self.task.test_results = None;
         self.task.exit_code = None;
         self.task.error = None;
-        self.task.status = TaskStatus::Idle;
+        if !running {
+            self.task.status = TaskStatus::Idle;
+            self.last_test_run = None;
+        }
         self.emit_changed(cx);
         cx.notify();
+    }
+
+    /// 是否有可清除的输出（对齐 Tauri `canClear`）。
+    pub fn can_clear_output(&self) -> bool {
+        !self.task.output.is_empty()
+            || !self.task.issues.is_empty()
+            || self.task.test_results.is_some()
+            || self.last_test_run.is_some()
+            || self.task.exit_code.is_some()
+            || self.task.status == TaskStatus::Cancelled
+    }
+
+    /// 是否运行过测试；决定「重新运行测试」按钮是否可用。
+    pub fn has_last_test_run(&self) -> bool {
+        self.last_test_run.is_some()
+    }
+
+    /// 按上一次测试运行的目标与模块重新运行。
+    pub fn rerun_last_test(&mut self, cx: &mut Context<Self>) {
+        let Some(run) = self.last_test_run.clone() else {
+            return;
+        };
+        self.run_goals(run.goals, run.module, run.title, cx);
     }
 
     // -----------------------------------------------------------------------

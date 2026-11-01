@@ -1,26 +1,32 @@
-//! Maven 日志的 ANSI SGR 解析与可选择彩色行。
+//! 日志控制台的共享呈现：ANSI SGR 解析、可选择彩色行、平滑滚动与插入符。
 //!
-//! Maven 在启用颜色时会给每行写入 SGR 转义序列（`\x1b[1;34m` 等）。
+//! 运行面板和 Maven 输出面板共用这份实现：进程输出常带 SGR 转义序列，
 //! GPUI 的纯文本元素会把它们当成普通字符，既不能着色也会破坏列宽；
 //! 这里先把一行解析成「纯文本 + 颜色区间」，再用可选择文本元素绘制，
 //! 复制与选择仍基于纯文本。
 
 use std::ops::Range;
 use std::rc::Rc;
+use std::time::Instant;
 
 use gpui_kit::base::{
     TextSelection, TextSelectionHandle, TextSelectionRegistration, TextSelectionRun,
 };
-use gpui_kit::component::Theme;
+use gpui_kit::component::scroll::Scrollbar;
+use gpui_kit::component::{Theme, VirtualListScrollHandle};
 use gpui_kit::{
-    App, BorderStyle, Bounds, Corners, Edges, Element, ElementId, FontWeight, GlobalElementId,
-    HighlightStyle, Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId,
-    MouseButton, MouseDownEvent, PaintQuad, Pixels, Point, SharedString, StyledText,
-    TextStyleRefinement, Window, px, rgb, size, transparent_black,
+    AnyElement, App, BorderStyle, Bounds, Context, Corners, Edges, Element, ElementId, FontWeight,
+    GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior, Hsla, InspectorElementId,
+    InteractiveElement as _, IntoElement, LayoutId, MouseButton, MouseDownEvent, PaintQuad,
+    ParentElement, Pixels, Point, ScrollEvent, ScrollStrategy, SharedString, Size, Styled,
+    StyledText, TextStyleRefinement, Window, div, point, px, rgb, size, transparent_black,
 };
 use lithe_ui::LitheTokens;
 
 const ESC: char = '\u{1b}';
+
+/// 平滑滚动的时间常数（秒）。按帧间隔插值，滚动速度不随刷新率忽快忽慢。
+const SCROLL_TIME_CONSTANT: f32 = 0.03;
 
 /// ANSI 16 色前景调色板。取值与 macOS 控制台（IDEA 配色）保持一致。
 #[derive(Clone, Copy, Debug)]
@@ -555,6 +561,225 @@ impl Element for AnsiSelectableText {
             });
         }
     }
+}
+
+/// 面板把自身控制台状态交给共享滚动逻辑。
+pub trait ConsoleHost: 'static {
+    fn console(&mut self) -> &mut ConsoleScroll;
+}
+
+/// 控制台滚动与插入符状态。面板把它作为字段持有，渲染时与行数同步。
+pub struct ConsoleScroll {
+    /// 虚拟列表滚动句柄；面板渲染时 `track_scroll` 使用。
+    pub handle: VirtualListScrollHandle,
+    /// 虚拟列表每行尺寸，只随行数变化重建。
+    pub item_sizes: Rc<Vec<Size<Pixels>>>,
+    /// 已同步到列表的行数。
+    pub line_count: usize,
+    /// 平滑滚动目标偏移；为 `None` 时没有进行中的动画。
+    target: Option<Pixels>,
+    /// 当前实际落盘的滚动偏移，动画从它出发逐帧逼近目标。
+    display: Pixels,
+    /// 上一帧的推进时间，用于按帧间隔计算插值比例。
+    last_step: Instant,
+    animating: bool,
+    /// 插入符位置：行号与行内字节偏移。
+    caret: Option<(usize, usize)>,
+}
+
+impl ConsoleScroll {
+    pub fn new() -> Self {
+        Self {
+            handle: VirtualListScrollHandle::new(),
+            item_sizes: Rc::new(Vec::new()),
+            line_count: 0,
+            target: None,
+            display: px(0.0),
+            last_step: Instant::now(),
+            animating: false,
+            caret: None,
+        }
+    }
+
+    /// 清空行数据（切换会话/清空输出）；下一帧按实际行数重建。
+    pub fn reset(&mut self) {
+        self.line_count = 0;
+        self.item_sizes = Rc::new(Vec::new());
+        self.target = None;
+        self.animating = false;
+        self.caret = None;
+        self.display = px(0.0);
+        self.handle.set_offset(point(px(0.0), px(0.0)));
+    }
+
+    /// 同步行数；返回行数是否变化。行尺寸只随行数重建。
+    pub fn sync_line_count(&mut self, line_count: usize, line_height: f32) -> bool {
+        if line_count == self.line_count {
+            return false;
+        }
+        self.line_count = line_count;
+        self.item_sizes = Rc::new(vec![size(px(0.0), px(line_height)); line_count]);
+        // 行数变化时放弃进行中的平滑滚动，避免与新内容打架。
+        self.target = None;
+        self.animating = false;
+        true
+    }
+
+    /// 无动画时把显示偏移同步为列表实际偏移。
+    pub fn sync_display(&mut self) {
+        if !self.animating {
+            self.display = self.handle.offset().y;
+        }
+    }
+
+    pub fn scroll_to_item(&self, index: usize, strategy: ScrollStrategy) {
+        self.handle.scroll_to_item(index, strategy);
+    }
+
+    /// 该行要绘制的插入符偏移。
+    pub fn caret_for(&self, line: usize) -> Option<usize> {
+        self.caret
+            .filter(|(index, _)| *index == line)
+            .map(|(_, offset)| offset)
+    }
+
+    /// 插入符快照，供渲染闭包按行查找。
+    pub fn caret_snapshot(&self) -> Option<(usize, usize)> {
+        self.caret
+    }
+
+    pub fn set_caret(&mut self, line: usize, offset: usize) {
+        self.caret = Some((line, offset));
+    }
+
+    /// 鼠标滚轮滚动时由控制台插值，避免一次滚轮直接跳变。
+    ///
+    /// GPUI 的鼠标监听按注册逆序派发：虚拟列表内部监听已经把 delta 写进偏移，
+    /// 这里读回目标位置，再把实际偏移拉回上一帧的显示值，交给帧循环逐帧逼近。
+    /// 触控板等精确增量本身连续，保持原生滚动；拖选到边缘时框架合成的
+    /// 自动滚动也是精确增量，但它逐帧成块跳进，必须一并插值才不顿。
+    pub fn on_scroll<T: ConsoleHost>(
+        &mut self,
+        event: &ScrollEvent,
+        window: &mut Window,
+        cx: &mut Context<T>,
+    ) {
+        let dragging_selection = TextSelection::has_selection(window, cx);
+        if event.delta.precise() && !dragging_selection {
+            self.target = None;
+            self.animating = false;
+            self.display = self.handle.offset().y;
+            return;
+        }
+        let max_offset = self.handle.max_offset().y;
+        let current = self.handle.offset();
+        let target = current.y.clamp(-max_offset, px(0.0));
+        let display = self.display.clamp(-max_offset, px(0.0));
+        self.display = display;
+        self.handle.set_offset(point(current.x, display));
+        self.target = Some(target);
+        if !self.animating {
+            self.animating = true;
+            self.last_step = Instant::now();
+            cx.on_next_frame(window, |this, window, cx| {
+                this.console().step_scroll(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    /// 逐帧逼近目标偏移；足够接近时直接落位并结束动画。
+    fn step_scroll<T: ConsoleHost>(&mut self, window: &mut Window, cx: &mut Context<T>) {
+        let Some(target) = self.target else {
+            self.animating = false;
+            return;
+        };
+        let remaining = target - self.display;
+        if remaining.abs() <= px(0.5) {
+            self.set_offset(target);
+            self.target = None;
+            self.animating = false;
+            cx.notify();
+            return;
+        }
+        // 按真实帧间隔求插值比例：高刷新率屏上不会在两次滚动事件之间
+        // 快速追平目标再停住（那会表现成一跳一跳）。
+        let now = Instant::now();
+        let elapsed = now
+            .saturating_duration_since(self.last_step)
+            .as_secs_f32()
+            .clamp(0.008, 0.05);
+        self.last_step = now;
+        let progress = 1.0 - (-elapsed / SCROLL_TIME_CONSTANT).exp();
+        let next = self.display + remaining * progress;
+        self.set_offset(next);
+        cx.notify();
+        cx.on_next_frame(window, |this, window, cx| {
+            this.console().step_scroll(window, cx);
+        });
+    }
+
+    fn set_offset(&mut self, y: Pixels) {
+        self.display = y;
+        let horizontal = self.handle.offset().x;
+        self.handle.set_offset(point(horizontal, y));
+    }
+}
+
+impl Default for ConsoleScroll {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 点击控制台一行时的插入符回调。
+pub type ConsoleCaretHandler = Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>;
+
+/// 覆盖在控制台右侧的滚动条，可悬停显示并直接拖动。
+pub fn console_scrollbar(
+    handle: &VirtualListScrollHandle,
+    id: &'static str,
+) -> AnyElement {
+    div()
+        .absolute()
+        .inset_0()
+        .child(Scrollbar::vertical(handle).id(id))
+        .into_any_element()
+}
+
+/// 构建控制台的一行：ANSI 颜色、行级 severity 与插入符。
+pub fn console_line_element(
+    id: String,
+    index: usize,
+    raw: &str,
+    style: TextStyleRefinement,
+    palette: &AnsiPalette,
+    tokens: LitheTokens,
+    caret: Option<usize>,
+    on_caret: Option<ConsoleCaretHandler>,
+    line_height: f32,
+) -> AnyElement {
+    let element_id = SharedString::from(id);
+    let (text, highlights) = parse_line(raw, palette);
+    let highlights = match severity_of_line(&text) {
+        Some(severity) => overlay_severity(highlights, text.len(), severity, tokens),
+        None => highlights,
+    };
+    let mut element = AnsiSelectableText::new(element_id.clone(), text, highlights, style)
+        .document_order(index as u64);
+    if let Some(handler) = on_caret {
+        element = element.on_caret(move |offset, window, cx| handler(offset, window, cx));
+    }
+    if let Some(offset) = caret {
+        element = element.caret(offset);
+    }
+    div()
+        .id(element_id)
+        .w_full()
+        .min_h(px(line_height))
+        .flex_shrink_0()
+        .child(element)
+        .into_any_element()
 }
 
 #[cfg(test)]

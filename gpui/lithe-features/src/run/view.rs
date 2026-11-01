@@ -18,20 +18,26 @@ use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::resizable::{ResizableState, h_resizable, resizable_panel};
 use gpui_kit::component::{
-    Disableable as _, Icon, IconName, Selectable as _, Sizable as _, h_flex, v_flex,
+    Disableable as _, Icon, IconName, Selectable as _, Sizable as _, Theme, h_flex, v_flex,
+    v_virtual_list,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, ClipboardItem, Context, DismissEvent, Entity,
     EventEmitter, FocusHandle, Focusable as _, FontWeight, Hsla, InteractiveElement as _,
-    IntoElement, KeyBinding, MouseButton, ParentElement, Render, ScrollStrategy, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Task, TextStyleRefinement,
-    UniformListScrollHandle, WhiteSpace, Window, anchored, deferred, div, px, uniform_list,
+    IntoElement, KeyBinding, MouseButton, MouseMoveEvent, ParentElement, Render, ScrollEvent,
+    ScrollStrategy, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Task,
+    TextStyleRefinement, WhiteSpace, Window, anchored, deferred, div, px,
 };
 use lithe_core_client::CoreClient;
 use lithe_git_host::ProcessTree;
 use lithe_ui::i18n::tr;
-use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, MONO_FONT_FAMILY, current_tokens, icon};
+use lithe_ui::{LitheIcon, LitheMetrics, LitheTokens, current_tokens, icon, mono_font_family};
+
+use crate::console::{
+    AnsiPalette, ConsoleCaretHandler, ConsoleHost, ConsoleScroll, console_line_element,
+    console_scrollbar,
+};
 
 use super::config::{self, LoadedRunConfigurations};
 use super::model::{
@@ -50,6 +56,12 @@ pub enum RunPanelEvent {
 }
 
 impl EventEmitter<RunPanelEvent> for RunPanel {}
+
+impl ConsoleHost for RunPanel {
+    fn console(&mut self) -> &mut ConsoleScroll {
+        &mut self.console
+    }
+}
 
 /// 启动前保存回调：工作台用它把脏缓冲写盘，面板不直接持有编辑器实体。
 ///
@@ -186,15 +198,10 @@ pub struct RunPanel {
     _more_menu_subscription: Option<Subscription>,
     /// 当前浏览的语言分类（Java / Go / Python 等），对齐 Tauri `RunConfigurationBrowser`。
     selected_language: Option<String>,
-    /// 控制台的虚拟化列表状态。
-    ///
-    /// 控制台虚拟化滚动句柄：行高固定（Nowrap 单行），只排版可视行。
-    /// gpui 0.3.10 的 `list()` 在此布局下只度量不绘制，不要改回去。
-    console_scroll: UniformListScrollHandle,
+    /// 控制台的虚拟化列表、平滑滚动与插入符状态。
+    console: ConsoleScroll,
     /// 是否跟随最新输出；跳转堆栈帧后暂停，「回到最新」恢复。
     console_follow_tail: bool,
-    /// 上次同步的行数，用来判断是否需要滚动跟随。
-    console_line_count: usize,
     /// 控制台焦点：只有它获得焦点时才响应复制快捷键。
     console_focus: FocusHandle,
     /// 尚未合并进会话状态的输出。按配置 id 累积，由定时器统一刷新。
@@ -254,9 +261,8 @@ impl RunPanel {
             more_menu: None,
             _more_menu_subscription: None,
             selected_language: None,
-            console_scroll: UniformListScrollHandle::new(),
+            console: ConsoleScroll::new(),
             console_follow_tail: true,
-            console_line_count: 0,
             console_focus: cx.focus_handle(),
             pending_output: BTreeMap::new(),
             output_flush_scheduled: false,
@@ -458,21 +464,23 @@ impl RunPanel {
 
     /// 把行数变化同步给虚拟化列表。
     ///
-    /// 行数变化时跟随最新输出。uniform_list 的行数在渲染时传入，
+    /// 行数变化时跟随最新输出。虚拟列表的行数在渲染时传入，
     /// 这里只负责把贴底跟随落成滚动指令。
     fn sync_console_lines(&mut self) {
         let count = self.selected_line_count();
-        if count == self.console_line_count {
-            return;
-        }
-        self.console_line_count = count;
         let running = self
             .selected_id
             .as_ref()
             .and_then(|id| self.sessions.get(id))
             .is_some_and(SessionState::is_active);
-        if self.console_follow_tail && running && count > 0 {
-            self.console_scroll
+        if self
+            .console
+            .sync_line_count(count, CONSOLE_LINE_HEIGHT)
+            && self.console_follow_tail
+            && running
+            && count > 0
+        {
+            self.console
                 .scroll_to_item(count - 1, ScrollStrategy::Bottom);
         }
     }
@@ -482,7 +490,7 @@ impl RunPanel {
         self.console_follow_tail = true;
         let count = self.selected_line_count();
         if count > 0 {
-            self.console_scroll
+            self.console
                 .scroll_to_item(count - 1, ScrollStrategy::Bottom);
         }
         cx.notify();
@@ -709,7 +717,7 @@ impl RunPanel {
         self.sessions.insert(id.clone(), SessionState::starting());
         self.pending_output.remove(&id);
         // 新会话从第 0 行开始：重置跟随，不继承上一次的滚动位置。
-        self.console_line_count = 0;
+        self.console.reset();
         self.console_follow_tail = true;
         self.emit(cx);
         cx.notify();
@@ -911,7 +919,7 @@ impl RunPanel {
             }
             self.pending_output.remove(&id);
         }
-        self.console_line_count = 0;
+        self.console.reset();
         self.console_follow_tail = true;
         self.emit(cx);
         cx.notify();
@@ -1002,17 +1010,9 @@ impl RunPanel {
         if lines.is_empty() {
             return;
         }
-        // uniform_list 句柄没有公开的“当前顶行”查询（test-support 才有），
-        // 用像素偏移除以固定行高换算；行高固定（Nowrap 单行），换算是精确的。
-        let current = {
-            let state = self.console_scroll.0.borrow();
-            let item_height = state
-                .last_item_size
-                .map(|size| size.item.height)
-                .unwrap_or(px(CONSOLE_LINE_HEIGHT))
-                .max(px(1.0));
-            (state.base_handle.offset().y / item_height).round() as usize
-        };
+        // 虚拟列表的滚动偏移是像素；行高固定（Nowrap 单行），换算是精确的。
+        let current =
+            (-self.console.handle.offset().y / px(CONSOLE_LINE_HEIGHT)).round() as usize;
         let target = if forward {
             lines.iter().copied().filter(|line| *line > current).min()
         } else {
@@ -1023,8 +1023,7 @@ impl RunPanel {
         };
         // 跳转后暂停跟随，否则下一块输出会立刻把视图拉回末尾。
         self.console_follow_tail = false;
-        self.console_scroll
-            .scroll_to_item(target, ScrollStrategy::Top);
+        self.console.scroll_to_item(target, ScrollStrategy::Top);
         cx.notify();
     }
 
@@ -1589,7 +1588,7 @@ impl RunPanel {
                 this.selected_id = Some(configuration_for_click.id.clone());
                 this.show_details = false;
                 // 切换会话：重置跟随，不继承上一个会话的滚动位置。
-                this.console_line_count = 0;
+                this.console.reset();
                 this.console_follow_tail = true;
                 this.emit(cx);
                 cx.notify();
@@ -1795,7 +1794,7 @@ impl RunPanel {
                                     .child(
                                         div()
                                             .text_color(tokens.primary_text)
-                                            .font_family(MONO_FONT_FAMILY)
+                                            .font_family(mono_font_family())
                                             .child(main_class.to_string()),
                                     ),
                             )
@@ -1829,6 +1828,11 @@ impl RunPanel {
                 } else {
                     // 行样式只在渲染可视行时构造，不再对整段输出做全文排版。
                     let text_style = self.console_text_style(tokens);
+                    let item_sizes = self.console.item_sizes.clone();
+                    let console_caret = self.console.caret_snapshot();
+                    let palette = AnsiPalette::new(Theme::global(cx).is_dark());
+                    let owner = cx.weak_entity();
+                    let line_tokens = tokens;
                     div()
                         .id("lithe-run-console")
                         .relative()
@@ -1846,30 +1850,61 @@ impl RunPanel {
                                 .relative()
                                 .size_full()
                                 .p(px(PANEL_PADDING))
-                                // 控制台用 uniform_list：行高固定（Nowrap 单行），
-                                // 只排版可视行。gpui 0.3.10 的 `list()` 在此布局下
-                                // 只度量不绘制，不要改回去。
-                                .child({
-                                    let panel = cx.entity();
-                                    uniform_list(
+                                .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
+                                    this.console.on_scroll(event, window, cx);
+                                }))
+                                .on_mouse_move(cx.listener(|_, event: &MouseMoveEvent, window, cx| {
+                                    // 拖选不改变 hover 或滚动；按住左键拖动时主动
+                                    // 请求一帧，让选区背景随鼠标即时更新。
+                                    if event.pressed_button.is_some()
+                                        && TextSelection::has_selection(window, cx)
+                                    {
+                                        window.refresh();
+                                    }
+                                }))
+                                // 控制台用 v_virtual_list：行高固定（Nowrap 单行），
+                                // 只排版可视行，并暴露 ScrollHandle 给平滑滚动。
+                                .child(
+                                    v_virtual_list(
+                                        cx.entity(),
                                         "lithe-run-output-lines",
-                                        self.selected_line_count(),
-                                        move |range, _window, cx| {
-                                            let panel = panel.read(cx);
+                                        item_sizes,
+                                        move |this, range, _window, _cx| {
                                             range
                                                 .map(|index| {
+                                                    let on_caret: ConsoleCaretHandler = {
+                                                        let owner = owner.clone();
+                                                        Rc::new(move |offset, _window, cx| {
+                                                            let _ = owner.update(cx, |this, cx| {
+                                                                this.console.set_caret(index, offset);
+                                                                cx.notify();
+                                                            });
+                                                        })
+                                                    };
                                                     console_line_element(
                                                         format!("lithe-run-line:{index}"),
-                                                        panel.selected_line_text(index),
+                                                        index,
+                                                        &this.selected_line_text(index),
                                                         text_style.clone(),
+                                                        &palette,
+                                                        line_tokens,
+                                                        console_caret
+                                                            .filter(|(line, _)| *line == index)
+                                                            .map(|(_, offset)| offset),
+                                                        Some(on_caret),
+                                                        CONSOLE_LINE_HEIGHT,
                                                     )
                                                 })
                                                 .collect::<Vec<_>>()
                                         },
                                     )
-                                    .track_scroll(&self.console_scroll)
-                                    .size_full()
-                                }),
+                                    .track_scroll(&self.console.handle)
+                                    .size_full(),
+                                )
+                                .child(console_scrollbar(
+                                    &self.console.handle,
+                                    "lithe-run-output-scrollbar",
+                                )),
                         )
                         .into_any_element()
                 },
@@ -1900,7 +1935,7 @@ impl RunPanel {
     /// 控制台行的文本样式。等宽字体 + 按需软换行，整份列表共用一份。
     fn console_text_style(&self, tokens: LitheTokens) -> TextStyleRefinement {
         TextStyleRefinement {
-            font_family: Some(MONO_FONT_FAMILY.into()),
+            font_family: Some(mono_font_family().into()),
             font_size: Some(px(LitheMetrics::CODE_FONT_SIZE).into()),
             color: Some(tokens.primary_text),
             white_space: Some(if self.wrap_output {
@@ -2392,7 +2427,7 @@ impl RunPanel {
                             if let Some(session) = this.sessions.get_mut(&id) {
                                 session.clear();
                             }
-                            this.console_line_count = 0;
+                            this.console.reset();
                             this.console_follow_tail = true;
                             cx.notify();
                         }
@@ -2553,6 +2588,7 @@ impl Render for RunPanel {
         self.ensure_loaded(window, cx);
         // 输出行数变化在这里统一入账：列表只排版可视行，追加只改行数。
         self.sync_console_lines();
+        self.console.sync_display();
         let tokens = current_tokens(cx);
 
         let mut panel = v_flex()
@@ -2621,15 +2657,15 @@ impl SessionState {
     /// 这样虚拟化列表的每一行都是稳定的字符串，追加时只需要往尾部 push，
     /// 不必像旧实现那样每帧把整段文本重新排版。
     fn append_output(&mut self, chunk: &str) {
-        let text = strip_ansi(chunk);
-        if text.is_empty() {
+        if chunk.is_empty() {
             return;
         }
+        // 保留原始 ANSI 序列供控制台渲染；只有服务 URL 识别使用纯文本。
         if self.service_url.is_none() {
-            self.service_url = find_service_url(&text);
+            self.service_url = find_service_url(&strip_ansi(chunk));
         }
 
-        self.pending_line.push_str(&text);
+        self.pending_line.push_str(chunk);
         // 只按换行切分：`str::lines()` 会吞掉结尾空行，控制台需要保留它们。
         let mut start = 0;
         while let Some(offset) = self.pending_line[start..].find('\n') {
@@ -2683,6 +2719,8 @@ impl SessionState {
     }
 
     /// 整段输出文本。复制、打印和诊断需要全文时使用，不做流式渲染。
+    ///
+    /// 控制台行保留原始 ANSI 序列用于着色，复制与打印必须回到纯文本。
     fn full_text(&self) -> String {
         let mut text = self.lines.join("\n");
         if !self.pending_line.is_empty() {
@@ -2691,7 +2729,7 @@ impl SessionState {
             }
             text.push_str(&self.pending_line);
         }
-        text
+        strip_ansi(&text)
     }
 
     fn clear(&mut self) {
@@ -2700,21 +2738,6 @@ impl SessionState {
         self.truncated = false;
         self.service_url = None;
     }
-}
-
-/// 渲染控制台的一行。
-///
-/// 空行也占一行高（`min_h`），否则连续空行会被折叠，输出位置和原进程不一致。
-/// 关闭软换行时行内容横向溢出交给列表的横向滚动，不把长行折断。
-fn console_line_element(id: String, text: String, style: TextStyleRefinement) -> AnyElement {
-    let element_id = SharedString::from(id.clone());
-    div()
-        .id(element_id.clone())
-        .w_full()
-        .min_h(px(CONSOLE_LINE_HEIGHT))
-        .flex_shrink_0()
-        .child(gpui_kit::base::SelectableText::new(element_id, text).text_style(style))
-        .into_any_element()
 }
 
 #[allow(dead_code)]
@@ -2795,7 +2818,7 @@ fn detail_row(label: &str, value: String, monospaced: bool, tokens: LitheTokens)
                 .flex_1()
                 .text_size(px(LitheMetrics::SETTINGS_FONT_SIZE))
                 .text_color(tokens.primary_text)
-                .when(monospaced, |this| this.font_family(MONO_FONT_FAMILY))
+                .when(monospaced, |this| this.font_family(mono_font_family()))
                 .child(value),
         )
         .into_any_element()

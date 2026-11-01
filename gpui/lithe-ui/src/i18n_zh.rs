@@ -560,6 +560,7 @@ pub(crate) fn zh_translate(key: &str) -> Option<&'static str> {
         "Results" => "测试结果",
         "Retry" => "重试",
         "Reveal in File Explorer" => "在文件资源管理器中显示",
+        "Rerun test" => "重新运行测试",
         "Revert" => "撤销",
         "Revert Commit" => "还原提交",
         "Revert File" => "还原文件",

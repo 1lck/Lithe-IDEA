@@ -9,6 +9,7 @@
 //! 只负责合并结果并 `notify`。
 
 pub mod agent;
+mod console;
 pub mod editor;
 pub mod git;
 pub mod git_diff;
