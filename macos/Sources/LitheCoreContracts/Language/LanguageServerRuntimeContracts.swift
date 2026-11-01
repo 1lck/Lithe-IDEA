@@ -51,11 +51,13 @@ package struct LanguageServerRuntimeStart: Equatable, Sendable {
 
 /// An installed JDK the Java language service may compile projects against.
 package struct JavaLanguageServiceRuntime: Equatable, Sendable {
+    package let isDefault: Bool
     package let homePath: String
     /// Version reported by `java -version`, such as `25.0.4` or `1.8.0_402`.
     package let version: String
 
-    package init(homePath: String, version: String) {
+    package init(homePath: String, version: String, isDefault: Bool = false) {
+        self.isDefault = isDefault
         self.homePath = homePath
         self.version = version
     }

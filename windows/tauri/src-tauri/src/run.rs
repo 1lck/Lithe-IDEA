@@ -1197,7 +1197,6 @@ pub fn cleanup_legacy_appdata(app: &AppHandle) {
     }
 }
 
-
 fn workspace_relative(root: &Path, path: &Path) -> Option<String> {
     path.strip_prefix(root)
         .ok()
@@ -1388,6 +1387,34 @@ fn join_relative(root: &Path, relative: &str) -> PathBuf {
 /// the JDK matching the release it compiles for.
 pub(crate) fn discover_java_runtimes(project_root: Option<&Path>) -> Vec<JavaRuntime> {
     probe_java_homes(java_home_candidates(project_root))
+}
+
+/// Uses the same explicit/project-aware selection as Run without probing Maven or Node.
+pub(crate) fn language_service_java_runtimes(
+    root: &Path,
+    configured_home: &str,
+) -> Result<Vec<crate::lsp::JavaLspRuntime>, String> {
+    let mut runtimes = discover_java_runtimes(Some(root));
+    let selected = if configured_home.trim().is_empty() {
+        select_project_java(Some(root), &runtimes)?.id
+    } else {
+        let selected = resolve_java_home(root, configured_home)
+            .map_err(|_| "PROJECT_JDK_INVALID".to_string())?;
+        if let Some(home) = &selected {
+            let runtime = probe_java_home(Path::new(home))
+                .ok_or_else(|| "PROJECT_JDK_INVALID".to_string())?;
+            runtimes.insert(0, runtime);
+        }
+        selected
+    };
+    Ok(runtimes
+        .into_iter()
+        .map(|runtime| crate::lsp::JavaLspRuntime {
+            is_default: selected.as_deref() == Some(runtime.home_path.as_str()),
+            home_path: runtime.home_path,
+            version: runtime.version,
+        })
+        .collect())
 }
 
 fn java_selection_candidates(

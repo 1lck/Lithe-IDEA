@@ -56,6 +56,7 @@ struct SearchEverywhereAppearanceTests {
         let feature = SearchFeatureModel(operations: operations)
         let session = SearchSessionFeatureModel()
         session.isSearchEverywhereVisible = true
+        session.everywhereScope = .text
         let view = SearchEverywhereView(feature: feature, session: session, settings: AppSettings(store: MacUserDefaultsStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)), actionMatches: { _ in [] },
             search: { _, _ in }, dismiss: {}, openResult: { _ in }, performAction: { _ in },
             revealInFinder: { _ in }, copyPath: { _, _ in }, relativePath: { _ in "" }, moduleLabel: { _ in "" })
@@ -166,6 +167,54 @@ struct SearchEverywhereAppearanceTests {
         let finishedDeadline = clock.now.advanced(by: .seconds(1))
         while !indicators(in: content).isEmpty, clock.now < finishedDeadline { await Task.yield() }
         #expect(indicators(in: content).isEmpty)
+        #expect(feature.searchEverywhereResults.contentMatches.first?.preview == "let query = searchEverywhere(query)")
+        content.layoutSubtreeIfNeeded()
+        // Each result's native context-menu target spans its complete visible row.
+        // Inspect their placement so a single-line outer list cannot squeeze two-line results.
+        func resultTargets(in view: NSView) -> [NSView] {
+            if String(describing: type(of: view)) == "LitheRightClickCaptureView" { return [view] }
+            return view.subviews.flatMap { resultTargets(in: $0) }
+        }
+        var targets = resultTargets(in: content)
+        let rowsDeadline = clock.now.advanced(by: .seconds(1))
+        while targets.count < 2, clock.now < rowsDeadline {
+            await Task.yield()
+            content.layoutSubtreeIfNeeded()
+            targets = resultTargets(in: content)
+        }
+        #expect(targets.count == 2)
+        let firstRow = try #require(targets.first).convert(targets[0].bounds, to: content)
+        let secondTarget = try #require(targets.dropFirst().first)
+        let secondRow = secondTarget.convert(secondTarget.bounds, to: content)
+        #expect(abs(firstRow.midY - secondRow.midY) >= 40,
+                "Two-line content results must retain their full row height without overlapping adjacent results")
+        let resultsBitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
+        content.cacheDisplay(in: content.bounds, to: resultsBitmap)
+        try #require(resultsBitmap.representation(using: .png, properties: [:])).write(to:
+            output.appendingPathComponent("text-\(scheme == .dark ? "dark" : "light")-\(Int(width)).png"))
+        func handles(in view: NSView) -> [ProjectReplaceCornerHandleView] {
+            (view as? ProjectReplaceCornerHandleView).map { [$0] } ?? view.subviews.flatMap { handles(in: $0) }
+        }
+        content.layoutSubtreeIfNeeded()
+        let handle = try #require(handles(in: content).first)
+        let originalFrame = panel.frame
+        let point = handle.convert(NSPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
+        func mouse(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: panel.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        }
+        handle.mouseDown(with: try mouse(.leftMouseDown, point))
+        let destination = NSPoint(x: point.x - 80, y: point.y + 100)
+        handle.mouseDragged(with: try mouse(.leftMouseDragged, destination))
+        handle.mouseUp(with: try mouse(.leftMouseUp, destination))
+        let dragDeadline = clock.now.advanced(by: .seconds(1))
+        while panel.frame.height == originalFrame.height, clock.now < dragDeadline { await Task.yield() }
+        #expect(panel.frame.height < originalFrame.height)
+        #expect(panel.frame.width <= resizedWidth - 32)
+        #expect(abs(panel.frame.minX - originalFrame.minX) < 1)
+        #expect(abs(panel.frame.maxY - originalFrame.maxY) < 1)
+        #expect(field.stringValue == "q", "Resizing must preserve the query and input focus")
+
         editor.insertText("", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
         let compactDeadline = clock.now.advanced(by: .seconds(1))
         while panel.frame.height != 84, clock.now < compactDeadline { await Task.yield() }
@@ -186,7 +235,12 @@ private struct ControlledEverywhereOperations: SearchOperations {
     func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules, includeGeneratedFileNames: Bool, kinds: Set<SearchResultKind>) -> SearchEverywhereResults? {
         started.open()
         _ = finished.waitSynchronously()
-        return .init()
+        return .init(contentMatches: [
+            FileSearchResult(url: rootURL.appendingPathComponent("Search.swift"),
+                line: 42, preview: "let query = searchEverywhere(query)", kind: .content),
+            FileSearchResult(url: rootURL.appendingPathComponent("Search.swift"),
+                line: 43, preview: "return query.results", kind: .content),
+        ])
     }
     func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }

@@ -13,11 +13,16 @@ final class EditorGroupDragState: ObservableObject {
     var tabFrames: [UUID: CGRect] = [:]
     private var dragTabFrames: [UUID: CGRect] = [:]
     private var dragFrames: [UUID: CGRect] = [:]
-    @Published var target: Target?
-    func begin() { dragFrames = frames; dragTabFrames = tabFrames; target = nil }
-    func finish() { target = nil; dragFrames = [:]; dragTabFrames = [:] }
+    @Published private(set) var target: Target?
+    func begin() { dragFrames = frames; dragTabFrames = tabFrames; updateTarget(nil) }
+    func finish() { updateTarget(nil); dragFrames = [:]; dragTabFrames = [:] }
 
-    func destination(at point: CGPoint, sourceGroup: UUID) -> Target? {
+    func updateTarget(_ target: Target?) {
+        guard self.target != target else { return }
+        self.target = target
+    }
+
+    func destination(at point: CGPoint, sourceGroup: UUID?) -> Target? {
         guard let (group, fullFrame) = dragFrames.first(where: { $0.value.contains(point) }) else { return nil }
         // The tab strip remains a reorder/move target, never a split edge.
         guard let tabFrame = dragTabFrames[group] else { return nil }
@@ -48,11 +53,13 @@ final class EditorGroupDragState: ObservableObject {
 struct EditorGroupContainer: View {
     @ObservedObject var feature: EditorTabOrderFeatureModel
     @ObservedObject var drag: EditorGroupDragState
+    @EnvironmentObject private var model: AppModel
     var body: some View {
         pane(feature.groupLayout)
             .coordinateSpace(name: editorWorkspaceCoordinateSpaceName)
             .onPreferenceChange(EditorGroupFramePreference.self) { drag.frames = $0 }
             .onPreferenceChange(EditorGroupTabFramePreference.self) { drag.tabFrames = $0 }
+            .overlay { TerminalEditorDropOverlay(drag: drag, model: model) }
             .overlay(alignment: .topLeading) {
                 if let target = drag.target {
                     Rectangle().fill(LitheTheme.editorTabDropBackground)
