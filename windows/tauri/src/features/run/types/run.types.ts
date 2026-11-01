@@ -16,6 +16,12 @@ export interface BuildProviderRunReference {
   execution?: "application" | "service" | "task"; userArguments: string[];
 }
 
+export interface BuildProviderRunOptions {
+  runtimeArguments: string[];
+  entrypoint: string;
+  options: Record<string, unknown>;
+}
+
 export interface BuildProviderLaunchInputs {
   buildSystemID: string; provider: string; projectPath: string;
   launchOptions: import("@/features/build/services/build-provider-types").BuildLaunchOptions;
@@ -37,6 +43,7 @@ export interface RunConfiguration {
   name: string;
   provider: string;
   buildProvider?: BuildProviderRunReference;
+  providerRunOptions?: BuildProviderRunOptions;
   kindTitle: string;
   iconKey?: RunIconKey;
   execution: RunExecution;
@@ -62,6 +69,7 @@ export interface RunConfiguration {
 }
 
 export interface RunOptions {
+  providerRunOptions?: BuildProviderRunOptions;
   javaHomePath: string;
   mavenExecutablePath: string;
   mavenJavaHomePath: string;
@@ -221,6 +229,7 @@ export interface CoreResolvedConfiguration {
   };
   extensions?: {
     build?: BuildProviderRunReference;
+    "build-run"?: Partial<BuildProviderRunOptions>;
     npm?: { manager?: string; framework?: string; server?: string };
     gradle?: { plugin?: string };
     python?: { framework?: string };

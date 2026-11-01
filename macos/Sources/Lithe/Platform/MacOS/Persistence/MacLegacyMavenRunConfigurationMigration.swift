@@ -1,15 +1,16 @@
 import CoreFoundation
+import Darwin
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
-/// Temporary format adapter for saved Run v2 Maven entries only, never a launch path.
+/// Temporary format adapter for saved Run v1/v2 Maven entries, never a launch path.
 /// Remove with D-MIGRATION-REMOVAL before stable N+2; see the #1495 remaining plan.
-/// Installed packages stay read-only; only existing workspace Run documents are replaced.
+/// Installed packages stay read-only; preferences may create a private workspace local document.
 struct MacLegacyMavenRunConfigurationMigration {
     struct Write {
         let url: URL
-        let original: Data
+        let original: Data?
         let replacement: Data
     }
     struct Plan {
@@ -18,6 +19,8 @@ struct MacLegacyMavenRunConfigurationMigration {
         var localDocument: Data? = nil
         var preferenceMarker: (key: String, state: Int)? = nil
         var absentPreferenceKeys: [String] = []
+        var preferenceSources: [String: Data] = [:]
+        var preferenceNamespace: (prefix: String, keys: [String])? = nil
         var sources: [(url: URL, bytes: Data?)] = []
     }
     let storage: any FileStorage
@@ -29,17 +32,17 @@ struct MacLegacyMavenRunConfigurationMigration {
     private static let limit = 2 * 1024 * 1024
 
     func prepare(workspace: URL, projects: [RunProjectOwnership], runs: [RunProviderConfiguration],
-                 models: [BuildModel] = [], lease: RunConfigurationGenerationLease) throws -> Plan {
+                 models: [BuildModel] = [], generatedDocument: Data? = nil, lease: RunConfigurationGenerationLease) throws -> Plan {
         try lease.check()
         let candidates = runs.filter { $0.reference.pluginID == "io.github.lithe-idea.maven-build" && $0.reference.buildSystemID == "maven" }
         guard !candidates.isEmpty else { return Plan(writes: []) }
-        let sources = try ["configurations.json", "local.json"].map { name -> (URL, Data?, [String: Any]) in
+        var sources = try ["configurations.json", "local.json"].map { name -> (URL, Data?, [String: Any]) in
             let url = workspace.appendingPathComponent(".lithe/run/" + name)
             let data = try read(url, workspace: workspace)
             let document: [String: Any]
             if let data {
                 guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw unsupported() }
-                document = parsed
+                document = try normalizedDocument(parsed)
             } else { document = ["version": 2, "configurations": []] }
             return (url, data, document)
         }
@@ -48,16 +51,39 @@ struct MacLegacyMavenRunConfigurationMigration {
         let markerKey = "lithe.run-configuration-migrated.\(projectKey)"
         let marker = try preferenceMarker(markerKey)
         let storedIDs = sources.flatMap { ($0.2["configurations"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String } }
-        let preferenceKeys = marker == 2 ? [] : Set(aliases.keys).union(storedIDs).sorted().map { "lithe.java-run-options.\(projectKey).\($0)" }
-        // Saved IDs can differ from old generated aliases. Do not migrate over
-        // active retired choices; recheck their absence throughout publication.
-        guard preferenceKeys.allSatisfy({ preferences.object(forKey: $0) == nil }) else { throw unsupported() }
+        let prefix = "lithe.java-run-options.\(projectKey)."
+        let listedKeys = marker == 2 ? nil : preferences.keys(withPrefix: prefix)
+        let preferenceKeys = marker == 2 ? [] : Set(aliases.keys).union(storedIDs).map { prefix + $0 } + (listedKeys ?? [])
+        guard preferenceKeys.count <= 10_000 else { throw unsupported() }
+        var preferenceSources: [String: Data] = [:], absentKeys: [String] = []
+        var preferenceByteCount = 0
+        for key in Set(preferenceKeys).sorted() {
+            guard let value = preferences.object(forKey: key) else { absentKeys.append(key); continue }
+            guard let bytes = value as? Data, bytes.count <= Self.limit else { throw unsupported() }
+            preferenceByteCount += bytes.count
+            guard preferenceByteCount <= Self.limit else { throw unsupported() }
+            preferenceSources[key] = bytes
+        }
+        let imported = try importPreferences(preferenceSources, prefix: prefix, sources: sources, aliases: aliases,
+            models: models, generatedDocument: generatedDocument, workspace: workspace, canEnumerate: listedKeys != nil)
+        sources[1].2 = imported.document
+        if imported.changed, sources[1].1 == nil {
+            let runtimeKey = "lithe.project-runtime.\(projectKey)"
+            if let raw = preferences.object(forKey: runtimeKey) {
+                guard let bytes = raw as? Data, bytes.count <= Self.limit else { throw unsupported() }
+                let settings = try JSONDecoder().decode(ProjectRuntimeSettings.self, from: bytes)
+                guard settings.javaHomePath.isEmpty, settings.mavenJavaHomePath.isEmpty,
+                      settings.mavenHomeSelection == .automatic else { throw unsupported() }
+                preferenceSources[runtimeKey] = bytes
+            } else { absentKeys.append(runtimeKey) }
+        }
         var cumulative: [String: [String: Any]] = [:]
         var writes: [Write] = []
-        for (url, bytes, original) in sources {
+        for (index, source) in sources.enumerated() {
+            let (url, bytes, original) = source
             try lease.check()
             guard let items = original["configurations"] as? [[String: Any]], items.count <= 10_000 else { throw unsupported() }
-            var document = original, transformed: [[String: Any]] = [], changed = false
+            var document = original, transformed: [[String: Any]] = [], changed = index == 1 && imported.changed
             var seen = Set<String>()
             for item in items {
                 guard let id = item["id"] as? String, seen.insert(id).inserted else { throw unsupported() }
@@ -74,8 +100,7 @@ struct MacLegacyMavenRunConfigurationMigration {
                 if let java = ext["java"] as? [String: Any], let source = java["source"] as? String, source.lowercased().hasSuffix(".java") {
                     transformed.append(item); continue // JDT-owned Java entries remain stage E.
                 }
-                guard let version = original["version"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(), version == 2,
-                      effective["command"] == nil else { throw unsupported() }
+                guard effective["command"] == nil else { throw unsupported() }
                 guard ext["maven"] == nil || ext["maven"] is [String: Any] else { throw unsupported() }
                 let maven = ext["maven"] as? [String: Any] ?? [:]
                 guard Set(maven.keys).isSubset(of: Self.mavenFields) else { throw unsupported() }
@@ -108,12 +133,8 @@ struct MacLegacyMavenRunConfigurationMigration {
                 result.removeValue(forKey: "toolchains"); result.removeValue(forKey: "debug")
                 let arguments = try strings(maven["programArguments"])
                 let effectiveArguments = execution == .task ? try strings(effective["args"]) + arguments : arguments
-                // Old application-style module entries need provider-owned migration;
-                // do not turn a class launch or an implicit goal into another command.
-                if execution == .task {
-                    guard !effectiveArguments.isEmpty, try strings(maven["jvmArguments"]).isEmpty,
-                          (maven["mainClass"] as? String ?? "").isEmpty else { throw unsupported() }
-                }
+                // Keep even empty goals or unsupported runtime choices as data.
+                // The provider owns their meaning and validation, never this adapter.
                 result["args"] = effectiveArguments
                 var resultExtensions = item["extensions"] as? [String: Any] ?? [:]
                 guard resultExtensions["build"] == nil, resultExtensions["build-run"] == nil else { throw unsupported() }
@@ -138,7 +159,7 @@ struct MacLegacyMavenRunConfigurationMigration {
                 result["extensions"] = resultExtensions
                 transformed.append(result); changed = true
             }
-            if changed, let bytes {
+            if changed {
                 try validate(url, workspace: workspace)
                 document["configurations"] = transformed
                 let replacement = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
@@ -150,7 +171,9 @@ struct MacLegacyMavenRunConfigurationMigration {
         if !writes.isEmpty {
             plan.sources = sources.map { (url: $0.0, bytes: $0.1) }
             plan.preferenceMarker = (markerKey, marker)
-            plan.absentPreferenceKeys = preferenceKeys
+            plan.absentPreferenceKeys = absentKeys
+            plan.preferenceSources = preferenceSources
+            plan.preferenceNamespace = listedKeys.map { (prefix, $0.sorted()) }
             plan.teamDocument = try writes.first { $0.url == sources[0].0 }?.replacement ?? sources[0].1
                 ?? JSONSerialization.data(withJSONObject: sources[0].2)
             plan.localDocument = try writes.first { $0.url == sources[1].0 }?.replacement ?? sources[1].1
@@ -165,12 +188,24 @@ struct MacLegacyMavenRunConfigurationMigration {
         try verifyPreferences(plan)
         try verifySources(plan, completed: [], workspace: workspace)
         var completed: [Write] = []
+        var createdDirectories: [URL] = []
         do {
             for write in plan.writes {
                 try lease.check()
                 try verifyPreferences(plan)
                 try verifySources(plan, completed: completed, workspace: workspace)
                 try validate(write.url, workspace: workspace)
+                if write.original == nil {
+                    for path in [".lithe", ".lithe/run"] {
+                        let directory = workspace.appendingPathComponent(path)
+                        try validate(directory, workspace: workspace)
+                        if mkdir(directory.path, 0o700) == 0 { createdDirectories.append(directory) }
+                        else if errno != EEXIST { throw CocoaError(.fileWriteNoPermission) }
+                        guard storage.metadata(for: directory)?.isDirectory == true else { throw unsupported() }
+                    }
+                    try lease.check()
+                    try verifySources(plan, completed: completed, workspace: workspace)
+                }
                 guard try storage.replaceDataPreservingMetadata(write.replacement, at: write.url, expecting: write.original) else { throw conflict() }
                 completed.append(write)
                 MacFileWriteEventSuppression.markWritten(write.url)
@@ -185,10 +220,16 @@ struct MacLegacyMavenRunConfigurationMigration {
                 // even when one destination can no longer be rolled back.
                 do {
                     try validate(write.url, workspace: workspace)
-                    if try storage.replaceDataPreservingMetadata(write.original, at: write.url, expecting: write.replacement) {
+                    let restored = try write.original.map { try storage.replaceDataPreservingMetadata($0, at: write.url, expecting: write.replacement) }
+                        ?? storage.removeData(at: write.url, expecting: write.replacement)
+                    if restored {
                         MacFileWriteEventSuppression.markWritten(write.url)
                     } else { rollbackFailed = true }
                 } catch { rollbackFailed = true }
+            }
+            for directory in createdDirectories.reversed() {
+                // rmdir removes only an empty directory; another writer's files survive.
+                if (try? validate(directory, workspace: workspace)) != nil { _ = rmdir(directory.path) }
             }
             if rollbackFailed { throw conflict() }
             throw error
@@ -210,8 +251,124 @@ struct MacLegacyMavenRunConfigurationMigration {
     private func verifyPreferences(_ plan: Plan) throws {
         if let marker = plan.preferenceMarker {
             guard try preferenceMarker(marker.key) == marker.state,
-                  plan.absentPreferenceKeys.allSatisfy({ preferences.object(forKey: $0) == nil }) else { throw conflict() }
+                  plan.absentPreferenceKeys.allSatisfy({ preferences.object(forKey: $0) == nil }),
+                  plan.preferenceSources.allSatisfy({ preferences.data(forKey: $0.key) == $0.value }) else { throw conflict() }
+            if let namespace = plan.preferenceNamespace {
+                guard preferences.keys(withPrefix: namespace.prefix)?.sorted() == namespace.keys else { throw conflict() }
+            }
         }
+    }
+
+    /// Import all observable active preferences before creating local.json; the
+    /// old importer uses that file's existence as its cutover boundary, including
+    /// for Java entries. Existing local fields always win over retired values.
+    private func importPreferences(_ values: [String: Data], prefix: String,
+                                   sources: [(URL, Data?, [String: Any])], aliases: [String: [RunProviderConfiguration]],
+                                   models: [BuildModel], generatedDocument: Data?, workspace: URL,
+                                   canEnumerate: Bool) throws -> (document: [String: Any], changed: Bool) {
+        var records: [String: [String: Any]] = [:]
+        for source in sources {
+            for item in source.2["configurations"] as? [[String: Any]] ?? [] {
+                guard let id = item["id"] as? String else { throw unsupported() }
+                records[id] = try merge(records[id] ?? [:], item)
+            }
+        }
+        let legacyRecord = records.values.contains { item in
+            let provider = item["provider"] as? String
+            return provider == "maven.module" || Self.frameworks.contains(provider ?? "")
+                || (provider == nil && aliases[item["id"] as? String ?? ""] != nil)
+        }
+        let hasLegacyPreference = values.keys.contains { key in
+            let id = String(key.dropFirst(prefix.count))
+            return aliases[id] != nil && records[id]?["provider"] as? String != "build.provider"
+        }
+        guard legacyRecord || hasLegacyPreference, !values.isEmpty else { return (sources[1].2, false) }
+        if sources[1].1 == nil && !canEnumerate { throw unsupported() }
+        var generated: [String: [String: Any]] = [:]
+        if let generatedDocument {
+            guard let parsed = try JSONSerialization.jsonObject(with: generatedDocument) as? [String: Any],
+                  let entries = parsed["configurations"] as? [[String: Any]] else { throw unsupported() }
+            for item in entries { if let id = item["id"] as? String { generated[id] = item } }
+        }
+        var document = sources[1].2
+        var local = document["configurations"] as? [[String: Any]] ?? []
+        var changed = false
+        for key in values.keys.sorted() {
+            let id = String(key.dropFirst(prefix.count))
+            guard records[id]?["provider"] as? String != "build.provider" else { continue }
+            var record = records[id] ?? generated[id] ?? [:]
+            if record["provider"] == nil, let choices = aliases[id] {
+                guard choices.count == 1, let target = choices.first else { throw unsupported() }
+                let targets = models.flatMap { $0.targets }.filter { $0.projectID == target.reference.projectID && $0.id == target.reference.targetID }
+                guard targets.count == 1, let provider = targets.first?.name, Self.frameworks.contains(provider) else { throw unsupported() }
+                let root = target.reference.root
+                let module = target.projectPath == root ? "." : root == "." ? target.projectPath : String(target.projectPath.dropFirst(root.count + 1))
+                record = ["id": id, "name": target.name, "provider": provider, "execution": "service", "cwd": root,
+                          "extensions": ["maven": ["reactorPath": root, "module": module]]]
+            }
+            guard let provider = record["provider"] as? String else { throw unsupported() }
+            let isMaven = provider == "maven.module" || Self.frameworks.contains(provider)
+            let options = try legacyPreference(values[key]!)
+            if isMaven {
+                guard options.javaHomePath.isEmpty, options.mavenExecutablePath.isEmpty, options.mavenJavaHomePath.isEmpty else { throw unsupported() }
+            }
+            var patch: [String: Any] = ["id": id, "env": options.environment]
+            if !options.workingDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let raw = options.workingDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                let directory = (raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : workspace.appendingPathComponent(raw)).resolvingSymlinksInPath().standardizedFileURL
+                let root = workspace.resolvingSymlinksInPath().standardizedFileURL.path
+                guard storage.metadata(for: directory)?.isDirectory == true,
+                      directory.path == root || directory.path.hasPrefix(root + "/") else { throw unsupported() }
+                patch["cwd"] = directory.path == root ? "." : String(directory.path.dropFirst(root.count + 1))
+            }
+            var java: [String: String] = [:]
+            for (field, value) in [("homePath", options.javaHomePath), ("mavenExecutablePath", options.mavenExecutablePath), ("mavenJavaHomePath", options.mavenJavaHomePath)] where !value.isEmpty { java[field] = value }
+            var extensions: [String: Any] = java.isEmpty ? [:] : ["java": java]
+            if isMaven || ["java.main", "java.current-file"].contains(provider) {
+                var maven: [String: Any] = ["jvmArguments": legacyArguments(options.vmArguments), "programArguments": legacyArguments(options.programArguments),
+                                            "profiles": options.activeProfiles.sorted()]
+                if let skip = options.mavenSkipTests { maven["skipTests"] = skip }
+                extensions["maven"] = maven
+            } else { patch["args"] = legacyArguments(options.programArguments) }
+            if !extensions.isEmpty { patch["extensions"] = extensions }
+            // A preference-only Maven record needs its current, proven identity.
+            if isMaven, records[id] == nil { patch = try merge(record, patch) }
+            if let index = local.firstIndex(where: { $0["id"] as? String == id }) {
+                local[index] = try merge(patch, local[index])
+            } else { local.append(patch) }
+            changed = true
+        }
+        document["configurations"] = local
+        return (document, changed)
+    }
+
+    private func legacyPreference(_ bytes: Data) throws -> RunOptions {
+        guard let value = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              Set(value.keys).isSubset(of: ["workingDirectoryPath", "arguments", "programArguments", "environment", "java", "javaHomePath", "vmArguments", "activeProfiles"]) else { throw unsupported() }
+        if let java = value["java"], !(java is NSNull) {
+            guard let object = java as? [String: Any], Set(object.keys).isSubset(of: ["homePath", "mavenExecutablePath", "mavenJavaHomePath", "vmArguments", "activeMavenProfiles", "skipTests"]) else { throw unsupported() }
+        }
+        return try JSONDecoder().decode(RunOptions.self, from: bytes)
+    }
+
+    /// The retired preference writer used this text grammar, including dropping
+    /// empty quoted tokens. It performs no expansion or shell execution.
+    private func legacyArguments(_ text: String) -> [String] {
+        var result: [String] = [], current = "", quote: Character?, escaped = false
+        for character in text {
+            if escaped { current.append(character); escaped = false }
+            else if character == "\\" && quote != "'" { escaped = true }
+            else if character == "'" || character == "\"" {
+                if quote == character { quote = nil }
+                else if quote == nil { quote = character }
+                else { current.append(character) }
+            } else if character.isWhitespace && quote == nil {
+                if !current.isEmpty { result.append(current); current = "" }
+            } else { current.append(character) }
+        }
+        if escaped { current.append("\\") }
+        if !current.isEmpty { result.append(current) }
+        return result
     }
 
     private func legacyAliases(projects: [RunProjectOwnership], runs: [RunProviderConfiguration]) -> [String: [RunProviderConfiguration]] {
@@ -267,6 +424,44 @@ struct MacLegacyMavenRunConfigurationMigration {
         guard let value, !(value is NSNull) else { return [] }
         guard let strings = value as? [String], strings.count <= 1024, strings.allSatisfy({ !$0.contains("\0") && $0.utf8.count <= 65536 }) else { throw unsupported() }
         return strings
+    }
+
+    /// Retired v1 fields are a private saved format. Convert the whole document
+    /// when one Maven record changes, so unrelated Java records remain readable.
+    private func normalizedDocument(_ original: [String: Any]) throws -> [String: Any] {
+        guard let version = original["version"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(),
+              version == 1 || version == 2 else { throw unsupported() }
+        guard version == 1 else { return original }
+        guard let items = original["configurations"] as? [[String: Any]], items.count <= 10_000 else { throw unsupported() }
+        var document = original
+        document["version"] = 2
+        document["configurations"] = try items.map { item in
+            guard item["provider"] == nil, item["cwd"] == nil else { throw unsupported() }
+            var result = item
+            var extensions = item["extensions"] as? [String: Any] ?? [:]
+            guard item["extensions"] == nil || item["extensions"] is [String: Any],
+                  extensions["maven"] == nil else { throw unsupported() }
+            var maven: [String: Any] = [:]
+            for (old, current) in [("module", "module"), ("mainClass", "mainClass"), ("jvmArguments", "jvmArguments"),
+                                   ("programArguments", "programArguments"), ("mavenProfiles", "profiles")] {
+                if let value = result.removeValue(forKey: old), !(value is NSNull), !((value as? [Any])?.isEmpty == true) {
+                    maven[current] = value
+                }
+            }
+            if !maven.isEmpty { extensions["maven"] = maven }
+            if !extensions.isEmpty { result["extensions"] = extensions }
+            if let cwd = result.removeValue(forKey: "workingDirectory") { result["cwd"] = cwd }
+            if let raw = result.removeValue(forKey: "type") {
+                guard let provider = raw as? String, !provider.isEmpty else { throw unsupported() }
+                result["provider"] = provider
+                result["execution"] = provider == "java.current-file" || provider == "java.main" ? "application"
+                    : Self.frameworks.contains(provider) ? "service" : "task"
+                result["confidence"] = "native"
+                if result["debug"] == nil { result["debug"] = ["adapter": "jdwp"] }
+            }
+            return result
+        }
+        return document
     }
 
     private func validate(_ url: URL, workspace: URL, writable: Bool = true) throws {

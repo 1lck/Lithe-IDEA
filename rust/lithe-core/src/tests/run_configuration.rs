@@ -6,6 +6,37 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+/// Native editors format exact argv without shell expansion; an empty quoted
+/// item must survive the common document mutation path on both platforms.
+#[test]
+fn argument_editor_text_roundtrips_the_shared_argv_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/argument-text.json"
+    ))
+    .unwrap();
+    let root = temporary_root("run-argument-text");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let document = serde_json::json!({"version":2,"configurations":[{"id":"user:arguments","name":"Arguments",
+        "provider":"build.provider","execution":"task","extensions":{"build":{"pluginID":"dev.example.engine",
+        "buildSystemID":"engine","root":".","run":"task","projectID":"project","targetID":"target","execution":"task"}}}]});
+    for case in fixture["cases"].as_array().unwrap() {
+        let reply: Value = serde_json::from_str(&execute_json(&serde_json::json!({"id":"argument-text","command":"runConfig.updateOptions",
+            "payload":{"root":root,"scope":"local","configurationId":"user:arguments","localDocument":document,"arguments":case["text"]}}).to_string())).unwrap();
+        assert_eq!(reply["ok"], true, "{reply}");
+        let result: Value =
+            serde_json::from_str(reply["data"]["document"].as_str().unwrap()).unwrap();
+        assert_eq!(result["configurations"][0]["args"], case["values"]);
+    }
+    assert!(!root.join(".lithe/run/local.json").exists());
+}
+
 #[test]
 fn configuration_toolchain_overrides_match_shared_fixture_without_writing_sources() {
     let fixture: Value = serde_json::from_str(include_str!(
@@ -5678,7 +5709,7 @@ fn provider_project_ownership_controls_java_modules_and_source_roles_without_par
 
 /// Providers receive saved typed choices; Core does not assemble a Maven goal or reread its POM.
 #[test]
-fn provider_launch_inputs_preserve_document_layers_and_current_reactor() {
+fn provider_launch_inputs_preserve_document_layers_and_current_selector() {
     let root = temporary_root("provider-launch-inputs");
     fs::create_dir_all(root.join(".lithe/run")).unwrap();
     fs::create_dir_all(root.join("nested/app")).unwrap();
@@ -5691,12 +5722,12 @@ fn provider_launch_inputs_preserve_document_layers_and_current_reactor() {
     }
     let _cleanup = Cleanup(root.clone());
     fs::write(root.join("nested/pom.xml"), "deliberately not a POM").unwrap();
-    let generated = serde_json::json!({"version":2,"configurations":[{"id":"service","name":"Service","provider":"spring-boot.maven","execution":"service",
-        "cwd":"nested","env":{},"toolchains":{"java":"project-jdk","maven":"project-maven"},
-        "extensions":{"maven":{"module":"app","reactorPath":"nested","jvmArguments":["-Dmessage=base value"],"programArguments":["base"],"profiles":[]}}}]});
+    let generated = serde_json::json!({"version":2,"configurations":[{"id":"service","name":"Service","provider":"build.provider","execution":"service",
+        "cwd":"nested","env":{},"extensions":{"build":{"pluginID":"dev.example.engine","buildSystemID":"engine","root":"nested","run":"serve",
+        "projectID":"project","targetID":"target","execution":"service"},"build-run":{"runtimeArguments":["--message=base value"]}}}]});
     seed_generated(&root, generated.to_string());
     let local = serde_json::json!({"version":2,"configurations":[{"id":"service","cwd":"tools","env":{"EXAMPLE":"value"},
-        "extensions":{"maven":{"jvmArguments":["-Dmessage=hello world","C:\\literal"],"programArguments":["a b","雪",""],"mainClass":"demo.app.Main","profiles":["run-profile"],"skipTests":false}}}]});
+        "args":["a b","雪",""],"extensions":{"build-run":{"runtimeArguments":["--message=hello world","C:\\literal"],"entrypoint":"opaque/entry:1","options":{"features":["run-feature"],"strict":false}}}}]});
     let call = |provider_root: &str, local: Option<Value>| -> Value {
         let request = serde_json::json!({"id":"inputs","command":"runConfig.providerLaunchInputs","payload":{
             "root":root,"configurationId":"service","providerRoot":provider_root,"localDocument":local}});
@@ -5713,25 +5744,25 @@ fn provider_launch_inputs_preserve_document_layers_and_current_reactor() {
     let baseline = inspect()["data"]["generated"].clone();
     let original = call("nested", None);
     assert_eq!(original["ok"], true, "{original}");
-    assert_eq!(original["data"]["projectPath"], "nested/app");
+    assert_eq!(original["data"]["projectPath"], "nested");
     assert_eq!(
         original["data"]["launchOptions"]["runtimeArguments"],
-        serde_json::json!(["-Dmessage=base value"])
+        serde_json::json!(["--message=base value"])
     );
     assert!(original["data"]["launchOptions"]
         .get("workingDirectory")
         .is_none());
     let resolved = call("nested", Some(local.clone()));
     assert_eq!(resolved["ok"], true, "{resolved}");
-    assert_eq!(resolved["data"]["provider"], "spring-boot.maven");
+    assert_eq!(resolved["data"]["provider"], "serve");
     assert_eq!(
         resolved["data"]["launchOptions"],
-        serde_json::json!({"execution":"service","runtimeArguments":["-Dmessage=hello world","C:\\literal"],
-        "arguments":["a b","雪",""],"environment":{"EXAMPLE":"value"},"entrypoint":"demo.app.Main","workingDirectory":"tools"})
+        serde_json::json!({"execution":"service","runtimeArguments":["--message=hello world","C:\\literal"],
+        "arguments":["a b","雪",""],"environment":{"EXAMPLE":"value"},"entrypoint":"opaque/entry:1","workingDirectory":"tools"})
     );
     assert_eq!(
         resolved["data"]["optionOverrides"],
-        serde_json::json!({"profiles":["run-profile"],"skipTests":false})
+        serde_json::json!({"features":["run-feature"],"strict":false})
     );
     assert!(resolved["data"].get("executable").is_none());
     assert_eq!(call(".", Some(local.clone()))["ok"], false);
@@ -5740,4 +5771,38 @@ fn provider_launch_inputs_preserve_document_layers_and_current_reactor() {
     assert_eq!(call("nested", Some(local))["ok"], false);
     assert_eq!(inspect()["data"]["generated"], baseline);
     assert!(!root.join(".lithe/run/generated.json").exists());
+}
+
+/// Historical discriminators are data for a temporary host import, never a
+/// capability to make Core interpret profiles, frameworks or module launches.
+#[test]
+fn provider_launch_inputs_require_a_typed_reference_after_domain_migration() {
+    let root = temporary_root("unmigrated-provider-inputs");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for provider in [
+        "maven.module",
+        "spring-boot.maven",
+        "quarkus.maven",
+        "micronaut.maven",
+    ] {
+        let generated = serde_json::json!({"version":2,"configurations":[{"id":"legacy","name":"Legacy",
+            "provider":provider,"execution":"task","extensions":{"maven":{"module":".","profiles":["saved"],"skipTests":false}}}]});
+        seed_generated(&root, generated.to_string());
+        let reply: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"id":"unmigrated","command":"runConfig.providerLaunchInputs",
+            "payload":{"root":root,"configurationId":"legacy","providerRoot":"."}})
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(reply["ok"], false, "{reply}");
+        assert_eq!(reply["error"]["code"], "invalid_request");
+    }
+    assert!(!root.join(".lithe/run/local.json").exists());
 }

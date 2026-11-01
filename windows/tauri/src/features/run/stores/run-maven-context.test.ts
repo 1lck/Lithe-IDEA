@@ -80,7 +80,6 @@ describe("Maven-backed Run context", () => {
     const startRunProcess = mock(async () => undefined);
     const stopRunProcess = mock(async () => undefined);
     const dependencies: RunStoreDependencies = {
-      isBuildProviderRunAdmitted: async () => false,
       createLaunchPlan,
       mavenLaunchContextForWorkspace,
       resolveRunLaunch,
@@ -135,7 +134,6 @@ describe("Maven-backed Run context", () => {
     }));
     const startRunProcess = mock(async () => undefined);
     const dependencies: RunStoreDependencies = {
-      isBuildProviderRunAdmitted: async () => false,
       createLaunchPlan,
       mavenLaunchContextForWorkspace: mock(async () => mavenContext),
       resolveRunLaunch: mock(async () => ({
@@ -225,7 +223,6 @@ describe("Maven-backed Run context", () => {
       const executePreLaunchStep = mock(async () => ({ exitCode: 0, output: "" }));
       const startRunProcess = mock(async () => undefined);
       const dependencies: RunStoreDependencies = {
-      isBuildProviderRunAdmitted: async () => false,
         createLaunchPlan: mock(async () => ({
           executable: { toolchain: "project-maven" as const },
           arguments: ["-B", "spring-boot:run"],

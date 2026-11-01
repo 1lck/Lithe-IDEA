@@ -3472,12 +3472,12 @@ snapshot replaces each of its fields in the selected layer, normalizing omitted 
 to `runtimeArguments:[]`, `entrypoint:""`, `options:{}` so reset can clear inherited
 choices. Other extension namespaces and the selector remain intact. Re-saving the
 same selector preserves its working-directory override and portable choices.
-The production macOS store and preference copies carry the typed snapshot unchanged.
+The production macOS store, Windows editor and preference copies carry the typed snapshot unchanged.
 See `fixtures/run-configuration/build-provider-options.json`; no new Provider RPC or
-SDK protocol version is needed, because preparation reuses accepted v10 launch options.
+SDK protocol version is needed, because preparation reuses accepted v10 launch options. Editor argument text uses quoting/escaping without expansion or execution; empty quoted tokens remain empty argv items. `fixtures/run-configuration/argument-text.json` is shared by Core and both editors.
 
 `runConfig.providerLaunchInputs` takes `{root,configurationId,providerRoot,localDocument?}`
-and resolves the same document layers for one preparation. It returns bounded typed
+and requires a complete `build.provider` selector. Unmigrated tool-specific records are rejected; only an isolated host import may translate their retired format. It resolves the same document layers for one preparation. It returns bounded typed
 `launchOptions`, explicit build-option overrides and project identity without planning
 a tool command. For `build.provider`, `extensions.build-run.runtimeArguments` and its
 non-empty entrypoint populate launch options, and its `options` populate optionOverrides.

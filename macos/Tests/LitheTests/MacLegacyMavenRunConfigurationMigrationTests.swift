@@ -6,6 +6,141 @@ import Testing
 @Suite("Legacy Maven Run migration")
 @MainActor
 struct MacLegacyMavenRunConfigurationMigrationTests {
+    @Test(arguments: [false, true])
+    func moduleChoicesRemainDataAndAnEmptyGoalListIsLeftToTheProvider(runtimeChoice: Bool) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let id = "maven.module:nested/app"
+        try fixture.write(["version": 2, "configurations": [["id": id, "name": "Module", "provider": "maven.module", "execution": "task", "args": [],
+            "extensions": ["maven": ["module": "app", "mainClass": runtimeChoice ? "opaque/entry" : "", "jvmArguments": runtimeChoice ? ["-Dsaved=value"] : []]]]]], to: fixture.team)
+        try fixture.write(["version": 2, "configurations": []], to: fixture.local)
+        let reference = BuildProviderRunReference(pluginID: "io.github.lithe-idea.maven-build", buildSystemID: "maven", root: "nested", run: "module",
+            projectID: "p", targetID: "opaque/module", execution: .task)
+        let runs = [RunProviderConfiguration(projectPath: "nested/app", name: "Module", reference: reference)]
+        let models = [try JSONDecoder().decode(BuildModel.self, from: Data(#"{"projects":[{"id":"p","path":"nested/app","name":"app"}],"targets":[{"id":"opaque/module","projectID":"p","name":"maven.module","path":"nested/app","tags":["maven-module"]}]}"#.utf8))]
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: MigrationPreferences())
+        _ = try store.generate(at: fixture.root, files: [], modulePaths: [], javaEntrypoints: nil,
+            projectOwnership: fixture.projects, providerRuns: runs, models: models, lease: RunConfigurationGenerationLease())
+        let input = try store.providerLaunchInputs(at: fixture.root, configurationID: id, providerRoot: "nested")
+        #expect(input.reference == reference)
+        #expect(input.launchOptions.arguments == [])
+        #expect(input.launchOptions.runtimeArguments == (runtimeChoice ? ["-Dsaved=value"] : []))
+        #expect(input.launchOptions.entrypoint == (runtimeChoice ? "opaque/entry" : nil))
+    }
+
+    @Test(arguments: [false, true])
+    func activePreferencesTransferOnceWithoutDroppingJavaOrReplacingLocalChoices(localMissing: Bool) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let domain = "lithe.legacy-run-preferences.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let preferences = MacUserDefaultsStore(defaults: defaults)
+        let prefix = "lithe.java-run-options.\(fixture.root.path.replacingOccurrences(of: "/", with: "_"))."
+        let serviceBytes = try JSONEncoder().encode(RunOptions(workingDirectoryPath: fixture.root.appendingPathComponent("nested/app/work").path,
+            vmArguments: "'-Dvalue=one two' '\\literal'", programArguments: "'--value=two words' 雪", activeProfiles: ["release"],
+            mavenSkipTests: false, environment: ["FROM": "preference"]))
+        preferences.set(serviceBytes, forKey: prefix + fixture.id)
+        if localMissing {
+            try FileManager.default.removeItem(at: fixture.local)
+            try fixture.write(["version": 2, "configurations": [["id": "user:java", "name": "Unrelated Java", "provider": "java.current-file", "execution": "application"]]], to: fixture.team)
+            preferences.set(try JSONEncoder().encode(RunOptions(vmArguments: "-Djava=okay", programArguments: "before", environment: ["JAVA_KEEP": "value"])), forKey: prefix + "user:java")
+        }
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
+        _ = try store.generate(at: fixture.root, files: [], modulePaths: [], javaEntrypoints: nil,
+            projectOwnership: fixture.projects, providerRuns: fixture.runs, models: fixture.models, lease: RunConfigurationGenerationLease())
+        let inputs = try store.providerLaunchInputs(at: fixture.root, configurationID: fixture.id, providerRoot: "nested")
+        #expect(inputs.launchOptions.runtimeArguments == ["-Dvalue=one two", "\\literal"])
+        #expect(inputs.launchOptions.workingDirectory == "nested/app/work")
+        #expect(inputs.launchOptions.arguments == (localMissing ? ["--value=two words", "雪"] : ["--local=雪"]))
+        #expect(inputs.launchOptions.environment == (localMissing ? ["FROM": "preference"] : ["EXAMPLE": "local"]))
+        #expect(inputs.optionOverrides["profiles"] == (localMissing ? .array([.string("release")]) : nil))
+        #expect(inputs.optionOverrides["skipTests"] == .bool(false))
+        if localMissing {
+            let resolved = try store.resolve(at: fixture.root, toolchainCandidates: [])
+            let java = try #require(resolved.configurations.first { $0.configuration.id == "user:java" })
+            #expect(java.options.vmArguments == "-Djava=okay")
+            #expect(java.options.environment == ["JAVA_KEEP": "value"])
+            #expect((try FileManager.default.attributesOfItem(atPath: fixture.local.path)[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        }
+        let before = try fixture.bytes()
+        _ = try store.generate(at: fixture.root, files: [], modulePaths: [], javaEntrypoints: nil,
+            projectOwnership: fixture.projects, providerRuns: fixture.runs, models: fixture.models, lease: RunConfigurationGenerationLease())
+        #expect(try fixture.bytes() == before)
+        #expect(preferences.data(forKey: prefix + fixture.id) == serviceBytes, "Retired source remains a rollback record; generic documents are authoritative")
+    }
+
+    @Test
+    func preferenceOnlyCancellationRemovesOnlyOurNewFileAndEmptyDirectories() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try FileManager.default.removeItem(at: fixture.root.appendingPathComponent(".lithe"))
+        let preferences = MigrationPreferences(), storage = MigrationFaultStorage(), lease = RunConfigurationGenerationLease()
+        let key = "lithe.java-run-options.\(fixture.root.path.replacingOccurrences(of: "/", with: "_")).\(fixture.id)"
+        let bytes = try JSONEncoder().encode(RunOptions(programArguments: "--saved"))
+        preferences.set(bytes, forKey: key)
+        let migration = MacLegacyMavenRunConfigurationMigration(storage: storage, preferences: preferences, immutableRoots: [])
+        let plan = try migration.prepare(workspace: fixture.root, projects: fixture.projects, runs: fixture.runs, models: fixture.models, lease: lease)
+        #expect(plan.writes.count == 1)
+        storage.afterReplace = { _ in lease.invalidate() }
+        #expect(throws: (any Error).self) { try migration.apply(plan, workspace: fixture.root, lease: lease) }
+        #expect(!FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent(".lithe").path))
+        #expect(preferences.data(forKey: key) == bytes)
+    }
+
+    @Test
+    func aChangedActivePreferenceRollsBackOurFilesAndRetainsTheNewSource() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let preferences = MigrationPreferences(), storage = MigrationFaultStorage(), lease = RunConfigurationGenerationLease()
+        let key = "lithe.java-run-options.\(fixture.root.path.replacingOccurrences(of: "/", with: "_")).\(fixture.id)"
+        preferences.set(try JSONEncoder().encode(RunOptions(vmArguments: "-Dbefore=value")), forKey: key)
+        let migration = MacLegacyMavenRunConfigurationMigration(storage: storage, preferences: preferences, immutableRoots: [])
+        let plan = try migration.prepare(workspace: fixture.root, projects: fixture.projects, runs: fixture.runs, models: fixture.models, lease: lease)
+        let original = try fixture.bytes(), external = try JSONEncoder().encode(RunOptions(vmArguments: "-Dexternal=value"))
+        storage.afterReplace = { index in if index == 1 { preferences.set(external, forKey: key) } }
+        #expect(throws: (any Error).self) { try migration.apply(plan, workspace: fixture.root, lease: lease) }
+        #expect(try fixture.bytes() == original)
+        #expect(preferences.data(forKey: key) == external)
+    }
+
+    @Test(arguments: ["both-v1", "team-v1", "local-v1"])
+    func retiredV1LayersKeepStableIdentitiesAndUnrelatedJavaEntries(format: String) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        if format != "local-v1" {
+            try fixture.write(["version": 1, "annotation": "v1 team", "configurations": [
+                ["id": fixture.id, "name": "Saved service", "type": "quarkus.maven", "module": "app", "workingDirectory": "nested",
+                 "mainClass": "opaque/entry:1", "jvmArguments": ["-Dvalue=one two", "雪"], "programArguments": ["--team"], "mavenProfiles": ["team"]],
+                ["id": "user:java", "name": "Unrelated Java", "type": "java.current-file", "workingDirectory": "."]
+            ]], to: fixture.team)
+        }
+        if format != "team-v1" {
+            try fixture.write(["version": 1, "annotation": "v1 local", "configurations": [
+                ["id": fixture.id, "workingDirectory": "nested/app/work", "programArguments": ["--local=雪"], "mavenProfiles": ["local"]]
+            ]], to: fixture.local)
+        }
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: MigrationPreferences())
+        _ = try store.generate(at: fixture.root, files: [], modulePaths: [], javaEntrypoints: nil,
+            projectOwnership: fixture.projects, providerRuns: fixture.runs, models: fixture.models, lease: RunConfigurationGenerationLease())
+        let resolved = try store.resolve(at: fixture.root, toolchainCandidates: [])
+        #expect(resolved.configurations.filter { $0.configuration.buildProvider != nil }.map { $0.configuration.id } == [fixture.id])
+        #expect(resolved.defaultConfigurationID == fixture.id)
+        let inputs = try store.providerLaunchInputs(at: fixture.root, configurationID: fixture.id, providerRoot: "nested")
+        #expect(inputs.launchOptions.entrypoint == "opaque/entry:1")
+        #expect(inputs.launchOptions.arguments == ["--local=雪"])
+        #expect(inputs.launchOptions.workingDirectory == "nested/app/work")
+        if format != "team-v1" { #expect(inputs.optionOverrides["profiles"] == .array([.string("local")])) }
+        if format != "local-v1" {
+            #expect(resolved.configurations.contains { $0.configuration.id == "user:java" && $0.configuration.kind == .currentFile })
+            #expect((try fixture.read(fixture.team)["version"] as? Int) == 2)
+        }
+        let before = try fixture.bytes()
+        _ = try store.generate(at: fixture.root, files: [], modulePaths: [], javaEntrypoints: nil,
+            projectOwnership: fixture.projects, providerRuns: fixture.runs, models: fixture.models, lease: RunConfigurationGenerationLease())
+        #expect(try fixture.bytes() == before)
+    }
+
     @Test
     func generationMigratesBothLayersWithStableIDsAndNoDuplicateService() throws {
         let fixture = try Fixture()
@@ -254,4 +389,5 @@ private final class MigrationPreferences: KeyValueStore, @unchecked Sendable {
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+    func keys(withPrefix prefix: String) -> [String]? { values.keys.filter { $0.hasPrefix(prefix) }.sorted() }
 }

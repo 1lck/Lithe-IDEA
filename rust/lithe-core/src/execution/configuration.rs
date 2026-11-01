@@ -2353,59 +2353,10 @@ pub fn provider_launch_inputs(request: ProviderLaunchInputsRequest) -> Result<Va
             "launchOptions":options,"optionOverrides":choices.options,"reference":reference}),
         );
     }
-    let maven = &config["extensions"]["maven"];
-    if !maven.is_object() || config["provider"].as_str().is_none() {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Run configuration has no provider-owned launch inputs.",
-        ));
-    }
-    if maven["reactorPath"]
-        .as_str()
-        .is_some_and(|path| path != request.provider_root)
-    {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Run configuration belongs to a different provider instance.",
-        ));
-    }
-    let module = maven["module"].as_str().unwrap_or(".");
-    let project = workspace_maven_path(Some(&request.provider_root), module);
-    if invalid_relative_path(module) || !project_directory_exists(&root, &project) {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Run configuration project is unavailable.",
-        ));
-    }
-    let mut options = json!({"execution":config["execution"],"runtimeArguments":maven["jvmArguments"].as_array().cloned().unwrap_or_default(),
-        "arguments":maven["programArguments"].as_array().cloned().unwrap_or_default(),"environment":config["env"]});
-    if explicit_cwd {
-        options["workingDirectory"] = config["cwd"].clone();
-    }
-    if let Some(main) = maven["mainClass"]
-        .as_str()
-        .filter(|value| !value.is_empty())
-    {
-        options["entrypoint"] = json!(main);
-    }
-    if config["provider"] == "maven.module" {
-        let mut args = config["args"].as_array().cloned().unwrap_or_default();
-        args.extend(options["arguments"].as_array().cloned().unwrap_or_default());
-        options["arguments"] = json!(args);
-    }
-    let mut overrides = json!({});
-    if let Some(profiles) = maven["profiles"]
-        .as_array()
-        .filter(|values| !values.is_empty())
-    {
-        overrides["profiles"] = json!(profiles);
-    }
-    if let Some(skip) = maven["skipTests"].as_bool() {
-        overrides["skipTests"] = json!(skip);
-    }
-    Ok(
-        json!({"buildSystemID":"maven","provider":config["provider"],"projectPath":project,"launchOptions":options,"optionOverrides":overrides}),
-    )
+    Err(CoreError::new(
+        ErrorCode::InvalidRequest,
+        "Run configuration has no provider-owned launch inputs.",
+    ))
 }
 
 /// Resolves one configuration into the exact executable, arguments, and environment.
@@ -3540,9 +3491,14 @@ fn unique_user_configuration_id(
 fn split_arguments(input: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut current = String::new();
+    let mut started = false;
     let mut quote = None;
     let mut escaped = false;
     for character in input.chars() {
+        // Quoting can deliberately start an empty argv item.
+        if !character.is_whitespace() || quote.is_some() || escaped {
+            started = true;
+        }
         if escaped {
             current.push(character);
             escaped = false;
@@ -3557,8 +3513,9 @@ fn split_arguments(input: &str) -> Vec<String> {
                 current.push(character);
             }
         } else if character.is_whitespace() && quote.is_none() {
-            if !current.is_empty() {
+            if started {
                 result.push(std::mem::take(&mut current));
+                started = false;
             }
         } else {
             current.push(character);
@@ -3567,7 +3524,7 @@ fn split_arguments(input: &str) -> Vec<String> {
     if escaped {
         current.push('\\');
     }
-    if !current.is_empty() {
+    if started {
         result.push(current);
     }
     result

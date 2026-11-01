@@ -190,8 +190,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     }
 
     private func needsProviderLaunch(_ configuration: RunConfiguration, javaLaunch: JavaDebugLaunchTarget?) -> Bool {
-        configurationRunPreparer != nil && javaLaunch == nil && (configuration.kind == .mavenModule || configuration.kind.mavenFramework != nil
-            || configuration.buildProvider?.execution != nil)
+        configurationRunPreparer != nil && javaLaunch == nil && configuration.buildProvider?.execution != nil
     }
 
     /// Debug uses the same canonical inputs and process owner as Run. Only the
@@ -232,10 +231,8 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                 && self.providerLaunchRevision == revision && self.generationRevision == generated
                 && self.primaryExecutionID == identity && self.isRunning
         }
-        let root: String
-        if let reference = configuration.buildProvider { root = reference.root }
-        else if let context = try mavenContext(for: configuration) { root = context.reactorPath }
-        else { throw CancellationError() }
+        guard let configurationReference = configuration.buildProvider else { throw CancellationError() }
+        let root = configurationReference.root
         guard valid() else { throw CancellationError() }
         let operations = runConfigurationOperations
         let original = try await Task.detached(priority: .userInitiated) {
@@ -255,10 +252,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         choices.debug = selected
         let inputs = ProviderLaunchInputs(buildSystemID: original.buildSystemID, provider: original.provider,
             projectPath: original.projectPath, launchOptions: choices, optionOverrides: original.optionOverrides, reference: original.reference)
-        let tool = configuration.buildProvider == nil
-            ? try buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: root)
-            : BuildProviderHints()
-        let prepared = try await prepare(inputs, root, workspace, tool, valid, { [weak self] value in
+        let prepared = try await prepare(inputs, root, workspace, BuildProviderHints(), valid, { [weak self] value in
             if valid() { self?.append(value.output ?? value.message.map { $0 + "\n" } ?? "") }
         }) { value in
             guard valid() else { throw CancellationError() }
@@ -316,10 +310,8 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             }
             do {
                 guard current() else { throw CancellationError() }
-                let providerRoot: String
-                if let reference = configuration.buildProvider { providerRoot = reference.root }
-                else if let context = try self.mavenContext(for: configuration) { providerRoot = context.reactorPath }
-                else { throw RunConfigurationOperationFailure(message: L10n.string("Load the current build model and enable its provider before running this configuration.")) }
+                guard let reference = configuration.buildProvider else { throw CancellationError() }
+                let providerRoot = reference.root
                 let operations = self.runConfigurationOperations
                 let inputs = try await Task.detached(priority: .userInitiated) {
                     try operations.providerLaunchInputs(at: workspace, configurationID: configuration.id, providerRoot: providerRoot)
@@ -330,10 +322,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                     if primary { self.primaryProviderSource = owner }
                     else { self.moduleProviderSources[configuration.id] = owner }
                 }
-                let tool = configuration.buildProvider == nil
-                    ? try self.buildProviderHints(for: configuration, toolchain: "project-maven", workingDirectory: providerRoot)
-                    : BuildProviderHints()
-                let prepared = try await prepare(inputs, providerRoot, workspace, tool, current, { [weak self] value in
+                let prepared = try await prepare(inputs, providerRoot, workspace, BuildProviderHints(), current, { [weak self] value in
                     guard let self, current() else { return }
                     let text = value.output ?? value.message.map { $0 + "\n" } ?? ""
                     if primary { self.append(text) } else { self.appendModuleOutput(text, sessionID: configuration.id) }

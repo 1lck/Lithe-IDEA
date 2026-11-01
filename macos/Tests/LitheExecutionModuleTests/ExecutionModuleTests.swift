@@ -3021,9 +3021,9 @@ private final class TestLanguageExecutionSession: LanguageExecutionSession {
 }
 
 
-/// Two Maven services with resolved choices. Any legacy goal-planning call fails the test.
+/// Two saved Provider services. Any legacy goal-planning call fails the test.
 private struct ProviderChoicesRunOperations: RunConfigurationOperations {
-    var withReference = false
+    var withReference = true
     var configurations: [RunConfiguration] { ["first", "second"].map { id in RunConfiguration(id: id, name: id,
         kind: withReference ? .process(provider: "build.provider") : .mavenFramework(.quarkus), execution: .service, modulePath: id, mainClass: nil, mavenReactorPath: withReference ? nil : ".",
         buildProvider: withReference ? .init(pluginID: "dev.first", buildSystemID: "maven", root: ".", run: "service", projectID: id, targetID: "service", execution: .service) : nil) } }

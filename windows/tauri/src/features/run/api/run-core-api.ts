@@ -193,5 +193,6 @@ function scopedRunOptions(root: string, scope: RunSaveScope, options: RunOptions
     javaHomePath,
     mavenExecutablePath,
     mavenJavaHomePath,
+    ...(options.providerRunOptions === undefined ? {} : { providerRunOptions: structuredClone(options.providerRunOptions) }),
   };
 }

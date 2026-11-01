@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import argumentFixture from "../../../../../../shared/fixtures/run-configuration/argument-text.json";
+import choicesFixture from "../../../../../../shared/fixtures/run-configuration/build-provider-options.json";
 import {
   configurationsForExecution,
   infrastructureConfigurations,
@@ -12,9 +14,27 @@ import {
   projectScopedPath,
   selectedToolchainCandidates,
   workspaceRelativePath,
+  joinArguments,
+  runOptionsFromConfiguration,
 } from "./run-configuration";
 
 describe("run configuration mapping", () => {
+  test("argument editor text matches the shared argv grammar", () => {
+    for (const entry of argumentFixture.cases) expect(joinArguments(entry.values)).toBe(entry.text);
+  });
+
+  test("portable Provider choices survive mapping and independent editor drafts", () => {
+    const choices = structuredClone(choicesFixture.choices);
+    const configuration = mapCoreConfiguration({ id: "imported:service", name: "Service", provider: "build.provider", execution: "service",
+      args: choicesFixture.arguments, extensions: { build: { ...choicesFixture.reference, execution: "service" }, "build-run": choices } });
+    const draft = runOptionsFromConfiguration(configuration);
+    choices.runtimeArguments.length = 0;
+    expect(draft.providerRunOptions).toEqual(choicesFixture.choices);
+    expect(draft.programArguments).toBe(joinArguments(choicesFixture.arguments));
+    draft.providerRunOptions!.runtimeArguments.length = 0;
+    expect(configuration.providerRunOptions).toEqual(choicesFixture.choices);
+    expect(runOptionsFromConfiguration(mapCoreConfiguration({ id: "user:old", name: "Old", provider: "build.provider" })).providerRunOptions).toBeUndefined();
+  });
   test("saved Provider references retain their exact selector and execution without inventing process data", () => {
     const reference = { pluginID: "dev.example.build", buildSystemID: "example", root: "reactor", run: "serve",
       projectID: "app", targetID: "exact-target", execution: "service" as const, userArguments: ["", "two words"] };

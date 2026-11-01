@@ -135,7 +135,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             return String(value.path.dropFirst(root.path.count + 1))
         }
         let migration = MacLegacyMavenRunConfigurationMigration(storage: storage, preferences: preferences, immutableRoots: immutableRoots)
-        let plan = try providerRuns.map { try migration.prepare(workspace: root, projects: projectOwnership ?? [], runs: $0, models: models, lease: lease) }
         try lease.check()
         let result = try core.generateRunConfiguration(
             at: root,
@@ -147,6 +146,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
 
         ).get()
         try lease.check()
+        let plan = try providerRuns.map { try migration.prepare(workspace: root, projects: projectOwnership ?? [], runs: $0,
+            models: models, generatedDocument: JSONEncoder().encode(result.generated), lease: lease) }
         if let plan, !plan.writes.isEmpty {
             let decoder = JSONDecoder()
             let team = try plan.teamDocument.map { try decoder.decode(ToolingJSONValue.self, from: $0) }
@@ -190,8 +191,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 options: RunOptions(
                     javaHomePath: java?.homePath ?? "",
                     workingDirectoryPath: (value.cwd ?? ".") == "." ? "" : (value.cwd ?? "."),
-                    vmArguments: (maven?.jvmArguments ?? []).joined(separator: " "),
-                    programArguments: (maven?.programArguments ?? value.args ?? []).joined(separator: " "),
+                    vmArguments: RunArgumentText.format(maven?.jvmArguments ?? []),
+                    programArguments: RunArgumentText.format(maven?.programArguments ?? value.args ?? []),
                     activeProfiles: Set(maven?.profiles ?? []),
                     mavenSkipTests: maven?.skipTests,
                     mavenExecutablePath: java?.mavenExecutablePath ?? "",

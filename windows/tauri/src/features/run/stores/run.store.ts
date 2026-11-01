@@ -8,7 +8,7 @@ import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createTranslator } from "@/i18n/locale";
-import { isWindowsBuildProviderRunAdmitted, startWindowsBuildProviderRun } from "@/platform/build-provider-run";
+import { startWindowsBuildProviderRun } from "@/platform/build-provider-run";
 import type { BuildProviderRunHandle } from "../services/build-provider-run-launch";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
@@ -58,6 +58,7 @@ import {
   recoveryActionForError,
   recoveryPathFromMessage,
   configurationUsesMaven,
+  runOptionsFromConfiguration,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
 import { prepareJavaRunLaunch, usesJavaProjectPreparation } from "../services/java-run-launch";
@@ -191,7 +192,6 @@ interface RunState {
 export interface RunStoreDependencies {
   saveBuildProviderRun?: typeof saveBuildProviderRun;
   startBuildProviderRun?: typeof startWindowsBuildProviderRun;
-  isBuildProviderRunAdmitted?: typeof isWindowsBuildProviderRunAdmitted;
   inspectRunConfiguration?: typeof inspectRunConfiguration;
   resolveConfigurations?: typeof resolveConfigurations;
   createLaunchPlan: typeof createLaunchPlan;
@@ -223,7 +223,6 @@ function seedMavenLocalConfiguration(workspaceId: string, settings: Partial<Mave
 
 const defaultRunStoreDependencies: RunStoreDependencies = {
   startBuildProviderRun: startWindowsBuildProviderRun,
-  isBuildProviderRunAdmitted: isWindowsBuildProviderRunAdmitted,
   createLaunchPlan,
   mavenLaunchContextForWorkspace,
   resolveRunLaunch,
@@ -360,16 +359,7 @@ function mavenProcessPaths(
 }
 
 function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
-  return {
-    javaHomePath: configuration.javaHomePath,
-    mavenExecutablePath: configuration.mavenExecutablePath,
-    mavenJavaHomePath: configuration.mavenJavaHomePath,
-    mavenSkipTests: configuration.mavenSkipTests,
-    workingDirectoryPath: configuration.cwd,
-    vmArguments: configuration.jvmArguments.join(" "),
-    programArguments: configuration.programArguments.join(" "),
-    environment: configuration.env,
-  };
+  return runOptionsFromConfiguration(configuration);
 }
 
 async function readRunProjectSnapshot(
@@ -972,12 +962,10 @@ export const createRunStore = (
           }
           await save;
           if (!isCurrent()) return null;
-          const legacyProvider = !configuration.buildProvider && configuration.execution !== "group"
-            && (configuration.provider === "maven.module" || configuration.provider.endsWith(".maven"));
-          const providerRun = Boolean(configuration.buildProvider) || (legacyProvider
-            && await (dependencies.isBuildProviderRunAdmitted ?? isWindowsBuildProviderRunAdmitted)(debugPort !== undefined));
-          if (!isCurrent()) return null;
-          if (providerRun) {
+          if (configuration.buildProvider) {
+            if (debugPort !== undefined) {
+              throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("build.errors.unsupportedSource"));
+            }
             if (sessionId !== PRIMARY_SESSION_ID) set((current) => ({ selectedSessionId: sessionId,
               sessions: [...current.sessions.filter(session => session.id !== sessionId), { id: sessionId, configurationId: configuration.id,
                 executionId, title: configuration.name, output: "", isRunning: false, isPreparing: true, exitCode: null }] }));
@@ -990,9 +978,8 @@ export const createRunStore = (
             };
             const startProvider = dependencies.startBuildProviderRun ?? startWindowsBuildProviderRun;
             const handle = startProvider({ workspaceId, root, configurationId: configuration.id, name: configuration.name,
-              ...(configuration.buildProvider ? { reference: configuration.buildProvider } : { source: { buildSystemID: "maven",
-                root: configuration.mavenReactorPath ?? ".", provider: configuration.provider, execution: configuration.execution as "application" | "service" | "task" } }),
-              sessionId, executionId, debugPort, runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
+              reference: configuration.buildProvider,
+              sessionId, executionId, runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
               isCurrent, onRevoked: stopPresentation,
               onOutput: text => { if (isCurrent()) get().actions.appendOutput(sessionId, text); },
               onReady: launch => {

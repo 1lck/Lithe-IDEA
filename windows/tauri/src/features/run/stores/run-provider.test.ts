@@ -8,7 +8,7 @@ function deferred() {
   let resolve!: () => void, reject!: (error: unknown) => void;
   const promise = new Promise<void>((done, failed) => { resolve = done; reject = failed; }); return { promise, resolve, reject };
 }
-function fixture(provider = "build.provider", admitted = false, save?: RunStoreDependencies["saveBuildProviderRun"]) {
+function fixture(provider = "build.provider", save?: RunStoreDependencies["saveBuildProviderRun"]) {
   const configuration = mapCoreConfiguration({ id: "user:service", name: "Provider service", provider, execution: "service", source: "local",
     extensions: provider === "build.provider" ? { build: { pluginID: "dev.example.build", buildSystemID: "example", root: ".", run: "serve", projectID: "app", targetID: "exact",
       execution: "service", userArguments: ["", "two words"] } } : { maven: { reactorPath: "nested", module: "app" } } });
@@ -17,7 +17,6 @@ function fixture(provider = "build.provider", admitted = false, save?: RunStoreD
   const entered = deferred(), replacementEntered = deferred(), legacy = mock(async () => { throw new Error("legacy planning must not run"); });
   const store = createRunStore("provider-run-store", {
     saveBuildProviderRun: save,
-    isBuildProviderRunAdmitted: async () => admitted,
     inspectRunConfiguration: async () => ({ status: "ready" }),
     resolveConfigurations: async () => ({ configurations: [configuration], diagnostics: [], defaultConfigurationId: null,
       discoveredJava: [], discoveredMaven: [], discoveredRuntimes: [], globalToolchain: EMPTY_GLOBAL_TOOLCHAIN, effectiveRuntimeExecutablePaths: {} }),
@@ -53,21 +52,33 @@ test("saved Provider runs use the existing service session and retain preparatio
   } finally { await f.close(); await running; }
 }, 5000);
 
-test("an admitted framework configuration uses Provider preparation and preserves its existing service ID", async () => {
-  const f = fixture("spring-boot.maven", true), running = f.store.getState().actions.runConfigurationInstance(f.configuration.id);
+test("a migrated Provider reference retains its historical ID without a name-based route", async () => {
+  const f = fixture(); f.configuration.id = "spring-boot.maven:old";
+  const running = f.store.getState().actions.runConfigurationInstance(f.configuration.id);
   try {
     await f.entered; const entry = f.entries[0]!;
-    expect(entry.request.reference).toBeUndefined(); expect(entry.request.source).toEqual({ buildSystemID: "maven", root: "nested", provider: "spring-boot.maven", execution: "service" });
+    expect(entry.request.reference).toEqual(f.configuration.buildProvider!);
+    expect(entry.request.configurationId).toBe("spring-boot.maven:old");
     entry.gate.resolve(); expect(await running).toEqual({ sessionId: f.configuration.id, executionId: entry.request.executionId });
     expect(f.legacy).not.toHaveBeenCalled();
   } finally { await f.close(); await running; }
 }, 5000);
 
-test("a host with closed Build admission preserves the existing framework route", async () => {
-  const f = fixture("spring-boot.maven", false);
+test("an unmigrated framework name does not grant access to the Provider route", async () => {
+  const f = fixture("spring-boot.maven");
   try {
     expect(await f.store.getState().actions.runConfigurationInstance(f.configuration.id)).toBeNull();
     expect(f.entries).toEqual([]); expect(f.legacy).toHaveBeenCalled();
+  } finally { await f.close(); }
+}, 5000);
+
+test("a numeric debug port cannot silently turn a saved Provider run into an ordinary process", async () => {
+  const f = fixture();
+  try {
+    expect(await f.store.getState().actions.runConfigurationInstance(f.configuration.id, undefined, 51235)).toBeNull();
+    expect(f.entries).toHaveLength(0);
+    expect(f.legacy).not.toHaveBeenCalled();
+    expect(f.store.getState().sessions[0]).toMatchObject({ isRunning: false, isPreparing: false, exitCode: 1 });
   } finally { await f.close(); }
 }, 5000);
 
@@ -127,7 +138,7 @@ test("project reload cancels pending Provider preparation while a completed nati
 test("Build Save and Run uses a cold Run store while pane reload waits for its native acknowledgement", async () => {
   const saveEntered = deferred(), save = deferred();
   const writes: unknown[] = [];
-  const f = fixture("build.provider", false, async (root, reference, name) => {
+  const f = fixture("build.provider", async (root, reference, name) => {
     writes.push({ root, reference, name }); saveEntered.resolve(); await save.promise; return "user:service";
   });
   f.store.setState({ root: null, configurations: [] });
@@ -147,7 +158,7 @@ test("Build Save and Run uses a cold Run store while pane reload waits for its n
 }, 5000);
 
 test("Build Save and Run refuses a changed readback instead of launching another selector", async () => {
-  const f = fixture("build.provider", false, async () => {
+  const f = fixture("build.provider", async () => {
     f.configuration.buildProvider!.targetID = "replacement"; return "user:service";
   });
   const reference = structuredClone(f.configuration.buildProvider!);
@@ -159,7 +170,7 @@ test("Build Save and Run refuses a changed readback instead of launching another
 
 test("revoking a Build target during save retains the saved intent but never starts its process", async () => {
   const entered = deferred(), saved = deferred(); let current = true;
-  const f = fixture("build.provider", false, async () => { entered.resolve(); await saved.promise; return "user:service"; });
+  const f = fixture("build.provider", async () => { entered.resolve(); await saved.promise; return "user:service"; });
   const running = f.store.getState().actions.runBuildTarget("C:/work", f.configuration.buildProvider!, "Service", () => {
     if (!current) throw new DOMException("Aborted", "AbortError");
   });
@@ -171,7 +182,7 @@ test("revoking a Build target during save retains the saved intent but never sta
 
 test("Stop while a Build reference save ignores cancellation cannot start a late Run", async () => {
   const entered = deferred(), saved = deferred(), cancel = new AbortController();
-  const f = fixture("build.provider", false, async () => { entered.resolve(); await saved.promise; return "user:service"; });
+  const f = fixture("build.provider", async () => { entered.resolve(); await saved.promise; return "user:service"; });
   const running = f.store.getState().actions.runBuildTarget("C:/work", f.configuration.buildProvider!, "Service", () => {}, cancel.signal);
   try {
     await entered.promise; cancel.abort(); saved.resolve();
@@ -180,7 +191,7 @@ test("Stop while a Build reference save ignores cancellation cannot start a late
 }, 5000);
 
 test("Stop after a Build target save cancels the exact Provider preparation", async () => {
-  const cancel = new AbortController(), f = fixture("build.provider", false, async () => "user:service");
+  const cancel = new AbortController(), f = fixture("build.provider", async () => "user:service");
   const running = f.store.getState().actions.runBuildTarget("C:/work", f.configuration.buildProvider!, "Service", () => {}, cancel.signal);
   try {
     await f.entered; const entry = f.entries[0]!; cancel.abort();

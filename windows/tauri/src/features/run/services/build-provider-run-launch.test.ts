@@ -175,16 +175,16 @@ test("saved launch arguments edited during preparation cannot use the old plan w
 
 test("a configuration-owned Run reads its private Profiles and selected module Maven/JDK without replacing defaults", async () => {
   const f = fixture(); f.selectConfigurationTools(); const read = f.ports.inputs;
-  f.ports.inputs = async (...args) => ({ ...await read(...args), reference: undefined, provider: "Application", projectPath: "app",
+  f.ports.inputs = async (...args) => ({ ...await read(...args), projectPath: "app",
     optionOverrides: { profiles: ["run-only"], skipTests: false } });
   try {
-    const run = f.start("legacy", { reference: undefined, source: { buildSystemID: defaultReference.buildSystemID, root: ".", provider: "Application", execution: "service" } });
+    const run = f.start("saved");
     await run.completion;
     expect(f.providerInputs.some(input => JSON.stringify(input.options) === JSON.stringify({ profiles: ["run-only"], skipTests: false }))).toBe(true);
     expect(f.resolved[0]).toMatchObject({ mavenExecutablePath: "C:/module/mvn.cmd", mavenJavaHomePath: "C:/module/jdk" });
     const entry = f.workspace.snapshot().entries[0]!; expect(entry.options).toEqual({}); expect(f.workspace.domain.hasCurrentModel(entry)).toBe(false);
     expect(f.configurationIDs).toContain("user:serve");
-    await f.processes.stop(undefined, defaultReference.pluginID); expect(f.nativeStops).toEqual([["legacy", "execution:legacy"]]);
+    await f.processes.stop(undefined, defaultReference.pluginID); expect(f.nativeStops).toEqual([["saved", "execution:saved"]]);
   } finally { await f.close(); }
 }, 5000);
 

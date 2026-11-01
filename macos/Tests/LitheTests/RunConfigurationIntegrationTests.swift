@@ -10,6 +10,26 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func argumentEditorTextPreservesExactArgvThroughNativeStorageAndCore() throws {
+        struct Fixture: Decodable { struct Entry: Decodable { let values: [String]; let text: String }; let cases: [Entry] }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/run-configuration/argument-text.json")))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("run-argument-text-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore())
+        let reference = BuildProviderRunReference(pluginID: "dev.example.engine", buildSystemID: "engine", root: ".", run: "task",
+            projectID: "project", targetID: "target", execution: .task)
+        let id = try store.saveBuildProviderConfiguration(reference, name: "Arguments", at: root)
+        for entry in fixture.cases {
+            #expect(RunArgumentText.format(entry.values) == entry.text)
+            try store.saveOptions(RunOptions(programArguments: entry.text), configurationID: id, scope: .local, at: root)
+            let resolved = try #require(store.resolve(at: root, toolchainCandidates: []).configurations.first { $0.configuration.id == id })
+            #expect(resolved.options.programArguments == entry.text)
+            #expect(try store.providerLaunchInputs(at: root, configurationID: id, providerRoot: ".").launchOptions.arguments == entry.values)
+        }
+    }
+
+    @Test
     func nativeGenerationUsesProviderOwnershipThroughTheRealBridgeWithoutReadingPomsForJavaMembership() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-generation-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -288,9 +308,12 @@ struct RunConfigurationIntegrationTests {
         #expect(configuration(.javaMain, reactor: ".").usesJavaProjectPreparation)
         #expect(!configuration(.springBoot, reactor: ".").usesJavaProjectPreparation)
         #expect(configuration(.springBoot, reactor: ".", source: "src/Main.java").usesJavaProjectPreparation)
-        #expect(configuration(.springBoot, reactor: ".").usesProviderFrameworkLaunch)
-        #expect(!configuration(.springBoot, reactor: ".", source: "src/Main.java").usesProviderFrameworkLaunch)
-        #expect(configuration(.mavenFramework(.quarkus), reactor: ".", source: "src/Main.java").usesProviderFrameworkLaunch)
+        #expect(!configuration(.springBoot, reactor: ".").usesProviderConnectionDebug)
+        #expect(!configuration(.mavenFramework(.quarkus), reactor: ".").usesProviderConnectionDebug)
+        let service = RunConfiguration(id: "imported:service", name: "Service", kind: .process(provider: "build.provider"),
+            modulePath: nil, mainClass: nil, buildProvider: .init(pluginID: "dev.example.engine", buildSystemID: "engine", root: ".",
+                run: "serve", projectID: "project", targetID: "target", execution: .service))
+        #expect(service.usesProviderConnectionDebug)
         #expect(!RunConfigurationKind.mavenModule.capabilities.contains(.jdwpDebug))
     }
 

@@ -10,8 +10,7 @@ export interface PreparedNativeBuildRun {
 }
 export interface BuildProviderRunRequest {
   workspaceId: string; root: string; configurationId: string; name: string;
-  reference?: BuildProviderRunReference;
-  source?: { buildSystemID: string; root: string; provider: string; execution: "application" | "service" | "task" };
+  reference: BuildProviderRunReference;
   sessionId: string; executionId: string;
   debug?: NonNullable<BuildProviderLaunchInputs["launchOptions"]["debug"]>;
   runtimeExecutablePaths: Record<string, string>;
@@ -36,8 +35,8 @@ function sameReference(left: BuildProviderRunReference, right: BuildProviderRunR
 /** Provider preparation hands a validated plan to the existing native Run
  * process and declarative-plugin owner. No build command or classpath is made here. */
 export function startBuildProviderRun(request: BuildProviderRunRequest, ports: BuildProviderRunPorts): BuildProviderRunHandle {
-  const reference = request.reference && structuredClone(request.reference), source = request.source && structuredClone(request.source);
-  const identity = reference ?? source, controller = new AbortController(), pending = new Set<Promise<unknown>>();
+  const reference = request.reference && structuredClone(request.reference);
+  const controller = new AbortController(), pending = new Set<Promise<unknown>>();
   let cleanupGeneration = 0;
   const cleanups: Array<() => Promise<void>> = [];
   const ownCleanup = (release: () => Promise<void>) => {
@@ -68,22 +67,20 @@ export function startBuildProviderRun(request: BuildProviderRunRequest, ports: B
   const stopNative = ownCleanup(() => ports.stop(request.sessionId, request.executionId));
   const completion = ports.processes.start(request.executionId, request.workspaceId, reference?.pluginID ?? "", async bindExtension => {
     assertCurrent();
-    if (!identity || Boolean(reference) === Boolean(source)) throw ports.unavailable();
+    if (!reference) throw ports.unavailable();
     const workspace = ports.workspace(request.workspaceId, request.root);
     if (!workspace) throw ports.unavailable();
     await wait(workspace.ensureDetected(true)); assertCurrent();
     if (workspace.snapshot().status === "failed") throw new Error(workspace.snapshot().error ?? ports.unavailable().message);
-    const entries = workspace.snapshot().entries.filter(entry => (!reference || entry.pluginID === reference.pluginID)
-      && entry.buildSystemID === identity.buildSystemID && entry.root === identity.root);
+    const entries = workspace.snapshot().entries.filter(entry => entry.pluginID === reference.pluginID
+      && entry.buildSystemID === reference.buildSystemID && entry.root === reference.root);
     if (entries.length !== 1) throw ports.unavailable();
     const entry = entries[0]!;
     bindExtension(entry.pluginID);
     const catalogCurrent = () => { assertCurrent(); if (!workspace.snapshot().entries.includes(entry)) throw ports.unavailable(); };
     const inputs = await wait(ports.inputs(request.root, request.configurationId, entry.root)); catalogCurrent();
-    if (inputs.buildSystemID !== identity.buildSystemID || Boolean(reference) !== Boolean(inputs.reference)
-      || (reference && (!inputs.reference || !sameReference(reference, inputs.reference) || inputs.provider !== reference.run
-        || inputs.launchOptions.execution !== (reference.execution ?? "application")))
-      || (source && (inputs.provider !== source.provider || inputs.launchOptions.execution !== source.execution))) throw ports.unavailable();
+    if (inputs.buildSystemID !== reference.buildSystemID || !inputs.reference || !sameReference(reference, inputs.reference)
+      || inputs.provider !== reference.run || inputs.launchOptions.execution !== (reference.execution ?? "application")) throw ports.unavailable();
     const scope = workspace.domain.createRunScope(entry, inputs, request.configurationId), models = new BuildModelPreparationOwner(scope.domain, scope.requiredOptions);
     const release = ownCleanup(async () => { models.dispose(); await scope.dispose(); });
     try {

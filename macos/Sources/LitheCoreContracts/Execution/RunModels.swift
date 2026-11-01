@@ -270,12 +270,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
 
     /// Saved provider services may attach through their declared registry type.
     package var usesProviderConnectionDebug: Bool {
-        buildProvider?.execution == .service || usesProviderFrameworkLaunch
-    }
-
-    /// Framework dev goals retain their Maven lifecycle; an explicit Spring Java entry uses JDT.
-    package var usesProviderFrameworkLaunch: Bool {
-        kind.mavenFramework != nil && !(kind == .springBoot && sourcePath?.lowercased().hasSuffix(".java") == true)
+        buildProvider?.execution == .service
     }
 
     package init(

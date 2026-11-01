@@ -87,6 +87,33 @@ Core C ABI、共享契约、服务/Windows 边界、安装包只读、i18n、Age
 工具路径，以及需要解释旧应用/隐式目标语义的模块配置。工具相关转换必须等待 #1581，
 不能在这里再建 Maven/JDK 选择链。整体迁移和 Core Maven 字段删除仍未完成。
 
+### 旧输入和正常 Provider 路径收尾（2026-11-01）
+
+已补齐 Run v1/v2 混合层的格式转换、可确认活动偏好的转移和隐式模块目标保存。
+创建 local.json 前枚举旧偏好命名空间，同时转移可确认的 Java 选项，避免触发旧导入器
+“已有本机文件就跳过”的边界。显式本机字段优先，来源字节、键清单与标记在发布前后
+复核；新文件使用 0600，取消只条件删除自身输出并清理空目录。已转移偏好只作兼容窗口
+的回滚记录，不再参与正常解析；窗口关闭时与迁移器一起移除。
+
+Core 的 providerLaunchInputs 已删除 Maven 扩展解释，只接收完整通用选择器。
+macOS 删除按旧框架/模块名选择工具的 Provider 路径；Windows 删除未准入的同名入口，
+完整保存引用保持原 ID。既有 Java/Windows 旧引擎的最终删除仍按当前消费者处理，
+不能将其接回新 Provider 路径。Windows 数字端口旧调用不能静默变成普通运行；
+实际 Registry 调试接线仍需独立验收。
+
+空模块目标原样交给提供者，由 Maven 自身处理 defaultGoal 或无目标错误；保存的
+运行时/入口选择也保留，由提供者明确验证。两端编辑器使用同一 argv fixture，
+保留空参数、空格、引号、反斜杠和 Unicode；Windows 映射与保存携带通用选项快照。
+
+当前 Core 1442 项通过；macOS 297 条回归计时加 1 项活动偏好变化回归通过，另有
+1 项条件跳过；真实 Core→Maven 20 步通过，包含默认目标实际执行与插件包清单不变。
+Windows Run/Build 回归和生产 bundle/typecheck 已通过，最终计数随本轮汇总报告登记。
+
+用户已允许不等待 #1581 正式合并，先固定 b87c7f60dd80f851695d7052b5287a5c93c7fa46
+进行独立工作树的集成验证；这调整 review 的等待顺序，不授权合并或发布。
+下一步接 toolDefinitions/toolchainProviders，删除宿主专属工具注册和对应旧元数据。
+Windows 实机验证使用现有 Windows CI，避免在无 Parallels 的本机声称原生通过。
+
 ### D-MIGRATION-REMOVAL：旧 Maven 数据迁移器清理
 
 这是 #1495 下独立跟踪的删除项，状态为未完成。`MacLegacyMavenConfigurationMigration`
