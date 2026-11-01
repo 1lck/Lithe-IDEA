@@ -9746,7 +9746,11 @@
     "native.logInfoLevel": "Info",
     "native.lspNotStarted": "Not started",
     "native.noRegisteredLanguageServers": "No registered language servers",
-    "native.languageServerStillStopping": "The language server is still stopping. Try again after it has stopped."
+    "native.languageServerStillStopping": "The language server is still stopping. Try again after it has stopped.",
+    "agent.history.provider": "Conversation provider",
+    "agent.history.allProviders": "All providers",
+    "agent.history.unknownProvider": "Unknown provider",
+    "agent.history.providerHint": "Try another search or provider filter."
   },
   "overrides": {
     "windows": {

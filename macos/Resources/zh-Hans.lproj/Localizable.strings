@@ -311,6 +311,7 @@
 "All modules" = "全部模块";
 "All projects" = "所有项目";
 "All projects · project can override" = "所有项目 · 项目可覆盖";
+"All providers" = "全部供应商";
 "All servers" = "所有服务器";
 "All sessions" = "全部会话";
 "All severities" = "全部级别";
@@ -934,6 +935,7 @@
 "Conversation continued from a summary" = "对话已从摘要继续";
 "Conversation history" = "对话历史";
 "Conversation history is unavailable" = "当前无法读取对话历史";
+"Conversation provider" = "对话供应商";
 "Conversation tabs" = "会话标签";
 "Conversation title" = "会话标题";
 "Conversations for this project and Agent appear here." = "此项目和 Agent 的会话会显示在这里。";
@@ -4351,6 +4353,7 @@
 "Try Again" = "重试";
 "Try a branch name or checkout path." = "请尝试输入分支名称或检出路径。";
 "Try a different search term." = "请尝试其他搜索词。";
+"Try another search or provider filter." = "试试其他搜索条件或供应商筛选。";
 "Try another title or session ID." = "试试其他标题或会话 ID。";
 "Try another title, author, number, or label." = "请尝试其他标题、作者、编号或标签。";
 "Turn on MCP to generate a configuration for agents." = "开启 MCP 后会生成供 Agent 使用的配置。";
@@ -4402,6 +4405,7 @@
 "Unknown Keychain error" = "未知的钥匙串错误";
 "Unknown date" = "时间未知";
 "Unknown error" = "未知错误";
+"Unknown provider" = "未知供应商";
 "Unknown source" = "未知来源";
 "Unlink" = "取消关联";
 "Unlinked the pull request" = "已取消关联拉取请求";
@@ -4672,6 +4676,10 @@
 "Zoom in" = "放大";
 "Zoom out" = "缩小";
 "[Line] [:column]:" = "[行] [:列]:";
+"agent.history.allProviders" = "全部供应商";
+"agent.history.provider" = "对话供应商";
+"agent.history.providerHint" = "试试其他搜索条件或供应商筛选。";
+"agent.history.unknownProvider" = "未知供应商";
 "agent.settings.enableSubscription" = "启用";
 "agent.stop" = "停止";
 "ai.add" = "添加";

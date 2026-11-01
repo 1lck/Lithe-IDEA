@@ -74,6 +74,14 @@ unknown. See the
 
 Agent history lists can expose matching summaries as pages arrive while the remaining scan stays loading. Partial results prove presence only; final snapshots reconcile removals, and later failures retain visible rows. History surfaces share connection-local recent snapshots and in-flight requests; manual refresh remains immediate. Workspace/Agent isolation, stale-token rejection and upstream history ownership apply to both partial and final results.
 
+History provider filtering defaults to all providers and uses only upstream-reported
+`modelProvider` identities. Choices span active and archived records; missing metadata
+has an explicit unknown choice. A provider selection composes with title/ID search,
+favorites and local removal, including archive results. It is transient presentation
+state, not a routing or account setting, and never narrows the upstream history scan
+or infers provenance from the active model. Bulk actions remain limited to visible
+eligible records. Empty filtered results do not establish that no history exists.
+
 An Agent that advertises steering can accept supplementary user input while its
 logical turn is active. Input delivery has a separate pending/received/failed
 outcome and does not replace turn ownership, permissions, timing, or Stop.

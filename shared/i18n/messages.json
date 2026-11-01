@@ -93333,6 +93333,54 @@
         "key": "The language server is still stopping. Try again after it has stopped.",
         "arguments": []
       }
+    },
+    {
+      "id": "agent.history.provider",
+      "description": "Agent conversation history provider filtering",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Conversation provider",
+        "arguments": []
+      }
+    },
+    {
+      "id": "agent.history.allProviders",
+      "description": "Agent conversation history provider filtering",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "All providers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "agent.history.unknownProvider",
+      "description": "Agent conversation history provider filtering",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Unknown provider",
+        "arguments": []
+      }
+    },
+    {
+      "id": "agent.history.providerHint",
+      "description": "Agent conversation history provider filtering",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Try another search or provider filter.",
+        "arguments": []
+      }
     }
   ]
 }

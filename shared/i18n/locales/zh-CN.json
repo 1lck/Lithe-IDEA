@@ -9746,7 +9746,11 @@
     "native.logInfoLevel": "信息",
     "native.lspNotStarted": "未启动",
     "native.noRegisteredLanguageServers": "未注册语言服务器",
-    "native.languageServerStillStopping": "语言服务器仍在停止。请在停止完成后重试。"
+    "native.languageServerStillStopping": "语言服务器仍在停止。请在停止完成后重试。",
+    "agent.history.provider": "对话供应商",
+    "agent.history.allProviders": "全部供应商",
+    "agent.history.unknownProvider": "未知供应商",
+    "agent.history.providerHint": "试试其他搜索条件或供应商筛选。"
   },
   "overrides": {
     "macos": {
