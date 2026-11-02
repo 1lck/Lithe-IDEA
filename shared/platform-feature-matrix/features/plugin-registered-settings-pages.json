@@ -15,6 +15,7 @@
       "macos/Tests/LitheTests/PluginSettingsTests.swift",
       "shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json",
       "shared/contracts/plugins/v1/plugin-manifest.schema.json",
+      "scripts/plugins/plugin-settings-schema.test.mjs",
       "macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift",
       "macos/Tests/LitheTests/PluginSettingsLayoutTests.swift"
     ],

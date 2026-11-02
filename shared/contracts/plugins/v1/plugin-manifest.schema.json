@@ -1099,7 +1099,7 @@
           "then": {
             "required": ["pattern"],
             "properties": {
-              "default": { "description": "Never starts with '-' and contains no control characters.", "type": "string", "maxLength": 1024, "pattern": "^(?!-)[^\\u0000-\\u001f\\u007f-\\u009f]*$" },
+              "default": { "$comment": "Use an absolute end assertion: Python's $ also matches before a final LF, unlike ECMAScript without multiline mode.", "description": "Never starts with '-' and contains no control characters.", "type": "string", "maxLength": 1024, "pattern": "^(?!-)[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])" },
               "minimum": false, "maximum": false, "unit": false, "options": false
             },
             "if": { "not": { "required": ["maxLength"] } },
@@ -1130,7 +1130,7 @@
     "settingToken": {
       "description": "Letters, digits, '.', '_', and '-': an option value, or the language or build system ID a settings page names.",
       "type": "string",
-      "pattern": "^[A-Za-z0-9._-]+$",
+      "pattern": "^[A-Za-z0-9._-]+(?![\\s\\S])",
       "maxLength": 120
     },
     "settingPage": {
@@ -1150,12 +1150,12 @@
       "additionalProperties": false,
       "required": ["id", "title", "function"],
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$", "maxLength": 120 },
+        "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(?![\\s\\S])", "maxLength": 120 },
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
         "description": { "type": "string", "maxLength": 480 },
         "page": { "$ref": "#/$defs/settingPage" },
         "section": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "function": { "description": "Plugin function ID: dot-separated lowerCamelCase segments.", "type": "string", "maxLength": 128, "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*$" },
+        "function": { "description": "Plugin function ID: dot-separated lowerCamelCase segments.", "type": "string", "maxLength": 128, "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*(?![\\s\\S])" },
         "confirm": { "description": "Ask before invoking, for actions that discard state.", "type": "boolean" }
       }
     },
