@@ -4,8 +4,8 @@
 
 use super::install::{self, MarketplaceInstallSource, PreparedInstall};
 use super::marketplace_download::{
-    download_artifact, CancelToken, FetchLimits, FetchPolicy, HttpTransport, MAX_ARTIFACT_BYTES,
-    MAX_REDIRECT_HOPS,
+    download_artifact, CancelToken, FetchLimits, FetchPolicy, HttpTransport,
+    MAX_PLUGIN_ARCHIVE_BYTES, MAX_REDIRECT_HOPS,
 };
 use super::marketplace_index::{
     availability_of, Availability, IndexRefreshRequest, MarketplaceIndexStore, SourceKind,
@@ -684,7 +684,7 @@ impl MarketplaceCoordinator {
             &archive_url,
             &archive_sha256,
             FetchLimits {
-                max_bytes: MAX_ARTIFACT_BYTES,
+                max_bytes: MAX_PLUGIN_ARCHIVE_BYTES,
                 max_redirects: MAX_REDIRECT_HOPS,
             },
             self.policy,

@@ -10,6 +10,7 @@ use super::store::{self, DiscoveredPackage};
 pub(crate) use super::ScannedPackage;
 use super::{CatalogEntry, CatalogLanguage, CatalogRejection};
 use serde_json::{json, Value};
+use std::io::Read;
 use tauri::AppHandle;
 
 pub fn build_catalog(app: &AppHandle) -> Result<Vec<ScannedPackage>, String> {
@@ -245,10 +246,33 @@ fn string_list(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn read_manifest(root: &std::path::Path) -> Result<Value, String> {
-    let text = std::fs::read_to_string(root.join("plugin.json"))
+pub(super) fn read_manifest(root: &std::path::Path) -> Result<Value, String> {
+    let text = read_package_metadata(&root.join("plugin.json"), 4 * 1024 * 1024)
         .map_err(|error| format!("plugin.json could not be read: {error}"))?;
     serde_json::from_str(&text).map_err(|error| format!("plugin.json is not valid JSON: {error}"))
+}
+
+/// Metadata keeps its own memory budget even when package runtime files are large.
+pub(super) fn read_package_metadata(
+    path: &std::path::Path,
+    maximum: u64,
+) -> std::io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    if file.metadata()?.len() > maximum {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "package metadata exceeds its size limit",
+        ));
+    }
+    let mut text = String::new();
+    file.take(maximum + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > maximum {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "package metadata exceeds its size limit",
+        ));
+    }
+    Ok(text)
 }
 
 /// Executes one Core command through the shared JSON envelope. Command-level

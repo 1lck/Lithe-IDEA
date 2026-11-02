@@ -160,7 +160,7 @@ impl Drop for PendingFile {
 }
 
 /// Upper bounds for one controlled fetch. Production call sites use
-/// [`MAX_INDEX_JSON_BYTES`] for index documents and [`MAX_ARTIFACT_BYTES`]
+/// [`MAX_INDEX_JSON_BYTES`] for index documents and [`MAX_PLUGIN_ARCHIVE_BYTES`]
 /// for plugin archives; tests pass smaller budgets to exercise the boundary
 /// without moving real payloads.
 #[derive(Debug, Clone, Copy)]
@@ -173,9 +173,11 @@ pub struct FetchLimits {
 
 /// Index documents beyond this size are refused instead of parsed.
 pub const MAX_INDEX_JSON_BYTES: u64 = 8 * 1024 * 1024;
-/// Plugin archives beyond this size are refused; the same budget the disk
-/// install path enforces on decompressed content.
+/// Generator downloads retain their separate, smaller transfer budget.
 pub const MAX_ARTIFACT_BYTES: u64 = 128 * 1024 * 1024;
+/// Matches the macOS compressed package budget and disk ZIP admission. The
+/// installer separately bounds expanded bytes, individual files, and entries.
+pub const MAX_PLUGIN_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 /// Redirect hops beyond this count are refused.
 pub const MAX_REDIRECT_HOPS: usize = 5;
 

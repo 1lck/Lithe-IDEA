@@ -35,6 +35,10 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 - 安装记录 schema 2 是安装事务的一部分：`origin`、marketplace/disk provenance（全包内容摘要与批准程序的 canonical JSON）、上一版本的 provenance 都随版本发布一起写入；安装确认、staging 发布前、启动扫描、运行/测试计划入口与回滚都会重新校验完整文件集合和摘要（community 与 marketplace origin 都复检已批准摘要，签名只证明发布者、不豁免字节比对）。版本激活与记录提交是同一事务：记录先写入 temp、激活成功后才提交，提交失败恢复旧字节并保留旧记录，恢复失败如实报错。schema 1 旧记录没有 provenance，扫描直接隔离（`plugin.trust.provenanceMissing`）并要求重新安装，绝不凭 `enabled` 或清单摘要补造发布者身份和已批准字节。bundled 身份只能由可信资源发现器产生：installed 记录声明 `origin`/`previousOrigin=bundled` 一律隔离，`sameTeamAsHost` 在扫描、启动与回滚路径都校验真实资源根包含，记录声明与回滚候选同样拒绝。审批绑定 prepare 时的整包字节：prepare 冻结整包摘要、清单摘要与审查程序，confirm 与 staging 对同一审核身份校验，prepare 之后替换/新增/删除文件都被拒绝。磁盘渠道接受已验签的 `publisherPackage` 包（origin 保持真实 disk/community），声明 `sameTeamAsHost` 的磁盘包即使签名有效也拒绝。
 - 磁盘导入的私有快照、staging 重验、内容摘要复查与回滚语义照抄 macOS 侧规则（见声明式语言插件 Note 的磁盘安装节），Windows 不另造审查语义。
 
+安装预算按完整语言运行时确定：Windows 和 macOS 都限制压缩归档为 512 MiB、展开总量为 2 GiB、条目为 50,000；Windows 另限制单文件为 512 MiB。原先 16 MiB 单文件和 128 MiB 总量会拒绝固定 JDK 的模块镜像（约 134 MiB），完整 Java 候选无法进入审批。限制在磁盘与市场两条入口保持一致，目录复制和 ZIP 解压仍逐项计数、限制实际读取长度并在失败后释放快照；包摘要逐块读取，避免大文件一次驻留内存。项目生成器的下载仍使用独立的 128 MiB 预算。
+
+正确做法：普通插件与包含完整 JDK 的语言插件使用相同预算和验签、审批流程。不要按 Java ID 绕过限制或删除压缩/展开边界。代价是单次恶意输入最多可消耗更大的有界磁盘空间；每文件、总量、条目、路径、重解析点和实际字节校验必须同时保留。元数据另外限制内存读取：清单最多 4 MiB，签名文档最多 16 MiB，读取过程中变大的文件同样拒绝，不能继承运行时文件的更大预算。安装测试覆盖跨过旧上限的目录及 ZIP、精确摘要、元数据与归档超限拒绝、失败清理；完整 JDT 流程仍需目标平台产品验收。
+
 ### Windows Java 候选与来源覆盖
 
 Java 的内置策略仍要求 `sameTeamAsHost`，但 Windows 尚无资源封装验证器。EXE 或安装器的 Authenticode（文件签名）不会保护相邻资源目录，未签名 Java 即使在真实 bundled 根内也返回 `plugin.trust.hostSealRequired`；有效发布者签名仍需完整文件树和来源包含检查，坏签名不能被内置身份豁免。生产能力表不增加 `packageTrust`，只在 `cfg(test)` 作用域提供候选能力与公开测试密钥，正式签名完整包和真实 JDT 生命周期是开放前提。

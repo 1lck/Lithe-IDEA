@@ -17,6 +17,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -286,7 +287,15 @@ pub fn has_signature_file(package_root: &Path) -> bool {
 /// Reads and parses the signature document of a package root.
 pub fn read_signature_document(package_root: &Path) -> Result<SignatureDocument, TrustError> {
     let path = package_root.join(SIGNATURE_FILE_NAME);
-    let text = std::fs::read_to_string(&path).map_err(|_| TrustError::SignatureMissing)?;
+    // Preserve the former 16 MiB file ceiling for metadata, independently of
+    // the larger runtime-file budget. The reader also bounds a growing file.
+    let text = super::scan::read_package_metadata(&path, 16 * 1024 * 1024).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::InvalidData {
+            TrustError::SignatureInvalid(format!("unreadable document: {error}"))
+        } else {
+            TrustError::SignatureMissing
+        }
+    })?;
     serde_json::from_str(&text)
         .map_err(|error| TrustError::SignatureInvalid(format!("unreadable document: {error}")))
 }
@@ -638,10 +647,39 @@ fn walk_files(
         if relative == SIGNATURE_FILE_NAME {
             continue;
         }
-        let bytes = std::fs::read(&path).map_err(|error| {
+        let mut file = std::fs::File::open(&path).map_err(|error| {
             TrustError::SignatureInvalid(format!("{} is unreadable: {error}", path.display()))
         })?;
-        digests.insert(relative, hex(&Sha256::digest(&bytes)));
+        // Keep memory bounded for packaged runtimes such as JDK module images.
+        // Read one extra byte to detect growth instead of hashing an endless file.
+        let expected = file
+            .metadata()
+            .map_err(|error| {
+                TrustError::SignatureInvalid(format!("{} is unreadable: {error}", path.display()))
+            })?
+            .len();
+        let mut input = file.by_ref().take(expected.saturating_add(1));
+        let mut hasher = Sha256::new();
+        // This traversal is recursive; keep each frame small on Windows threads.
+        let mut buffer = vec![0u8; 64 * 1024];
+        let mut count = 0u64;
+        loop {
+            let length = input.read(&mut buffer).map_err(|error| {
+                TrustError::SignatureInvalid(format!("{} is unreadable: {error}", path.display()))
+            })?;
+            if length == 0 {
+                break;
+            }
+            hasher.update(&buffer[..length]);
+            count += length as u64;
+        }
+        if count != expected {
+            return Err(TrustError::SignatureInvalid(format!(
+                "{} changed while being hashed",
+                path.display()
+            )));
+        }
+        digests.insert(relative, hex(&hasher.finalize()));
     }
     Ok(())
 }

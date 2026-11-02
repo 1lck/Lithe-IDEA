@@ -21,11 +21,11 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-/// Maximum decompressed package size (16 MiB per file, 128 MiB total) and
-/// entry count; a hostile ZIP cannot exhaust the user's disk before review.
-const MAX_PACKAGE_FILE_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_PACKAGE_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
-const MAX_PACKAGE_ENTRIES: usize = 2_000;
+/// Bundled language runtimes include large module images. Match the macOS
+/// expanded-package and entry budgets while retaining an independent file cap.
+pub(super) const MAX_PACKAGE_FILE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_PACKAGE_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_PACKAGE_ENTRIES: usize = 50_000;
 /// Maximum snapshot lifetime is one review session; a session id ties prepare
 /// and confirm calls together so abandoned snapshots are cleaned up.
 const SNAPSHOT_PREFIX: &str = "lithe-plugin-disk-";
@@ -1354,10 +1354,16 @@ fn canonical_programs(programs: &[serde_json::Value]) -> Vec<String> {
 
 /// SHA-256 of the source archive, recorded with the disk provenance.
 fn archive_digest(source: &Path) -> Result<String, String> {
-    let mut file = std::fs::File::open(source)
+    let file = std::fs::File::open(source)
         .map_err(|error| format!("{} could not be opened: {error}", source.display()))?;
+    let expected = file.metadata().map_err(|error| error.to_string())?.len();
+    if expected > super::marketplace_download::MAX_PLUGIN_ARCHIVE_BYTES {
+        return Err("the archive exceeds the compressed size limit".to_string());
+    }
+    let mut file = file.take(expected + 1);
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
+    let mut count = 0u64;
     loop {
         let read = file
             .read(&mut buffer)
@@ -1366,14 +1372,16 @@ fn archive_digest(source: &Path) -> Result<String, String> {
             break;
         }
         hasher.update(&buffer[..read]);
+        count += read as u64;
+    }
+    if count != expected {
+        return Err("the archive changed while being hashed".to_string());
     }
     Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn read_package_manifest(package_root: &Path) -> Result<serde_json::Value, String> {
-    let text = std::fs::read_to_string(package_root.join("plugin.json"))
-        .map_err(|error| format!("the package has no readable plugin.json: {error}"))?;
-    serde_json::from_str(&text).map_err(|error| format!("plugin.json is not valid JSON: {error}"))
+    super::scan::read_manifest(package_root)
 }
 
 fn manifest_replay_digest(manifest: &serde_json::Value) -> String {
@@ -1463,6 +1471,11 @@ pub(crate) fn extract_zip_snapshot(source: &Path, snapshot: &Path) -> Result<(),
 fn extract_zip_snapshot_inner(source: &Path, snapshot: &Path) -> Result<(), String> {
     let file = std::fs::File::open(source)
         .map_err(|error| format!("{} could not be opened: {error}", source.display()))?;
+    if file.metadata().map_err(|error| error.to_string())?.len()
+        > super::marketplace_download::MAX_PLUGIN_ARCHIVE_BYTES
+    {
+        return Err("the archive exceeds the compressed size limit".to_string());
+    }
     let mut archive = zip::ZipArchive::new(file).map_err(|error| {
         format!(
             "{} is not a readable ZIP archive: {error}",
@@ -1642,7 +1655,10 @@ mod budget_tests {
     #[test]
     fn package_budget_enforces_total_bytes_and_entry_count_for_both_import_formats() {
         let mut bytes = PackageBudget::default();
-        for _ in 0..8 {
+        assert!(PackageBudget::default()
+            .add(MAX_PACKAGE_FILE_BYTES + 1)
+            .is_err());
+        for _ in 0..MAX_PACKAGE_TOTAL_BYTES / MAX_PACKAGE_FILE_BYTES {
             bytes
                 .add(MAX_PACKAGE_FILE_BYTES)
                 .expect("within total limit");

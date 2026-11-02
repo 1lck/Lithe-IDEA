@@ -7,6 +7,7 @@
 mod install_tests {
     use crate::plugin_host::install::{
         copy_directory_snapshot, extract_zip_snapshot, publish_installed_version,
+        MAX_PACKAGE_FILE_BYTES,
     };
     use crate::plugin_host::signature::{self, InstallOrigin};
     use crate::plugin_host::store::{self, DiskProvenance, InstallationRecord};
@@ -127,11 +128,98 @@ mod install_tests {
         let root = unique_temp_root("snapshot-budget");
         let package = package_directory(&root, "1.0.0");
         let oversized = std::fs::File::create(package.join("oversized.bin")).expect("file");
-        oversized.set_len(16 * 1024 * 1024 + 1).expect("size");
+        oversized.set_len(MAX_PACKAGE_FILE_BYTES + 1).expect("size");
         let snapshot = root.join("snapshot");
         assert!(copy_directory_snapshot(&package, &snapshot).is_err());
         assert!(!snapshot.exists(), "failed copy must release its snapshot");
         std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn runtime_sized_files_survive_directory_and_zip_snapshots_with_identical_digests() {
+        use sha2::{Digest, Sha256};
+        use std::io::Write;
+
+        let root = unique_temp_root("runtime-budget");
+        let package = package_directory(&root, "1.0.0");
+        // Valid deep package paths must not multiply the hash buffer's stack use.
+        let relative = format!("runtime/{}modules", "a/".repeat(40));
+        let runtime = package.join(&relative);
+        std::fs::create_dir_all(runtime.parent().unwrap()).expect("runtime directory");
+        let mut file = std::fs::File::create(&runtime).expect("runtime file");
+        let block = [0x5au8; 64 * 1024];
+        let mut expected = Sha256::new();
+        // Cross the old 16 MiB rejection and the streaming hash buffer boundary.
+        for _ in 0..256 {
+            file.write_all(&block).expect("runtime block");
+            expected.update(block);
+        }
+        file.write_all(b"tail").expect("runtime tail");
+        expected.update(b"tail");
+        drop(file);
+        let expected = format!("{:x}", expected.finalize());
+
+        let directory = root.join("directory-snapshot");
+        copy_directory_snapshot(&package, &directory).expect("large directory snapshot");
+        assert_eq!(
+            signature::file_digests(&directory).unwrap()[&relative],
+            expected
+        );
+
+        let zip_path = root.join("runtime.zip");
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for name in ["plugin.json", relative.as_str()] {
+            writer.start_file(name, options).expect("ZIP entry");
+            std::io::copy(
+                &mut std::fs::File::open(package.join(name)).unwrap(),
+                &mut writer,
+            )
+            .expect("ZIP bytes");
+        }
+        writer.finish().expect("ZIP finish");
+        let zip_snapshot = root.join("zip-snapshot");
+        extract_zip_snapshot(&zip_path, &zip_snapshot).expect("large ZIP snapshot");
+        assert_eq!(
+            signature::file_digests(&zip_snapshot).unwrap()[&relative],
+            expected
+        );
+    }
+
+    #[test]
+    fn zip_snapshot_rejects_oversized_archive_before_extraction() {
+        let root = unique_temp_root("archive-budget");
+        let zip_path = root.join("oversized.zip");
+        std::fs::File::create(&zip_path)
+            .unwrap()
+            .set_len(crate::plugin_host::marketplace_download::MAX_PLUGIN_ARCHIVE_BYTES + 1)
+            .expect("sparse oversized archive");
+        let snapshot = root.join("snapshot");
+        let error = extract_zip_snapshot(&zip_path, &snapshot).unwrap_err();
+        assert!(error.contains("compressed size limit"), "{error}");
+        assert!(!snapshot.exists());
+    }
+
+    #[test]
+    fn package_metadata_does_not_inherit_the_large_runtime_file_budget() {
+        let root = unique_temp_root("metadata-budget");
+        let package = package_directory(&root, "1.0.0");
+        std::fs::File::create(package.join("plugin.json"))
+            .unwrap()
+            .set_len(4 * 1024 * 1024 + 1)
+            .expect("oversized manifest");
+        assert!(crate::plugin_host::scan::read_manifest(&package)
+            .unwrap_err()
+            .contains("size limit"));
+        std::fs::File::create(package.join(signature::SIGNATURE_FILE_NAME))
+            .unwrap()
+            .set_len(16 * 1024 * 1024 + 1)
+            .expect("oversized signature document");
+        assert!(matches!(
+            signature::read_signature_document(&package),
+            Err(signature::TrustError::SignatureInvalid(_))
+        ));
     }
 
     #[test]
