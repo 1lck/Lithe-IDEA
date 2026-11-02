@@ -75,6 +75,23 @@
       "currentTitle": "Second"
     },
     {
+      "name": "consecutive title lines without a blank paragraph",
+      "source": "**First**\n**Second**\nBody stays with the second title.",
+      "sections": [
+        {
+          "title": "First",
+          "body": "",
+          "isTitleComplete": true
+        },
+        {
+          "title": "Second",
+          "body": "Body stays with the second title.",
+          "isTitleComplete": true
+        }
+      ],
+      "currentTitle": "Second"
+    },
+    {
       "name": "ordinary prose",
       "source": "Use **first****second** as labels.",
       "sections": [

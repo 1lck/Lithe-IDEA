@@ -309,8 +309,7 @@ struct AgentTranscriptView: View {
                                     responseStatus: conversation?.responseStatus ?? .preparing,
                                     startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
                                     hasStreamingThought: liveThoughtID != nil,
-                                    thoughtTitle: liveThoughtID != nil && messages.last?.usesThoughtSummaryHeadings == true
-                                        ? AgentThoughtPresentation.currentTitle(messages.last?.text ?? "") : nil,
+                                    thoughtTitle: liveThoughtID != nil ? AgentThoughtPresentation.currentTitle(in: messages) : nil,
                                     retryAttempt: conversation?.retryAttempt,
                                     retryMaxAttempts: conversation?.retryMaxAttempts,
                                     isQuiet: conversation?.isQuiet == true,

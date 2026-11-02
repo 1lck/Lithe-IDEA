@@ -23,7 +23,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/ui/hover-card";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/ui/popover";
 import { Spinner } from "@/ui/spinner";
 import MarkdownRenderer from "@/features/ai/components/messages/markdown-renderer";
-import { currentThoughtTitle, thoughtSections } from "../services/agent-thought-presentation";
+import { currentThoughtTitleInMessages, thoughtSections } from "../services/agent-thought-presentation";
 import { cn } from "@/utils/cn";
 import { classifyMarkdownLink } from "@/utils/markdown-links";
 import { tryWriteClipboardText } from "@/utils/clipboard";
@@ -708,7 +708,7 @@ function ThinkingRow({
       : t("agent.activity.retrying", { attempt: retry.attempt, max: retry.maxAttempts })
     : conversation?.quiet ? t("agent.activity.quiet")
     : conversation?.messages.some((message) => message.role === "tool" && (message.toolStatus === "pending" || message.toolStatus === "in_progress")) ? t("agent.activity.executing")
-    : last?.role === "reasoning" ? (last.usesThoughtSummaryHeadings ? currentThoughtTitle(last.text) : null) ?? t("agent.activity.reasoning")
+    : last?.role === "reasoning" ? currentThoughtTitleInMessages(conversation?.messages ?? []) ?? t("agent.activity.reasoning")
     : last?.role === "agent" ? t("agent.activity.responding")
     : t("agent.activity.waiting");
   return (
@@ -1168,7 +1168,7 @@ export function AgentTranscript({
   );
 }
 
-function SubagentTree({ children, parentID, onOpenLocation }: {
+export function SubagentTree({ children, parentID, onOpenLocation }: {
   children: AgentSubagent[];
   parentID: string;
   onOpenLocation: (location: AgentToolLocation) => void;
@@ -1178,7 +1178,9 @@ function SubagentTree({ children, parentID, onOpenLocation }: {
     <details key={child.id} className="border-l border-border pl-2 ui-text-sm">
       <summary className="cursor-pointer py-1"><span>{child.name}</span> · {t(`agent.subagents.${child.state}`)}</summary>
       {child.task.length === 0 ? null : <p className="mb-2 break-words text-subtle-foreground">{child.task}</p>}
-      <div className="flex flex-col gap-2">{child.messages.map((message) => <MessageRow key={message.id} message={message} sessionID={child.id} onOpenLocation={onOpenLocation} />)}</div>
+      <div className="flex flex-col gap-2">{child.messages.map((message) => <MessageRow key={message.id} message={message} sessionID={child.id}
+        isStreaming={child.state === "running" && message.id === child.messages[child.messages.length - 1]?.id}
+        onOpenLocation={onOpenLocation} />)}</div>
       {child.contextUsage === null ? null : <AgentContextUsageView usage={child.contextUsage} />}
       <AgentPlanPanel plan={child.plan} isResponding={child.state === "running"} />
       <SubagentTree children={children} parentID={child.id} onOpenLocation={onOpenLocation} />

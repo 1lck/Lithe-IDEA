@@ -54,6 +54,23 @@ struct AgentMarkdownTests {
     }
 
     @Test
+    func draftTitleInNewMessageKeepsOnlyTheCurrentReasoningActivityTitle() {
+        func thought(_ text: String) -> AgentConversationMessage {
+            var message = AgentConversationMessage(role: .thought, text: text)
+            message.usesThoughtSummaryHeadings = true
+            return message
+        }
+        let completed = thought("**Inspecting files**")
+        let draft = thought("**Checking tests")
+        #expect(AgentThoughtPresentation.currentTitle(in: [completed, draft]) == "Inspecting files")
+        #expect(AgentThoughtPresentation.currentTitle(in: [completed, thought("**Checking tests**")]) == "Checking tests")
+        for role in [AgentConversationMessage.Role.user, .agent, .tool, .thought] {
+            let boundary = AgentConversationMessage(role: role, text: "Other activity")
+            #expect(AgentThoughtPresentation.currentTitle(in: [completed, boundary, draft]) == nil)
+        }
+    }
+
+    @Test
     func blockSyntaxBecomesStructuredBlocks() throws {
         let source = """
         # Title

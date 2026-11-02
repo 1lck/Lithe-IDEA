@@ -288,8 +288,11 @@ Codex thought presentation separates activity headings from Markdown bodies, fol
 Codex's public reasoning presentation boundary rather than treating a summary as
 an ordinary reply. A paragraph-leading plain `**title**` and consecutive titles
 become ordered sections; headings use literal text and bodies use the existing
-Markdown renderer. In streaming output, an incomplete title can be shown as a
-draft section but cannot replace the last completed activity heading. Current
+Markdown renderer. Consecutive complete title lines need no intervening blank line.
+In streaming output, an incomplete title can be shown as a
+draft section but cannot replace the last completed activity heading, including
+across consecutive Codex reasoning message IDs. Any other message role or
+presentation kind ends that title fallback. Current
 headings appear only during reasoning; tools, permission, retry and stop status
 retain precedence. Repeats and the stored transcript remain intact. Ordinary
 reply rendering, code, links, entities and escapes are not rewritten. Live and

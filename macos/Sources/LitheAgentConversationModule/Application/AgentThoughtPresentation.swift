@@ -46,9 +46,10 @@ public enum AgentThoughtPresentation {
             // A heading starts a summary paragraph, or immediately follows another
             // heading. Bold within ordinary prose, code and links stays Markdown.
             let paragraphStart = index == 0 || lines[index - 1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let followsHeading = title != nil && complete && body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             var remainder = line
             let syntax = CharacterSet(charactersIn: "*`\\[]<>_&")
-            if !indented, !fenceLine, fence == nil, paragraphStart {
+            if !indented, !fenceLine, fence == nil, paragraphStart || followsHeading {
                 var candidate = trimmed
                 while candidate.hasPrefix("**") {
                     let afterOpen = String(candidate.dropFirst(2))
@@ -79,5 +80,15 @@ public enum AgentThoughtPresentation {
     /// An unfinished title must not replace the last completed activity heading.
     public static func currentTitle(_ source: String) -> String? {
         sections(source, isStreaming: true).last { $0.title != nil && $0.isTitleComplete }?.title
+    }
+
+    /// Separate ACP messages can still belong to one uninterrupted reasoning
+    /// activity. Keep its completed title while the next message is a draft.
+    public static func currentTitle(in messages: [AgentConversationMessage]) -> String? {
+        for message in messages.reversed() {
+            guard message.role == .thought, message.usesThoughtSummaryHeadings else { break }
+            if let title = currentTitle(message.text) { return title }
+        }
+        return nil
     }
 }

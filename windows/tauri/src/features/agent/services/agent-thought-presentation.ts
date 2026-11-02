@@ -1,3 +1,5 @@
+import type { AgentConversationMessage } from "../types/agent.types";
+
 export interface ThoughtSection {
   title: string | null;
   body: string;
@@ -28,7 +30,8 @@ export function thoughtSections(source: string, isStreaming = false, usesSummary
       else if (opening[0] === fence.marker && opening.length >= fence.count && trimmed.slice(opening.length).trim() === "") fence = undefined;
     }
     let remainder = line;
-    if (!indented && opening === undefined && fence === undefined && (index === 0 || lines[index - 1].trim() === "")) {
+    const followsHeading = title !== null && isTitleComplete && body.trim() === "";
+    if (!indented && opening === undefined && fence === undefined && (index === 0 || lines[index - 1].trim() === "" || followsHeading)) {
       let candidate = trimmed;
       while (candidate.startsWith("**")) {
         const afterOpen = candidate.slice(2);
@@ -56,6 +59,17 @@ export function currentThoughtTitle(source: string): string | null {
   const sections = thoughtSections(source, true);
   for (let index = sections.length - 1; index >= 0; index--) {
     if (sections[index].title !== null && sections[index].isTitleComplete) return sections[index].title;
+  }
+  return null;
+}
+
+/** Keep the previous completed title across consecutive reasoning message IDs. */
+export function currentThoughtTitleInMessages(messages: readonly AgentConversationMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role !== "reasoning" || message.usesThoughtSummaryHeadings !== true) break;
+    const title = currentThoughtTitle(message.text);
+    if (title !== null) return title;
   }
   return null;
 }

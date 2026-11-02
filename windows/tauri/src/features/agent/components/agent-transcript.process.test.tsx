@@ -5,7 +5,8 @@ import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useAgentSurfaceStore } from "../stores/agent-surface.store";
 import { createConversation, emptyToolDetails, type AgentConversationMessage } from "../types/agent.types";
-import { AgentTranscript } from "./agent-transcript";
+import type { AgentSubagent } from "../types/agent-observations";
+import { AgentTranscript, SubagentTree } from "./agent-transcript";
 
 const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousActEnvironment: boolean | undefined;
@@ -66,6 +67,26 @@ function header(): HTMLButtonElement {
 }
 
 describe("Agent turn process disclosure", () => {
+  test("a running child's unfinished title uses streaming presentation only for its latest message", () => {
+    const child: AgentSubagent = { id: "child", parentID: "first", name: "Child", task: "", state: "running",
+      messages: [{ ...message("r1", "reasoning", "**Inspecting files"), usesThoughtSummaryHeadings: true }],
+      plan: [], contextUsage: null };
+    useAgentSurfaceStore.getState().actions.setReasoningExpanded("child:r1", true);
+    const renderChild = () => act(() => root.render(<LocaleProvider language="en-US"><SubagentTree
+      children={[child]} parentID="first" onOpenLocation={() => {}} /></LocaleProvider>));
+    renderChild();
+    expect(container.querySelector('[data-agent-thought-title]')?.textContent).toBe("Inspecting files");
+    expect(container.textContent).not.toContain("**Inspecting files");
+    child.messages.push(message("a1", "agent", "Done"));
+    renderChild();
+    expect(container.querySelector('[data-agent-thought-title]')).toBeNull();
+    expect(container.textContent).toContain("**Inspecting files");
+    child.messages.pop();
+    child.state = "completed";
+    renderChild();
+    expect(container.querySelector('[data-agent-thought-title]')).toBeNull();
+  });
+
   test("summary titles render independently from body Markdown and drive only reasoning status", () => {
     const entries = [message("u1", "user", "Explain"),
       { ...message("r1", "reasoning", "**Defining groups****Choosing keys**\nRead the **README**."), usesThoughtSummaryHeadings: true }];
@@ -80,6 +101,20 @@ describe("Agent turn process disclosure", () => {
     expect(container.querySelector('[data-agent-response-status]')?.textContent).not.toBe("Choosing keys");
     render("", [...entries, message("a1", "agent", "**ordinary****reply**")], "first", false);
     expect(entries[1].text).toBe("**Defining groups****Choosing keys**\nRead the **README**.");
+  });
+
+  test("a new message's draft title keeps the preceding completed reasoning title", () => {
+    const entries = [message("u1", "user", "Explain"),
+      { ...message("r1", "reasoning", "**Inspecting files**"), usesThoughtSummaryHeadings: true },
+      { ...message("r2", "reasoning", "**Checking tests"), usesThoughtSummaryHeadings: true }];
+    render("", entries, "first", true);
+    expect(container.querySelector('[data-agent-response-status]')?.textContent).toBe("Inspecting files");
+    render("", [...entries.slice(0, 2), { ...entries[2], text: "**Checking tests**" }], "first", true);
+    expect(container.querySelector('[data-agent-response-status]')?.textContent).toBe("Checking tests");
+    for (const role of ["user", "agent", "tool", "reasoning"] as const) {
+      render("", [...entries.slice(0, 2), message("boundary", role, "Other activity"), entries[2]], "first", true);
+      expect(container.querySelector('[data-agent-response-status]')?.textContent).not.toBe("Inspecting files");
+    }
   });
 
   test("Claude thinking remains Markdown prose instead of becoming a Codex activity heading", () => {
