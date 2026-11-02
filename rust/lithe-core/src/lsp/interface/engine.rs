@@ -884,6 +884,9 @@ pub(super) struct LspEngine {
     next_session_id: AtomicU64,
     next_operation_id: AtomicU64,
     sessions: Mutex<BTreeMap<String, Arc<RuntimeSession>>>,
+    /// Failed wire starts have no returned identity. Retain their cleanup
+    /// responsibility here and retry disposal before another process starts.
+    failed_starts: Mutex<BTreeSet<String>>,
     launcher: Arc<dyn LspProcessLauncher>,
 }
 
@@ -1745,6 +1748,7 @@ impl LspEngine {
             next_session_id: AtomicU64::new(1),
             next_operation_id: AtomicU64::new(1),
             sessions: Mutex::new(BTreeMap::new()),
+            failed_starts: Mutex::new(BTreeSet::new()),
             launcher,
         }
     }
@@ -1757,7 +1761,49 @@ impl LspEngine {
     }
 
     fn start_server(&self, request: StartServerRequest) -> Result<StartServerResponse, CoreError> {
-        self.start_server_owned(request, |_| {})
+        let mut registered = None;
+        let result = self.start_server_owned(request, |id| registered = Some(id.to_owned()));
+        if result.is_err() {
+            if let Some(id) = registered {
+                if self.lock_sessions()?.contains_key(&id) {
+                    self.lock_failed_starts()?.insert(id);
+                    // Preserve the original startup error. Incomplete cleanup
+                    // stays owned; an explicit startup retry reaps it before
+                    // any replacement process can be launched.
+                    let _ = self.cleanup_failed_start();
+                }
+            }
+        }
+        result
+    }
+
+    fn lock_failed_starts(&self) -> Result<MutexGuard<'_, BTreeSet<String>>, CoreError> {
+        self.failed_starts.lock().map_err(|_| {
+            CoreError::new(
+                ErrorCode::Unknown,
+                "Failed startup cleanup lock was poisoned.",
+            )
+        })
+    }
+
+    fn cleanup_failed_start(&self) -> Result<(), CoreError> {
+        // Serialize cleanup attempts, but never hold the session registry or
+        // protocol-state lock across process disposal. Each retry owns at most
+        // one two-second disposal; a backlog must not make one call unbounded.
+        let mut failed = self.lock_failed_starts()?;
+        if let Some(id) = failed.first().cloned() {
+            if self.lock_sessions()?.contains_key(&id) {
+                self.destroy(&id)?;
+            }
+            failed.remove(&id);
+        }
+        if !failed.is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Previous language-server startup cleanup is still pending. Retry startup to continue cleanup.",
+            ));
+        }
+        Ok(())
     }
 
     fn start_server_owned(
@@ -1766,6 +1812,7 @@ impl LspEngine {
         registered: impl FnOnce(&str),
     ) -> Result<StartServerResponse, CoreError> {
         validate_start_request(&request)?;
+        self.cleanup_failed_start()?;
         if crate::remote::workspace::is_remote() && request.provider_id.eq_ignore_ascii_case("java")
         {
             return Err(CoreError::new(
@@ -2117,9 +2164,22 @@ impl LspEngine {
         self.lock_sessions()?
             .insert(session_id.clone(), session.clone());
         if let Err(error) = check_indexing() {
-            self.lock_sessions()?.remove(&session_id);
+            session.fail(
+                "indexingChanged",
+                "initialize",
+                "Indexing policy changed during language-server startup.",
+                Some(core_error_detail(&error)),
+                None,
+            );
             session.active.store(false, Ordering::Release);
             session.kill_process();
+            // No native identity has been published yet. Forget the session
+            // only after disposal proves that its process tree has exited.
+            if session.process.dispose(Duration::from_secs(2)).is_ok() {
+                self.lock_sessions()?.remove(&session_id);
+            } else {
+                registered(&session_id);
+            }
             return Err(error);
         }
         // Native owners learn the identity before initialize writes can fail.
@@ -2142,9 +2202,17 @@ impl LspEngine {
         }
 
         if let Err(error) = check_indexing() {
-            self.lock_sessions()?.remove(&session_id);
+            session.fail(
+                "indexingChanged",
+                "initialize",
+                "Indexing policy changed during language-server startup.",
+                Some(core_error_detail(&error)),
+                None,
+            );
             session.active.store(false, Ordering::Release);
             session.kill_process();
+            // The native owner already holds this identity. Keep it until
+            // destroy verifies disposal and returns a positive receipt.
             return Err(error);
         }
 
@@ -7524,6 +7592,78 @@ mod tests {
     }
 
     #[test]
+    fn wire_owner_retries_failed_initialize_disposal_before_another_start() {
+        let server = ScriptedServer::new();
+        server.break_input();
+        server.block_cleanup(true);
+        let engine = LspEngine::with_launcher(server.launcher());
+        assert!(engine.start_server(start_request(&server)).is_err());
+        let id = engine
+            .lock_failed_starts()
+            .unwrap()
+            .first()
+            .cloned()
+            .unwrap();
+        let session = engine.session(&id).unwrap();
+        let events = session.poll_events().unwrap();
+        assert!(events.iter().any(|event| {
+            event
+                .error
+                .as_ref()
+                .is_some_and(|error| error.code == "transportFailed")
+        }));
+        let next_id = engine.next_session_id.load(Ordering::Relaxed);
+        let error = engine.start_server(start_request(&server)).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+        let error = engine
+            .start_server_owned(start_request(&server), |_| {
+                panic!("cleanup must precede spawn")
+            })
+            .unwrap_err();
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+        assert_eq!(engine.next_session_id.load(Ordering::Relaxed), next_id);
+        assert_eq!(engine.lock_sessions().unwrap().len(), 1);
+        assert!(Arc::ptr_eq(&session, &engine.session(&id).unwrap()));
+        server.block_cleanup(false);
+        // The original transport remains broken, but retry first reclaims the
+        // old owner and also disposes the replacement's failed initialization.
+        assert!(engine.start_server(start_request(&server)).is_err());
+        assert_eq!(engine.next_session_id.load(Ordering::Relaxed), next_id + 1);
+        assert!(engine.lock_failed_starts().unwrap().is_empty());
+        assert!(engine.lock_sessions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn wire_owner_cleans_at_most_one_failed_start_before_rejecting_a_backlog() {
+        let server = ScriptedServer::new();
+        server.break_input();
+        let engine = LspEngine::with_launcher(server.launcher());
+        let mut ids = BTreeSet::new();
+        for _ in 0..2 {
+            let mut id = None;
+            assert!(engine
+                .start_server_owned(start_request(&server), |registered| {
+                    id = Some(registered.to_owned());
+                })
+                .is_err());
+            ids.insert(id.unwrap());
+        }
+        // Simulate two wire starts already in flight before either failure
+        // established the cleanup barrier.
+        assert_eq!(ids.len(), 2);
+        *engine.lock_failed_starts().unwrap() = ids;
+        let next_id = engine.next_session_id.load(Ordering::Relaxed);
+        let error = engine.start_server(start_request(&server)).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+        assert_eq!(engine.next_session_id.load(Ordering::Relaxed), next_id);
+        assert_eq!(engine.lock_sessions().unwrap().len(), 1);
+        assert_eq!(engine.lock_failed_starts().unwrap().len(), 1);
+        engine.cleanup_failed_start().unwrap();
+        assert!(engine.lock_sessions().unwrap().is_empty());
+        assert!(engine.lock_failed_starts().unwrap().is_empty());
+    }
+
+    #[test]
     fn invalid_initial_configuration_is_rejected_before_launch() {
         let server = ScriptedServer::new();
         let engine = LspEngine::with_launcher(server.launcher());
@@ -9949,7 +10089,16 @@ mod tests {
                 );
             }
         }
-        for initially_configured in [false, true] {
+        for (initially_configured, cleanup_blocked, native_owner) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, false, true),
+            (true, false, true),
+            (false, true, true),
+            (true, true, true),
+        ] {
             let workspace = TemporaryMavenWorkspace::recursive(&format!(
                 "indexing-startup-retired-{initially_configured}"
             ));
@@ -9967,6 +10116,7 @@ mod tests {
                 process: Arc::new(Mutex::new(None)),
             };
             let server = ScriptedServer::new();
+            server.block_cleanup(cleanup_blocked);
             let engine = LspEngine::with_launcher(Arc::new(RetireOnLaunch {
                 inner: server.launcher(),
                 root: root.clone(),
@@ -9977,9 +10127,42 @@ mod tests {
             request.provider_id = "python".into();
             request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
             request.working_directory = root.to_string_lossy().into_owned();
-            match engine.start_server(request) {
-                Err(error) => assert!(matches!(error.code, ErrorCode::Cancelled)),
-                Ok(_) => panic!("an obsolete startup must not publish a session"),
+            let mut registered = None;
+            let result = if native_owner {
+                engine.start_server_owned(request, |id| registered = Some(id.to_owned()))
+            } else {
+                engine.start_server(request)
+            };
+            assert!(matches!(result.unwrap_err().code, ErrorCode::Cancelled));
+            if cleanup_blocked {
+                let id = if native_owner {
+                    registered.expect("incomplete disposal must reach the native owner")
+                } else {
+                    engine
+                        .lock_failed_starts()
+                        .unwrap()
+                        .first()
+                        .cloned()
+                        .expect("incomplete wire disposal retains its internal owner")
+                };
+                assert!(engine.destroy(&id).is_err());
+                assert!(engine.session(&id).is_ok());
+                server.block_cleanup(false);
+                if native_owner {
+                    engine
+                        .destroy(&id)
+                        .expect("native owner can retry verified disposal");
+                } else {
+                    engine
+                        .cleanup_failed_start()
+                        .expect("wire retry confirms disposal");
+                    assert!(engine.lock_failed_starts().unwrap().is_empty());
+                }
+            } else {
+                assert!(
+                    registered.is_none(),
+                    "disposed startup needs no native barrier"
+                );
             }
             assert!(engine.lock_sessions().unwrap().is_empty());
             assert!(
@@ -9987,6 +10170,35 @@ mod tests {
                 "the cancelled startup owns process termination"
             );
         }
+    }
+
+    #[test]
+    fn native_owner_retains_indexing_cancellation_after_registration() {
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-owned-startup");
+        let root = workspace.root.canonicalize().unwrap();
+        let mut policy = IndexingPolicyFixture::new(root.clone());
+        let server = ScriptedServer::new();
+        server.block_cleanup(true);
+        let engine = LspEngine::with_launcher(server.launcher());
+        let mut request = start_request(&server);
+        request.provider_id = "python".into();
+        request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+        request.working_directory = root.to_string_lossy().into_owned();
+        let mut registered = None;
+        let result = engine.start_server_owned(request, |id| {
+            registered = Some(id.to_owned());
+            // Revoke between the initial policy check and initialize write.
+            policy.exclude(&["reactor"]);
+        });
+        assert!(matches!(result.unwrap_err().code, ErrorCode::Cancelled));
+        let id = registered.expect("native owner received its session");
+        assert!(engine.destroy(&id).is_err());
+        assert!(engine.session(&id).is_ok());
+        server.block_cleanup(false);
+        engine
+            .destroy(&id)
+            .expect("native owner confirms process disposal");
+        assert!(engine.session(&id).is_err());
     }
 
     #[test]

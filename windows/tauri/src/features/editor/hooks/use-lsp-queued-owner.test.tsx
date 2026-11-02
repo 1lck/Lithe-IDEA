@@ -4,6 +4,7 @@ import { installHappyDom } from "@/test-utils/happy-dom";
 import * as native from "@/platform/tauri-core";
 import * as adapter from "@/platform/lsp-core-adapter";
 import * as launchResolver from "@/features/editor/lsp/resolve-editor-lsp-launch";
+import * as indexing from "@/features/file-explorer/stores/workspace-indexing";
 import * as deferredWork from "@/features/editor/lsp/deferred-lsp-work";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { resolveEditorLspSupport } from "@/features/editor/lsp/built-in-language-support";
@@ -64,6 +65,9 @@ test("a hidden workspace's in-flight flusher cannot borrow a newer same-path att
     repairLanguageServerPromises: new Map(),
   });
   const instance = spyOn(LspClient, "getInstance").mockReturnValue(client);
+  const configure = spyOn(indexing, "configureWorkspaceIndexing").mockImplementation(async (root) => ({
+    root, revision: 1, excludedDirectories: {}, gitIgnoreFailed: false,
+  }));
   const snapshot = spyOn(adapter, "getLspSessionSnapshot").mockReturnValue(null);
   const resolve = spyOn(launchResolver, "resolveEditorLspLaunch").mockResolvedValue({
     providerId: pluginId,
@@ -225,6 +229,7 @@ test("a hidden workspace's in-flight flusher cannot borrow a newer same-path att
     });
     setPluginActive(pluginId, false);
     instance.mockRestore();
+    configure.mockRestore();
     snapshot.mockRestore();
     resolve.mockRestore();
     invoke.mockRestore();

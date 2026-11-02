@@ -1712,6 +1712,10 @@ mod tests {
     fn fake_adapter_process_round_trips_stdio_with_bounded_cleanup() {
         // DAP is a byte stream. `more` is a text pager and may append or
         // normalize line endings, so it cannot stand in for a raw adapter.
+        // Cold Windows PowerShell startup can exceed a three-second phase
+        // deadline. Share one ten-second I/O deadline instead, leaving the
+        // existing two-second tree cleanup inside the runner's 15s watchdog.
+        let deadline = Instant::now() + Duration::from_secs(10);
         let mut command = Command::new("powershell.exe");
         command
             .args([
@@ -1753,14 +1757,14 @@ mod tests {
             let _ = wait_tx.send(child.wait());
         });
         let status = wait_rx
-            .recv_timeout(Duration::from_secs(3))
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .expect("fake adapter must exit within watchdog deadline")
             .expect("fake adapter wait should succeed");
         let echoed = output_rx
-            .recv_timeout(Duration::from_secs(3))
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .expect("stdout reader must finish within watchdog deadline");
         stderr_done_rx
-            .recv_timeout(Duration::from_secs(3))
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .expect("stderr reader must finish within watchdog deadline");
         tree.terminate(Duration::from_secs(2))
             .expect("fake adapter process tree must be empty");

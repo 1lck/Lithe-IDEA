@@ -238,7 +238,14 @@ export const useLspIntegration = ({
     const initializeLsp = async () => {
       if (owner.state.phase !== "starting" || documentOwnersRef.current.get(filePath) !== owner) return;
       try {
-        if (previousOwner?.state.phase === "stopping") await previousOwner.state.task;
+        // A policy change must withdraw the old working copy before a new
+        // eligibility check. Buffer/plugin replacements have distinct exact
+        // attachment IDs and can start while their old close drains.
+        if (previousOwner?.state.phase === "stopping" &&
+            previousOwner.indexingKey !== owner.indexingKey &&
+            workspaceScopesMatch(previousOwner.scope, scope)) {
+          await previousOwner.state.task;
+        }
         if (owner.state.phase !== "starting" || documentOwnersRef.current.get(filePath) !== owner) return;
         logger.debug("LspIntegration", `Starting LSP for ${filePath} in ${workspacePath}`);
         const attachment = await lspClient.startForFile(filePath, scope, "attach", owner.attachmentId);

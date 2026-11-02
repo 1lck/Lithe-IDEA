@@ -77,6 +77,16 @@ Windows 原生面板之前沿用一次性设置动作的调用路径，每次函
 它的历史原因追认为已唯一证实；同一镜像的成功复跑也不是这个证明。产品验收应保留 prepare、confirm、
 终态与取消的精确 operation ID 和快照身份，遇到真实失败立即记录，禁止由“没有错误”推定成功。
 
+目录索引策略也可能在语言服务器进程启动后撤销本次启动。尚未交给原生宿主的会话，必须先在
+Core 内确认进程树已退出才能从登记表删除；清理失败则交出失败会话的身份，让既有原生租约继续
+等待可重试的销毁。身份已经交出的会话即使启动随后取消，也必须保留到 `destroyServer` 成功。
+不要把“已发送终止”或“会话查不到了”当作正向清理凭据，否则插件替换可能早于进程树退出。
+
+普通 `lsp.startServer` 没有原生登记回调。失败后仍需清理的会话由 Core 内部 backlog 保留，
+首次尝试销毁后继续返回原启动错误；用户再次明确启动时，先重试一个会话的有界销毁，
+清理未完成就拒绝派生替代进程。清理成功才删除登记与 backlog。不得用空回调吞掉身份后
+放弃回收责任，也不另起没有可达重试责任的后台回收线程。
+
 设置保存与运行时生效是两个结果。磁盘保存成功而即时配置推送失败时，页面保留已回读的保存值，
 显示错误与显式重试入口。重试先读取设置及包身份，只有与保存凭据完全一致才重做生效动作；
 它不再次写盘。重试期间合并重复点击，页面退出或代次失效后不发布迟到结果。
@@ -107,6 +117,7 @@ reload receipt 与 operation ID 的加载结果，不能等待提示条自动消
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest windows/tauri/src-tauri/Cargo.toml --report .artifacts/test-stability/native-provider.json`：检查会话注册/进度隔离、动作后刷新、函数取消与其他构建等待器共存。
 - `build::tests::function_scope_readers_do_not_revoke_each_other` 与 `function_scope_keeps_refresh_suspension_reload_and_workspace_revocation` 覆盖读取竞争、真实失效及重载完成后旧 revision 不复活。
 - 同一 Rust 入口还覆盖设置动作的延迟关闭、其他会话终止事件隔离、关闭期限、事件已取走但销毁失败后的租约保留与重试。
+- Core 的 `indexing_startup_cancels_when_policy_changes_during_process_launch` 与 `native_owner_retains_indexing_cancellation_after_registration` 分别控制身份交出前后的策略撤销，验证清理失败保留身份、解除阻塞后才允许销毁。
 - Frontend 逐项计时入口运行 `declarative-settings-effect-retry.test.ts`，覆盖只重做副作用、重复点击合并、外部设置/包冲突及退出后的迟到结果隔离。共享模型取消测试等待真实初始化信号，不假定固定微任务次数能够完成动态模块加载。
 - Provider 回归覆盖即时配置后新审查的精确匹配，以及失败、其他窗口和已撤销会话不能改变身份。产品驱动在即时配置后立即执行树函数和设置动作，并核对仍是同一个语言进程。
 - 源码绑定 x64 镜像的连续受控原生工作流已通过13个阶段：即时配置后的旧摘要拒绝和显式 Retry、同一语言进程的模型重载、明确停用/启用后的新进程读取 restart 值，以及正常退出后的资源哈希不变。它使用 unsigned 受控协议对端，五项完整版本/人工视觉/外部包/其他架构边界仍跳过；不能据此开放生产能力或认证先保存 restart 再仅 reload 模型的组合。
