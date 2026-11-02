@@ -500,7 +500,11 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         snapshot = {"calls": [], "events": [], "errors": [], "dropped": 0}
         for key, wrong in (("generation", 3), ("operationId", "late-old"), ("pluginId", inputs.PLUGIN_ID), ("root", "old")):
             snapshot["events"] = [{**terminal, key: wrong}]
-            self.assertIsNone(build.terminal_events(snapshot, review))
+            if key == "operationId":
+                self.assertIsNone(build.terminal_events(snapshot, review))
+            else:
+                with self.assertRaisesRegex(AssertionError, "identity"):
+                    build.terminal_events(snapshot, review)
         for kind in ("failed", "failedToStart", "cancelled"):
             snapshot["events"] = [{**terminal, "terminal": {"kind": kind}}]
             with self.assertRaisesRegex(AssertionError, "expected native terminal"):
@@ -510,6 +514,29 @@ class JavaWorkflowHelperTests(unittest.TestCase):
         snapshot["events"].append({**review, "type": "chunk", "text": "late"})
         with self.assertRaisesRegex(AssertionError, "single expected"):
             build.terminal_events(snapshot, review)
+
+    def test_build_success_requires_exit_zero_and_one_ordered_terminal(self):
+        _, review = self.build_review()
+        terminal = {**review, "type": "terminal", "terminal": {"kind": "succeeded", "exitCode": 0}}
+        snapshot = {"calls": [], "events": [terminal], "errors": [], "dropped": 0}
+        for code in (None, 1, -1):
+            snapshot["events"] = [{**terminal, "terminal": {"kind": "succeeded", "exitCode": code}}]
+            with self.assertRaisesRegex(AssertionError, "expected native terminal"):
+                build.terminal_events(snapshot, review)
+        snapshot["events"] = [terminal, terminal]
+        with self.assertRaisesRegex(AssertionError, "single expected"):
+            build.terminal_events(snapshot, review)
+
+    def test_foreign_identity_on_same_operation_is_not_hidden_by_a_valid_terminal(self):
+        _, review = self.build_review()
+        terminal = {**review, "type": "terminal", "terminal": {"kind": "succeeded", "exitCode": 0}}
+        foreign = {**review, "type": "chunk", "workspaceRoot": str(self.root / "other"), "text": "foreign"}
+        snapshot = {"calls": [], "events": [foreign, terminal], "errors": [], "dropped": 0}
+        with self.assertRaisesRegex(AssertionError, "identity"):
+            build.terminal_events(snapshot, review)
+        # An unrelated old operation never completes or invalidates this one.
+        foreign["operationId"] = "unrelated-old-operation"
+        self.assertEqual(build.terminal_events(snapshot, review), [terminal])
 
     def test_model_result_cannot_cross_generated_workspace_or_generation(self):
         plan, _ = self.build_review()

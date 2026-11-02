@@ -25,3 +25,26 @@ test("missing preferences remain automatic and read failures never fall back to 
   const failure = new Error("read refused");
   await expect(selectedBuildRuntimeExecutables("C:/fixture", async () => { throw failure; })).rejects.toBe(failure);
 });
+
+test("project-scoped runtime paths use the same workspace root as Run and JDT", async () => {
+  const result = await selectedBuildRuntimeExecutables("C:/workspace with spaces", async () => ({
+    status: "ready", toolchain: { java: { homePath: ".lithe/toolchains/jdk" } },
+    localToolchains: { version: 1, toolchains: {
+      "opaque-runtime": { executable: "tools/runtime.exe" },
+    } },
+  }));
+  expect(result).toEqual({
+    java: "C:/workspace with spaces/.lithe/toolchains/jdk/bin/java.exe",
+    "opaque-runtime": "C:/workspace with spaces/tools/runtime.exe",
+  });
+});
+
+test("absolute UNC selections and malformed drive-relative selections retain native validation", async () => {
+  const result = await selectedBuildRuntimeExecutables("C:/workspace", async () => ({
+    status: "ready", localToolchains: { version: 1, toolchains: {
+      java: { executable: "\\\\server\\share\\jdk\\bin\\java.exe" },
+      "opaque-runtime": { executable: "D:unavailable.exe" },
+    } },
+  }));
+  expect(result).toEqual({ java: "//server/share/jdk/bin/java.exe", "opaque-runtime": "D:unavailable.exe" });
+});

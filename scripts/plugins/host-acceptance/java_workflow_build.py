@@ -63,16 +63,19 @@ def assert_selected_runtime(prepared, plan):
         raise AssertionError("build preparation did not freeze the project's selected JDK; integrate the build runtime wiring patch")
 
 
-def terminal_events(snapshot, review, expected="succeeded"):
+def terminal_events(snapshot, review, expected="succeeded", exit_code=0):
     assert_observer(snapshot)
     # Events from an older generation or operation can never complete this run.
     events = [event for event in snapshot.get("events", [])
-              if all(event.get(key) == review.get(key) for key in IDENTITY)]
+              if event.get("operationId") == review.get("operationId")]
+    if any(any(event.get(key) != review.get(key) for key in IDENTITY) for event in events):
+        raise AssertionError("build output changed its operation/workspace/plugin/generation identity")
     terminals = [event for event in events if event.get("type") == "terminal"]
     if not terminals:
         return None
     if (len(terminals) != 1 or events[-1] != terminals[0]
-            or terminals[0].get("terminal", {}).get("kind") != expected):
+            or terminals[0].get("terminal", {}).get("kind") != expected
+            or terminals[0].get("terminal", {}).get("exitCode") != exit_code):
         raise AssertionError("build output did not end in the single expected native terminal")
     return events
 
@@ -203,9 +206,13 @@ class JavaBuildWorkflow:
             if selection.get(key) != selected.get(key):
                 raise AssertionError("UI selected another upstream build task: " + key)
         executed = self.wait(lambda: approved_result(self.calls(), EXECUTION_COMMANDS[1], review, after), "approved upstream build task", 180)
-        if executed["value"].get("kind") != "succeeded":
+        if (executed["value"].get("kind") != "succeeded"
+                or executed["value"].get("exitCode") != 0):
             raise AssertionError("upstream build task failed/cancelled")
         events = self.wait(lambda: terminal_events(self.snapshot(), review), "ordered native build output", 30)
-        if not any(event.get("type") == "chunk" and event.get("text") for event in events):
-            raise AssertionError("actual build task emitted no output")
+        if events[-1]["terminal"] != executed["value"]:
+            raise AssertionError("build IPC and output stream reported different terminals")
+        if not any(event.get("type") == "chunk" and event.get("stream") == "stdout"
+                   and event.get("text") for event in events):
+            raise AssertionError("actual build task emitted no stdout")
         self.write("build-task", {"review": review, "prepare": prepared, "execute": executed, "events": events, "binding": self.binding()})
