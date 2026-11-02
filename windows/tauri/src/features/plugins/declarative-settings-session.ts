@@ -31,6 +31,7 @@ export interface SettingsSessionState {
   error: string | null;
   drafts: Record<string, unknown>;
   effect: SettingEffectResult | null;
+  effectRetry?: boolean;
 }
 
 /** One mounted plugin/workspace incarnation. Persistence always uses the
@@ -39,6 +40,11 @@ export interface SettingsSessionState {
 export class DeclarativeSettingsSession {
   private generation = 0;
   private disposed = false;
+  private pendingEffect?: {
+    setting: DeclarativePluginSetting;
+    snapshot: DeclarativeSettingSnapshot;
+    scope: "global" | "project";
+  };
   state: SettingsSessionState = {
     snapshot: null,
     busy: false,
@@ -81,7 +87,10 @@ export class DeclarativeSettingsSession {
     try {
       this.ports.assertCurrent();
       const snapshot = await this.ports.read();
-      if (this.current(generation)) this.emit({ snapshot, drafts: {}, effect: null });
+      if (this.current(generation)) {
+        this.pendingEffect = undefined;
+        this.emit({ snapshot, drafts: {}, effect: null, effectRetry: false });
+      }
     } catch (error) {
       if (!this.disposed && this.generation === generation) this.emit({ error: String(error) });
     } finally {
@@ -90,7 +99,7 @@ export class DeclarativeSettingsSession {
   }
   async save(setting: DeclarativePluginSetting, scope: "global" | "project", reset = false) {
     const snapshot = this.state.snapshot;
-    if (this.disposed || !snapshot || this.state.busy) return;
+    if (this.disposed || !snapshot || this.state.busy || this.pendingEffect) return;
     const key = `${scope}:${setting.id}`;
     if (!reset && !Object.prototype.hasOwnProperty.call(this.state.drafts, key)) return;
     if (
@@ -125,10 +134,40 @@ export class DeclarativeSettingsSession {
           delete drafts[draftKey];
       }
       this.emit({ snapshot: next, drafts });
-      const effect = await this.ports.effect(setting, next, scope);
-      if (this.current(generation)) this.emit({ effect });
+      this.pendingEffect = { setting, snapshot: next, scope };
+      await this.runEffect(generation);
     } catch (error) {
-      if (!this.disposed && this.generation === generation) this.emit({ error: String(error) });
+      if (!this.disposed && this.generation === generation)
+        this.emit({ error: String(error), effectRetry: !!this.pendingEffect });
+    } finally {
+      if (!this.disposed && this.generation === generation) this.emit({ busy: false });
+    }
+  }
+  private async runEffect(generation: number) {
+    const pending = this.pendingEffect!;
+    const effect = await this.ports.effect(pending.setting, pending.snapshot, pending.scope);
+    if (this.current(generation)) {
+      this.pendingEffect = undefined;
+      this.emit({ effect, effectRetry: false });
+    }
+  }
+  /** Persistence already succeeded. Retry only its effect after a fresh CAS
+   * read, so a retry never writes the value again or pushes obsolete settings. */
+  async retryEffect() {
+    if (this.disposed || this.state.busy || !this.pendingEffect) return;
+    const generation = this.generation;
+    this.emit({ busy: true, error: null });
+    try {
+      this.ports.assertCurrent();
+      const fresh = await this.ports.read();
+      if (!this.current(generation)) return;
+      const saved = this.pendingEffect.snapshot;
+      if (fresh.identity !== saved.identity || fresh.packageIdentity !== saved.packageIdentity)
+        throw new Error("plugin.settings.conflict");
+      await this.runEffect(generation);
+    } catch (error) {
+      if (!this.disposed && this.generation === generation)
+        this.emit({ error: String(error), effectRetry: true });
     } finally {
       if (!this.disposed && this.generation === generation) this.emit({ busy: false });
     }

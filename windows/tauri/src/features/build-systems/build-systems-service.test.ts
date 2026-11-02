@@ -991,6 +991,8 @@ describe("explicit command model operations", () => {
       .loadBuildModel(review.pluginId, "cargo", ".", async () => true, {}, { native })
       .catch((error: unknown) => error);
     try {
+      // Dynamic imports cross Bun's module-loader boundary. Observe the
+      // actual initialization instead of assuming a microtask count starts it.
       await started.promise;
       expect(sharedLanguageStart).toHaveBeenCalledTimes(1);
       const stopped = buildSystemsService

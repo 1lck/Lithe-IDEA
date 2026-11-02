@@ -66,6 +66,7 @@ pub(super) struct Status {
 }
 pub(super) struct Operation {
     pub(super) native: Mutex<Option<super::native::Call>>,
+    pub(super) provider: Mutex<Option<super::provider::Call>>,
     pub review: Review,
     pub(super) owner: Arc<WindowOwner>,
     pub(super) scope_revision: u64,
@@ -94,6 +95,7 @@ impl Operation {
     ) -> Self {
         Self {
             native: Mutex::new(None),
+            provider: Mutex::new(None),
             review,
             owner,
             scope_revision: 0,
@@ -339,9 +341,7 @@ async fn cleanup_inner(entry: &Arc<Operation>, budget: Duration) -> Reply<()> {
             continue;
         }
         if finished {
-            if let Some(call) = entry.native.lock().expect("native function call").as_mut() {
-                call.discard_provider_review();
-            }
+            entry.provider.lock().expect("function provider").take();
             entry.lease.lock().expect("function lease").take();
             return Ok(());
         }
@@ -407,8 +407,8 @@ fn launch_payload(entry: &Operation) -> Reply<Value> {
 }
 
 pub(super) async fn run(app: AppHandle, entry: Arc<Operation>) {
-    if entry.native.lock().expect("native function call").is_some() {
-        run_native(app, entry).await;
+    if entry.provider.lock().expect("function provider").is_some() {
+        run_provider(app, entry).await;
         return;
     }
     let worker = entry.clone();
@@ -472,11 +472,11 @@ pub(super) async fn run(app: AppHandle, entry: Arc<Operation>) {
     }
 }
 
-async fn run_native(app: AppHandle, entry: Arc<Operation>) {
+async fn run_provider(app: AppHandle, entry: Arc<Operation>) {
     // The invocation owns a cancellable borrow; the existing Provider registry
     // retains its process/lease through model use and workspace/plugin teardown.
     let result = tokio::time::timeout(Duration::from_secs(180), async {
-        let invocation = super::native::invoke_provider(&app, &entry);
+        let invocation = super::provider::invoke(&app, &entry);
         tokio::pin!(invocation);
         loop {
             let changed = entry.changed.notified();
@@ -512,9 +512,7 @@ async fn run_native(app: AppHandle, entry: Arc<Operation>) {
             }
         }
     }
-    if let Some(call) = entry.native.lock().expect("native function call").as_mut() {
-        call.discard_provider_review();
-    }
+    entry.provider.lock().expect("function provider").take();
     entry.lease.lock().expect("function lease").take();
     entry.changed.notify_waiters();
     entry.retire_clean();

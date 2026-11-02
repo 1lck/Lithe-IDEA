@@ -100,57 +100,12 @@ pub(super) struct Call {
     action: Option<String>,
     ui: Value,
     pub(super) params: Value,
-    provider: Option<ProviderReviewOwner>,
-}
-struct ProviderReviewOwner {
-    app: AppHandle,
-    review: super::super::provider::ProviderReview,
-}
-impl Drop for ProviderReviewOwner {
-    fn drop(&mut self) {
-        super::super::provider::discard_review(
-            &self.app,
-            &self.review.context.window,
-            self.review.token,
-        );
-    }
 }
 impl Call {
-    pub(super) fn discard_provider_review(&mut self) {
-        self.provider.take();
+    pub(super) fn context(&self) -> BuildModelContext {
+        self.binding.context.clone()
     }
 
-    pub(super) fn prepare_provider(
-        &mut self,
-        app: &AppHandle,
-        window: &WebviewWindow,
-        approved: &Review,
-    ) -> Reply<()> {
-        let context = &self.binding.context;
-        let review = super::super::provider::prepare(
-            app,
-            window,
-            approved.context.workspace_path.clone(),
-            context.generation,
-            context.plugin_id.clone(),
-            context.build_system_id.clone(),
-            context.root.clone(),
-            Default::default(),
-        )
-        .map_err(provider_error)?;
-        let owner = ProviderReviewOwner {
-            app: app.clone(),
-            review,
-        };
-        // Approval describes precisely the process that confirm may reuse/start.
-        if owner.review.program != approved.program
-            || owner.review.launch_plan != approved.launch_plan
-        {
-            return Err(Error::new("plugin.function.staleContext"));
-        }
-        self.provider = Some(owner);
-        Ok(())
-    }
     pub(super) fn selection(&self, manifest: &Value) -> Reply<(Value, String)> {
         let ui = declaration(manifest, &self.binding.tool_window)?;
         if ui != self.binding.ui {
@@ -259,7 +214,7 @@ pub async fn declarative_plugins_native_function_open(
                 .flatten()
                 .find(|system| system["id"] == build)
                 .ok_or_else(|| Error::new("plugin.function.providerUnavailable"))?;
-            if !system["provider"].is_object() || system["provider"]["languageServer"].is_string() {
+            if !system["provider"].is_object() {
                 return Err(Error::new("plugin.function.providerUnavailable"));
             }
             Ok((ui, snapshot))
@@ -323,7 +278,11 @@ pub async fn declarative_plugins_native_function_open(
     Ok(receipt)
 }
 
-fn unique_root<'a>(instances: &'a [Value], plugin: &str, system: &str) -> Result<&'a str, String> {
+pub(super) fn unique_root<'a>(
+    instances: &'a [Value],
+    plugin: &str,
+    system: &str,
+) -> Result<&'a str, String> {
     let mut rows = instances
         .iter()
         .filter(|row| row["pluginID"] == plugin && row["buildSystemID"] == system);
@@ -479,7 +438,6 @@ pub async fn declarative_plugins_native_function_prepare(
         action: request.action_id.clone(),
         ui,
         params,
-        provider: None,
     };
     let action = format!(
         "__native__:{}:{}",
@@ -499,7 +457,7 @@ pub async fn declarative_plugins_native_function_prepare(
     .await
 }
 
-fn provider_error(error: super::super::provider::ProviderError) -> Error {
+pub(super) fn provider_error(error: super::super::provider::ProviderError) -> Error {
     if error.code == "provider.requestFailed" {
         if let Ok(value) = serde_json::from_str(&error.detail) {
             return Error::core(&value);
@@ -514,44 +472,6 @@ fn provider_error(error: super::super::provider::ProviderError) -> Error {
         "provider.stopFailed" => "plugin.function.cleanupFailed",
         _ => "plugin.function.providerUnavailable",
     })
-}
-
-/// Uses the build Provider's retained process; closing an invocation must not
-/// destroy the model's owner or erase backend state before its refresh.
-pub(super) async fn invoke_provider(app: &AppHandle, entry: &Arc<Operation>) -> Reply<Value> {
-    let review = entry
-        .native
-        .lock()
-        .expect("native function call")
-        .as_ref()
-        .and_then(|call| call.provider.as_ref())
-        .map(|owner| owner.review.clone())
-        .ok_or_else(|| Error::new("plugin.function.providerUnavailable"))?;
-    let window = app
-        .get_webview_window(&entry.review.context.window)
-        .ok_or_else(|| Error::new("plugin.function.staleContext"))?;
-    let binding = super::super::provider::confirm(app, &window, review.token)
-        .await
-        .map_err(provider_error)?;
-    super::runtime::verify(app, entry).await?;
-    entry.status.lock().expect("function state").phase = Phase::Running;
-    let value = binding
-        .function_request(
-            app,
-            &window,
-            entry.review.context.operation_id.clone(),
-            entry.review.context.function_id.clone(),
-            entry.params(),
-            |value| {
-                if check_context(app, entry).is_ok() {
-                    entry.status.lock().expect("function state").progress = Some(value);
-                }
-            },
-        )
-        .await
-        .map_err(provider_error)?;
-    super::runtime::verify(app, entry).await?;
-    result(entry, value)
 }
 
 #[tauri::command]

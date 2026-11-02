@@ -542,6 +542,7 @@ fn transport(
         context,
         language,
         launch_plan,
+        configuration: Mutex::new(None),
         status: Mutex::new(Status {
             generation,
             ..Status::default()
@@ -620,8 +621,8 @@ pub(crate) async fn confirm(
                 .values()
                 .filter(|entry| {
                     entry.matches_shared(&context, language)
-                        && entry.launch_plan.as_ref()
-                            == serde_json::to_value(&prepared.resolved).ok().as_ref()
+                        && serde_json::to_value(&prepared.resolved)
+                            .is_ok_and(|resolved| entry.matches_launch(&resolved))
                 })
                 .cloned()
                 .collect();
@@ -1242,6 +1243,7 @@ pub(super) fn preflight(
             return Some(Ok(json!({})));
         }
     }
+    let mut configuration_owner = None;
     for transport in registry.transports.values() {
         if transport
             .status
@@ -1250,16 +1252,22 @@ pub(super) fn preflight(
             .session_id
             .as_deref()
             == Some(session)
-            && (transport.context.window != window
-                || transport.language.is_none()
-                || command == "lsp.buildRequest")
         {
-            return Some(Err(error(
-                "Provider request requires its native approved binding",
-            )));
+            if transport.context.window != window
+                || transport.language.is_none()
+                || command == "lsp.buildRequest"
+            {
+                return Some(Err(error(
+                    "Provider request requires its native approved binding",
+                )));
+            }
+            if command == "lsp.updateWorkspaceConfiguration" {
+                configuration_owner = Some(transport.clone());
+            }
         }
     }
-    None
+    drop(registry);
+    configuration_owner.map(|owner| owner.update_configuration(payload))
 }
 
 /// Mirrors an existing event consumer's response. It never drains a shared

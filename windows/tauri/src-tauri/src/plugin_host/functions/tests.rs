@@ -21,7 +21,7 @@ fn action_and_provider_are_selected_only_from_the_same_manifest() {
 }
 
 #[test]
-fn missing_ambiguous_and_editor_shared_sources_are_explicitly_unavailable() {
+fn missing_and_ambiguous_sources_are_rejected_and_shared_language_is_selected_explicitly() {
     let mut value = manifest();
     value["settingActions"][0]["page"] = json!({"buildSystemID":"missing"});
     assert_eq!(
@@ -38,10 +38,7 @@ fn missing_ambiguous_and_editor_shared_sources_are_explicitly_unavailable() {
     );
     value["settingActions"][0]["page"] = json!({"languageID":"fixture-language"});
     value["buildSystems"][0]["provider"] = json!({"languageServer":"fixture-language"});
-    assert!(
-        selection(&value, "refresh").is_err(),
-        "must not adopt or stop an editor's shared session"
-    );
+    assert_eq!(selection(&value, "refresh").unwrap().1, "fixture");
 }
 
 #[test]
@@ -63,10 +60,9 @@ fn shared_contract_scope_value_and_action_placement_stay_authoritative() {
         normalized["settingActions"][0]["function"],
         "dialyzer.rebuild"
     );
-    assert!(
-        selection(&normalized, "rebuildPlt").is_err(),
-        "shared language provider remains unavailable for isolated actions"
-    );
+    let (action, system) = selection(&normalized, "rebuildPlt").unwrap();
+    assert_eq!(action["function"], "dialyzer.rebuild");
+    assert_eq!(system, normalized["buildSystems"][0]["id"]);
 }
 
 #[test]

@@ -96,6 +96,9 @@ pub(super) struct Transport {
     /// event consumer remains the editor; the native Core bridge copies events.
     pub language: Option<String>,
     pub launch_plan: Option<Value>,
+    /// Successful live configuration overrides only this mutable part of the
+    /// verified launch. The lock serializes Core updates and their publication.
+    pub configuration: Mutex<Option<Value>>,
     pub status: Mutex<Status>,
     pub changed: Notify,
     pub stopping: tokio::sync::Mutex<()>,
@@ -118,6 +121,52 @@ impl Transport {
         self.matches_owner(context)
             && self.language.as_deref() == Some(language)
             && !self.status.lock().expect("provider session").revoked
+    }
+
+    pub fn matches_launch(&self, resolved: &Value) -> bool {
+        let Some(mut launch) = self.launch_plan.clone() else {
+            return false;
+        };
+        if let Some(configuration) = self
+            .configuration
+            .lock()
+            .expect("provider configuration")
+            .as_ref()
+        {
+            launch["workspaceConfiguration"] = configuration.clone();
+        }
+        launch == *resolved
+    }
+
+    pub fn update_configuration(&self, payload: &Value) -> Reply {
+        let mut configuration = self.configuration.lock().expect("provider configuration");
+        let current = || {
+            let status = self.status.lock().expect("provider session");
+            !status.revoked && status.session_id.as_deref() == payload["sessionId"].as_str()
+        };
+        if !current() {
+            return Err(ProviderError::new(
+                "provider.identityChanged",
+                "Language owner is no longer current",
+            ));
+        }
+        // Use the same Core operation as the editor. A failed write cannot
+        // authorize a new launch identity, and no registry lock crosses I/O.
+        let result = self
+            .core
+            .execute("lsp.updateWorkspaceConfiguration", payload.clone())?;
+        if !current() {
+            return Err(ProviderError::new(
+                "provider.identityChanged",
+                "Language owner changed during configuration update",
+            ));
+        }
+        *configuration = Some(if payload["configuration"].is_null() {
+            json!({})
+        } else {
+            payload["configuration"].clone()
+        });
+        Ok(result)
     }
 
     pub fn observe(&self, event: &Value) {

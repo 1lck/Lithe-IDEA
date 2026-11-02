@@ -1,7 +1,8 @@
 //! Consent-bound function actions. Core owns negotiation, JSON-RPC, references,
-//! progress and cancellation. Settings/web actions own isolated processes;
-//! native panels borrow the workspace Provider through its request guards.
+//! progress and cancellation. Dedicated settings/web actions own isolated
+//! processes; native panels and shared settings actions borrow the Provider.
 pub mod native;
+mod provider;
 mod runtime;
 #[cfg(test)]
 mod tests;
@@ -198,7 +199,8 @@ fn check_context(app: &AppHandle, operation: &Operation) -> Reply<()> {
         return Err(Error::new("plugin.function.staleContext"));
     }
     check_scope(app, operation)?;
-    native::check(app, operation)
+    native::check(app, operation)?;
+    provider::check(app, operation)
 }
 fn check_scope(app: &AppHandle, operation: &Operation) -> Reply<()> {
     if app
@@ -224,8 +226,8 @@ fn check_scope(app: &AppHandle, operation: &Operation) -> Reply<()> {
 }
 
 /// Only a declaration from the trusted normalized manifest selects the
-/// function and its provider. Language-shared providers stay unavailable:
-/// their language owner may be in use by an editor or build operation.
+/// function and its provider. Shared settings actions borrow the selected
+/// Provider; they never acquire an isolated editor process.
 fn selection(manifest: &Value, action_id: &str) -> Reply<(Value, String)> {
     if let Some(spec) = action_id.strip_prefix("__web__:") {
         let (build_system, function) = spec
@@ -265,7 +267,7 @@ fn selection(manifest: &Value, action_id: &str) -> Reply<(Value, String)> {
                 && language.is_none_or(|id| system["provider"]["languageServer"] == id)
         })
         .collect();
-    if providers.len() != 1 || providers[0]["provider"]["languageServer"].is_string() {
+    if providers.len() != 1 {
         return Err(Error::new("plugin.function.providerUnavailable"));
     }
     Ok((
@@ -402,7 +404,7 @@ async fn prepare_owned(
     workspace_path: String,
     expected_identity: String,
     operation_id: String,
-    mut native: Option<native::Call>,
+    native: Option<native::Call>,
 ) -> Reply<Review> {
     if operation_id.len() > 128
         || operation_id.is_empty()
@@ -454,7 +456,10 @@ async fn prepare_owned(
             return Err(Error::new("plugin.function.providerUnavailable"));
         }
         let plan = plan["plan"].clone();
-        let program = launch::resolve_launch_passive(&package, &build, &plan, &directory)
+        let launch_id = plan["buildProvider"]["languageServer"]
+            .as_str()
+            .unwrap_or(&build);
+        let program = launch::resolve_launch_passive(&package, launch_id, &plan, &directory)
             .map_err(|_| Error::new("plugin.function.providerUnavailable"))?;
         let review = Review {
             context: Context {
@@ -483,11 +488,22 @@ async fn prepare_owned(
             launch_plan: plan,
             program,
         };
-        if let Some(call) = &mut native {
-            call.prepare_provider(&app, &window, &review)?;
-        }
+        let provider = if native.is_some()
+            || review.launch_plan["buildProvider"]["languageServer"].is_string()
+        {
+            Some(provider::prepare(
+                &app,
+                &window,
+                &review,
+                &build,
+                native.as_ref().map(native::Call::context),
+            )?)
+        } else {
+            None
+        };
         let mut operation = Operation::new(review.clone(), directory, lease, owner);
         operation.scope_revision = scope_revision;
+        *operation.provider.lock().expect("function provider") = provider;
         let entry = Arc::new(operation);
         if let Some(call) = native {
             entry.set_params(call.params.clone());
@@ -602,6 +618,7 @@ pub async fn declarative_plugins_function_state(
     tauri::async_runtime::spawn_blocking(move || {
         check_scope(&app, &entry)?;
         native::check(&app, &entry)?;
+        provider::check(&app, &entry)?;
         if matches!(entry.phase(), Phase::Succeeded | Phase::Failed) {
             check_snapshot(&app, &entry)?;
         }

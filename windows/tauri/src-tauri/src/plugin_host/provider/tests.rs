@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 struct ScriptedCore {
     reject_disposal: AtomicBool,
+    reject_configuration: AtomicBool,
     calls: Mutex<Vec<String>>,
 }
 impl Core for ScriptedCore {
@@ -21,6 +22,14 @@ impl Core for ScriptedCore {
             return Err(ProviderError::new(
                 "provider.stopFailed",
                 "scripted descendant still alive",
+            ));
+        }
+        if command == "lsp.updateWorkspaceConfiguration"
+            && self.reject_configuration.load(Ordering::Acquire)
+        {
+            return Err(ProviderError::new(
+                "provider.requestFailed",
+                "scripted configuration write failed",
             ));
         }
         Ok(json!({}))
@@ -54,6 +63,7 @@ fn entry(core: Arc<ScriptedCore>) -> Arc<Transport> {
         context: context(),
         language: None,
         launch_plan: None,
+        configuration: Mutex::new(None),
         status: Mutex::new(Status {
             generation: 7,
             session_id: Some("session-1".into()),
@@ -347,6 +357,100 @@ fn shared_start_must_match_the_native_verified_language_launch() {
     let mut extra = payload.clone();
     extra["environment"]["UNAPPROVED"] = json!("value");
     assert!(!matches_language_launch(&approved, &extra));
+}
+
+#[test]
+fn shared_configuration_update_preserves_exact_process_identity_for_following_calls() {
+    let core = Arc::new(ScriptedCore::default());
+    let mut owner = entry(core);
+    let initial = json!({"pluginId":"fixture", "languageId":"lang", "serverPath":"/fixture/server",
+        "serverArgs":["--stdio"], "initializationOptions":{"mode":"safe"},
+        "workspaceConfiguration":{"message":"initial"}, "environment":{"TOOL":"/fixture/tool"}});
+    let transport = Arc::get_mut(&mut owner).unwrap();
+    transport.language = Some("lang".into());
+    transport.launch_plan = Some(initial.clone());
+    let owners = Inner::default();
+    owners.retain_for_test(owner.clone());
+    let mut updated = initial.clone();
+    updated["workspaceConfiguration"] = json!({"message":"updated"});
+    assert!(
+        !owner.matches_launch(&updated),
+        "the old host rejected calls after immediate settings"
+    );
+    let payload =
+        json!({"sessionId":"session-1", "configuration":updated["workspaceConfiguration"]});
+    assert!(preflight(
+        &owners,
+        "workspace-a",
+        "lsp.updateWorkspaceConfiguration",
+        &payload
+    )
+    .unwrap()
+    .is_ok());
+    assert!(owner.matches_launch(&updated));
+    assert!(!owner.matches_launch(&initial));
+    assert_eq!(
+        owner.launch_plan.as_ref(),
+        Some(&initial),
+        "immutable launch evidence stays intact"
+    );
+    for field in [
+        "pluginId",
+        "languageId",
+        "serverPath",
+        "serverArgs",
+        "initializationOptions",
+        "environment",
+    ] {
+        let mut foreign = updated.clone();
+        foreign[field] = json!("unapproved");
+        assert!(!owner.matches_launch(&foreign), "{field}");
+    }
+}
+
+#[test]
+fn failed_foreign_or_revoked_configuration_updates_never_change_shared_identity() {
+    let core = Arc::new(ScriptedCore::default());
+    let mut owner = entry(core.clone());
+    let initial = json!({"workspaceConfiguration":{"message":"initial"}});
+    let transport = Arc::get_mut(&mut owner).unwrap();
+    transport.language = Some("lang".into());
+    transport.launch_plan = Some(initial.clone());
+    let owners = Inner::default();
+    owners.retain_for_test(owner.clone());
+    let payload = json!({"sessionId":"session-1", "configuration":{"message":"updated"}});
+    assert!(preflight(
+        &owners,
+        "foreign",
+        "lsp.updateWorkspaceConfiguration",
+        &payload
+    )
+    .unwrap()
+    .is_err());
+    assert!(core.calls.lock().unwrap().is_empty());
+    core.reject_configuration.store(true, Ordering::Release);
+    assert!(preflight(
+        &owners,
+        "workspace-a",
+        "lsp.updateWorkspaceConfiguration",
+        &payload
+    )
+    .unwrap()
+    .is_err());
+    assert!(owner.matches_launch(&initial));
+    core.reject_configuration.store(false, Ordering::Release);
+    owner.revoke(ProviderError::new("provider.cancelled", "scope closed"));
+    let calls = core.calls.lock().unwrap().len();
+    assert!(preflight(
+        &owners,
+        "workspace-a",
+        "lsp.updateWorkspaceConfiguration",
+        &payload
+    )
+    .unwrap()
+    .is_err());
+    assert_eq!(core.calls.lock().unwrap().len(), calls);
+    assert!(owner.matches_launch(&initial));
 }
 
 #[test]

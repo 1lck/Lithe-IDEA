@@ -262,7 +262,6 @@ fn source_results_have_the_shared_core_node_rules_and_one_mib_budget() {
         },
         action: None,
         params: json!({}),
-        provider: None,
     };
     assert!(validate_result(&call, json!({"nodes":[{"id":"a","label":"Valid"}]})).is_ok());
     assert!(validate_result(

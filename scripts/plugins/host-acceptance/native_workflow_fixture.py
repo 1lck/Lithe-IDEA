@@ -21,7 +21,7 @@ DISPLAY_NAME = "Lithe Native Workflow Acceptance"
 REFERENCE = ROOT / "macos/Tests/Fixtures/native-ui-lab/plugin.json"
 BACKEND = Path(__file__).with_name("native-workflow-backend.mjs")
 TOOL = Path(__file__).with_name("fake-build-tool.mjs")
-REQUIRES = {"buildProviders": 1, "buildSystems": 1, "serverProcess": 1, "settings": 2, "ui": 3}
+REQUIRES = {"buildProviders": 1, "buildSystems": 1, "serverProcess": 1, "settings": 2, "ui": 3, "languages": 1, "languageServers": 2}
 
 
 def declaration(version: str) -> dict:
@@ -37,7 +37,8 @@ def declaration(version: str) -> dict:
                             "runtimeDependencies": [{"id": "node", "minimumVersion": "20.3.0"}],
                             "globalArguments": [".lithe-acceptance/fake-build-tool.mjs"]}
     system["provider"]["launch"]["entry"] = "backend/native-workflow-backend.mjs"
-    system["provider"]["arguments"] = ["--state-dir", "${workspaceStateDir}", "--fixture-version", version]
+    system["provider"]["arguments"] = ["--state-dir", "${workspaceStateDir}", "--fixture-version", version,
+        "--global-message", "${setting:globalMessage}", "--restart-message", "${setting:restartMessage}"]
     system["tasks"] = [{"id": "build", "displayName": "Build", "group": "build",
                         "scopes": ["workspace", "project", "target"],
                         "arguments": ["build", "${userArguments}"]}]
@@ -45,6 +46,9 @@ def declaration(version: str) -> dict:
         "arguments": ["test", {"value": "${test.suite}", "when": "suiteSelected"},
                       {"value": "${test.case}", "when": "caseSelected"}],
         "results": {"decoder": "junitXml", "reports": ["build/test-results/**/*.xml"]}}
+    system["diagnostics"] = {"decoder": "lineMatcher", "patterns": [{
+        "regex": r"^(.+\.rs):(\d+):(\d+): (error|warning): (.+)$",
+        "file": 1, "line": 2, "column": 3, "severity": 4, "message": 5}]}
     system["sync"] = {"watch": ["workflow.fixture"]}
     manifest["settings"] = [
         {"id": "globalMessage", "title": "Workflow global message", "type": "text", "pattern": ".*", "default": "global-default",
@@ -56,8 +60,22 @@ def declaration(version: str) -> dict:
         {"id": "restartMessage", "title": "Workflow restart message", "type": "text", "pattern": ".*", "default": "restart-default",
          "scope": "global", "effect": "restart", "page": {"buildSystemID": "workflow"}},
     ]
-    manifest["settingActions"] = [{"id": "inspect", "title": "Inspect workflow", "function": "buttons.inspect",
-                                  "confirm": True, "page": {"buildSystemID": "workflow"}}]
+    manifest["settingActions"] = [{"id": action, "title": title, "function": function,
+                                  "confirm": True, "page": {"buildSystemID": "workflow"}}
+        for action, title, function in (("inspect", "Inspect workflow", "buttons.inspect"),
+                                       ("withdraw", "Withdraw workflow rename", "buttons.withdraw"),
+                                       ("restore", "Restore workflow rename", "buttons.restore"))]
+    provider = system["provider"]
+    manifest["languages"] = [{"id": "workflow-language", "displayName": "Workflow language",
+                              "fileExtensions": ["workflow"]}]
+    manifest["languageServers"] = [{"languageID": "workflow-language", "launch": provider["launch"],
+                                    "arguments": provider["arguments"]}]
+    if version == "1.1.0":
+        manifest["languageServers"][0]["workspaceConfiguration"] = {"workflow": {"message": "${setting:immediateMessage}"}}
+        system["provider"] = {"languageServer": "workflow-language", "executesProjectCode": True, "mayUseNetwork": False}
+        manifest["settings"].append({"id": "immediateMessage", "title": "Workflow immediate message",
+            "type": "text", "pattern": ".*", "default": "immediate-default", "scope": "project",
+            "effect": "immediate", "page": {"buildSystemID": "workflow"}})
     windows = manifest["ui"]["toolWindows"]
     commands = []
     for index, window in enumerate(windows):
@@ -68,7 +86,7 @@ def declaration(version: str) -> dict:
         commands.append({"id": f"{PLUGIN_ID}.open.{suffix}", "title": f"Open workflow {suffix}",
                          "toolWindowID": window["id"], "placements": ["commandPalette", "toolbar"]})
     manifest["ui"]["commands"] = commands
-    manifest["activationEvents"] = ["onBuildSystem:workflow", *["onView:" + w["id"] for w in windows],
+    manifest["activationEvents"] = ["onBuildSystem:workflow", "onLanguage:workflow-language", *["onView:" + w["id"] for w in windows],
                                     *["onCommand:" + command["id"] for command in commands]]
     return manifest
 
@@ -91,6 +109,8 @@ def generate(root: Path) -> dict:
         workspace = root / name
         (workspace / ".lithe-acceptance").mkdir(parents=True)
         (workspace / "nested").mkdir()
+        (workspace / "src").mkdir()
+        (workspace / "src/main.rs").write_text("fn main() {}\n", encoding="utf-8")
         (workspace / "workflow.fixture").write_text("controlled Provider input\n", encoding="utf-8")
         (workspace / "acceptance.build.txt").write_text("saved-before-build\n", encoding="utf-8")
         (workspace / ".lithe-acceptance/fake-build-tool.mjs").write_bytes(TOOL.read_bytes())
