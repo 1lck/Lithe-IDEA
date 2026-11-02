@@ -1787,7 +1787,7 @@ A plugin backend (a language server, build provider, or
 **plugin functions**: plugin-private actions with
 serializable params and results, which the host invokes on behalf of the same
 plugin, for example from that plugin's own window. Functions complement the
-typed domain protocols; they never replace them. Versions 1 and 2 of the protocol are
+typed domain protocols; they never replace them. Versions 1 to 3 of the protocol are
 implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`).
 macOS starts every build provider process as a session of the plugin that
 owns it and invokes its functions from that plugin's web pages (the
@@ -2377,28 +2377,28 @@ The official SDKs live in
 also releases them; they implement this contract and never define protocol.
 
 [`sdk/node`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/node/README.md) is the official SDK for backends
-started through a `node` runtime launch. It implements this protocol and
-`litheBuild` 1, so a plugin author writes only handlers. It is released
-(`sdk-node-v<version>`) as a `.tgz` with its SHA-256 for plugins to vendor
-into their package. It enforces the rules above on the backend side: `lithe/*` methods are never sent, stdout
+started through a `node` runtime launch. It implements this protocol with
+its host services, `litheBuild`, and VCS providers, so a plugin author writes
+only handlers. It is released (`sdk-node-v<version>`) as a `.tgz` with its
+SHA-256 for plugins to vendor into their package. It enforces the rules above on the backend side: `lithe/*` methods are never sent, stdout
 carries only protocol frames, `PluginError` is the only way to set a
 `pluginErrorCode`, processes started for a call end with it, and its state
 store refuses the plugin package.
 
 [`sdk/java`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/java/README.md) is the Java twin for backends
-started through a `java` runtime launch. It needs Java 8 or newer, has no
-runtime dependencies, and is released as a JAR with its SHA-256 for plugins
-to shade into their backend. It enforces the same rules with the same error
+started through a `java` runtime launch. It implements this protocol with
+its host services and `litheBuild`, but not VCS providers. It needs Java 8 or
+newer, has no runtime dependencies, and is released as a JAR with its SHA-256
+for plugins to shade into their backend. It enforces the same rules with the same error
 mapping, with one difference: on Java 8 it stops only a cancelled tool's
 direct child, and the host's process scope ends the rest.
 
 [`sdk/rust`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/rust/README.md) is the SDK for
 [plugin backends](#plugin-backend), which ship as packaged executables. It
-implements plugin-function protocol versions 1 and 2, including the
-`credentials` host service, but neither build nor VCS providers. It needs
-Rust 1.87 or newer, depends only on `serde_json`, and is released
-(`sdk-rust-v<version>`) as a `.crate` archive with its SHA-256, or used as a
-Git dependency pinned by the tag. It enforces the same rules: on Unix it
+implements this protocol with its host services, but neither build nor VCS
+providers. It needs Rust 1.87 or newer, depends only on `serde_json`, and is
+released (`sdk-rust-v<version>`) as a `.crate` archive with its SHA-256, or
+used as a Git dependency pinned by the tag. It enforces the same rules: on Unix it
 points stdout at stderr so only protocol frames reach the host, and a panic
 ends only its call, reported like any unexpected failure.
 
@@ -2406,9 +2406,11 @@ The Node.js and Java SDKs each have a sample build provider
 (`sdk/*/examples/sample-build`) that answers one end-to-end scenario driven
 through a real Core session; the Rust SDK's sample backend
 (`sdk/rust/examples/sample-backend`) answers a plugin backend scenario in which
-the test plays the host and serves the credential requests. That repository
-runs them against the Lithe commit its contract copy pins, and weekly against
-the latest `preview`, the branch Lithe changes merge into.
+the test plays the host: it serves the credential requests and the protocol 3
+workspace, file watch and window requests, delivers a command and a context
+change, and checks that cancellation reaches the host. That repository runs
+them against the Lithe commit its contract copy pins, and weekly against the
+latest `preview`, the branch Lithe changes merge into.
 
 No SDK adds a wire field: a backend written without one is equally valid.
 
