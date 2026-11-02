@@ -9,6 +9,7 @@ import { translatePluginHostFailure } from "@/features/plugins/plugin-native-err
 import { watchBuildConfiguration, type BuildConfigurationSourceVersion, type BuildConfigurationCheck } from "@/features/build/services/build-configuration-watch";
 import { documentWatchInputs } from "./document-watch-inputs";
 import type { CoreBuildProviderTarget } from "./lsp-core-adapter";
+import { prepareNativeBuildTool } from "./build-tool-preparation";
 
 export interface WindowsBuildCatalog {
   detection: {
@@ -34,8 +35,12 @@ export function createWindowsBuildProviderWorkspace(workspacePath: string): Wind
   return new WindowsBuildProviderWorkspace(workspacePath, {
     core: buildCore, providers: windowsBuildProviders, guard: pluginPlanGuard,
     translate: key => createTranslator(useSettingsStore.getState().settings.displayLanguage)(key),
-    tools: async (target, root, checkVersions, configurationID) => {
-      try { return await invoke("declarative_plugins_build_tool", { ...target, root, checkVersions, configurationId: configurationID }); }
+    tools: async (target, root, checkVersions, configurationID, signal) => {
+      try { return await prepareNativeBuildTool({
+        begin: () => invoke<string>("declarative_plugins_begin_tool_preparation"),
+        resolve: operationId => invoke("declarative_plugins_build_tool", { ...target, root, checkVersions, configurationId: configurationID, operationId }),
+        cancel: operationId => invoke<void>("declarative_plugins_cancel_tool_preparation", { operationId }),
+      }, signal); }
       catch (cause) {
         throw translatePluginHostFailure(cause, createTranslator(useSettingsStore.getState().settings.displayLanguage));
       }

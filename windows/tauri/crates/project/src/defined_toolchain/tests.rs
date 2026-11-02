@@ -36,6 +36,38 @@ fn provider_wire(params: &Value, home: &Path, source: &Path) -> Value {
 }
 
 #[test]
+fn a_cancelled_native_owner_stops_before_probing_or_returning_a_selection() {
+    let fixture = Fixture::new();
+    let home = fixture.install("selected");
+    fixture.pin(".", &home);
+    let operations = crate::toolchain_operations::Operations::default();
+    let id = operations.begin("window").unwrap();
+    let lease = operations.claim("window", &id).unwrap();
+    let selected = resolve_current(
+        fixture.request(),
+        |_, _, _, _| {
+            operations.cancel("window", &id);
+            Ok("compiler 21".into())
+        },
+        |_, _, _, _| panic!("A fixed choice needs no provider"),
+        || lease.current(),
+    );
+    assert_eq!(
+        selected.err().as_deref(),
+        Some("toolchain.native.cancelled")
+    );
+    assert!(
+        resolve_current(
+            fixture.request(),
+            |_, _, _, _| panic!("Cancelled before probe"),
+            |_, _, _, _| panic!("Cancelled before query"),
+            || lease.current()
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn provider_replies_share_native_facts_and_leave_a_stable_identity_across_operations() {
     let fixture = provider_fixture();
     let home = fixture.install("provider-selected");

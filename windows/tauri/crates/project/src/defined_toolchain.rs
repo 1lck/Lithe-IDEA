@@ -50,14 +50,16 @@ struct Observation {
     inode: Option<(u64, u64)>,
 }
 
-struct Capture {
+struct Capture<'a> {
     facts: BTreeMap<String, Observation>,
     entries: usize,
     deadline: Instant,
+    current: &'a dyn Fn() -> Result<(), String>,
 }
 
-impl Capture {
+impl Capture<'_> {
     fn check(&self) -> Result<(), String> {
+        (self.current)()?;
         if Instant::now() >= self.deadline {
             Err(LIMIT.into())
         } else {
@@ -173,6 +175,16 @@ pub fn resolve(
 /// replies may permit lower layers according to the definition's policy.
 pub fn resolve_with_queries(
     request: Request<'_>,
+    probe: impl FnMut(&Path, &[String], &BTreeMap<String, String>, Duration) -> Result<String, String>,
+    query: impl FnMut(&str, &str, &Value, Duration) -> Result<Value, String>,
+) -> Result<Option<Selection>, String> {
+    resolve_current(request, probe, query, || Ok(()))
+}
+
+/// The owning operation can revoke discovery between native reads and probes.
+/// The probe itself retains its local process deadline and cleanup owner.
+pub fn resolve_current(
+    request: Request<'_>,
     mut probe: impl FnMut(
         &Path,
         &[String],
@@ -180,11 +192,14 @@ pub fn resolve_with_queries(
         Duration,
     ) -> Result<String, String>,
     mut query: impl FnMut(&str, &str, &Value, Duration) -> Result<Value, String>,
+    current: impl Fn() -> Result<(), String>,
 ) -> Result<Option<Selection>, String> {
+    current()?;
     let mut capture = Capture {
         facts: BTreeMap::new(),
         entries: 0,
         deadline: Instant::now() + Duration::from_secs(20),
+        current: &current,
     };
     let workspace = request.workspace.canonicalize().map_err(|_| INVALID)?;
     let root = native_path(&workspace);

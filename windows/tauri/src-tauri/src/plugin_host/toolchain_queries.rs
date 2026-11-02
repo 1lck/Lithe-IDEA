@@ -34,12 +34,18 @@ pub(super) struct Queries<'a> {
     sessions: BTreeMap<String, Session>,
     state_roots: BTreeMap<String, PathBuf>,
     operation: String,
+    owner: &'a dyn Fn() -> Result<(), String>,
 }
 impl<'a> Queries<'a> {
-    pub fn new(app: &'a AppHandle, workspace: &'a Path) -> Self {
+    pub fn new(
+        app: &'a AppHandle,
+        workspace: &'a Path,
+        owner: &'a dyn Fn() -> Result<(), String>,
+    ) -> Self {
         Self {
             app,
             workspace,
+            owner,
             sessions: BTreeMap::new(),
             state_roots: BTreeMap::new(),
             operation: format!(
@@ -61,6 +67,7 @@ impl<'a> Queries<'a> {
         params: &Value,
         remaining: Duration,
     ) -> Result<Value, String> {
+        (self.owner)()?;
         if remaining.is_zero() {
             return Err(UNAVAILABLE.into());
         }
@@ -131,7 +138,10 @@ impl<'a> Queries<'a> {
                     "workingDirectory":workspace
                 }),
                 remaining,
-                || assert_current(self.app, plugin, deadline),
+                || {
+                    (self.owner)()?;
+                    assert_current(self.app, plugin, deadline)
+                },
             )?;
             self.sessions.insert(
                 plugin.into(),
@@ -148,13 +158,17 @@ impl<'a> Queries<'a> {
         session
             .backend
             .initialize(deadline.saturating_duration_since(Instant::now()), || {
+                (self.owner)()?;
                 assert_current(self.app, plugin, deadline)
             })?;
         let response = session.backend.query(
             provider,
             params,
             deadline.saturating_duration_since(Instant::now()),
-            || assert_current(self.app, plugin, deadline),
+            || {
+                (self.owner)()?;
+                assert_current(self.app, plugin, deadline)
+            },
         )?;
         if !super::trust::current(&package) {
             return Err(CHANGED.into());

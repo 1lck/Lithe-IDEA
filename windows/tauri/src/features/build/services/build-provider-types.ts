@@ -104,7 +104,7 @@ export interface BuildWork {
 export interface WorkspacePorts {
   core: typeof buildCore;
   providers: Pick<typeof windowsBuildProviders, "send" | "stop">;
-  tools: (target: CoreBuildProviderTarget, root: string, checkVersions: boolean, configurationID?: string) => Promise<BuildToolContext>;
+  tools: (target: CoreBuildProviderTarget, root: string, checkVersions: boolean, configurationID?: string, signal?: AbortSignal) => Promise<BuildToolContext>;
   guard: typeof pluginPlanGuard;
   translate: (key: string) => string;
   configurationCheck?: (target: CoreBuildProviderTarget, sources: BuildConfigurationSourceVersion[]) => Promise<BuildConfigurationCheck>;

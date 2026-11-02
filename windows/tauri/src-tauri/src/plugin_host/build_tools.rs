@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Window};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +31,8 @@ pub struct BuildToolContext {
 #[tauri::command]
 pub async fn declarative_plugins_build_tool(
     app: AppHandle,
+    window: Window,
+    operation_id: String,
     plugin_id: String,
     build_system_id: String,
     workspace_path: String,
@@ -38,7 +40,16 @@ pub async fn declarative_plugins_build_tool(
     check_versions: bool,
     configuration_id: Option<String>,
 ) -> Result<BuildToolContext, String> {
+    let operation = super::toolchain_preparation::claim(&app, &window, &operation_id)?;
     crate::blocking::run_blocking(move || {
+        let current = || {
+            operation.current()?;
+            if app.get_webview_window(window.label()).is_none() {
+                return Err("toolchain.native.cancelled".into());
+            }
+            Ok(())
+        };
+        current()?;
         let _lease = app.state::<LifecycleState>().acquire(&plugin_id)?;
         let package = launch::package_by_id(&app, &plugin_id).ok_or("Build plugin is unavailable")?;
         // Core combines canonical reactor choices and explicit Run overrides.
@@ -60,7 +71,7 @@ pub async fn declarative_plugins_build_tool(
         let user_home = app.path().home_dir().map_err(|_| "toolchain.native.unavailable")?;
         let defined_context = DefinitionContext { registry:&tool_registry, normalized:&normalized_tools,
             inherited:&inherited, user_home:&user_home, state:&workspace_state, explicit:check_versions,
-            selections:&choices["definedTools"] };
+            selections:&choices["definedTools"], current:&current };
         let referenced: std::collections::HashSet<_> = invocation["executables"].as_array().into_iter().flatten()
             .chain(invocation["runtimeDependencies"].as_array().into_iter().flatten()
                 .flat_map(|dependency| dependency["executables"].as_array().into_iter().flatten()))
@@ -73,9 +84,10 @@ pub async fn declarative_plugins_build_tool(
             if let Some((_, value)) = inherited.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)) { forwarded.insert(name.into(),value.clone()); }
         }
         let mut resolver = Resolver { workspace: &workspace, root: &root, choices: &choices["toolchain"], runtimes: serde_json::from_value(choices["toolchain"]["runtimeExecutablePaths"].clone()).map_err(|error| format!("Invalid saved runtime paths: {error}"))?, environment: forwarded, project_code:false, definitions: BTreeMap::new() };
-        let mut queries = super::toolchain_queries::Queries::new(&app, &workspace);
+        let mut queries = super::toolchain_queries::Queries::new(&app, &workspace, &current);
         let result = (|| {
         for dependency in invocation["runtimeDependencies"].as_array().into_iter().flatten() {
+            current()?;
             let id = dependency["id"].as_str().ok_or("Build runtime has no ID")?;
             let fallback;
             let candidates = if dependency["executables"].as_array().is_none_or(Vec::is_empty) {
@@ -87,6 +99,7 @@ pub async fn declarative_plugins_build_tool(
             resolver.add_runtime(id, selected)?;
         }
         resolver.prepare_definitions(&invocation["executables"], invocation, &defined_context, &mut queries)?;
+        current()?;
         let selected = resolver.select_checked(&invocation["executables"], |selected| check_version(&package.manifest, &build_system_id, None, invocation, selected, &workspace_state, check_versions))?;
         let environment = selected.environment;
         let native_inputs: BTreeMap<_,_> = resolver.definitions.iter().filter_map(|(id, selected)|
@@ -98,6 +111,7 @@ pub async fn declarative_plugins_build_tool(
             tool: json!({"executable":selected.path}), executes_project_code:selected.project_code })
         })();
         queries.close()?;
+        current()?;
         result
     }).await
 }
@@ -121,6 +135,7 @@ struct Resolver<'a> {
 }
 
 struct DefinitionContext<'a> {
+    current: &'a dyn Fn() -> Result<(), String>,
     registry: &'a Value,
     normalized: &'a Value,
     inherited: &'a HashMap<String, String>,
@@ -166,7 +181,7 @@ impl Resolver<'_> {
                 environment.retain(|old, _| !old.eq_ignore_ascii_case(key));
                 environment.insert(key.clone(), value.clone());
             }
-            let selected = lithe_project::defined_toolchain::resolve_with_queries(
+            let selected = lithe_project::defined_toolchain::resolve_current(
                 lithe_project::defined_toolchain::Request {
                     registry: context.registry,
                     workspace: self.workspace,
@@ -197,6 +212,7 @@ impl Resolver<'_> {
                     ))
                 },
                 |plugin, provider, params, remaining| queries.query(plugin, provider, params, remaining),
+                || (context.current)(),
             )?
             .ok_or("toolchain.native.unavailable")?;
             self.definitions.insert(

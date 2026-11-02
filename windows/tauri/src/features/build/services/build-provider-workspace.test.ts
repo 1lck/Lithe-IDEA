@@ -25,6 +25,7 @@ function fixture() {
   type Request = Parameters<Ports["providers"]["send"]>[1];
   const coreCalls: Array<{ command: string; request: Record<string, unknown> }> = [];
   const sent: Request[] = [], stopped: string[] = [], fileCalls: string[] = [];
+  const toolSignals: AbortSignal[] = [];
   let tools = structuredClone(context), revision = 0, syncFingerprint = "unchanged";
   let toolGate: Promise<BuildToolContext> | undefined, coreGate: { command: string; promise: Promise<unknown> } | undefined;
   let providerGate: Promise<unknown> | undefined, stopFailure = false;
@@ -58,7 +59,10 @@ function fixture() {
   }) as typeof buildCore;
   const workspace = new WindowsBuildProviderWorkspace("C:/work", {
     core, translate: createTranslator("en-US"),
-    tools: async () => { entered.tool.resolve(); return await toolGate ?? tools; },
+    tools: async (_target, _root, _checkVersions, _configurationID, signal) => {
+      if (signal) toolSignals.push(signal);
+      entered.tool.resolve(); return await toolGate ?? tools;
+    },
     guard: () => { const generation = revision; return () => { if (revision !== generation) throw new Error("plugin replaced"); }; },
     providers: {
       send: async <T>(_target: unknown, request: Request) => {
@@ -87,7 +91,7 @@ function fixture() {
       return { recheck: () => { state.rechecks++; if (!nativeCurrent) changed(); }, dispose: async () => { watchClosing.resolve(); await watchCloseGate; state.closed = true; } };
     },
   });
-  return { workspace, coreCalls, sent, stopped, entered, fileCalls, watches,
+  return { workspace, coreCalls, sent, stopped, entered, fileCalls, watches, toolSignals,
     watchClosing: watchClosing.promise, holdWatchClose: (gate: Promise<void>) => { watchCloseGate = gate; },
     sourceCurrent: (current: boolean) => { nativeCurrent = current; },
     fingerprint: (value: string) => { syncFingerprint = value; },
@@ -686,6 +690,7 @@ describe("Windows Build Provider workspace operations", () => {
     try {
       await f.entered.tool.promise;
       expect(f.workspace.cancel(operation.operationID)).toBe(true);
+      expect(f.toolSignals[0]?.aborted).toBe(true);
       expect(await completed).toBe("cancelled");
       const disposed = f.workspace.dispose();
       gate.resolve(context); await disposed;

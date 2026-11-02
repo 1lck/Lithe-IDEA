@@ -206,7 +206,7 @@ export class WindowsBuildProviderWorkspace {
     };
     const scope = new WindowsBuildProviderWorkspace(this.workspacePath, { ...this.ports,
       guard: () => { const guard = this.ports.guard(); return plugin => { current(); guard(plugin); }; },
-      tools: (target, root, checkVersions) => this.ports.tools(target, root, checkVersions, configurationID),
+      tools: (target, root, checkVersions, _configurationID, signal) => this.ports.tools(target, root, checkVersions, configurationID, signal),
       providers: { send: (target, request) => this.ports.providers.send(target, request), stop: async () => {} },
     });
     this.runScopes.set(scope, key);
@@ -425,7 +425,7 @@ export class WindowsBuildProviderWorkspace {
       operation.current();
       const selected = operation.record.instance;
       const target = { workspacePath: this.workspacePath, pluginId: selected.pluginID, buildSystemId: selected.buildSystemID };
-      const tool = await operation.native(this.ports.tools(target, selected.root, false));
+      const tool = await operation.native(this.ports.tools(target, selected.root, false, undefined, operation.signal));
       operation.current();
       if (fingerprint(tool) !== operation.context) { this.invalidate(selected); throw this.revoked(); }
       const sync = await operation.decode<{ sync: { fingerprint: string } }>("build.syncFingerprint", { projects: model.projects.map(project => project.path) });
@@ -521,7 +521,7 @@ export class WindowsBuildProviderWorkspace {
         current();
         const model = this.model(snapshot);
         if (needsModel && (!model || model.truncated)) throw new Error(this.message("incompleteModel"));
-        const context = await this.owned(this.ports.tools(target, snapshot.root, checkVersions), controller.signal);
+        const context = await this.owned(this.ports.tools(target, snapshot.root, checkVersions, undefined, controller.signal), controller.signal);
         current();
         if (context.manifest.id !== snapshot.pluginID) throw new Error(this.message("wrongPlugin"));
         const contextIdentity = fingerprint(context);

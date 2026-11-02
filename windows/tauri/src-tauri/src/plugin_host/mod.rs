@@ -22,6 +22,7 @@ pub mod settings;
 pub mod store;
 mod trust;
 mod toolchain_queries;
+pub mod toolchain_preparation;
 #[cfg(test)]
 mod tests;
 pub mod web;

@@ -188,3 +188,21 @@ fn real_core_backend_revocation_prevents_new_requests_and_still_closes() {
     session.close().unwrap();
     assert!(!fixture.messages().contains("toolchains/query"));
 }
+
+#[test]
+fn real_core_backend_revocation_after_dispatch_stops_the_wait_and_reaps_the_process() {
+    let Some(fixture) = Fixture::new("hang") else {
+        return;
+    };
+    let mut session = start(&fixture);
+    let reply = session.query("fixture", &params(), Duration::from_secs(2), || {
+        if fixture.messages().contains("toolchains/query") {
+            Err("revoked".into())
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(reply, Err("revoked".into()));
+    session.close().unwrap();
+    assert!(fixture.messages().contains("shutdown"));
+}
